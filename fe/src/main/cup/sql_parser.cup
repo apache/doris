@@ -615,6 +615,11 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
+    | KW_ALTER KW_VIEW table_name:tbl
+    opt_col_with_comment_list:columns KW_AS query_stmt:view_def
+    {:
+        RESULT = new AlterViewStmt(tbl, columns, view_def);
+    :}
     | KW_ALTER KW_SYSTEM alter_system_clause:clause
     {:
         RESULT = new AlterSystemStmt(clause);

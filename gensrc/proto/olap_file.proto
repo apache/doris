@@ -72,6 +72,13 @@ enum RowsetStatePB {
     VISIBLE = 2; // 表示rowset 已经对用户可见
 }
 
+// indicate whether date between segments of a rowset is overlappinng
+enum SegmentsOverlapPB {
+    OVERLAP_UNKNOWN = 0;    // this enum is added since Doris v0.11, so previous rowset's segment is unknown
+    OVERLAPPING = 1;
+    NONOVERLAPPING = 2;
+}
+
 message RowsetMetaPB {
     required int64 rowset_id = 1;
     optional int64 partition_id = 2;
@@ -114,6 +121,8 @@ message RowsetMetaPB {
     optional string rowset_id_v2 = 23;
     // spare field id for future use
     optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
+    // to indicate whether the data between the segments overlap
+    optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
 }
 
 message AlphaRowsetExtraMetaPB {

@@ -43,6 +43,7 @@ import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.master.Checkpoint;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ClusterInfo;
@@ -221,6 +222,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_RENAME_PARTITION: {
                 data = new TableInfo();
                 ((TableInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_VIEW_DEF: {
+                data = AlterViewInfo.read(in);
                 isRead = true;
                 break;
             }

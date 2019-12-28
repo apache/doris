@@ -88,5 +88,33 @@ Status PageCompressor::compress(const std::vector<Slice>& raw_data,
     return Status::OK();
 }
 
+Status PageCompressor::compress(const std::vector<Slice>& raw_data,
+                                OwnedSlice* compressed_data, bool* compressed) {
+    size_t uncompressed_bytes = Slice::compute_total_size(raw_data);
+    size_t max_compressed_bytes = _codec->max_compressed_len(uncompressed_bytes);
+    _buf.resize(max_compressed_bytes + 4);
+    Slice compression_buffer(_buf.data(), max_compressed_bytes);
+    RETURN_IF_ERROR(_codec->compress(raw_data, &compression_buffer));
+
+    double space_saving = 1.0 - (double)compression_buffer.size / uncompressed_bytes;
+    if (compression_buffer.size >= uncompressed_bytes || // use integer to make definite
+            space_saving < _min_space_saving) {
+        // If space saving is not higher enough we just copy uncompressed
+        // data to avoid decompression CPU cost
+        _buf.resize(0);
+        *compressed_data = _buf.build();
+        *compressed = false;
+        return Status::OK();
+    }
+    // encode uncompressed_bytes into footer of compressed value
+    encode_fixed32_le((uint8_t*)_buf.data() + compression_buffer.size, uncompressed_bytes);
+    // return compressed data to client
+    _buf.resize(compression_buffer.size + 4);
+    *compressed_data = _buf.build();
+    *compressed = true;
+
+    return Status::OK();
+}
+
 }
 }

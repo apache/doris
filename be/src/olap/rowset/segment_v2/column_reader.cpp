@@ -193,9 +193,6 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
                 int state = col_cond->del_eval({min_value.get(), max_value.get()});
                 if (state == DEL_SATISFIED) {
                     should_read = false;
-                    rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
-                    rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
-                    stats->rows_del_filtered += page_last_id - page_first_id + 1;
                     break;
                 } else if (state == DEL_PARTIAL_SATISFIED) {
                     delete_partial_filtered_pages->push_back(i);
@@ -405,7 +402,7 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
         size_t nrows_to_read = nrows_in_page;
         if (_reader->is_nullable()) {
             // when this column is nullable we read data in some runs
-            // first we read null bits in the same value, if this is null, we 
+            // first we read null bits in the same value, if this is null, we
             // don't need to read value from page.
             // If this is not null, we read data from page in batch.
             // This would be bad in case that data is arranged one by one, which
@@ -526,11 +523,11 @@ Status FileColumnIterator::get_row_ranges_by_conditions(CondColumn* cond_column,
                                       const std::vector<CondColumn*>& delete_conditions,
                                       RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_conditions, 
+        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_conditions,
             _opts.stats, &_delete_partial_statisfied_pages, row_ranges));
     }
 
-    if (cond_column != nullptr && 
+    if (cond_column != nullptr &&
             cond_column->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(cond_column, _opts.stats, row_ranges));
     }
@@ -548,9 +545,27 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             _is_default_value_null = true;
         } else {
             TypeInfo* type_info = get_type_info(_type);
-            _value_size = type_info->size();
-            _mem_value.reserve(_value_size);
-            OLAPStatus s = type_info->from_string(_mem_value.data(), _default_value);
+            _type_size = type_info->size();
+            _mem_value = reinterpret_cast<void*>(_pool->allocate(_type_size));
+            OLAPStatus s = OLAP_SUCCESS;
+            if (_type == OLAP_FIELD_TYPE_CHAR) {
+                int32_t length = _schema_length;
+                char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
+                memset(string_buffer, 0, length);
+                memory_copy(string_buffer, _default_value.c_str(), _default_value.length());
+                ((Slice*)_mem_value)->size = length;
+                ((Slice*)_mem_value)->data = string_buffer;
+            } else if ( _type == OLAP_FIELD_TYPE_VARCHAR ||
+                _type == OLAP_FIELD_TYPE_HLL ||
+                _type == OLAP_FIELD_TYPE_OBJECT ) {
+                int32_t length = _default_value.length();
+                char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
+                memory_copy(string_buffer, _default_value.c_str(), length);
+                ((Slice*)_mem_value)->size = length;
+                ((Slice*)_mem_value)->data = string_buffer;
+            } else {
+                s = type_info->from_string(_mem_value, _default_value);
+            }
             if (s != OLAP_SUCCESS) {
                 return Status::InternalError(
                         strings::Substitute("get value of type from default value failed. status:$0", s));
@@ -574,7 +589,7 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
         dst->advance(*n);
     } else {
         for (int i = 0; i < *n; ++i) {
-            memcpy(dst->data(), _mem_value.data(), _value_size);
+            memcpy(dst->data(), _mem_value, _type_size);
             dst->advance(1);
         }
     }

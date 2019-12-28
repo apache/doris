@@ -29,7 +29,7 @@ RECOVER TABLE [db_name.]table_name;
 RECOVER PARTITION partition name FROM [dbu name.]table name;
 
 Explain:
-1. This operation can only recover the meta-information deleted in the previous period of time. The default is 3600 seconds.
+1. This operation can only recover the meta-information deleted in the previous period of time. The default is 1 day.(You can configure it with the `catalog_trash_expire_second` parameter in fe.conf)
 2. If new meta-information of the same name and type is created after deleting meta-information, the previously deleted meta-information cannot be restored.
 
 ## example

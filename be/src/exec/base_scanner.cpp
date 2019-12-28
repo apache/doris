@@ -182,7 +182,9 @@ bool BaseScanner::fill_dest_tuple(const Slice& line, Tuple* dest_tuple, MemPool*
             dest_tuple->set_null(slot_desc->null_indicator_offset());
             continue;
         }
-        dest_tuple->set_not_null(slot_desc->null_indicator_offset());
+        if (slot_desc->is_nullable()) {
+            dest_tuple->set_not_null(slot_desc->null_indicator_offset());
+        }
         void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
         RawValue::write(value, slot, slot_desc->type(), mem_pool);
         continue;

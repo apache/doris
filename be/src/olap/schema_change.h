@@ -187,6 +187,7 @@ private:
             const VersionHash version_hash,
             TabletSharedPtr new_tablet,
             RowsetTypePB new_rowset_type,
+            SegmentsOverlapPB segments_overlap,
             RowsetSharedPtr* rowset);
 
     bool _external_sorting(

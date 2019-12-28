@@ -154,14 +154,11 @@ private:
 
 } // namespace
 
-// TODO currently we don't support bloom filter index for float/double/date/datetime/decimal/hll
+// TODO currently we don't support bloom filter index for tinyint/hll/float/double
 Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         const TypeInfo* typeinfo, std::unique_ptr<BloomFilterIndexWriter>* res) {
     FieldType type = typeinfo->type();
     switch (type) {
-        case OLAP_FIELD_TYPE_TINYINT:
-            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_TINYINT>(bf_options, typeinfo));
-            break;
         case OLAP_FIELD_TYPE_SMALLINT:
             res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_SMALLINT>(bf_options, typeinfo));
             break;
@@ -174,11 +171,23 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         case OLAP_FIELD_TYPE_BIGINT:
             res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_BIGINT>(bf_options, typeinfo));
             break;
+        case OLAP_FIELD_TYPE_LARGEINT:
+            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(bf_options, typeinfo));
+            break;
         case OLAP_FIELD_TYPE_CHAR:
             res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_CHAR>(bf_options, typeinfo));
             break;
         case OLAP_FIELD_TYPE_VARCHAR:
             res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_VARCHAR>(bf_options, typeinfo));
+            break;
+        case OLAP_FIELD_TYPE_DATE:
+            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATE>(bf_options, typeinfo));
+            break;
+        case OLAP_FIELD_TYPE_DATETIME:
+            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DATETIME>(bf_options, typeinfo));
+            break;
+        case OLAP_FIELD_TYPE_DECIMAL:
+            res->reset(new BloomFilterIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(bf_options, typeinfo));
             break;
         default:
             return Status::NotSupported("unsupported type for bitmap index: " + std::to_string(type));

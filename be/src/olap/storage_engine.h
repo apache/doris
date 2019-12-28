@@ -75,14 +75,6 @@ public:
 
     OLAPStatus create_tablet(const TCreateTabletReq& request);
 
-    // Create new tablet for StorageEngine
-    //
-    // Return Tablet *  succeeded; Otherwise, return NULL if failed
-    TabletSharedPtr create_tablet(const AlterTabletType alter_type,
-                                  const TCreateTabletReq& request,
-                                  const bool is_schema_change_tablet,
-                                  const TabletSharedPtr ref_tablet);
-
     void clear_transaction_task(const TTransactionId transaction_id);
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId>& partition_ids);

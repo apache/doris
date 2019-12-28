@@ -40,7 +40,7 @@ ALTER TABLE pv_bitmap ADD ROLLUP pv (page, user_id);
 
 ## Data Load
 
-`TO_BITMAP(expr)` : 将 TINYINT,SMALLINT 和 INT 类型的列转为 bitmap （TO_BITMAP 函数输入的类型必须是 TINYINT,SMALLINT,INT）
+`TO_BITMAP(expr)` : 将 0 ~ 4294967295 的 unsigned int 转为 bitmap
 
 `BITMAP_EMPTY()`: 生成空 bitmap 列，用于 insert 或导入的时填充默认值
 

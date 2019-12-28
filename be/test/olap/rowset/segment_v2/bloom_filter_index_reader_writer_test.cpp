@@ -179,6 +179,20 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_bigint) {
     delete[] val;
 }
 
+TEST_F(BloomFilterIndexReaderWriterTest, test_largeint) {
+    size_t num = 1024 * 3 - 1;
+    int128_t* val = new int128_t[num];
+    for (int i = 0; i < num; ++i) {
+        // there will be 3 bloom filter pages
+        val[i] = 100000000 + i + 1;
+    }
+
+    std::string file_name = "bloom_filter_largeint";
+    int128_t not_exist_value = 18888;
+    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_LARGEINT>(file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
 TEST_F(BloomFilterIndexReaderWriterTest, test_varchar_type) {
     size_t num = 1024 * 3 - 1;
     std::string* val = new std::string[num];
@@ -215,6 +229,48 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_char) {
     test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_CHAR>(file_name, slices, num, 1, &not_exist_value, true);
     delete[] val;
     delete[] slices;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_date) {
+    size_t num = 1024 * 3 - 1;
+    uint24_t* val = new uint24_t[num];
+    for (int i = 0; i < num; ++i) {
+        // there will be 3 bloom filter pages
+        val[i] = 10000 + i + 1;
+    }
+
+    std::string file_name = "bloom_filter_date";
+    uint24_t not_exist_value = 18888;
+    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_DATE>(file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_datetime) {
+    size_t num = 1024 * 3 - 1;
+    int64_t* val = new int64_t[num];
+    for (int i = 0; i < num; ++i) {
+        // there will be 3 bloom filter pages
+        val[i] = 10000 + i + 1;
+    }
+
+    std::string file_name = "bloom_filter_datetime";
+    int64_t not_exist_value = 18888;
+    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_DATETIME>(file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_decimal) {
+    size_t num = 1024 * 3 - 1;
+    decimal12_t* val = new decimal12_t[num];
+    for (int i = 0; i < num; ++i) {
+        // there will be 3 bloom filter pages
+        val[i] = decimal12_t(i + 1, i + 1);
+    }
+
+    std::string file_name = "bloom_filter_decimal";
+    decimal12_t not_exist_value = decimal12_t(666, 666);
+    test_bloom_filter_index_reader_writer_template<OLAP_FIELD_TYPE_DECIMAL>(file_name, val, num, 1, &not_exist_value);
+    delete[] val;
 }
 
 }

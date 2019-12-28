@@ -164,6 +164,12 @@ build_libevent() {
 }
 
 build_openssl() {
+    MACHINE_TYPE=$(uname -m)
+    OPENSSL_PLATFORM="linux-x86_64"
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        OPENSSL_PLATFORM="linux-aarch64"
+    fi
+
     check_if_source_exist $OPENSSL_SOURCE
     cd $TP_SOURCE_DIR/$OPENSSL_SOURCE
 
@@ -172,7 +178,7 @@ build_openssl() {
     LDFLAGS="-L${TP_LIB_DIR}" \
     CFLAGS="-fPIC" \
     LIBDIR="lib" \
-    ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared linux-x86_64
+    ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared ${OPENSSL_PLATFORM}
     make && make install
     if [ -f $TP_INSTALL_DIR/lib64/libcrypto.a ]; then
         mkdir -p $TP_INSTALL_DIR/lib && \
@@ -221,6 +227,12 @@ build_thrift() {
 
 # llvm
 build_llvm() {
+    MACHINE_TYPE=$(uname -m)
+    LLVM_TARGET="X86"
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        LLVM_TARGET="AArch64"
+    fi
+
     check_if_source_exist $LLVM_SOURCE
     check_if_source_exist $CLANG_SOURCE
     check_if_source_exist $COMPILER_RT_SOURCE
@@ -242,7 +254,7 @@ build_llvm() {
     mkdir llvm-build -p && cd llvm-build
     rm -rf CMakeCache.txt CMakeFiles/
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
-    $CMAKE_CMD -DLLVM_REQUIRES_RTTI:Bool=True -DLLVM_TARGETS_TO_BUILD="X86" -DLLVM_ENABLE_TERMINFO=OFF LLVM_BUILD_LLVM_DYLIB:BOOL=OFF -DLLVM_ENABLE_PIC=true -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE="RELEASE" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/llvm ../$LLVM_SOURCE
+    $CMAKE_CMD -DLLVM_REQUIRES_RTTI:Bool=True -DLLVM_TARGETS_TO_BUILD=${LLVM_TARGET} -DLLVM_ENABLE_TERMINFO=OFF LLVM_BUILD_LLVM_DYLIB:BOOL=OFF -DLLVM_ENABLE_PIC=true -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE="RELEASE" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/llvm ../$LLVM_SOURCE
     make -j$PARALLEL REQUIRES_RTTI=1 && make install
 }
 
@@ -282,6 +294,10 @@ build_gflags() {
 build_glog() {
     check_if_source_exist $GLOG_SOURCE
     cd $TP_SOURCE_DIR/$GLOG_SOURCE
+
+    # to generate config.guess and config.sub to support aarch64
+    rm -rf config.*
+    autoreconf -i
 
     CPPFLAGS="-I${TP_INCLUDE_DIR} -fpermissive -fPIC" \
     LDFLAGS="-L${TP_LIB_DIR}" \
@@ -586,7 +602,18 @@ build_bitshuffle() {
     check_if_source_exist $BITSHUFFLE_SOURCE
     cd $TP_SOURCE_DIR/$BITSHUFFLE_SOURCE
     PREFIX=$TP_INSTALL_DIR
+
+    # This library has significant optimizations when built with -mavx2. However,
+    # we still need to support non-AVX2-capable hardware. So, we build it twice,
+    # once with the flag and once without, and use some linker tricks to
+    # suffix the AVX2 symbols with '_avx2'.
     arches="default avx2"
+    MACHINE_TYPE=$(uname -m)
+    # Becuase aarch64 don't support avx2, disable it.
+    if [[ "${MACHINE_TYPE}" == "aarch64" ]]; then
+        arches="default"
+    fi
+
     to_link=""
     for arch in $arches ; do
         arch_flag=""
@@ -648,6 +675,7 @@ build_orc() {
     -DLZ4_HOME=$TP_INSTALL_DIR \
     -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
     -DZLIB_HOME=$TP_INSTALL_DIR\
+    -DBUILD_LIBHDFSPP=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR 
 
     make -j$PARALLEL && make install
