@@ -3574,7 +3574,7 @@ public class Catalog {
                     // check user input dynamic properties exist
                     if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, partitionInfo)) {
                         // here, only dynamic partition properties should be checked and removed from properties
-                        Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(db, olapTable, properties);
+                        Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(properties);
                         TableProperty tableProperty = new TableProperty(dynamicPartitionProperties);
                         tableProperty.buildDynamicProperty();
                         olapTable.setTableProperty(tableProperty);
@@ -5075,7 +5075,7 @@ public class Catalog {
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
-        Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(db, table, properties);
+        Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty != null) {
             tableProperty.modifyTableProperties(analyzedDynamicPartition);

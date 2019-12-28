@@ -91,7 +91,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    private static void checkEnable(Database db, OlapTable tbl, String enable) throws DdlException {
+    private static void checkEnable(String enable) throws DdlException {
         if (Strings.isNullOrEmpty(enable)
                 || (!Boolean.TRUE.toString().equalsIgnoreCase(enable) && !Boolean.FALSE.toString().equalsIgnoreCase(enable))) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_ENABLE, enable);
@@ -157,8 +157,7 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static Map<String, String> analyzeDynamicPartition(Database db, OlapTable olapTable,
-                                                              Map<String, String> properties) throws DdlException {
+    public static Map<String, String> analyzeDynamicPartition(Map<String, String> properties) throws DdlException {
         // properties should not be empty, check properties before call this function
         Map<String, String> analyzedProperties = new HashMap<>();
         if (properties.containsKey(DynamicPartitionProperty.TIME_UNIT)) {
@@ -187,7 +186,7 @@ public class DynamicPartitionUtil {
         }
         if (properties.containsKey(DynamicPartitionProperty.ENABLE)) {
             String enableValue = properties.get(DynamicPartitionProperty.ENABLE);
-            checkEnable(db, olapTable, enableValue);
+            checkEnable(enableValue);
             properties.remove(DynamicPartitionProperty.ENABLE);
             analyzedProperties.put(DynamicPartitionProperty.ENABLE, enableValue);
         }
