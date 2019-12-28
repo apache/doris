@@ -41,7 +41,7 @@ public class TableProperty implements Writable {
 
     private DynamicPartitionProperty dynamicPartitionProperty;
 
-    TableProperty(Map<String, String> properties) {
+    public TableProperty(Map<String, String> properties) {
         this.properties = properties;
     }
 
@@ -53,7 +53,7 @@ public class TableProperty implements Writable {
         return dynamicPartitionProperty;
     }
 
-    void buildDynamicProperty() {
+    public void buildDynamicProperty() {
         HashMap<String, String> dynamicPartitionProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {

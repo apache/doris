@@ -216,6 +216,16 @@ public class DynamicPartitionUtil {
         return rangePartitionInfo.getPartitionColumns().size() == 1 && tableProperty.getDynamicPartitionProperty().getEnable();
     }
 
+    /**
+     * properties should be checked before call this method
+     */
+    public static void setDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties) throws DdlException {
+        Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(properties);
+        TableProperty tableProperty = new TableProperty(dynamicPartitionProperties);
+        tableProperty.buildDynamicProperty();
+        olapTable.setTableProperty(tableProperty);
+    }
+
     public static String getPartitionFormat(Column column) throws DdlException {
         if (column.getDataType().equals(PrimitiveType.DATE)) {
             return DATE_FORMAT;

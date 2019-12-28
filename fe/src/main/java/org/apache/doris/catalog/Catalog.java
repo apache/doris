@@ -3574,10 +3574,7 @@ public class Catalog {
                     // check user input dynamic properties exist
                     if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, partitionInfo)) {
                         // here, only dynamic partition properties should be checked and removed from properties
-                        Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(properties);
-                        TableProperty tableProperty = new TableProperty(dynamicPartitionProperties);
-                        tableProperty.buildDynamicProperty();
-                        olapTable.setTableProperty(tableProperty);
+                        DynamicPartitionUtil.setDynamicPartitionProperty(olapTable, properties);
                     }
 
                     if (properties != null && !properties.isEmpty()) {
