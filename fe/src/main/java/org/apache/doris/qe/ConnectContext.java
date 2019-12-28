@@ -112,7 +112,7 @@ public class ConnectContext {
         return this.isSend;
     }
 
-    public ConnectContext(){
+    public ConnectContext() {
         state = new QueryState();
         returnRows = 0;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
