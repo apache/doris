@@ -22,7 +22,6 @@ import com.google.common.base.Strings;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -110,11 +109,11 @@ public class DynamicPartitionUtil {
     }
 
     public static boolean checkInputDynamicPartitionProperties(Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException{
-        if (properties == null) {
+        if (properties == null || properties.isEmpty()) {
             return false;
         }
-        if (partitionInfo.isMultiColumnPartition()) {
-            throw new DdlException("Dynamic partition only support single column partition");
+        if (partitionInfo.getType() != PartitionType.RANGE || partitionInfo.isMultiColumnPartition()) {
+            throw new DdlException("Dynamic partition only support single range column partition");
         }
         String timeUnit = properties.get(DynamicPartitionProperty.TIME_UNIT);
         String prefix = properties.get(DynamicPartitionProperty.PREFIX);
@@ -219,11 +218,11 @@ public class DynamicPartitionUtil {
     /**
      * properties should be checked before call this method
      */
-    public static void setDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties) throws DdlException {
-        Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(properties);
-        TableProperty tableProperty = new TableProperty(dynamicPartitionProperties);
-        tableProperty.buildDynamicProperty();
-        olapTable.setTableProperty(tableProperty);
+    public static void checkAndSetDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties) throws DdlException {
+        if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo())) {
+            Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(properties);
+            olapTable.setTableProperty(new TableProperty(dynamicPartitionProperties).buildDynamicProperty());
+        }
     }
 
     public static String getPartitionFormat(Column column) throws DdlException {

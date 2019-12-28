@@ -3571,11 +3571,7 @@ public class Catalog {
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
                     PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
 
-                    // check user input dynamic properties exist
-                    if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, partitionInfo)) {
-                        // here, only dynamic partition properties should be checked and removed from properties
-                        DynamicPartitionUtil.setDynamicPartitionProperty(olapTable, properties);
-                    }
+                    DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties);
 
                     if (properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
@@ -5072,17 +5068,19 @@ public class Catalog {
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
-        Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(properties);
         TableProperty tableProperty = table.getTableProperty();
-        if (tableProperty != null) {
+        if (tableProperty == null) {
+            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties);
+        } else {
+            Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(properties);
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
-            DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table);
-            dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
-                    table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
-            // here all modified properties is DynamicPartitionProperty
-            ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
-            editLog.logDynamicPartition(info);
         }
+
+        DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table);
+        dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
+                table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
+        ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
+        editLog.logDynamicPartition(info);
     }
 
     public void replayModifyTableDynamicPartition(ModifyDynamicPartitionInfo info) {
@@ -5093,8 +5091,13 @@ public class Catalog {
         Database db = getDb(dbId);
         db.writeLock();
         try {
-            OlapTable table = (OlapTable) db.getTable(tableId);
-            table.getTableProperty().modifyTableProperties(properties);
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            TableProperty tableProperty = olapTable.getTableProperty();
+            if (tableProperty == null) {
+                olapTable.setTableProperty(new TableProperty(properties).buildDynamicProperty());
+            } else {
+                tableProperty.modifyTableProperties(properties);
+            }
         } finally {
             db.writeUnlock();
         }

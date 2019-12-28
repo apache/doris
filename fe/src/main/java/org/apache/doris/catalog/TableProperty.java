@@ -28,13 +28,13 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-/*  TableProperty contains additional information about OlapTable
+/**  TableProperty contains additional information about OlapTable
  *  TableProperty includes properties to persistent the additional information
  *  Different properties is recognized by prefix such as dynamic_partition
  *  If there is different type properties is added.Write a method such as buildDynamicProperty to build it.
  */
 public class TableProperty implements Writable {
-    private static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition";
+    public static final String DYNAMIC_PARTITION_PROPERTY_PREFIX = "dynamic_partition";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -45,6 +45,31 @@ public class TableProperty implements Writable {
         this.properties = properties;
     }
 
+    public static boolean isSamePrefixProperties(Map<String, String> properties, String prefix) {
+        for (String value : properties.keySet()) {
+            if (!value.startsWith(prefix)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public TableProperty buildDynamicProperty() {
+        HashMap<String, String> dynamicPartitionProperties = new HashMap<>();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
+                dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        dynamicPartitionProperty = new DynamicPartitionProperty(dynamicPartitionProperties);
+        return this;
+    }
+
+    void modifyTableProperties(Map<String, String> modifyProperties) {
+        properties.putAll(modifyProperties);
+        buildDynamicProperty();
+    }
+
     public Map<String, String> getProperties() {
         return properties;
     }
@@ -53,29 +78,12 @@ public class TableProperty implements Writable {
         return dynamicPartitionProperty;
     }
 
-    public void buildDynamicProperty() {
-        HashMap<String, String> dynamicPartitionProperties = new HashMap<>();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
-                dynamicPartitionProperties.put(entry.getKey(), entry.getValue());
-            }
-        }
-        dynamicPartitionProperty = new DynamicPartitionProperty(dynamicPartitionProperties);
-    }
-
-    void modifyTableProperties(Map<String, String> modifyProperties) {
-        properties.putAll(modifyProperties);
-        buildDynamicProperty();
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static TableProperty read(DataInput in) throws IOException {
-        TableProperty prop = GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class);
-        prop.buildDynamicProperty();
-        return prop;
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class).buildDynamicProperty();
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -40,7 +41,8 @@ public class ModifyTablePropertiesClause extends AlterClause {
             throw new AnalysisException("Properties is not set");
         }
 
-        if (properties.size() != 1) {
+        if (properties.size() != 1
+                && !TableProperty.isSamePrefixProperties(properties, TableProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
             throw new AnalysisException("Can only set one table property at a time");
         }
 
@@ -64,13 +66,13 @@ public class ModifyTablePropertiesClause extends AlterClause {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
             // do nothing, these 2 properties will be analyzed when creating alter job
-        } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
-            // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).equalsIgnoreCase("v2")) {
                 throw new AnalysisException(
                         "Property " + PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT + " should be v2");
             }
+        } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+            // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
