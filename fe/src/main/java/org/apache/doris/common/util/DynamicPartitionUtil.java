@@ -113,17 +113,21 @@ public class DynamicPartitionUtil {
             return false;
         }
         if (partitionInfo.getType() != PartitionType.RANGE || partitionInfo.isMultiColumnPartition()) {
-            throw new DdlException("Dynamic partition only support single range column partition");
+            throw new DdlException("Dynamic partition only support single-column range partition");
         }
         String timeUnit = properties.get(DynamicPartitionProperty.TIME_UNIT);
         String prefix = properties.get(DynamicPartitionProperty.PREFIX);
         String end = properties.get(DynamicPartitionProperty.END);
         String buckets = properties.get(DynamicPartitionProperty.BUCKETS);
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
-        if (!((Strings.isNullOrEmpty(timeUnit) &&
+        if (!((Strings.isNullOrEmpty(enable) &&
+                Strings.isNullOrEmpty(timeUnit) &&
                 Strings.isNullOrEmpty(prefix) &&
                 Strings.isNullOrEmpty(end) &&
                 Strings.isNullOrEmpty(buckets)))) {
+            if (Strings.isNullOrEmpty(enable)) {
+                throw new DdlException("Must assign dynamic_partition.enable properties");
+            }
             if (Strings.isNullOrEmpty(timeUnit)) {
                 throw new DdlException("Must assign dynamic_partition.time_unit properties");
             }
@@ -135,11 +139,6 @@ public class DynamicPartitionUtil {
             }
             if (Strings.isNullOrEmpty(buckets)) {
                 throw new DdlException("Must assign dynamic_partition.buckets properties");
-            }
-            // dynamic partition enable default to true
-            if (Strings.isNullOrEmpty(enable)) {
-                enable = Boolean.TRUE.toString();
-                properties.put(DynamicPartitionProperty.ENABLE, enable);
             }
         }
         return true;
