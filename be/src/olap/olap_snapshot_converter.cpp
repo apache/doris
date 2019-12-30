@@ -109,7 +109,16 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     }
     if (olap_header.has_keys_type()) {
         schema->set_keys_type(olap_header.keys_type());
+    } else {
+        // Doris support AGG_KEYS/UNIQUE_KEYS/DUP_KEYS/ three storage model.
+        // Among these three model, UNIQUE_KYES/DUP_KEYS is added after AGG_KEYS.
+        // For historical tablet, the keys_type field to indicate storage model
+        // may be missed for AGG_KEYS.
+        // So upgrade from historical tablet, this situation should be taken into
+        // consideration and set to be AGG_KEYS.
+        schema->set_keys_type(KeysType::AGG_KEYS);
     }
+
     schema->set_num_short_key_columns(olap_header.num_short_key_fields());
     schema->set_num_rows_per_row_block(olap_header.num_rows_per_data_block());
     schema->set_compress_kind(olap_header.compress_kind());
