@@ -983,7 +983,7 @@ bool SchemaChangeWithSorting::process(
 
             // enter here while memory limitation is reached.
             RowsetSharedPtr rowset;
-            RowsetTypePB new_rowset_type = StorageEngine::instance()->default_rowset_type();
+            RowsetTypePB new_rowset_type = rowset_reader->rowset()->rowset_meta()->rowset_type();
             if (use_beta_rowset) {
                 new_rowset_type = BETA_ROWSET;
             }
@@ -1046,7 +1046,7 @@ bool SchemaChangeWithSorting::process(
         // enter here while memory limitation is reached.
         RowsetSharedPtr rowset = nullptr;
 
-        RowsetTypePB new_rowset_type = StorageEngine::instance()->default_rowset_type();
+        RowsetTypePB new_rowset_type = rowset_reader->rowset()->rowset_meta()->rowset_type();
         if (use_beta_rowset) {
             new_rowset_type = BETA_ROWSET;
         }
@@ -1494,7 +1494,7 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     writer_context.tablet_id = new_tablet->tablet_id();
     writer_context.partition_id = (*base_rowset)->partition_id();
     writer_context.tablet_schema_hash = new_tablet->schema_hash();
-    writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
+    writer_context.rowset_type = (*base_rowset)->rowset_meta()->rowset_type();
     if (new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
         writer_context.rowset_type = BETA_ROWSET;
     }
@@ -1724,7 +1724,7 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
         writer_context.partition_id = new_tablet->partition_id();
         writer_context.tablet_schema_hash = new_tablet->schema_hash();
         // linked schema change can't change rowset type, therefore we preserve rowset type in schema change now
-        writer_context.rowset_type = StorageEngine::instance()->default_rowset_type();
+        writer_context.rowset_type = rs_reader->rowset()->rowset_meta()->rowset_type();
         if (sc_params.new_tablet->tablet_meta()->preferred_rowset_type() == BETA_ROWSET) {
             // Use beta rowset to do schema change
             // And in this case, linked schema change will not be used.
