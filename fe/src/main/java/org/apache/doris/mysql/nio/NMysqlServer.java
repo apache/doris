@@ -35,7 +35,7 @@ import java.net.InetSocketAddress;
  *
  * Created by infear on 2019/12/19.
  */
-public class NMysqlServer extends MysqlServer{
+public class NMysqlServer extends MysqlServer {
     private final Logger LOG = LogManager.getLogger(this.getClass());
 
     private XnioWorker xnioWorker;
