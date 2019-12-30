@@ -193,6 +193,9 @@ public class DynamicPartitionTableTest {
                 new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
         stmt.analyze(analyzer);
 
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage("Must assign dynamic_partition.enable properties");
+
         catalog.createTable(stmt);
     }
 
@@ -472,7 +475,7 @@ public class DynamicPartitionTableTest {
         stmt.analyze(analyzer);
 
         expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Dynamic partition only support single range column partition");
+        expectedEx.expectMessage("Dynamic partition only support single-column range partition");
 
         catalog.createTable(stmt);
     }
