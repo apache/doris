@@ -17,62 +17,88 @@
 
 #include "exec/orc_scanner.h"
 
+#include "exec/broker_reader.h"
+#include "exec/local_file_reader.h"
+#include "exprs/expr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
-#include "exprs/expr.h"
-#include "exec/local_file_reader.h"
-#include "exec/broker_reader.h"
 
 namespace doris {
 
-ORCFileStream::~ORCFileStream() {
-    if (_file) {
-        _file->close();
-        delete _file;
-        _file = nullptr;
-    }
-}
-
-uint64_t ORCFileStream::getLength() const {
-    return _file->size();
-}
-
-uint64_t ORCFileStream::getNaturalReadSize() const {
-    return 128 * 1024;
-}
-
-void ORCFileStream::read(void *buf, uint64_t length, uint64_t offset) {
-    if (!buf) {
-        throw orc::ParseError("Buffer is null");
+class ORCFileStream : public orc::InputStream {
+public:
+    ORCFileStream(FileReader *file, std::string filename) : _file(file), _filename(std::move(filename)) {
     }
 
-    int64_t bytes_read = 0;
-    int64_t reads = 0;
-    while (bytes_read < length) {
-        Status result = _file->readat(offset, length - bytes_read, &reads, buf);
-        if (!result.ok()) {
-            throw orc::ParseError("Bad read of " + _filename);
+    ~ORCFileStream() override {
+        if (_file) {
+            _file->close();
+            delete _file;
+            _file = nullptr;
         }
-        if (reads == 0) {
-            break;
-        }
-        bytes_read += reads;// total read bytes
-        offset += reads;
-        buf = (char *) buf + reads;
     }
-    if (length != bytes_read) {
-        throw orc::ParseError("Short read of " + _filename
-                              + ". expected :" + std::to_string(length) + ", actual : " + std::to_string(bytes_read));
-    }
-}
 
-const std::string& ORCFileStream::getName() const {
-    return _filename;
-}
+    /**
+     * Get the total length of the file in bytes.
+     */
+    uint64_t getLength() const override {
+        return _file->size();
+    }
+
+    /**
+     * Get the natural size for reads.
+     * @return the number of bytes that should be read at once
+     */
+    uint64_t getNaturalReadSize() const override {
+        return 128 * 1024;
+    }
+
+    /**
+     * Read length bytes from the file starting at offset into
+     * the buffer starting at buf.
+     * @param buf the starting position of a buffer.
+     * @param length the number of bytes to read.
+     * @param offset the position in the stream to read from.
+     */
+    void read(void *buf, uint64_t length, uint64_t offset) override {
+        if (!buf) {
+            throw orc::ParseError("Buffer is null");
+        }
+
+        int64_t bytes_read = 0;
+        int64_t reads = 0;
+        while (bytes_read < length) {
+            Status result = _file->readat(offset, length - bytes_read, &reads, buf);
+            if (!result.ok()) {
+                throw orc::ParseError("Bad read of " + _filename);
+            }
+            if (reads == 0) {
+                break;
+            }
+            bytes_read += reads;// total read bytes
+            offset += reads;
+            buf = (char *) buf + reads;
+        }
+        if (length != bytes_read) {
+            throw orc::ParseError("Short read of " + _filename
+                                  + ". expected :" + std::to_string(length) + ", actual : " + std::to_string(bytes_read));
+        }
+    }
+
+    /**
+     * Get the name of the stream for error messages.
+     */
+    const std::string &getName() const override {
+        return _filename;
+    }
+private:
+    FileReader *_file;
+    std::string _filename;
+};
 
 ORCScanner::ORCScanner(RuntimeState *state,
         RuntimeProfile *profile,
@@ -129,8 +155,7 @@ Status ORCScanner::get_next(Tuple *tuple, MemPool *tuple_pool, bool *eof) {
             const std::vector<orc::ColumnVectorBatch *>& batch_vec = ((orc::StructVectorBatch *) _batch.get())->fields;
             for (int column_ipos = 0; column_ipos < _num_of_columns_from_file; ++column_ipos) {
                 auto slot_desc = _src_slot_descs[column_ipos];
-                int position_in_orc = _column_name_map_orc_index.find(slot_desc->col_name())->second;
-                orc::ColumnVectorBatch *cvb = batch_vec[position_in_orc];
+                orc::ColumnVectorBatch *cvb = batch_vec[_position_in_orc_original[column_ipos]];
 
                 if (cvb->hasNulls && !cvb->notNull[_current_line_of_group]) {
                     //all src tuple is nullable , judge null in dest_tuple
@@ -142,7 +167,7 @@ Status ORCScanner::get_next(Tuple *tuple, MemPool *tuple_pool, bool *eof) {
                     void *slot = _src_tuple->get_slot(slot_desc->tuple_offset());
                     StringValue *str_slot = reinterpret_cast<StringValue *>(slot);
 
-                    switch (_row_reader->getSelectedType().getSubtype(position_in_orc)->getKind()) {
+                    switch (_row_reader->getSelectedType().getSubtype(_position_in_orc_original[column_ipos])->getKind()) {
                         case orc::BOOLEAN: {
                             int64_t value = ((orc::LongVectorBatch *) cvb)->data[_current_line_of_group];
                             if (value == 0) {
@@ -278,10 +303,15 @@ Status ORCScanner::open_next_reader() {
         _rowReaderOptions.include(_includes);
 
         int orc_index = 0;
+        std::map<std::string, int> column_name_map_orc_index;
         for (int i = 0; i < _reader->getType().getSubtypeCount(); ++i) {
             if (std::find(_includes.begin(), _includes.end(), _reader->getType().getFieldName(i)) != _includes.end()) {
-                _column_name_map_orc_index.emplace(_reader->getType().getFieldName(i), orc_index++);
+                column_name_map_orc_index.emplace(_reader->getType().getFieldName(i), orc_index++);
             }
+        }
+        _position_in_orc_original.clear();
+        for (const auto& column_name : _rowReaderOptions.getIncludeNames()) {
+            _position_in_orc_original.emplace_back(column_name_map_orc_index.find(column_name)->second);
         }
 
         _row_reader = _reader->createRowReader(_rowReaderOptions);
