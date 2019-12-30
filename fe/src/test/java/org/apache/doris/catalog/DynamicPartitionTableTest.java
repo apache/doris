@@ -36,7 +36,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-public class CreateTableWithDynamicProperties {
+public class DynamicPartitionTableTest {
     private TableName dbTableName;
     private String dbName = "testDb";
     private String tableName = "testTable";
