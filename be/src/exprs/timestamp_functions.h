@@ -166,6 +166,10 @@ public:
     // TODO: eventually return format converted from Java to Boost.
     static bool check_format(const StringVal& format, DateTimeValue& t);
 
+    // In order to support 0.11 grayscale upgrade
+    // Todo(kks): remove this method when 0.12 release
+    static StringVal convert_format(doris_udf::FunctionContext* ctx, const StringVal& format);
+
     // Issue a warning for a bad format string.
     static void report_bad_format(const StringVal* format);
 };

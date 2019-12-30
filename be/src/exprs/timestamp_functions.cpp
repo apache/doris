@@ -62,6 +62,32 @@ bool TimestampFunctions::check_format(const StringVal& format, DateTimeValue& t)
     return false;
 }
 
+StringVal TimestampFunctions::convert_format(FunctionContext* ctx, const StringVal& format) {
+    switch (format.len) {
+    case 8:
+        if (strncmp((const char*)format.ptr, "yyyyMMdd", 8) == 0) {
+            std::string tmp("%Y%m%d");
+            return AnyValUtil::from_string_temp(ctx, tmp);
+        }
+        break;
+    case 10:
+        if (strncmp((const char*)format.ptr, "yyyy-MM-dd", 10) == 0) {
+            std::string tmp("%Y-%m-%d");
+            return AnyValUtil::from_string_temp(ctx, tmp);
+        }
+        break;
+    case 19:
+        if (strncmp((const char*)format.ptr, "yyyy-MM-dd HH:mm:ss", 19) == 0) {
+            std::string tmp("%Y-%m-%d %H:%i:%s");
+            return AnyValUtil::from_string_temp(ctx, tmp);
+        }
+        break;
+    default:
+        break;
+    }
+    return format;
+}
+
 void TimestampFunctions::report_bad_format(const StringVal* format) {
     std::string format_str((char *)format->ptr, format->len);
     // LOG(WARNING) << "Bad date/time conversion format: " << format_str
@@ -334,8 +360,11 @@ StringVal TimestampFunctions::date_format(
     if (ts_value.compute_format_len((const char*)format.ptr, format.len) >= 128) {
         return StringVal::null();
     }
+
+    StringVal new_fmt = convert_format(ctx, format);
+
     char buf[128];
-    if (!ts_value.to_format_string((const char*)format.ptr, format.len, buf)) {
+    if (!ts_value.to_format_string((const char*)new_fmt.ptr, new_fmt.len, buf)) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(ctx, buf);
@@ -369,7 +398,7 @@ DoubleVal TimestampFunctions::time_diff(
     if (ts_val1.is_null || ts_val2.is_null) {
         return DoubleVal::null();
     }
-    
+
     const DateTimeValue& ts_value1 = DateTimeValue::from_datetime_val(ts_val1);
     const DateTimeValue& ts_value2 = DateTimeValue::from_datetime_val(ts_val2);
     return DoubleVal(ts_value1.second_diff(ts_value2));
@@ -417,8 +446,10 @@ StringVal TimestampFunctions::from_unix(
         return StringVal::null();
     }
 
+    StringVal new_fmt = convert_format(context, fmt);
+
     char buf[128];
-    if (!dtv.to_format_string((const char*)fmt.ptr, fmt.len, buf)) {
+    if (!dtv.to_format_string((const char*)new_fmt.ptr, new_fmt.len, buf)) {
         return StringVal::null();
     }
     return AnyValUtil::from_string_temp(context, buf);
@@ -455,7 +486,7 @@ IntVal TimestampFunctions::to_unix(
         return IntVal::null();
     }
     const DateTimeValue &tv = DateTimeValue::from_datetime_val(ts_val);
-    
+
     int64_t timestamp;
     if(!tv.unix_timestamp(&timestamp, context->impl()->state()->timezone())) {
         return IntVal::null();
@@ -513,7 +544,7 @@ DateTimeVal TimestampFunctions::convert_tz(FunctionContext* ctx, const DateTimeV
     if (!ts_value2.from_unixtime(timestamp, std::string((char *)to_tz.ptr, to_tz.len))) {
         return DateTimeVal::null();
     }
-    
+
     DateTimeVal return_val;
     ts_value2.to_datetime_val(&return_val);
     return return_val;
