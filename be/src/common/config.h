@@ -443,7 +443,7 @@ namespace config {
     CONF_Bool(auto_recover_index_loading_failure, "false");
 
     // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
-    // default is 10, batch_size's defualt value is 1024 means 10 * 1024 rows will be cached
+    // default is 20, batch_size's defualt value is 1024 means 20 * 1024 rows will be cached
     CONF_Int32(max_memory_sink_batch_count, "20");
     
     // This configuration is used for the context gc thread schedule period
