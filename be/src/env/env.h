@@ -43,7 +43,7 @@ public:
     };
 
     Env() { }
-    virtual ~Env();
+    virtual ~Env() { }
 
     // Return a default environment suitable for the current operating
     // system.  Sophisticated users may wish to provide their own Env
@@ -201,7 +201,7 @@ struct RandomRWFileOptions {
 class SequentialFile {
 public:
     SequentialFile() { }
-    virtual ~SequentialFile();
+    virtual ~SequentialFile() { }
 
     // Read up to "result.size" bytes from the file.
     // Sets "result.data" to the data that was read.
@@ -228,7 +228,7 @@ public:
 class RandomAccessFile {
 public:
     RandomAccessFile() { }
-    virtual ~RandomAccessFile();
+    virtual ~RandomAccessFile() { }
 
     // Read "result.size" bytes from the file starting at "offset".
     // Copies the resulting data into "result.data".
@@ -273,7 +273,7 @@ public:
     };
 
     WritableFile() { }
-    virtual ~WritableFile();
+    virtual ~WritableFile() { }
 
     // Append data to the end of the file
     // Note: A WritableFile object must support either Append or
@@ -323,7 +323,7 @@ public:
         FLUSH_ASYNC
     };
     RandomRWFile() {}
-    virtual ~RandomRWFile();
+    virtual ~RandomRWFile() { }
 
     virtual Status read_at(uint64_t offset, const Slice& result) const = 0;
 
