@@ -15,12 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.spark.util;
+package org.apache.doris.spark.exception;
 
-public abstract class ErrorMessages {
-    public static final String PARSE_NUMBER_FAILED_MESSAGE = "Parse '{}' to number failed. Original string is '{}'.";
-    public static final String CONNECT_FAILED_MESSAGE = "Connect to doris {} failed.";
-    public static final String ILLEGAL_ARGUMENT_MESSAGE = "argument '{}' is illegal, value is '{}'.";
-    public static final String SHOULD_NOT_HAPPEN_MESSAGE = "Should not come here.";
-    public static final String DORIS_INTERNAL_FAIL_MESSAGE = "Doris server '{}' internal failed, status is '{}', error message is '{}'";
+import org.apache.doris.thrift.TStatusCode;
+
+import java.util.List;
+
+public class DorisInternalException extends DorisException {
+    public DorisInternalException(String server, TStatusCode statusCode, List<String> errorMsgs) {
+        super("Doris server " + server + " internal failed, status code [" + statusCode + "] error message is " + errorMsgs);
+    }
+
 }

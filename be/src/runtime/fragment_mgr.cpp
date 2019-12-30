@@ -665,6 +665,7 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
     TQueryOptions query_options;
     query_options.batch_size = params.batch_size;
     query_options.query_timeout = params.query_timeout;
+    query_options.query_type = TQueryType::EXTERNAL;
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();

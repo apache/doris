@@ -34,6 +34,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/data_stream_mgr.h"
 #include "runtime/result_buffer_mgr.h"
+#include "runtime/result_queue_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/mem_tracker.h"
 #include "util/cpu_info.h"
@@ -519,6 +520,10 @@ void PlanFragmentExecutor::update_status(const Status& status) {
                 _runtime_state->set_mem_limit_exceeded(status.get_error_msg());
             }
             _status = status;
+            if (_runtime_state->query_options().query_type == TQueryType::EXTERNAL) {
+                TUniqueId fragment_instance_id = _runtime_state->fragment_instance_id();
+                _exec_env->result_queue_mgr()->update_queue_status(fragment_instance_id, status);
+            }
         }
     }
 
