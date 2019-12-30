@@ -41,10 +41,13 @@ namespace segment_v2 {
 //   output ranges: [0,2), [4,8), [10,11), [15,18), [18,20) (when max_range_size=3)
 class SegmentIterator::BitmapRangeIterator {
 public:
-    explicit BitmapRangeIterator(const Roaring& bitmap) {
+    explicit BitmapRangeIterator(const Roaring& bitmap)
+        : _last_val(0),
+          _buf(new uint32_t[256]),
+          _buf_pos(0),
+          _buf_size(0),
+          _eof(false) {
         roaring_init_iterator(&bitmap.roaring, &_iter);
-        _last_val = 0;
-        _buf = new uint32_t[256];
         _read_next_batch();
     }
 
@@ -443,9 +446,9 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
         _inited = true;
     }
 
-    uint32_t total_read = 0;
-    uint32_t remaining = block->capacity();
-    _block_rowids.resize(0);
+    uint32_t nrows_read = 0;
+    uint32_t nrows_read_limit = block->capacity();
+    _block_rowids.resize(nrows_read_limit);
     const auto& read_columns = _lazy_materialization_read ? _predicate_columns : block->schema()->column_ids();
 
     // phase 1: read rows selected by various index (indicated by _row_bitmap) into block
@@ -453,34 +456,32 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
     do {
         uint32_t range_from;
         uint32_t range_to;
-        bool has_next_range = _range_iter->next_range(remaining, &range_from, &range_to);
+        bool has_next_range = _range_iter->next_range(nrows_read_limit - nrows_read, &range_from, &range_to);
         if (!has_next_range) {
             break;
-        }
-        if (_lazy_materialization_read) {
-            for (uint32_t rid = range_from; rid < range_to; rid++) {
-                _block_rowids.push_back(rid);
-            }
         }
         if (_cur_rowid == 0 || _cur_rowid != range_from) {
             _cur_rowid = range_from;
             RETURN_IF_ERROR(_seek_columns(read_columns, _cur_rowid));
         }
         size_t rows_to_read = range_to - range_from;
-        RETURN_IF_ERROR(_read_columns(read_columns, block, total_read, rows_to_read));
+        RETURN_IF_ERROR(_read_columns(read_columns, block, nrows_read, rows_to_read));
         _cur_rowid += rows_to_read;
-        total_read += rows_to_read;
-        remaining -= rows_to_read;
-    } while (remaining > 0);
+        if (_lazy_materialization_read) {
+            for (uint32_t rid = range_from; rid < range_to; rid++) {
+                _block_rowids[nrows_read++] = rid;
+            }
+        } else {
+            nrows_read += rows_to_read;
+        }
+    } while (nrows_read < nrows_read_limit);
 
-    block->set_num_rows(total_read);
-    block->set_selected_size(total_read);
-    if (total_read == 0) {
+    block->set_num_rows(nrows_read);
+    block->set_selected_size(nrows_read);
+    if (nrows_read == 0) {
         return Status::EndOfFile("no more data in segment");
     }
-    // update raw_rows_read counter
-    // judge nullptr for unit test case
-    _opts.stats->raw_rows_read += total_read;
+    _opts.stats->raw_rows_read += nrows_read;
     _opts.stats->blocks_load += 1;
 
     // phase 2: run vectorization evaluation on remaining predicates to prune rows.
@@ -517,9 +518,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
             i += range_size;
         }
     }
-
     return Status::OK();
-
 }
 
 }
