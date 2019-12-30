@@ -35,7 +35,8 @@ namespace doris {
 // full, respectively.
 class RecordBatchQueue {
 public:
-    RecordBatchQueue() : _queue(config::max_memory_sink_batch_count) {}
+    RecordBatchQueue(u_int32_t max_elements = config::max_memory_sink_batch_count) : 
+            _queue(max_elements) {}
 
     Status status() {
         std::lock_guard<SpinLock> l(_status_lock);
@@ -52,7 +53,8 @@ public:
         return _queue.blocking_put(val);
     }
 
-    void clear();
+    // Shut down the queue. Wakes up all threads waiting on blocking_get or blocking_put.
+    void shutdown();
 
 private:
     BlockingQueue<std::shared_ptr<arrow::RecordBatch>> _queue;

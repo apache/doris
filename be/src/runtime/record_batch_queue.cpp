@@ -31,7 +31,7 @@ void RecordBatchQueue::update_status(const Status& status) {
     }
 }
 
-void RecordBatchQueue::clear() {
+void RecordBatchQueue::shutdown() {
     _queue.shutdown();
 }
 

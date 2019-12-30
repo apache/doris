@@ -82,7 +82,7 @@ Status ResultQueueMgr::cancel(const TUniqueId& fragment_instance_id) {
     if (iter != _fragment_queue_map.end()) {
         // first remove RecordBatch from queue
         // avoid MemoryScratchSink block on send or close operation
-        iter->second->clear();
+        iter->second->shutdown();
         // remove this queue from map
         _fragment_queue_map.erase(fragment_instance_id);
     }
