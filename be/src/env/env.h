@@ -29,15 +29,17 @@ class Env {
 public:
     // Governs if/how the file is created.
     //
-    // enum value                      | file exists       | file does not exist
-    // --------------------------------+-------------------+--------------------
-    // CREATE_IF_NON_EXISTING_TRUNCATE | opens + truncates | creates
-    // CREATE_NON_EXISTING             | fails             | creates
-    // OPEN_EXISTING                   | opens             | fails
-    enum CreateMode {
-        CREATE_IF_NON_EXISTING_TRUNCATE,
-        CREATE_NON_EXISTING,
-        OPEN_EXISTING
+    // enum value                   | file exists       | file does not exist
+    // -----------------------------+-------------------+--------------------
+    // CREATE_OR_OPEN_WITH_TRUNCATE | opens + truncates | creates
+    // CREATE_OR_OPEN               | opens             | creates
+    // MUST_CREATE                  | fails             | creates
+    // MUST_EXIST                   | opens             | fails
+    enum OpenMode {
+        CREATE_OR_OPEN_WITH_TRUNCATE,
+        CREATE_OR_OPEN,
+        MUST_CREATE,
+        MUST_EXIST
     };
 
     Env() { }
@@ -162,7 +164,7 @@ public:
     virtual Status get_file_size(const std::string& fname, uint64_t* size) = 0;
 
     // Store the last modification time of fname in *file_mtime.
-    virtual Status get_file_modification_time(const std::string& fname,
+    virtual Status get_file_modified_time(const std::string& fname,
                                               uint64_t* file_mtime) = 0;
     // Rename file src to target.
     virtual Status rename_file(const std::string& src,
@@ -183,16 +185,16 @@ struct RandomAccessFileOptions {
 struct WritableFileOptions {
     // Call Sync() during Close().
     bool sync_on_close = false;
-    // See CreateMode for details.
-    Env::CreateMode mode = Env::CREATE_IF_NON_EXISTING_TRUNCATE;
+    // See OpenMode for details.
+    Env::OpenMode mode = Env::CREATE_OR_OPEN_WITH_TRUNCATE;
 };
 
 // Creation-time options for RWFile
 struct RandomRWFileOptions {
     // Call Sync() during Close().
     bool sync_on_close = false;
-    // See CreateMode for details.
-    Env::CreateMode mode = Env::CREATE_IF_NON_EXISTING_TRUNCATE;
+    // See OpenMode for details.
+    Env::OpenMode mode = Env::CREATE_OR_OPEN_WITH_TRUNCATE;
 };
 
 // A file abstraction for reading sequentially through a file
@@ -230,7 +232,7 @@ public:
 
     // Read "result.size" bytes from the file starting at "offset".
     // Copies the resulting data into "result.data".
-    // 
+    //
     // If an error was encountered, returns a non-OK status.
     //
     // This method will internally retry on EINTR and "short reads" in order to
@@ -243,7 +245,7 @@ public:
     // Reads up to the "results" aggregate size, based on each Slice's "size",
     // from the file starting at 'offset'. The Slices must point to already-allocated
     // buffers for the data to be written to.
-    // 
+    //
     // If an error was encountered, returns a non-OK status.
     //
     // This method will internally retry on EINTR and "short reads" in order to
@@ -280,18 +282,37 @@ public:
 
     virtual Status appendv(const Slice* data, size_t cnt) = 0;
 
+    // Pre-allocates 'size' bytes for the file in the underlying filesystem.
+    // size bytes are added to the current pre-allocated size or to the current
+    // offset, whichever is bigger. In no case is the file truncated by this
+    // operation.
+    //
+    // On some implementations, preallocation is done without initializing the
+    // contents of the data blocks (as opposed to writing zeroes), requiring no
+    // IO to the data blocks.
+    //
+    // In no case is the file truncated by this operation.
     virtual Status pre_allocate(uint64_t size) = 0;
 
     virtual Status close() = 0;
 
+    // Flush all dirty data (not metadata) to disk.
+    //
+    // If the flush mode is synchronous, will wait for flush to finish and
+    // return a meaningful status.
     virtual Status flush(FlushMode mode) = 0;
 
-    virtual Status sync() = 0; // sync data
+    virtual Status sync() = 0;
 
     virtual uint64_t size() const = 0;
 
     // Returns the filename provided when the WritableFile was constructed.
     virtual const std::string& filename() const = 0;
+
+private:
+    // No copying allowed
+    WritableFile(const WritableFile&);
+    void operator=(const WritableFile&);
 };
 
 // A file abstraction for random reading and writing.
@@ -302,7 +323,7 @@ public:
         FLUSH_ASYNC
     };
     RandomRWFile() {}
-    virtual ~RandomRWFile() {}
+    virtual ~RandomRWFile() { }
 
     virtual Status read_at(uint64_t offset, const Slice& result) const = 0;
 
