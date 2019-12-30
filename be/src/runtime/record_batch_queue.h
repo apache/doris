@@ -35,8 +35,7 @@ namespace doris {
 // full, respectively.
 class RecordBatchQueue {
 public:
-    RecordBatchQueue(u_int32_t max_elements = config::max_memory_sink_batch_count) : 
-            _queue(max_elements) {}
+    RecordBatchQueue(u_int32_t max_elements) : _queue(max_elements) {}
 
     Status status() {
         std::lock_guard<SpinLock> l(_status_lock);

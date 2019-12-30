@@ -70,7 +70,7 @@ void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, BlockQu
         *queue = iter->second;
     } else {
         // the blocking queue size = 20 (default), in this way, one queue have 20 * 1024 rows at most
-        BlockQueueSharedPtr tmp(new RecordBatchQueue());
+        BlockQueueSharedPtr tmp(new RecordBatchQueue(config::max_memory_sink_batch_count));
         _fragment_queue_map.insert(std::make_pair(fragment_instance_id, tmp));
         *queue = tmp;
     }
