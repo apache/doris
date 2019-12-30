@@ -251,7 +251,7 @@ private:
 #define WARN_IF_ERROR(to_call, warning_prefix) \
     do { \
         const Status& _s = (to_call);  \
-        if (PREDICT_FALSE(!_s.ok())) { \
+        if (UNLIKELY(!_s.ok())) { \
             LOG(WARNING) << (warning_prefix) << ": " << _s.to_string();  \
         } \
     } while (0);

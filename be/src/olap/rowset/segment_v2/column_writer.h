@@ -67,7 +67,7 @@ public:
     ~ColumnWriter();
 
     Status init();
-    
+
     template<typename CellType>
     Status append(const CellType& cell) {
         if (_is_nullable) {
@@ -105,11 +105,16 @@ public:
     void write_meta(ColumnMetaPB* meta);
 
 private:
+    // All Pages will be organized into a linked list
     struct Page {
         int32_t first_rowid;
         int32_t num_rows;
-        OwnedSlice null_bitmap;
-        OwnedSlice data;
+        // the data vector may contain:
+        //     1. one OwnedSlice if the data is compressed
+        //     2. one OwnedSlice if the data is not compressed and is not nullable
+        //     3. two OwnedSlice if the data is not compressed and is nullable
+        // use vector for easier management for lifetime of OwnedSlice
+        std::vector<OwnedSlice> data;
         Page* next = nullptr;
     };
 
@@ -134,6 +139,7 @@ private:
     Status _write_raw_data(const std::vector<Slice>& data, size_t* bytes_written);
 
     Status _write_data_page(Page* page);
+    Status _compress_and_write_page(std::vector<Slice>* origin_data, PagePointer* pp);
     Status _write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp);
 
 private:

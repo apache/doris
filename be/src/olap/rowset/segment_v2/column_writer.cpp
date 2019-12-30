@@ -82,7 +82,7 @@ ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
 }
 
 ColumnWriter::~ColumnWriter() {
-    // delete all page
+    // delete all pages
     Page* page = _pages.head;
     while (page != nullptr) {
         Page* next_page = page->next;
@@ -211,9 +211,8 @@ uint64_t ColumnWriter::estimate_buffer_size() {
     uint64_t size = 0;
     Page* page = _pages.head;
     while (page != nullptr) {
-        size += page->data.slice().size;
-        if (_is_nullable) {
-            size += page->null_bitmap.slice().get_size();
+        for (auto& data_slice : page->data) {
+            size += data_slice.slice().size;
         }
         page = page->next;
     }
@@ -250,7 +249,7 @@ Status ColumnWriter::write_data() {
         _page_builder->get_dictionary_page(&dict_page);
         std::vector<Slice> origin_data;
         origin_data.push_back(dict_page.slice());
-        RETURN_IF_ERROR(_write_physical_page(&origin_data, &_dict_page_pp));
+        RETURN_IF_ERROR(_compress_and_write_page(&origin_data, &_dict_page_pp));
     }
     return Status::OK();
 }
@@ -258,14 +257,15 @@ Status ColumnWriter::write_data() {
 Status ColumnWriter::write_ordinal_index() {
     Slice data = _ordinal_index_builder->finish();
     std::vector<Slice> slices{data};
-    return _write_physical_page(&slices, &_ordinal_index_pp);
+    auto st = _compress_and_write_page(&slices, &_ordinal_index_pp);
+    return st;
 }
 
 Status ColumnWriter::write_zone_map() {
     if (_opts.need_zone_map) {
         OwnedSlice data = _column_zone_map_builder->finish();
         std::vector<Slice> slices{data.slice()};
-        return _write_physical_page(&slices, &_zone_map_pp);
+        RETURN_IF_ERROR(_compress_and_write_page(&slices, &_zone_map_pp));
     }
     return Status::OK();
 }
@@ -311,30 +311,17 @@ void ColumnWriter::write_meta(ColumnMetaPB* meta) {
 // write a page into file and update ordinal index
 // this function will call _write_physical_page to write data
 Status ColumnWriter::_write_data_page(Page* page) {
-    std::vector<Slice> origin_data;
-    faststring header;
-    // 1. first rowid
-    put_varint32(&header, page->first_rowid);
-    // 2. row count
-    put_varint32(&header, page->num_rows);
-    if (_is_nullable) {
-        put_varint32(&header, page->null_bitmap.slice().get_size());
-    }
-    origin_data.emplace_back(header.data(), header.size());
-    if (_is_nullable) {
-        origin_data.push_back(page->null_bitmap.slice());
-    }
-    origin_data.push_back(page->data.slice());
-    // TODO(zc): upadte page's statistics
-
     PagePointer pp;
+    std::vector<Slice> origin_data;
+    for (auto& data : page->data) {
+        origin_data.push_back(data.slice());
+    }
     RETURN_IF_ERROR(_write_physical_page(&origin_data, &pp));
     _ordinal_index_builder->append_entry(page->first_rowid, pp);
     return Status::OK();
 }
 
-// write a physical page in to files
-Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp) {
+Status ColumnWriter::_compress_and_write_page(std::vector<Slice>* origin_data, PagePointer* pp) {
     std::vector<Slice>* output_data = origin_data;
     std::vector<Slice> compressed_data;
 
@@ -345,18 +332,22 @@ Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PageP
         RETURN_IF_ERROR(compressor.compress(*origin_data, &compressed_data));
         output_data = &compressed_data;
     }
+    return _write_physical_page(output_data, pp);
+}
 
+// write a physical page in to files
+Status ColumnWriter::_write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp) {
     // checksum
     uint8_t checksum_buf[sizeof(uint32_t)];
-    uint32_t checksum = crc32c::Value(*output_data);
+    uint32_t checksum = crc32c::Value(*origin_data);
     encode_fixed32_le(checksum_buf, checksum);
-    output_data->emplace_back(checksum_buf, sizeof(uint32_t));
+    origin_data->emplace_back(checksum_buf, sizeof(uint32_t));
 
     // remember the offset
     pp->offset = _output_file->size();
     // write content to file
     size_t bytes_written = 0;
-    RETURN_IF_ERROR(_write_raw_data(*output_data, &bytes_written));
+    RETURN_IF_ERROR(_write_raw_data(*origin_data, &bytes_written));
     pp->size = bytes_written;
 
     return Status::OK();
@@ -379,19 +370,57 @@ Status ColumnWriter::_finish_current_page() {
     if (_next_rowid == _last_first_rowid) {
         return Status::OK();
     }
-    Page* page = new Page();
+    std::unique_ptr<Page> page(new Page());
     page->first_rowid = _last_first_rowid;
     page->num_rows = _next_rowid - _last_first_rowid;
-    page->data = _page_builder->finish();
-    _page_builder->reset();
+    faststring header;
+    // 1. first rowid
+    put_varint32(&header, page->first_rowid);
+    // 2. row count
+    put_varint32(&header, page->num_rows);
+    OwnedSlice null_bitmap;
     if (_is_nullable) {
-        page->null_bitmap = _null_bitmap_builder->finish();
+        null_bitmap = _null_bitmap_builder->finish();
         _null_bitmap_builder->reset();
+        put_varint32(&header, null_bitmap.slice().get_size());
     }
+    page->data.emplace_back(std::move(header.build()));
+
+    if (_is_nullable) {
+        page->data.emplace_back(std::move(null_bitmap));
+    }
+    OwnedSlice data_slice = _page_builder->finish();
+    _page_builder->reset();
+    page->data.emplace_back(std::move(data_slice));
+
+    // compressed data
+    if (_compress_codec != nullptr) {
+        PageCompressor compressor(_compress_codec);
+        std::vector<Slice> data_slices;
+        size_t origin_size = 0;
+        for (auto& data : page->data) {
+            data_slices.push_back(data.slice());
+            origin_size += data.slice().size;
+        }
+        OwnedSlice compressed_data;
+        bool compressed = false;
+        RETURN_IF_ERROR(compressor.compress(data_slices, &compressed_data, &compressed));
+        if (compressed) {
+            page->data.clear();
+            page->data.emplace_back(std::move(compressed_data));
+        } else {
+            size_t uncompressed_bytes = Slice::compute_total_size(data_slices);
+            faststring buf;
+            buf.resize(4);
+            encode_fixed32_le((uint8_t*)buf.data(), uncompressed_bytes);
+            page->data.emplace_back(std::move(buf.build()));
+        }
+    }
+
     // update last first rowid
     _last_first_rowid = _next_rowid;
 
-    _push_back_page(page);
+    _push_back_page(page.release());
     if (_opts.need_zone_map) {
         RETURN_IF_ERROR(_column_zone_map_builder->flush());
     }

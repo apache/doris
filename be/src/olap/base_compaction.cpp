@@ -60,11 +60,12 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     _input_rowsets.clear();
     _tablet->pick_candicate_rowsets_to_base_compaction(&_input_rowsets);
     if (_input_rowsets.size() <= 1) {
-        return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
+        return OLAP_ERR_BE_NO_SUITABLE_VERSION;
     }
 
     std::sort(_input_rowsets.begin(), _input_rowsets.end(), Rowset::comparator);
     RETURN_NOT_OK(check_version_continuity(_input_rowsets));
+    RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
 
     // 1. cumulative rowset must reach base_compaction_num_cumulative_deltas threshold
     if (_input_rowsets.size() > config::base_compaction_num_cumulative_deltas) {
@@ -113,6 +114,15 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
               << ", cumulative_base_ratio=" << cumulative_base_ratio
               << ", interval_since_last_base_compaction=" << interval_since_last_base_compaction;
     return OLAP_ERR_BE_NO_SUITABLE_VERSION;
+}
+
+OLAPStatus BaseCompaction::_check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets) {
+    for (auto& rs : rowsets) {
+        if (rs->rowset_meta()->is_segments_overlapping()) {
+            return OLAP_ERR_BE_SEGMENTS_OVERLAPPING;
+        }
+    }
+    return OLAP_SUCCESS;
 }
 
 }  // namespace doris

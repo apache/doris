@@ -51,11 +51,11 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
     "last base failure time": "2019-12-16 18:13:23.320",
     "last cumu success time": "2019-12-16 18:12:15.110",
     "last base success time": "2019-12-16 18:11:50.780",
-    "versions": [
-        "[0-48] 10 ",
-        "[49-49] 2 ",
-        "[50-50] 0 DELETE",
-        "[51-51] 5 "
+    "rowsets": [
+        "[0-48] 10 DATA OVERLAPPING",
+        "[49-49] 2 DATA OVERLAPPING",
+        "[50-50] 0 DELETE NONOVERLAPPING",
+        "[51-51] 5 DATE OVERLAPPING"
     ]
 }
 ```
@@ -65,7 +65,7 @@ curl -X GET http://be_host:webserver_port/api/compaction/show?tablet_id=xxxx\&sc
 * cumulative point：base 和 cumulative compaction 的版本分界线。在 point（不含）之前的版本由 base compaction 处理。point（含）之后的版本由 cumulative compaction 处理。
 * last cumulative failure time：上一次尝试 cumulative compaction 失败的时间。默认 10min 后才会再次尝试对该 tablet 做 cumulative compaction。
 * last base failure time：上一次尝试 base compaction 失败的时间。默认 10min 后才会再次尝试对该 tablet 做 base compaction。
-* versions：该 tablet 当前的数据版本集合。如 [0-48] 表示 0-48 版本。第二位数字表示该版本中 segment 的数量。`DELETE` 后缀的表示 delete 版本。
+* rowsets：该 tablet 当前的 rowset 集合。如 [0-48] 表示 0-48 版本。第二位数字表示该版本中 segment 的数量。`DELETE` 表示 delete 版本。`DATE` 表示数据版本。`OVERLAPPING` 和 `NONOVERLAPPING` 表示segment数据是否重叠。
 
 ### 示例
 

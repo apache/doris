@@ -322,6 +322,10 @@ OLAPStatus PushHandler::_convert(TabletSharedPtr cur_tablet,
         context.rowset_state = PREPARED;
         context.txn_id = _request.transaction_id;
         context.load_id = load_id;
+        // although the hadoop load output files are fully sorted,
+        // but it depends on thirparty implementation, so we conservatively
+        // set this value to OVERLAP_UNKNOWN
+        context.segments_overlap = OVERLAP_UNKNOWN;
 
         std::unique_ptr<RowsetWriter> rowset_writer;
         res = RowsetFactory::create_rowset_writer(context, &rowset_writer);

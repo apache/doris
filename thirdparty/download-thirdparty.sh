@@ -225,6 +225,8 @@ if [ ! -f $PATCHED_MARK ]; then
     patch -p1 < $TP_PATCH_DIR/glog-0.3.3-vlog-double-lock-bug.patch
     patch -p1 < $TP_PATCH_DIR/glog-0.3.3-for-palo2.patch
     patch -p1 < $TP_PATCH_DIR/glog-0.3.3-remove-unwind-dependency.patch
+    # patch Makefile.am to make autoreconf work
+    patch -p0 < $TP_PATCH_DIR/glog-0.3.3-makefile.patch
     touch $PATCHED_MARK
 fi
 cd -
@@ -277,6 +279,15 @@ if test "x$PATCH_COMPILER_RT" == "xtrue"; then
     echo "Finished patching $COMPILER_RT_SOURCE"
 fi
 
+# patch to llvm to support aarch64 platform
+cd $TP_SOURCE_DIR/$LLVM_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p0 < $TP_PATCH_DIR/llvm-3.4.2.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $LLVM_SOURCE"
+
 # lz4 patch to disable shared library
 cd $TP_SOURCE_DIR/$LZ4_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
@@ -299,6 +310,8 @@ echo "Finished patching $BRPC_SOURCE"
 cd $TP_SOURCE_DIR/$S2_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
     patch -p1 < $TP_PATCH_DIR/s2geometry-0.9.0.patch
+    # replace uint64 with uint64_t to make compiler happy
+    patch -p0 < $TP_PATCH_DIR/s2geometry-0.9.0-uint64.patch
     touch $PATCHED_MARK
 fi
 cd -

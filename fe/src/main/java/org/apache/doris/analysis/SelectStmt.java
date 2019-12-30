@@ -561,16 +561,15 @@ public class SelectStmt extends QueryStmt {
             }
         });
 
-        boolean isAllEqualJoin = false;
         for (Pair<TableRef, Long> candidate : candidates) {
             if (reorderTable(analyzer, candidate.first)) {
-                isAllEqualJoin = true;
-                break;
+                // as long as one scheme success, we return this scheme immediately.
+                // in this scheme, candidate.first will be consider to be the big table in star schema.
+                // this scheme might not be fit for snowflake schema.
+                return;
             }
         }
-        if (isAllEqualJoin) {
-            return;
-        }
+        
         // can not get AST only with equal join, MayBe cross join can help
         fromClause_.clear();
         for (Pair<TableRef, Long> candidate : candidates) {
@@ -608,26 +607,29 @@ public class SelectStmt extends QueryStmt {
             List<TupleId> tuple_list = Lists.newArrayList();
             Expr.getIds(eqJoinPredicates, tuple_list, null);
             for (TupleId tid : tuple_list) {
+                if (validTupleId.contains(tid)) {
+                    // tid has allreday in the list of validTupleId, ignore it
+                    continue;
+                }
                 TableRef candidateTableRef = tableRefMap.get(tid);
                 if (candidateTableRef != null) {
-                    
                     // When sorting table according to the rows, you must ensure 
                     // that all tables On-conjuncts referenced has been added or
                     // is being added.
-                    List<Expr> candidateEqJoinPredicates = analyzer.getEqJoinConjunctsExcludeAuxPredicates(
-                            candidateTableRef.getId());
+                    Preconditions.checkState(tid == candidateTableRef.getId());
+                    List<Expr> candidateEqJoinPredicates = analyzer.getEqJoinConjunctsExcludeAuxPredicates(tid);
                     List<TupleId> candidateTupleList = Lists.newArrayList();
                     Expr.getIds(candidateEqJoinPredicates, candidateTupleList, null);
                     int count = candidateTupleList.size();
                     for (TupleId tupleId : candidateTupleList) {
-                        if (validTupleId.contains(tupleId) || candidateTableRef.getId() == tupleId) {
+                        if (validTupleId.contains(tupleId) || tid == tupleId) {
                             count--;
                         }
                     }
                     
                     if (count == 0) {
                         fromClause_.add(candidateTableRef);
-                        validTupleId.add(candidateTableRef.getId());
+                        validTupleId.add(tid);
                         tableRefMap.remove(tid);
                     }
                 }
