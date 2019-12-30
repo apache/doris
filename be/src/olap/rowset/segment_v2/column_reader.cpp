@@ -150,20 +150,18 @@ Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stat
 
 Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
                                                 const std::vector<CondColumn*>& delete_conditions,
-                                                OlapReaderStatistics* stats,
                                                 std::vector<uint32_t>* delete_partial_filtered_pages,
                                                 RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
 
     std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions, stats, delete_partial_filtered_pages, &page_indexes));
+    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions, delete_partial_filtered_pages, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
     return Status::OK();
 }
 
 Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
                                          const std::vector<CondColumn*>& delete_conditions,
-                                         OlapReaderStatistics* stats,
                                          std::vector<uint32_t>* delete_partial_filtered_pages,
                                          std::vector<uint32_t>* page_indexes) {
     FieldType type = _type_info->type();
@@ -201,11 +199,6 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
             if (should_read) {
                 page_indexes->push_back(i);
             }
-        } else {
-            // page filtered by zone map
-            rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
-            rowid_t page_last_id = _ordinal_index->get_last_row_id(i);
-            stats->rows_stats_filtered += page_last_id - page_first_id + 1;
         }
     }
     return Status::OK();
@@ -222,8 +215,8 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
     return Status::OK();
 }
 
-Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
-            OlapReaderStatistics* stats, RowRanges* row_ranges) {
+Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
+    RETURN_IF_ERROR(_ensure_index_loaded());
     RowRanges bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(_bloom_filter_index_reader->new_iterator(&bf_iter));
@@ -249,9 +242,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
                     _ordinal_index->get_last_row_id(pid) + 1));
         }
     }
-    size_t original_size = row_ranges->count();
     RowRanges::ranges_intersection(*row_ranges, bf_row_ranges, row_ranges);
-    stats->rows_bf_filtered += original_size - row_ranges->count();
     return Status::OK();
 }
 
@@ -519,17 +510,20 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     return Status::OK();
 }
 
-Status FileColumnIterator::get_row_ranges_by_conditions(CondColumn* cond_column,
+Status FileColumnIterator::get_row_ranges_by_zone_map(CondColumn* cond_column,
                                       const std::vector<CondColumn*>& delete_conditions,
                                       RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_conditions,
-            _opts.stats, &_delete_partial_statisfied_pages, row_ranges));
+                &_delete_partial_statisfied_pages, row_ranges));
     }
+    return Status::OK();
+}
 
+Status FileColumnIterator::get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
     if (cond_column != nullptr &&
             cond_column->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(cond_column, _opts.stats, row_ranges));
+        RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(cond_column, row_ranges));
     }
     return Status::OK();
 }
