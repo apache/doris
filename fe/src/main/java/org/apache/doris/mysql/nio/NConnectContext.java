@@ -25,7 +25,7 @@ import java.io.IOException;
 /**
  * Created by infear on 2019/12/19.
  */
-public class NConnectContext extends ConnectContext{
+public class NConnectContext extends ConnectContext {
     protected NMysqlChannel mysqlChannel;
 
     public NConnectContext(StreamConnection connection) {
