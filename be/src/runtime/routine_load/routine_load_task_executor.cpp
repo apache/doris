@@ -165,7 +165,7 @@ void RoutineLoadTaskExecutor::exec_task(
 #define HANDLE_ERROR(stmt, err_msg) \
     do { \
         Status _status_ = (stmt); \
-        if (UNLIKELY(!_status_.ok())) { \
+        if (UNLIKELY(!_status_.ok() && _status_.code() != TStatusCode::PUBLISH_TIMEOUT)) { \
             err_handler(ctx, _status_, err_msg); \
             cb(ctx); \
             return; \

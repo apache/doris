@@ -23,6 +23,12 @@ import java.util.Map;
 
 // Alter table clause.
 public abstract class AlterClause implements ParseNode {
+    // if set to true, the corresponding table should be stable before processing this operation on it.
+    protected boolean needTableStable = false;
+
+    public boolean isNeedTableStable() {
+        return needTableStable;
+    }
 
     public Map<String, String> getProperties() {
         throw new NotImplementedException();

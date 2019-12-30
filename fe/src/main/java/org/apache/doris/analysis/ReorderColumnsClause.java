@@ -43,6 +43,7 @@ public class ReorderColumnsClause extends AlterClause {
         this.columnsByPos = cols;
         this.rollupName = rollup;
         this.properties = properties;
+        this.needTableStable = true;
     }
 
     @Override

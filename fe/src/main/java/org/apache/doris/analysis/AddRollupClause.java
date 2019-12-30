@@ -72,6 +72,7 @@ public class AddRollupClause extends AlterClause {
         this.dupKeys = dupKeys;
         this.baseRollupName = baseRollupName;
         this.properties = properties;
+        this.needTableStable = true;
     }
 
     @Override

@@ -44,6 +44,7 @@ public class DropColumnClause extends AlterClause {
         this.colName = colName;
         this.rollupName = rollupName;
         this.properties = properties;
+        this.needTableStable = true;
     }
 
     @Override

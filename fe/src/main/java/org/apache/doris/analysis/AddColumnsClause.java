@@ -49,6 +49,7 @@ public class AddColumnsClause extends AlterClause {
         this.columnDefs = columnDefs;
         this.rollupName = rollupName;
         this.properties = properties;
+        this.needTableStable = true;
     }
 
     @Override
