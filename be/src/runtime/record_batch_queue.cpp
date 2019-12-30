@@ -19,7 +19,7 @@
 
 namespace doris {
 
-void RecordBatchQueue::update_status(const Status &status) {
+void RecordBatchQueue::update_status(const Status& status) {
     if (status.ok()) {
         return;
     }
@@ -36,4 +36,3 @@ void RecordBatchQueue::clear() {
 }
 
 }
-
