@@ -50,7 +50,7 @@ public class NMysqlServer extends MysqlServer {
             this.xnioWorker = Xnio.getInstance().createWorker(OptionMap.builder()
                     .set(Options.WORKER_IO_THREADS, 4)
                     .set(Options.WORKER_TASK_MAX_THREADS, 16)
-                    .set(Options.WORKER_NAME, "palo-mysql-nio")
+                    .set(Options.WORKER_NAME, "doris-mysql-nio")
                     .set(Options.TCP_NODELAY, true)
                     .getMap());
         } catch (IOException e) {
