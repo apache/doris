@@ -105,6 +105,11 @@ public:
         return _sk_index_decoder->num_items() - 1;
     }
 
+    // only used by UT
+    const SegmentFooterPB& footer() const {
+        return _footer;
+    }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema);
