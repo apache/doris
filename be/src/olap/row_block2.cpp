@@ -93,15 +93,16 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
 std::string RowBlockRow::debug_string() const {
     std::stringstream ss;
     ss << "[";
-    for (int i = 0; i < _block->schema()->num_columns(); ++i) {
+    for (int i = 0; i < _block->schema()->num_column_ids(); ++i) {
         if (i != 0) {
             ss << ",";
         }
-        auto col_schema = _block->schema()->column(i);
-        if (col_schema->is_nullable() && is_null(i)) {
+        ColumnId cid = _block->schema()->column_ids()[i];
+        auto col_schema = _block->schema()->column(cid);
+        if (col_schema->is_nullable() && is_null(cid)) {
             ss << "NULL";
         } else {
-            ss << col_schema->type_info()->to_string(cell_ptr(i));
+            ss << col_schema->type_info()->to_string(cell_ptr(cid));
         }
     }
     ss << "]";

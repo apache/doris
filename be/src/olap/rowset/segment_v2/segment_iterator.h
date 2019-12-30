@@ -50,6 +50,7 @@ public:
     Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* row_block) override;
     const Schema& schema() const override { return _schema; }
+    bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
 private:
     Status _init();
 
@@ -69,8 +70,6 @@ private:
     Status _apply_bitmap_index();
 
     void _init_lazy_materialization();
-
-    Status _next_batch(RowBlockV2* block, size_t row_offset, size_t* rows_read);
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }

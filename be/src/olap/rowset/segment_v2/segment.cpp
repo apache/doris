@@ -60,11 +60,10 @@ Status Segment::_open() {
     return Status::OK();
 }
 
-Status Segment::new_iterator(
-        const Schema& schema,
-        const StorageReadOptions& read_options,
-        std::unique_ptr<RowwiseIterator>* iter) {
-
+Status Segment::new_iterator(const Schema& schema,
+                             const StorageReadOptions& read_options,
+                             std::unique_ptr<RowwiseIterator>* iter) {
+    DCHECK_NOTNULL(read_options.stats);
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
