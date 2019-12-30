@@ -145,7 +145,7 @@ TEST_F(EnvPosixTest, random_rw) {
         char mem[1024];
         std::unique_ptr<RandomRWFile> rfile;
         RandomRWFileOptions opts;
-        opts.mode = Env::OPEN_EXISTING;
+        opts.mode = Env::MUST_EXIST;
         st = env->new_random_rw_file(opts, fname, &rfile);
         ASSERT_TRUE(st.ok());
 
