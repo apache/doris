@@ -74,6 +74,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     context.startAcceptQuery(processor);
                 } catch (Exception e) {
                     LOG.warn("connect processor exception because ", e);
+                    context.cleanup();
                 } finally {
                     ConnectContext.remove();
                 }
