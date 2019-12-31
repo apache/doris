@@ -65,6 +65,11 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.cache.Cache;
+import org.apache.doris.qe.cache.CacheAnalyzer;
+import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
+import org.apache.doris.qe.cache.CacheBeProxy;
+import org.apache.doris.qe.cache.CacheProxy;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
@@ -114,6 +119,7 @@ public class StmtExecutor {
     private boolean isProxy;
     private ShowResultSet proxyResultSet = null;
     private PQueryStatistics statisticsForAuditLog;
+    private boolean isCached;
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
@@ -155,6 +161,8 @@ public class StmtExecutor {
         summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
+        summaryProfile.addInfoString(ProfileManager.IS_CACHED, isCached ? "Yes" : "No");
+
         profile.addChild(summaryProfile);
         if (coord != null) {
             coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTimeInNanoSecond));
@@ -575,6 +583,78 @@ public class StmtExecutor {
         context.getState().setOk();
     }
 
+    private void sendChannel(MysqlChannel channel, List<CacheProxy.CacheValue> cacheValues, boolean hitAll)
+            throws Exception {
+        RowBatch batch = null;
+        for (CacheBeProxy.CacheValue value : cacheValues) {
+            batch = value.getRowBatch();
+            for (ByteBuffer row : batch.getBatch().getRows()) {
+                channel.sendOnePacket(row);
+            }
+            context.updateReturnRows(batch.getBatch().getRows().size());
+        }
+        if (hitAll) {
+            if (batch != null) {
+                statisticsForAuditLog = batch.getQueryStatistics();
+            }
+            context.getState().setEof();
+            return;
+        }
+    }
+
+    private boolean handleCacheStmt(CacheAnalyzer cacheAnalyzer,MysqlChannel channel) throws Exception {
+        RowBatch batch = null;
+        CacheBeProxy.FetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
+        CacheMode mode = cacheAnalyzer.getCacheMode();
+        if (cacheResult != null) {
+            isCached = true;
+            if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
+                sendChannel(channel, cacheResult.getValueList(), true);
+                return true;
+            }
+            //rewrite sql
+            if (mode == CacheMode.Partition) {
+                if (cacheAnalyzer.getHitRange() == Cache.HitRange.Left) {
+                    sendChannel(channel, cacheResult.getValueList(), false);
+                }
+                SelectStmt newSelectStmt = cacheAnalyzer.getRewriteStmt();
+                newSelectStmt.reset();
+                analyzer = new Analyzer(context.getCatalog(), context);
+                newSelectStmt.analyze(analyzer);
+                planner = new Planner();
+                planner.plan(newSelectStmt, analyzer, context.getSessionVariable().toThrift());
+            }
+        }
+
+        coord = new Coordinator(context, analyzer, planner);
+        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+        coord.exec();
+
+        while (true) {
+            batch = coord.getNext();
+            if (batch.getBatch() != null) {
+                cacheAnalyzer.copyRowBatch(batch);
+                for (ByteBuffer row : batch.getBatch().getRows()) {
+                    channel.sendOnePacket(row);
+                }
+                context.updateReturnRows(batch.getBatch().getRows().size());
+            }
+            if (batch.isEos()) {
+                break;
+            }
+        }
+        
+        if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
+            sendChannel(channel, cacheResult.getValueList(), false);
+        }
+
+        cacheAnalyzer.updateCache();
+        statisticsForAuditLog = batch.getQueryStatistics();
+        context.getState().setEof();
+        return false;
+    }
+
     // Process a select statement.
     private void handleQueryStmt() throws Exception {
         // Every time set no send flag and clean all data in buffer
@@ -595,12 +675,6 @@ public class StmtExecutor {
             handleExplainStmt(explainString);
             return;
         }
-        coord = new Coordinator(context, analyzer, planner);
-
-        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), 
-                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
-
-        coord.exec();
 
         // if python's MysqlDb get error after sendfields, it can't catch the exception
         // so We need to send fields after first batch arrived
@@ -619,20 +693,31 @@ public class StmtExecutor {
         if (!isOutfileQuery) {
             sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
         }
+        
+        //Sql and PartitionCache
+        CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, planner);
+        if (cacheAnalyzer.enableCache()) {
+            handleCacheStmt(cacheAnalyzer, channel);
+            return;
+        }
+
+        coord = new Coordinator(context, analyzer, planner);
+        QeProcessorImpl.INSTANCE.registerQuery(context.queryId(),
+                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
+        coord.exec();
         while (true) {
             batch = coord.getNext();
             // for outfile query, there will be only one empty batch send back with eos flag
             if (batch.getBatch() != null && !isOutfileQuery) {
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);
-                }            
-                context.updateReturnRows(batch.getBatch().getRows().size());    
+                }
+                context.updateReturnRows(batch.getBatch().getRows().size());
             }
             if (batch.isEos()) {
                 break;
             }
         }
-
         statisticsForAuditLog = batch.getQueryStatistics();
         if (!isOutfileQuery) {
             context.getState().setEof();

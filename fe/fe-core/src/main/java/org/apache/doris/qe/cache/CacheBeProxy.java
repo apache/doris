@@ -59,10 +59,10 @@ public class CacheBeProxy extends CacheProxy {
         try {
             PUpdateCacheRequest updateRequest = request.getRpcRequest();
             Future<PCacheResponse> future = BackendServiceProxy.getInstance().updateCache(address, updateRequest);
-            PCacheResponse response = future.get(timeoutMs, TimeUnit.MICROSECONDS);
-            if (response.status == PCacheStatus.CACHE_OK) {
+            PCacheResponse response = future.get(10000,TimeUnit.MICROSECONDS);
+            if( response.status == PCacheStatus.CACHE_OK) {
                 status.setStatus(new Status(TStatusCode.OK, "CACHE_OK"));
-            } else {
+            }else {
                 status.setStatus(response.status.toString());
             }
         } catch (Exception e) {

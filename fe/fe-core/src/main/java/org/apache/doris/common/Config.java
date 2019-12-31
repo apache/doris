@@ -1171,7 +1171,7 @@ public class Config extends ConfigBase {
     public static long min_clone_task_timeout_sec = 3 * 60; // 3min
     @ConfField(mutable = true, masterOnly = true)
     public static long max_clone_task_timeout_sec = 2 * 60 * 60; // 2h
-
+    
     /** 
      * If set to true, fe will enable sql result cache
      * This option is suitable for offline data update scenarios

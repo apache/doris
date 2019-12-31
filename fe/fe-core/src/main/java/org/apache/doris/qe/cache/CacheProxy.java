@@ -174,7 +174,6 @@ public abstract class CacheProxy {
         }
     }
 
-
     public static class FetchCacheRequest extends PFetchCacheRequest {
         private String sqlStr;
         private List<CacheParam> paramList;
@@ -272,7 +271,6 @@ public abstract class CacheProxy {
     public abstract FetchCacheResult fetchCache(FetchCacheRequest request, int timeoutMs, Status status);
 
     public abstract void clearCache(PClearCacheRequest clearRequest);
-
 
     public static PUniqueId getMd5(String str) {
         MessageDigest msgDigest;

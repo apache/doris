@@ -238,6 +238,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/small_file_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/mem_pool_test
 ${DORIS_TEST_BINARY_DIR}/runtime/memory/chunk_allocator_test
 ${DORIS_TEST_BINARY_DIR}/runtime/memory/system_allocator_test
+${DORIS_TEST_BINARY_DIR}/runtime/cache/partition_cache_test
 # Running expr Unittest
 
 # Running http
