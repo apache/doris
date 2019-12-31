@@ -40,15 +40,10 @@ string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
 message(STATUS "Build type is ${CMAKE_BUILD_TYPE}")
 
 # set CMAKE_BUILD_TARGET_ARCH
-if (DEFINED ENV{BUILD_TARGET_ARCH})
-    set(CMAKE_BUILD_TARGET_ARCH $ENV{BUILD_TARGET_ARCH})
-endif()
-if (NOT CMAKE_BUILD_TARGET_ARCH)
-    execute_process(COMMAND bash "-c" "lscpu | grep 'Architecture' | awk '{print $2}'"
-                    OUTPUT_VARIABLE
-                    CMAKE_BUILD_TARGET_ARCH
-                    OUTPUT_STRIP_TRAILING_WHITESPACE)
-endif()
+execute_process(COMMAND bash "-c" "lscpu | grep 'Architecture' | awk '{print $2}'"
+                OUTPUT_VARIABLE
+                CMAKE_BUILD_TARGET_ARCH
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
 message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
 
 # Set dirs
