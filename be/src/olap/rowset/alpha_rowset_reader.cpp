@@ -141,7 +141,7 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
     size_t num_rows_in_block = 0;
     while (_read_block->pos() < _num_rows_per_row_block) {
         RowCursor* row_cursor = nullptr;
-        status = _pull_next_row_for_merge_rowset(&row_cursor);
+        status = _pull_next_row_for_merge_rowset_v2(&row_cursor);
         if (status == OLAP_ERR_DATA_EOF && _read_block->pos() > 0) {
             status = OLAP_SUCCESS;
             break;
@@ -158,6 +158,58 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
     _read_block->finalize(num_rows_in_block);
     *block = _read_block.get();
     return status;
+}
+
+OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_queue(AlphaMergeContext* merge_ctx, size_t ordinal) {
+    if (merge_ctx->is_eof) {
+        // nothing in this merge ctx, just return
+        return OLAP_SUCCESS;
+    }  
+
+    // get next row block of this merge ctx
+    if (merge_ctx->row_block == nullptr || !merge_ctx->row_block->has_remaining()) {
+        OLAPStatus status = _pull_next_block(merge_ctx);
+        if (status == OLAP_ERR_DATA_EOF) {
+            _merge_ctxs.is_eof = true;
+            return OLAP_SUCCESS;
+        } else if (status != OLAP_SUCCESS) {
+            LOG(WARNING) << "read next row of singleton rowset failed:" << status;
+            return status;
+        }
+    }
+
+    // read the first row, push it into merge queue, and step forward
+    RowCursor* current_row = merge_ctx->row_cursor.get();
+    merge_ctx->row_block->get_row(merge_ctx->row_block->pos(), current_row);
+    _merge_queue.emplace({ current_row, ordinal });
+    merge_ctx->row_block->pos_inc();
+}
+
+OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset_v2(RowCursor** row) {
+    if (_merge_queue.empty() && !_merge_ctxs.empty()) {
+        // merge queue is empty but _merge_ctxs has ctxs, which means this is the first time 
+        // of calling this method. build the merge queue first.
+        size_t ordinal = 0;
+        for (auto& merge_ctx : _merge_ctxs) {
+            RETURN_NOT_OK(_update_merge_ctx_and_build_merge_queue(&merge_ctx, ordinal));
+            ++ordinal;
+        }
+    }
+
+    // if _merge_queue is not empty, return the row at top, and insert a new row
+    // from conresponding merge_ctx
+    if (!_merge_queue.empty()) {
+        RowCursorWithOrdinal& row_with_ordinal = _merge_queue.top();
+        *row = row_with_ordinal.row_cursor;
+        size_t ordinal = row_with_ordinal.ordinal;
+        _merge_queue.pop();
+        
+        RETURN_NOT_OK(_update_merge_ctx(&(_merge_ctxs[ordinal]), ordinal));
+        return OLAP_SUCCESS;
+    } else {
+        // all rows are read
+        return OLAP_ERR_DATA_EOF;
+    }
 }
 
 OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset(RowCursor** row) {
@@ -324,6 +376,10 @@ OLAPStatus AlphaRowsetReader::_init_merge_ctxs(RowsetReaderContext* read_context
 
 RowsetSharedPtr AlphaRowsetReader::rowset() {
     return std::static_pointer_cast<Rowset>(_rowset);
+}
+
+bool RowCursorWithOrdinalComparator::operator () (const RowCursorWithOrdinal &x, const RowCursorWithOrdinal &y) const {
+    return compare_row(x.row_cursor, y.row_cursor) > 0;
 }
 
 }  // namespace doris
