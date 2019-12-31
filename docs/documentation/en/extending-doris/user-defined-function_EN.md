@@ -75,7 +75,7 @@ Executing `sh build.sh` in the Doris root directory generates the corresponding 
 
 ### Edit CMakeLists.txt
 
-Based on the `headers | libs` generated in the previous step, users can introduce the dependency using tools such as `CMakeLists`; in `CMakeLists`, dynamic libraries can be added by adding `-I|L` to `CMAKE_CXX_FLAGS`, respectively. For example, in `be/src/udf_samples/CMakeLists.txt`, a `udf sample` dynamic library is added using `add_library` (udfsample SHARED udf_sample.cpp). You need to write down all the source files involved later (no header files included).
+Based on the `headers | libs` generated in the previous step, users can introduce the dependency using tools such as `CMakeLists`; in `CMakeLists`, dynamic libraries can be added by adding `-I|L` to `CMAKE_CXX_FLAGS`, respectively. For example, in `be/src/udf_samples/CMakeLists.txt`, a `udf sample` dynamic library is added using `add_library` (udfsample SHARED udf_sample.cpp) `target_link_libraries`(udfsample -static-libstdc++ -static-libgcc). You need to write down all the source files involved later (no header files included).
 
 ### Execute compilation
 
