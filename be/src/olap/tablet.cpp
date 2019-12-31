@@ -711,23 +711,6 @@ const uint32_t Tablet::calc_base_compaction_score() const {
     return base_rowset_exist ? score : 0;
 }
 
-OLAPStatus Tablet::compute_all_versions_hash(const vector<Version>& versions,
-                                             VersionHash* version_hash) const {
-    DCHECK(version_hash != nullptr) << "invalid parameter, version_hash is nullptr";
-    int64_t v_hash  = 0L;
-    for (auto version : versions) {
-        auto it = _rs_version_map.find(version);
-        if (it == _rs_version_map.end()) {
-            LOG(WARNING) << "fail to find Rowset. "
-                << "version=" << version.first << "-" << version.second;
-            return OLAP_ERR_TABLE_VERSION_INDEX_MISMATCH_ERROR;
-        }
-        v_hash ^= it->second->version_hash();
-    }
-    *version_hash = v_hash;
-    return OLAP_SUCCESS;
-}
-
 void Tablet::compute_version_hash_from_rowsets(
         const std::vector<RowsetSharedPtr>& rowsets, VersionHash* version_hash) const {
     DCHECK(version_hash != nullptr) << "invalid parameter, version_hash is nullptr";
