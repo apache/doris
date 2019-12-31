@@ -77,29 +77,19 @@
                        + __clang_minor__ * 100         \
                        + __clang_patchlevel__)
 
-#if defined(TCMALLOC_PREFER_GCC_ATOMICS) && defined(__GNUC__) && GCC_VERSION >= 40700
-#include "gutil/atomicops-internals-gcc.h"
-#elif defined(TCMALLOC_PREFER_GCC_ATOMICS) && defined(__clang__) && CLANG_VERSION >= 30400
-#include "gutil/atomicops-internals-gcc.h"
 // ThreadSanitizer provides own implementation of atomicops.
-#elif defined(THREAD_SANITIZER)
+#if defined(THREAD_SANITIZER)
 #include "gutil/atomicops-internals-tsan.h"
 #elif defined(__GNUC__) && GCC_VERSION >= 40700
 #include "gutil/atomicops-internals-gcc.h"
 #elif defined(__clang__) && CLANG_VERSION >= 30400
 #include "gutil/atomicops-internals-gcc.h"
-#elif defined(__APPLE__)
-#include "gutil/atomicops-internals-macosx.h"
 #elif defined(__GNUC__) && defined(ARMV6)
 #include "gutil/auxiliary/atomicops-internals-arm-v6plus.h"
 #elif defined(ARMV3)
 #include "gutil/auxiliary/atomicops-internals-arm-generic.h"
 #elif defined(__GNUC__) && (defined(__i386) || defined(__x86_64__))
 #include "gutil/atomicops-internals-x86.h"
-#elif defined(__GNUC__) && defined(ARCH_POWERPC64)
-#include "gutil/atomicops-internals-powerpc.h"
-#elif defined(OS_WINDOWS)
-#include "gutil/auxiliary/atomicops-internals-windows.h"
 #else
 #error You need to implement atomic operations for this architecture
 #endif
