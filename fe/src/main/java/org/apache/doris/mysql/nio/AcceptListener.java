@@ -30,7 +30,7 @@ import org.xnio.channels.AcceptingChannel;
 import java.io.IOException;
 
 /**
- * Created by infear on 2019/12/19.
+ * listener for accept mysql connections.
  */
 public class AcceptListener implements ChannelListener<AcceptingChannel<StreamConnection>> {
     private final Logger LOG = LogManager.getLogger(this.getClass());

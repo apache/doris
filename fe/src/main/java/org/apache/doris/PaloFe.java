@@ -91,7 +91,7 @@ public class PaloFe {
             // 1. QeService for MySQL Server
             // 2. FeServer for Thrift Server
             // 3. HttpServer for HTTP Server
-            QeService qeService = new QeService(Config.query_port, Config.nio_enabled, ExecuteEnv.getInstance().getScheduler());
+            QeService qeService = new QeService(Config.query_port, Config.mysql_service_nio_enabled, ExecuteEnv.getInstance().getScheduler());
             FeServer feServer = new FeServer(Config.rpc_port);
             HttpServer httpServer = new HttpServer(Config.http_port);
             httpServer.setup();

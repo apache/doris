@@ -23,7 +23,7 @@ import org.xnio.StreamConnection;
 import java.io.IOException;
 
 /**
- * Created by infear on 2019/12/19.
+ * connect context based on nio.
  */
 public class NConnectContext extends ConnectContext {
     protected NMysqlChannel mysqlChannel;

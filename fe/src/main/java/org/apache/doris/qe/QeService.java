@@ -52,17 +52,6 @@ public class QeService {
         }
     }
 
-    public QeService(int port, ConnectScheduler scheduler) {
-        // Set up help module
-        try {
-            HelpModule.getInstance().setUpModule();
-        } catch (Exception e) {
-            LOG.error("Help module failed, because:", e);
-        }
-        this.port = port;
-        mysqlServer = new MysqlServer(port, scheduler);
-    }
-
     public void start() throws IOException {
         if (!mysqlServer.start()) {
             LOG.error("mysql server start failed");

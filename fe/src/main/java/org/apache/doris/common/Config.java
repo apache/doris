@@ -267,10 +267,14 @@ public class Config extends ConfigBase {
     @ConfField public static int query_port = 9030;
 
     /*
-    * nio enabled
+    * mysql service nio option.
      */
-    @ConfField public static boolean nio_enabled = false;
+    @ConfField public static boolean mysql_service_nio_enabled = false;
 
+    /*
+     * num of thread to handle io events in mysql.
+     */
+    @ConfField public static int mysql_service_io_threads_num = 4;
     /*
      * Cluster name will be shown as the title of web page
      */

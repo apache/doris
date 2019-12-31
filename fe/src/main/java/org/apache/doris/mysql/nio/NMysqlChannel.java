@@ -28,7 +28,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
 /**
- * Created by infear on 2019/12/19.
+ * mysql Channel based on nio.
  */
 public class NMysqlChannel extends MysqlChannel {
     protected final Logger LOG = LogManager.getLogger(this.getClass());

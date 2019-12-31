@@ -25,7 +25,7 @@ import org.xnio.XnioIoThread;
 import org.xnio.conduits.ConduitStreamSourceChannel;
 
 /**
- * Created by infear on 2019/12/20.
+ * listener for handle mysql cmd.
  */
 public class ReadListener implements ChannelListener<ConduitStreamSourceChannel> {
     private final Logger LOG = LogManager.getLogger(this.getClass());

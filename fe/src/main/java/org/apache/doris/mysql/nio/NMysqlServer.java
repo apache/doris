@@ -16,6 +16,8 @@
 // under the License.
 package org.apache.doris.mysql.nio;
 
+import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import org.apache.doris.common.Config;
 import org.apache.doris.mysql.MysqlServer;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.logging.log4j.LogManager;
@@ -29,11 +31,11 @@ import org.xnio.channels.AcceptingChannel;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
- * nio version mysql protocol implementation based on XNIO。
- *
- * Created by infear on 2019/12/19.
+ * mysql protocol implementation based on nio.
  */
 public class NMysqlServer extends MysqlServer {
     private final Logger LOG = LogManager.getLogger(this.getClass());
@@ -44,18 +46,15 @@ public class NMysqlServer extends MysqlServer {
 
     private AcceptingChannel<StreamConnection> server;
 
+    // default task service.
+    private ExecutorService taskService = Executors.newCachedThreadPool((new ThreadFactoryBuilder().setDaemon(false).setNameFormat("doris-mysql-nio TASK").build()));
+
     public NMysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;
-        try {
-            this.xnioWorker = Xnio.getInstance().createWorker(OptionMap.builder()
-                    .set(Options.WORKER_IO_THREADS, 4)
-                    .set(Options.WORKER_TASK_MAX_THREADS, 16)
-                    .set(Options.WORKER_NAME, "doris-mysql-nio")
-                    .set(Options.TCP_NODELAY, true)
-                    .getMap());
-        } catch (IOException e) {
-            LOG.warn("Initialize nio worker failed.");
-        }
+        this.xnioWorker = Xnio.getInstance().createWorkerBuilder()
+                .setWorkerName("doris-mysql-nio")
+                .setWorkerIoThreads(Config.mysql_service_io_threads_num)
+                .setExternalExecutorService(taskService).build();
         // connectScheduler only used for idle check.
         this.acceptListener = new AcceptListener(connectScheduler);
     }
@@ -66,7 +65,7 @@ public class NMysqlServer extends MysqlServer {
     public boolean start() {
         try {
             server = xnioWorker.createStreamConnectionServer(new InetSocketAddress(port),
-                    acceptListener, OptionMap.EMPTY);
+                    acceptListener, OptionMap.create(Options.TCP_NODELAY, true));
             server.resumeAccepts();
             running = true;
             LOG.info("Open mysql server success on {}", port);
@@ -88,5 +87,9 @@ public class NMysqlServer extends MysqlServer {
                 LOG.warn("close server channel failed.", e);
             }
         }
+    }
+
+    public void setTaskService(ExecutorService taskService) {
+        this.taskService = taskService;
     }
 }
