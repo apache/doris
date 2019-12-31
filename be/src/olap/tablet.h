@@ -182,8 +182,6 @@ public:
     bool can_do_compaction();
     const uint32_t calc_cumulative_compaction_score() const;
     const uint32_t calc_base_compaction_score() const;
-    OLAPStatus compute_all_versions_hash(const std::vector<Version>& versions,
-                                         VersionHash* version_hash) const;
     void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
                                            VersionHash* version_hash) const;
 

@@ -394,15 +394,10 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             // get snapshot version, use request.version if specified
             int32_t version = lastest_version->end_version();
             if (request.__isset.version) {
-                if (lastest_version->end_version() < request.version
-                        || (lastest_version->start_version() == lastest_version->end_version()
-                        && lastest_version->end_version() == request.version
-                        && lastest_version->version_hash() != request.version_hash)) {
+                if (lastest_version->end_version() < request.version) {
                     LOG(WARNING) << "invalid make snapshot request. "
                                  << " version=" << lastest_version->end_version()
-                                 << " version_hash=" << lastest_version->version_hash()
-                                 << " req_version=" << request.version
-                                 << " req_version_hash=" << request.version_hash;
+                                 << " req_version=" << request.version;
                     res = OLAP_ERR_INPUT_PARAMETER_ERROR;
                     break;
                 }
