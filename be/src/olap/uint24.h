@@ -49,8 +49,32 @@ public:
         return *this;
     }
 
+    uint24_t& operator=(const uint128_t& value) {
+        data[0] = static_cast<uint8_t>(value);
+        data[1] = static_cast<uint8_t>(value >> 8);
+        data[2] = static_cast<uint8_t>(value >> 16);
+        return *this;
+    }
+
+    uint24_t& operator=(const uint64_t& value) {
+        data[0] = static_cast<uint8_t>(value);
+        data[1] = static_cast<uint8_t>(value >> 8);
+        data[2] = static_cast<uint8_t>(value >> 16);
+        return *this;
+    }
+
     uint24_t& operator+=(const uint24_t& value) {
         *this = static_cast<int>(*this) + static_cast<int>(value);
+        return *this;
+    }
+
+    uint24_t& operator>>=(const int& bits) {
+        *this = static_cast<uint>(*this) >> bits;
+        return *this;
+    }
+
+    uint24_t& operator|=(const uint24_t& value) {
+        *this = static_cast<int>(*this) | static_cast<int>(value);
         return *this;
     }
 

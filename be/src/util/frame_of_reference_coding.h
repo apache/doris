@@ -22,6 +22,9 @@
 #include <cstdlib>
 #include <iostream>
 
+#include "olap/olap_common.h"
+#include "olap/decimal12.h"
+
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/faststring.h"
@@ -37,7 +40,8 @@ namespace doris {
 // 1. Body:
 //      BitPackingFrame * FrameCount
 // 2. Footer:
-//      (2 bit OrderFlag + 6 bit BitWidth) * FrameCount
+//
+//      (8 bit OrderFlag + 8 bit BitWidth) * FrameCount
 //       8 bit FrameValueNum
 //      32 bit ValuesNum
 //
@@ -46,6 +50,8 @@ namespace doris {
 //
 // The ascending order BitPackingFrame format:
 //      MinValue, (Value[i] - Value[i - 1]) * FrameValueNum
+//
+// len(MinValue) can be 32(uint32_t), 64(uint64_t), 128(uint128_t)
 //
 // The OrderFlag is 1 represents ascending order, 0 represents  not ascending order
 // The last frame value num maybe less than 128
@@ -67,7 +73,7 @@ public:
     // underlying buffer size + footer meta size.
     // Note: should call this method before flush.
     uint32_t len() {
-        return _buffer->size() + _order_flag_and_bit_widths.size() + 5;
+        return _buffer->size() + _order_flags.size() + _bit_widths.size() + 5;
     }
 
     // Resets all the state in the encoder.
@@ -90,7 +96,8 @@ private:
     T _buffered_values[FRAME_VALUE_NUM];
 
     faststring* _buffer;
-    std::vector<uint8_t> _order_flag_and_bit_widths;
+    std::vector<uint8_t> _order_flags;
+    std::vector<uint8_t> _bit_widths;
 };
 
 template<typename T>

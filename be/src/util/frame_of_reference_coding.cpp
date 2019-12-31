@@ -20,13 +20,38 @@
 #include <algorithm>
 #include <cstring>
 
+#include "olap/uint24.h"
+
+
 #include "util/bit_util.h"
 #include "util/coding.h"
 
 namespace doris {
 
-static inline uint8_t bits(const uint64_t v) {
+
+static inline uint8_t bits_less_than_64(const uint64_t v) {
     return v == 0 ? 0 : 64 - __builtin_clzll(v);
+}
+
+static inline uint8_t bits_may_more_than_64(const uint128_t v) {
+    uint64_t hi = v >> 64;
+    uint64_t lo = v;
+    int z[3]={
+            __builtin_clzll(hi),
+            __builtin_clzll(lo) + 64,
+            128
+    };
+    int idx = !hi + ((!lo)&(!hi));
+    return 128 - z[idx];
+}
+
+template <typename T>
+static inline uint8_t bits(const T v) {
+    if (sizeof(T) <= 64) {
+        return bits_less_than_64(v);
+    } else {
+        return bits_may_more_than_64(v);
+    }
 }
 
 template<typename T>
@@ -129,7 +154,13 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
         }
     }
 
-    if (sizeof(T) == 8) {
+    if (sizeof(T) > 8) {
+        uint128_t min_v = min;
+        uint64_t low = min_v;
+        uint64_t high = min_v >> 64;
+        put_fixed64_le(_buffer, low);
+        put_fixed64_le(_buffer, high);
+    } else if (sizeof(T) == 8) {
         put_fixed64_le(_buffer, min);
     } else {
         put_fixed32_le(_buffer, min);
@@ -151,8 +182,8 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
         }
     }
     // 2 bit order_flag + 6 bit bit_width
-    uint8_t order_flag_and_bit_width = order_flag << 6 | bit_width;
-    _order_flag_and_bit_widths.push_back(order_flag_and_bit_width);
+    _order_flags.push_back(order_flag);
+    _bit_widths.push_back(bit_width);
 
     uint32_t packing_len = BitUtil::Ceil(_buffered_values_num * bit_width, 8);
 
@@ -172,8 +203,12 @@ uint32_t ForEncoder<T>::flush() {
 
     // write the footer:
     // 1 order_flags and bit_widths
-    for (auto value: _order_flag_and_bit_widths) {
-        _buffer->append(&value, 1);
+    if (_order_flags.size() != _bit_widths.size()) {
+        // Can not occurred.
+    }
+    for (size_t i = 0; i < _order_flags.size(); i++) {
+        _buffer->append(&_order_flags[i], 1);
+        _buffer->append(&_bit_widths[i], 1);
     }
     // 2 frame_value_num and values_num
     uint8_t frame_value_num = FRAME_VALUE_NUM;
@@ -197,26 +232,25 @@ bool ForDecoder<T>::init() {
     _frame_count = _values_num / _max_frame_size + (_values_num % _max_frame_size != 0);
     _last_frame_size = _max_frame_size - (_max_frame_size * _frame_count - _values_num);
 
-    size_t bit_width_offset = _buffer_len - 5 - _frame_count;
+    size_t bit_width_offset = _buffer_len - 5 - _frame_count * 2;
     if (bit_width_offset < 0) {
         return false;
     }
     
     // read order_flags, bit_widths and compute frame_offsets
-    uint8_t mask = (1 << 6) - 1;
     u_int32_t frame_start_offset = 0;
     for (uint32_t i = 0; i < _frame_count; i++ ) {
-        uint32_t order_flag_and_bit_width = decode_fixed8(_buffer + bit_width_offset);
-
-        uint8_t bit_width = order_flag_and_bit_width & mask;
-        uint8_t order_flag = order_flag_and_bit_width >> 6;
+        uint8_t order_flag = decode_fixed8(_buffer + bit_width_offset);
+        uint8_t bit_width = decode_fixed8(_buffer + bit_width_offset + 1);
         _bit_widths.push_back(bit_width);
         _order_flags.push_back(order_flag);
 
-        bit_width_offset += 1;
+        bit_width_offset += 2;
 
         _frame_offsets.push_back(frame_start_offset);
-        if (sizeof(T) == 8) {
+        if (sizeof(T) > 8) {
+            frame_start_offset +=  bit_width * _max_frame_size / 8 + 16;
+        } else if (sizeof(T) == 8) {
             frame_start_offset +=  bit_width * _max_frame_size / 8 + 8;
         } else {
             frame_start_offset +=  bit_width * _max_frame_size / 8 + 4;
@@ -266,7 +300,14 @@ void ForDecoder<T>::decode_current_frame(T* output) {
     uint32_t base_offset = _frame_offsets[_current_decoded_frame];
     T min = 0;
     uint32_t delta_offset = 0;
-    if (sizeof(T) == 8) {
+    if (sizeof(T) > 8) {
+        uint64_t low = decode_fixed64_le(_buffer + base_offset);
+        uint64_t high = decode_fixed64_le(_buffer + base_offset + 8);
+        uint128_t min_v = high;
+        min_v = (min_v << 64) + low;
+        min = min_v;
+        delta_offset = base_offset + 16;
+    } else if (sizeof(T) == 8) {
         min = decode_fixed64_le(_buffer + base_offset);
         delta_offset = base_offset + 8;
     } else {
@@ -297,7 +338,13 @@ template<typename T>
 T ForDecoder<T>::decode_frame_min_value(uint32_t frame_index) {
     uint32_t min_offset = _frame_offsets[frame_index];
     T min = 0;
-    if (sizeof(T) == 8) {
+    if (sizeof(T) > 8) {
+        uint64_t low = decode_fixed64_le(_buffer + min_offset);
+        uint64_t high = decode_fixed64_le(_buffer + min_offset + 8);
+        uint128_t min_v = high;
+        min_v = (min_v << 64) + low;
+        min = min_v;
+    } else if (sizeof(T) == 8) {
         min = decode_fixed64_le(_buffer + min_offset);
     } else {
         min = decode_fixed32_le(_buffer + min_offset);
@@ -425,17 +472,23 @@ template class ForEncoder<int8_t>;
 template class ForEncoder<int16_t>;
 template class ForEncoder<int32_t>;
 template class ForEncoder<int64_t>;
+template class ForEncoder<int128_t>;
 template class ForEncoder<uint8_t>;
 template class ForEncoder<uint16_t>;
 template class ForEncoder<uint32_t>;
 template class ForEncoder<uint64_t>;
+template class ForEncoder<uint24_t>;
+template class ForEncoder<uint128_t>;
 
 template class ForDecoder<int8_t>;
 template class ForDecoder<int16_t>;
 template class ForDecoder<int32_t>;
 template class ForDecoder<int64_t>;
+template class ForDecoder<int128_t>;
 template class ForDecoder<uint8_t>;
 template class ForDecoder<uint16_t>;
 template class ForDecoder<uint32_t>;
 template class ForDecoder<uint64_t>;
+template class ForDecoder<uint24_t>;
+template class ForDecoder<uint128_t>;
 }
