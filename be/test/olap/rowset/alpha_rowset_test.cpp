@@ -250,6 +250,65 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     ASSERT_EQ(1, row_block->remaining());
 }
 
+TEST_F(AlphaRowsetTest, TestRowCursorWithOrdinal) {
+    TabletSchema tablet_schema;
+    create_tablet_schema(AGG_KEYS, &tablet_schema);
+
+    RowCursor row1; // 10, "well", 100
+    row1.init(tablet_schema);
+    int32_t field1_0 = 10;
+    row1.set_not_null(0);
+    row1.set_field_content(0, reinterpret_cast<char*>(&field1_0), _mem_pool.get());
+    Slice field1_1("well");
+    row1.set_not_null(1);
+    row1.set_field_content(1, reinterpret_cast<char*>(&field1_1), _mem_pool.get());
+    int32_t field1_2 = 100;
+    row1.set_not_null(2);
+    row1.set_field_content(2, reinterpret_cast<char*>(&field1_2), _mem_pool.get());
+
+    RowCursor row2; // 11, "well", 100
+    row2.init(tablet_schema);
+    int32_t field2_0 = 11;
+    row2.set_not_null(0);
+    row2.set_field_content(0, reinterpret_cast<char*>(&field2_0), _mem_pool.get());
+    Slice field2_1("well");
+    row2.set_not_null(1);
+    row2.set_field_content(1, reinterpret_cast<char*>(&field2_1), _mem_pool.get());
+    int32_t field2_2 = 100;
+    row2.set_not_null(2);
+    row2.set_field_content(2, reinterpret_cast<char*>(&field2_2), _mem_pool.get());
+
+    RowCursor row3; // 11, "good", 100
+    row3.init(tablet_schema);
+    int32_t field3_0 = 11;
+    row3.set_not_null(0);
+    row3.set_field_content(0, reinterpret_cast<char*>(&field3_0), _mem_pool.get());
+    Slice field3_1("good");
+    row3.set_not_null(1);
+    row3.set_field_content(1, reinterpret_cast<char*>(&field3_1), _mem_pool.get());
+    int32_t field3_2 = 100;
+    row3.set_not_null(2);
+    row3.set_field_content(2, reinterpret_cast<char*>(&field3_2), _mem_pool.get());
+
+    std::priority_queue<RowCursorWithOrdinal, std::vector<RowCursorWithOrdinal>, RowCursorWithOrdinalComparator> queue;
+    queue.emplace(&row1, 1);
+    queue.emplace(&row2, 2);
+    queue.emplace(&row3, 3);
+
+    // should be:
+    // row1, row3, row2
+    const RowCursorWithOrdinal& top1 = queue.top();
+    ASSERT_EQ(top1.ordinal, 1);
+    queue.pop();
+    const RowCursorWithOrdinal& top2 = queue.top();
+    ASSERT_EQ(top2.ordinal, 3);
+    queue.pop();
+    const RowCursorWithOrdinal& top3 = queue.top();
+    ASSERT_EQ(top3.ordinal, 2);
+    queue.pop();
+    ASSERT_TRUE(queue.empty());
+}
+
 }  // namespace doris
 
 int main(int argc, char **argv) {

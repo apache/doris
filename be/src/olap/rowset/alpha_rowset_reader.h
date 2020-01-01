@@ -49,6 +49,9 @@ struct AlphaMergeContext {
 struct RowCursorWithOrdinal {
     RowCursor* row_cursor; // not own
     size_t ordinal; // the ordinal of _merge_ctxs this row_cursor belongs to 
+
+    RowCursorWithOrdinal(RowCursor* _row_cursor, size_t _ordinal) :
+        row_cursor(_row_cursor), ordinal(_ordinal) { }
 };
 
 struct RowCursorWithOrdinalComparator {

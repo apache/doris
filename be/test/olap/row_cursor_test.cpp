@@ -443,6 +443,42 @@ TEST_F(TestRowCursor, FullKeyCmp) {
     ASSERT_GT(compare_row(left, right_gt), 0);
 }
 
+TEST_F(TestRowCursor, PriorityQueeuTest) {
+    std::priority_queue<RowCursorWithOrdinal, std::vector<RowCursorWithOrdinal>, RowCursorWithOrdinalComparator> queue;
+    RowCursor rc1;
+    OLAPStatus res = rc1.init(tablet_schema);
+    Slice char1("well");
+    int32_t int1 = 10;
+    rc1.set_field_content(0, reinterpret_cast<char*>(&char1), _mem_pool.get());
+    rc1.set_field_content(1, reinterpret_cast<char*>(&int1), _mem_pool.get());
+
+    res = rc2.init(tablet_schema);
+    Slice char2("well");
+    int32_t int2 = 11;
+    rc2.set_field_content(0, reinterpret_cast<char*>(&char2), _mem_pool.get());
+    rc2.set_field_content(1, reinterpret_cast<char*>(&int2), _mem_pool.get());
+
+    res = rc3.init(tablet_schema);
+    Slice char3("good");
+    int32_t int3 = 11;
+    rc3.set_field_content(0, reinterpret_cast<char*>(&char3), _mem_pool.get());
+    rc3.set_field_content(1, reinterpret_cast<char*>(&int3), _mem_pool.get());
+
+    queue.emplace(&rc3, 1);
+    queue.emplace(&rc2, 2);
+    queue.emplace(&rc1, 3);
+
+    const RowCursorWithOrdinal& top1 = queue.top();
+    ASSERT_EQ(top1.ordinal, 3);
+    queue.pop();
+    const RowCursorWithOrdinal& top2 = queue.top();
+    ASSERT_EQ(top2.ordinal, 2);
+    queue.pop();
+    const RowCursorWithOrdinal& top3 = queue.top();
+    ASSERT_EQ(top3.ordinal, 2);
+    queue.pop();
+}
+
 TEST_F(TestRowCursor, AggregateWithoutNull) {
     TabletSchema tablet_schema;
     set_tablet_schema_for_cmp_and_aggregate(&tablet_schema);
