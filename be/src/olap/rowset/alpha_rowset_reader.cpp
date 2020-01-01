@@ -85,6 +85,7 @@ OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
                                                 *(_current_read_context->seek_columns));
             }
         }
+        RETURN_NOT_OK(_init_merge_heap());
     } else {
         _next_block = &AlphaRowsetReader::_union_block;
     }
@@ -163,7 +164,18 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
     return status;
 }
 
-OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_queue(AlphaMergeContext* merge_ctx, size_t ordinal) {
+OLAPStatus AlphaRowsetReader::_init_merge_heap() {
+    if (_merge_heap.empty() && !_merge_ctxs.empty()) {
+        size_t ordinal = 0;
+        for (auto& merge_ctx : _merge_ctxs) {
+            RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(&merge_ctx, ordinal));
+            ++ordinal;
+        }
+    }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_heap(AlphaMergeContext* merge_ctx, size_t ordinal) {
     if (merge_ctx->is_eof) {
         // nothing in this merge ctx, just return
         return OLAP_SUCCESS;
@@ -181,34 +193,24 @@ OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_queue(AlphaMerge
         }
     }
 
-    // read the first row, push it into merge queue, and step forward
+    // read the first row, push it into merge heap, and step forward
     RowCursor* current_row = merge_ctx->row_cursor.get();
     merge_ctx->row_block->get_row(merge_ctx->row_block->pos(), current_row);
-    _merge_queue.emplace(current_row, ordinal);
+    _merge_heap.emplace(current_row, ordinal);
     merge_ctx->row_block->pos_inc();
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset_v2(RowCursor** row) {
-    if (_merge_queue.empty() && !_merge_ctxs.empty()) {
-        // merge queue is empty but _merge_ctxs has ctxs, which means this is the first time 
-        // of calling this method. build the merge queue first.
-        size_t ordinal = 0;
-        for (auto& merge_ctx : _merge_ctxs) {
-            RETURN_NOT_OK(_update_merge_ctx_and_build_merge_queue(&merge_ctx, ordinal));
-            ++ordinal;
-        }
-    }
-
-    // if _merge_queue is not empty, return the row at top, and insert a new row
+    // if _merge_heap is not empty, return the row at top, and insert a new row
     // from conresponding merge_ctx
-    if (!_merge_queue.empty()) {
-        const RowCursorWithOrdinal& row_with_ordinal = _merge_queue.top();
+    if (!_merge_heap.empty()) {
+        const RowCursorWithOrdinal& row_with_ordinal = _merge_heap.top();
         *row = row_with_ordinal.row_cursor;
         size_t ordinal = row_with_ordinal.ordinal;
-        _merge_queue.pop();
+        _merge_heap.pop();
         
-        RETURN_NOT_OK(_update_merge_ctx_and_build_merge_queue(&(_merge_ctxs[ordinal]), ordinal));
+        RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(&(_merge_ctxs[ordinal]), ordinal));
         return OLAP_SUCCESS;
     } else {
         // all rows are read
