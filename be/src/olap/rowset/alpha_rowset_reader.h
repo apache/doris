@@ -95,6 +95,8 @@ private:
     OLAPStatus _pull_first_block(AlphaMergeContext* merge_ctx);
 
     // merge by priority queue(_merge_queue)
+    // this method has same function with _pull_next_row_for_merge_rowset, but using heap merge.
+    // and this should replace the _pull_next_row_for_merge_rowset later.
     OLAPStatus _pull_next_row_for_merge_rowset_v2(RowCursor** row);
     // update the merge ctx.
     // 1. get next row block of this ctx, if current row block is empty.

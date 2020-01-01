@@ -149,7 +149,7 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
             return status;
         }
 
-        LOG(INFO) << "get merged row: " << row_cursor->to_string();
+        VLOG(10) << "get merged row: " << row_cursor->to_string();
 
         _read_block->get_row(_read_block->pos(), _dst_cursor);
         copy_row(_dst_cursor, *row_cursor, _read_block->mem_pool());
@@ -383,7 +383,7 @@ RowsetSharedPtr AlphaRowsetReader::rowset() {
 }
 
 bool RowCursorWithOrdinalComparator::operator () (const RowCursorWithOrdinal &x, const RowCursorWithOrdinal &y) const {
-    return compare_row(x.row_cursor, y.row_cursor) < 0;
+    return compare_row(*(x.row_cursor), *(y.row_cursor)) > 0;
 }
 
 }  // namespace doris
