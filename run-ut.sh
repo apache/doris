@@ -249,7 +249,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
 ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
 # ${DORIS_TEST_BINARY_DIR}/olap/memtable_flush_executor_test
 
-# Running routine load test
+# Running segment v2 test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_mgr_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
