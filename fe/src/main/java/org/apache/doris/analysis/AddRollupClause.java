@@ -35,7 +35,7 @@ import java.util.Set;
 // syntax:
 //      ALTER TABLE table_name
 //          ADD ROLLUP rollup_name (column, ..) FROM base_rollup
-public class AddRollupClause extends AlterClause {
+public class AddRollupClause extends AlterTableClause {
     private String rollupName;
     private List<String> columnNames;
     private String baseRollupName;
@@ -72,7 +72,6 @@ public class AddRollupClause extends AlterClause {
         this.dupKeys = dupKeys;
         this.baseRollupName = baseRollupName;
         this.properties = properties;
-        this.needTableStable = true;
     }
 
     @Override

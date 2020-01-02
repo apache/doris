@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 // add some columns to one index.
-public class AddColumnsClause extends AlterClause {
+public class AddColumnsClause extends AlterTableClause {
     private List<ColumnDef> columnDefs;
     private String rollupName;
 
@@ -49,7 +49,6 @@ public class AddColumnsClause extends AlterClause {
         this.columnDefs = columnDefs;
         this.rollupName = rollupName;
         this.properties = properties;
-        this.needTableStable = true;
     }
 
     @Override

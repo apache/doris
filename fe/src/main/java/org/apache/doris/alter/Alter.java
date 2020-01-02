@@ -23,6 +23,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
+import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
@@ -167,7 +168,7 @@ public class Alter {
         boolean needTableStable = false;
         for (AlterClause alterClause : alterClauses) {
             if (!needTableStable) {
-                needTableStable = alterClause.isNeedTableStable();
+                needTableStable = ((AlterTableClause) alterClause).isNeedTableStable();
             }
             if ((alterClause instanceof AddColumnClause
                     || alterClause instanceof AddColumnsClause
@@ -243,7 +244,7 @@ public class Alter {
 
             if (hasSchemaChange || hasModifyProp) {
                 // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
-                schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
+                schemaChangeHandler.process((List<AlterClause>) alterClauses, clusterName, db, olapTable);
             } else if (hasAddMaterializedView || hasDropRollup) {
                 materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
             } else if (hasPartition) {
