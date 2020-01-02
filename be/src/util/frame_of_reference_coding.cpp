@@ -154,12 +154,8 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
         }
     }
 
-    if (sizeof(T) > 8) {
-        uint128_t min_v = min;
-        uint64_t low = min_v;
-        uint64_t high = min_v >> 64;
-        put_fixed64_le(_buffer, low);
-        put_fixed64_le(_buffer, high);
+    if (sizeof(T) == 16) {
+        put_fixed128_le(_buffer, min);
     } else if (sizeof(T) == 8) {
         put_fixed64_le(_buffer, min);
     } else {
@@ -203,9 +199,7 @@ uint32_t ForEncoder<T>::flush() {
 
     // write the footer:
     // 1 order_flags and bit_widths
-    if (_order_flags.size() != _bit_widths.size()) {
-        // Can not occurred.
-    }
+    DCHECK(_order_flags.size() == _bit_widths.size()) << "Size of _order_flags and _bit_widths should be equal.";
     for (size_t i = 0; i < _order_flags.size(); i++) {
         _buffer->append(&_order_flags[i], 1);
         _buffer->append(&_bit_widths[i], 1);
@@ -236,7 +230,7 @@ bool ForDecoder<T>::init() {
     if (bit_width_offset < 0) {
         return false;
     }
-    
+
     // read order_flags, bit_widths and compute frame_offsets
     u_int32_t frame_start_offset = 0;
     for (uint32_t i = 0; i < _frame_count; i++ ) {
@@ -248,7 +242,7 @@ bool ForDecoder<T>::init() {
         bit_width_offset += 2;
 
         _frame_offsets.push_back(frame_start_offset);
-        if (sizeof(T) > 8) {
+        if (sizeof(T) == 16) {
             frame_start_offset +=  bit_width * _max_frame_size / 8 + 16;
         } else if (sizeof(T) == 8) {
             frame_start_offset +=  bit_width * _max_frame_size / 8 + 8;
@@ -300,12 +294,8 @@ void ForDecoder<T>::decode_current_frame(T* output) {
     uint32_t base_offset = _frame_offsets[_current_decoded_frame];
     T min = 0;
     uint32_t delta_offset = 0;
-    if (sizeof(T) > 8) {
-        uint64_t low = decode_fixed64_le(_buffer + base_offset);
-        uint64_t high = decode_fixed64_le(_buffer + base_offset + 8);
-        uint128_t min_v = high;
-        min_v = (min_v << 64) + low;
-        min = min_v;
+    if (sizeof(T) == 16) {
+        min = decode_fixed128_le(_buffer + base_offset);
         delta_offset = base_offset + 16;
     } else if (sizeof(T) == 8) {
         min = decode_fixed64_le(_buffer + base_offset);
@@ -338,12 +328,8 @@ template<typename T>
 T ForDecoder<T>::decode_frame_min_value(uint32_t frame_index) {
     uint32_t min_offset = _frame_offsets[frame_index];
     T min = 0;
-    if (sizeof(T) > 8) {
-        uint64_t low = decode_fixed64_le(_buffer + min_offset);
-        uint64_t high = decode_fixed64_le(_buffer + min_offset + 8);
-        uint128_t min_v = high;
-        min_v = (min_v << 64) + low;
-        min = min_v;
+    if (sizeof(T) == 16) {
+        min = decode_fixed128_le(_buffer + min_offset);
     } else if (sizeof(T) == 8) {
         min = decode_fixed64_le(_buffer + min_offset);
     } else {

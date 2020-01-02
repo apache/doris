@@ -28,6 +28,29 @@
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
+std::ostream& operator<<( std::ostream& dest, doris::int128_t value) {
+    std::ostream::sentry s( dest );
+    if ( s ) {
+        __uint128_t tmp = value < 0 ? -value : value;
+        char buffer[ 128 ];
+        char* d = std::end( buffer );
+        do
+        {
+            -- d;
+            *d = "0123456789"[ tmp % 10 ];
+            tmp /= 10;
+        } while ( tmp != 0 );
+        if ( value < 0 ) {
+            -- d;
+            *d = '-';
+        }
+        int len = std::end( buffer ) - d;
+        if ( dest.rdbuf()->sputn( d, len ) != len ) {
+            dest.setstate( std::ios_base::badbit );
+        }
+    }
+    return dest;
+}
 
 namespace doris {
 class FrameOfReferencePageTest : public testing::Test {
@@ -141,6 +164,37 @@ TEST_F(FrameOfReferencePageTest, TestInt64BlockEncoderSequence) {
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_BIGINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_BIGINT>,
             segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_BIGINT> >(ints.get(), size);
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_DATETIME, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATETIME>,
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATETIME> >(ints.get(), size);
+}
+
+TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderSequence) {
+    const uint32_t size = 1000;
+
+    std::unique_ptr<uint24_t[]> ints(new uint24_t[size]);
+    // to guarantee the last value is 0xFFFFFF
+    uint24_t first_value = 0xFFFFFF - size + 1;
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = first_value + i;
+    }
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_DATE, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>,
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE> >(ints.get(), size);
+}
+
+TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderSequence) {
+    const uint32_t size = 1000;
+
+    std::unique_ptr<int128_t[]> ints(new int128_t[size]);
+    // to guarantee the last value is numeric_limits<uint128_t>::max()
+    int128_t first_value = numeric_limits<int128_t>::max() - size + 1;
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = first_value + i;
+    }
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_LARGEINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_LARGEINT>,
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT> >(ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
@@ -155,8 +209,8 @@ TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
     page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 1 /8 packing value = 20
-    // header: 1 + 1 + 4 = 6
-    ASSERT_EQ(26, s.slice().size);
+    // footer: (1 + 1) * 1 + 1 + 4 = 7
+    ASSERT_EQ(27, s.slice().size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestFirstLastValue) {
@@ -190,8 +244,8 @@ TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 7 /8 packing value = 116
-    // header: 1 + 1 + 4 = 6
-    ASSERT_EQ(122, s.slice().size);
+    // footer: (1 + 1) * 1 + 1 + 4 = 7
+    ASSERT_EQ(123, s.slice().size);
 }
 
 }
