@@ -137,9 +137,9 @@ public class AlterViewStmtTest {
 
     @Test
     public void testNormal() {
-        String originStmt = "select col1 as c1, sum(col2) as c2 from testTbl group by col1";
+        String originStmt = "select col1 as c1, sum(col2) as c2 from testDb.testTbl group by col1";
         View view = new View(30000L, "testView", null);
-        view.setInlineViewDefWithSqlMode("select col1 as c1, sum(col2) as c2 from testTbl group by col1", 0L);
+        view.setInlineViewDefWithSqlMode("select col1 as c1, sum(col2) as c2 from testDb.testTbl group by col1", 0L);
         try {
             view.init();
         } catch (UserException e) {
@@ -151,7 +151,7 @@ public class AlterViewStmtTest {
 
         Assert.assertEquals(originStmt, view.getInlineViewDef());
 
-        String alterStmt = "select col1 as k1, col2 as k2 from testDb.testTbl where col1 > 10";
+        String alterStmt = "with testTbl_cte (w1, w2) as (select col1, col2 from testDb.testTbl) select w1 as c1, sum(w2) as c2 from testTbl_cte where w1 > 10 group by w1 order by w1";
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(alterStmt)));
         QueryStmt alterQueryStmt = null;
         try {
@@ -175,7 +175,14 @@ public class AlterViewStmtTest {
 
         View newView = (View) db.getTable("testView");
 
-        Assert.assertEquals("SELECT `col1` AS `h1`, `col2` AS `h2` FROM `testCluster:testDb`.`testTbl` WHERE `col1` > 10",
+        Assert.assertEquals("SELECT `testView`.`c1` AS `h1`, `testView`.`c2` AS `h2` FROM " +
+                                     "(" +
+                                         "WITH testTbl_cte(w1, w2) AS " +
+                                         "(" +
+                                             "SELECT `col1` AS `col1`, `col2` AS `col2` FROM `testCluster:testDb`.`testTbl`" +
+                                         ") " +
+                                         "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `testTbl_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1` ASC" +
+                                     ") testView",
                 newView.getInlineViewDef());
     }
 }

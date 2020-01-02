@@ -1182,6 +1182,11 @@ public class SelectStmt extends QueryStmt {
             return sqlString_;
         }
         StringBuilder strBuilder = new StringBuilder();
+        if (withClause_ != null) {
+            strBuilder.append(withClause_.toSql());
+            strBuilder.append(" ");
+        }
+
         // Select list
         strBuilder.append("SELECT ");
         if (selectList.isDistinct()) {
