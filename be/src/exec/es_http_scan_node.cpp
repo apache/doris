@@ -166,7 +166,7 @@ Status EsHttpScanNode::start_scanners() {
 }
 
 Status EsHttpScanNode::collect_scanners_status() {
-    for (int i = 0; i < _scan_ranges.size(); i++) {
+    for (int i = 0; i < _scanners_status.size(); i++) {
         std::future<Status> f = _scanners_status[i].get_future();
         RETURN_IF_ERROR(f.get());
     }
