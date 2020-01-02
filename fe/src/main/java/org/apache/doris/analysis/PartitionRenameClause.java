@@ -25,13 +25,14 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // rename table
-public class PartitionRenameClause extends AlterClause {
+public class PartitionRenameClause extends AlterTableClause {
     private String partitionName;
     private String newPartitionName;
 
     public PartitionRenameClause(String partitionName, String newPartitionName) {
         this.partitionName = partitionName;
         this.newPartitionName = newPartitionName;
+        this.needTableStable = false;
     }
 
     public String getPartitionName() {

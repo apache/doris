@@ -25,7 +25,7 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // modify one column
-public class ModifyColumnClause extends AlterClause {
+public class ModifyColumnClause extends AlterTableClause {
     private ColumnDef columnDef;
     private ColumnPosition colPos;
     // which rollup is to be modify, if rollup is null, modify base table.

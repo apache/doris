@@ -519,6 +519,9 @@ Status EngineCloneTask::_download_files(
 
         std::string local_file_path = local_path + file_name;
 
+        LOG(INFO) << "clone begin to download file from: " << remote_file_url << " to: "
+            << local_file_path << ". size(B): " << file_size << ", timeout(s): " << estimate_timeout;
+
         auto download_cb = [&remote_file_url,
              estimate_timeout,
              &local_file_path,

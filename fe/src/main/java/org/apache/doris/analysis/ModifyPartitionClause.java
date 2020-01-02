@@ -25,7 +25,7 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // clause which is used to modify partition properties
-public class ModifyPartitionClause extends AlterClause {
+public class ModifyPartitionClause extends AlterTableClause {
 
     private String partitionName;
     private Map<String, String> properties;
@@ -37,6 +37,12 @@ public class ModifyPartitionClause extends AlterClause {
     public ModifyPartitionClause(String partitionName, Map<String, String> properties) {
         this.partitionName = partitionName;
         this.properties = properties;
+        // ATTN: currently, modify partition only allow 2 kinds of operations:
+        // 1. modify replication num
+        // 2. modify data property
+        // And these 2 operations does not require table to be stable.
+        // If other kinds of operations be added later, "needTableStable" may be changed.
+        this.needTableStable = false;
     }
 
     @Override
