@@ -47,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -67,6 +68,7 @@ public class CreateTableStmt extends DdlStmt {
     private Map<String, String> extProperties;
     private String engineName;
     private String comment;
+    private List<AlterClause> ops;
 
     private static Set<String> engineNames;
 
@@ -95,13 +97,28 @@ public class CreateTableStmt extends DdlStmt {
                            boolean isExternal,
                            TableName tableName,
                            List<ColumnDef> columnDefinitions,
-                           String engineName, 
+                           String engineName,
                            KeysDesc keysDesc,
                            PartitionDesc partitionDesc,
                            DistributionDesc distributionDesc,
                            Map<String, String> properties,
                            Map<String, String> extProperties,
                            String comment) {
+        this(ifNotExists, isExternal, tableName, columnDefinitions, engineName, keysDesc, partitionDesc, distributionDesc, properties, extProperties, comment, new ArrayList<>());
+    }
+
+    public CreateTableStmt(boolean ifNotExists,
+                           boolean isExternal,
+                           TableName tableName,
+                           List<ColumnDef> columnDefinitions,
+                           String engineName, 
+                           KeysDesc keysDesc,
+                           PartitionDesc partitionDesc,
+                           DistributionDesc distributionDesc,
+                           Map<String, String> properties,
+                           Map<String, String> extProperties,
+                           String comment,
+                           List<AlterClause> ops) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -124,6 +141,7 @@ public class CreateTableStmt extends DdlStmt {
         this.comment = Strings.nullToEmpty(comment);
 
         this.tableSignature = -1;
+        this.ops = ops;
     }
 
     public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }
@@ -190,6 +208,14 @@ public class CreateTableStmt extends DdlStmt {
 
     public String getComment() {
         return comment;
+    }
+
+    public void setOps(List<AlterClause> ops) {
+        this.ops = ops;
+    }
+
+    public List<AlterClause> getOps() {
+        return ops;
     }
 
     @Override
@@ -426,6 +452,18 @@ public class CreateTableStmt extends DdlStmt {
         
         if (distributionDesc != null) {
             sb.append("\n").append(distributionDesc.toSql());
+        }
+
+        if (ops != null && ops.size() != 0) {
+            sb.append("\n rollup(");
+            StringBuilder opsSb = new StringBuilder();
+            for (int i = 0; i < ops.size(); i++) {
+                opsSb.append(ops.get(i).toSql());
+                if (i != ops.size() - 1) {
+                    opsSb.append(",");
+                }
+            }
+            sb.append(opsSb.toString().replace("ADD ROLLUP", "")).append(")");
         }
 
         // properties may contains password and other sensitive information,

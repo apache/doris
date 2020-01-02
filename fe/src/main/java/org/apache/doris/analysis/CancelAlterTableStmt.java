@@ -25,6 +25,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.List;
+import java.util.stream.Collectors;
+
 /*
  * CANCEL ALTER COLUMN|ROLLUP FROM db_name.table_name
  */
@@ -46,9 +49,20 @@ public class CancelAlterTableStmt extends CancelStmt {
         return dbTableName.getTbl();
     }
 
+    private List<Long> alterJobIdList;
+
     public CancelAlterTableStmt(AlterType alterType, TableName dbTableName) {
+        this(alterType, dbTableName, null);
+    }
+
+    public CancelAlterTableStmt(AlterType alterType, TableName dbTableName, List<Long> alterJobIdList) {
         this.alterType = alterType;
         this.dbTableName = dbTableName;
+        this.alterJobIdList = alterJobIdList;
+    }
+
+    public List<Long> getAlterJobIdList() {
+        return alterJobIdList;
     }
 
     @Override
@@ -71,6 +85,11 @@ public class CancelAlterTableStmt extends CancelStmt {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CANCEL ALTER " + this.alterType);
         stringBuilder.append(" FROM " + dbTableName.toSql());
+        if (alterJobIdList != null && alterJobIdList.size() > 0) {
+            stringBuilder.append(" (")
+            .append(String.join(",",alterJobIdList.stream().map(String::valueOf).collect(Collectors.toList())));
+            stringBuilder.append(")");
+        }
         return stringBuilder.toString();
     }
 

@@ -83,7 +83,7 @@ public class RollupProcDir implements ProcDirInterface {
         }
 
         Preconditions.checkState(jobId != -1L);
-        AlterJobV2 job = materializedViewHandler.getUnfinishedAlterJobV2(jobId);
+        AlterJobV2 job = materializedViewHandler.getUnfinishedAlterJobV2ByJobId(jobId);
         if (job == null) {
             return null;
         }

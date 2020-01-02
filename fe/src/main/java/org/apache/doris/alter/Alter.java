@@ -173,10 +173,10 @@ public class Alter {
                     && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename) {
                 hasSchemaChange = true;
             } else if ((alterClause instanceof AddRollupClause)
-                    && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
+                    && !hasSchemaChange && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasAddMaterializedView = true;
-            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
+            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddMaterializedView
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasDropRollup = true;
             } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup

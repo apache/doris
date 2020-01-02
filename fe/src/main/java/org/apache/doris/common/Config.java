@@ -945,5 +945,8 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean disable_cluster_feature = true;
+
+    @ConfField
+    public static int max_running_rollup_job_num = 1;
 }
 

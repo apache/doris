@@ -111,7 +111,7 @@ public class OlapTable extends Table {
     private double bfFpp;
 
     private String colocateGroup;
-    
+
     // In former implementation, base index id is same as table id.
     // But when refactoring the process of alter table job, we find that
     // using same id is not suitable for our new framework.

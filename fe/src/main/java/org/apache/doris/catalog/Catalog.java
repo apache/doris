@@ -26,7 +26,9 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AdminSetConfigStmt;
+import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -3508,6 +3510,37 @@ public class Catalog {
         int schemaHash = Util.schemaHash(schemaVersion, baseSchema, bfColumns, bfFpp);
         olapTable.setIndexSchemaInfo(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash,
                 shortKeyColumnCount);
+
+
+        // set rollup index to olap table
+        stmt.setOps(MaterializedViewHandler.sortRollupIndex(stmt.getOps()));
+        for (AlterClause alterClause : stmt.getOps()) {
+            AddRollupClause addRollupClause = (AddRollupClause)alterClause;
+
+            String baseRollupIndexName = addRollupClause.getBaseRollupName();
+            if (baseRollupIndexName == null) {
+                baseRollupIndexName = tableName;
+            }
+            Long baseRollupIndex = olapTable.getIndexIdByName(baseRollupIndexName);
+
+            // set rollup index schema to olap table
+            List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
+            short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
+            int rollupSchemaHash = Util.schemaHash(schemaVersion, rollupColumns, bfColumns, bfFpp);
+            long rollupIndexId = getCurrentCatalog().getNextId();
+            olapTable.setIndexSchemaInfo(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion, rollupSchemaHash,
+                    rollupShortKeyColumnCount);
+
+            // set storage type for rollup index
+            TStorageType rollupIndexStorageType = null;
+            try {
+                rollupIndexStorageType = PropertyAnalyzer.analyzeStorageType(addRollupClause.getProperties());
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            Preconditions.checkNotNull(rollupIndexStorageType);
+            olapTable.setStorageTypeToIndex(rollupIndexId, rollupIndexStorageType);
+        }
 
         // analyze version info
         Pair<Long, Long> versionInfo = null;

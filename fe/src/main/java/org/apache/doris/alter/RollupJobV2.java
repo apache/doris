@@ -96,6 +96,9 @@ public class RollupJobV2 extends AlterJobV2 {
 
     private TStorageFormat storageFormat = null;
 
+    // default value = 0,means no parent rollup job
+    private long parentRollupJobId = 0;
+
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
             long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
             List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash,
@@ -133,6 +136,14 @@ public class RollupJobV2 extends AlterJobV2 {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    public long getParentRollupJobId() {
+        return parentRollupJobId;
+    }
+
+    public void setParentRollupJobId(long parentRollupJobId) {
+        this.parentRollupJobId = parentRollupJobId;
     }
 
     /*
@@ -446,7 +457,6 @@ public class RollupJobV2 extends AlterJobV2 {
             }
             partition.visualiseShadowIndex(rollupIndexId, false);
         }
-        tbl.setState(OlapTableState.NORMAL);
     }
 
     /*
@@ -489,7 +499,6 @@ public class RollupJobV2 extends AlterJobV2 {
                         partition.deleteRollupIndex(rollupIndexId);
                     }
                     tbl.deleteIndexInfo(rollupIndexName);
-                    tbl.setState(OlapTableState.NORMAL);
                 }
             } finally {
                 db.writeUnlock();
@@ -605,8 +614,14 @@ public class RollupJobV2 extends AlterJobV2 {
                 return;
             }
 
-            // add all rollup replicas to tablet inverted index
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+            if (this.partitionIdToBaseRollupTabletIdMap.size() == 0 && replayedJob.partitionIdToBaseRollupTabletIdMap.size() != 0) {
+                this.partitionIdToBaseRollupTabletIdMap = replayedJob.partitionIdToBaseRollupTabletIdMap;
+            }
+            if (this.partitionIdToRollupIndex.size() == 0 && replayedJob.partitionIdToRollupIndex.size() != 0) {
+                this.partitionIdToRollupIndex = replayedJob.partitionIdToRollupIndex;
+            }
+            // add all rollup replicas to tablet inverted index
             for (Long partitionId : partitionIdToRollupIndex.keySet()) {
                 MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
                 TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
@@ -620,7 +635,6 @@ public class RollupJobV2 extends AlterJobV2 {
                     }
                 }
             }
-            tbl.setState(OlapTableState.ROLLUP);
         } finally {
             db.writeUnlock();
         }
@@ -682,7 +696,7 @@ public class RollupJobV2 extends AlterJobV2 {
         
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
-        
+
         LOG.info("replay finished rollup job: {}", jobId);
     }
 
@@ -756,4 +770,29 @@ public class RollupJobV2 extends AlterJobV2 {
         }
         return taskInfos;
     }
+
+    public long getRollupIndexId() {
+        return rollupIndexId;
+    }
+
+    public long getBaseIndexId() {
+        return baseIndexId;
+    }
+
+    public List<Column> getRollupSchema() {
+        return rollupSchema;
+    }
+
+    public Map<Long, MaterializedIndex> getPartitionIdToRollupIndex() {
+        return partitionIdToRollupIndex;
+    }
+
+    public int getRollupSchemaHash() {
+        return rollupSchemaHash;
+    }
+
+    public void setJobState(JobState jobState) {
+        this.jobState = jobState;
+    }
+
 }
