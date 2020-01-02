@@ -136,7 +136,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 * 配置 FE
 
     1. 配置文件为 conf/fe.conf。其中注意：`meta_dir`：元数据存放位置。默认在 fe/palo-meta/ 下。需**手动创建**该目录。
-    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 2GB，建议生产环境调整至 8G 以上。
+    2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 4GB，建议生产环境调整至 8G 以上。
 
 * 启动FE
 
