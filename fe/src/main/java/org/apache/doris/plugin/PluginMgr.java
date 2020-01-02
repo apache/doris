@@ -30,30 +30,32 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 public class PluginMgr {
-    private final List<Map<String, PluginRef>> plugins = Lists.newArrayListWithCapacity(PluginType.MAX_PLUGIN_SIZE);
+    private final List<Map<String, PluginLoader>> plugins = Lists.newArrayListWithCapacity(PluginType.MAX_PLUGIN_SIZE);
 
-    private PluginLoader pluginLoader;
+    private String pluginDir;
 
     public PluginMgr(String pluginDir) {
         for (int i = 0; i < plugins.size(); i++) {
             plugins.add(Maps.newConcurrentMap());
         }
 
-        pluginLoader = new PluginLoader(pluginDir);
+        this.pluginDir = pluginDir;
     }
 
     /**
      * Dynamic install plugin thought install statement
      */
     public void installPlugin(String pluginSource) throws IOException, UserException {
-        PluginInfo info = pluginLoader.readPluginInfo(pluginSource);
+        PluginLoader pluginLoader = new DynamicPluginLoader(pluginDir, pluginSource);
+
+        PluginContext ctx = pluginLoader.getPluginContext();
 
         {
             // already install
-            PluginRef oldRef = plugins.get(info.getType().ordinal()).get(info.getName());
+            PluginLoader oldRef = plugins.get(ctx.getType().ordinal()).get(ctx.getName());
             if (oldRef != null) {
                 throw new UserException(
-                        "plugin " + info.getName() + " has install version " + oldRef.getPluginInfo().getVersion());
+                        "plugin " + ctx.getName() + " has install version " + oldRef.getPluginContext().getVersion());
             }
         }
 
@@ -63,17 +65,15 @@ public class PluginMgr {
         }
 
         // install plugin
-        Plugin plugin = pluginLoader.installPlugin(info);
-
-        PluginRef pluginRef = new PluginRef(plugin, info);
+        pluginLoader.install();
 
         {
-            PluginRef checkRef = plugins.get(info.getType().ordinal()).putIfAbsent(info.getName(), pluginRef);
+            PluginLoader checkRef = plugins.get(ctx.getType().ordinal()).putIfAbsent(ctx.getName(), pluginLoader);
 
-            if (!pluginRef.equals(checkRef)) {
-                pluginLoader.uninstallPlugin(info, plugin);
+            if (!pluginLoader.equals(checkRef)) {
+                pluginLoader.uninstall();
                 throw new UserException(
-                        "plugin " + info.getName() + " has install version " + checkRef.getPluginInfo().getVersion());
+                        "plugin " + ctx.getName() + " has install version " + checkRef.getPluginContext().getVersion());
             }
         }
     }
@@ -84,7 +84,7 @@ public class PluginMgr {
     public void uninstallPlugin(String pluginName) throws IOException, UserException {
         for (PluginType type : PluginType.values()) {
             if (plugins.get(type.ordinal()).containsKey(pluginName)) {
-                PluginRef ref = plugins.get(type.ordinal()).remove(pluginName);
+                PluginLoader ref = plugins.get(type.ordinal()).remove(pluginName);
 
                 {
                     // check & update meta
@@ -92,7 +92,7 @@ public class PluginMgr {
                 }
 
                 // uninstall plugin
-                pluginLoader.uninstallPlugin(ref.pluginInfo, ref.plugin);
+                ref.uninstall();
                 return;
             }
         }
@@ -101,20 +101,20 @@ public class PluginMgr {
     /**
      * For built-in Plugin register
      */
-    public boolean registerPlugin(PluginInfo pluginInfo, Plugin plugin) {
-        if (Objects.isNull(pluginInfo) || Objects.isNull(plugin) || Objects.isNull(pluginInfo.getType()) || Strings
-                .isNullOrEmpty(pluginInfo.getName())) {
+    public boolean registerPlugin(PluginContext pluginContext, Plugin plugin) {
+        if (Objects.isNull(pluginContext) || Objects.isNull(plugin) || Objects.isNull(pluginContext.getType()) || Strings
+                .isNullOrEmpty(pluginContext.getName())) {
             return false;
         }
 
-        PluginRef ref = new PluginRef(plugin, pluginInfo);
-        PluginRef checkRef = plugins.get(pluginInfo.getType().ordinal()).putIfAbsent(pluginInfo.getName(), ref);
+        PluginLoader ref = new BuiltinPluginLoader(pluginDir,pluginContext, plugin);
+        PluginLoader checkRef = plugins.get(pluginContext.getType().ordinal()).putIfAbsent(pluginContext.getName(), ref);
 
         return ref.equals(checkRef);
     }
 
     public final Plugin getPlugin(String name, PluginType type) {
-        PluginRef ref = plugins.get(type.ordinal()).get(name);
+        PluginLoader ref = plugins.get(type.ordinal()).get(name);
 
         if (null != ref) {
             return ref.getPlugin();
@@ -124,50 +124,14 @@ public class PluginMgr {
     }
 
     public final List<Plugin> getPluginList(PluginType type) {
-        Map<String, PluginRef> m = plugins.get(type.ordinal());
+        Map<String, PluginLoader> m = plugins.get(type.ordinal());
 
         List<Plugin> l = Lists.newArrayListWithCapacity(m.size());
-        for (PluginRef ref : m.values()) {
+        for (PluginLoader ref : m.values()) {
             l.add(ref.getPlugin());
         }
 
         return Collections.unmodifiableList(l);
     }
 
-    class PluginRef {
-
-        private Plugin plugin;
-
-        private PluginInfo pluginInfo;
-
-        public PluginRef(Plugin plugin, PluginInfo pluginInfo) {
-            this.plugin = plugin;
-            this.pluginInfo = pluginInfo;
-        }
-
-        public Plugin getPlugin() {
-            return plugin;
-        }
-
-        public PluginInfo getPluginInfo() {
-            return pluginInfo;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass()) {
-                return false;
-            }
-            PluginRef pluginRef = (PluginRef) o;
-            return Objects.equals(pluginInfo, pluginRef.pluginInfo);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(pluginInfo);
-        }
-    }
 }

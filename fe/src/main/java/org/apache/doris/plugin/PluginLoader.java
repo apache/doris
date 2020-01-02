@@ -29,6 +29,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
 
 import org.apache.commons.io.FileUtils;
@@ -39,81 +40,142 @@ import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Strings;
 
-public class PluginLoader {
+public abstract class PluginLoader {
+    protected final Path pluginDir;
+
+    protected String source;
+
+    protected Plugin plugin;
+
+    protected PluginContext pluginContext;
+
+    protected PluginLoader(String path, String source) {
+        this.pluginDir = FileSystems.getDefault().getPath(path);
+        this.source = source;
+        this.plugin = null;
+        this.pluginContext = null;
+    }
+
+    protected PluginLoader(String path, PluginContext info) {
+        this.pluginDir = FileSystems.getDefault().getPath(path);
+        this.source = info.getSource();
+        this.plugin = null;
+        this.pluginContext = info;
+    }
+
+    public abstract void install() throws UserException, IOException;
+
+    public abstract void uninstall() throws IOException, UserException;
+
+    public PluginContext getPluginContext() throws IOException, UserException {
+        return pluginContext;
+    }
+
+    public Plugin getPlugin() {
+        return plugin;
+    }
+
+    protected void pluginInstallValid() throws UserException {
+
+    }
+
+    protected void pluginUninstallValid() throws UserException {
+        // check plugin flags
+        if ((plugin.flags() & Plugin.PLUGIN_NOT_DYNAMIC_UNINSTALL) > 0) {
+            throw new UserException("plugin " + pluginContext + " not allow dynamic uninstall");
+        }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        PluginLoader that = (PluginLoader) o;
+        return pluginContext.equals(that.pluginContext);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(pluginContext);
+    }
+}
+
+class DynamicPluginLoader extends PluginLoader {
     private final static Logger LOG = LogManager.getLogger(PluginLoader.class);
 
-    private final Path pluginDir;
+    protected DynamicPluginLoader(String path, String source) {
+        super(path, source);
+    }
 
-    public PluginLoader(String path) {
-        pluginDir = FileSystems.getDefault().getPath(path);
+    public DynamicPluginLoader(String path, PluginContext info) {
+        super(path, info);
     }
 
     /**
      * get Plugin .zip and read plugin.properties
      */
-    public PluginInfo readPluginInfo(String source) throws IOException, UserException {
+    @Override
+    public PluginContext getPluginContext() throws IOException, UserException {
+        // already install
+        if (pluginContext != null) {
+            return pluginContext;
+        }
+
+        // download plugin and extract
         PluginZip zip = new PluginZip(source);
         Path target = Files.createTempDirectory(pluginDir, ".install_");
 
         Path tempPath = zip.extract(target);
 
-        return PluginInfo.readFromProperties(tempPath, source);
+        return PluginContext.readFromProperties(tempPath, source);
     }
 
     /**
      * move plugin to Doris's PLUGIN_DIR and dynamic load the plugin class
      */
-    public Plugin installPlugin(PluginInfo pluginInfo) throws UserException, IOException {
+    public void install() throws UserException, IOException {
 
-        Path realPath = movePlugin(pluginInfo);
+        Path realPath = movePlugin();
 
-        Plugin plugin = dynamicLoadPlugin(pluginInfo, realPath);
+        plugin = dynamicLoadPlugin(realPath);
 
-        pluginInstallValid(pluginInfo, plugin);
+        pluginInstallValid();
 
-        plugin.init();
-
-        return plugin;
+        plugin.init(pluginContext);
     }
 
     /**
      * close plugin and delete Plugin
      */
-    public void uninstallPlugin(PluginInfo plugininfo, Plugin plugin) throws IOException, UserException {
-        pluginUninstallValid(plugininfo, plugin);
+    public void uninstall() throws IOException, UserException {
+        if (plugin == null) {
+            return;
+        }
+
+        pluginUninstallValid();
 
         plugin.close();
 
-        if (StringUtils.startsWithIgnoreCase(plugininfo.getInstallPath(), pluginDir.toString())) {
-            File f = new File(plugininfo.getInstallPath());
+        if (StringUtils.startsWithIgnoreCase(pluginContext.getInstallPath(), pluginDir.toString())) {
+            File f = new File(pluginContext.getInstallPath());
             if (f.exists()) {
                 FileUtils.deleteDirectory(f);
             }
         }
     }
 
-    private void pluginInstallValid(PluginInfo pluginInfo, Plugin plugin) throws UserException {
-        // check plugin flags
-        if ((plugin.flags() & Plugin.PLUGIN_NOT_DYNAMIC_INSTALL) > 0) {
-            throw new  UserException("plugin " + pluginInfo + " not allow dynamic install");
-        }
-    }
-
-    private void pluginUninstallValid(PluginInfo pluginInfo, Plugin plugin) throws UserException {
-        // check plugin flags
-        if ((plugin.flags() & Plugin.PLUGIN_NOT_DYNAMIC_UNINSTALL) > 0) {
-            throw new  UserException("plugin " + pluginInfo + " not allow dynamic uninstall");
-        }
-    }
-
-    Plugin dynamicLoadPlugin(PluginInfo pluginInfo, Path installPath) throws IOException, UserException {
+    Plugin dynamicLoadPlugin(Path installPath) throws IOException, UserException {
         Set<URL> jarList = getJarUrl(installPath);
 
         // create a child to load the plugin in this bundle
         ClassLoader parentLoader = PluginClassLoader.createLoader(getClass().getClassLoader(), Collections.EMPTY_LIST);
         ClassLoader loader = URLClassLoader.newInstance(jarList.toArray(new URL[0]), parentLoader);
 
-        Class<? extends Plugin> pluginClass = loadPluginClass(pluginInfo.getClassName(), loader);
+        Class<? extends Plugin> pluginClass = loadPluginClass(pluginContext.getClassName(), loader);
         return loadPlugin(pluginClass, installPath);
     }
 
@@ -129,12 +191,9 @@ public class PluginLoader {
 
         final Constructor<?> constructor = constructors[0];
 
-        final Class[] parameterTypes = constructor.getParameterTypes();
         try {
-            if (constructor.getParameterCount() == 1 && parameterTypes[0] == Path.class) {
-                return (Plugin)constructor.newInstance(installPath);
-            } else if (constructor.getParameterCount() == 0) {
-                return (Plugin)constructor.newInstance();
+            if (constructor.getParameterCount() == 0) {
+                return (Plugin) constructor.newInstance();
             } else {
                 throw new IllegalStateException("failed to find correct constructor.");
             }
@@ -170,26 +229,52 @@ public class PluginLoader {
     /**
      * move plugin's temp install directory to Doris's PLUGIN_DIR
      */
-    Path movePlugin(PluginInfo pluginInfo) throws UserException, IOException {
+    Path movePlugin() throws UserException, IOException {
 
-        if (Strings.isNullOrEmpty(pluginInfo.getInstallPath())) {
-            throw new UserException("Install plugin " + pluginInfo.getName() + " failed.");
+        if (Strings.isNullOrEmpty(pluginContext.getInstallPath())) {
+            throw new UserException("Install plugin " + pluginContext.getName() + " failed.");
         }
 
-        Path tempPath = FileSystems.getDefault().getPath(pluginInfo.getInstallPath());
+        Path tempPath = FileSystems.getDefault().getPath(pluginContext.getInstallPath());
 
         if (!Files.exists(tempPath) || !Files.isDirectory(tempPath)) {
-            throw new UserException("Install plugin " + pluginInfo.getName() + " failed. cause " + tempPath.toString()
-                    + " exists");
+            throw new UserException(
+                    "Install plugin " + pluginContext.getName() + " failed. cause " + tempPath.toString()
+                            + " exists");
         }
 
-        Path targetPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());
+        Path targetPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginContext.getName());
 
         Files.move(tempPath, targetPath, StandardCopyOption.ATOMIC_MOVE);
 
-        pluginInfo.setInstallPath(targetPath.toString());
+        pluginContext.installPath = targetPath.toString();
 
         return targetPath;
     }
 
+}
+
+class BuiltinPluginLoader extends PluginLoader {
+
+    protected BuiltinPluginLoader(String path, PluginContext info, Plugin plugin) {
+        super(path, info);
+        this.plugin = plugin;
+    }
+
+    @Override
+    public void install() throws UserException, IOException {
+        pluginInstallValid();
+        plugin.init(pluginContext);
+    }
+
+    @Override
+    public void uninstall() throws IOException, UserException {
+        if (plugin == null) {
+            return;
+        }
+
+        pluginUninstallValid();
+
+        plugin.close();
+    }
 }

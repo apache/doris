@@ -22,14 +22,14 @@ import java.util.HashMap;
 import java.util.Map;
 
 import org.apache.doris.plugin.Plugin;
+import org.apache.doris.plugin.PluginContext;
 
 public class PluginTest extends Plugin {
 
     private Map<String, String> map = new HashMap<>();
 
     @Override
-    public void init() {
-        super.init();
+    public void init(PluginContext pluginContext) {
         System.out.println("this is init");
     }
 

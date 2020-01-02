@@ -32,30 +32,30 @@ import org.apache.doris.common.util.DigitalVersion;
 
 import com.google.common.base.Strings;
 
-public class PluginInfo {
+public class PluginContext {
 
     private static final String DEFAULT_PLUGIN_PROPERTIES = "plugin.properties";
 
-    private String name;
+    protected String name;
 
-    private PluginType type;
+    protected PluginType type;
 
-    private String description;
+    protected String description;
 
-    private DigitalVersion version;
+    protected DigitalVersion version;
 
-    private DigitalVersion javaVersion;
+    protected DigitalVersion javaVersion;
 
-    private String className;
+    protected String className;
 
-    private String soName;
+    protected String soName;
 
-    private String source;
+    protected String source;
 
-    private String installPath;
+    protected String installPath;
 
-    public PluginInfo(String name, PluginType type, String description, DigitalVersion version, DigitalVersion javaVersion,
-                      String className, String soName, String source) {
+    public PluginContext(String name, PluginType type, String description, DigitalVersion version, DigitalVersion javaVersion,
+                         String className, String soName, String source) {
 
         this.name = name;
         this.type = type;
@@ -67,7 +67,7 @@ public class PluginInfo {
         this.source = source;
     }
 
-    public static PluginInfo readFromProperties(final Path propertiesPath, final String source) throws IOException {
+    public static PluginContext readFromProperties(final Path propertiesPath, final String source) throws IOException {
         final Path descriptor = propertiesPath.resolve(DEFAULT_PLUGIN_PROPERTIES);
 
         final Map<String, String> propsMap;
@@ -120,12 +120,8 @@ public class PluginInfo {
                     + "[version]");
         }
 
-        // java version check
-//        if (javaVersion.after(Version.JDK_1_8_0)) {
-//        }
-
-        PluginInfo p = new PluginInfo(name, type, description, version, javaVersion, className, soName, source);
-        p.setInstallPath(propertiesPath.toString());
+        PluginContext p = new PluginContext(name, type, description, version, javaVersion, className, soName, source);
+        p.installPath = propertiesPath.toString();
         return p;
     }
 
@@ -153,14 +149,12 @@ public class PluginInfo {
         return className;
     }
 
-    public String getSoName() { return soName; }
+    public String getSoName() {
+        return soName;
+    }
 
     public String getSource() {
         return source;
-    }
-
-    public void setInstallPath(String installPath) {
-        this.installPath = installPath;
     }
 
     public String getInstallPath() {
@@ -175,7 +169,7 @@ public class PluginInfo {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PluginInfo that = (PluginInfo) o;
+        PluginContext that = (PluginContext) o;
         return Objects.equals(name, that.name) &&
                 type == that.type &&
                 Objects.equals(version, that.version);

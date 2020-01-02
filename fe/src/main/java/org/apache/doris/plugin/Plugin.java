@@ -24,22 +24,13 @@ import java.util.Map;
 
 public abstract class Plugin implements Closeable {
     public static final int PLUGIN_DEFAULT_FLAGS = 0;
-    public static final int PLUGIN_NOT_DYNAMIC_INSTALL = 1;
+    public static final int PLUGIN_INSTALL_EARLY = 1;
     public static final int PLUGIN_NOT_DYNAMIC_UNINSTALL = 2;
-    public static final int PLUGIN_INSTALL_EARLY = 4;
-
-    /*
-     * just one constructor
-     *
-     * public Plugin() {}
-     *
-     * public Plugin(Path installPath) {}
-     */
 
     /**
      * invoke when the plugin install
      */
-    public void init() { }
+    public void init(PluginContext ctx) { }
 
     /**
      * invoke when the plugin uninstall
@@ -51,9 +42,7 @@ public abstract class Plugin implements Closeable {
         return PLUGIN_DEFAULT_FLAGS;
     }
 
-    public void setVariable(String key, String value) {
-
-    }
+    public void setVariable(String key, String value) { }
 
     public Map<String, String> variable() {
         return Collections.EMPTY_MAP;
