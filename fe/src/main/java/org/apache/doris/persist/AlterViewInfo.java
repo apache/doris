@@ -96,7 +96,8 @@ public class AlterViewInfo implements Writable {
     public void readField(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0 ; i < size; i++) {
-            newFullSchema.get(i).readFields(in);
+            Column column = Column.read(in);
+            newFullSchema.add(column);
         }
     }
 
