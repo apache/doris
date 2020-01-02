@@ -17,14 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.lang.NotImplementedException;
+// alter table clause
+public abstract class AlterTableClause extends AlterClause {
+    // if set to true, the corresponding table should be stable before processing this operation on it.
+    protected boolean needTableStable = true;
 
-import java.util.Map;
-
-// Alter clause.
-public abstract class AlterClause implements ParseNode {
-
-    public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+    public boolean isNeedTableStable() {
+        return needTableStable;
     }
 }

@@ -879,6 +879,8 @@ public class TabletScheduler extends MasterDaemon {
             long nextTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             replica.setWatermarkTxnId(nextTxnId);
             replica.setState(ReplicaState.DECOMMISSION);
+            // set priority to normal because it may wait for a long time. Remain it as VERY_HIGH may block other task.
+            tabletCtx.setOrigPriority(Priority.NORMAL);
             throw new SchedException(Status.SCHEDULE_FAILED, "set watermark txn " + nextTxnId);
         } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();

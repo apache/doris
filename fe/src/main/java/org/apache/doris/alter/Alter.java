@@ -23,6 +23,7 @@ import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
+import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
@@ -51,11 +52,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.persist.AlterViewInfo;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 
-import org.apache.doris.persist.AlterViewInfo;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -164,7 +165,11 @@ public class Alter {
             db.checkQuota();
         }
 
+        boolean needTableStable = false;
         for (AlterClause alterClause : alterClauses) {
+            if (!needTableStable) {
+                needTableStable = ((AlterTableClause) alterClause).isNeedTableStable();
+            }
             if ((alterClause instanceof AddColumnClause
                     || alterClause instanceof AddColumnsClause
                     || alterClause instanceof DropColumnClause
@@ -224,7 +229,7 @@ public class Alter {
                 throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
             }
             
-            if (hasSchemaChange || hasModifyProp || hasAddMaterializedView) {
+            if (needTableStable) {
                 // check if all tablets are healthy, and no tablet is in tablet scheduler
                 boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
                         Catalog.getCurrentCatalog().getTabletScheduler(),
