@@ -65,8 +65,20 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         data_dirs.push_back(tmp_store.second);
     }
     int32_t data_dir_num = data_dirs.size();
-    // start be and ce threads for merge data
-    int32_t base_compaction_num_threads = config::base_compaction_num_threads_per_disk * data_dir_num;
+
+    // base and cumulative compaction threads
+    int32_t base_compaction_num_threads_per_disk = std::max<int32_t>(1, config::base_compaction_num_threads_per_disk);
+    int32_t cumulative_compaction_num_threads_per_disk = std::max<int32_t>(1, config::cumulative_compaction_num_threads_per_disk);
+    int32_t base_compaction_num_threads = base_compaction_num_threads_per_disk * data_dir_num;
+    int32_t cumulative_compaction_num_threads = cumulative_compaction_num_threads_per_disk * data_dir_num;
+    // calc the max concurrency of compaction tasks
+    int32_t max_compaction_concurrency = config::max_compaction_concurrency;
+    if (max_compaction_concurrency < 0
+        || max_compaction_concurrency > base_compaction_num_threads + cumulative_compaction_num_threads) {
+        max_compaction_concurrency = base_compaction_num_threads + cumulative_compaction_num_threads;
+    }
+    Compaction::init(max_compaction_concurrency);
+
     _base_compaction_threads.reserve(base_compaction_num_threads);
     for (uint32_t i = 0; i < base_compaction_num_threads; ++i) {
         _base_compaction_threads.emplace_back(
@@ -78,7 +90,6 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         thread.detach();
     }
 
-    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads_per_disk * data_dir_num;
     _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
     for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
         _cumulative_compaction_threads.emplace_back(
@@ -90,6 +101,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         thread.detach();
     }
 
+    // tablet checkpoint thread
     for (auto data_dir : data_dirs) {
         _tablet_checkpoint_threads.emplace_back(
         [this, data_dir] {
@@ -100,6 +112,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         thread.detach();
     }
 
+    // fd cache clean thread
     _fd_cache_clean_thread = std::thread(
         [this] {
             _fd_cache_clean_callback(nullptr);
