@@ -49,20 +49,14 @@ public:
 
     virtual OLAPStatus compact() = 0;
 
-    static void init(int concurreny) { _concurrency_sem.set_count(concurreny); }
+    static OLAPStatus init(int concurreny);
 
 protected:
     virtual OLAPStatus pick_rowsets_to_compact() = 0;
     virtual std::string compaction_name() const = 0;
     virtual ReaderType compaction_type() const = 0;
 
-    OLAPStatus do_compaction() {
-        _concurrency_sem.wait();
-        OLAPStatus st = do_compation_impl();
-        _concurrency_sem.signal();
-        return st;
-    }
-
+    OLAPStatus do_compaction();
     OLAPStatus do_compaction_impl();
 
     OLAPStatus modify_rowsets();
