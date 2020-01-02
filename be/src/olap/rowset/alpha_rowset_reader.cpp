@@ -166,16 +166,14 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
 
 OLAPStatus AlphaRowsetReader::_init_merge_heap() {
     if (_merge_heap.empty() && !_merge_ctxs.empty()) {
-        size_t ordinal = 0;
         for (auto& merge_ctx : _merge_ctxs) {
-            RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(&merge_ctx, ordinal));
-            ++ordinal;
+            RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(&merge_ctx));
         }
     }
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_heap(AlphaMergeContext* merge_ctx, size_t ordinal) {
+OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_heap(AlphaMergeContext* merge_ctx) {
     if (merge_ctx->is_eof) {
         // nothing in this merge ctx, just return
         return OLAP_SUCCESS;
@@ -196,7 +194,7 @@ OLAPStatus AlphaRowsetReader::_update_merge_ctx_and_build_merge_heap(AlphaMergeC
     // read the first row, push it into merge heap, and step forward
     RowCursor* current_row = merge_ctx->row_cursor.get();
     merge_ctx->row_block->get_row(merge_ctx->row_block->pos(), current_row);
-    _merge_heap.emplace(current_row, ordinal);
+    _merge_heap.push(merge_ctx);
     merge_ctx->row_block->pos_inc();
     return OLAP_SUCCESS;
 }
@@ -205,12 +203,11 @@ OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset_v2(RowCursor** row
     // if _merge_heap is not empty, return the row at top, and insert a new row
     // from conresponding merge_ctx
     if (!_merge_heap.empty()) {
-        const RowCursorWithOrdinal& row_with_ordinal = _merge_heap.top();
-        *row = row_with_ordinal.row_cursor;
-        size_t ordinal = row_with_ordinal.ordinal;
+        AlphaMergeContext* merge_ctx = _merge_heap.top();
+        *row = merge_ctx->row_cursor.get();
         _merge_heap.pop();
         
-        RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(&(_merge_ctxs[ordinal]), ordinal));
+        RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(merge_ctx));
         return OLAP_SUCCESS;
     } else {
         // all rows are read
@@ -384,8 +381,8 @@ RowsetSharedPtr AlphaRowsetReader::rowset() {
     return std::static_pointer_cast<Rowset>(_rowset);
 }
 
-bool RowCursorWithOrdinalComparator::operator () (const RowCursorWithOrdinal &x, const RowCursorWithOrdinal &y) const {
-    return compare_row(*(x.row_cursor), *(y.row_cursor)) > 0;
+bool AlphaMergeContextComparator::operator() (const AlphaMergeContext* x, const AlphaMergeContext* y) const {
+    return compare_row(*(x->row_cursor.get()), *(y->row_cursor.get())) > 0;
 }
 
 }  // namespace doris

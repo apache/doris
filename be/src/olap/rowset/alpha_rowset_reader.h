@@ -46,16 +46,8 @@ struct AlphaMergeContext {
     bool is_eof = false;
 };
 
-struct RowCursorWithOrdinal {
-    RowCursor* row_cursor; // not own
-    size_t ordinal; // the ordinal of _merge_ctxs this row_cursor belongs to 
-
-    RowCursorWithOrdinal(RowCursor* _row_cursor, size_t _ordinal) :
-        row_cursor(_row_cursor), ordinal(_ordinal) { }
-};
-
-struct RowCursorWithOrdinalComparator {
-    bool operator () (const RowCursorWithOrdinal &x, const RowCursorWithOrdinal &y) const;
+struct AlphaMergeContextComparator {
+    bool operator () (const AlphaMergeContext* x, const AlphaMergeContext* y) const;
 };
 
 class AlphaRowsetReader : public RowsetReader {
@@ -104,7 +96,7 @@ private:
     // 1. get next row block of this ctx, if current row block is empty.
     // 2. read the current row of the row block and push it to merge heap.
     // 3. point to the next row of the row block
-    OLAPStatus _update_merge_ctx_and_build_merge_heap(AlphaMergeContext* merge_ctx, size_t ordinal);
+    OLAPStatus _update_merge_ctx_and_build_merge_heap(AlphaMergeContext* merge_ctx);
 
 private:
     int _num_rows_per_row_block;
@@ -132,7 +124,7 @@ private:
     OlapReaderStatistics* _stats = &_owned_stats;
 
     // a priority queue for merging rowsets
-    std::priority_queue<RowCursorWithOrdinal, vector<RowCursorWithOrdinal>, RowCursorWithOrdinalComparator> _merge_heap;
+    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator> _merge_heap;
 };
 
 } // namespace doris
