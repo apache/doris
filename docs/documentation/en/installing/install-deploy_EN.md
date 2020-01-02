@@ -140,7 +140,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 * Configure FE
 
 	1. The configuration file is conf/fe.conf. Note: `meta_dir`: Metadata storage location. The default is fe/palo-meta/. The directory needs to be **created manually** by.
-	2. JAVA_OPTS in fe.conf defaults to a maximum heap memory of 2GB for java, and it is recommended that the production environment be adjusted to more than 8G.
+	2. JAVA_OPTS in fe.conf defaults to a maximum heap memory of 4GB for java, and it is recommended that the production environment be adjusted to more than 8G.
 
 * Start FE
 
