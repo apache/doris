@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.io.Text;
@@ -35,13 +36,13 @@ public class AlterViewInfo implements Writable {
     private long tableId;
     @SerializedName(value = "inlineViewDef")
     private String inlineViewDef;
-    @SerializedName(value = "newFullSchema")
-    private List<Column> newFullSchema;
     @SerializedName(value = "sqlMode")
     private long sqlMode;
+    private List<Column> newFullSchema;
 
     public AlterViewInfo() {
         // for persist
+        newFullSchema = Lists.newArrayList();
     }
 
     public AlterViewInfo(long dbId, long tableId, String inlineViewDef, List<Column> newFullSchema, long sqlMode) {
@@ -72,14 +73,36 @@ public class AlterViewInfo implements Writable {
         return sqlMode;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
+    private void writeJson(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
     }
 
-    public static AlterViewInfo read(DataInput in) throws IOException {
+    private static AlterViewInfo readJson(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, AlterViewInfo.class);
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        writeJson(out);
+        int size = newFullSchema.size();
+        out.writeInt(size);
+        for (int i = 0 ; i < size; i++) {
+            newFullSchema.get(i).write(out);
+        }
+    }
+
+    public void readField(DataInput in) throws IOException {
+        int size = in.readInt();
+        for (int i = 0 ; i < size; i++) {
+            newFullSchema.get(i).readFields(in);
+        }
+    }
+
+    public static AlterViewInfo read(DataInput in) throws IOException {
+        AlterViewInfo alterViewInfo = readJson(in);
+        alterViewInfo.readField(in);
+        return alterViewInfo;
     }
 }
