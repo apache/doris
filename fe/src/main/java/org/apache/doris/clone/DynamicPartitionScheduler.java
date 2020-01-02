@@ -186,15 +186,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     PartitionInfo partitionInfo = olapTable.getPartitionInfo();
                     RangePartitionInfo info = (RangePartitionInfo) (partitionInfo);
                     boolean isPartitionExists = false;
+                    Range<PartitionKey> addPartitionKeyRange = null;
+                    try {
+                        PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerValue), Collections.singletonList(partitionColumn));
+                        PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue), Collections.singletonList(partitionColumn));
+                        addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
+                    } catch (AnalysisException e) {
+                        // keys.size is always equal to column.size, cannot reach this exception
+                        LOG.error("Keys size is not equl to column size.");
+                    }
                     for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
                         // only support single column partition now
                         try {
-                            PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerValue), Collections.singletonList(partitionColumn));
-                            PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue), Collections.singletonList(partitionColumn));
-                            Range<PartitionKey> addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
                             RangePartitionInfo.checkRangeIntersect(partitionKeyRange, addPartitionKeyRange);
-                        } catch (AnalysisException e) {
-                            // keys.size is always equal to column.size, cannot reach this exception
                         } catch (DdlException e) {
                             isPartitionExists = true;
                             break;
