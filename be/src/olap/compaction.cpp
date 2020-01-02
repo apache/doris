@@ -24,6 +24,8 @@ using std::vector;
 
 namespace doris {
 
+Semaphore Compaction::_concurrency_sem;
+
 Compaction::Compaction(TabletSharedPtr tablet)
     : _tablet(tablet),
       _input_rowsets_size(0),
@@ -33,7 +35,20 @@ Compaction::Compaction(TabletSharedPtr tablet)
 
 Compaction::~Compaction() {}
 
+OLAPStatus Compaction::init(int concurreny) {
+    _concurrency_sem.set_count(concurreny);
+    return OLAP_SUCCESS;
+}
+
 OLAPStatus Compaction::do_compaction() {
+    _concurrency_sem.wait();
+    OLAPStatus st = do_compaction_impl();
+    _concurrency_sem.signal();
+    return st;
+}
+
+OLAPStatus Compaction::do_compaction_impl() {
+
     LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name();
 
     OlapStopWatch watch;

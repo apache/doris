@@ -237,7 +237,6 @@ namespace config {
     CONF_Int64(base_compaction_end_hour, "7");
     CONF_Int32(base_compaction_check_interval_seconds, "60");
     CONF_Int64(base_compaction_num_cumulative_deltas, "5");
-    CONF_Int32(base_compaction_num_threads, "1");
     CONF_Int32(base_compaction_num_threads_per_disk, "1");
     CONF_Double(base_cumulative_delta_ratio, "0.3");
     CONF_Int64(base_compaction_interval_seconds_since_last_operation, "86400");
@@ -247,7 +246,6 @@ namespace config {
     CONF_Int32(cumulative_compaction_check_interval_seconds, "10");
     CONF_Int64(min_cumulative_compaction_num_singleton_deltas, "5");
     CONF_Int64(max_cumulative_compaction_num_singleton_deltas, "1000");
-    CONF_Int32(cumulative_compaction_num_threads, "1");
     CONF_Int32(cumulative_compaction_num_threads_per_disk, "1");
     CONF_Int64(cumulative_compaction_budgeted_bytes, "104857600");
     CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
@@ -255,6 +253,13 @@ namespace config {
     // if compaction of a tablet failed, this tablet should not be chosen to
     // compaction until this interval passes.
     CONF_Int64(min_compaction_failure_interval_sec, "600") // 10 min
+    // Too many compaction tasks may run out of memory.
+    // This config is to limit the max concurrency of running compaction tasks.
+    // -1 means no limit, and the max concurrency will be:
+    //      C = (cumulative_compaction_num_threads_per_disk + base_compaction_num_threads_per_disk) * dir_num
+    // set it to larger than C will be set to equal to C.
+    // This config can be set to 0, which means to forbid any compaction, for some special cases.
+    CONF_Int32(max_compaction_concurrency, "-1");
 
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
