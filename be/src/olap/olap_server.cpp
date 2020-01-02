@@ -67,8 +67,10 @@ OLAPStatus StorageEngine::_start_bg_worker() {
     int32_t data_dir_num = data_dirs.size();
 
     // base and cumulative compaction threads
-    int32_t base_compaction_num_threads = config::base_compaction_num_threads_per_disk * data_dir_num;
-    int32_t cumulative_compaction_num_threads = config::cumulative_compaction_num_threads_per_disk * data_dir_num;
+    int32_t base_compaction_num_threads_per_disk = std::max<int32_t>(1, config::base_compaction_num_threads_per_disk);
+    int32_t cumulative_compaction_num_threads_per_disk = std::max<int32_t>(1, config::cumulative_compaction_num_threads_per_disk);
+    int32_t base_compaction_num_threads = base_compaction_num_threads_per_disk * data_dir_num;
+    int32_t cumulative_compaction_num_threads = cumulative_compaction_num_threads_per_disk * data_dir_num;
     // calc the max concurrency of compaction tasks
     int32_t max_compaction_concurrency = config::max_compaction_concurrency;
     if (max_compaction_concurrency < 0
