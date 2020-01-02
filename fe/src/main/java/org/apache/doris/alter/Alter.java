@@ -229,7 +229,7 @@ public class Alter {
                 throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
             }
             
-            if ((hasSchemaChange || hasModifyProp || hasAddMaterializedView) && needTableStable) {
+            if (needTableStable) {
                 // check if all tablets are healthy, and no tablet is in tablet scheduler
                 boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
                         Catalog.getCurrentCatalog().getTabletScheduler(),
@@ -244,7 +244,7 @@ public class Alter {
 
             if (hasSchemaChange || hasModifyProp) {
                 // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
-                schemaChangeHandler.process((List<AlterClause>) alterClauses, clusterName, db, olapTable);
+                schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
             } else if (hasAddMaterializedView || hasDropRollup) {
                 materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
             } else if (hasPartition) {
