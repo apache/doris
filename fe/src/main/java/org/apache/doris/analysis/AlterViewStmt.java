@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.View;
@@ -72,7 +71,8 @@ public class AlterViewStmt extends BaseViewStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER VIEW ").append(tableName.toSql()).append("\n");
+        sb.append("ALTER VIEW ");
+        sb.append(tableName.toSql()).append("\n");
         if (cols != null) {
             sb.append("(\n");
             for (int i = 0 ; i < cols.size(); i++) {

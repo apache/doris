@@ -18,6 +18,7 @@
 package org.apache.doris.persist;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -25,6 +26,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
 public class AlterViewInfo implements Writable {
     @SerializedName(value = "dbId")
@@ -33,6 +35,8 @@ public class AlterViewInfo implements Writable {
     private long tableId;
     @SerializedName(value = "inlineViewDef")
     private String inlineViewDef;
+    @SerializedName(value = "newFullSchema")
+    private List<Column> newFullSchema;
     @SerializedName(value = "sqlMode")
     private long sqlMode;
 
@@ -40,10 +44,11 @@ public class AlterViewInfo implements Writable {
         // for persist
     }
 
-    public AlterViewInfo(long dbId, long tableId, String inlineViewDef, long sqlMode) {
+    public AlterViewInfo(long dbId, long tableId, String inlineViewDef, List<Column> newFullSchema, long sqlMode) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.inlineViewDef = inlineViewDef;
+        this.newFullSchema = newFullSchema;
         this.sqlMode = sqlMode;
     }
 
@@ -57,6 +62,10 @@ public class AlterViewInfo implements Writable {
 
     public String getInlineViewDef() {
         return inlineViewDef;
+    }
+
+    public List<Column> getNewFullSchema() {
+        return newFullSchema;
     }
 
     public long getSqlMode() {
