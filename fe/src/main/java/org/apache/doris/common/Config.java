@@ -837,6 +837,16 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_balance = false;
+
+    // if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets
+    // skip checking.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_scheduling_tablets = 2000;
+
+    // if the number of balancing tablets in TabletScheduler exceed max_balancing_tablets,
+    // no more balance check
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_balancing_tablets = 100;
     
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
