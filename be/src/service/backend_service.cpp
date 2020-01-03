@@ -291,6 +291,7 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
         TUniqueId fragment_instance_id = context->fragment_instance_id;
         std::shared_ptr<arrow::RecordBatch> record_batch;
         bool eos;
+
         st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &record_batch, &eos);
         if (st.ok()) {
             result_.__set_eos(eos);
@@ -307,6 +308,7 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
                 }
             }
         } else {
+            LOG(WARNING) << "fragment_instance_id [" << print_id(fragment_instance_id) << "] fetch result status [" << st.to_string() + "]";
             st.to_thrift(&t_status);
             result_.status = t_status;
         }

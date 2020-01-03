@@ -78,8 +78,6 @@ Status OlapScanner::_prepare(
         strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
     _version =
         strtoul(scan_range.version.c_str(), nullptr, 10);
-    VersionHash version_hash =
-        strtoul(scan_range.version_hash.c_str(), nullptr, 10);
     {
         std::string err;
         _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash, true, &err);
@@ -98,18 +96,6 @@ Status OlapScanner::_prepare(
                 std::stringstream ss;
                 ss << "fail to get latest version of tablet: " << tablet_id;
                 LOG(WARNING) << ss.str();
-                return Status::InternalError(ss.str());
-            }
-
-            if (rowset->end_version() == _version
-                && rowset->version_hash() != version_hash) {
-                LOG(WARNING) << "fail to check latest version hash. "
-                             << " tablet_id=" << tablet_id
-                             << " version_hash=" << rowset->version_hash()
-                             << " request_version_hash=" << version_hash;
-
-                std::stringstream ss;
-                ss << "fail to check version hash of tablet: " << tablet_id;
                 return Status::InternalError(ss.str());
             }
 

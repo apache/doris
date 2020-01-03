@@ -45,7 +45,9 @@ public:
 
     // update number of rows contained in this block
     void set_num_rows(size_t num_rows) { _num_rows = num_rows; }
-    // return number of rows contained in this block
+    // low-level API to get the number of rows contained in this block.
+    // note that some rows may have been un-selected by selection_vector(),
+    // client should use selected_size() to get the actual number of selected rows.
     size_t num_rows() const { return _num_rows; }
     // return the maximum number of rows that can be contained in this block.
     // invariant: 0 <= num_rows() <= capacity()
@@ -68,7 +70,7 @@ public:
     // convert RowBlockV2 to RowBlock
     Status convert_to_row_block(RowCursor* helper, RowBlock* dst);
 
-    // Get the column block for one of the columns in this row block.
+    // low-level API to access memory for each column block(including data array and nullmap).
     // `cid` must be one of `schema()->column_ids()`.
     ColumnBlock column_block(ColumnId cid) const {
         const TypeInfo* type_info = _schema.column(cid)->type_info();
@@ -77,6 +79,9 @@ public:
         return ColumnBlock(type_info, data, null_bitmap, _capacity, _pool.get());
     }
 
+    // low-level API to access the underlying memory for row at `row_idx`.
+    // client should use selection_vector() to iterate over row index of selected rows.
+    // TODO(gdy) DO NOT expose raw rows which may be un-selected to clients
     RowBlockRow row(size_t row_idx) const;
 
     const Schema* schema() const { return &_schema; }

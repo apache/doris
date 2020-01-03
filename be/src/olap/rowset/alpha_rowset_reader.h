@@ -25,6 +25,7 @@
 #include "olap/rowset/alpha_rowset_meta.h"
 
 #include <vector>
+#include <queue>
 
 namespace doris {
 
@@ -41,6 +42,12 @@ struct AlphaMergeContext {
     RowBlock* row_block = nullptr;
 
     std::unique_ptr<RowCursor> row_cursor = nullptr;
+
+    bool is_eof = false;
+};
+
+struct AlphaMergeContextComparator {
+    bool operator () (const AlphaMergeContext* x, const AlphaMergeContext* y) const;
 };
 
 class AlphaRowsetReader : public RowsetReader {
@@ -79,6 +86,18 @@ private:
     // current scan key to next scan key.
     OLAPStatus _pull_first_block(AlphaMergeContext* merge_ctx);
 
+    // merge by priority queue(_merge_heap)
+    // this method has same function with _pull_next_row_for_merge_rowset, but using heap merge.
+    // and this should replace the _pull_next_row_for_merge_rowset later.
+    OLAPStatus _pull_next_row_for_merge_rowset_v2(RowCursor** row);
+    // init the merge heap, this should be call before calling _pull_next_row_for_merge_rowset_v2();
+    OLAPStatus _init_merge_heap();
+    // update the merge ctx.
+    // 1. get next row block of this ctx, if current row block is empty.
+    // 2. read the current row of the row block and push it to merge heap.
+    // 3. point to the next row of the row block
+    OLAPStatus _update_merge_ctx_and_build_merge_heap(AlphaMergeContext* merge_ctx);
+
 private:
     int _num_rows_per_row_block;
     AlphaRowsetSharedPtr _rowset;
@@ -103,6 +122,9 @@ private:
     RowsetReaderContext* _current_read_context;
     OlapReaderStatistics _owned_stats;
     OlapReaderStatistics* _stats = &_owned_stats;
+
+    // a priority queue for merging rowsets
+    std::priority_queue<AlphaMergeContext*, vector<AlphaMergeContext*>, AlphaMergeContextComparator> _merge_heap;
 };
 
 } // namespace doris

@@ -310,8 +310,6 @@ private:
     uint32_t _min_percentage_of_error_disk;
     Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
-    uint32_t _max_base_compaction_task_per_disk;
-    uint32_t _max_cumulative_compaction_task_per_disk;
 
     Mutex _fs_task_mutex;
     file_system_task_count_t _fs_base_compaction_task_num_map;

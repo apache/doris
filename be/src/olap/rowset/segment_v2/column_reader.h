@@ -108,13 +108,11 @@ public:
     // - delete_conditions is a vector of delete predicate of different version
     Status get_row_ranges_by_zone_map(CondColumn* cond_column,
                                       const std::vector<CondColumn*>& delete_conditions,
-                                      OlapReaderStatistics* stats,
                                       std::vector<uint32_t>* delete_partial_filtered_pages,
                                       RowRanges* row_ranges);
 
     // get row ranges with bloom filter index
-    Status get_row_ranges_by_bloom_filter(CondColumn* cond_column,
-            OlapReaderStatistics* stats, RowRanges* row_ranges);
+    Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges);
 
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
@@ -144,7 +142,6 @@ private:
 
     Status _get_filtered_pages(CondColumn* cond_column,
                                const std::vector<CondColumn*>& delete_conditions,
-                               OlapReaderStatistics* stats,
                                std::vector<uint32_t>* delete_partial_filtered_pages,
                                std::vector<uint32_t>* page_indexes);
 
@@ -195,9 +192,13 @@ public:
 
     virtual rowid_t get_current_ordinal() const = 0;
 
-    virtual Status get_row_ranges_by_conditions(CondColumn* cond_column,
+    virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column,
                                                 const std::vector<CondColumn*>& delete_conditions,
                                                 RowRanges* row_ranges) { return Status::OK(); }
+
+    virtual Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
+        return Status::OK();
+    }
 
 #if 0
     // Call this function every time before next_batch.
@@ -235,12 +236,14 @@ public:
 
     rowid_t get_current_ordinal() const override { return _current_rowid; }
 
-    // get row ranges by conditions
+    // get row ranges by zone map
     // - cond_column is user's query predicate
     // - delete_conditions is a vector of delete predicate of different version
-    Status get_row_ranges_by_conditions(CondColumn* cond_column,
+    Status get_row_ranges_by_zone_map(CondColumn* cond_column,
                                       const std::vector<CondColumn*>& delete_conditions,
                                       RowRanges* row_ranges) override;
+
+    Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) override;
 
 private:
     void _seek_to_pos_in_page(ParsedPage* page, uint32_t offset_in_page);

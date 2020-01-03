@@ -42,6 +42,7 @@ const i64 DEFAULT_PARTITION_ID = -1;
 enum TQueryType {
     SELECT,
     LOAD,
+    EXTERNAL
 }
 
 enum TErrorHubType {

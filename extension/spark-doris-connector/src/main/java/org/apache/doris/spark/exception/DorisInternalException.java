@@ -15,16 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.spark.exception;
 
-import org.apache.commons.lang.NotImplementedException;
+import org.apache.doris.thrift.TStatusCode;
 
-import java.util.Map;
+import java.util.List;
 
-// Alter clause.
-public abstract class AlterClause implements ParseNode {
-
-    public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+public class DorisInternalException extends DorisException {
+    public DorisInternalException(String server, TStatusCode statusCode, List<String> errorMsgs) {
+        super("Doris server " + server + " internal failed, status code [" + statusCode + "] error message is " + errorMsgs);
     }
+
 }

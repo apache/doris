@@ -839,17 +839,6 @@ public class FunctionSet {
                     prefix + "12count_removeEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
                     null, false, true, true));
 
-            // Count_distinct
-            addBuiltin(AggregateFunction.createBuiltin("count_distinct",
-                    Lists.newArrayList(t), Type.BIGINT, Type.BIGINT,
-                    prefix + "9init_zeroIN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPT_",
-                    prefix + "12count_updateEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
-                    prefix + "11count_mergeEPN9doris_udf15FunctionContextERKNS1_9BigIntValEPS4_",
-                    null, null,
-                    prefix + "12count_removeEPN9doris_udf15FunctionContextERKNS1_6AnyValEPNS1_9BigIntValE",
-                    null, false, true, true));
-
-
             // count in multi distinct
             if (t == Type.CHAR || t == Type.VARCHAR) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),

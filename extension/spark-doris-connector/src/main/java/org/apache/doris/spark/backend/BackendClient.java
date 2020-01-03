@@ -19,6 +19,8 @@ package org.apache.doris.spark.backend;
 
 import org.apache.doris.spark.cfg.ConfigurationOptions;
 import org.apache.doris.spark.exception.ConnectedFailedException;
+import org.apache.doris.spark.exception.DorisException;
+import org.apache.doris.spark.exception.DorisInternalException;
 import org.apache.doris.spark.util.ErrorMessages;
 import org.apache.doris.spark.cfg.Settings;
 import org.apache.doris.spark.serialization.Routing;
@@ -151,16 +153,17 @@ public class BackendClient {
      * @return scan batch result
      * @throws ConnectedFailedException throw if cannot connect to Doris BE
      */
-    public TScanBatchResult getNext(TScanNextBatchParams nextBatchParams) throws ConnectedFailedException {
+    public TScanBatchResult getNext(TScanNextBatchParams nextBatchParams) throws DorisException {
         logger.debug("GetNext to '{}', parameter is '{}'.", routing, nextBatchParams);
         if (!isConnected) {
             open();
         }
         TException ex = null;
+        TScanBatchResult result = null;
         for (int attempt = 0; attempt < retries; ++attempt) {
             logger.debug("Attempt {} to getNext {}.", attempt, routing);
             try {
-                TScanBatchResult result  = client.get_next(nextBatchParams);
+                result  = client.get_next(nextBatchParams);
                 if (result == null) {
                     logger.warn("GetNext result from {} is null.", routing);
                     continue;
@@ -175,6 +178,12 @@ public class BackendClient {
                 logger.warn("Get next from {} failed.", routing, e);
                 ex = e;
             }
+        }
+        if (result != null && (TStatusCode.OK != (result.getStatus().getStatus_code()))) {
+            logger.error(ErrorMessages.DORIS_INTERNAL_FAIL_MESSAGE, routing, result.getStatus().getStatus_code(),
+                    result.getStatus().getError_msgs());
+            throw new DorisInternalException(routing.toString(), result.getStatus().getStatus_code(),
+                    result.getStatus().getError_msgs());
         }
         logger.error(ErrorMessages.CONNECT_FAILED_MESSAGE, routing);
         throw new ConnectedFailedException(routing.toString(), ex);

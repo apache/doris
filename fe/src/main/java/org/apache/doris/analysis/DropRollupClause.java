@@ -24,13 +24,14 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // Delete one rollup from table
-public class DropRollupClause extends AlterClause {
+public class DropRollupClause extends AlterTableClause {
     private final String rollupName;
     private Map<String, String> properties;
 
     public DropRollupClause(String rollupName, Map<String, String> properties) {
         this.rollupName = rollupName;
         this.properties = properties;
+        this.needTableStable = false;
     }
 
     @Override

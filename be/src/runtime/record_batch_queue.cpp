@@ -15,16 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#include "runtime/record_batch_queue.h"
 
-import org.apache.commons.lang.NotImplementedException;
+namespace doris {
 
-import java.util.Map;
-
-// Alter clause.
-public abstract class AlterClause implements ParseNode {
-
-    public Map<String, String> getProperties() {
-        throw new NotImplementedException();
+void RecordBatchQueue::update_status(const Status& status) {
+    if (status.ok()) {
+        return;
     }
+    {
+        std::lock_guard<SpinLock> l(_status_lock);
+        if (_status.ok()) {
+            _status = status;
+        }
+    }
+}
+
+void RecordBatchQueue::shutdown() {
+    _queue.shutdown();
+}
+
 }
