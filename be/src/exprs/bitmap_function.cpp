@@ -389,6 +389,7 @@ BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const
 }
 
 StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
+<<<<<<< HEAD
     RoaringBitmap bitmap;
     if(!src.is_null){
         if(src.len == 0 ){
@@ -430,6 +431,21 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src
 
     StringVal result(ctx,bitmap.size());
     bitmap.serialize((char*)result.ptr);
+=======
+    RoaringBitmap src_bitmap ((char*)src.ptr);
+    src_bitmap.merge(RoaringBitmap((char*)dst.ptr));
+
+    StringVal result(ctx,srcBitmap.size());
+    srcBitmap.serialize((char*)result.ptr);
+    return result;
+}
+StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
+    RoaringBitmap src_bitmap ((char*)src.ptr);
+    src_bitmap.intersect(RoaringBitmap((char*)dst.ptr));
+
+    StringVal result(ctx,srcBitmap.size());
+    srcBitmap.serialize((char*)result.ptr);
+>>>>>>> e1e68309... ADD BE BitMap UDF and & or
     return result;
 }
 
