@@ -123,6 +123,8 @@ public class OlapTable extends Table {
     // The init value is -1, which means there is not partition and index at all.
     private long baseIndexId = -1;
 
+    private TableProperty tableProperty;
+
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
@@ -144,6 +146,8 @@ public class OlapTable extends Table {
         this.colocateGroup = null;
 
         this.indexes = null;
+      
+        this.tableProperty = null;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
@@ -177,11 +181,28 @@ public class OlapTable extends Table {
         this.bfFpp = 0;
 
         this.colocateGroup = null;
+        
         if (indexes == null) {
             this.indexes = null;
         } else {
             this.indexes = indexes;
         }
+
+        this.tableProperty = null;
+    }
+
+    public void setTableProperty(TableProperty tableProperty) {
+        this.tableProperty = tableProperty;
+    }
+
+    public TableProperty getTableProperty() {
+        return this.tableProperty;
+    }
+
+    public boolean dynamicPartitionExists() {
+        return tableProperty != null
+                && tableProperty.getDynamicPartitionProperty() != null
+                && tableProperty.getDynamicPartitionProperty().isExist();
     }
 
     public void setBaseIndexId(long baseIndexId) {
@@ -876,6 +897,14 @@ public class OlapTable extends Table {
         } else {
             out.writeBoolean(false);
         }
+      
+        //dynamicProperties
+        if (tableProperty == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            tableProperty.write(out);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -974,6 +1003,12 @@ public class OlapTable extends Table {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
             if (in.readBoolean()) {
                 this.indexes = TableIndexes.read(in);
+            }
+        }
+        // dynamic partition
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_71) {
+            if (in.readBoolean()) {
+                tableProperty = TableProperty.read(in);
             }
         }
     }

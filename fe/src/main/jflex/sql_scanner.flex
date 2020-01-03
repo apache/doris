@@ -160,6 +160,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("distinctpcsa", new Integer(SqlParserSymbols.KW_DISTINCTPCSA));
         keywordMap.put("distributed", new Integer(SqlParserSymbols.KW_DISTRIBUTED));
         keywordMap.put("distribution", new Integer(SqlParserSymbols.KW_DISTRIBUTION));
+        keywordMap.put("dynamic", new Integer(SqlParserSymbols.KW_DYNAMIC));
         keywordMap.put("buckets", new Integer(SqlParserSymbols.KW_BUCKETS));
         keywordMap.put("div", new Integer(SqlParserSymbols.KW_DIV));
         keywordMap.put("double", new Integer(SqlParserSymbols.KW_DOUBLE));
