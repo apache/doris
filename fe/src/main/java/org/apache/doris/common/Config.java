@@ -945,5 +945,17 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean disable_cluster_feature = true;
+
+    /*
+     * Decide how often to check dynamic partition
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int dynamic_partition_check_interval_seconds = 600;
+
+    /*
+     * If set to true, dynamic partition feature will open
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean dynamic_partition_enable = false;
 }
 
