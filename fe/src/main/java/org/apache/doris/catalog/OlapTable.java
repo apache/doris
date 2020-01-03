@@ -66,6 +66,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.zip.Adler32;
 
@@ -111,6 +112,8 @@ public class OlapTable extends Table {
     private double bfFpp;
 
     private String colocateGroup;
+
+    private TableIndexes indexes;
     
     // In former implementation, base index id is same as table id.
     // But when refactoring the process of alter table job, we find that
@@ -142,11 +145,18 @@ public class OlapTable extends Table {
 
         this.colocateGroup = null;
 
+        this.indexes = null;
+      
         this.tableProperty = null;
     }
 
-    public OlapTable(long id, String tableName, List<Column> baseSchema,
-            KeysType keysType, PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
+    public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
+                     PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo) {
+        this(id, tableName, baseSchema, keysType, partitionInfo, defaultDistributionInfo, null);
+    }
+
+    public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
+                     PartitionInfo partitionInfo, DistributionInfo defaultDistributionInfo, TableIndexes indexes) {
         super(id, tableName, TableType.OLAP, baseSchema);
 
         this.state = OlapTableState.NORMAL;
@@ -171,6 +181,12 @@ public class OlapTable extends Table {
         this.bfFpp = 0;
 
         this.colocateGroup = null;
+        
+        if (indexes == null) {
+            this.indexes = null;
+        } else {
+            this.indexes = indexes;
+        }
 
         this.tableProperty = null;
     }
@@ -203,6 +219,26 @@ public class OlapTable extends Table {
 
     public OlapTableState getState() {
         return state;
+    }
+
+    public List<Index> getIndexes() {
+        if (indexes == null) {
+            return Lists.newArrayList();
+        }
+        return indexes.getIndexes();
+    }
+
+    public TableIndexes getTableIndexes() {
+        return indexes;
+    }
+
+    public Map<String, Index> getIndexesMap() {
+        Map<String, Index> indexMap = new HashMap<>();
+        if (indexes != null) {
+            Optional.ofNullable(indexes.getIndexes()).orElse(Collections.emptyList()).stream().forEach(
+                    i -> indexMap.put(i.getIndexName(), i));
+        }
+        return indexMap;
     }
 
     public void setName(String newName) {
@@ -594,6 +630,13 @@ public class OlapTable extends Table {
         return Sets.newHashSet(bfColumns);
     }
 
+    public List<Index> getCopiedIndexes() {
+        if (indexes == null) {
+            return Lists.newArrayList();
+        }
+        return indexes.getCopiedIndexes();
+    }
+
     public double getBfFpp() {
         return bfFpp;
     }
@@ -601,6 +644,13 @@ public class OlapTable extends Table {
     public void setBloomFilterInfo(Set<String> bfColumns, double bfFpp) {
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+    }
+
+    public void setIndexes(List<Index> indexes) {
+        if (this.indexes == null) {
+            this.indexes = new TableIndexes(null);
+        }
+        this.indexes.setIndexes(indexes);
     }
 
     public String getColocateGroup() {
@@ -840,6 +890,14 @@ public class OlapTable extends Table {
 
         out.writeLong(baseIndexId);
 
+        // write indexes
+        if (indexes != null) {
+            out.writeBoolean(true);
+            indexes.write(out);
+        } else {
+            out.writeBoolean(false);
+        }
+      
         //dynamicProperties
         if (tableProperty == null) {
             out.writeBoolean(false);
@@ -941,7 +999,14 @@ public class OlapTable extends Table {
             baseIndexId = id;
         }
 
+        // read indexes
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
+            if (in.readBoolean()) {
+                this.indexes = TableIndexes.read(in);
+            }
+        }
+        // dynamic partition
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_71) {
             if (in.readBoolean()) {
                 tableProperty = TableProperty.read(in);
             }

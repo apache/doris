@@ -549,8 +549,8 @@ build_arrow() {
     export ARROW_GLOG_URL=${TP_SOURCE_DIR}/${GLOG_NAME}
     export ARROW_LZ4_URL=${TP_SOURCE_DIR}/${LZ4_NAME}
     export ARROW_FLATBUFFERS_URL=${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}
-    export ARROW_URIPARSER_URL=${TP_SOURCE_DIR}/${URIPARSER_NAME}
     export ARROW_ZSTD_URL=${TP_SOURCE_DIR}/${ZSTD_NAME}
+    export ARROW_JEMALLOC_URL=${TP_SOURCE_DIR}/${JEMALLOC_NAME}
     export LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
 
     cmake -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_USE_GLOG=off -DARROW_BUILD_SHARED=OFF \
@@ -566,16 +566,15 @@ build_arrow() {
     make -j$PARALLEL && make install
     #copy dep libs
     cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a $TP_INSTALL_DIR/lib64/libjemalloc.a
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc.a $TP_INSTALL_DIR/lib64/libbrotlienc.a
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec.a $TP_INSTALL_DIR/lib64/libbrotlidec.a
-    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a $TP_INSTALL_DIR/lib64/libbrotlienc.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a $TP_INSTALL_DIR/lib64/libbrotlidec.a
+    cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a $TP_INSTALL_DIR/lib64/libbrotlicommon.a
     if [ -f ./zstd_ep-install/lib64/libzstd.a ]; then
         cp -rf ./zstd_ep-install/lib64/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a
     else
         cp -rf ./zstd_ep-install/lib/libzstd.a $TP_INSTALL_DIR/lib64/libzstd.a
     fi
     cp -rf ./double-conversion_ep/src/double-conversion_ep/lib/libdouble-conversion.a $TP_INSTALL_DIR/lib64/libdouble-conversion.a
-    cp -rf ./uriparser_ep-install/lib/liburiparser.a $TP_INSTALL_DIR/lib64/liburiparser.a
 }
 
 # s2

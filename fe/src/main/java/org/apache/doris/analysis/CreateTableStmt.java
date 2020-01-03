@@ -22,8 +22,10 @@ import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -42,14 +44,18 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
 public class CreateTableStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
@@ -60,6 +66,7 @@ public class CreateTableStmt extends DdlStmt {
     private boolean isExternal;
     private TableName tableName;
     private List<ColumnDef> columnDefs;
+    private List<IndexDef> indexDefs;
     private KeysDesc keysDesc;
     private PartitionDesc partitionDesc;
     private DistributionDesc distributionDesc;
@@ -72,6 +79,8 @@ public class CreateTableStmt extends DdlStmt {
 
     // set in analyze
     private List<Column> columns = Lists.newArrayList();
+
+    private List<Index> indexes = Lists.newArrayList();
 
     static {
         engineNames = Sets.newHashSet();
@@ -95,7 +104,23 @@ public class CreateTableStmt extends DdlStmt {
                            boolean isExternal,
                            TableName tableName,
                            List<ColumnDef> columnDefinitions,
-                           String engineName, 
+                           String engineName,
+                           KeysDesc keysDesc,
+                           PartitionDesc partitionDesc,
+                           DistributionDesc distributionDesc,
+                           Map<String, String> properties,
+                           Map<String, String> extProperties,
+                           String comment) {
+        this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
+                distributionDesc, properties, extProperties, comment);
+    }
+
+    public CreateTableStmt(boolean ifNotExists,
+                           boolean isExternal,
+                           TableName tableName,
+                           List<ColumnDef> columnDefinitions,
+                           List<IndexDef> indexDefs,
+                           String engineName,
                            KeysDesc keysDesc,
                            PartitionDesc partitionDesc,
                            DistributionDesc distributionDesc,
@@ -108,6 +133,7 @@ public class CreateTableStmt extends DdlStmt {
         } else {
             this.columnDefs = columnDefinitions;
         }
+        this.indexDefs = indexDefs;
         if (Strings.isNullOrEmpty(engineName)) {
             this.engineName = DEFAULT_ENGINE_NAME;
         } else {
@@ -192,14 +218,18 @@ public class CreateTableStmt extends DdlStmt {
         return comment;
     }
 
+    public List<Index> getIndexes() {
+        return indexes;
+    }
+
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
 
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                                                                tableName.getTbl(), PrivPredicate.CREATE)) {
+                tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
@@ -362,6 +392,66 @@ public class CreateTableStmt extends DdlStmt {
             }
             columns.add(col);
         }
+
+        if (CollectionUtils.isNotEmpty(indexDefs)) {
+            Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            Set<List<String>> distinctCol = new HashSet<>();
+
+            for (IndexDef indexDef : indexDefs) {
+                indexDef.analyze();
+                if (!engineName.equalsIgnoreCase("olap")) {
+                    throw new AnalysisException("index only support in olap engine at current version.");
+                }
+                for (String indexColName : indexDef.getColumns()) {
+                    indexColName = indexColName.trim();
+                    boolean found = false;
+                    for (Column column : columns) {
+                        if (column.getName().equalsIgnoreCase(indexColName)) {
+                            indexColName = column.getName();
+                            PrimitiveType colType = column.getDataType();
+
+                            // key columns and none/replace aggregate non-key columns support
+                            if (indexDef.getIndexType() == IndexDef.IndexType.BITMAP) {
+                                    if (!(colType == PrimitiveType.TINYINT || colType == PrimitiveType.SMALLINT
+                                                  || colType == PrimitiveType.INT || colType == PrimitiveType.BIGINT ||
+                                                  colType == PrimitiveType.CHAR || colType == PrimitiveType.VARCHAR)) {
+                                        throw new AnalysisException(colType + " is not supported in bitmap index. "
+                                                + "invalid column: " + indexColName);
+                                    } else if (column.isKey()
+                                            || column.getAggregationType() == AggregateType.NONE
+                                            || column.getAggregationType() == AggregateType.REPLACE
+                                            || column.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
+                                        found = true;
+                                        break;
+                                    } else {
+                                        // althrough the implemention supports bf for replace non-key column,
+                                        // for simplicity and unity, we don't expose that to user.
+                                        throw new AnalysisException(
+                                                "BITMAP index only used in columns of DUP_KEYS table or "
+                                                        + "key columns of UNIQUE_KEYS/AGG_KEYS table. invalid column: "
+                                                        + indexColName);
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!found) {
+                            throw new AnalysisException("BITMAP column does not exist in table. invalid column: "
+                                    + indexColName);
+                        }
+                    }
+                indexes.add(new Index(indexDef.getIndexName(), indexDef.getColumns(), indexDef.getIndexType(),
+                        indexDef.getComment()));
+                distinct.add(indexDef.getIndexName());
+                distinctCol.add(indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList()));
+            }
+            if (distinct.size() != indexes.size()) {
+                throw new AnalysisException("index name must be unique.");
+            }
+            if (distinctCol.size() != indexes.size()) {
+                throw new AnalysisException("same index columns have multiple index name is not allowed.");
+            }
+        }
     }
 
     private void analyzeEngineName() throws AnalysisException {
@@ -410,6 +500,12 @@ public class CreateTableStmt extends DdlStmt {
             }
             sb.append("  ").append(columnDef.toSql());
             idx++;
+        }
+        if (CollectionUtils.isNotEmpty(indexDefs)) {
+            sb.append(",\n");
+            for (IndexDef indexDef : indexDefs) {
+                sb.append("  ").append(indexDef.toSql());
+            }
         }
         sb.append("\n)");
         if (engineName != null) {
