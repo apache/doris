@@ -27,10 +27,13 @@ import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
+import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropColumnClause;
+import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropRollupClause;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
@@ -42,6 +45,7 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
@@ -62,6 +66,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
@@ -174,9 +180,50 @@ public class Alter {
                     || alterClause instanceof AddColumnsClause
                     || alterClause instanceof DropColumnClause
                     || alterClause instanceof ModifyColumnClause
-                    || alterClause instanceof ReorderColumnsClause)
+                    || alterClause instanceof ReorderColumnsClause
+                    || alterClause instanceof CreateIndexClause
+                    || alterClause instanceof DropIndexClause)
                     && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename) {
                 hasSchemaChange = true;
+                if (alterClause instanceof CreateIndexClause) {
+                    Table table = db.getTable(dbTableName.getTbl());
+                    if (!(table instanceof OlapTable)) {
+                        throw new AnalysisException("create index only support in olap table at current version.");
+                    }
+                    List<Index> indexes = ((OlapTable) table).getIndexes();
+                    IndexDef indexDef = ((CreateIndexClause) alterClause).getIndexDef();
+                    Set<String> newColset = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                    newColset.addAll(indexDef.getColumns());
+                    for (Index idx : indexes) {
+                        if (idx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
+                            throw new AnalysisException("index `" + indexDef.getIndexName() + "` already exist.");
+                        }
+                        Set<String> idxSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                        idxSet.addAll(idx.getColumns());
+                            if (newColset.equals(idxSet)) {
+                                throw new AnalysisException("index for columns (" + String
+                                        .join(",", indexDef.getColumns()) + " ) already exist.");
+                            }
+                        }
+
+                } else if (alterClause instanceof DropIndexClause) {
+                    Table table = db.getTable(dbTableName.getTbl());
+                    if (!(table instanceof OlapTable)) {
+                        throw new AnalysisException("drop index only support in olap table at current version.");
+                    }
+                    String indexName = ((DropIndexClause) alterClause).getIndexName();
+                    List<Index> indexes = ((OlapTable) table).getIndexes();
+                    Index found = null;
+                    for (Index idx : indexes) {
+                        if (idx.getIndexName().equalsIgnoreCase(indexName)) {
+                            found = idx;
+                            break;
+                        }
+                    }
+                    if (found == null) {
+                            throw new AnalysisException("index " + indexName + " does not exist");
+                        }
+                }
             } else if ((alterClause instanceof AddRollupClause)
                     && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {

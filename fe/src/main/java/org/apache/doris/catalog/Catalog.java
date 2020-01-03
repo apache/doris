@@ -201,6 +201,7 @@ import com.sleepycat.je.rep.InsufficientLogException;
 import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.kudu.ColumnSchema;
 import org.apache.kudu.Schema;
 import org.apache.kudu.client.CreateTableOptions;
@@ -2975,7 +2976,7 @@ public class Catalog {
                     dataProperty.getStorageMedium(),
                     singlePartitionDesc.getReplicationNum(),
                     versionInfo, bfColumns, olapTable.getBfFpp(),
-                    tabletIdSet);
+                    tabletIdSet, olapTable.getCopiedIndexes());
 
             // check again
             db.writeLock();
@@ -3254,7 +3255,8 @@ public class Catalog {
                                                  Pair<Long, Long> versionInfo,
                                                  Set<String> bfColumns,
                                                  double bfFpp,
-            Set<Long> tabletIdSet) throws DdlException {
+                                                 Set<Long> tabletIdSet,
+                                                 List<Index> indexes) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -3315,7 +3317,7 @@ public class Catalog {
                             keysType,
                             storageType, storageMedium,
                             schema, bfColumns, bfFpp,
-                            countDownLatch);
+                            countDownLatch, indexes);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
                     // not for resending task
@@ -3405,10 +3407,13 @@ public class Catalog {
         short shortKeyColumnCount = Catalog.calcShortKeyColumnCount(baseSchema, stmt.getProperties());
         LOG.debug("create table[{}] short key column count: {}", tableName, shortKeyColumnCount);
 
+        // indexes
+        TableIndexes indexes = new TableIndexes(stmt.getIndexes());
+
         // create table
         long tableId = Catalog.getInstance().getNextId();
         OlapTable olapTable = new OlapTable(tableId, tableName, baseSchema, keysType, partitionInfo,
-                distributionInfo);
+                distributionInfo, indexes);
         olapTable.setComment(stmt.getComment());
 
         // set base index id
@@ -3542,7 +3547,7 @@ public class Catalog {
                         partitionInfo.getDataProperty(partitionId).getStorageMedium(),
                         partitionInfo.getReplicationNum(partitionId),
                         versionInfo, bfColumns, bfFpp,
-                        tabletIdSet);
+                        tabletIdSet, olapTable.getCopiedIndexes());
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 try {
@@ -3573,7 +3578,7 @@ public class Catalog {
                             dataProperty.getStorageMedium(),
                             partitionInfo.getReplicationNum(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
-                            tabletIdSet);
+                            tabletIdSet, olapTable.getCopiedIndexes());
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -3788,6 +3793,15 @@ public class Catalog {
             // There MUST BE 2 space in front of each column description line
             // sqlalchemy requires this to parse SHOW CREATE TAEBL stmt.
             sb.append("  ").append(column.toSql());
+        }
+        if (table.getType() == TableType.OLAP) {
+            OlapTable olapTable = (OlapTable) table;
+            if (CollectionUtils.isNotEmpty(olapTable.getIndexes())) {
+                for (Index index : olapTable.getIndexes()) {
+                    sb.append(",\n");
+                    sb.append("  ").append(index.toSql());
+                }
+            }
         }
         sb.append("\n) ENGINE=");
         sb.append(table.getType().name());
@@ -5980,7 +5994,7 @@ public class Catalog {
                         null /* version info */,
                         copiedTbl.getCopiedBfColumns(),
                         copiedTbl.getBfFpp(),
-                        tabletIdSet);
+                        tabletIdSet, copiedTbl.getCopiedIndexes());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

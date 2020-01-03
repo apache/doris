@@ -1931,6 +1931,10 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
                        != ref_tablet_schema.column(column_mapping->ref_column).is_bf_column()) {
                 *sc_directly = true;
                 return OLAP_SUCCESS;
+            }  else if (new_tablet_schema.column(i).has_bitmap_index()
+                        != ref_tablet_schema.column(column_mapping->ref_column).has_bitmap_index()) {
+                *sc_directly = true;
+                return OLAP_SUCCESS;
             }
         }
     }

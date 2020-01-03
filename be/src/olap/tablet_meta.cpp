@@ -18,6 +18,7 @@
 #include "olap/tablet_meta.h"
 
 #include <sstream>
+#include <boost/algorithm/string.hpp>
 
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
@@ -116,6 +117,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
         uint32_t unique_id = col_ordinal_to_unique_id.at(col_ordinal++);
         column->set_unique_id(unique_id);
         column->set_name(tcolumn.column_name);
+        column->set_has_bitmap_index(false);
         string data_type;
         EnumToString(TPrimitiveType, tcolumn.column_type.type, data_type);
         column->set_type(data_type);
@@ -151,6 +153,17 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
         if (tcolumn.__isset.is_bloom_filter_column) {
             column->set_is_bf_column(tcolumn.is_bloom_filter_column);
             has_bf_columns = true;
+        }
+        if (tablet_schema.__isset.indexes) {
+            for (auto& index : tablet_schema.indexes) {
+                if (index.index_type == TIndexType::type::BITMAP) {
+                    DCHECK_EQ(index.columns.size(), 1);
+                    if (boost::iequals(tcolumn.column_name, index.columns[0])) {
+                        column->set_has_bitmap_index(true);
+                        break;
+                    }
+                }
+            }
         }
     }
 

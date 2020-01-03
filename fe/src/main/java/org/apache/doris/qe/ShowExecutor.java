@@ -40,6 +40,7 @@ import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
+import org.apache.doris.analysis.ShowIndexStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
@@ -69,6 +70,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetadataViewer;
@@ -91,13 +93,13 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.BackendsProcDir;
-import org.apache.doris.common.proc.LoadProcDir;
-import org.apache.doris.common.proc.SchemaChangeProcNode;
-import org.apache.doris.common.proc.PartitionsProcDir;
-import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
+import org.apache.doris.common.proc.LoadProcDir;
+import org.apache.doris.common.proc.PartitionsProcDir;
+import org.apache.doris.common.proc.ProcNodeInterface;
+import org.apache.doris.common.proc.SchemaChangeProcNode;
+import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -237,6 +239,8 @@ public class ShowExecutor {
             handleAdminShowConfig();
         } else if (stmt instanceof ShowSmallFilesStmt) {
             handleShowSmallFiles();
+        } else if (stmt instanceof ShowIndexStmt) {
+            handleShowIndex();
         } else {
             handleEmtpy();
         }
@@ -635,6 +639,34 @@ public class ShowExecutor {
             }
         } else {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getDb() + "." + showStmt.getTable());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    // Show index statement.
+    private void handleShowIndex() throws AnalysisException {
+        ShowIndexStmt showStmt = (ShowIndexStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        Database db = ctx.getCatalog().getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getTableName().toString());
+        }
+        db.readLock();
+        try {
+            Table table = db.getTable(showStmt.getTableName().getTbl());
+            if (table != null && table instanceof OlapTable) {
+                List<Index> indexes = ((OlapTable) table).getIndexes();
+                for (Index index : indexes) {
+                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), index.getIndexName(),
+                            index.getColumns().stream().collect(Collectors.joining(",")),
+                            index.getIndexType().name(), index.getComment()));
+                }
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR,
+                        db.getFullName() + "." + showStmt.getTableName().toString());
+            }
+        } finally {
+            db.readUnlock();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
