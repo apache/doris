@@ -85,6 +85,7 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.clone.ColocateTableBalancer;
+import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
@@ -104,12 +105,14 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.KuduUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.deploy.DeployManager;
@@ -154,6 +157,7 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.ModifyDynamicPartitionInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -370,6 +374,8 @@ public class Catalog {
 
     private SmallFileMgr smallFileMgr;
 
+    private DynamicPartitionScheduler dynamicPartitionScheduler;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -416,6 +422,10 @@ public class Catalog {
 
     public MetaReplayState getMetaReplayState() {
         return metaReplayState;
+    }
+
+    public DynamicPartitionScheduler getDynamicPartitionScheduler() {
+        return this.dynamicPartitionScheduler;
     }
 
     private static class SingletonHolder {
@@ -491,6 +501,9 @@ public class Catalog {
         this.routineLoadTaskScheduler = new RoutineLoadTaskScheduler(routineLoadManager);
 
         this.smallFileMgr = new SmallFileMgr();
+
+        this.dynamicPartitionScheduler = new DynamicPartitionScheduler("DynamicPartitionScheduler",
+                Config.dynamic_partition_check_interval_seconds * 1000L);
     }
 
     public static void destroyCheckpoint() {
@@ -1178,6 +1191,8 @@ public class Catalog {
         // start routine load scheduler
         routineLoadScheduler.start();
         routineLoadTaskScheduler.start();
+        // start dynamic partition task
+        dynamicPartitionScheduler.start();
     }
 
     // start threads that should running on all FE
@@ -3090,6 +3105,7 @@ public class Catalog {
     }
 
     public void dropPartition(Database db, OlapTable olapTable, DropPartitionClause clause) throws DdlException {
+        DynamicPartitionUtil.checkAlterAllowed(olapTable);
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
 
         String partitionName = clause.getPartitionName();
@@ -3387,6 +3403,9 @@ public class Catalog {
             }
             partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId);
         } else {
+            if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(stmt.getProperties())) {
+                throw new DdlException("Only support dynamic partition properties on range partition table");
+            }
             long partitionId = getNextId();
             // use table name as single partition name
             partitionNameToId.put(tableName, partitionId);
@@ -3556,6 +3575,8 @@ public class Catalog {
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
                     PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
 
+                    DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties);
+
                     if (properties != null && !properties.isEmpty()) {
                         // here, all properties should be checked
                         throw new DdlException("Unknown properties: " + properties);
@@ -3588,7 +3609,7 @@ public class Catalog {
             if (!db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists())) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exists");
             }
-            
+
             // we have added these index to memory, only need to persist here
             if (getColocateTableIndex().isColocateTable(tableId)) {
                 GroupId groupId = getColocateTableIndex().getGroup(tableId);
@@ -3596,8 +3617,11 @@ public class Catalog {
                 ColocatePersistInfo info = ColocatePersistInfo.createForAddTable(groupId, tableId, backendsPerBucketSeq);
                 editLog.logColocateAddTable(info);
             }
-            
             LOG.info("successfully create table[{};{}]", tableName, tableId);
+            // register or remove table from DynamicPartition after table created
+            DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), olapTable);
+            dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
+                    tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
         } catch (DdlException e) {
             for (Long tabletId : tabletIdSet) {
                 Catalog.getCurrentInvertedIndex().deleteTablet(tabletId);
@@ -3879,6 +3903,11 @@ public class Catalog {
                 sb.append(colocateTable).append("\"");
             }
 
+            // 6. dynamic partition
+            if (olapTable.dynamicPartitionExists()) {
+                sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().toString());
+            }
+
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -4033,6 +4062,7 @@ public class Catalog {
                         }
                     }
                 } // end for partitions
+                DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(dbId, olapTable);
             }
         }
     }
@@ -5055,6 +5085,42 @@ public class Catalog {
 
     public void replayRenameColumn(TableInfo tableInfo) throws DdlException {
         throw new DdlException("not implmented");
+    }
+
+    public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
+        TableProperty tableProperty = table.getTableProperty();
+        if (tableProperty == null) {
+            DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties);
+        } else {
+            Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(properties);
+            tableProperty.modifyTableProperties(analyzedDynamicPartition);
+        }
+
+        DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table);
+        dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
+                table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
+        ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
+        editLog.logDynamicPartition(info);
+    }
+
+    public void replayModifyTableDynamicPartition(ModifyDynamicPartitionInfo info) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        Map<String, String> properties = info.getProperties();
+
+        Database db = getDb(dbId);
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            TableProperty tableProperty = olapTable.getTableProperty();
+            if (tableProperty == null) {
+                olapTable.setTableProperty(new TableProperty(properties).buildDynamicProperty());
+            } else {
+                tableProperty.modifyTableProperties(properties);
+            }
+        } finally {
+            db.writeUnlock();
+        }
     }
 
     /*
@@ -6193,7 +6259,7 @@ public class Catalog {
                 throw new DdlException("Table " + tbl.getName() + " is not random distributed");
             }
             TableInfo tableInfo = TableInfo.createForModifyDistribution(db.getId(), tbl.getId());
-            editLog.logModifyDitrubutionType(tableInfo);
+            editLog.logModifyDistributionType(tableInfo);
             LOG.info("finished to modify distribution type of table: " + tbl.getName());
         } finally {
             db.writeUnlock();

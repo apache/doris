@@ -17,8 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
@@ -39,7 +41,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             throw new AnalysisException("Properties is not set");
         }
 
-        if (properties.size() != 1) {
+        if (properties.size() != 1
+                && !TableProperty.isSamePrefixProperties(properties, TableProperty.DYNAMIC_PARTITION_PROPERTY_PREFIX)) {
             throw new AnalysisException("Can only set one table property at a time");
         }
 
@@ -71,6 +74,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
                 throw new AnalysisException(
                         "Property " + PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT + " should be v2");
             }
+        } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+            // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
