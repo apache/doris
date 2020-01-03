@@ -2018,9 +2018,9 @@ show_param ::=
     {:
         RESULT = new ShowDataStmt(dbTblName.getDb(), dbTblName.getTbl());
     :}
-	| KW_PARTITIONS KW_FROM table_name:tblName opt_partition_name:partitionName
+	| KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
-        RESULT = new ShowPartitionsStmt(tblName, partitionName);
+        RESULT = new ShowPartitionsStmt(tblName, parser.where, orderByClause, limitClause);
     :}
     | KW_TABLET INTEGER_LITERAL:tabletId
     {:
