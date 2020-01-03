@@ -281,11 +281,7 @@ public:
     }
 
     int64_t num_segments() const {
-        int64_t num_segs = _rowset_meta_pb.num_segments();
-        if (num_segs == 0) {
-            return _num_segments;
-        }
-        return num_segs;
+        return _rowset_meta_pb.num_segments();
     }
 
     void set_num_segments(int64_t num_segments) {
@@ -335,9 +331,8 @@ public:
         }
 
         // the "num_segments() == 0" must be after the above version judgement.
-        // because some of cumulative rowsets may have no data
+        // because some of cumulative rowsets may have no segments.(no data, or a delete version)
         if (num_segments() == 0) {
-            // specially for delete version
             return false;
         }
         return true;
@@ -390,12 +385,19 @@ private:
             _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
         }
 
-        // see comment of "_num_segments" field.
         if (num_segments() == 0) {
-            _num_segments = 0;
+            // ATTN(cmy): the num segments should be read from rowset meta pb.
+            // But the previous code error caused this value not to be set in some cases.
+            // So when init the rowset meta and find that the num_segments is 0(not set),
+            // we will try to calculate the num segmengts from AlphaRowsetExtraMetaPB, 
+            // and then set the num_segments field.
+            // This should only happen in some rowsets converted from old version.
+            // and for all newly created rowsets, the num_segments field must be set.
+            int32_t num_segments = 0;
             for (auto& seg_grp : _alpha_rowset_extra_meta_pb().segment_groups()) {
-                _num_segments += seg_grp.num_segments();
+                num_segments += seg_grp.num_segments();
             }
+            set_num_segments(num_segments);
         }
     }
 
@@ -403,15 +405,6 @@ private:
     RowsetMetaPB _rowset_meta_pb;
     RowsetId _rowset_id;
     bool _is_removed_from_rowset_meta = false;
-
-    // TODO(cmy): the num segments should be read from rowset meta pb.
-    // But the previous code error caused this value not to be set in some cases.
-    // So when init the rowset meta and find that the num_segments is 0(not set),
-    // we will try to calculate the num segmengts from AlphaRowsetExtraMetaPB, and saved
-    // in this _num_segments.
-    // This should only happen in some rowset converted from old version.
-    // and for all newly created rowset, the num_segments field must be set.
-    int32_t _num_segments = 0;
 };
 
 } // namespace doris
