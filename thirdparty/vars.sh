@@ -237,7 +237,7 @@ BROTLI_MD5SUM="1dcdcda924ab0c232ce54fa9f2b02624"
 # flatbuffers
 FLATBUFFERS_DOWNLOAD="https://github.com/google/flatbuffers/archive/v1.10.0.tar.gz"
 FLATBUFFERS_NAME=flatbuffers-v1.10.0.tar.gz
-FLATBUFFERS_SOURCE=flatbuffers-v1.10.0
+FLATBUFFERS_SOURCE=flatbuffers-1.10.0
 FLATBUFFERS_MD5SUM="f7d19a3f021d93422b0bc287d7148cd2"
 
 # arrow

@@ -352,7 +352,8 @@ build_snappy() {
     cp $TP_INCLUDE_DIR/snappy/snappy-c.h  $TP_INCLUDE_DIR/snappy-c.h && \
     cp $TP_INCLUDE_DIR/snappy/snappy-sinksource.h  $TP_INCLUDE_DIR/snappy-sinksource.h && \
     cp $TP_INCLUDE_DIR/snappy/snappy-stubs-public.h  $TP_INCLUDE_DIR/snappy-stubs-public.h && \
-    cp $TP_INCLUDE_DIR/snappy/snappy.h  $TP_INCLUDE_DIR/snappy.h
+    cp $TP_INCLUDE_DIR/snappy/snappy.h  $TP_INCLUDE_DIR/snappy.h && \
+    cp $TP_INSTALL_DIR/lib/libsnappy.a $TP_INSTALL_DIR/libsnappy.a
 }
 
 # gperftools
@@ -425,7 +426,7 @@ build_curl() {
     LDFLAGS="-L${TP_LIB_DIR}" LIBS="-lcrypto -lssl -lcrypto -ldl" \
     CFLAGS="-fPIC" \
     ./configure --prefix=$TP_INSTALL_DIR --disable-shared --enable-static \
-    --with-ssl=${TP_INSTALL_DIR} --without-libidn2 --disable-ldap --enable-ipv6
+    --without-librtmp --with-ssl=${TP_INSTALL_DIR} --without-libidn2 --disable-ldap --enable-ipv6
     make -j$PARALLEL && make install
 }
 
@@ -541,6 +542,20 @@ build_librdkafka() {
     make -j$PARALLEL && make install
 }
 
+# flatbuffers
+build_flatbuffers() {
+  check_if_source_exist $FLATBUFFERS_SOURCE
+  cd $TP_SOURCE_DIR/$FLATBUFFERS_SOURCE
+  mkdir build -p && cd build
+  rm -rf CMakeCache.txt CMakeFiles/
+  cmake ..
+  CXXFLAGS="-fPIC" make -j$PARALLEL
+  cp flatc  ../../../installed/bin/flatc
+  cp -r ../include/flatbuffers  ../../../installed/include/flatbuffers
+  cp libflatbuffers.a ../../../installed/lib/libflatbuffers.a
+}
+
+# arrow
 build_arrow() {
     check_if_source_exist $ARROW_SOURCE
     cd $TP_SOURCE_DIR/$ARROW_SOURCE/cpp && mkdir -p release && cd release
@@ -704,6 +719,7 @@ build_leveldb
 build_brpc
 build_rocksdb
 build_librdkafka
+build_flatbuffers
 build_arrow
 build_s2
 build_bitshuffle
