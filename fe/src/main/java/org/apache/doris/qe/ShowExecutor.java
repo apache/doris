@@ -133,7 +133,6 @@ import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -1086,26 +1085,10 @@ public class ShowExecutor {
 
     private void handleShowPartitions() throws AnalysisException {
         ShowPartitionsStmt showStmt = (ShowPartitionsStmt) stmt;
-
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
-        List<List<String>> rows = procNodeI.fetchResult().getRows();
-
-        if (showStmt.getPartitionName() != null) {
-            // filter by partition name
-            List<List<String>> oneRow = Lists.newArrayList();
-            String partitionName = showStmt.getPartitionName();
-            Iterator<List<String>> iter = rows.iterator();
-            while (iter.hasNext()) {
-                List<String> row = iter.next();
-                if (row.get(PartitionsProcDir.PARTITION_NAME_INDEX).equalsIgnoreCase(partitionName)) {
-                    oneRow.add(row);
-                    break;
-                }
-            }
-            rows = oneRow;
-        }
-
+        List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+            showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
