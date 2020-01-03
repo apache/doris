@@ -21,6 +21,7 @@ namespace java org.apache.doris.thrift
 include "Status.thrift"
 include "Types.thrift"
 include "PaloInternalService.thrift"
+include "Descriptors.thrift"
 
 struct TColumn {
     1: required string column_name
@@ -39,6 +40,7 @@ struct TTabletSchema {
     4: required Types.TStorageType storage_type
     5: required list<TColumn> columns
     6: optional double bloom_filter_fpp
+    7: optional list<Descriptors.TOlapTableIndex> indexes
 }
 
 // this enum stands for different storage format in src_backends
