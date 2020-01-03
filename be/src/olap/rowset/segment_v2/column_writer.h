@@ -171,6 +171,7 @@ private:
     PagePointer _ordinal_index_pp;
     PagePointer _zone_map_pp;
     PagePointer _dict_page_pp;
+    // the total data size of page list
     uint64_t _data_size;
     uint64_t _written_size = 0;
 };
