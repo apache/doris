@@ -195,6 +195,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     } catch (AnalysisException e) {
                         // keys.size is always equal to column.size, cannot reach this exception
                         LOG.error("Keys size is not equl to column size.");
+                        continue;
                     }
                     for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
                         // only support single column partition now
@@ -202,6 +203,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             RangePartitionInfo.checkRangeIntersect(partitionKeyRange, addPartitionKeyRange);
                         } catch (DdlException e) {
                             isPartitionExists = true;
+                            if (addPartitionKeyRange.equals(partitionKeyRange)) {
+                                clearFailedMsg(olapTable.getName());
+                            } else {
+                                recordFailedMsg(olapTable.getName(), e.getMessage());
+                            }
                             break;
                         }
                     }
@@ -234,8 +240,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             for (AddPartitionClause addPartitionClause : addPartitionClauses) {
                  try {
                      Catalog.getCurrentCatalog().addPartition(db, tableName, addPartitionClause);
-                     createOrUpdateRuntimeInfo(tableName, DYNAMIC_PARTITION_STATE, State.NORMAL.toString());
-                     createOrUpdateRuntimeInfo(tableName, MSG, DEFAULT_RUNTIME_VALUE);
+                     clearFailedMsg(tableName);
                  } catch (DdlException e) {
                      recordFailedMsg(tableName, e.getMessage());
                  }
@@ -247,6 +252,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         LOG.warn("dynamic add partition failed: " + msg);
         createOrUpdateRuntimeInfo(tableName, DYNAMIC_PARTITION_STATE, State.ERROR.toString());
         createOrUpdateRuntimeInfo(tableName, MSG, msg);
+    }
+
+    private void clearFailedMsg(String tableName) {
+        createOrUpdateRuntimeInfo(tableName, DYNAMIC_PARTITION_STATE, State.NORMAL.toString());
+        createOrUpdateRuntimeInfo(tableName, MSG, DEFAULT_RUNTIME_VALUE);
     }
 
     private void initDynamicPartitionTable() {
