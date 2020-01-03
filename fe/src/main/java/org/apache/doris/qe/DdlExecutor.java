@@ -52,6 +52,7 @@ import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
 import org.apache.doris.analysis.GrantStmt;
+import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
@@ -67,6 +68,7 @@ import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.SyncStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
+import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -200,6 +202,10 @@ public class DdlExecutor {
             catalog.getSmallFileMgr().createFile((CreateFileStmt) ddlStmt);
         } else if (ddlStmt instanceof DropFileStmt) {
             catalog.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
+        } else if (ddlStmt instanceof InstallPluginStmt) {
+            catalog.getPluginMgr().installPlugin((InstallPluginStmt) ddlStmt);
+        } else if (ddlStmt instanceof UninstallPluginStmt) {
+            catalog.getPluginMgr().uninstallPlugin((UninstallPluginStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
 

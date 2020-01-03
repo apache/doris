@@ -36,6 +36,10 @@ public class PluginContext {
 
     private static final String DEFAULT_PLUGIN_PROPERTIES = "plugin.properties";
 
+    private static final short PLUGIN_WORK_IN_FE = 1;
+
+    private static final short PLUGIN_WORK_IN_BE = 2;
+
     protected String name;
 
     protected PluginType type;
@@ -53,6 +57,8 @@ public class PluginContext {
     protected String source;
 
     protected String installPath;
+
+    private short flags;
 
     public PluginContext(String name, PluginType type, String description, DigitalVersion version, DigitalVersion javaVersion,
                          String className, String soName, String source) {

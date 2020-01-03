@@ -23,6 +23,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import org.apache.doris.analysis.InstallPluginStmt;
+import org.apache.doris.analysis.UninstallPluginStmt;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.kudu.client.shaded.com.google.common.collect.Lists;
 
@@ -30,23 +33,25 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 public class PluginMgr {
-    private final List<Map<String, PluginLoader>> plugins = Lists.newArrayListWithCapacity(PluginType.MAX_PLUGIN_SIZE);
+    private final List<Map<String, PluginLoader>> plugins;
 
     private String pluginDir;
 
-    public PluginMgr(String pluginDir) {
-        for (int i = 0; i < plugins.size(); i++) {
+    public PluginMgr() {
+        plugins = Lists.newArrayListWithCapacity(PluginType.MAX_PLUGIN_SIZE);
+
+        for (int i = 0; i < PluginType.MAX_PLUGIN_SIZE; i++) {
             plugins.add(Maps.newConcurrentMap());
         }
 
-        this.pluginDir = pluginDir;
+        this.pluginDir = Config.plugin_dir;
     }
 
     /**
      * Dynamic install plugin thought install statement
      */
-    public void installPlugin(String pluginSource) throws IOException, UserException {
-        PluginLoader pluginLoader = new DynamicPluginLoader(pluginDir, pluginSource);
+    public void installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
+        PluginLoader pluginLoader = new DynamicPluginLoader(pluginDir, stmt.getPluginPath());
 
         PluginContext ctx = pluginLoader.getPluginContext();
 
@@ -57,11 +62,6 @@ public class PluginMgr {
                 throw new UserException(
                         "plugin " + ctx.getName() + " has install version " + oldRef.getPluginContext().getVersion());
             }
-        }
-
-        {
-            // check & write meta
-            // ...
         }
 
         // install plugin
@@ -81,15 +81,10 @@ public class PluginMgr {
     /**
      * Dynamic uninstall plugin thought install statement
      */
-    public void uninstallPlugin(String pluginName) throws IOException, UserException {
+    public void uninstallPlugin(UninstallPluginStmt stmt) throws IOException, UserException {
         for (PluginType type : PluginType.values()) {
-            if (plugins.get(type.ordinal()).containsKey(pluginName)) {
-                PluginLoader ref = plugins.get(type.ordinal()).remove(pluginName);
-
-                {
-                    // check & update meta
-                    // ...
-                }
+            if (plugins.get(type.ordinal()).containsKey(stmt.getPluginName())) {
+                PluginLoader ref = plugins.get(type.ordinal()).remove(stmt.getPluginName());
 
                 // uninstall plugin
                 ref.uninstall();

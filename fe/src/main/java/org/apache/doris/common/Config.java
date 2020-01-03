@@ -103,6 +103,12 @@ public class Config extends ConfigBase {
     @ConfField public static String audit_log_roll_mode = "TIME-DAY";
 
     /*
+     * plugin_dir:
+     *      plugin install directory
+     */
+    @ConfField public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
+
+    /*
      * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
      * The removed labels can be reused.
      * Set a short time will lower the FE memory usage.

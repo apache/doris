@@ -172,6 +172,7 @@ import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
+import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
@@ -383,6 +384,8 @@ public class Catalog {
     private SmallFileMgr smallFileMgr;
 
     private DynamicPartitionScheduler dynamicPartitionScheduler;
+    
+    private PluginMgr pluginMgr;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -516,6 +519,8 @@ public class Catalog {
         this.metaDir = Config.meta_dir;
         this.bdbDir = this.metaDir + BDB_DIR;
         this.imageDir = this.metaDir + IMAGE_DIR;
+        
+        this.pluginMgr = new PluginMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -559,6 +564,10 @@ public class Catalog {
 
     public GlobalTransactionMgr getGlobalTransactionMgr() {
         return globalTransactionMgr;
+    }
+
+    public PluginMgr getPluginMgr() {
+        return pluginMgr;
     }
 
     public PaloAuth getAuth() {
@@ -607,6 +616,10 @@ public class Catalog {
 
     public static final boolean isCheckpointThread() {
         return Thread.currentThread().getId() == checkpointThreadId;
+    }
+
+    public static PluginMgr getCurrentPluginMgr() {
+        return getCurrentCatalog().getPluginMgr();
     }
 
     // Use tryLock to avoid potential dead lock
