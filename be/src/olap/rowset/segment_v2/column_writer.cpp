@@ -78,7 +78,8 @@ ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
         : _opts(opts),
         _is_nullable(is_nullable),
         _output_file(output_file),
-        _field(std::move(field)) {
+        _field(std::move(field)),
+        _data_size(0) {
 }
 
 ColumnWriter::~ColumnWriter() {
@@ -208,14 +209,7 @@ Status ColumnWriter::append_nullable(
 }
 
 uint64_t ColumnWriter::estimate_buffer_size() {
-    uint64_t size = 0;
-    Page* page = _pages.head;
-    while (page != nullptr) {
-        for (auto& data_slice : page->data) {
-            size += data_slice.slice().size;
-        }
-        page = page->next;
-    }
+    uint64_t size = _data_size;
     size += _page_builder->size();
     if (_is_nullable) {
         size += _null_bitmap_builder->size();
