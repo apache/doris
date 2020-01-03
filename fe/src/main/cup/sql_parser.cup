@@ -4276,6 +4276,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_STOP:id
     {: RESULT = id; :}
+    | KW_DYNAMIC:id
+    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword
