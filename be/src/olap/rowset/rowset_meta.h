@@ -330,8 +330,7 @@ public:
             return false;
         }
 
-        // the "num_segments() == 0" must be after the above version judgement.
-        // because some of cumulative rowsets may have no segments.(no data, or a delete version)
+        // some of cumulative rowsets may have no segments.(no data, or a delete version)
         if (num_segments() == 0) {
             return false;
         }
