@@ -637,6 +637,8 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         ColumnDataHeaderMessage header;
         ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
+        // because file_helper is reused in this case, we should close it.
+        helper.close();
         CreateColumnReader(tablet_schema);
 
         RowCursor read_row;
