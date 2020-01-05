@@ -394,7 +394,7 @@ TEST_F(TestColumn, ConvertDatetimeToDate) {
     
     //test not support type
     TypeInfo* tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-    OLAPStatus st = read_row.convert_from(0, src, tp, _mem_pool.get());
+    OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
     ASSERT_TRUE( st == OLAP_ERR_INVALID_SCHEMA);
 }
 
@@ -441,7 +441,7 @@ TEST_F(TestColumn, ConvertDateToDatetime) {
 
     //test not support type
     TypeInfo* tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-    OLAPStatus st = read_row.convert_from(0, src, tp, _mem_pool.get());
+    OLAPStatus st = read_row.convert_from(0, data, tp, _mem_pool.get());
     ASSERT_TRUE( st == OLAP_ERR_INVALID_SCHEMA);
 }
 
