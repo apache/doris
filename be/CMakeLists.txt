@@ -40,7 +40,7 @@ string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
 message(STATUS "Build type is ${CMAKE_BUILD_TYPE}")
 
 # set CMAKE_BUILD_TARGET_ARCH
-execute_process(COMMAND bash "-c" "lscpu | grep 'Architecture' | awk '{print $2}'"
+execute_process(COMMAND bash "-c" "uname -m"
                 OUTPUT_VARIABLE
                 CMAKE_BUILD_TARGET_ARCH
                 OUTPUT_STRIP_TRAILING_WHITESPACE)
