@@ -189,12 +189,14 @@ public:
                    &_stats), OLAP_SUCCESS);
     }
 
-    void AddColumn(std::string name,
-                 std::string type,
-                 std::string aggregation,
-                 uint32_t length,
-                 bool is_allow_null,
-                 bool is_key) {
+    void SetTabletSchema(const std::string& name,
+            const std::string& type,
+            const std::string& aggregation,
+            uint32_t length,
+            bool is_allow_null,
+            bool is_key,
+            TabletSchema* tablet_schema) {
+        TabletSchemaPB tablet_schema_pb;
         ColumnPB* column = tablet_schema_pb.add_column();
         column->set_unique_id(0);
         column->set_name(name);
@@ -203,12 +205,6 @@ public:
         column->set_is_nullable(is_allow_null);
         column->set_length(length);
         column->set_aggregation(aggregation);
-        column->set_precision(1000);
-        column->set_frac(1000);
-        column->set_is_bf_column(false);
-    }
-
-    void InitTablet(TabletSchema* tablet_schema) {
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
@@ -217,58 +213,38 @@ public:
     }
 
     void test_convert_from_varchar(std::string type_name, int type_size,
-                                   std::string normal_value,
-                                   std::string overflow_value,
-                                   std::string invalid_value="invalid") {
-        AddColumn(
-                "VarcharColumn",
-                "VARCHAR",
-                "REPLACE",
-                255,
-                false,
-                true);
-
-        AddColumn(
-                "ConvertColumn",
-                type_name,
-                "REPLACE",
-                type_size,
-                false,
-                false);
-
+                                   const std::string& normal_value,
+                                   const std::string& overflow_value,
+                                   const std::string& invalid_value="invalid") {
         TabletSchema tablet_schema;
-        InitTablet(&tablet_schema);
+        SetTabletSchema("VarcharColumn", "VARCHAR", "REPLACE", 255, false, false, &tablet_schema);
         CreateColumnWriter(tablet_schema);
 
         RowCursor write_row;
         write_row.init(tablet_schema);
-
         RowBlock block(&tablet_schema);
         RowBlockInfo block_info;
         block_info.row_num = 10000;
         block.init(block_info);
-
         Slice normal_str(normal_value);
         write_row.set_field_content(0, reinterpret_cast<char*>(&normal_str), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
         ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
-
         ColumnDataHeaderMessage header;
         ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
+        TabletSchema converted_tablet_schema;
+        SetTabletSchema("ConvertColumn", type_name, "REPLACE", type_size, false, false, &converted_tablet_schema);
         CreateColumnReader(tablet_schema);
-
         RowCursor read_row;
-        read_row.init(tablet_schema);
+        read_row.init(converted_tablet_schema);
 
         _col_vector.reset(new ColumnVector());
         ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         char* data = reinterpret_cast<char*>(_col_vector->col_data());
-        read_row.set_field_content(0, data, _mem_pool.get());
-        const Field* src_field = read_row.column_schema(0);
-        read_row.convert_from(1, read_row.cell_ptr(0), src_field->type_info(), _mem_pool.get());
-        std::string dst_str = read_row.column_schema(1)->to_string(read_row.cell_ptr(1));
+        read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get());
+        std::string dst_str = read_row.column_schema(0)->to_string(read_row.cell_ptr(0));
         ASSERT_EQ(normal_value, dst_str);
 
         Slice invalid_str("invalid");
@@ -280,9 +256,7 @@ public:
         _col_vector.reset(new ColumnVector());
         ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         data = reinterpret_cast<char*>(_col_vector->col_data());
-        read_row.set_field_content(0, data, _mem_pool.get());
-        const Field* src_field2 = read_row.column_schema(0);
-        ASSERT_EQ(read_row.convert_from(1, read_row.cell_ptr(0), src_field2->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
+        ASSERT_EQ(read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
 
         Slice overflow_str(overflow_value);
         write_row.set_field_content(0, reinterpret_cast<char*>(&overflow_str), _mem_pool.get());
@@ -293,14 +267,11 @@ public:
         _col_vector.reset(new ColumnVector());
         ASSERT_EQ(_column_reader->next_vector(_col_vector.get(), 1, _mem_pool.get()), OLAP_SUCCESS);
         data = reinterpret_cast<char*>(_col_vector->col_data());
-        read_row.set_field_content(0, data, _mem_pool.get());
-        const Field* src_field3 = read_row.column_schema(0);
-        ASSERT_EQ(read_row.convert_from(1, read_row.cell_ptr(0), src_field3->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
+        ASSERT_EQ(read_row.convert_from(0, data, write_row.column_schema(0)->type_info(), _mem_pool.get()), OLAP_ERR_INVALID_SCHEMA);
 
         TypeInfo* tp = get_type_info(OLAP_FIELD_TYPE_HLL);
-        OLAPStatus st = read_row.convert_from(1, read_row.cell_ptr(0), tp, _mem_pool.get());
+        OLAPStatus st = read_row.convert_from(0, read_row.cell_ptr(0), tp, _mem_pool.get());
         ASSERT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
-
     }
 
     ColumnWriter *_column_writer;
@@ -311,8 +282,6 @@ public:
     std::unique_ptr<ColumnVector> _col_vector;
 
     OutStreamFactory *_stream_factory;
-
-    TabletSchemaPB tablet_schema_pb;
 
     std::vector<size_t> _offsets;
     std::vector<StorageByteBuffer*> _present_buffers;
@@ -328,24 +297,8 @@ public:
 
 
 TEST_F(TestColumn, ConvertFloatToDouble) {
-    // write data
-    AddColumn(
-            "FloatColumn", 
-            "FLOAT", 
-            "REPLACE", 
-            4, 
-            false,
-            true);
-    AddColumn(
-            "DoubleColumn", 
-            "DOUBLE", 
-            "REPLACE", 
-            4, 
-            false,
-            false);
-    
     TabletSchema tablet_schema;
-    InitTablet(&tablet_schema);
+    SetTabletSchema("FloatColumn", "FLOAT", "REPLACE", 4, false, false, &tablet_schema);
     CreateColumnWriter(tablet_schema);
     
     RowCursor write_row;
@@ -372,17 +325,16 @@ TEST_F(TestColumn, ConvertFloatToDouble) {
     ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
     // read data
+    TabletSchema convert_tablet_schema;
+    SetTabletSchema("DoubleColumn", "DOUBLE", "REPLACE", 4, false, false, &convert_tablet_schema);
     CreateColumnReader(tablet_schema);
-    
     RowCursor read_row;
-    read_row.init(tablet_schema);
-
+    read_row.init(convert_tablet_schema);
     _col_vector.reset(new ColumnVector());
     ASSERT_EQ(_column_reader->next_vector(
         _col_vector.get(), 2, _mem_pool.get()), OLAP_SUCCESS);
     char* data = reinterpret_cast<char*>(_col_vector->col_data());
-    read_row.set_field_content(0, data, _mem_pool.get());
-    read_row.convert_from(1, data, read_row.column_schema(0)->type_info(), _mem_pool.get());    
+    read_row.convert_from(0, data, read_row.column_schema(0)->type_info(), _mem_pool.get());
     //float val1 = *reinterpret_cast<float*>( read_row.cell_ptr(0));
     double val2 = *reinterpret_cast<double*>( read_row.cell_ptr(1));
     
