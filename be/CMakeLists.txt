@@ -44,7 +44,7 @@ execute_process(COMMAND bash "-c" "uname -m"
                 OUTPUT_VARIABLE
                 CMAKE_BUILD_TARGET_ARCH
                 OUTPUT_STRIP_TRAILING_WHITESPACE)
-message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
+message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}.")
 
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
