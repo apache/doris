@@ -24,7 +24,7 @@ import org.apache.commons.lang.StringUtils;
 
 import java.util.Map;
 
-public class DropIndexClause extends AlterClause {
+public class DropIndexClause extends AlterTableClause {
     private final String indexName;
     private final TableName tableName;
     private boolean alter;
@@ -33,6 +33,7 @@ public class DropIndexClause extends AlterClause {
         this.indexName = indexName;
         this.tableName = tableName;
         this.alter = alter;
+        this.needTableStable = true;
     }
 
     public String getIndexName() {
