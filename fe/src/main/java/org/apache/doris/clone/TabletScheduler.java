@@ -96,13 +96,6 @@ public class TabletScheduler extends MasterDaemon {
 
     public static final int BALANCE_SLOT_NUM_FOR_PATH = 2;
 
-    // if the number of scheduled tablets in TabletScheduler exceed this threshold,
-    // skip checking.
-    public static final int MAX_SCHEDULING_TABLETS = 2000;
-    // if the number of balancing tablets in TabletScheduler exceed this threshold,
-    // no more balance check
-    public static final int MAX_BALANCING_TABLETS = 100;
-
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.
      * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletIds when
@@ -220,7 +213,8 @@ public class TabletScheduler extends MasterDaemon {
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
         if (tablet.getType() != TabletSchedCtx.Type.BALANCE && !force
-                && (pendingTablets.size() > MAX_SCHEDULING_TABLETS || runningTablets.size() > MAX_SCHEDULING_TABLETS)) {
+                && (pendingTablets.size() > Config.max_scheduling_tablets
+                || runningTablets.size() > Config.max_scheduling_tablets)) {
             return AddResult.LIMIT_EXCEED;
         }
 
@@ -976,9 +970,9 @@ public class TabletScheduler extends MasterDaemon {
         }
         
         long numOfBalancingTablets = getBalanceTabletsNumber();
-        if (numOfBalancingTablets > MAX_BALANCING_TABLETS) {
+        if (numOfBalancingTablets > Config.max_balancing_tablets) {
             LOG.info("number of balancing tablets {} exceed limit: {}, skip selecting tablets for balance",
-                    numOfBalancingTablets, MAX_BALANCING_TABLETS);
+                    numOfBalancingTablets, Config.max_balancing_tablets);
             return;
         }
 
