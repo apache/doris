@@ -71,6 +71,10 @@ protected:
     // semaphore used to limit the concurrency of running compaction tasks
     static Semaphore _concurrency_sem;
 
+private:
+    // get num rows from segment group meta of input rowsets.
+    int64_t _get_input_num_rows_from_seg_grps();
+
 protected:
     TabletSharedPtr _tablet;
 

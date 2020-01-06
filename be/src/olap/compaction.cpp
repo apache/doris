@@ -204,10 +204,43 @@ OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
                    << ", merged_row_num=" << stats.merged_rows
                    << ", filted_row_num=" << stats.filtered_rows
                    << ", output_row_num=" << _output_rowset->num_rows();
+
+        // ATTN(cmy): We found that the num_rows in some rowset meta may be set to the wrong value,
+        // but it is not known which version of the code has the problem. So when the compaction
+        // result is inconsistent, we then try to verify by num_rows recorded in segment_groups.
+        // If the check passes, ignore the error and set the correct value in the output rowset meta
+        // to fix this problem.
+        // Only handle alpha rowset because we only find this bug in alpha rowset
+        if (_intput_rowset->rowset_meta().rowset_type() == RowsetTypePB::ALPHA_ROWSET) {
+            int64_t num_rows = _get_input_num_rows_from_seg_grps();
+            if (num_rows != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
+                // If it is still incorrect, it may be another problem
+                LOG(WARNING) << "row_num got from seg groups does not match between cumulative input and output! "
+                    << "input_row_num=" << num_rows
+                    << ", merged_row_num=" << stats.merged_rows
+                    << ", filted_row_num=" << stats.filtered_rows
+                    << ", output_row_num=" << _output_rowset->num_rows();
+
+                return OLAP_ERR_CHECK_LINES_ERROR;
+            } else {
+                return OLAP_SUCCESS;
+            }
+        } 
+
         return OLAP_ERR_CHECK_LINES_ERROR;
     }
 
     return OLAP_SUCCESS;
+}
+
+int64_t Compaction::_get_input_num_rows_from_seg_grps() {
+    int64_t num_rows = 0;
+    for (auto& rowset : _input_rowsets) {
+        for (auto& seg_grp : rowset->rowset_meta().alpha_rowset_extra_meta_pb().segment_groups()) {
+            num_rows += seg_grp.num_rows();
+        }
+    }
+    return num_rows;
 }
 
 }  // namespace doris

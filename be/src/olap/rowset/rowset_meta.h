@@ -352,6 +352,9 @@ public:
         return score;
     }
 
+    const AlphaRowsetExtraMetaPB& alpha_rowset_extra_meta_pb() {
+        return _rowset_meta_pb.alpha_rowset_extra_meta_pb();
+    }
 
 private:
     friend class AlphaRowsetMeta;
@@ -368,10 +371,6 @@ private:
 
     bool _has_alpha_rowset_extra_meta_pb() {
         return _rowset_meta_pb.has_alpha_rowset_extra_meta_pb();
-    }
-
-    const AlphaRowsetExtraMetaPB& _alpha_rowset_extra_meta_pb() {
-        return _rowset_meta_pb.alpha_rowset_extra_meta_pb();
     }
 
     AlphaRowsetExtraMetaPB* _mutable_alpha_rowset_extra_meta_pb() {
@@ -394,7 +393,7 @@ private:
             // This should only happen in some rowsets converted from old version.
             // and for all newly created rowsets, the num_segments field must be set.
             int32_t num_segments = 0;
-            for (auto& seg_grp : _alpha_rowset_extra_meta_pb().segment_groups()) {
+            for (auto& seg_grp : alpha_rowset_extra_meta_pb().segment_groups()) {
                 num_segments += seg_grp.num_segments();
             }
             set_num_segments(num_segments);
