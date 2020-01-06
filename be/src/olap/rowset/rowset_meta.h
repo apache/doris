@@ -352,7 +352,7 @@ public:
         return score;
     }
 
-    const AlphaRowsetExtraMetaPB& alpha_rowset_extra_meta_pb() {
+    const AlphaRowsetExtraMetaPB& alpha_rowset_extra_meta_pb() const {
         return _rowset_meta_pb.alpha_rowset_extra_meta_pb();
     }
 
