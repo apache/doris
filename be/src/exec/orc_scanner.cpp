@@ -35,7 +35,7 @@ public:
     }
 
     ~ORCFileStream() override {
-        if (_file) {
+        if (_file != nullptr) {
             _file->close();
             delete _file;
             _file = nullptr;
@@ -65,7 +65,7 @@ public:
      * @param offset the position in the stream to read from.
      */
     void read(void *buf, uint64_t length, uint64_t offset) override {
-        if (!buf) {
+        if (buf == nullptr) {
             throw orc::ParseError("Buffer is null");
         }
 
@@ -95,37 +95,51 @@ public:
     const std::string &getName() const override {
         return _filename;
     }
+
 private:
     FileReader *_file;
     std::string _filename;
 };
 
-ORCScanner::ORCScanner(RuntimeState *state,
-        RuntimeProfile *profile,
-        const TBrokerScanRangeParams &params,
-        const std::vector<TBrokerRangeDesc> &ranges,
-        const std::vector<TNetworkAddress> &broker_addresses,
-        ScannerCounter *counter) : BaseScanner(state, profile, params, counter),
-            _ranges(ranges),
-            _broker_addresses(broker_addresses),
-            // _splittable(params.splittable),
-            _next_range(0),
-            _cur_file_eof(true),
-            _scanner_eof(false),
-            _total_groups(0),
-            _current_group(0),
-            _rows_of_group(0),
-            _current_line_of_group(0) {}
+ORCScanner::ORCScanner(RuntimeState* state,
+        RuntimeProfile* profile,
+        const TBrokerScanRangeParams& params,
+        const std::vector<TBrokerRangeDesc>& ranges,
+        const std::vector<TNetworkAddress>& broker_addresses,
+        ScannerCounter* counter) : BaseScanner(state, profile, params, counter),
+        _ranges(ranges),
+        _broker_addresses(broker_addresses),
+        // _splittable(params.splittable),
+        _next_range(0),
+        _cur_file_eof(true),
+        _scanner_eof(false),
+        _total_groups(0),
+        _current_group(0),
+        _rows_of_group(0),
+        _current_line_of_group(0) {}
 
 ORCScanner::~ORCScanner() {
     close();
 }
 
 Status ORCScanner::open() {
-    return BaseScanner::open();
+    RETURN_IF_ERROR(BaseScanner::open());
+    if (!_ranges.empty()) {
+        std::list<std::string> include_cols;
+        TBrokerRangeDesc range = _ranges[0];
+        _num_of_columns_from_file =
+                range.__isset.num_of_columns_from_file ? range.num_of_columns_from_file : _src_slot_descs.size();
+        for (int i = 0; i < _num_of_columns_from_file; i++) {
+            auto slot_desc = _src_slot_descs.at(i);
+            include_cols.push_back(slot_desc->col_name());
+        }
+        _row_reader_options.include(include_cols);
+    }
+
+    return Status::OK();
 }
 
-Status ORCScanner::get_next(Tuple *tuple, MemPool *tuple_pool, bool *eof) {
+Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
     try {
         SCOPED_TIMER(_read_timer);
         // Get one line
@@ -152,18 +166,25 @@ Status ORCScanner::get_next(Tuple *tuple, MemPool *tuple_pool, bool *eof) {
                 ++_current_group;
             }
 
-            const std::vector<orc::ColumnVectorBatch *>& batch_vec = ((orc::StructVectorBatch *) _batch.get())->fields;
+            const std::vector<orc::ColumnVectorBatch *> &batch_vec = ((orc::StructVectorBatch *) _batch.get())->fields;
             for (int column_ipos = 0; column_ipos < _num_of_columns_from_file; ++column_ipos) {
                 auto slot_desc = _src_slot_descs[column_ipos];
                 orc::ColumnVectorBatch *cvb = batch_vec[_position_in_orc_original[column_ipos]];
 
                 if (cvb->hasNulls && !cvb->notNull[_current_line_of_group]) {
-                    //all src tuple is nullable , judge null in dest_tuple
+                    if (!slot_desc->is_nullable()) {
+                        std::stringstream str_error;
+                        str_error << "The field name(" << slot_desc->col_name() << ") is not nullable ";
+                        LOG(WARNING) << str_error.str();
+                        return Status::InternalError(str_error.str());
+                    }
                     _src_tuple->set_null(slot_desc->null_indicator_offset());
                 } else {
                     int32_t wbytes = 0;
                     uint8_t tmp_buf[128] = {0};
-                    _src_tuple->set_not_null(slot_desc->null_indicator_offset());
+                    if (slot_desc->is_nullable()) {
+                        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
+                    }
                     void *slot = _src_tuple->get_slot(slot_desc->tuple_offset());
                     StringValue *str_slot = reinterpret_cast<StringValue *>(slot);
 
@@ -292,29 +313,19 @@ Status ORCScanner::open_next_reader() {
         _current_group = 0;
         _rows_of_group = 0;
         _current_line_of_group = 0;
+        _row_reader = _reader->createRowReader(_row_reader_options);
 
-        _includes.clear();
-        _num_of_columns_from_file =
-                range.__isset.num_of_columns_from_file ? range.num_of_columns_from_file : _src_slot_descs.size();
-        for (int i = 0; i < _num_of_columns_from_file; i++) {
-            auto slot_desc = _src_slot_descs.at(i);
-            _includes.push_back(slot_desc->col_name());
-        }
-        _rowReaderOptions.include(_includes);
-
-        int orc_index = 0;
-        std::map<std::string, int> column_name_map_orc_index;
-        for (int i = 0; i < _reader->getType().getSubtypeCount(); ++i) {
-            if (std::find(_includes.begin(), _includes.end(), _reader->getType().getFieldName(i)) != _includes.end()) {
-                column_name_map_orc_index.emplace(_reader->getType().getFieldName(i), orc_index++);
-            }
-        }
         _position_in_orc_original.clear();
-        for (const auto& column_name : _rowReaderOptions.getIncludeNames()) {
-            _position_in_orc_original.emplace_back(column_name_map_orc_index.find(column_name)->second);
+        _position_in_orc_original.resize(_num_of_columns_from_file);
+        int orc_index = 0;
+        auto include_cols = _row_reader_options.getIncludeNames();
+        for (int i = 0; i < _reader->getType().getSubtypeCount(); ++i) {
+            auto pos = std::find(include_cols.begin(), include_cols.end(), _reader->getType().getFieldName(i));
+            if (pos != include_cols.end()) {
+                _position_in_orc_original.at(std::distance(include_cols.begin(), pos)) = orc_index++;
+            }
+            //include columns must in reader field, otherwise createRowReader will throw exception
         }
-
-        _row_reader = _reader->createRowReader(_rowReaderOptions);
         return Status::OK();
     }
 }

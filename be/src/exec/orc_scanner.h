@@ -26,11 +26,11 @@ namespace doris {
 // Broker scanner convert the data read from broker to doris's tuple.
 class ORCScanner : public BaseScanner {
 public:
-    ORCScanner(RuntimeState *state,
-               RuntimeProfile *profile,
+    ORCScanner(RuntimeState* state,
+               RuntimeProfile* profile,
                const TBrokerScanRangeParams& params,
                const std::vector<TBrokerRangeDesc>& ranges,
-               const std::vector<TNetworkAddress>& broker_addresses, ScannerCounter *counter);
+               const std::vector<TNetworkAddress>& broker_addresses, ScannerCounter* counter);
 
     ~ORCScanner() override;
 
@@ -38,7 +38,7 @@ public:
     Status open() override;
 
     // Get next tuple
-    Status get_next(Tuple *tuple, MemPool *tuple_pool, bool *eof) override;
+    Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) override;
 
     // Close this scanner
     void close() override;
@@ -58,11 +58,10 @@ private:
 
     // orc file reader object
     orc::ReaderOptions _options;
-    orc::RowReaderOptions _rowReaderOptions;
+    orc::RowReaderOptions _row_reader_options;
     std::shared_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader;
     std::unique_ptr<orc::RowReader> _row_reader;
-    std::list<std::string> _includes; // include columns in orc file
     // The batch after reading from orc data is arranged in the original order,
     // so we need to record the index in the original order to correspond the column names to the order
     std::vector<int> _position_in_orc_original;
