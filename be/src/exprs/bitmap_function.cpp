@@ -391,6 +391,9 @@ BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const
 StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
+=======
+>>>>>>> 2f990c06... fix bitmap udf
     RoaringBitmap bitmap;
     if(!src.is_null){
         if(src.len == 0 ){
@@ -407,6 +410,7 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src,
             bitmap.merge(RoaringBitmap ((char*)dst.ptr));
         }
     }
+<<<<<<< HEAD
 
     StringVal result(ctx,bitmap.size());
     bitmap.serialize((char*)result.ptr);
@@ -437,21 +441,42 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src
 >>>>>>> f1540266... ADD BE BitMap UDF and & or
     RoaringBitmap src_bitmap ((char*)src.ptr);
     src_bitmap.merge(RoaringBitmap((char*)dst.ptr));
+=======
+>>>>>>> 2f990c06... fix bitmap udf
 
-    StringVal result(ctx,srcBitmap.size());
-    srcBitmap.serialize((char*)result.ptr);
+    StringVal result(ctx,bitmap.size());
+    bitmap.serialize((char*)result.ptr);
     return result;
 }
 StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
-    RoaringBitmap src_bitmap ((char*)src.ptr);
-    src_bitmap.intersect(RoaringBitmap((char*)dst.ptr));
+    RoaringBitmap bitmap;
+    if(!src.is_null){
+        if(src.len == 0 ){
+            bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
+        } else{
+            bitmap.merge(RoaringBitmap ((char*)src.ptr));
+        }
+    }
 
+    if(!dst.is_null){
+        if(dst.len == 0){
+            bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(dst.ptr));
+        } else{
+            bitmap.intersect(RoaringBitmap ((char*)dst.ptr));
+        }
+    }
+
+<<<<<<< HEAD
     StringVal result(ctx,srcBitmap.size());
     srcBitmap.serialize((char*)result.ptr);
 <<<<<<< HEAD
 >>>>>>> e1e68309... ADD BE BitMap UDF and & or
 =======
 >>>>>>> f1540266... ADD BE BitMap UDF and & or
+=======
+    StringVal result(ctx,bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+>>>>>>> 2f990c06... fix bitmap udf
     return result;
 }
 
