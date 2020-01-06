@@ -105,6 +105,9 @@ COUNT(DISTINCT expr) 相同
 filter_column 过滤条件的多个 bitmap 的交集的基数值。
 bitmap_column_to_count 是 bitmap 类型的列，filter_column 是变化的维度列，filter_values 是维度取值列表
 
+`BITMAP_OR(expr,expr)`: 计算两个Bitmap列的并集，返回值是序列化后 Bitmap 值
+
+`BITMAP_AND(expr,expr)`:计算两个Bitmap列的交集，返回值是序列化后 Bitmap 值
 
 
 注意：
