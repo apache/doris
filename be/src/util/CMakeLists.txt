@@ -84,6 +84,7 @@ set(UTIL_FILES
   minizip/ioapi.c
   minizip/unzip.c
   zip_util.cpp        
+  utf8_check.cpp
 )
 
 if (WITH_MYSQL)
