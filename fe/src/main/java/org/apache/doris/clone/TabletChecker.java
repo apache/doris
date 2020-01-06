@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletScheduler.AddResult;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
@@ -157,10 +158,10 @@ public class TabletChecker extends MasterDaemon {
     protected void runAfterCatalogReady() {
         int pendingNum = tabletScheduler.getPendingNum();
         int runningNum = tabletScheduler.getRunningNum();
-        if (pendingNum > TabletScheduler.MAX_SCHEDULING_TABLETS
-                || runningNum > TabletScheduler.MAX_SCHEDULING_TABLETS) {
+        if (pendingNum > Config.max_scheduling_tablets
+                || runningNum > Config.max_scheduling_tablets) {
             LOG.info("too many tablets are being scheduled. pending: {}, running: {}, limit: {}. skip check",
-                    pendingNum, runningNum, TabletScheduler.MAX_SCHEDULING_TABLETS);
+                    pendingNum, runningNum, Config.max_scheduling_tablets);
             return;
         }
         
