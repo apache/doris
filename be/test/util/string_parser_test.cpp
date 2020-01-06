@@ -110,7 +110,7 @@ void test_float_value_is_nan(const std::string& s, StringParser::ParseResult exp
     EXPECT_EQ(exp_result, result);
 
     if (exp_result == StringParser::PARSE_SUCCESS && result == exp_result) {
-        EXPECT_TRUE(isnan(val));
+        EXPECT_TRUE(std::isnan(val));
     }
 }
 
