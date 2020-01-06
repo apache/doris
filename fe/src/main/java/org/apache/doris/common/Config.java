@@ -184,6 +184,13 @@ public class Config extends ConfigBase {
      * you can try to increase this value to decrease the chances of false timeouts
      */
     @ConfField public static int bdbje_heartbeat_timeout_second = 30;
+
+    /*
+     * The lock timeout of bdbje operation
+     * If there are many LockTimeoutException in FE WARN log, you can try to increase this value
+     */
+    @ConfField
+    public static int bdbje_lock_timeout_second = 1;
     
     /*
      * the max txn number which bdbje can rollback when trying to rejoin the group
