@@ -870,6 +870,8 @@ public class GlobalTransactionMgr implements Writable {
      * The txn cleaner will run at a fixed interval and try to delete expired and timeout txns:
      * expired: txn is in VISIBLE or ABORTED, and is expired.
      * timeout: txn is in PREPARE, but timeout
+     * Todo(kks): currently remove transaction performance is bad, if we want to support
+     *  super-high concurrent transaction, we should improve this method
      */
     public void removeExpiredAndTimeoutTxns() {
         long currentMillis = System.currentTimeMillis();
