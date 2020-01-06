@@ -39,7 +39,7 @@ public class CreateIndexClause extends AlterTableClause {
         this.tableName = tableName;
         this.indexDef = indexDef;
         this.alter = alter;
-        this.needTableStable = false;
+        this.needTableStable = true;
     }
 
     @Override
