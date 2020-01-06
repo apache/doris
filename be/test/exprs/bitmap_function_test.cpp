@@ -28,7 +28,7 @@
 
 namespace doris {
 
-StringVal convert_bitmap_to_string(FunctionContext* ctx, RoaringBitmap& bitmap) {
+StringVal convert_bitmap_to_string(FunctionContext* ctx,RoaringBitmap& bitmap) {
     StringVal result(ctx, bitmap.size());
     bitmap.serialize((char*)result.ptr);
     return result;
