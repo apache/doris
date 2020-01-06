@@ -465,6 +465,7 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src
             FunctionContext *ctx, const IntVal &src, StringVal *dst);
 
 
+<<<<<<< HEAD
     template void BitmapFunctions::bitmap_intersect_init<int8_t, TinyIntVal>(
             FunctionContext *ctx, StringVal *dst);
 
@@ -623,6 +624,53 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src
 
     template BigIntVal BitmapFunctions::bitmap_intersect_finalize<DecimalV2Value>(
             FunctionContext *ctx, const StringVal &src);
+=======
+StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
+    RoaringBitmap bitmap;
+    if(!src.is_null){
+        if(src.len == 0 ){
+            bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
+        } else{
+            bitmap.merge(RoaringBitmap ((char*)src.ptr));
+        }
+    }
+
+    if(!dst.is_null){
+        if(dst.len == 0){
+            bitmap.merge(*reinterpret_cast<RoaringBitmap*>(dst.ptr));
+        } else{
+            bitmap.merge(RoaringBitmap ((char*)dst.ptr));
+        }
+    }
+
+    StringVal result(ctx,bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
+}
+StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
+    RoaringBitmap bitmap;
+    if(!src.is_null){
+        if(src.len == 0 ){
+            bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
+        } else{
+            bitmap.merge(RoaringBitmap ((char*)src.ptr));
+        }
+    }
+
+    if(!dst.is_null){
+        if(dst.len == 0){
+            bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(dst.ptr));
+        } else{
+            bitmap.intersect(RoaringBitmap ((char*)dst.ptr));
+        }
+    }
+
+    StringVal result(ctx,bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
+}
+
+>>>>>>> f1bba80d... bitmap udf
 
     template BigIntVal BitmapFunctions::bitmap_intersect_finalize<StringValue>(
             FunctionContext *ctx, const StringVal &src);
