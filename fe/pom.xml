@@ -531,6 +531,14 @@ under the License.
             <artifactId>oshi-core</artifactId>
             <version>4.0.0</version>
         </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.jboss.xnio/xnio-nio -->
+        <dependency>
+            <groupId>org.jboss.xnio</groupId>
+            <artifactId>xnio-nio</artifactId>
+            <version>3.6.5.Final</version>
+        </dependency>
+
     </dependencies>
 
     <build>
