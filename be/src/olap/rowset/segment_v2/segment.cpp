@@ -223,5 +223,12 @@ Status Segment::new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** it
     return Status::OK();
 }
 
+void Segment::close() {
+    _input_file.reset(nullptr);
+    _column_readers.clear();
+    _sk_index_decoder.reset(nullptr);
+
+}
+
 }
 }

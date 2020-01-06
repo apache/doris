@@ -79,6 +79,8 @@ protected:
 
     OLAPStatus do_load_once(bool use_cache) override ;
 
+    void do_close() override;
+
     // add custom logic when rowset is published
     void make_visible_extra(Version version, VersionHash version_hash) override;
 

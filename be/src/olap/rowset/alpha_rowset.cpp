@@ -48,10 +48,15 @@ OLAPStatus AlphaRowset::do_load_once(bool use_cache) {
             return res;
         }
     }
+    _closed = false;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
+    if (_load_once.has_called() && _closed) {
+        LOG(WARNING) << "failed to create rowset because rowset is closed";
+        return OLAP_ERR_ROWSET_CREATE_READER;
+    }
     RETURN_NOT_OK(load());
     result->reset(new AlphaRowsetReader(
         _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
@@ -370,6 +375,10 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
         alpha_rowset_meta->add_segment_group(segment_group_meta);
     }
     return OLAP_SUCCESS;
+}
+
+void AlphaRowset::do_close() {
+    _segment_groups.clear();
 }
 
 }  // namespace doris

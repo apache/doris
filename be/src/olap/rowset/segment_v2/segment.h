@@ -110,6 +110,8 @@ public:
         return _footer;
     }
 
+    void close();
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema);

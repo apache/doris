@@ -24,7 +24,9 @@ Rowset::Rowset(const TabletSchema *schema,
                RowsetMetaSharedPtr rowset_meta)
         : _schema(schema),
          _rowset_path(std::move(rowset_path)),
-         _rowset_meta(std::move(rowset_meta)) {
+         _rowset_meta(std::move(rowset_meta)),
+         _refs_by_reader(0),
+         _closed(true) {
 
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {

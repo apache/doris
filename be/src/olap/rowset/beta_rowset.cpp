@@ -58,10 +58,15 @@ OLAPStatus BetaRowset::do_load_once(bool /*use_cache*/) {
         }
         _segments.push_back(std::move(segment));
     }
+    _closed = false;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
+    if (_load_once.has_called() && _closed) {
+        LOG(WARNING) << "create rowset reader failed because rowset is closed.";
+        return OLAP_ERR_ROWSET_CREATE_READER;
+    }
     RETURN_NOT_OK(load());
     // NOTE: We use std::static_pointer_cast for performance
     result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
@@ -97,6 +102,12 @@ OLAPStatus BetaRowset::remove() {
         return OLAP_ERR_ROWSET_DELETE_FILE_FAILED;
     }
     return OLAP_SUCCESS;
+}
+
+void BetaRowset::do_close() {
+    for (auto& segment : _segments) {
+        segment->close();
+    }
 }
 
 OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {

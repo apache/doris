@@ -95,6 +95,16 @@ public:
     // TODO should we rename the method to remove_files() to be more specific?
     virtual OLAPStatus remove() = 0;
 
+    // close to clear the resource owned by rowset
+    // including: open files, rowset reader and so on
+    // NOTICE: can not call this function in multithreads
+    void close() {
+        _closed = true;
+        if (_refs_by_reader == 0) {
+            do_close();
+        }
+    }
+
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
     virtual OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) = 0;
 
@@ -127,6 +137,20 @@ public:
         return left->end_version() < right->end_version();
     }
 
+    // this function is called by reader to increase reference of rowset
+    void aquire() {
+        ++_refs_by_reader;
+    }
+
+    void release() {
+        --_refs_by_reader;
+        // if the refs by reader is 0 and the rowset is closed, should release the resouce
+        if (_refs_by_reader == 0 && _closed) {
+            // here only one thread will call do_close because there is only one thread will get _refs_by_reader == 0
+            do_close();
+        }
+    }
+
 protected:
     friend class RowsetFactory;
 
@@ -142,6 +166,9 @@ protected:
     // The actual implementation of load(). Guaranteed by to called exactly once.
     virtual OLAPStatus do_load_once(bool use_cache) = 0;
 
+    // release resources in this api
+    virtual void do_close() = 0;
+
     // allow subclass to add custom logic when rowset is being published
     virtual void make_visible_extra(Version version, VersionHash version_hash) {}
 
@@ -154,6 +181,11 @@ protected:
 
     DorisCallOnce<OLAPStatus> _load_once;
     bool _need_delete_file = false;
+    // variable to indicate how many rowset readers owned this rowset
+    std::atomic<uint64_t> _refs_by_reader;
+    // whether the rowset is closed
+    // the state before load() is true
+    bool _closed;
 };
 
 } // namespace doris

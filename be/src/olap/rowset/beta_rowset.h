@@ -70,6 +70,8 @@ protected:
 
     OLAPStatus do_load_once(bool use_cache) override ;
 
+    void do_close() override;
+
 private:
     friend class BetaRowsetReader;
     std::vector<segment_v2::SegmentSharedPtr> _segments;
