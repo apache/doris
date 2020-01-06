@@ -49,13 +49,8 @@ ParquetReaderWrap::~ParquetReaderWrap() {
 Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
     try {
         // new file reader for parquet file
-        auto st = parquet::arrow::FileReader::Make(arrow::default_memory_pool(),
-                                                   parquet::ParquetFileReader::Open(_parquet, _properties),
-                                                   &_reader);
-        if (!st.ok()) {
-            LOG(WARNING) << "failed to create parquet file reader, errmsg=" << st.ToString();
-            return Status::InternalError("Failed to create file reader");
-        }
+        _reader.reset(new parquet::arrow::FileReader(arrow::default_memory_pool(),
+                std::move(parquet::ParquetFileReader::Open(_parquet, _properties))));
 
         _file_metadata = _reader->parquet_reader()->metadata();
         // initial members
@@ -523,17 +518,7 @@ arrow::Status ParquetFile::Tell(int64_t* position) const {
 }
 
 arrow::Status ParquetFile::Read(int64_t nbytes, std::shared_ptr<arrow::Buffer>* out) {
-    std::shared_ptr<arrow::Buffer> read_buf;
-    ARROW_RETURN_NOT_OK(arrow::AllocateBuffer(arrow::default_memory_pool(), nbytes, &read_buf));
-    int64_t bytes_read = 0;
-    ARROW_RETURN_NOT_OK(ReadAt(_pos, nbytes, &bytes_read, read_buf->mutable_data()));
-    // If bytes_read is equal with read_buf's capacity, we just assign
-    if (bytes_read == nbytes) {
-        *out = std::move(read_buf);
-    } else {
-        *out = arrow::SliceBuffer(read_buf, 0, bytes_read);
-    }
-    return arrow::Status::OK();
+    return arrow::Status::NotImplemented("Not Supported.");
 }
 
 }

@@ -24,7 +24,7 @@
 
 #define ARROW_UTIL_LOGGING_H
 #include <arrow/json/api.h>
-#include <arrow/json/test_common.h>
+#include <arrow/json/test-common.h>
 #include <arrow/buffer.h>
 #include <arrow/pretty_print.h>
 #include <arrow/memory_pool.h>
@@ -51,15 +51,10 @@ std::string test_str() {
         )";
 }
 
-void MakeBuffer(const std::string& data, std::shared_ptr<arrow::Buffer>* out) {
-    arrow::AllocateBuffer(arrow::default_memory_pool(), data.size(), out);
-    std::copy(std::begin(data), std::end(data), (*out)->mutable_data());
-}
-
 TEST_F(ArrowRowBlockTest, Normal) {
     auto json = test_str();
     std::shared_ptr<arrow::Buffer> buffer;
-    MakeBuffer(test_str(), &buffer);
+    arrow::json::MakeBuffer(test_str(), &buffer);
     arrow::json::ParseOptions parse_opts = arrow::json::ParseOptions::Defaults();
     parse_opts.explicit_schema = arrow::schema(
         {

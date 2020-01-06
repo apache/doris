@@ -495,10 +495,13 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
         ColumnDataHeaderMessage header;
         ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
 
+<<<<<<< HEAD
         // because file_helper is reused in this case, we should close it.
         helper.close();
         TabletSchema convert_tablet_schema;
         SetTabletSchema("DateColumn", "DATE", "REPLACE", 3, false, false, &convert_tablet_schema);
+=======
+>>>>>>> parent of 16482269... Adapt arrow 0.15 API (#2657)
         CreateColumnReader(tablet_schema);
         RowCursor read_row;
         read_row.init(convert_tablet_schema);

@@ -63,7 +63,6 @@ public:
     bool closed() const override;
 private:
     FileReader *_file;
-    int64_t _pos = 0;
 };
 
 // Reader of broker parquet file
