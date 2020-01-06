@@ -199,7 +199,7 @@ OLAPStatus Compaction::check_version_continuity(const vector<RowsetSharedPtr>& r
 OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
     // 1. check row number
     if (_input_row_num != _output_rowset->num_rows() + stats.merged_rows + stats.filtered_rows) {
-        LOG(FATAL) << "row_num does not match between cumulative input and output! "
+        LOG(WARNING) << "row_num does not match between cumulative input and output! "
                    << "input_row_num=" << _input_row_num
                    << ", merged_row_num=" << stats.merged_rows
                    << ", filted_row_num=" << stats.filtered_rows
