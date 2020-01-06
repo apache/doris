@@ -24,7 +24,7 @@ import com.google.common.collect.Maps;
 
 import java.util.Map;
 
-public class CreateIndexClause extends AlterClause {
+public class CreateIndexClause extends AlterTableClause {
     // in which table the index on, only used when alter = false
     private TableName tableName;
     // index definition class
@@ -39,6 +39,7 @@ public class CreateIndexClause extends AlterClause {
         this.tableName = tableName;
         this.indexDef = indexDef;
         this.alter = alter;
+        this.needTableStable = false;
     }
 
     @Override
