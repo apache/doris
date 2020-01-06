@@ -20,9 +20,6 @@
 #include <algorithm>
 #include <cstring>
 
-#include "olap/uint24.h"
-
-
 #include "util/bit_util.h"
 #include "util/coding.h"
 
@@ -105,7 +102,7 @@ void ForEncoder<T>::put_batch(const T *in_data, size_t count) {
 // The input is int32 list: 1, 2, 4, 8 and bit_width is 4
 // The output will be: 0001 0010 0100 1000
 template<typename T>
-void ForEncoder<T>::bit_pack(T *input, uint8_t in_num, int bit_width, uint8_t *output) {
+void ForEncoder<T>::bit_pack(const T *input, uint8_t in_num, int bit_width, uint8_t *output) {
     if (in_num == 0 || bit_width == 0) {
         return;
     }
@@ -114,7 +111,7 @@ void ForEncoder<T>::bit_pack(T *input, uint8_t in_num, int bit_width, uint8_t *o
     int bit_index = 0;
     *output = 0;
     for (int i = 0; i < in_num; i++) {
-        in_mask = 1 << (bit_width - 1);
+        in_mask = ((T)1) << (bit_width - 1);
         for (int k = 0; k < bit_width; k++) {
             if (bit_index > 7) {
                 bit_index = 0;
@@ -134,13 +131,20 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
     T max = input[0];
     bool is_ascending = true;
     uint8_t bit_width = 0;
+    T half_max_delta = numeric_limits_max() >> 1;
+    bool save_original_value = false;
 
+    // 1. make sure order_flag, save_original_value, and find max&min.
     for (uint8_t i = 1; i < _buffered_values_num; ++i) {
         if (is_ascending) {
             if (input[i] < input[i - 1]) {
                 is_ascending = false;
             } else {
-                bit_width = std::max(bit_width, bits(input[i]- input[i - 1])) ;
+                if ((input[i] >> 1) - (input[i - 1] >> 1) > half_max_delta) { // overflow
+                    save_original_value = true;
+                } else {
+                    bit_width = std::max(bit_width, bits(input[i]- input[i - 1])) ;
+                }
             }
         }
 
@@ -153,7 +157,13 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
             max = input[i];
         }
     }
+    if (!is_ascending) {
+        if ((max >> 1) - (min >> 1) > half_max_delta) {
+            save_original_value = true;
+        }
+    }
 
+    // 2. save min value.
     if (sizeof(T) == 16) {
         put_fixed128_le(_buffer, min);
     } else if (sizeof(T) == 8) {
@@ -162,31 +172,40 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
         put_fixed32_le(_buffer, min);
     }
 
-    // improve for ascending order input, we could use fewer bit
-    T delta_values[FRAME_VALUE_NUM];
-    u_int8_t order_flag = 0;
-    if (is_ascending) {
-        delta_values[0] = 0;
-        for (uint8_t i = 1; i < _buffered_values_num; ++i) {
-            delta_values[i] = input[i] - input[i - 1];
-        }
-        order_flag = 1;
+    // 3.1 save original value.
+    if (save_original_value) {
+        bit_width = sizeof(T) * 8;
+        uint32_t len = _buffered_values_num * bit_width;
+        _buffer->reserve(_buffer->size() + len);
+        size_t origin_size = _buffer->size();
+        _buffer->resize(origin_size + len);
+        bit_pack(input, _buffered_values_num, bit_width, _buffer->data() + origin_size);
     } else {
-        bit_width = bits(static_cast<T>(max - min));
-        for (uint8_t i = 0; i < _buffered_values_num; ++i) {
-            delta_values[i] = input[i] - min;
+        // 3.2 bit pack.
+        // improve for ascending order input, we could use fewer bit
+        T delta_values[FRAME_VALUE_NUM];
+        if (is_ascending) {
+            delta_values[0] = 0;
+            for (uint8_t i = 1; i < _buffered_values_num; ++i) {
+                delta_values[i] = input[i] - input[i - 1];
+            }
+        } else {
+            bit_width = bits(static_cast<T>(max - min));
+            for (uint8_t i = 0; i < _buffered_values_num; ++i) {
+                delta_values[i] = input[i] - min;
+            }
         }
+
+        uint32_t packing_len = BitUtil::Ceil(_buffered_values_num * bit_width, 8);
+
+        _buffer->reserve(_buffer->size() + packing_len);
+        size_t origin_size = _buffer->size();
+        _buffer->resize(origin_size + packing_len);
+        bit_pack(delta_values, _buffered_values_num, bit_width, _buffer->data() + origin_size);
     }
-    // 2 bit order_flag + 6 bit bit_width
+    uint8_t order_flag = (save_original_value ? 2 : 0) | (is_ascending ? 1 : 0);
     _order_flags.push_back(order_flag);
     _bit_widths.push_back(bit_width);
-
-    uint32_t packing_len = BitUtil::Ceil(_buffered_values_num * bit_width, 8);
-
-    _buffer->reserve(_buffer->size() + packing_len);
-    size_t origin_size = _buffer->size();
-    _buffer->resize(_buffer->size() + packing_len);
-    bit_pack(delta_values, _buffered_values_num, bit_width, _buffer->data() + origin_size);
 
     _buffered_values_num = 0;
 }
@@ -210,6 +229,16 @@ uint32_t ForEncoder<T>::flush() {
     put_fixed32_le(_buffer, _values_num);
 
     return _buffer->size();
+}
+
+template<typename T>
+const T ForEncoder<T>::numeric_limits_max() {
+    return std::numeric_limits<T>::max();
+}
+
+template<>
+const uint24_t ForEncoder<uint24_t>::numeric_limits_max()  {
+    return 0XFFFFFF;
 }
 
 
@@ -306,20 +335,25 @@ void ForDecoder<T>::decode_current_frame(T* output) {
     }
 
     uint8_t bit_width = _bit_widths[_current_decoded_frame];
-    bool is_ascending = _order_flags[_current_decoded_frame];
+    bool is_ascending = (_order_flags[_current_decoded_frame] & 1) == 1;
+    bool is_original_value = (_order_flags[_current_decoded_frame] & 2) == 2;
 
-    std::vector<T> delta_values(current_frame_size);
-    bit_unpack(_buffer + delta_offset, current_frame_size, bit_width, delta_values.data());
-    if (is_ascending) {
-        T pre_value = min;
-        for (uint8_t i = 0; i < current_frame_size; i ++) {
-            T value = delta_values[i] + pre_value;
-            output[i] = value;
-            pre_value = value;
-        }
+    if (is_original_value) {
+        bit_unpack(_buffer + delta_offset, current_frame_size, bit_width, output);
     } else {
-        for (uint8_t i = 0; i < current_frame_size; i ++) {
-            output[i] = delta_values[i] + min;
+        std::vector<T> delta_values(current_frame_size);
+        bit_unpack(_buffer + delta_offset, current_frame_size, bit_width, delta_values.data());
+        if (is_ascending) {
+            T pre_value = min;
+            for (uint8_t i = 0; i < current_frame_size; i ++) {
+                T value = delta_values[i] + pre_value;
+                output[i] = value;
+                pre_value = value;
+            }
+        } else {
+            for (uint8_t i = 0; i < current_frame_size; i ++) {
+                output[i] = delta_values[i] + min;
+            }
         }
     }
 }
@@ -465,6 +499,8 @@ template class ForEncoder<uint32_t>;
 template class ForEncoder<uint64_t>;
 template class ForEncoder<uint24_t>;
 template class ForEncoder<uint128_t>;
+
+
 
 template class ForDecoder<int8_t>;
 template class ForDecoder<int16_t>;

@@ -56,7 +56,7 @@ public:
         for_page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
         OwnedSlice s = for_page_builder.finish();
         ASSERT_EQ(size, for_page_builder.count());
-        LOG(INFO) << "FrameOfReference Encoded size for 10k values: " << s.slice().size
+        LOG(INFO) << "FrameOfReference Encoded size for " << size << " values: " << s.slice().size
                   << ", original size:" << size * sizeof(CppType);
 
         PageDecoderOptions decoder_options;
@@ -148,7 +148,7 @@ TEST_F(FrameOfReferencePageTest, TestInt64BlockEncoderSequence) {
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderSequence) {
-    const uint32_t size = 1000;
+    const uint32_t size = 1311;
 
     std::unique_ptr<uint24_t[]> ints(new uint24_t[size]);
     // to guarantee the last value is 0xFFFFFF
@@ -173,6 +173,26 @@ TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderSequence) {
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_LARGEINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_LARGEINT>,
             segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT> >(ints.get(), size);
+}
+
+TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderMinMax) {
+
+    std::unique_ptr<uint24_t[]> ints(new uint24_t[2]);
+    ints.get()[0] = 0;
+    ints.get()[1] = 0xFFFFFF;
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_DATE, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>,
+        segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE> >(ints.get(), 2);
+}
+
+TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderMinMax) {
+
+    std::unique_ptr<int128_t[]> ints(new int128_t[2]);
+    ints.get()[0] = numeric_limits<int128_t>::min();
+    ints.get()[1] = numeric_limits<int128_t>::max();
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_LARGEINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_LARGEINT>,
+        segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT> >(ints.get(), 2);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {

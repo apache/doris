@@ -21,9 +21,10 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 #include "olap/olap_common.h"
-#include "olap/decimal12.h"
+#include "olap/uint24.h"
 
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
@@ -45,10 +46,14 @@ namespace doris {
 //       8 bit FrameValueNum
 //      32 bit ValuesNum
 //
-// The not ascending order BitPackingFrame format:
-//      MinValue, (Value - MinVale) * FrameValueNum
+// if the OrderFlag & 2 == 2: save original values
+//      MinValue, (Value[i]) * FrameValueNum
 //
-// The ascending order BitPackingFrame format:
+// if the OrderFlag & 2 == 0:
+//     (1) if the OrderFlag & 1 == 0: not ascending order BitPackingFrame format:
+//          MinValue, (Value - MinVale) * FrameValueNum
+//
+//     (2) if the OrderFlag & 1 == 1: The ascending order BitPackingFrame format:
 //      MinValue, (Value[i] - Value[i - 1]) * FrameValueNum
 //
 // len(MinValue) can be 32(uint32_t), 64(uint64_t), 128(uint128_t)
@@ -84,11 +89,13 @@ public:
     }
 
 private:
-    void bit_pack(T *input, uint8_t in_num, int bit_width, uint8_t *output);
+    void bit_pack(const T *input, uint8_t in_num, int bit_width, uint8_t *output);
 
     void bit_packing_one_frame_value(const T* input);
 
     const T* copy_value(const T* val, size_t count);
+
+    const T numeric_limits_max();
 
     uint32_t _values_num = 0;
     uint8_t _buffered_values_num = 0;
