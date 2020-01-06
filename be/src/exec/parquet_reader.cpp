@@ -465,7 +465,7 @@ ParquetFile::~ParquetFile() {
 }
 
 arrow::Status ParquetFile::Close() {
-    if (_file) {
+    if (_file != nullptr) {
         _file->close();
         delete _file;
         _file = nullptr;
@@ -474,7 +474,7 @@ arrow::Status ParquetFile::Close() {
 }
 
 bool ParquetFile::closed() const {
-    if (_file) {
+    if (_file != nullptr) {
         return _file->closed();
     } else {
         return true;
@@ -482,28 +482,14 @@ bool ParquetFile::closed() const {
 }
 
 arrow::Status ParquetFile::Read(int64_t nbytes, int64_t* bytes_read, void* buffer) {
-    bool eof = false;
-    size_t data_size = 0;
-    do {
-        data_size = nbytes;
-        Status result = _file->read((uint8_t*)buffer, &data_size, &eof);
-        if (!result.ok()) {
-            return arrow::Status::IOError("Read failed.");
-        }
-        if (eof) {
-            break;
-        }
-        *bytes_read += data_size; // total read bytes
-        nbytes -= data_size; // remained bytes
-        buffer = (uint8_t*)buffer + data_size;
-    } while (nbytes != 0);
-    return arrow::Status::OK();
+    return ReadAt(_pos, nbytes, bytes_read, buffer);
 }
 
 arrow::Status ParquetFile::ReadAt(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
     int64_t reads = 0;
-    while(nbytes != 0) {
-        Status result = _file->readat(position, nbytes, &reads, out);
+    _pos = position;
+    while (nbytes > 0) {
+        Status result = _file->readat(_pos, nbytes, &reads, out);
         if (!result.ok()) {
             *bytes_read = 0;
             return arrow::Status::IOError("Readat failed.");
@@ -513,10 +499,9 @@ arrow::Status ParquetFile::ReadAt(int64_t position, int64_t nbytes, int64_t* byt
         }
         *bytes_read += reads;// total read bytes
         nbytes -= reads; // remained bytes
-        position += reads;
+        _pos += reads;
         out = (char*)out + reads;
     }
-    _pos += *bytes_read;
     return arrow::Status::OK();
 }
 
@@ -526,13 +511,14 @@ arrow::Status ParquetFile::GetSize(int64_t* size) {
 }
 
 arrow::Status ParquetFile::Seek(int64_t position) {
-    _file->seek(position);
+    _pos = position;
+    // NOTE: Only readat operation is used, so _file seek is not called here.
     return arrow::Status::OK();
 }
 
 
 arrow::Status ParquetFile::Tell(int64_t* position) const {
-    _file->tell(position);
+    *position = _pos;
     return arrow::Status::OK();
 }
 
