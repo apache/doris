@@ -930,7 +930,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         watershedTxnId = in.readLong();
 
         // index
-        if (FeMetaVersion.VERSION_CURRENT >= FeMetaVersion.VERSION_70) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
             indexChange = in.readBoolean();
             if (indexChange) {
                 if (in.readBoolean()) {
