@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.mysql.nio.NConnectContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Lists;
@@ -81,6 +82,10 @@ public class ConnectScheduler {
             return false;
         }
         context.setConnectionId(nextConnectionId.getAndAdd(1));
+        // no necessary for nio.
+        if(context instanceof NConnectContext){
+            return true;
+        }
         if (executor.submit(new LoopHandler(context)) == null) {
             LOG.warn("Submit one thread failed.");
             return false;
