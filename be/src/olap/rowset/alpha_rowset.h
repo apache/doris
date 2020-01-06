@@ -40,8 +40,6 @@ class AlphaRowset : public Rowset {
 public:
     virtual ~AlphaRowset() {}
 
-    OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) override;
-
     OLAPStatus split_range(const RowCursor& start_key,
                            const RowCursor& end_key,
                            uint64_t request_block_row_count,
@@ -77,7 +75,11 @@ protected:
     // init segment groups
     OLAPStatus init() override;
 
-    OLAPStatus do_load_once(bool use_cache) override ;
+    OLAPStatus do_create_reader(std::shared_ptr<RowsetReader>* result) override;
+
+    OLAPStatus do_load(bool use_cache) override ;
+
+    void do_close() override;
 
     // add custom logic when rowset is published
     void make_visible_extra(Version version, VersionHash version_hash) override;

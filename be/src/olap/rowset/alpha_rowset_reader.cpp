@@ -29,10 +29,12 @@ AlphaRowsetReader::AlphaRowsetReader(
         _alpha_rowset_meta(std::static_pointer_cast<AlphaRowsetMeta>(_rowset->rowset_meta()).get()),
         _segment_groups(_rowset->_segment_groups),
         _key_range_size(0) {
+    _rowset->aquire();
 }
 
 AlphaRowsetReader::~AlphaRowsetReader() {
     delete _dst_cursor;
+    _rowset->release();
 }
 
 OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {

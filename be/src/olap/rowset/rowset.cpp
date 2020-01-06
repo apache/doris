@@ -24,7 +24,9 @@ Rowset::Rowset(const TabletSchema *schema,
                RowsetMetaSharedPtr rowset_meta)
         : _schema(schema),
          _rowset_path(std::move(rowset_path)),
-         _rowset_meta(std::move(rowset_meta)) {
+         _rowset_meta(std::move(rowset_meta)),
+         _refs_by_reader(0),
+         _rowset_state(ROWSET_CREATED) {
 
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
@@ -36,7 +38,26 @@ Rowset::Rowset(const TabletSchema *schema,
 }
 
 OLAPStatus Rowset::load(bool use_cache) {
-    return _load_once.call([this, use_cache] { return do_load_once(use_cache); });
+    // if the state is ROWSET_CLOSING, it means close() is called
+    // and the rowset is already loaded, and the resource is not closed yet.
+    if (_rowset_state == ROWSET_LOADED || _rowset_state == ROWSET_CLOSING) {
+        return OLAP_SUCCESS;
+    }
+    if (_rowset_state == ROWSET_DELETE) {
+        LOG(WARNING) << "can not load rowset with state ROWSET_DELETE";
+        return OLAP_ERR_ROWSET_LOAD_FAILED;
+    }
+    return do_load(use_cache);
+}
+
+OLAPStatus Rowset::create_reader(std::shared_ptr<RowsetReader>* result) {
+    if (_rowset_state == ROWSET_DELETE) {
+        LOG(WARNING) << "rowset state is ROWSET_DELETE, can not create reader";
+        return OLAP_ERR_ROWSET_CREATE_READER;
+    }
+    MutexLock _load_lock(&_lock);
+    RETURN_NOT_OK(load());
+    return do_create_reader(result);
 }
 
 void Rowset::make_visible(Version version, VersionHash version_hash) {

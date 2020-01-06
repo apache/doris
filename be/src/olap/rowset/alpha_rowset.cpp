@@ -30,7 +30,11 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
     : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {
 }
 
-OLAPStatus AlphaRowset::do_load_once(bool use_cache) {
+OLAPStatus AlphaRowset::do_load(bool use_cache) {
+    DCHECK(_rowset_state != ROWSET_DELETE);
+    if (_rowset_state != ROWSET_CREATED) {
+        RETURN_NOT_OK(init());
+    }
     for (auto& segment_group: _segment_groups) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
@@ -48,18 +52,25 @@ OLAPStatus AlphaRowset::do_load_once(bool use_cache) {
             return res;
         }
     }
+    LOG(INFO) << "rowset is loaded. rowset version:" << start_version() << "-" << end_version()
+            << ", state from:" << _rowset_state << " to ROWSET_LOADED. tabletid:"
+            << _rowset_meta->tablet_id();
+    _rowset_state = ROWSET_LOADED;
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
-    RETURN_NOT_OK(load());
+OLAPStatus AlphaRowset::do_create_reader(std::shared_ptr<RowsetReader>* result) {
     result->reset(new AlphaRowsetReader(
         _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::remove() {
-    LOG(INFO) << "begin to remove files in rowset " << unique_id();
+    LOG(INFO) << "begin to remove files in rowset " << unique_id()
+            << ", rowset state from:" << _rowset_state << " to ROWSET_DELETE"
+            << ", version:" << start_version() << "-" << end_version()
+            << ", tabletid:" << _rowset_meta->tablet_id();
+    _rowset_state = ROWSET_DELETE;
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
@@ -375,6 +386,15 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
         alpha_rowset_meta->add_segment_group(segment_group_meta);
     }
     return OLAP_SUCCESS;
+}
+
+void AlphaRowset::do_close() {
+    _segment_groups.clear();
+    LOG(INFO) << "rowset is closed."
+            << ", rowset state from:" << _rowset_state << " to ROWSET_CLOSED"
+            << ", version:" << start_version() << "-" << end_version()
+            << ", tabletid:" << _rowset_meta->tablet_id();
+    _rowset_state = ROWSET_CLOSED;
 }
 
 }  // namespace doris

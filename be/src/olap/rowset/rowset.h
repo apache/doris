@@ -24,7 +24,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "olap/rowset/rowset_meta.h"
-#include "util/once.h"
+#include "olap/utils.h"
 
 namespace doris {
 
@@ -36,6 +36,29 @@ using RowsetSharedPtr = std::shared_ptr<Rowset>;
 class RowsetFactory;
 class RowsetReader;
 class TabletSchema;
+
+// the rowset state transfer graph:
+//    ROWSET_CREATED
+//         |
+//    ROWSET_LOADED  <--|
+//         |            |
+//    ROWSET_CLOSING    | 
+//         |            |
+//    ROWSET_CLOSED  ---|
+//         |
+//    ROWSET_DELETE
+enum RowsetState {
+    // state for new created rowset
+    ROWSET_CREATED,
+    // state after load() called
+    ROWSET_LOADED,
+    // state for closed() called but owned by some readers
+    ROWSET_CLOSING,
+    // state for closed() called and not owned by any reader
+    ROWSET_CLOSED,
+    // state for rowset to be removed
+    ROWSET_DELETE
+};
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
@@ -49,7 +72,7 @@ public:
     OLAPStatus load(bool use_cache = true);
 
     // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
-    virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
+    OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result);
 
     // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
     // `request_block_row_count` rows. Sub-range is represented by pair of OlapTuples and added to `ranges`.
@@ -95,6 +118,22 @@ public:
     // TODO should we rename the method to remove_files() to be more specific?
     virtual OLAPStatus remove() = 0;
 
+    // close to clear the resource owned by rowset
+    // including: open files, indexes and so on
+    // NOTICE: can not call this function in multithreads
+    void close() {
+        MutexLock _close_lock(&_lock);
+        if (_refs_by_reader == 0) {
+            do_close();
+            return;
+        }
+        LOG(INFO) << "rowset is closing."
+            << ", rowset state from:" << _rowset_state << " to ROWSET_CLOSING"
+            << ", version:" << start_version() << "-" << end_version()
+            << ", tabletid:" << _rowset_meta->tablet_id();
+        _rowset_state = ROWSET_CLOSING;
+    }
+
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
     virtual OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) = 0;
 
@@ -127,6 +166,21 @@ public:
         return left->end_version() < right->end_version();
     }
 
+    // this function is called by reader to increase reference of rowset
+    void aquire() {
+        ++_refs_by_reader;
+    }
+
+    void release() {
+        --_refs_by_reader;
+        // if the refs by reader is 0 and the rowset is closed, should release the resouce
+        if (_refs_by_reader == 0 && _rowset_state == ROWSET_CLOSING) {
+            // here only one thread will call do_close 
+            // because there is only one thread will get _refs_by_reader == 0
+            do_close();
+        }
+    }
+
 protected:
     friend class RowsetFactory;
 
@@ -139,8 +193,13 @@ protected:
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual OLAPStatus init() = 0;
 
+    virtual OLAPStatus do_create_reader(std::shared_ptr<RowsetReader>* result) = 0;
+
     // The actual implementation of load(). Guaranteed by to called exactly once.
-    virtual OLAPStatus do_load_once(bool use_cache) = 0;
+    virtual OLAPStatus do_load(bool use_cache) = 0;
+
+    // release resources in this api
+    virtual void do_close() = 0;
 
     // allow subclass to add custom logic when rowset is being published
     virtual void make_visible_extra(Version version, VersionHash version_hash) {}
@@ -152,8 +211,12 @@ protected:
     bool _is_pending;    // rowset is pending iff it's not in visible state
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
-    DorisCallOnce<OLAPStatus> _load_once;
+    Mutex _lock;
     bool _need_delete_file = false;
+    // variable to indicate how many rowset readers owned this rowset
+    std::atomic<uint64_t> _refs_by_reader;
+    // rowset state
+    RowsetState _rowset_state;
 };
 
 } // namespace doris
