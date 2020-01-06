@@ -18,7 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.mysql.MysqlServer;
-
+import org.apache.doris.mysql.nio.NMysqlServer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -37,7 +37,7 @@ public class QeService {
         this.port = port;
     }
 
-    public QeService(int port, ConnectScheduler scheduler) {
+    public QeService(int port, boolean nioEnabled, ConnectScheduler scheduler) {
         // Set up help module
         try {
             HelpModule.getInstance().setUpModule();
@@ -45,7 +45,11 @@ public class QeService {
             LOG.error("Help module failed, because:", e);
         }
         this.port = port;
-        mysqlServer = new MysqlServer(port, scheduler);
+        if (nioEnabled) {
+            mysqlServer = new NMysqlServer(port, scheduler);
+        } else {
+            mysqlServer = new MysqlServer(port, scheduler);
+        }
     }
 
     public void start() throws IOException {
