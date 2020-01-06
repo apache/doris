@@ -48,9 +48,6 @@ OLAPStatus Compaction::do_compaction() {
 }
 
 OLAPStatus Compaction::do_compaction_impl() {
-
-    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name();
-
     OlapStopWatch watch;
 
     // 1. prepare input and output parameters
@@ -62,6 +59,9 @@ OLAPStatus Compaction::do_compaction_impl() {
     }
     _output_version = Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
     _tablet->compute_version_hash_from_rowsets(_input_rowsets, &_output_version_hash);
+
+    LOG(INFO) << "start " << compaction_name() << ". tablet=" << _tablet->full_name()
+            << ", output version is=" << _output_version.first << "-" << _output_version.second;
 
     RETURN_NOT_OK(construct_output_rowset_writer());
     RETURN_NOT_OK(construct_input_rowset_readers());
