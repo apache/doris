@@ -67,10 +67,10 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
     _schema(tablet_meta->tablet_schema()),
     _data_dir(data_dir),
     _is_bad(false),
-    _last_cumu_compaction_failure_time(0),
-    _last_base_compaction_failure_time(0),
-    _last_cumu_compaction_success_time(0),
-    _last_base_compaction_success_time(0) {
+    _last_cumu_compaction_failure_millis(0),
+    _last_base_compaction_failure_millis(0),
+    _last_cumu_compaction_success_millis(0),
+    _last_base_compaction_success_millis(0) {
 
     _tablet_path.append(_data_dir->path());
     _tablet_path.append(DATA_PREFIX);
@@ -1071,19 +1071,19 @@ OLAPStatus Tablet::get_compaction_status(std::string* json_result) {
 
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
     rapidjson::Value cumu_value;
-    std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_time.load());
+    std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
     cumu_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last cumulative failure time", cumu_value, root.GetAllocator());
     rapidjson::Value base_value;
-    format_str = ToStringFromUnixMillis(_last_base_compaction_failure_time.load());
+    format_str = ToStringFromUnixMillis(_last_base_compaction_failure_millis.load());
     base_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last base failure time", base_value, root.GetAllocator());
     rapidjson::Value cumu_success_value;
-    format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_time.load());
+    format_str = ToStringFromUnixMillis(_last_cumu_compaction_success_millis.load());
     cumu_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last cumulative success time", cumu_success_value, root.GetAllocator());
     rapidjson::Value base_success_value;
-    format_str = ToStringFromUnixMillis(_last_base_compaction_success_time.load());
+    format_str = ToStringFromUnixMillis(_last_base_compaction_success_millis.load());
     base_success_value.SetString(format_str.c_str(), format_str.length(), root.GetAllocator());
     root.AddMember("last base success time", base_success_value, root.GetAllocator());
 

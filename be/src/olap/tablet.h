@@ -212,17 +212,17 @@ public:
     void set_io_error();
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
-    int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_time; }
-    void set_last_cumu_compaction_failure_time(int64_t time) { _last_cumu_compaction_failure_time = time; }
+    int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
+    void set_last_cumu_compaction_failure_time(int64_t millis) { _last_cumu_compaction_failure_millis = millis; }
 
-    int64_t last_base_compaction_failure_time() { return _last_base_compaction_failure_time; }
-    void set_last_base_compaction_failure_time(int64_t time) { _last_base_compaction_failure_time = time; }
+    int64_t last_base_compaction_failure_time() { return _last_base_compaction_failure_millis; }
+    void set_last_base_compaction_failure_time(int64_t millis) { _last_base_compaction_failure_millis = millis; }
 
-    int64_t last_cumu_compaction_success_time() { return _last_cumu_compaction_success_time; }
-    void set_last_cumu_compaction_success_time(int64_t time) { _last_cumu_compaction_success_time = time; }
+    int64_t last_cumu_compaction_success_time() { return _last_cumu_compaction_success_millis; }
+    void set_last_cumu_compaction_success_time(int64_t millis) { _last_cumu_compaction_success_millis = millis; }
 
-    int64_t last_base_compaction_success_time() { return _last_base_compaction_success_time; }
-    void set_last_base_compaction_success_time(int64_t time) { _last_base_compaction_success_time = time; }
+    int64_t last_base_compaction_success_time() { return _last_base_compaction_success_millis; }
+    void set_last_base_compaction_success_time(int64_t millis) { _last_base_compaction_success_millis = millis; }
 
     void delete_all_files();
 
@@ -286,10 +286,10 @@ private:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
 
     std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
-    std::atomic<int64_t> _last_cumu_compaction_failure_time; // timestamp of last cumulative compaction failure
-    std::atomic<int64_t> _last_base_compaction_failure_time; // timestamp of last base compaction failure
-    std::atomic<int64_t> _last_cumu_compaction_success_time; // timestamp of last cumu compaction success
-    std::atomic<int64_t> _last_base_compaction_success_time; // timestamp of last base compaction success
+    std::atomic<int64_t> _last_cumu_compaction_failure_millis; // timestamp of last cumu compaction failure
+    std::atomic<int64_t> _last_base_compaction_failure_millis; // timestamp of last base compaction failure
+    std::atomic<int64_t> _last_cumu_compaction_success_millis; // timestamp of last cumu compaction success
+    std::atomic<int64_t> _last_base_compaction_success_millis; // timestamp of last base compaction success
 
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
