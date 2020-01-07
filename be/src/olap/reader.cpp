@@ -548,7 +548,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.stats = &_stats;
     _reader_context.runtime_state = read_params.runtime_state;
     for (auto& rs_reader : *rs_readers) {
-        rs_reader->init(&_reader_context);
+        RETURN_NOT_OK(rs_reader->init(&_reader_context));
         _rs_readers.push_back(rs_reader);
     }
 

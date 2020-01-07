@@ -202,8 +202,7 @@ public class HashJoinNode extends PlanNode {
                 // numDistinct = Math.min(numDistinct, rhsTbl.getNumRows());
             // }
             maxNumDistinct = Math.max(maxNumDistinct, numDistinct);
-            LOG.info(
-              "min slotref=" + rhsSlotRef.toSql() + " #distinct=" + Long.toString(numDistinct));
+            LOG.debug("min slotref: {}, #distinct: {}", rhsSlotRef.toSql(), numDistinct);
         }
 
         if (maxNumDistinct == 0) {
@@ -214,12 +213,9 @@ public class HashJoinNode extends PlanNode {
         } else {
             cardinality = Math.round((double) getChild(0).cardinality * (double) getChild(
                 1).cardinality / (double) maxNumDistinct);
-            // TODO: remove log output before 1.0
-            LOG.info(
-              "lhs card=" + Long.toString(getChild(0).cardinality) + " rhs card=" + Long.toString(
-                getChild(1).cardinality));
+            LOG.debug("lhs card: {}, rhs card: {}", getChild(0).cardinality, getChild(1).cardinality);
         }
-        LOG.info("stats HashJoin: cardinality=" + Long.toString(cardinality));
+        LOG.debug("stats HashJoin: cardinality {}", cardinality);
     }
 
     @Override
