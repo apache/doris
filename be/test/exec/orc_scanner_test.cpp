@@ -1,0 +1,531 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include "exec/broker_scan_node.h"
+
+#include <string>
+#include <map>
+#include <vector>
+
+#include <gtest/gtest.h>
+#include <time.h>
+#include <runtime/descriptor_helper.h>
+#include "common/object_pool.h"
+#include "runtime/tuple.h"
+#include "exec/local_file_reader.h"
+#include "exec/orc_scanner.h"
+#include "exprs/cast_functions.h"
+#include "runtime/descriptors.h"
+#include "runtime/runtime_state.h"
+#include "runtime/row_batch.h"
+#include "runtime/user_function_cache.h"
+#include "gen_cpp/Descriptors_types.h"
+#include "gen_cpp/PlanNodes_types.h"
+
+namespace doris {
+
+class OrcScannerTest : public testing::Test {
+public:
+    OrcScannerTest() : _runtime_state(TQueryGlobals()) {
+        _profile = _runtime_state.runtime_profile();
+        _runtime_state._instance_mem_tracker.reset(new MemTracker());
+    }
+
+    static void SetUpTestCase() {
+        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
+        CastFunctions::init();
+    }
+
+protected:
+    virtual void SetUp() {
+    }
+
+    virtual void TearDown() {
+    }
+
+private:
+    RuntimeState _runtime_state;
+    RuntimeProfile *_profile;
+    ObjectPool _obj_pool;
+    DescriptorTbl *_desc_tbl;
+    std::vector<TNetworkAddress> _addresses;
+    ScannerCounter _counter;
+};
+
+TEST_F(OrcScannerTest, normal) {
+    TBrokerScanRangeParams params;
+    TTypeDesc varchar_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::VARCHAR);
+        scalar_type.__set_len(65535);
+        node.__set_scalar_type(scalar_type);
+        varchar_type.types.push_back(node);
+    }
+
+    TTypeDesc int_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::INT);
+        node.__set_scalar_type(scalar_type);
+        int_type.types.push_back(node);
+    }
+
+    TTypeDesc big_int_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::BIGINT);
+        node.__set_scalar_type(scalar_type);
+        big_int_type.types.push_back(node);
+    }
+
+    TTypeDesc float_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::FLOAT);
+        node.__set_scalar_type(scalar_type);
+        float_type.types.push_back(node);
+    }
+
+    TTypeDesc double_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::DOUBLE);
+        node.__set_scalar_type(scalar_type);
+        double_type.types.push_back(node);
+    }
+
+    TTypeDesc date_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::DATE);
+        node.__set_scalar_type(scalar_type);
+        date_type.types.push_back(node);
+    }
+
+    //col1 varchar -> bigint
+    {
+        TExprNode cast_expr;
+        cast_expr.node_type = TExprNodeType::CAST_EXPR;
+        cast_expr.type = big_int_type;
+        cast_expr.__set_opcode(TExprOpcode::CAST);
+        cast_expr.__set_num_children(1);
+        cast_expr.__set_output_scale(-1);
+        cast_expr.__isset.fn = true;
+        cast_expr.fn.name.function_name = "casttobigint";
+        cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
+        cast_expr.fn.arg_types.push_back(varchar_type);
+        cast_expr.fn.ret_type = big_int_type;
+        cast_expr.fn.has_var_args = false;
+        cast_expr.fn.__set_signature("casttoint(VARCHAR(*))");
+        cast_expr.fn.__isset.scalar_fn = true;
+        cast_expr.fn.scalar_fn.symbol = "doris::CastFunctions::cast_to_big_int_val";
+
+        TExprNode slot_ref;
+        slot_ref.node_type = TExprNodeType::SLOT_REF;
+        slot_ref.type = varchar_type;
+        slot_ref.num_children = 0;
+        slot_ref.__isset.slot_ref = true;
+        slot_ref.slot_ref.slot_id = 0;
+        slot_ref.slot_ref.tuple_id = 0;
+
+        TExpr expr;
+        expr.nodes.push_back(cast_expr);
+        expr.nodes.push_back(slot_ref);
+
+        params.expr_of_dest_slot.emplace(9, expr);
+        params.src_slot_ids.push_back(0);
+    }
+    //col2, col3
+    for (int i = 1; i <= 2; i++) {
+        TExprNode slot_ref;
+        slot_ref.node_type = TExprNodeType::SLOT_REF;
+        slot_ref.type = varchar_type;
+        slot_ref.num_children = 0;
+        slot_ref.__isset.slot_ref = true;
+        slot_ref.slot_ref.slot_id = i;
+        slot_ref.slot_ref.tuple_id = 0;
+
+        TExpr expr;
+        expr.nodes.push_back(slot_ref);
+
+        params.expr_of_dest_slot.emplace(9 + i, expr);
+        params.src_slot_ids.push_back(i);
+    }
+    //col4 varchar -> date
+    {
+        TExprNode cast_expr;
+        cast_expr.node_type = TExprNodeType::CAST_EXPR;
+        cast_expr.type = date_type;
+        cast_expr.__set_opcode(TExprOpcode::CAST);
+        cast_expr.__set_num_children(1);
+        cast_expr.__set_output_scale(-1);
+        cast_expr.__isset.fn = true;
+        cast_expr.fn.name.function_name = "casttodate";
+        cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
+        cast_expr.fn.arg_types.push_back(varchar_type);
+        cast_expr.fn.ret_type = date_type;
+        cast_expr.fn.has_var_args = false;
+        cast_expr.fn.__set_signature("casttoint(VARCHAR(*))");
+        cast_expr.fn.__isset.scalar_fn = true;
+        cast_expr.fn.scalar_fn.symbol = "doris::CastFunctions::cast_to_date_val";
+
+        TExprNode slot_ref;
+        slot_ref.node_type = TExprNodeType::SLOT_REF;
+        slot_ref.type = varchar_type;
+        slot_ref.num_children = 0;
+        slot_ref.__isset.slot_ref = true;
+        slot_ref.slot_ref.slot_id = 3;
+        slot_ref.slot_ref.tuple_id = 0;
+
+        TExpr expr;
+        expr.nodes.push_back(cast_expr);
+        expr.nodes.push_back(slot_ref);
+
+        params.expr_of_dest_slot.emplace(12, expr);
+        params.src_slot_ids.push_back(3);
+    }
+
+    //col5 varchar -> double
+    {
+        TExprNode cast_expr;
+        cast_expr.node_type = TExprNodeType::CAST_EXPR;
+        cast_expr.type = double_type;
+        cast_expr.__set_opcode(TExprOpcode::CAST);
+        cast_expr.__set_num_children(1);
+        cast_expr.__set_output_scale(-1);
+        cast_expr.__isset.fn = true;
+        cast_expr.fn.name.function_name = "casttodouble";
+        cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
+        cast_expr.fn.arg_types.push_back(varchar_type);
+        cast_expr.fn.ret_type = double_type;
+        cast_expr.fn.has_var_args = false;
+        cast_expr.fn.__set_signature("casttoint(VARCHAR(*))");
+        cast_expr.fn.__isset.scalar_fn = true;
+        cast_expr.fn.scalar_fn.symbol = "doris::CastFunctions::cast_to_double_val";
+
+        TExprNode slot_ref;
+        slot_ref.node_type = TExprNodeType::SLOT_REF;
+        slot_ref.type = varchar_type;
+        slot_ref.num_children = 0;
+        slot_ref.__isset.slot_ref = true;
+        slot_ref.slot_ref.slot_id = 4;
+        slot_ref.slot_ref.tuple_id = 0;
+
+        TExpr expr;
+        expr.nodes.push_back(cast_expr);
+        expr.nodes.push_back(slot_ref);
+
+        params.expr_of_dest_slot.emplace(13, expr);
+        params.src_slot_ids.push_back(4);
+    }
+
+    //col6 varchar -> float
+    {
+        TExprNode cast_expr;
+        cast_expr.node_type = TExprNodeType::CAST_EXPR;
+        cast_expr.type = float_type;
+        cast_expr.__set_opcode(TExprOpcode::CAST);
+        cast_expr.__set_num_children(1);
+        cast_expr.__set_output_scale(-1);
+        cast_expr.__isset.fn = true;
+        cast_expr.fn.name.function_name = "casttofloat";
+        cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
+        cast_expr.fn.arg_types.push_back(varchar_type);
+        cast_expr.fn.ret_type = float_type;
+        cast_expr.fn.has_var_args = false;
+        cast_expr.fn.__set_signature("casttoint(VARCHAR(*))");
+        cast_expr.fn.__isset.scalar_fn = true;
+        cast_expr.fn.scalar_fn.symbol = "doris::CastFunctions::cast_to_float_val";
+
+        TExprNode slot_ref;
+        slot_ref.node_type = TExprNodeType::SLOT_REF;
+        slot_ref.type = varchar_type;
+        slot_ref.num_children = 0;
+        slot_ref.__isset.slot_ref = true;
+        slot_ref.slot_ref.slot_id = 5;
+        slot_ref.slot_ref.tuple_id = 0;
+
+        TExpr expr;
+        expr.nodes.push_back(cast_expr);
+        expr.nodes.push_back(slot_ref);
+
+        params.expr_of_dest_slot.emplace(14, expr);
+        params.src_slot_ids.push_back(5);
+    }
+    //col7,col8
+    for (int i = 6; i <= 7; i++) {
+        TExprNode cast_expr;
+        cast_expr.node_type = TExprNodeType::CAST_EXPR;
+        cast_expr.type = int_type;
+        cast_expr.__set_opcode(TExprOpcode::CAST);
+        cast_expr.__set_num_children(1);
+        cast_expr.__set_output_scale(-1);
+        cast_expr.__isset.fn = true;
+        cast_expr.fn.name.function_name = "casttoint";
+        cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
+        cast_expr.fn.arg_types.push_back(varchar_type);
+        cast_expr.fn.ret_type = int_type;
+        cast_expr.fn.has_var_args = false;
+        cast_expr.fn.__set_signature("casttoint(VARCHAR(*))");
+        cast_expr.fn.__isset.scalar_fn = true;
+        cast_expr.fn.scalar_fn.symbol = "doris::CastFunctions::cast_to_int_val";
+
+        TExprNode slot_ref;
+        slot_ref.node_type = TExprNodeType::SLOT_REF;
+        slot_ref.type = varchar_type;
+        slot_ref.num_children = 0;
+        slot_ref.__isset.slot_ref = true;
+        slot_ref.slot_ref.slot_id = i;
+        slot_ref.slot_ref.tuple_id = 0;
+
+        TExpr expr;
+        expr.nodes.push_back(cast_expr);
+        expr.nodes.push_back(slot_ref);
+
+        params.expr_of_dest_slot.emplace(9 + i, expr);
+        params.src_slot_ids.push_back(i);
+    }
+
+    //col9 varchar -> var
+    {
+        TExprNode slot_ref;
+        slot_ref.node_type = TExprNodeType::SLOT_REF;
+        slot_ref.type = varchar_type;
+        slot_ref.num_children = 0;
+        slot_ref.__isset.slot_ref = true;
+        slot_ref.slot_ref.slot_id = 8;
+        slot_ref.slot_ref.tuple_id = 0;
+
+        TExpr expr;
+        expr.nodes.push_back(slot_ref);
+
+        params.expr_of_dest_slot.emplace(17, expr);
+        params.src_slot_ids.push_back(8);
+    }
+
+    params.__set_src_tuple_id(0);
+    params.__set_dest_tuple_id(1);
+
+    //init_desc_table
+    TDescriptorTable t_desc_table;
+
+    // table descriptors
+    TTableDescriptor t_table_desc;
+
+    t_table_desc.id = 0;
+    t_table_desc.tableType = TTableType::BROKER_TABLE;
+    t_table_desc.numCols = 0;
+    t_table_desc.numClusteringCols = 0;
+    t_desc_table.tableDescriptors.push_back(t_table_desc);
+    t_desc_table.__isset.tableDescriptors = true;
+
+    TDescriptorTableBuilder dtb;
+    TTupleDescriptorBuilder src_tuple_builder;
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col1").column_pos(1).build());
+    src_tuple_builder.add_slot(
+           TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col2").column_pos(2).build());
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col3").column_pos(3).build());
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col4").column_pos(4).build());
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col5").column_pos(5).build());
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col6").column_pos(6).build());
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col7").column_pos(7).build());
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col8").column_pos(8).build());
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col9").column_pos(9).build());
+    src_tuple_builder.build(&dtb);
+
+    TTupleDescriptorBuilder dest_tuple_builder;
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("col1").column_pos(1).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col2").column_pos(2).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().string_type(65535).column_name("col3").column_pos(3).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().type(TYPE_DATE).nullable(true).column_name("col4").column_pos(4).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().type(TYPE_DOUBLE).column_name("col5").column_pos(5).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().type(TYPE_FLOAT).column_name("col6").column_pos(6).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().type(TYPE_INT).column_name("col7").column_pos(7).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().type(TYPE_INT).column_name("col8").column_pos(8).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().string_type(65535).column_name("col9").column_pos(9).build());
+    dest_tuple_builder.build(&dtb);
+    t_desc_table = dtb.desc_tbl();
+
+    DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
+    _runtime_state.set_desc_tbl(_desc_tbl);
+
+    std::vector<TBrokerRangeDesc> ranges;
+    TBrokerRangeDesc rangeDesc;
+    rangeDesc.start_offset = 0;
+    rangeDesc.size = -1;
+    rangeDesc.format_type = TFileFormatType::FORMAT_ORC;
+    rangeDesc.splittable = false;
+
+    rangeDesc.path = "./be/test/exec/test_data/orc_scanner/my-file.orc";
+    rangeDesc.file_type = TFileType::FILE_LOCAL;
+    ranges.push_back(rangeDesc);
+
+    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, &_counter);
+    ASSERT_TRUE(scanner.open().ok());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
+
+    Tuple *tuple = (Tuple *) tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
+    bool eof = false;
+
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(0 null doris      null 1.567 1.567000031471252 12345 1 doris)");
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(1 true doris      2019-11-11 1.567 1.567000031471252 12345 1 doris)");
+    ASSERT_FALSE(eof);
+    for (int i = 2; i < 10; i++) {
+        ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    }
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_TRUE(eof);
+    scanner.close();
+}
+
+TEST_F(OrcScannerTest, normal2) {
+    TBrokerScanRangeParams params;
+    TTypeDesc varchar_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::VARCHAR);
+        scalar_type.__set_len(65535);
+        node.__set_scalar_type(scalar_type);
+        varchar_type.types.push_back(node);
+    }
+
+    TTypeDesc int_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::INT);
+        node.__set_scalar_type(scalar_type);
+        int_type.types.push_back(node);
+    }
+
+    {
+        TExprNode slot_ref;
+        slot_ref.node_type = TExprNodeType::SLOT_REF;
+        slot_ref.type = varchar_type;
+        slot_ref.num_children = 0;
+        slot_ref.__isset.slot_ref = true;
+        slot_ref.slot_ref.slot_id = 1;
+        slot_ref.slot_ref.tuple_id = 0;
+
+        TExpr expr;
+        expr.nodes.push_back(slot_ref);
+
+        params.expr_of_dest_slot.emplace(3, expr);
+        params.src_slot_ids.push_back(1);
+    }
+    params.__set_src_tuple_id(0);
+    params.__set_dest_tuple_id(1);
+
+    //init_desc_table
+    TDescriptorTable t_desc_table;
+
+    // table descriptors
+    TTableDescriptor t_table_desc;
+
+    t_table_desc.id = 0;
+    t_table_desc.tableType = TTableType::BROKER_TABLE;
+    t_table_desc.numCols = 0;
+    t_table_desc.numClusteringCols = 0;
+    t_desc_table.tableDescriptors.push_back(t_table_desc);
+    t_desc_table.__isset.tableDescriptors = true;
+
+    TDescriptorTableBuilder dtb;
+    TTupleDescriptorBuilder src_tuple_builder;
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col1").column_pos(1).build());
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col2").column_pos(2).build());
+    src_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col3").column_pos(3).build());
+    src_tuple_builder.build(&dtb);
+    TTupleDescriptorBuilder dest_tuple_builder;
+    dest_tuple_builder.add_slot(
+            TSlotDescriptorBuilder().string_type(65535).column_name("value_from_col2").column_pos(1).build());
+
+    dest_tuple_builder.build(&dtb);
+    t_desc_table = dtb.desc_tbl();
+
+    DescriptorTbl::create(&_obj_pool, t_desc_table, &_desc_tbl);
+    _runtime_state.set_desc_tbl(_desc_tbl);
+
+    std::vector<TBrokerRangeDesc> ranges;
+    TBrokerRangeDesc rangeDesc;
+    rangeDesc.start_offset = 0;
+    rangeDesc.size = -1;
+    rangeDesc.format_type = TFileFormatType::FORMAT_ORC;
+    rangeDesc.splittable = false;
+
+    rangeDesc.path = "./be/test/exec/test_data/orc_scanner/my-file.orc";
+    rangeDesc.file_type = TFileType::FILE_LOCAL;
+    ranges.push_back(rangeDesc);
+
+    ORCScanner scanner(&_runtime_state, _profile, params, ranges, _addresses, &_counter);
+    ASSERT_TRUE(scanner.open().ok());
+    MemTracker tracker;
+    MemPool tuple_pool(&tracker);
+
+    Tuple *tuple = (Tuple *) tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
+    bool eof = false;
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(null)");
+    ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
+    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(true)");
+    scanner.close();
+}
+
+} // end namespace doris
+int main(int argc, char** argv) {
+    ::testing::InitGoogleTest(&argc, argv);
+    doris::CpuInfo::init();
+    return RUN_ALL_TESTS();
+}
