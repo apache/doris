@@ -109,7 +109,16 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     }
     if (olap_header.has_keys_type()) {
         schema->set_keys_type(olap_header.keys_type());
+    } else {
+        // Doris support AGG_KEYS/UNIQUE_KEYS/DUP_KEYS/ three storage model.
+        // Among these three model, UNIQUE_KYES/DUP_KEYS is added after AGG_KEYS.
+        // For historical tablet, the keys_type field to indicate storage model
+        // may be missed for AGG_KEYS.
+        // So upgrade from historical tablet, this situation should be taken into
+        // consideration and set to be AGG_KEYS.
+        schema->set_keys_type(KeysType::AGG_KEYS);
     }
+
     schema->set_num_short_key_columns(olap_header.num_short_key_fields());
     schema->set_num_rows_per_row_block(olap_header.num_rows_per_data_block());
     schema->set_compress_kind(olap_header.compress_kind());
@@ -326,6 +335,9 @@ OLAPStatus OlapSnapshotConverter::to_column_pb(const ColumnMessage& column_msg, 
     if (column_msg.has_is_bf_column()) {
         column_pb->set_is_bf_column(column_msg.is_bf_column());
     }
+    if (column_msg.has_has_bitmap_index()) {
+        column_pb->set_has_bitmap_index(column_msg.has_bitmap_index());
+    }
     // TODO(ygl) calculate column id from column list
     // column_pb->set_referenced_column_id(column_msg.());
 
@@ -378,6 +390,9 @@ OLAPStatus OlapSnapshotConverter::to_column_msg(const ColumnPB& column_pb, Colum
     column_msg->set_unique_id(column_pb.unique_id());
     if (column_pb.has_is_bf_column()) {
         column_msg->set_is_bf_column(column_pb.is_bf_column());
+    }
+    if (column_pb.has_has_bitmap_index()) {
+        column_msg->set_has_bitmap_index(column_pb.has_bitmap_index());
     }
     column_msg->set_is_root_column(true);
     return OLAP_SUCCESS;

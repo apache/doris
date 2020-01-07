@@ -62,19 +62,26 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         if (column.is_key()) {
             opts.need_zone_map = true;
         }
-        // TODO set opts.need_bitmap_index based on table properties
-        if (!column.is_key()) {
-            opts.need_bitmap_index = _opts.need_bitmap_index;
-        }
         if (column.is_bf_column()) {
             opts.need_bloom_filter = true;
             if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
                     || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
                     && !_opts.whether_to_filter_value) {
-                // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or 
+                // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or
                 // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
                 // do not write the bloom filter index because it is useless
                 opts.need_bloom_filter = false;
+            }
+        }
+        if (column.has_bitmap_index()) {
+            opts.need_bitmap_index = true;
+            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
+                 || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
+                && !_opts.whether_to_filter_value) {
+                // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or
+                // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
+                // do not write the bitmap index because it is useless
+                opts.need_bitmap_index = false;
             }
         }
 
@@ -129,6 +136,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     RETURN_IF_ERROR(_write_short_key_index());
     *index_size = _output_file->size() - index_offset;
     RETURN_IF_ERROR(_write_footer());
+    RETURN_IF_ERROR(_output_file->sync());
     *segment_file_size = _output_file->size();
     return Status::OK();
 }
@@ -186,7 +194,7 @@ Status SegmentWriter::_write_short_key_index() {
 
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
-    // collect all 
+    // collect all
     for (int i = 0; i < _column_writers.size(); ++i) {
         _column_writers[i]->write_meta(_footer.mutable_columns(i));
     }

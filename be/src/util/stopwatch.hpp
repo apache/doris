@@ -23,50 +23,6 @@
 
 namespace doris {
 
-// Utility class to measure time.  This is measured using the cpu tick counter which
-// is very low overhead but can be inaccurate if the thread is switched away.  This
-// is useful for measuring cpu time at the row batch level (too much overhead at the
-// row granularity).
-class StopWatch {
-public:
-    StopWatch() {
-        _total_time = 0;
-        _running = false;
-    }
-
-    void start() {
-        if (!_running) {
-            _start = rdtsc();
-            _running = true;
-        }
-    }
-
-    void stop() {
-        if (_running) {
-            _total_time += rdtsc() - _start;
-            _running = false;
-        }
-    }
-
-    // Returns time in cpu ticks.
-    uint64_t elapsed_time() const {
-        return _running ? rdtsc() - _start : _total_time;
-    }
-
-    static uint64_t rdtsc() {
-        uint32_t lo, hi;
-        __asm__ __volatile__(
-            "xorl %%eax,%%eax \n        cpuid"
-            ::: "%rax", "%rbx", "%rcx", "%rdx");
-        __asm__ __volatile__("rdtsc" : "=a"(lo), "=d"(hi));
-        return (uint64_t)hi << 32 | lo;
-    }
-
-private:
-    uint64_t _start, _total_time;
-    bool _running;
-};
-
 // Stop watch for reporting elapsed time in nanosec based on CLOCK_MONOTONIC.
 // It is as fast as Rdtsc.
 // It is also accurate because it not affected by cpu frequency changes and

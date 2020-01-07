@@ -23,10 +23,10 @@
 #include <unordered_map>
 
 #include "common/status.h"
-#include "util/blocking_queue.hpp"
 #include "util/hash_util.hpp"
 #include "runtime/primitive_type.h"
 #include "runtime/raw_value.h"
+#include "runtime/record_batch_queue.h"
 
 
 namespace arrow {
@@ -38,7 +38,8 @@ namespace doris {
 
 class TUniqueId;
 class TScanRowBatch;
-typedef std::shared_ptr<BlockingQueue< std::shared_ptr<arrow::RecordBatch>>> shared_block_queue_t;
+class RecordBatchQueue;
+typedef std::shared_ptr<RecordBatchQueue> BlockQueueSharedPtr;
 
 class ResultQueueMgr {
 
@@ -48,14 +49,15 @@ public:
 
     Status fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<arrow::RecordBatch>* result, bool *eos);
 
-    void create_queue(const TUniqueId& fragment_instance_id, shared_block_queue_t* queue);
+    void create_queue(const TUniqueId& fragment_instance_id, BlockQueueSharedPtr* queue);
 
     Status cancel(const TUniqueId& fragment_id);
 
+    void update_queue_status(const TUniqueId& fragment_id, const Status& status);
+
 private:
     std::mutex _lock;
-    u_int32_t _max_sink_batch_count;
-    std::unordered_map<TUniqueId, shared_block_queue_t> _fragment_queue_map;
+    std::unordered_map<TUniqueId, BlockQueueSharedPtr> _fragment_queue_map;
 };
 
 }

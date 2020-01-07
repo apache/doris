@@ -17,24 +17,22 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# COUNT_DISTINCT
+# CREATE INDEX
+
 ## description
-### Syntax
 
-`COUNT_DISTINCT(expr)`
-
-
-用于返回满足要求的行的数目，或者非NULL行的数目
+    This statement is used to create index
+    grammer:
+        CREATE INDEX index_name ON table_name (column [, ...],) [USING BITMAP] [COMMENT'balabala'];
+    note:
+        1. only support bitmap index in current version
+        2. BITMAP index only supports apply to single column
 
 ## example
 
-```
-MySQL > select count_distinct(query_id) from log_statis group by datetime;
-+----------------------------+
-| count_distinct(`query_id`) |
-+----------------------------+
-|                        577 |
-+----------------------------+
-```
-##keyword
-COUNT_DISTINCT,COUNT,DISTINCT
+    1. create index on table1 column siteid using bitmap 
+        CREATE INDEX index_name ON table1 (siteid) USING BITMAP COMMENT 'balabala';
+
+## keyword
+
+    CREATE,INDEX

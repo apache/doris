@@ -631,7 +631,7 @@ public class RestoreJob extends AbstractJob {
                                     schemaHash, restoreReplica.getVersion(), restoreReplica.getVersionHash(),
                                     keysType, TStorageType.COLUMN,
                                     TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
-                                    columns, bfColumns, bfFpp, null);
+                                    columns, bfColumns, bfFpp, null, localTbl.getCopiedIndexes());
                             task.setInRestoreMode(true);
                             batchTask.addTask(task);
                         }
@@ -662,7 +662,7 @@ public class RestoreJob extends AbstractJob {
                                         restoreTbl.getId(), restorePart.getId(), index.getId(), tablet.getId(),
                                         shortKeyColumnCount, schemaHash, replica.getVersion(), replica.getVersionHash(),
                                         keysType, TStorageType.COLUMN, TStorageMedium.HDD, columns,
-                                        bfColumns, bfFpp, null);
+                                        bfColumns, bfFpp, null, restoreTbl.getCopiedIndexes());
                                 task.setInRestoreMode(true);
                                 batchTask.addTask(task);
                             }

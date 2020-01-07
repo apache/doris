@@ -27,13 +27,13 @@
 
 namespace doris {
 
-ResultQueueMgr::ResultQueueMgr() : _max_sink_batch_count(config::max_memory_sink_batch_count) {
+ResultQueueMgr::ResultQueueMgr() {
 }
 ResultQueueMgr::~ResultQueueMgr() {
 }
 
 Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<arrow::RecordBatch>* result, bool *eos) {
-    shared_block_queue_t queue;
+    BlockQueueSharedPtr queue;
     {
         std::lock_guard<std::mutex> l(_lock);
         auto iter = _fragment_queue_map.find(fragment_instance_id);
@@ -43,6 +43,8 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::
             return Status::InternalError("fragment_instance_id does not exists");
         }
     }
+    // check queue status before get result
+    RETURN_IF_ERROR(queue->status());
     bool sucess = queue->blocking_get(result);
     if (sucess) {
         // sentinel nullptr indicates scan end
@@ -61,14 +63,14 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::
     return Status::OK();
 }
 
-void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, shared_block_queue_t* queue) {
+void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, BlockQueueSharedPtr* queue) {
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _fragment_queue_map.find(fragment_instance_id);
     if (iter != _fragment_queue_map.end()) {
         *queue = iter->second;
     } else {
         // the blocking queue size = 20 (default), in this way, one queue have 20 * 1024 rows at most
-        shared_block_queue_t tmp(new BlockingQueue<std::shared_ptr<arrow::RecordBatch>>(_max_sink_batch_count));
+        BlockQueueSharedPtr tmp(new RecordBatchQueue(config::max_memory_sink_batch_count));
         _fragment_queue_map.insert(std::make_pair(fragment_instance_id, tmp));
         *queue = tmp;
     }
@@ -78,10 +80,24 @@ Status ResultQueueMgr::cancel(const TUniqueId& fragment_instance_id) {
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _fragment_queue_map.find(fragment_instance_id);
     if (iter != _fragment_queue_map.end()) {
+        // first remove RecordBatch from queue
+        // avoid MemoryScratchSink block on send or close operation
+        iter->second->shutdown();
         // remove this queue from map
         _fragment_queue_map.erase(fragment_instance_id);
     }
     return Status::OK();
+}
+
+void ResultQueueMgr::update_queue_status(const TUniqueId& fragment_instance_id, const Status& status) {
+    if (status.ok()) {
+        return;
+    }
+    std::lock_guard<std::mutex> l(_lock);
+    auto iter = _fragment_queue_map.find(fragment_instance_id);
+    if (iter != _fragment_queue_map.end()) {
+        iter->second->update_status(status);
+    }
 }
 
 }

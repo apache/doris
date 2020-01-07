@@ -20,7 +20,6 @@ package org.apache.doris.mysql;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -33,16 +32,19 @@ import java.nio.channels.SocketChannel;
 public class MysqlServer {
     private static final Logger LOG = LogManager.getLogger(MysqlServer.class);
 
-    private int port;
+    protected int port;
+    protected volatile boolean running;
     private ServerSocketChannel serverChannel = null;
     private ConnectScheduler scheduler = null;
     // used to accept connect request from client
     private Thread listener;
-    private volatile boolean running;
 
     public MysqlServer(int port, ConnectScheduler scheduler) {
         this.port = port;
         this.scheduler = scheduler;
+    }
+
+    protected MysqlServer() {
     }
 
     // start MySQL protocol service
@@ -140,5 +142,5 @@ public class MysqlServer {
     public void setScheduler(ConnectScheduler scheduler) {
         this.scheduler = scheduler;
     }
-    
+
 }

@@ -17,24 +17,14 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# COUNT_DISTINCT
-## Description
-### Syntax
+# DROP INDEX
 
-`COUNT_DISTINCT(expr)`
+## description
 
+    该语句用于从一个表中删除指定名称的索引，目前仅支持bitmap 索引
+    语法：
+        DROP INDEX index_name ON [db_name.]table_name;
 
-The number of rows used to return the required number, or the number of non-NULL rows
+## keyword
 
-## example
-
-```
-MySQL > select count_distinct(query_id) from log_statis group by datetime;
-+----------------------------+
-| count_distinct(`query_id`) |
-+----------------------------+
-|                        577 |
-+----------------------------+
-```
-##keyword
-COUNT_DISTINCT,COUNT,DISTINCT
+    DROP,INDEX

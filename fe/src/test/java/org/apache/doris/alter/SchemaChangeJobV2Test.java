@@ -27,11 +27,14 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -46,6 +49,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
@@ -58,10 +62,13 @@ import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.ExpectedException;
 
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -79,6 +86,9 @@ public class SchemaChangeJobV2Test {
     private static ColumnDef newCol = new ColumnDef("add_v", new TypeDef(ScalarType.createType(PrimitiveType.INT)),
             false, AggregateType.MAX, false, new DefaultValue(true, "1"), "");
     private static AddColumnClause addColumnClause = new AddColumnClause(newCol, new ColumnPosition("v"), null, null);
+
+    @Rule
+    public ExpectedException expectedEx = ExpectedException.none();
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -161,7 +171,7 @@ public class SchemaChangeJobV2Test {
         Assert.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
         Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.VISIBLE).size());
         Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
-        
+
         // runWaitingTxnJob
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
@@ -187,9 +197,90 @@ public class SchemaChangeJobV2Test {
                 shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), testPartition.getVisibleVersionHash(), shadowReplica.getDataSize(), shadowReplica.getRowCount());
             }
         }
-        
+
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.FINISHED, schemaChangeJob.getJobState());
     }
 
+    @Test
+    public void testModifyDynamicPartitionNormal() throws UserException {
+        FakeCatalog.setCatalog(masterCatalog);
+        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(DynamicPartitionProperty.ENABLE, "true");
+        properties.put(DynamicPartitionProperty.TIME_UNIT, "day");
+        properties.put(DynamicPartitionProperty.END, "3");
+        properties.put(DynamicPartitionProperty.PREFIX, "p");
+        properties.put(DynamicPartitionProperty.BUCKETS, "30");
+        alterClauses.add(new ModifyTablePropertiesClause(properties));
+        Database db = CatalogMocker.mockDb();
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogMocker.TEST_TBL2_ID);
+        schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
+        Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
+        Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+        Assert.assertEquals("day", olapTable.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        Assert.assertEquals(3, olapTable.getTableProperty().getDynamicPartitionProperty().getEnd());
+        Assert.assertEquals("p", olapTable.getTableProperty().getDynamicPartitionProperty().getPrefix());
+        Assert.assertEquals(30, olapTable.getTableProperty().getDynamicPartitionProperty().getBuckets());
+
+
+        // set dynamic_partition.enable = false
+        ArrayList<AlterClause> tmpAlterClauses = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.ENABLE, "false");
+        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
+        schemaChangeHandler.process(tmpAlterClauses, "default_cluster", db, olapTable);
+        Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
+        // set dynamic_partition.time_unit = week
+        tmpAlterClauses = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.TIME_UNIT, "week");
+        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
+        schemaChangeHandler.process(tmpAlterClauses, "default_cluster", db, olapTable);
+        Assert.assertEquals("week", olapTable.getTableProperty().getDynamicPartitionProperty().getTimeUnit());
+        // set dynamic_partition.end = 10
+        tmpAlterClauses = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.END, "10");
+        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
+        schemaChangeHandler.process(tmpAlterClauses, "default_cluster", db, olapTable);
+        Assert.assertEquals(10, olapTable.getTableProperty().getDynamicPartitionProperty().getEnd());
+        // set dynamic_partition.prefix = p1
+        tmpAlterClauses = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.PREFIX, "p1");
+        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
+        schemaChangeHandler.process(tmpAlterClauses, "default_cluster", db, olapTable);
+        Assert.assertEquals("p1", olapTable.getTableProperty().getDynamicPartitionProperty().getPrefix());
+        // set dynamic_partition.buckets = 3
+        tmpAlterClauses = new ArrayList<>();
+        properties.put(DynamicPartitionProperty.BUCKETS, "3");
+        tmpAlterClauses.add(new ModifyTablePropertiesClause(properties));
+        schemaChangeHandler.process(tmpAlterClauses, "default_cluster", db, olapTable);
+        Assert.assertEquals(3, olapTable.getTableProperty().getDynamicPartitionProperty().getBuckets());
+    }
+
+    public void modifyDynamicPartitionWithoutTableProperty(String propertyKey, String propertyValue, String missPropertyKey)
+            throws UserException {
+        FakeCatalog.setCatalog(masterCatalog);
+        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        Map<String, String> properties = new HashMap<>();
+        properties.put(propertyKey, propertyValue);
+        alterClauses.add(new ModifyTablePropertiesClause(properties));
+
+        Database db = CatalogMocker.mockDb();
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogMocker.TEST_TBL2_ID);
+
+        expectedEx.expect(DdlException.class);
+        expectedEx.expectMessage(String.format("Must assign %s properties", missPropertyKey));
+
+        schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
+    }
+
+    @Test
+    public void testModifyDynamicPartitionWithoutTableProperty() throws UserException {
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.ENABLE, "false", DynamicPartitionProperty.TIME_UNIT);
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.TIME_UNIT, "day", DynamicPartitionProperty.ENABLE);
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.END, "3", DynamicPartitionProperty.ENABLE);
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.PREFIX, "p", DynamicPartitionProperty.ENABLE);
+        modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.BUCKETS, "30", DynamicPartitionProperty.ENABLE);
+    }
 }

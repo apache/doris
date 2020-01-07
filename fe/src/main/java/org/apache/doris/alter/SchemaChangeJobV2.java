@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
@@ -32,6 +33,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -42,10 +44,10 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
-import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -56,12 +58,14 @@ import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -95,6 +99,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private boolean hasBfChange;
     private Set<String> bfColumns = null;
     private double bfFpp = 0;
+
+    // alter index info
+    private boolean indexChange = false;
+    private List<Index> indexes = null;
 
     // The schema change job will wait all transactions before this txn id finished, then send the schema change tasks.
     protected long watershedTxnId = -1;
@@ -140,6 +148,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.hasBfChange = hasBfChange;
         this.bfColumns = bfColumns;
         this.bfFpp = bfFpp;
+    }
+
+    public void setAlterIndexInfo(boolean indexChange, List<Index> indexes) {
+        this.indexChange = indexChange;
+        this.indexes = indexes;
     }
 
     public void setStorageFormat(TStorageFormat storageFormat) {
@@ -207,12 +220,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
                                     tbl.getKeysType(), TStorageType.COLUMN, storageMedium,
-                                    shadowSchema, bfColumns, bfFpp, countDownLatch);
+                                    shadowSchema, bfColumns, bfFpp, countDownLatch, indexes);
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
                             if (this.storageFormat != null) {
                                 createReplicaTask.setStorageFormat(this.storageFormat);
                             }
-                            
+
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
                     } // end for rollupTablets
@@ -533,6 +546,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (hasBfChange) {
             tbl.setBloomFilterInfo(bfColumns, bfFpp);
         }
+        // update index
+        if (indexChange) {
+            tbl.setIndexes(indexes);
+        }
 
         tbl.setState(OlapTableState.NORMAL);
     }
@@ -838,6 +855,18 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         out.writeLong(watershedTxnId);
+
+        // index
+        out.writeBoolean(indexChange);
+        if (CollectionUtils.isNotEmpty(indexes)) {
+            out.writeBoolean(true);
+            out.writeInt(indexes.size());
+            for (Index index : indexes) {
+                index.write(out);
+            }
+        } else {
+            out.writeBoolean(false);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -899,5 +928,21 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         watershedTxnId = in.readLong();
+
+        // index
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
+            indexChange = in.readBoolean();
+            if (indexChange) {
+                if (in.readBoolean()) {
+                    int indexCount = in.readInt();
+                    this.indexes = new ArrayList<>();
+                    for (int i = 0; i < indexCount; ++i) {
+                        this.indexes.add(Index.read(in));
+                    }
+                } else {
+                    this.indexes = null;
+                }
+            }
+        }
     }
 }

@@ -61,7 +61,7 @@ public:
     explicit BloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
             const TypeInfo* typeinfo)
         : _bf_options(bf_options), _typeinfo(typeinfo),
-          _tracker(), _pool(&_tracker), _has_null(false) { }
+          _tracker(), _pool(&_tracker), _has_null(false), _bf_buffer_size(0) { }
 
     ~BloomFilterIndexWriterImpl() = default;
 
@@ -98,6 +98,7 @@ public:
                 bf->add_bytes((char*)&v, sizeof(CppType));
             }
         }
+        _bf_buffer_size += bf->size();
         _bfs.push_back(std::move(bf));
         _values.clear();
         return Status::OK();
@@ -127,11 +128,8 @@ public:
     }
 
     uint64_t size() override {
-        uint64_t total_size = 0;
-        for (auto& bf : _bfs) {
-            total_size += bf->size();
-        }
-        total_size += _pool.total_reserved_bytes();
+        uint64_t total_size = _bf_buffer_size;
+        total_size += _pool.total_allocated_bytes();
         return total_size;
     }
 
@@ -147,6 +145,7 @@ private:
     MemTracker _tracker;
     MemPool _pool;
     bool _has_null;
+    uint64_t _bf_buffer_size;
     // distinct values
     ValueDict _values;
     std::vector<std::unique_ptr<BloomFilter>> _bfs;

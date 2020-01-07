@@ -80,7 +80,7 @@ private:
     const RowDescriptor& _row_desc;
     std::shared_ptr<arrow::Schema> _arrow_schema;
 
-    shared_block_queue_t _queue;
+    BlockQueueSharedPtr _queue;
 
     RuntimeProfile* _profile; // Allocated from _pool
 

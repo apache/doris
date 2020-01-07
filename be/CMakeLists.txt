@@ -39,6 +39,14 @@ endif()
 string(TOUPPER ${CMAKE_BUILD_TYPE} CMAKE_BUILD_TYPE)
 message(STATUS "Build type is ${CMAKE_BUILD_TYPE}")
 
+# set CMAKE_BUILD_TARGET_ARCH
+# use `lscpu | grep 'Architecture' | awk '{print $2}'` only support system which language is en_US.UTF-8
+execute_process(COMMAND bash "-c" "uname -m"
+                OUTPUT_VARIABLE
+                CMAKE_BUILD_TARGET_ARCH
+                OUTPUT_STRIP_TRAILING_WHITESPACE)
+message(STATUS "Build target arch is ${CMAKE_BUILD_TARGET_ARCH}")
+
 # Set dirs
 set(BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(ENV{DORIS_HOME} "${BASE_DIR}/../")
@@ -325,7 +333,9 @@ set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++11 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-deprecated -Wno-vla")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_SYSTEM_NO_DEPRECATED")
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
+if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -msse4.2")
+endif()
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DLLVM_ON_UNIX")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS}  -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
 

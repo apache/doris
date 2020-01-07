@@ -119,8 +119,9 @@ public class Config extends ConfigBase {
     @ConfField public static int label_clean_interval_second = 4 * 3600; // 4 hours
     /*
      * the transaction will be cleaned after transaction_clean_interval_second seconds if the transaction is visible or aborted
+     * we should make this interval as short as possible and each clean cycle as soon as possible
      */
-    @ConfField public static int transaction_clean_interval_second = 300; // 5 min
+    @ConfField public static int transaction_clean_interval_second = 30;
 
     // Configurations for meta data durability
     /*
@@ -183,6 +184,13 @@ public class Config extends ConfigBase {
      * you can try to increase this value to decrease the chances of false timeouts
      */
     @ConfField public static int bdbje_heartbeat_timeout_second = 30;
+
+    /*
+     * The lock timeout of bdbje operation
+     * If there are many LockTimeoutException in FE WARN log, you can try to increase this value
+     */
+    @ConfField
+    public static int bdbje_lock_timeout_second = 1;
     
     /*
      * the max txn number which bdbje can rollback when trying to rejoin the group
@@ -266,6 +274,15 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int query_port = 9030;
 
+    /*
+    * mysql service nio option.
+     */
+    @ConfField public static boolean mysql_service_nio_enabled = false;
+
+    /*
+     * num of thread to handle io events in mysql.
+     */
+    @ConfField public static int mysql_service_io_threads_num = 4;
     /*
      * Cluster name will be shown as the title of web page
      */
@@ -837,6 +854,16 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean disable_balance = false;
+
+    // if the number of scheduled tablets in TabletScheduler exceed max_scheduling_tablets
+    // skip checking.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_scheduling_tablets = 2000;
+
+    // if the number of balancing tablets in TabletScheduler exceed max_balancing_tablets,
+    // no more balance check
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_balancing_tablets = 100;
     
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
@@ -945,5 +972,17 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static boolean disable_cluster_feature = true;
+
+    /*
+     * Decide how often to check dynamic partition
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int dynamic_partition_check_interval_seconds = 600;
+
+    /*
+     * If set to true, dynamic partition feature will open
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean dynamic_partition_enable = false;
 }
 

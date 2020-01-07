@@ -196,7 +196,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_TIME, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
-    KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
+    KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
     KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
@@ -358,7 +358,9 @@ nonterminal List<SetVar> option_value_list, option_value_list_continued, start_o
 
 nonterminal Map<String, String> key_value_map, opt_key_value_map, opt_properties, opt_ext_properties;
 nonterminal ColumnDef column_definition;
+nonterminal IndexDef index_definition;
 nonterminal ArrayList<ColumnDef> column_definition_list;
+nonterminal ArrayList<IndexDef> index_definition_list;
 nonterminal AggregateType opt_agg_type;
 nonterminal PartitionDesc opt_partition;
 nonterminal DistributionDesc opt_distribution;
@@ -417,6 +419,7 @@ nonterminal String opt_db, opt_partition_name, procedure_or_function, opt_commen
 nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
+nonterminal IndexDef.IndexType opt_index_type;
 
 nonterminal ShowAlterStmt.AlterType opt_alter_type;
 
@@ -780,6 +783,14 @@ alter_table_clause ::=
     {:
         RESULT = new ColumnRenameClause(colName, newColName);
     :}
+    | KW_ADD index_definition:indexDef
+    {:
+        RESULT = new CreateIndexClause(null, indexDef, true);
+    :}
+    | KW_DROP KW_INDEX ident:indexName
+    {:
+        RESULT = new DropIndexClause(indexName, null, true);
+    :}
     ;
 
 alter_system_clause ::=
@@ -896,7 +907,20 @@ create_stmt ::=
             opt_properties:tblProperties
             opt_ext_properties:extProperties
     {:
-        RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, engineName, keys, partition, distribution, tblProperties, extProperties, tableComment);
+        RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, engineName, keys, partition,
+        distribution, tblProperties, extProperties, tableComment);
+    :}
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
+            LPAREN column_definition_list:columns COMMA index_definition_list:indexes RPAREN opt_engine:engineName
+            opt_keys:keys
+            opt_comment:tableComment
+            opt_partition:partition
+            opt_distribution:distribution
+            opt_properties:tblProperties
+            opt_ext_properties:extProperties
+    {:
+        RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
+        distribution, tblProperties, extProperties, tableComment);
     :}
     /* User */
     | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole
@@ -930,6 +954,10 @@ create_stmt ::=
     | KW_CREATE KW_MATERIALIZED KW_VIEW ident:mvName KW_AS select_stmt:selectStmt opt_properties:properties
     {:
         RESULT = new CreateMaterializedViewStmt(mvName, selectStmt, properties);
+    :}
+    | KW_CREATE KW_INDEX ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    {:
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, cols, indexType, comment), false)));
     :}
     ;
 
@@ -1416,6 +1444,10 @@ drop_stmt ::=
     {:
         RESULT = new DropFileStmt(fileName, dbName, properties);
     :}
+    | KW_DROP KW_INDEX ident:indexName KW_ON table_name:tableName
+    {:
+        RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, tableName, false)));
+    :}
     ;
 
 // Recover statement
@@ -1678,6 +1710,19 @@ column_definition_list ::=
     :}
     ;
 
+index_definition_list ::=
+    index_definition:index
+    {:
+        RESULT = Lists.newArrayList();
+        RESULT.add(index);
+    :}
+    | index_definition_list:list COMMA index_definition:index
+    {:
+        list.add(index);
+        RESULT = list;
+    :}
+    ;
+
 opt_default_value ::=
     /* Empty */
     {:
@@ -1711,6 +1756,13 @@ column_definition ::=
     :}
     ;
 
+index_definition ::=
+    KW_INDEX ident:indexName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
+    {:
+        RESULT = new IndexDef(indexName, cols, indexType, comment);
+    :}
+    ;
+
 opt_is_allow_null ::=
     {:
         RESULT = true;
@@ -1733,6 +1785,16 @@ opt_comment ::=
     | KW_COMMENT STRING_LITERAL:comment
     {:
         RESULT = comment;
+    :}
+    ;
+
+opt_index_type ::=
+    {:
+        RESULT = null;
+    :}
+    | KW_USING KW_BITMAP
+    {:
+        RESULT = IndexDef.IndexType.BITMAP;
     :}
     ;
 
@@ -1877,6 +1939,11 @@ show_param ::=
     {:
         RESULT = new ShowDbStmt(parser.wild, parser.where);
     :}
+    /* Dynamic Partition */
+    | KW_DYNAMIC KW_PARTITION KW_TABLES opt_db:db
+    {:
+        RESULT = new ShowDynamicPartitionStmt(db);
+    :}
     /* Columns */
     | opt_full KW_COLUMNS from_or_in table_name:table opt_db:db opt_wild_where
     {:
@@ -1956,9 +2023,9 @@ show_param ::=
     {:
         RESULT = new ShowDataStmt(dbTblName.getDb(), dbTblName.getTbl());
     :}
-	| KW_PARTITIONS KW_FROM table_name:tblName opt_partition_name:partitionName
+	| KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
-        RESULT = new ShowPartitionsStmt(tblName, partitionName);
+        RESULT = new ShowPartitionsStmt(tblName, parser.where, orderByClause, limitClause);
     :}
     | KW_TABLET INTEGER_LITERAL:tabletId
     {:
@@ -2027,6 +2094,14 @@ show_param ::=
     | KW_FILE opt_db:dbName
     {:
         RESULT = new ShowSmallFilesStmt(dbName);
+    :}
+    | KW_INDEX KW_FROM table_name:dbTblName opt_db:dbName
+    {:
+        RESULT = new ShowIndexStmt(dbName, dbTblName);
+    :}
+    | KW_INDEXES KW_FROM table_name:tableName opt_db:dbName
+    {:
+        RESULT = new ShowIndexStmt(dbName, tableName);
     :}
     ;
 
@@ -4270,6 +4345,8 @@ keyword ::=
     | KW_RESUME:id
     {: RESULT = id; :}
     | KW_STOP:id
+    {: RESULT = id; :}
+    | KW_DYNAMIC:id
     {: RESULT = id; :}
     ;
 

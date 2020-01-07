@@ -21,7 +21,7 @@ import org.apache.commons.lang.NotImplementedException;
 
 import java.util.Map;
 
-// Alter table clause.
+// Alter clause.
 public abstract class AlterClause implements ParseNode {
 
     public Map<String, String> getProperties() {

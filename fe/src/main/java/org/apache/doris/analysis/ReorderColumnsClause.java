@@ -25,7 +25,7 @@ import java.util.List;
 import java.util.Map;
 
 // reorder column
-public class ReorderColumnsClause extends AlterClause {
+public class ReorderColumnsClause extends AlterTableClause {
     private List<String> columnsByPos;
     private String rollupName;
 

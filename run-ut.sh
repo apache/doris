@@ -164,6 +164,7 @@ ${DORIS_TEST_BINARY_DIR}/util/counter_cond_variable_test
 ${DORIS_TEST_BINARY_DIR}/util/bit_stream_utils_test
 ${DORIS_TEST_BINARY_DIR}/util/frame_of_reference_coding_test
 ${DORIS_TEST_BINARY_DIR}/util/zip_util_test
+${DORIS_TEST_BINARY_DIR}/util/utf8_check_test
 
 # Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
@@ -254,7 +255,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
 # ${DORIS_TEST_BINARY_DIR}/olap/memtable_flush_executor_test
 ${DORIS_TEST_BINARY_DIR}/olap/options_test
 
-# Running routine load test
+# Running segment v2 test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_mgr_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
