@@ -38,26 +38,58 @@ class RowsetReader;
 class TabletSchema;
 
 // the rowset state transfer graph:
-//    ROWSET_CREATED
-//         |
-//    ROWSET_LOADED  <--|
-//         |            |
-//    ROWSET_CLOSING    | 
-//         |            |
-//    ROWSET_CLOSED  ---|
-//         |
-//    ROWSET_DELETE
+//    ROWSET_UNLOADED    <--|
+//          ↓               |
+//    ROWSET_LOADED         |
+//          ↓               |
+//    ROWSET_UNLOADING   -->| 
 enum RowsetState {
     // state for new created rowset
-    ROWSET_CREATED,
+    ROWSET_UNLOADED,
     // state after load() called
     ROWSET_LOADED,
     // state for closed() called but owned by some readers
-    ROWSET_CLOSING,
-    // state for closed() called and not owned by any reader
-    ROWSET_CLOSED,
-    // state for rowset to be removed
-    ROWSET_DELETE
+    ROWSET_UNLOADING
+};
+
+class RowsetStateMachine {
+public:
+    RowsetStateMachine() : _rowset_state(ROWSET_UNLOADED) { }
+
+    OLAPStatus on_load() {
+        switch (_rowset_state) {
+        case ROWSET_UNLOADED:
+            _rowset_state = ROWSET_LOADED;
+            break;
+        
+        default:
+            return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+        }
+        return OLAP_SUCCESS;
+    }
+
+    OLAPStatus on_close(uint64_t refs_by_reader) {
+        switch (_rowset_state) {
+            case ROWSET_LOADED:
+                if (refs_by_reader == 0) {
+                    _rowset_state = ROWSET_UNLOADED;
+                } else {
+                    _rowset_state = ROWSET_UNLOADING;
+                }
+                break;
+
+            default:
+                return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+        }
+        return OLAP_SUCCESS;
+    }
+
+    RowsetState rowset_state() {
+        return _rowset_state;
+    }
+
+private:
+    RowsetState _rowset_state;
 };
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
@@ -125,13 +157,17 @@ public:
         MutexLock _close_lock(&_lock);
         if (_refs_by_reader == 0) {
             do_close();
-            return;
         }
-        LOG(INFO) << "rowset is closing."
-            << ", rowset state from:" << _rowset_state << " to ROWSET_CLOSING"
-            << ", version:" << start_version() << "-" << end_version()
-            << ", tabletid:" << _rowset_meta->tablet_id();
-        _rowset_state = ROWSET_CLOSING;
+        RowsetState old_state = _rowset_state_machine.rowset_state();
+        auto st = _rowset_state_machine.on_close(_refs_by_reader);
+        if (st != OLAP_SUCCESS) {
+            LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
+        } else {
+            LOG(INFO) << "rowset is close. rowset state from:"
+                      << old_state << " to " << _rowset_state_machine.rowset_state()
+                      << ", version:" << start_version() << "-" << end_version()
+                      << ", tabletid:" << _rowset_meta->tablet_id();
+        }
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
@@ -172,12 +208,21 @@ public:
     }
 
     void release() {
-        --_refs_by_reader;
         // if the refs by reader is 0 and the rowset is closed, should release the resouce
-        if (_refs_by_reader == 0 && _rowset_state == ROWSET_CLOSING) {
+        uint64_t current_refs = --_refs_by_reader;
+        if (current_refs == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
             // here only one thread will call do_close 
             // because there is only one thread will get _refs_by_reader == 0
             do_close();
+            auto st = _rowset_state_machine.on_close(current_refs);
+            if (st != OLAP_SUCCESS) {
+                LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
+            } else {
+                LOG(INFO) << "close the rowset."
+                      << ", rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+                      << ", version:" << start_version() << "-" << end_version()
+                      << ", tabletid:" << _rowset_meta->tablet_id();
+            }
         }
     }
 
@@ -191,7 +236,9 @@ protected:
            RowsetMetaSharedPtr rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    virtual OLAPStatus init() = 0;
+    virtual OLAPStatus init() {
+        return OLAP_SUCCESS; // no op
+    };
 
     virtual OLAPStatus do_create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 
@@ -215,8 +262,8 @@ protected:
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset
     std::atomic<uint64_t> _refs_by_reader;
-    // rowset state
-    RowsetState _rowset_state;
+    // rowset state machine
+    RowsetStateMachine _rowset_state_machine;
 };
 
 } // namespace doris

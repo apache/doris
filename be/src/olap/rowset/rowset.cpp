@@ -25,8 +25,7 @@ Rowset::Rowset(const TabletSchema *schema,
         : _schema(schema),
          _rowset_path(std::move(rowset_path)),
          _rowset_meta(std::move(rowset_meta)),
-         _refs_by_reader(0),
-         _rowset_state(ROWSET_CREATED) {
+         _refs_by_reader(0) {
 
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
@@ -38,23 +37,19 @@ Rowset::Rowset(const TabletSchema *schema,
 }
 
 OLAPStatus Rowset::load(bool use_cache) {
-    // if the state is ROWSET_CLOSING, it means close() is called
+    // if the state is ROWSET_UNLOADING it means close() is called
     // and the rowset is already loaded, and the resource is not closed yet.
-    if (_rowset_state == ROWSET_LOADED || _rowset_state == ROWSET_CLOSING) {
+    if (_rowset_state_machine.rowset_state() != ROWSET_UNLOADED) {
         return OLAP_SUCCESS;
     }
-    if (_rowset_state == ROWSET_DELETE) {
-        LOG(WARNING) << "can not load rowset with state ROWSET_DELETE";
-        return OLAP_ERR_ROWSET_LOAD_FAILED;
-    }
-    return do_load(use_cache);
+    RETURN_NOT_OK(do_load(use_cache));
+    LOG(INFO) << "rowset is loaded. rowset version:" << start_version() << "-" << end_version()
+            << ", state from:" << _rowset_state_machine.rowset_state() << " to ROWSET_LOADED. tabletid:"
+            << _rowset_meta->tablet_id();
+    return _rowset_state_machine.on_load();
 }
 
 OLAPStatus Rowset::create_reader(std::shared_ptr<RowsetReader>* result) {
-    if (_rowset_state == ROWSET_DELETE) {
-        LOG(WARNING) << "rowset state is ROWSET_DELETE, can not create reader";
-        return OLAP_ERR_ROWSET_CREATE_READER;
-    }
     MutexLock _load_lock(&_lock);
     RETURN_NOT_OK(load());
     return do_create_reader(result);

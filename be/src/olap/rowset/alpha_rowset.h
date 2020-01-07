@@ -72,12 +72,9 @@ protected:
                 std::string rowset_path,
                 RowsetMetaSharedPtr rowset_meta);
 
-    // init segment groups
-    OLAPStatus init() override;
-
     OLAPStatus do_create_reader(std::shared_ptr<RowsetReader>* result) override;
 
-    OLAPStatus do_load(bool use_cache) override ;
+    OLAPStatus do_load(bool use_cache) override;
 
     void do_close() override;
 
@@ -86,6 +83,8 @@ protected:
 
 private:
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();
+
+    OLAPStatus _init_segment_groups();
 
 private:
     friend class AlphaRowsetWriter;

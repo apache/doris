@@ -40,13 +40,8 @@ BetaRowset::BetaRowset(const TabletSchema* schema,
 
 BetaRowset::~BetaRowset() { }
 
-OLAPStatus BetaRowset::init() {
-    return OLAP_SUCCESS; // no op
-}
-
 // `use_cache` is ignored because beta rowset doesn't support fd cache now
 OLAPStatus BetaRowset::do_load(bool /*use_cache*/) {
-    DCHECK(_rowset_state != ROWSET_DELETE);
     // Open all segments under the current rowset
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
@@ -59,10 +54,6 @@ OLAPStatus BetaRowset::do_load(bool /*use_cache*/) {
         }
         _segments.push_back(std::move(segment));
     }
-    LOG(INFO) << "rowset is loaded. rowset version:" << start_version() << "-" << end_version()
-            << ", state from:" << _rowset_state << " to ROWSET_LOADED. tabletid:"
-            << _rowset_meta->tablet_id();
-    _rowset_state = ROWSET_LOADED;
     return OLAP_SUCCESS;
 }
 
@@ -84,10 +75,8 @@ OLAPStatus BetaRowset::split_range(const RowCursor& start_key,
 OLAPStatus BetaRowset::remove() {
     // TODO should we close and remove all segment reader first?
     LOG(INFO) << "begin to remove files in rowset " << unique_id()
-            << ", rowset state from:" << _rowset_state << " to ROWSET_DELETE"
             << ", version:" << start_version() << "-" << end_version()
             << ", tabletid:" << _rowset_meta->tablet_id();
-    _rowset_state = ROWSET_DELETE;
     bool success = true;
     for (int i = 0; i < num_segments(); ++i) {
         std::string path = segment_file_path(_rowset_path, rowset_id(), i);
@@ -109,11 +98,6 @@ OLAPStatus BetaRowset::remove() {
 
 void BetaRowset::do_close() {
     _segments.clear();
-    LOG(INFO) << "rowset is closed."
-            << ", rowset state from:" << _rowset_state << " to ROWSET_CLOSED"
-            << ", version:" << start_version() << "-" << end_version()
-            << ", tabletid:" << _rowset_meta->tablet_id();
-    _rowset_state = ROWSET_CLOSED;
 }
 
 OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {
