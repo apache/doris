@@ -264,7 +264,7 @@ ORC_SOURCE=orc-1.5.8
 ORC_MD5SUM="2318b0a8233c8833b3a6cfd771c60883"
 
 # jemalloc
-JEMALLOC_DOWNLAOD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
+JEMALLOC_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
 JEMALLOC_NAME="jemalloc-5.2.1.tar.bz2"
 JEMALLOC_SOURCE="jemalloc-5.2.1"
 JEMALLOC_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
