@@ -394,7 +394,7 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src,
         if (src.len == 0) {
             bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
         } else {
-            bitmap.merge(RoaringBitmap ((char*)src.ptr));
+            bitmap.merge(RoaringBitmap((char*)src.ptr));
         }
     }
 
@@ -402,7 +402,7 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src,
         if (dst.len == 0) {
             bitmap.merge(*reinterpret_cast<RoaringBitmap*>(dst.ptr));
         } else {
-            bitmap.merge(RoaringBitmap ((char*)dst.ptr));
+            bitmap.merge(RoaringBitmap((char*)dst.ptr));
         }
     }
 
@@ -416,7 +416,7 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src
         if (src.len == 0) {
             bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
         } else {
-            bitmap.merge(RoaringBitmap ((char*)src.ptr));
+            bitmap.merge(RoaringBitmap((char*)src.ptr));
         }
     } else {
         return StringVal::null();
@@ -426,7 +426,7 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src
         if(dst.len == 0){
             bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(dst.ptr));
         } else {
-            bitmap.intersect(RoaringBitmap ((char*)dst.ptr));
+            bitmap.intersect(RoaringBitmap((char*)dst.ptr));
         }
     } else {
         return StringVal::null();
