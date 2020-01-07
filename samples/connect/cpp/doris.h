@@ -17,7 +17,6 @@
 
 #ifndef SAMPLES_CONNECT_CPP_DORIS_H
 #define SAMPLES_CONNECT_CPP_DORIS_H
-#define _MYDB_H
 #include <iostream>
 #include <string>
 #include <mysql/mysql.h>
