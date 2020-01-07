@@ -63,9 +63,10 @@ public class AlterViewStmt extends BaseViewStmt {
         }
 
         viewDefStmt.setNeedToSql(true);
-        viewDefStmt.analyze(analyzer);
+        Analyzer viewAnalyzer = new Analyzer(analyzer);
+        viewDefStmt.analyze(viewAnalyzer);
 
-        createColumnAndViewDefs(analyzer);
+        createColumnAndViewDefs(viewAnalyzer);
     }
 
     @Override

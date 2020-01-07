@@ -38,6 +38,7 @@ public class AlterViewInfo implements Writable {
     private String inlineViewDef;
     @SerializedName(value = "sqlMode")
     private long sqlMode;
+    @SerializedName(value = "newFullSchema")
     private List<Column> newFullSchema;
 
     public AlterViewInfo() {
@@ -85,12 +86,14 @@ public class AlterViewInfo implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        writeJson(out);
-        int size = newFullSchema.size();
-        out.writeInt(size);
-        for (int i = 0 ; i < size; i++) {
-            newFullSchema.get(i).write(out);
-        }
+//        writeJson(out);
+//        int size = newFullSchema.size();
+//        out.writeInt(size);
+//        for (int i = 0 ; i < size; i++) {
+//            newFullSchema.get(i).write(out);
+//        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public void readField(DataInput in) throws IOException {
@@ -102,8 +105,10 @@ public class AlterViewInfo implements Writable {
     }
 
     public static AlterViewInfo read(DataInput in) throws IOException {
-        AlterViewInfo alterViewInfo = readJson(in);
-        alterViewInfo.readField(in);
-        return alterViewInfo;
+//        AlterViewInfo alterViewInfo = readJson(in);
+//        alterViewInfo.readField(in);
+//        return alterViewInfo;
+        String json = Text.readString(in);
+        return  GsonUtils.GSON.fromJson(json, AlterViewInfo.class);
     }
 }

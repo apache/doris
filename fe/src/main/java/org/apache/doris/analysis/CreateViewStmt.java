@@ -65,7 +65,9 @@ public class CreateViewStmt extends BaseViewStmt {
         }
 
         // Analyze view define statement
-        viewDefStmt.analyze(analyzer);
+        Analyzer viewAnalyzer = new Analyzer(analyzer);
+        viewDefStmt.analyze(viewAnalyzer);
+
         createColumnAndViewDefs(analyzer);
     }
 }
