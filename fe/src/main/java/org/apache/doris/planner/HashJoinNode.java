@@ -219,7 +219,7 @@ public class HashJoinNode extends PlanNode {
               "lhs card=" + Long.toString(getChild(0).cardinality) + " rhs card=" + Long.toString(
                 getChild(1).cardinality));
         }
-        LOG.info("stats HashJoin: cardinality=" + Long.toString(cardinality));
+        LOG.debug("stats HashJoin: cardinality {}", cardinality);
     }
 
     @Override
