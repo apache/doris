@@ -190,7 +190,7 @@ std::string SegmentGroup::construct_data_file_path(int32_t segment_id) const {
 }
 
 void SegmentGroup::acquire() {
-    _ref_count++;
+    ++_ref_count;
 }
 
 int64_t SegmentGroup::ref_count() {
@@ -198,7 +198,7 @@ int64_t SegmentGroup::ref_count() {
 }
 
 void SegmentGroup::release() {
-    _ref_count--;
+    --_ref_count;
 }
 
 bool SegmentGroup::is_in_use() {
