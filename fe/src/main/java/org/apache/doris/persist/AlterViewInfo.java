@@ -28,6 +28,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Objects;
 
 public class AlterViewInfo implements Writable {
     @SerializedName(value = "dbId")
@@ -72,6 +73,23 @@ public class AlterViewInfo implements Writable {
 
     public long getSqlMode() {
         return sqlMode;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(dbId, tableId, inlineViewDef, sqlMode, newFullSchema);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (other == this) return true;
+        if (!(other instanceof AlterViewInfo)) {
+            return false;
+        }
+        AlterViewInfo otherInfo = (AlterViewInfo) other;
+        return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId() &&
+                inlineViewDef.equalsIgnoreCase(otherInfo.getInlineViewDef()) && sqlMode == otherInfo.getSqlMode() &&
+                newFullSchema.equals(otherInfo.getNewFullSchema());
     }
 
     @Override
