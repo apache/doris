@@ -768,28 +768,6 @@ inline int  baidu_crc32_qw(char const* src, int crc, unsigned int length) {
     return crc;
 }
 
-inline int check_sse4_2() {
-    int ret;
-    __asm__ __volatile__(
-        "mov $1, %%rax;"
-        "cpuid;"
-        "test $0x000100000, %%ecx;"
-        "jnz 1f;"
-        "xor %%eax, %%eax;"
-        "jmp 2f;"
-
-        "1:"
-        "mov $1, %%eax;"
-
-        "2:"
-        "mov %%eax, %0;"
-        :"=r"(ret)
-        :
-        :"%rax", "%rcx", "rdx", "%rbx", "memory"
-    );
-    return ret;
-}
-
 }  // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_BHP_LIB_H
