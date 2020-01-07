@@ -87,19 +87,12 @@ Status FileUtils::create_dir(const std::string& dir_path) {
 }
 
 Status FileUtils::remove_all(const std::string& file_path) {
-    try {
-        boost::filesystem::path boost_path(file_path);
-        boost::system::error_code ec;
-        boost::filesystem::remove_all(boost_path, ec);
-        if (ec != boost::system::errc::success) {
-            std::stringstream ss;
-            ss << "remove all(" << file_path << ") failed, because: "
-                << ec;
-            return Status::InternalError(ss.str());
-        }
-    } catch (...) {
+    boost::filesystem::path boost_path(file_path);
+    boost::system::error_code ec;
+    boost::filesystem::remove_all(boost_path, ec);
+    if (ec != boost::system::errc::success) {
         std::stringstream ss;
-        ss << "remove all(" << file_path << ") failed, because: exception";
+        ss << "remove all(" << file_path << ") failed, because: " << ec;
         return Status::InternalError(ss.str());
     }
     return Status::OK();
