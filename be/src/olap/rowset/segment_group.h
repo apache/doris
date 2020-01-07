@@ -28,7 +28,6 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/column_data_file.pb.h"
-#include "gutil/atomicops.h"
 #include "olap/field.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
@@ -291,7 +290,7 @@ private:
     PUniqueId _load_id;                // load id for segmentgroup
     int32_t _num_segments;             // number of segments in this segmentgroup
     bool _index_loaded;                // whether the segmentgroup has been read
-    base::subtle::Atomic64 _ref_count; // reference count
+    std::atomic<int64_t> _ref_count;   // reference count
     MemIndex _index;
     bool _is_pending;
     TPartitionId _partition_id;
