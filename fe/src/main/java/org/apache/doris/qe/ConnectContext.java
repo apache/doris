@@ -318,12 +318,12 @@ public class ConnectContext {
     // kill operation with no protect.
     public void kill(boolean killConnection) {
         LOG.warn("kill timeout query, {}, kill connection: {}",
-                 mysqlChannel.getRemoteHostPortString(), killConnection);
+                 getMysqlChannel().getRemoteHostPortString(), killConnection);
 
         if (killConnection) {
             isKilled = true;
             // Close channel to break connection with client
-            mysqlChannel.close();
+            getMysqlChannel().close();
         }
         // Now, cancel running process.
         StmtExecutor executorRef = executor;
@@ -344,7 +344,7 @@ public class ConnectContext {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                         mysqlChannel.getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
+                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
 
                 killFlag = true;
                 killConnection = true;
@@ -352,7 +352,7 @@ public class ConnectContext {
         } else {
             if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
                 LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                         mysqlChannel.getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
 
                 // Only kill
                 killFlag = true;
@@ -376,7 +376,7 @@ public class ConnectContext {
             List<String> row = Lists.newArrayList();
             row.add("" + connectionId);
             row.add(ClusterNamespace.getNameFromFullName(qualifiedUser));
-            row.add(mysqlChannel.getRemoteHostPortString());
+            row.add(getMysqlChannel().getRemoteHostPortString());
             row.add(clusterName);
             row.add(ClusterNamespace.getNameFromFullName(currentDb));
             row.add(command.toString());
