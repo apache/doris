@@ -15,24 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef _MYDB_H
+#ifndef SAMPLES_CONNECT_CPP_DORIS_H
+#define SAMPLES_CONNECT_CPP_DORIS_H
 #define _MYDB_H
-#include<iostream>
-#include<string>
-#include<mysql/mysql.h>
-using namespace std;
+#include <iostream>
+#include <string>
+#include <mysql/mysql.h>
 
-class MyDB
+using std::string;
+
+class Doris
 {
     public:
-        MyDB();
-        ~MyDB();
-        bool initDB(string host,string user,string passwd,string db_name,int port,string sock); // connect to mysql
-        bool exeSQL(string sql);   // excute sql
+        Doris();
+        ~Doris();
+        bool initDoris(const string& host, const string& user, const string& passwd,
+                      const string& db_name, int port, const string& sock); // connect to doris
+        bool exeSQL(const string& sql);   // excute sql
     private:
-        MYSQL *mysql;
-        MYSQL_RES *result;
-        MYSQL_ROW row;
+        MYSQL *doris;     // mysql handle
+        MYSQL_RES *result;     // doris result
+        MYSQL_ROW row;       //doris result as row
 };
 
 #endif

@@ -17,82 +17,84 @@
 
 /*************************************************************************
 > Useage:
-        1. g++ MyDB.cpp -o MyDb `mysql_config --cflags --libs`
-        2. ./MyDB
+        1. g++ my_doris.cpp -o my_doris `mysql_config --cflags --libs`
+        2. ./my_doris
+> Comment: Supported mysql version: 5.6, 5.7, 8.0
 ************************************************************************/
 
-#include<iostream>
-#include<string>
-#include "MyDB.h"
+#include <iostream>
+#include <string>
+#include "doris.h"
 
-using namespace std;
+using std::string;
 
-MyDB::MyDB()
+Doris::Doris()
 {
-    mysql=mysql_init(NULL);   //init connection
-    if(mysql==NULL)
+    doris = mysql_init(NULL);   //init connection
+    if (doris == NULL)
     {
-        cout<<"Error:"<<mysql_error(mysql);
+        std::cout << "Error:" << mysql_error(doris);
     }
 }
 
-MyDB::~MyDB()
+Doris::~Doris()
 {
-    if(mysql!=NULL)  //close connection
+    if (doris != NULL)  //close connection
     {
-        mysql_close(mysql);
+        mysql_close(doris);
     }
 }
 
-bool MyDB::initDB(string host, string user, string passwd, string db_name, int port, string sock)
+bool Doris::initDoris(const string& host, const string& user, const string& passwd,
+                      const string& db_name, int port, const string& sock)
 {
     // create connection
-    mysql = mysql_real_connect(mysql, host.c_str(), user.c_str(), passwd.c_str(),
+    doris = mysql_real_connect(doris, host.c_str(), user.c_str(), passwd.c_str(),
             db_name.c_str(), port, sock.c_str(), 0);
-    if(mysql == NULL)
+    if (doris == NULL)
     {
-        cout << "Error: " << mysql_error(mysql);
+        std::cout << "Error: " << mysql_error(doris);
         return false;
     }
     return true;
 }
 
-bool MyDB::exeSQL(string sql)
+bool Doris::exeSQL(const string& sql)
 {
-    if (mysql_query(mysql,sql.c_str()))
+    if (mysql_query(doris, sql.c_str()))
     {
-        cout << "Query Error: " << mysql_error(mysql);
+        std::cout << "Query Error: " << mysql_error(doris);
         return false;
     }
     else
     {
-        result = mysql_store_result(mysql);
+        result = mysql_store_result(doris);
         if (result)
         {
            int num_fields = mysql_num_fields(result);
            int num_rows = mysql_num_rows(result);
-           for(int i = 0; i < num_rows; i++)
+           for (int i = 0; i < num_rows; i++)
             {
                 row = mysql_fetch_row(result);
-                if(row < 0) break;
+                if (row < 0) break;
 
-                for(int j = 0; j < num_fields; j++)
+                for (int j = 0; j < num_fields; j++)
                 {
-                    cout << row[j] << "\t";
+                    std::cout << row[j] << "\t";
                 }
-                cout << endl;
+                std::cout << std::endl;
             }
 
         }
         else
         {
-            if(mysql_field_count(mysql) == 0)
+            if (mysql_field_count(doris) == 0)
             {
-                int num_rows = mysql_affected_rows(mysql);
+                int num_rows = mysql_affected_rows(doris);
             }
             else
             {
-                cout << "Get result error: " << mysql_error(mysql);
+                std::cout << "Get result error: " << mysql_error(doris);
                 return false;
             }
         }
@@ -110,45 +112,45 @@ int main()
     string database = "cpp_doris_db";   // database to create
 
     // init connection
-    MyDB db;
-    cout << "init db" << endl;
-    db.initDB(host, user, password, "", port, sock_add);
+    Doris db;
+    std::cout << "init db" << std::endl;
+    db.initDoris(host, user, password, "", port, sock_add);
 
     // drop database
     string sql_drop_database_if_not_exist = "drop database if exists " + database;
-    cout << sql_drop_database_if_not_exist << endl;
+    std::cout << sql_drop_database_if_not_exist << std::endl;
     db.exeSQL(sql_drop_database_if_not_exist);
 
     // create database
     string sql_create_database = "create database " + database;
-    cout << sql_create_database << endl;
+    std::cout << sql_create_database << std::endl;
     db.exeSQL(sql_create_database);
 
-    MyDB db_new;
+    Doris db_new;
     // connect to doris
-    db_new.initDB(host, user, password, database, port, sock_add);
-    cout << "init db_new" << endl;
+    db_new.initDoris(host, user, password, database, port, sock_add);
+    std::cout << "init db_new" << std::endl;
 
     // create doris table
     string sql_create_table = "CREATE TABLE cpp_doris_table(siteid INT,citycode SMALLINT,pv BIGINT SUM) "\
                             "AGGREGATE KEY(siteid, citycode) DISTRIBUTED BY HASH(siteid) BUCKETS 10 "\
                             "PROPERTIES(\"replication_num\" = \"1\");";
-    cout << sql_create_table << endl;
+    std::cout << sql_create_table << std::endl;
     db_new.exeSQL(sql_create_table);
 
     // insert to doris table
     string sql_insert = "insert into cpp_doris_table values(1, 2, 3);";
-    cout << sql_insert << endl;
+    std::cout << sql_insert << std::endl;
     db_new.exeSQL(sql_insert);
 
     // select from doris table
     string sql_select = "select * from cpp_doris_table;";
-    cout << sql_select << endl;
+    std::cout << sql_select << std::endl;
     db_new.exeSQL(sql_select);
 
     // drop database, clear env
     string drop_database = "drop database " + database;
-    cout << drop_database << endl;
+    std::cout << drop_database << std::endl;
     db_new.exeSQL(drop_database);
     return 0;
 }
