@@ -289,6 +289,7 @@ public class GsonUtils {
         public JsonElement serialize(org.apache.doris.catalog.Type type, Type typeOfSrc, JsonSerializationContext context) {
             Preconditions.checkArgument(type.isScalarType(), "only support scalar type serialization");
             JsonObject jsonObject = new JsonObject();
+            jsonObject.addProperty("clazz", type.getClass().getSimpleName());
             ScalarType scalarType = (ScalarType) type;
             jsonObject.add("primitiveType", context.serialize(scalarType.getPrimitiveType().name()));
             jsonObject.add("scale", context.serialize(scalarType.getScalarScale()));
@@ -300,6 +301,14 @@ public class GsonUtils {
         @Override
         public org.apache.doris.catalog.Type deserialize(JsonElement json, Type typeOfT, JsonDeserializationContext context) {
             JsonObject jsonObject = json.getAsJsonObject();
+            String clazz = jsonObject.get("clazz").getAsString();
+            switch (clazz) {
+                case "ScalarType":
+                    break;
+                default:
+                    Preconditions.checkState(false, "unknown type class: " + clazz);
+                    break;
+            }
             PrimitiveType primitiveType = PrimitiveType.valueOf(context.deserialize(jsonObject.get("primitiveType"), String.class));
             int scale = context.deserialize(jsonObject.get("scale"), Integer.class);
             int precision = context.deserialize(jsonObject.get("precision"), Integer.class);
