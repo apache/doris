@@ -388,15 +388,15 @@ BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const
     return result;
 }
 
-    StringVal BitmapFunctions::bitmap_or(FunctionContext *ctx, const StringVal &src, const StringVal &dst) {
-        RoaringBitmap bitmap;
-        if (!src.is_null) {
-            if (src.len == 0) {
-                bitmap.merge(*reinterpret_cast<RoaringBitmap *>(src.ptr));
-            } else {
-                bitmap.merge(RoaringBitmap((char *) src.ptr));
-            }
+StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
+    RoaringBitmap bitmap;
+    if(!src.is_null){
+        if(src.len == 0 ){
+            bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
+        } else{
+            bitmap.merge(RoaringBitmap ((char*)src.ptr));
         }
+    }
 
     if(!dst.is_null){
         if(dst.len == 0){
@@ -412,7 +412,7 @@ BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const
 }
 StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
     RoaringBitmap bitmap;
-    if(!src.is_null){
+    if (!src.is_null) {
         if(src.len == 0 ){
             bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
         } else{
