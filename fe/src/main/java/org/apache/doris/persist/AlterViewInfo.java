@@ -74,41 +74,14 @@ public class AlterViewInfo implements Writable {
         return sqlMode;
     }
 
-    private void writeJson(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
-    }
-
-    private static AlterViewInfo readJson(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, AlterViewInfo.class);
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
-//        writeJson(out);
-//        int size = newFullSchema.size();
-//        out.writeInt(size);
-//        for (int i = 0 ; i < size; i++) {
-//            newFullSchema.get(i).write(out);
-//        }
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    public void readField(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0 ; i < size; i++) {
-            Column column = Column.read(in);
-            newFullSchema.add(column);
-        }
     }
 
     public static AlterViewInfo read(DataInput in) throws IOException {
-//        AlterViewInfo alterViewInfo = readJson(in);
-//        alterViewInfo.readField(in);
-//        return alterViewInfo;
         String json = Text.readString(in);
-        return  GsonUtils.GSON.fromJson(json, AlterViewInfo.class);
+        return GsonUtils.GSON.fromJson(json, AlterViewInfo.class);
     }
 }

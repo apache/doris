@@ -307,7 +307,7 @@ public class GsonUtils {
             JsonObject jsonObject = json.getAsJsonObject();
             String clazz = jsonObject.get("clazz").getAsString();
             switch (clazz) {
-                case "Type":
+                case "ScalarType":
                     break;
                 default:
                     Preconditions.checkState(false, "unknown type class: " + clazz);
