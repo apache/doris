@@ -411,25 +411,22 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src,
     return result;
 }
 StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
-    RoaringBitmap bitmap;
-    if (!src.is_null) {
-        if (src.len == 0) {
-            bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
-        } else {
-            bitmap.merge(RoaringBitmap((char*)src.ptr));
-        }
-    } else {
+
+    if (src.is_null || dst.is_null) {
         return StringVal::null();
     }
 
-    if (!dst.is_null) {
-        if(dst.len == 0){
-            bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(dst.ptr));
-        } else {
-            bitmap.intersect(RoaringBitmap((char*)dst.ptr));
-        }
+    RoaringBitmap bitmap;
+    if (src.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
     } else {
-        return StringVal::null();
+        bitmap.merge(RoaringBitmap((char*)src.ptr));
+    }
+
+    if(dst.len == 0){
+        bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(dst.ptr));
+    } else {
+        bitmap.intersect(RoaringBitmap((char*)dst.ptr));
     }
 
     StringVal result(ctx,bitmap.size());
