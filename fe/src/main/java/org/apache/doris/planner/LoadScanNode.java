@@ -25,7 +25,6 @@ import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -83,14 +82,13 @@ public abstract class LoadScanNode extends ScanNode {
                 isCompatible = false;
             } else {
                 FunctionCallExpr fn = (FunctionCallExpr) expr;
-                String fnName = fn.getFnName().getFunction();
-                if (!FunctionSet.BITMAP_LOAD_FNS.contains(fnName)) {
+                if (fn.getFn().getReturnType() != Type.BITMAP) {
                     isCompatible = false;
                 }
             }
         }
         if (!isCompatible) {
-            throw new AnalysisException("bitmap column must use to_bitmap, bitmap_hash or empty_bitmap function");
+            throw new AnalysisException("bitmap column require the function return type is BITMAP");
         }
     }
 

@@ -467,10 +467,8 @@ public class FunctionCallExpr extends Expr {
                 }
             } else if (getChild(0) instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) getChild(0);
-                String fnName = functionCallExpr.getFnName().getFunction();
-                if (!FunctionSet.BITMAP_LOAD_FNS.contains(fnName)) {
-                    throw new AnalysisException("BITMAP_UNION function only support " +
-                            "to_bitmap, bitmap_hash or bitmap_union function as it's child");
+                if (functionCallExpr.getFn().getReturnType() != Type.BITMAP) {
+                    throw new AnalysisException("BITMAP_UNION function require child function return type is BITMAP");
                 }
             } else {
                 throw new AnalysisException("BITMAP_UNION only support BITMAP_UNION(column) or BITMAP_UNION(TO_BITMAP(column))");
