@@ -35,7 +35,11 @@ public:
     // should be:
     //  while (1) CpuWait();
     static ALWAYS_INLINE void cpu_wait() {
+#if (defined(__i386) || defined(__x86_64__))
         asm volatile("pause\n": : :"memory");
+#elif defined(__aarch64__)
+        asm volatile("yield\n" ::: "memory");
+#endif
     }
 
     /// Provides "barrier" semantics (see below) without a memory access.

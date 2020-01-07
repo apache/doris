@@ -34,7 +34,7 @@
 #include "exec/local_file_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/decompressor.h"
-#include "util/simdutf8check.h"
+#include "util/utf8_check.h"
 
 namespace doris {
 
@@ -400,7 +400,7 @@ bool BrokerScanner::convert_one_row(
 // Convert one row to this tuple
 bool BrokerScanner::line_to_src_tuple(const Slice& line) {
 
-    if (!validate_utf8_fast(line.data, line.size)) {
+    if (!validate_utf8(line.data, line.size)) {
         std::stringstream error_msg;
         error_msg << "data is not encoded by UTF-8";
         _state->append_error_msg_to_file(std::string(line.data, line.size),
