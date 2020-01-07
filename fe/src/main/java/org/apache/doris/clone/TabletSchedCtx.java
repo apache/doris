@@ -486,7 +486,7 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         }
         
         if (candidates.isEmpty()) {
-            throw new SchedException(Status.SCHEDULE_FAILED, "unable to find source replica");
+            throw new SchedException(Status.UNRECOVERABLE, "unable to find source replica");
         }
         
         // choose a replica which slot is available from candidates.
