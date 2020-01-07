@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
