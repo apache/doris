@@ -63,6 +63,7 @@
             "index_disk_size": 0,
             "empty": true,
             "creation_time": 1553765664,
+            "num_segments": 0,
             "alpha_rowset_extra_meta_pb": {
                 "segment_groups": [
                     {
@@ -96,6 +97,7 @@
                 "lo": -6717994719194512122
             },
             "creation_time": 1553765670,
+            "num_segments": 1,
             "alpha_rowset_extra_meta_pb": {
                 "segment_groups": [
                     {
@@ -148,6 +150,7 @@
                 "lo": -6717994719194512122
             },
             "creation_time": 1553765670,
+            "num_segments": 1,
             "alpha_rowset_extra_meta_pb": {
                 "segment_groups": [
                     {

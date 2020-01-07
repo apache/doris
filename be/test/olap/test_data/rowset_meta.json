@@ -17,6 +17,7 @@
         "hi": 10,
         "lo": 10
     },
+    "num_segments": 1,
     "alpha_rowset_extra_meta_pb": {
         "segment_groups": [
             {
