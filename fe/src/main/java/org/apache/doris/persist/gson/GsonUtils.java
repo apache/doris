@@ -292,7 +292,7 @@ public class GsonUtils {
             jsonObject.addProperty("clazz", type.getClass().getSimpleName());
             ScalarType scalarType = (ScalarType) type;
             if (scalarType.getPrimitiveType() == PrimitiveType.DECIMALV2) {
-                jsonObject.add("primitiveType", context.serialize(PrimitiveType.DECIMALV2.name()));
+                jsonObject.add("primitiveType", context.serialize(PrimitiveType.DECIMAL.name()));
             } else {
                 jsonObject.add("primitiveType", context.serialize(scalarType.getPrimitiveType().name()));
             }
