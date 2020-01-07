@@ -413,7 +413,7 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src,
 StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
     RoaringBitmap bitmap;
     if (!src.is_null) {
-        if(src.len == 0 ){
+        if (src.len == 0) {
             bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
         } else{
             bitmap.merge(RoaringBitmap ((char*)src.ptr));
