@@ -28,7 +28,6 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gen_cpp/column_data_file.pb.h"
-#include "olap/atomic.h"
 #include "olap/field.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"

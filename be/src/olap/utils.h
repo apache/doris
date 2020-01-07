@@ -37,7 +37,9 @@
 #include <boost/filesystem.hpp>
 
 #include "common/logging.h"
+#if defined(__i386) || defined(__x86_64__)
 #include "olap/bhp_lib.h"
+#endif
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 

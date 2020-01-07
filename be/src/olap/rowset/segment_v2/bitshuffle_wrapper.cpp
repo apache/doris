@@ -54,6 +54,7 @@ decltype(&bshuf_decompress_lz4) g_bshuf_decompress_lz4;
 // the cost of a 'std::once' call.
 __attribute__((constructor))
 void SelectBitshuffleFunctions() {
+#if (defined(__i386) || defined(__x86_64__))
     if (CPU().has_avx2()) {
         g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound_avx2;
         g_bshuf_compress_lz4 = bshuf_compress_lz4_avx2;
@@ -63,6 +64,11 @@ void SelectBitshuffleFunctions() {
         g_bshuf_compress_lz4 = bshuf_compress_lz4;
         g_bshuf_decompress_lz4 = bshuf_decompress_lz4;
     }
+#else
+    g_bshuf_compress_lz4_bound = bshuf_compress_lz4_bound;
+    g_bshuf_compress_lz4 = bshuf_compress_lz4;
+    g_bshuf_decompress_lz4 = bshuf_decompress_lz4;
+#endif
 }
 
 int64_t compress_lz4(void* in, void* out, size_t size,
