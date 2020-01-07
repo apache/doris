@@ -21,7 +21,6 @@
 #include <sstream>
 #include <boost/functional/hash.hpp>
 #include <thrift/protocol/TDebugProtocol.h>
-#include <x86intrin.h>
 #include <gperftools/profiler.h>
 
 #include "codegen/codegen_anyval.h"
