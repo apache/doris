@@ -84,7 +84,6 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 | 实例名称 | 端口名称 | 默认端口 | 通讯方向 | 说明 | 
 |---|---|---|---| ---|
 | BE | be_port | 9060 | FE --> BE | BE 上 thrift server 的端口，用于接收来自 FE 的请求 |
-| BE | be\_rpc_port | 9070 | BE <--> BE | BE 之间 rpc 使用的端口 |
 | BE | webserver_port | 8040 | BE <--> BE | BE 上的 http server 的端口 |
 | BE | heartbeat\_service_port | 9050 | FE --> BE | BE 上心跳服务端口（thrift），用于接收来自 FE 的心跳 |
 | BE | brpc\_port* | 8060 | FE<-->BE, BE <--> BE | BE 上的 brpc 端口，用于 BE 之间通讯 |
@@ -97,7 +96,6 @@ Doris 各个实例直接通过网络进行通讯。以下表格展示了所有�
 > 注：  
 > 1. 当部署多个 FE 实例时，要保证 FE 的 http\_port 配置相同。  
 > 2. 部署前请确保各个端口在应有方向上的访问权限。
-> 3. brpc\_port 在 0.8.2 版本后替代了 be\_rpc_port
 
 #### IP 绑定
 
