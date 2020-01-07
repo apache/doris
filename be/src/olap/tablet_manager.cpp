@@ -679,10 +679,10 @@ void TabletManager::get_tablet_stat(TTabletStatResult& result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir) {
+    int64_t now = UnixMillis();
     ReadLock tablet_map_rdlock(&_tablet_map_lock);
     uint32_t highest_score = 0;
     TabletSharedPtr best_tablet;
-    int64_t now = UnixMillis();
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (TabletSharedPtr& table_ptr : table_ins.second.table_arr) {
             AlterTabletTaskSharedPtr cur_alter_task = table_ptr->alter_task();
