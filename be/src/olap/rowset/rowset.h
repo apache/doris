@@ -154,12 +154,12 @@ public:
     // including: open files, indexes and so on
     // NOTICE: can not call this function in multithreads
     void close() {
-        MutexLock _close_lock(&_lock);
-        if (_refs_by_reader == 0) {
+        uint64_t current_refs = _refs_by_reader;
+        if (current_refs == 0) {
             do_close();
         }
         RowsetState old_state = _rowset_state_machine.rowset_state();
-        auto st = _rowset_state_machine.on_close(_refs_by_reader);
+        auto st = _rowset_state_machine.on_close(current_refs);
         if (st != OLAP_SUCCESS) {
             LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
         } else {

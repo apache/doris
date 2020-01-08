@@ -42,15 +42,27 @@ OLAPStatus Rowset::load(bool use_cache) {
     if (_rowset_state_machine.rowset_state() != ROWSET_UNLOADED) {
         return OLAP_SUCCESS;
     }
-    RETURN_NOT_OK(do_load(use_cache));
-    LOG(INFO) << "rowset is loaded. rowset version:" << start_version() << "-" << end_version()
+    std::string load_log = "";
+    {
+        MutexLock _load_lock(&_lock);
+        if (_rowset_state_machine.rowset_state() != ROWSET_UNLOADED) {
+            return OLAP_SUCCESS;
+        }
+        RETURN_NOT_OK(do_load(use_cache));
+        std::stringstream ss;
+        ss << "rowset is loaded. rowset version:" << start_version() << "-" << end_version()
             << ", state from:" << _rowset_state_machine.rowset_state() << " to ROWSET_LOADED. tabletid:"
             << _rowset_meta->tablet_id();
-    return _rowset_state_machine.on_load();
+        load_log = ss.str();
+        RETURN_NOT_OK(_rowset_state_machine.on_load());
+    }
+    if (load_log != "") {
+        LOG(INFO) << load_log;
+    }
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus Rowset::create_reader(std::shared_ptr<RowsetReader>* result) {
-    MutexLock _load_lock(&_lock);
     RETURN_NOT_OK(load());
     return do_create_reader(result);
 }
