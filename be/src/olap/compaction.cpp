@@ -224,13 +224,8 @@ OLAPStatus Compaction::check_correctness(const Merger::Statistics& stats) {
                 << ", output_row_num=" << _output_rowset->num_rows();
 
             return OLAP_ERR_CHECK_LINES_ERROR;
-        } else {
-            return OLAP_SUCCESS;
         }
-
-        return OLAP_ERR_CHECK_LINES_ERROR;
     }
-
     return OLAP_SUCCESS;
 }
 
