@@ -282,9 +282,23 @@ public class GsonUtils {
         }
     }
 
-    public static class ScalarTypeAdapter
+    /**
+     * The json adapter for Doris Type.
+     * Current support:
+     * 1. ScalarType
+     */
+    public static class TypeAdapter
             implements JsonSerializer<org.apache.doris.catalog.Type>, JsonDeserializer<org.apache.doris.catalog.Type> {
-
+        /*
+         * serialize Type like:
+         * {
+         * "clazz": "ScalarType",
+         * "primitiveType": "DECIMAL",
+         * "scale" : 8,
+         * "precision" : 4,
+         * "length" : -1
+         * }
+         */
         @Override
         public JsonElement serialize(org.apache.doris.catalog.Type type, Type typeOfSrc, JsonSerializationContext context) {
             Preconditions.checkArgument(type.isScalarType(), "only support scalar type serialization");
