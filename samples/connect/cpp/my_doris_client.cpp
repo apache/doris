@@ -17,83 +17,68 @@
 
 /*************************************************************************
 > Useage:
-        1. g++ my_doris.cpp -o my_doris `mysql_config --cflags --libs`
-        2. ./my_doris
+        1. g++ my_doris_client.cpp -o my_doris_client `mysql_config --cflags --libs`
+        2. ./my_doris_client
 > Comment: Supported mysql version: 5.6, 5.7, 8.0
 ************************************************************************/
 
 #include <iostream>
 #include <string>
-#include "doris.h"
+#include "doris_client.h"
 
 using std::string;
 
-Doris::Doris()
-{
-    doris = mysql_init(NULL);   //init connection
-    if (doris == NULL)
-    {
+Doris::Doris() {
+    //init connection
+    doris = mysql_init(NULL);
+    if (doris == NULL) {
         std::cout << "Error:" << mysql_error(doris);
     }
 }
 
-Doris::~Doris()
-{
-    if (doris != NULL)  //close connection
-    {
+Doris::~Doris() {
+    //close connection
+    if (doris != NULL) {
         mysql_close(doris);
     }
 }
 
 bool Doris::initDoris(const string& host, const string& user, const string& passwd,
-                      const string& db_name, int port, const string& sock)
-{
+                      const string& db_name, int port, const string& sock) {
     // create connection
     doris = mysql_real_connect(doris, host.c_str(), user.c_str(), passwd.c_str(),
             db_name.c_str(), port, sock.c_str(), 0);
-    if (doris == NULL)
-    {
+    if (doris == NULL) {
         std::cout << "Error: " << mysql_error(doris);
         return false;
     }
     return true;
 }
 
-bool Doris::exeSQL(const string& sql)
-{
-    if (mysql_query(doris, sql.c_str()))
-    {
+bool Doris::exeSQL(const string& sql) {
+    if (mysql_query(doris, sql.c_str())) {
         std::cout << "Query Error: " << mysql_error(doris);
         return false;
-    }
-    else
-    {
+    } else {
         result = mysql_store_result(doris);
-        if (result)
-        {
+        if (result) {
            int num_fields = mysql_num_fields(result);
            int num_rows = mysql_num_rows(result);
-           for (int i = 0; i < num_rows; i++)
-            {
+           for (int i = 0; i < num_rows; i++) {
                 row = mysql_fetch_row(result);
-                if (row < 0) break;
-
-                for (int j = 0; j < num_fields; j++)
-                {
+                if (row < 0) {
+                    break;
+                }
+                for (int j = 0; j < num_fields; j++) {
                     std::cout << row[j] << "\t";
                 }
                 std::cout << std::endl;
             }
-
-        }
-        else
-        {
-            if (mysql_field_count(doris) == 0)
-            {
+        } else {
+            if (mysql_field_count(doris) == 0) {
                 int num_rows = mysql_affected_rows(doris);
-            }
-            else
-            {
+                std::cout << "Reslut rows: " << num_rows << std::endl;
+            } else {
                 std::cout << "Get result error: " << mysql_error(doris);
                 return false;
             }
@@ -102,14 +87,19 @@ bool Doris::exeSQL(const string& sql)
     return true;
 }
 
-int main()
-{
-    string host = "127.0.0.1";    // Doris connection host
-    int port = 8080;             // Doris connection port
-    string user = "username";        // Doris connection username
-    string password = "password";    // Doris connection password
-    string sock_add = "/var/lib/mysql/mysql.sock"; // Local mysql sock address
-    string database = "cpp_doris_db";   // database to create
+int main() {
+    // Doris connection host
+    string host = "127.0.0.1";
+    // Doris connection port
+    int port = 8080;
+    // Doris connection username
+    string user = "username";
+    // Doris connection password
+    string password = "password";
+    // Local mysql sock address
+    string sock_add = "/var/lib/mysql/mysql.sock";
+    // database to create
+    string database = "cpp_doris_db";
 
     // init connection
     Doris db;
@@ -138,7 +128,7 @@ int main()
     std::cout << sql_create_table << std::endl;
     db_new.exeSQL(sql_create_table);
 
-    // insert to doris table
+    // insert into doris table
     string sql_insert = "insert into cpp_doris_table values(1, 2, 3);";
     std::cout << sql_insert << std::endl;
     db_new.exeSQL(sql_insert);
