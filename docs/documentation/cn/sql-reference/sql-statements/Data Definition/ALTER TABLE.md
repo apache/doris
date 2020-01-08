@@ -146,7 +146,7 @@ under the License.
             1) index 中的所有列都要写出来
             2) value 列在 key 列之后
             
-    6. 修改table的属性，目前支持修改bloom filter列和colocate_with 属性
+    6. 修改table的属性，目前支持修改bloom filter列, colocate_with 属性和dynamic_partition属性
         语法：
             PROPERTIES ("key"="value")
         注意：
@@ -285,6 +285,13 @@ under the License.
     13. 将表的分桶方式由 Random Distribution 改为 Hash Distribution
 
         ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
+    
+    14. 修改表的动态分区属性(支持未添加动态分区属性的表添加动态分区属性)
+        ALTER TABLE example_db.my_table set ("dynamic_partition_enable" = "false");
+        
+        如果需要在未添加动态分区属性的表中添加动态分区属性，则需要指定所有的动态分区属性
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+        
         
     [rename]
     1. 将名为 table1 的表修改为 table2
