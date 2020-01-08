@@ -1272,6 +1272,10 @@ public class SelectStmt extends QueryStmt {
     @Override
     public void substituteSelectList(Analyzer analyzer, List<String> newColLabels)
             throws AnalysisException, UserException {
+        // analyze with clause
+        if (hasWithClause()) {
+            withClause_.analyze(analyzer);
+        }
         // start out with table refs to establish aliases
         TableRef leftTblRef = null;  // the one to the left of tblRef
         for (int i = 0; i < fromClause_.size(); ++i) {

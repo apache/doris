@@ -64,6 +64,10 @@ public class CreateViewStmt extends BaseViewStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
+        if (cols != null) {
+            cloneStmt = viewDefStmt.clone();
+        }
+
         // Analyze view define statement
         Analyzer viewAnalyzer = new Analyzer(analyzer);
         viewDefStmt.analyze(viewAnalyzer);

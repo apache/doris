@@ -175,14 +175,8 @@ public class AlterViewStmtTest {
 
         View newView = (View) db.getTable("testView");
 
-        Assert.assertEquals("SELECT `testView`.`c1` AS `h1`, `testView`.`c2` AS `h2` FROM " +
-                                     "(" +
-                                         "WITH testTbl_cte(w1, w2) AS " +
-                                         "(" +
-                                             "SELECT `col1` AS `col1`, `col2` AS `col2` FROM `testCluster:testDb`.`testTbl`" +
-                                         ") " +
-                                         "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `testTbl_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1` ASC" +
-                                     ") testView",
+        Assert.assertEquals("WITH testTbl_cte(w1, w2) AS (SELECT `col1` AS `col1`, `col2` AS `col2` FROM `testCluster:testDb`.`testTbl`)"+
+                                     " SELECT `w1` AS `h1`, sum(`w2`) AS `h2` FROM `testTbl_cte` WHERE `w1` > 10 GROUP BY `w1` ORDER BY `w1`",
                 newView.getInlineViewDef());
     }
 }

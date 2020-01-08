@@ -32,6 +32,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class BaseViewStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(BaseViewStmt.class);
@@ -45,6 +46,8 @@ public class BaseViewStmt extends DdlStmt {
 
     protected String originalViewDef;
     protected String inlineViewDef;
+
+    protected QueryStmt cloneStmt;
 
     public BaseViewStmt(TableName tableName, List<ColWithComment> cols, QueryStmt queryStmt) {
         Preconditions.checkNotNull(queryStmt);
@@ -113,21 +116,26 @@ public class BaseViewStmt extends DdlStmt {
             return;
         }
 
-        StringBuilder sb = new StringBuilder();
-        sb.append("SELECT ");
-        for (int i = 0; i < finalCols.size(); ++i) {
-            if (i != 0) {
-                sb.append(", ");
-            }
-            String colRef = viewDefStmt.getColLabels().get(i);
-            if (!colRef.startsWith("`")) {
-                colRef = "`" + colRef + "`";
-            }
-            String colAlias = finalCols.get(i).getName();
-            sb.append(String.format("`%s`.%s AS `%s`", tableName.getTbl(), colRef, colAlias));
-        }
-        sb.append(String.format(" FROM (%s) %s", originalViewDef, tableName.getTbl()));
-        inlineViewDef = sb.toString();
+        Analyzer tmpAnalyzer = new Analyzer(analyzer);
+        List<String> colNames = cols.stream().map(c -> c.getColName()).collect(Collectors.toList());
+        cloneStmt.substituteSelectList(tmpAnalyzer, colNames);
+        inlineViewDef = cloneStmt.toSql();
+
+//        StringBuilder sb = new StringBuilder();
+//        sb.append("SELECT ");
+//        for (int i = 0; i < finalCols.size(); ++i) {
+//            if (i != 0) {
+//                sb.append(", ");
+//            }
+//            String colRef = viewDefStmt.getColLabels().get(i);
+//            if (!colRef.startsWith("`")) {
+//                colRef = "`" + colRef + "`";
+//            }
+//            String colAlias = finalCols.get(i).getName();
+//            sb.append(String.format("`%s`.%s AS `%s`", tableName.getTbl(), colRef, colAlias));
+//        }
+//        sb.append(String.format(" FROM (%s) %s", originalViewDef, tableName.getTbl()));
+//        inlineViewDef = sb.toString();
     }
 
     @Override

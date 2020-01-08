@@ -62,11 +62,15 @@ public class AlterViewStmt extends BaseViewStmt {
                     tableName.getTbl());
         }
 
+        if (cols != null) {
+            cloneStmt = viewDefStmt.clone();
+        }
+
         viewDefStmt.setNeedToSql(true);
         Analyzer viewAnalyzer = new Analyzer(analyzer);
         viewDefStmt.analyze(viewAnalyzer);
 
-        createColumnAndViewDefs(viewAnalyzer);
+        createColumnAndViewDefs(analyzer);
     }
 
     @Override
