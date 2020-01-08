@@ -17,7 +17,9 @@
 
 package org.apache.doris.persist;
 
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -25,6 +27,8 @@ import org.apache.doris.persist.gson.GsonUtils;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
+import java.util.Objects;
 
 public class AlterViewInfo implements Writable {
     @SerializedName(value = "dbId")
@@ -35,15 +39,19 @@ public class AlterViewInfo implements Writable {
     private String inlineViewDef;
     @SerializedName(value = "sqlMode")
     private long sqlMode;
+    @SerializedName(value = "newFullSchema")
+    private List<Column> newFullSchema;
 
     public AlterViewInfo() {
         // for persist
+        newFullSchema = Lists.newArrayList();
     }
 
-    public AlterViewInfo(long dbId, long tableId, String inlineViewDef, long sqlMode) {
+    public AlterViewInfo(long dbId, long tableId, String inlineViewDef, List<Column> newFullSchema, long sqlMode) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.inlineViewDef = inlineViewDef;
+        this.newFullSchema = newFullSchema;
         this.sqlMode = sqlMode;
     }
 
@@ -59,8 +67,29 @@ public class AlterViewInfo implements Writable {
         return inlineViewDef;
     }
 
+    public List<Column> getNewFullSchema() {
+        return newFullSchema;
+    }
+
     public long getSqlMode() {
         return sqlMode;
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(dbId, tableId, inlineViewDef, sqlMode, newFullSchema);
+    }
+
+    @Override
+    public boolean equals(Object other) {
+        if (other == this) return true;
+        if (!(other instanceof AlterViewInfo)) {
+            return false;
+        }
+        AlterViewInfo otherInfo = (AlterViewInfo) other;
+        return dbId == otherInfo.getDbId() && tableId == otherInfo.getTableId() &&
+                inlineViewDef.equalsIgnoreCase(otherInfo.getInlineViewDef()) && sqlMode == otherInfo.getSqlMode() &&
+                newFullSchema.equals(otherInfo.getNewFullSchema());
     }
 
     @Override
