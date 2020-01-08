@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -62,9 +63,11 @@ public class ScalarType extends Type {
     public static final int MAX_PRECISION = 38;
     public static final int MAX_SCALE = MAX_PRECISION;
 
+    @SerializedName(value = "type")
     private final PrimitiveType type;
 
     // Only used for type CHAR.
+    @SerializedName(value = "len")
     private int len = -1;
     private boolean isAssignedStrLenInColDefinition = false;
 
@@ -73,7 +76,9 @@ public class ScalarType extends Type {
     // It is invalid to have one by -1 and not the other.
     // TODO: we could use that to store DECIMAL(8,*), indicating a decimal
     // with 8 digits of precision and any valid ([0-8]) scale.
+    @SerializedName(value = "precision")
     private int precision;
+    @SerializedName(value = "scale")
     private int scale;
 
     protected ScalarType(PrimitiveType type) {
