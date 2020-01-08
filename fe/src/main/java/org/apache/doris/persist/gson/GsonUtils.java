@@ -17,6 +17,8 @@
 
 package org.apache.doris.persist.gson;
 
+import org.apache.doris.catalog.ScalarType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
@@ -271,4 +273,10 @@ public class GsonUtils {
             return map;
         }
     }
+
+    private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory = RuntimeTypeAdapterFactory
+            // the "clazz" here is the name of "clazz" field in Type class.
+            .of(org.apache.doris.catalog.Type.class, "clazz")
+            // TODO: register other sub type after Doris support more types.
+            .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName());
 }
