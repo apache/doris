@@ -50,7 +50,6 @@ public class GsonDerivedClassSerializationTest {
 
         public ParentClass(int flag, String clazz) {
             this.flag = flag;
-            // this.clazz = clazz;
         }
 
         @Override

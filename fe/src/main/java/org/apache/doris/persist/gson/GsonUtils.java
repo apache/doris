@@ -68,7 +68,6 @@ public class GsonUtils {
 
     // runtime adapter for class "Type"
     private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory = RuntimeTypeAdapterFactory
-            // the "clazz" here is the name of "clazz" field in Type class.
             .of(org.apache.doris.catalog.Type.class, "clazz")
             // TODO: register other sub type after Doris support more types.
             .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName());
