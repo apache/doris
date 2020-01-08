@@ -25,22 +25,22 @@
 
 using std::string;
 
-class Doris {
+class DorisClient {
 public:
-    Doris();
-    ~Doris();
+    DorisClient();
+    ~DorisClient();
     // connect to doris
-    bool initDoris(const string& host, const string& user, const string& passwd,
+    bool init(const string& host, const string& user, const string& passwd,
                   const string& db_name, int port, const string& sock);
     // excute sql
-    bool exeSQL(const string& sql);
+    bool exec(const string& sql);
 private:
     // mysql handle
-    MYSQL* doris;
+    MYSQL* _client;
     // doris result
-    MYSQL_RES* result;
+    MYSQL_RES* _result;
     //doris result as row
-    MYSQL_ROW row;
+    MYSQL_ROW _row;
 };
 
 #endif
