@@ -17,7 +17,6 @@
 
 package org.apache.doris.persist.gson;
 
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 
 import com.google.common.base.Preconditions;
