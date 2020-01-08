@@ -108,6 +108,9 @@ COUNT (DISTINCT expr) same
 filter_column The cardinality of the intersection of multiple bitmaps of the filter.
 bitmap_column_to_count is a column of type bitmap, filter_column is a column of varying dimensions, and filter_values ​​is a list of dimension values
 
+`BITMAP_OR(expr,expr)`: Calculate the  or of two Bitmaps Column. The return value is the serialized Bitmap value.
+
+`BITMAP_AND(expr,expr)`:Calculate the and of two Bitmaps Column. The return value is the serialized Bitmap value.
 
 
 note:
