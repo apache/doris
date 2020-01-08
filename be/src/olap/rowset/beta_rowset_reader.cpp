@@ -32,6 +32,7 @@ BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
+    RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
         // schema change/compaction should use owned_stats

@@ -25,6 +25,7 @@
 #include "gutil/macros.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/utils.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -58,12 +59,12 @@ public:
 
     OLAPStatus on_load() {
         switch (_rowset_state) {
-        case ROWSET_UNLOADED:
-            _rowset_state = ROWSET_LOADED;
-            break;
-        
-        default:
-            return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+            case ROWSET_UNLOADED:
+                _rowset_state = ROWSET_LOADED;
+                break;
+
+            default:
+                return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
         }
         return OLAP_SUCCESS;
     }
@@ -154,20 +155,31 @@ public:
     // including: open files, indexes and so on
     // NOTICE: can not call this function in multithreads
     void close() {
-        uint64_t current_refs = _refs_by_reader;
-        if (current_refs == 0) {
-            do_close();
-        }
         RowsetState old_state = _rowset_state_machine.rowset_state();
-        auto st = _rowset_state_machine.on_close(current_refs);
+        if (old_state == ROWSET_UNLOADED) {
+            return;
+        }
+        OLAPStatus st = OLAP_SUCCESS;
+        {
+            std::lock_guard<SpinLock> l(_lock);
+            old_state = _rowset_state_machine.rowset_state();
+            if (old_state == ROWSET_UNLOADED) {
+                return;
+            }
+            uint64_t current_refs = _refs_by_reader;
+            st = _rowset_state_machine.on_close(current_refs);
+            if (current_refs == 0) {
+                do_close();
+            }
+        }
         if (st != OLAP_SUCCESS) {
             LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
-        } else {
-            LOG(INFO) << "rowset is close. rowset state from:"
-                      << old_state << " to " << _rowset_state_machine.rowset_state()
-                      << ", version:" << start_version() << "-" << end_version()
-                      << ", tabletid:" << _rowset_meta->tablet_id();
+            return;
         }
+        LOG(INFO) << "rowset is close. rowset state from:" << old_state
+                  << " to " << _rowset_state_machine.rowset_state()
+                  << ", version:" << start_version() << "-" << end_version()
+                  << ", tabletid:" << _rowset_meta->tablet_id();
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
@@ -211,9 +223,6 @@ public:
         // if the refs by reader is 0 and the rowset is closed, should release the resouce
         uint64_t current_refs = --_refs_by_reader;
         if (current_refs == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
-            // here only one thread will call do_close 
-            // because there is only one thread will get _refs_by_reader == 0
-            do_close();
             auto st = _rowset_state_machine.on_close(current_refs);
             if (st != OLAP_SUCCESS) {
                 LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
@@ -223,6 +232,9 @@ public:
                       << ", version:" << start_version() << "-" << end_version()
                       << ", tabletid:" << _rowset_meta->tablet_id();
             }
+            // here only one thread will call do_close 
+            // because there is only one thread will get _refs_by_reader == 0
+            do_close();
         }
     }
 
@@ -256,7 +268,8 @@ protected:
     bool _is_pending;    // rowset is pending iff it's not in visible state
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
-    Mutex _lock;
+    SpinLock _lock;
+    Mutex _load_lock;
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset
     std::atomic<uint64_t> _refs_by_reader;

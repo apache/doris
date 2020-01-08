@@ -38,6 +38,7 @@ AlphaRowsetReader::~AlphaRowsetReader() {
 }
 
 OLAPStatus AlphaRowsetReader::init(RowsetReaderContext* read_context) {
+    RETURN_NOT_OK(_rowset->load());
     if (read_context == nullptr) {
         return OLAP_ERR_INIT_FAILED;
     }
