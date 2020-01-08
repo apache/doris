@@ -20,13 +20,13 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.catalog.PrimitiveType;
 
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 
-import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -38,9 +38,13 @@ import java.io.IOException;
 public class ColumnStats implements Writable {
     private final static Logger LOG = LogManager.getLogger(ColumnStats.class);
 
+    @SerializedName(value = "avgSerializedSize")
     private float avgSerializedSize;  // in bytes; includes serialization overhead
+    @SerializedName(value = "maxSize")
     private long  maxSize;  // in bytes
+    @SerializedName(value = "numDistinctValues")
     private long  numDistinctValues;
+    @SerializedName(value = "numNulls")
     private long  numNulls;
 
     /**

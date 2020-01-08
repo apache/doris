@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
@@ -30,6 +31,7 @@ public class ArrayType extends Type {
     private final Type itemType;
 
     public ArrayType(Type itemType) {
+        super(ArrayType.class.getSimpleName());
         this.itemType = itemType;
     }
 

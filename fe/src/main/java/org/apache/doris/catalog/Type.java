@@ -82,6 +82,9 @@ public abstract class Type {
     private static ArrayList<ScalarType> numericTypes;
     private static ArrayList<ScalarType> supportedTypes;
 
+    // this is used for Gson derived class serialization
+    protected String clazz;
+
     static {
         integerTypes = Lists.newArrayList();
         integerTypes.add(TINYINT);
@@ -130,6 +133,10 @@ public abstract class Type {
     }
     public static ArrayList<ScalarType> getSupportedTypes() {
         return supportedTypes;
+    }
+
+    protected Type(String clazz) {
+        this.clazz = clazz;
     }
 
     /**
