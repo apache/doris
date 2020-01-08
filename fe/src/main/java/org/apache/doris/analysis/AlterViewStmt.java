@@ -18,6 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -46,6 +48,12 @@ public class AlterViewStmt extends BaseViewStmt {
         }
         tableName.analyze(analyzer);
 
+
+        Table table = analyzer.getTable(tableName);
+        if (!(table instanceof View)) {
+            throw new AnalysisException(String.format("ALTER VIEW not allowed on a table:%s.%s", getDbName(), getTable()));
+        }
+
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(),
                 PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER VIEW",
@@ -57,17 +65,19 @@ public class AlterViewStmt extends BaseViewStmt {
         if (cols != null) {
             cloneStmt = viewDefStmt.clone();
         }
+
         viewDefStmt.setNeedToSql(true);
         Analyzer viewAnalyzer = new Analyzer(analyzer);
-
         viewDefStmt.analyze(viewAnalyzer);
+
         createColumnAndViewDefs(analyzer);
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER VIEW ").append(tableName.toSql()).append("\n");
+        sb.append("ALTER VIEW ");
+        sb.append(tableName.toSql()).append("\n");
         if (cols != null) {
             sb.append("(\n");
             for (int i = 0 ; i < cols.size(); i++) {
