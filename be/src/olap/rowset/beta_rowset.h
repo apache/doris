@@ -64,6 +64,9 @@ protected:
                std::string rowset_path,
                RowsetMetaSharedPtr rowset_meta);
 
+    // init segment groups
+    OLAPStatus init() override;
+
     OLAPStatus do_create_reader(RowsetReaderSharedPtr* result) override;
 
     OLAPStatus do_load(bool use_cache) override;

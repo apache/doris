@@ -71,20 +71,21 @@ protected:
     AlphaRowset(const TabletSchema* schema,
                 std::string rowset_path,
                 RowsetMetaSharedPtr rowset_meta);
+    
+    // init segment groups
+    OLAPStatus init() override;
 
     OLAPStatus do_create_reader(std::shared_ptr<RowsetReader>* result) override;
 
     OLAPStatus do_load(bool use_cache) override;
 
-    void do_close() override;
+    void do_close() override { }
 
     // add custom logic when rowset is published
     void make_visible_extra(Version version, VersionHash version_hash) override;
 
 private:
     std::shared_ptr<SegmentGroup> _segment_group_with_largest_size();
-
-    OLAPStatus _init_segment_groups();
 
 private:
     friend class AlphaRowsetWriter;

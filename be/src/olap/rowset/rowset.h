@@ -236,9 +236,7 @@ protected:
            RowsetMetaSharedPtr rowset_meta);
 
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
-    virtual OLAPStatus init() {
-        return OLAP_SUCCESS; // no op
-    };
+    virtual OLAPStatus init() = 0;
 
     virtual OLAPStatus do_create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 

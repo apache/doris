@@ -31,7 +31,6 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
 }
 
 OLAPStatus AlphaRowset::do_load(bool use_cache) {
-    RETURN_NOT_OK(_init_segment_groups());
     for (auto& segment_group: _segment_groups) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
@@ -272,7 +271,7 @@ bool AlphaRowset::check_path(const std::string& path) {
     return valid_paths.find(path) != valid_paths.end();
 }
 
-OLAPStatus AlphaRowset::_init_segment_groups() {
+OLAPStatus AlphaRowset::init() {
     std::vector<SegmentGroupPB> segment_group_metas;
     AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
@@ -377,10 +376,6 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
         alpha_rowset_meta->add_segment_group(segment_group_meta);
     }
     return OLAP_SUCCESS;
-}
-
-void AlphaRowset::do_close() {
-    _segment_groups.clear();
 }
 
 }  // namespace doris

@@ -40,6 +40,10 @@ BetaRowset::BetaRowset(const TabletSchema* schema,
 
 BetaRowset::~BetaRowset() { }
 
+OLAPStatus BetaRowset::init() {	
+    return OLAP_SUCCESS; // no op	
+}
+
 // `use_cache` is ignored because beta rowset doesn't support fd cache now
 OLAPStatus BetaRowset::do_load(bool /*use_cache*/) {
     // Open all segments under the current rowset
