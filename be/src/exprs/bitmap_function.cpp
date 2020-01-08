@@ -387,7 +387,48 @@ BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const
     delete src_bitmap;
     return result;
 }
+StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+    if (lhs.is_null || rhs.is_null) {
+        return StringVal::null();
+    }
+    RoaringBitmap bitmap;
+    if (lhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
+    }
 
+    if (rhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)rhs.ptr));
+    }
+
+    StringVal result(ctx,bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
+}
+StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+    if (lhs.is_null || rhs.is_null) {
+        return StringVal::null();
+    }
+    RoaringBitmap bitmap;
+    if (lhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
+    }
+
+    if(rhs.len == 0){
+        bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+    } else {
+        bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
+    }
+
+    StringVal result(ctx,bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
+}
 
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(
         FunctionContext* ctx, const TinyIntVal& src, StringVal* dst);
