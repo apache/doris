@@ -64,30 +64,29 @@ bool DorisClient::exec(const string& sql) {
     if (mysql_query(_client, sql.c_str())) {
         std::cout << "Query Error: " << mysql_error(_client);
         return false;
+    }
+    _result = mysql_store_result(_client);
+    if (_result) {
+        int num_fields = mysql_num_fields(_result);
+        int num_rows = mysql_num_rows(_result);
+        std::cout << "Query result:" << std::endl;
+        for (int i = 0; i < num_rows; i++) {
+            _row = mysql_fetch_row(_result);
+            if (_row < 0) {
+                break;
+            }
+            for (int j = 0; j < num_fields; j++) {
+                std::cout << _row[j] << "\t";
+            }
+            std::cout << std::endl;
+        }
     } else {
-        _result = mysql_store_result(_client);
-        if (_result) {
-            int num_fields = mysql_num_fields(_result);
-            int num_rows = mysql_num_rows(_result);
-            std::cout << "Query result:" << std::endl;
-            for (int i = 0; i < num_rows; i++) {
-                _row = mysql_fetch_row(_result);
-                if (_row < 0) {
-                    break;
-                }
-                for (int j = 0; j < num_fields; j++) {
-                    std::cout << _row[j] << "\t";
-                }
-                std::cout << std::endl;
-            }
+        if (mysql_field_count(_client) == 0) {
+            int num_rows = mysql_affected_rows(_client);
+            std::cout << "Affected rows: " << num_rows << std::endl;
         } else {
-            if (mysql_field_count(_client) == 0) {
-                int num_rows = mysql_affected_rows(_client);
-                std::cout << "Affected rows: " << num_rows << std::endl;
-            } else {
-                std::cout << "Get result error: " << mysql_error(_client);
-                return false;
-            }
+            std::cout << "Get result error: " << mysql_error(_client);
+            return false;
         }
     }
     return true;
