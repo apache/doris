@@ -304,8 +304,8 @@ StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const dori
         uint32_t int_value = StringParser::string_to_unsigned_int<uint32_t>(reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
         if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
             std::stringstream error_msg;
-            error_msg << "The to_bitmap function argument: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
-            << " type isn't integer family or exceed unsigned integer max value 4294967295";
+            error_msg << "The input: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
+            << " is not valid, to_bitmap only support int value from 0 to 4294967295 currently";
             ctx->set_error(error_msg.str().c_str());
             return StringVal::null();
         }
