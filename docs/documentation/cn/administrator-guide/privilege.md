@@ -53,7 +53,7 @@ Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了�
 6. 删除角色：DROP ROLE
 7. 查看当前用户权限：SHOW GRANTS
 8. 查看所有用户权限：SHOW ALL GRANTS
-9. 查看已创建的角色：SHOW ROELS
+9. 查看已创建的角色：SHOW ROLES
 10. 查看用户属性：SHOW PROPERTY
 
 关于以上命令的详细帮助，可以通过 mysql 客户端连接 Doris 后，使用 help + command 获取帮助。如 `HELP CREATE USER`。
