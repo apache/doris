@@ -34,10 +34,6 @@ import java.util.Map;
  * register 2 derived classes to the factory. And then register the factory
  * to the GsonBuilder to create GSON instance.
  * 
- * Notice that there is a special field "clazz" in ParentClass. This field is used
- * to help the RuntimeTypeAdapterFactory to distinguish the kind of derived class.
- * This field's name should be specified when creating the RuntimeTypeAdapterFactory.
- * 
  */
 public class GsonDerivedClassSerializationTest {
     private static String fileName = "./GsonDerivedClassSerializationTest";
@@ -51,12 +47,9 @@ public class GsonDerivedClassSerializationTest {
     public static class ParentClass implements Writable {
         @SerializedName(value = "flag")
         public int flag = 0;
-        @SerializedName(value = "clazz")
-        public String clazz; // a specified field to save the type of derived classed
 
         public ParentClass(int flag, String clazz) {
             this.flag = flag;
-            this.clazz = clazz;
         }
 
         @Override
@@ -96,10 +89,32 @@ public class GsonDerivedClassSerializationTest {
         }
     }
 
+    public static class WrapperClass implements Writable {
+        @SerializedName(value = "tag")
+        public ParentClass clz;
+
+        public WrapperClass() {
+            clz = new ChildClassA(1, "child1");
+        }
+
+        @Override
+        public void write(DataOutput out) throws IOException {
+            String json = TEST_GSON.toJson(this);
+            System.out.println("write: " + json);
+            Text.writeString(out, json);
+        }
+
+        public static WrapperClass read(DataInput in) throws IOException {
+            String json = Text.readString(in);
+            System.out.println("read: " + json);
+            return TEST_GSON.fromJson(json, WrapperClass.class);
+        }
+    }
+
     private static RuntimeTypeAdapterFactory<ParentClass> runtimeTypeAdapterFactory = RuntimeTypeAdapterFactory
-            // the "clazz" here is the name of "clazz" field in ParentClass.
+            // the "clazz" is a custom defined name
             .of(ParentClass.class, "clazz")
-            // register 2 derived classes, the second parameter must be same to the value of field "clazz"
+            // register 2 derived classes, the second parameter will be the value of "clazz"
             .registerSubtype(ChildClassA.class, ChildClassA.class.getSimpleName())
             .registerSubtype(ChildClassB.class, ChildClassB.class.getSimpleName());
 
@@ -150,6 +165,24 @@ public class GsonDerivedClassSerializationTest {
         Assert.assertEquals(2, ((ChildClassB) parentClass).mapB.size());
         Assert.assertEquals("B1", ((ChildClassB) parentClass).mapB.get(1L));
         Assert.assertEquals("B2", ((ChildClassB) parentClass).mapB.get(2L));
+    }
+
+    @Test
+    public void testWrapperClass() throws IOException {
+        // 1. Write objects to file
+        File file = new File(fileName);
+        file.createNewFile();
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+
+        WrapperClass wrapperClass = new WrapperClass();
+        wrapperClass.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        WrapperClass readWrapperClass = WrapperClass.read(in);
+        Assert.assertEquals(1, ((ChildClassA) readWrapperClass.clz).flag);
     }
 
 }
