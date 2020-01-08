@@ -165,6 +165,7 @@ ${DORIS_TEST_BINARY_DIR}/util/bit_stream_utils_test
 ${DORIS_TEST_BINARY_DIR}/util/frame_of_reference_coding_test
 ${DORIS_TEST_BINARY_DIR}/util/zip_util_test
 ${DORIS_TEST_BINARY_DIR}/util/utf8_check_test
+${DORIS_TEST_BINARY_DIR}/util/cgroup_util_test
 
 # Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
