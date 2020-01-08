@@ -55,20 +55,22 @@ public class CreateViewStmt extends BaseViewStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
-        if (cols != null) {
-            cloneStmt = viewDefStmt.clone();
-        }
         tableName.analyze(analyzer);
         viewDefStmt.setNeedToSql(true);
-        // Analyze view define statement
-        Analyzer viewAnalyzer = new Analyzer(analyzer);
-        viewDefStmt.analyze(viewAnalyzer);
 
         // check privilege
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tableName.getDb(),
                                                                 tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
+
+        if (cols != null) {
+            cloneStmt = viewDefStmt.clone();
+        }
+
+        // Analyze view define statement
+        Analyzer viewAnalyzer = new Analyzer(analyzer);
+        viewDefStmt.analyze(viewAnalyzer);
 
         createColumnAndViewDefs(analyzer);
     }
