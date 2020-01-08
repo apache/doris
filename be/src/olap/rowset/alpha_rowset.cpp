@@ -170,11 +170,17 @@ OLAPStatus AlphaRowset::split_range(
         ranges->emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
     }
-    uint64_t expected_rows = request_block_row_count
-            / largest_segment_group->current_num_rows_per_row_block();
+
+    uint64_t expected_rows = 0;
+    size_t current_num_rows_per_row_block = largest_segment_group->current_num_rows_per_row_block();
+    if (current_num_rows_per_row_block != 0) {
+      expected_rows = request_block_row_count / current_num_rows_per_row_block;
+    }
+
     if (expected_rows == 0) {
         LOG(WARNING) << "expected_rows less than 1. [request_block_row_count = "
-                     << request_block_row_count << "]";
+                     << request_block_row_count << ", current_num_rows_per_row_block = "
+                     << current_num_rows_per_row_block << "]";
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
