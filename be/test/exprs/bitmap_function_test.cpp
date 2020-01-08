@@ -29,18 +29,16 @@
 namespace doris {
 
 StringVal convert_bitmap_to_string(FunctionContext* ctx, RoaringBitmap& bitmap) {
-    std::string buf;
-    buf.resize(bitmap.size());
-    bitmap.serialize((char*)buf.c_str());
-    return AnyValUtil::from_string_temp(ctx, buf);
+    StringVal result(ctx, bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
 }
 
 template<typename T>
 StringVal convert_bitmap_intersect_to_string(FunctionContext* ctx, BitmapIntersect<T>& intersect) {
-    std::string buf;
-    buf.resize(intersect.size());
-    intersect.serialize((char*)buf.c_str());
-    return AnyValUtil::from_string_temp(ctx, buf);
+    StringVal result(ctx,intersect.size());
+    intersect.serialize((char*)result.ptr);
+    return result;
 }
 
 class BitmapFunctionsTest : public testing::Test {
@@ -246,7 +244,42 @@ TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
     test_bitmap_intersect<StringVal, StringValue>(
         ctx, StringVal("20191211"), StringVal("20191212"));
 }
+TEST_F(BitmapFunctionsTest,bitmap_or) {
+    RoaringBitmap bitmap1(1024);
+    bitmap1.update(1);
+    bitmap1.update(2019);
 
+    RoaringBitmap bitmap2(33);
+    bitmap2.update(44);
+    bitmap2.update(55);
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    StringVal bitmap_str = BitmapFunctions::bitmap_or(ctx,bitmap_src,bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx,bitmap_str);
+
+    BigIntVal expected(6);
+    ASSERT_EQ(expected, result);
+}
+TEST_F(BitmapFunctionsTest,bitmap_and) {
+    RoaringBitmap bitmap1(1024);
+    bitmap1.update(1);
+    bitmap1.update(2019);
+
+    RoaringBitmap bitmap2(33);
+    bitmap2.update(44);
+    bitmap2.update(2019);
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    StringVal bitmap_str = BitmapFunctions::bitmap_and(ctx,bitmap_src,bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx,bitmap_str);
+
+    BigIntVal expected(1);
+    ASSERT_EQ(expected, result);
+}
 
 }
 
