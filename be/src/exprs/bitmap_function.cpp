@@ -387,44 +387,44 @@ BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const
     delete src_bitmap;
     return result;
 }
-StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
+StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+    if (lhs.is_null || rhs.is_null) {
+        return StringVal::null();
+    }
     RoaringBitmap bitmap;
-    if (!src.is_null) {
-        if (src.len == 0) {
-            bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
-        } else {
-            bitmap.merge(RoaringBitmap((char*)src.ptr));
-        }
+    if (lhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
     }
 
-    if (!dst.is_null) {
-        if (dst.len == 0) {
-            bitmap.merge(*reinterpret_cast<RoaringBitmap*>(dst.ptr));
-        } else {
-            bitmap.merge(RoaringBitmap((char*)dst.ptr));
-        }
+    if (rhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)rhs.ptr));
     }
 
     StringVal result(ctx,bitmap.size());
     bitmap.serialize((char*)result.ptr);
     return result;
 }
-StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& src, const StringVal& dst){
-    if (src.is_null || dst.is_null) {
+StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+    if (lhs.is_null || rhs.is_null) {
         return StringVal::null();
     }
     RoaringBitmap bitmap;
-    if (src.len == 0) {
-        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
+    if (lhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
     } else {
-        bitmap.merge(RoaringBitmap((char*)src.ptr));
+        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
     }
 
-    if(dst.len == 0){
-        bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(dst.ptr));
+    if(rhs.len == 0){
+        bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
     } else {
-        bitmap.intersect(RoaringBitmap((char*)dst.ptr));
+        bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
     }
+
     StringVal result(ctx,bitmap.size());
     bitmap.serialize((char*)result.ptr);
     return result;
