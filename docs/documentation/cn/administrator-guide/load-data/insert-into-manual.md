@@ -94,7 +94,45 @@ SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
     
 ### 导入结果
 
-Insert Into 本身就是一个 SQL 命令，所以返回的行为同 SQL 命令的返回行为。
+Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果的不同，分为以下几种：
+
+1. 结果集为空
+
+    如果 insert 对应 select 语句的结果集为空，则返回如下：
+    
+    ```
+    mysql> insert into tbl1 select * from empty_tbl;
+    Query OK, 0 rows affected (0.02 sec)
+    ```
+    
+    `Query OK` 表示执行成功。`0 rows affected` 表示没有数据被导入。
+    
+2. 结果集不为空
+
+    在结果集不为空的情况下。返回结果分为如下几种情况：
+    
+    1. 结果集全部导入成功，没有数据质量不合格的行：
+
+        ```
+        mysql> insert into tbl1 select * from tbl2;
+        Query OK, 4 rows affected (0.38 sec)
+        {'label':'insert_8510c568-9eda-4173-9e36-6adc7d35291c'}
+        
+        mysql> insert into tbl1 with label my_label1 select * from tbl2;
+        Query OK, 4 rows affected (0.38 sec)
+        {'label':'my_label1'}
+        ```
+        
+        `Query OK` 表示执行成功。`4 rows affected` 表示总共有4行数据被导入。同时会返回自动生成的 label 会用户指定的 label。通过如下命令也可以查看到 insert 的执行结果:
+        
+        ```
+        show load where label="insert_8510c568-9eda-4173-9e36-6adc7d35291c";
+        show load where label="my_label1";
+        ```
+        
+    2. 结果集有部分或全部数据质量不合格，变量 `enable_insert_strict` 为 false时。
+
+        
 
 如果导入失败，则返回语句执行失败。示例如下：
 
