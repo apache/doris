@@ -98,7 +98,7 @@ TEST_F(BitmapFunctionsTest, to_bitmap_invalid_argument) {
     ASSERT_EQ(expected, result);
     ASSERT_TRUE(ctx->has_error());
 
-    std::string error_msg("The to_bitmap function argument: xxxxxx type isn't integer family or exceed unsigned integer max value 4294967295");
+    std::string error_msg("The input: xxxxxx is not valid, to_bitmap only support int value from 0 to 4294967295 currently");
     ASSERT_EQ(error_msg, ctx->error_msg());
 }
 
@@ -111,7 +111,7 @@ TEST_F(BitmapFunctionsTest, to_bitmap_out_of_range) {
 
     ASSERT_TRUE(ctx->has_error());
 
-    std::string error_msg("The to_bitmap function argument: 4294967296 type isn't integer family or exceed unsigned integer max value 4294967295");
+    std::string error_msg("The input: 4294967296 is not valid, to_bitmap only support int value from 0 to 4294967295 currently");
     ASSERT_EQ(error_msg, ctx->error_msg());
 }
 
