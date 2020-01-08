@@ -17,18 +17,19 @@
 
 package org.apache.doris.catalog;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-
 import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import java.util.ArrayList;
+import java.util.HashMap;
 
 /**
  * Describes a STRUCT type. STRUCT types have a list of named struct fields.
