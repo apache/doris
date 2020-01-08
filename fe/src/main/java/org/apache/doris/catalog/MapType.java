@@ -32,7 +32,6 @@ public class MapType extends Type {
     private final Type valueType;
 
     public MapType(Type keyType, Type valueType) {
-        super(MapType.class.getSimpleName());
         Preconditions.checkNotNull(keyType);
         Preconditions.checkNotNull(valueType);
         this.keyType = keyType;

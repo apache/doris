@@ -39,7 +39,6 @@ public class StructType extends Type {
     private final ArrayList<StructField> fields;
 
     public StructType(ArrayList<StructField> fields) {
-        super(StructType.class.getSimpleName());
         Preconditions.checkNotNull(fields);
         this.fields = fields;
         for (int i = 0; i < this.fields.size(); ++i) {
@@ -49,7 +48,6 @@ public class StructType extends Type {
     }
 
     public StructType() {
-        super(StructType.class.getSimpleName());
         fields = Lists.newArrayList();
     }
 

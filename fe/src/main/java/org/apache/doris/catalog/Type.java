@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -83,10 +82,6 @@ public abstract class Type {
     private static ArrayList<ScalarType> numericTypes;
     private static ArrayList<ScalarType> supportedTypes;
 
-    // this is used for Gson derived class serialization
-    @SerializedName(value = "clazz")
-    protected String clazz;
-
     static {
         integerTypes = Lists.newArrayList();
         integerTypes.add(TINYINT);
@@ -135,10 +130,6 @@ public abstract class Type {
     }
     public static ArrayList<ScalarType> getSupportedTypes() {
         return supportedTypes;
-    }
-
-    protected Type(String clazz) {
-        this.clazz = clazz;
     }
 
     /**

@@ -31,7 +31,6 @@ public class ArrayType extends Type {
     private final Type itemType;
 
     public ArrayType(Type itemType) {
-        super(ArrayType.class.getSimpleName());
         this.itemType = itemType;
     }
 

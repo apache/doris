@@ -82,7 +82,6 @@ public class ScalarType extends Type {
     private int scale;
 
     protected ScalarType(PrimitiveType type) {
-        super(ScalarType.class.getSimpleName());
         this.type = type;
     }
 

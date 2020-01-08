@@ -66,13 +66,21 @@ import java.util.Map;
  */
 public class GsonUtils {
 
+    // runtime adapter for class "Type"
+    private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory = RuntimeTypeAdapterFactory
+            // the "clazz" here is the name of "clazz" field in Type class.
+            .of(org.apache.doris.catalog.Type.class, "clazz")
+            // TODO: register other sub type after Doris support more types.
+            .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
             .addSerializationExclusionStrategy(new HiddenAnnotationExclusionStrategy())
             .enableComplexMapKeySerialization()
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
-            .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter());
+            .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
+            .registerTypeAdapterFactory(columnTypeAdapterFactory);
 
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
@@ -273,10 +281,4 @@ public class GsonUtils {
             return map;
         }
     }
-
-    private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory = RuntimeTypeAdapterFactory
-            // the "clazz" here is the name of "clazz" field in Type class.
-            .of(org.apache.doris.catalog.Type.class, "clazz")
-            // TODO: register other sub type after Doris support more types.
-            .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName());
 }
