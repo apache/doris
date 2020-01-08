@@ -17,14 +17,15 @@
 
 /*************************************************************************
 > Useage:
-        1. g++ my_doris_client.cpp -o my_doris_client `mysql_config --cflags --libs`
-        2. ./my_doris_client
+        1. g++ doris_client.cpp -o doris_client `mysql_config --cflags --libs`
+        2. ./doris_client
 > Comment: Supported mysql version: 5.6, 5.7, 8.0
 ************************************************************************/
 
+#include "doris_client.h"
+
 #include <iostream>
 #include <string>
-#include "doris_client.h"
 
 using std::string;
 

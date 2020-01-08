@@ -17,8 +17,10 @@
 
 #ifndef SAMPLES_CONNECT_CPP_DORIS_CLIENT_H
 #define SAMPLES_CONNECT_CPP_DORIS_CLIENT_H
+
 #include <iostream>
 #include <string>
+
 #include <mysql/mysql.h>
 
 using std::string;
