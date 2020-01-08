@@ -53,7 +53,7 @@ Doris's new privilege management system refers to Mysql's privilege management m
 6. Delete Roles: DROP ROLE
 7. View current user privileges: SHOW GRANTS
 8. View all user privilegesSHOW ALL GRANTS;
-9. View the created roles: SHOW ROELS
+9. View the created roles: SHOW ROLES
 10. View user attributes: SHOW PROPERTY
 
 For detailed help with the above commands, you can use help + command to get help after connecting Doris through the MySQL client. For example `HELP CREATE USER`.
