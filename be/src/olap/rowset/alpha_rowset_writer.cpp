@@ -198,6 +198,9 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         alpha_rowset_meta->add_segment_group(segment_group_pb);
     }
     _current_rowset_meta->set_num_segments(total_num_segments);
+    if (total_num_segments <= 1) {
+        _current_rowset_meta->set_segments_overlap(NONOVERLAPPING);
+    }
     if (_is_pending_rowset) {
         _current_rowset_meta->set_rowset_state(COMMITTED);
     } else {
