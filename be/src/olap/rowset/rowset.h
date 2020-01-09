@@ -20,12 +20,11 @@
 
 #include <memory>
 #include <vector>
+#include <mutex>
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "olap/rowset/rowset_meta.h"
-#include "olap/utils.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
@@ -161,7 +160,7 @@ public:
         }
         OLAPStatus st = OLAP_SUCCESS;
         {
-            MutexLock close_lock(&_lock);
+            std::lock_guard<std::mutex> close_lock(_lock);
             uint64_t current_refs = _refs_by_reader;
             old_state = _rowset_state_machine.rowset_state();
             if (old_state != ROWSET_LOADED) {
@@ -223,16 +222,20 @@ public:
         // if the refs by reader is 0 and the rowset is closed, should release the resouce
         uint64_t current_refs = --_refs_by_reader;
         if (current_refs == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
-            MutexLock release_lock(&_lock);
-            // rejudge _refs_by_reader because we do not add lock in create reader
-            if (_refs_by_reader == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
-                // first do close, then change state
-                do_close();
-                _rowset_state_machine.on_close(0);
+            {
+                std::lock_guard<std::mutex> release_lock(_lock);
+                // rejudge _refs_by_reader because we do not add lock in create reader
+                if (_refs_by_reader == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
+                    // first do close, then change state
+                    do_close();
+                    _rowset_state_machine.on_close(0);
+                }
             }
-            LOG(INFO) << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
-                      << ", version:" << start_version() << "-" << end_version()
-                      << ", tabletid:" << _rowset_meta->tablet_id();
+            if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
+                LOG(INFO) << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+                          << ", version:" << start_version() << "-" << end_version()
+                          << ", tabletid:" << _rowset_meta->tablet_id();
+            }
         }
     }
 
@@ -264,10 +267,8 @@ protected:
     bool _is_pending;    // rowset is pending iff it's not in visible state
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
-    // use spin lock for concurrent close
-    //SpinLock _lock;
     // mutex lock for load/close api because it is costly
-    Mutex _lock;
+    std::mutex _lock;
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset
     std::atomic<uint64_t> _refs_by_reader;
