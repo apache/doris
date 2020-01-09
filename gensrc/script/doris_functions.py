@@ -106,6 +106,7 @@ functions = [
 # left and right are key words, leave them out for now.
   ['String_Left', 'VARCHAR', ['VARCHAR', 'INT'], 'StringFunctions::left', ['strleft', 'left']],
   ['String_Right', 'VARCHAR', ['VARCHAR', 'INT'], 'StringFunctions::right', ['strright', 'right']],
+  ['String_Ends_With', 'INT', ['VARCHAR', 'VARCHAR'], 'StringFunctions::ends_with', ['ends_with']],
   ['String_Length', 'INT', ['VARCHAR'], 'StringFunctions::length', ['length']],
   ['String_Lower', 'VARCHAR', ['VARCHAR'], 'StringFunctions::lower', ['lower', 'lcase']],
   ['String_Upper', 'VARCHAR', ['VARCHAR'], 'StringFunctions::upper', ['upper', 'ucase']],

@@ -79,6 +79,13 @@ StringVal StringFunctions::right(
     return substring(context, str, IntVal(pos), len);
 }
 
+IntVal StringFunctions::ends_with(
+        FunctionContext* context, const StringVal& str, const StringVal& suffix) {
+    re2::StringPiece str_sp(reinterpret_cast<char*>(str.ptr), str.len);
+    re2::StringPiece suffix_sp(reinterpret_cast<char*>(suffix.ptr), suffix.len);
+    return str_sp.ends_with(suffix_sp) ? 1 : 0;
+}
+
 StringVal StringFunctions::space(FunctionContext* context, const IntVal& len) {
     if (len.is_null){
         return StringVal::null();
