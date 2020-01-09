@@ -186,7 +186,6 @@ private:
 
 } // namespace
 
-// TODO currently we don't support bitmap index for bool/float/double/date/datetime/decimal
 Status BitmapIndexWriter::create(const TypeInfo* typeinfo, std::unique_ptr<BitmapIndexWriter>* res) {
     FieldType type = typeinfo->type();
     switch (type) {
@@ -219,6 +218,18 @@ Status BitmapIndexWriter::create(const TypeInfo* typeinfo, std::unique_ptr<Bitma
             break;
         case OLAP_FIELD_TYPE_LARGEINT:
             res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(typeinfo));
+            break;
+        case OLAP_FIELD_TYPE_FLOAT:
+            res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_FLOAT>(typeinfo));
+            break;
+        case OLAP_FIELD_TYPE_DOUBLE:
+            res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DOUBLE>(typeinfo));
+            break;
+        case OLAP_FIELD_TYPE_DECIMAL:
+            res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(typeinfo));
+            break;
+        case OLAP_FIELD_TYPE_BOOL:
+            res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_BOOL>(typeinfo));
             break;
         default:
             return Status::NotSupported("unsupported type for bitmap index: " + std::to_string(type));
