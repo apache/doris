@@ -78,8 +78,7 @@ under the License.
             hll列类型，不需要指定长度和默认值、长度根据数据的聚合
             程度系统内控制，并且HLL列只能通过配套的hll_union_agg、Hll_cardinality、hll_hash进行查询或使用
         BITMAP
-            bitmap 列类型，不需要指定长度和默认值
-            BITMAP 列只能通过配套的 BITMAP_UNION、BITMAP_COUNT、TO_BITMAP 进行查询或使用
+            bitmap列类型，不需要指定长度和默认值
     ```
 
     agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列

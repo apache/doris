@@ -95,30 +95,15 @@ insert into bitmap_table1 select id, bitmap_hash (id_string) from table;
 ### Syntax
 
 
-`BITMAP_UNION (expr)`: Calculate the union of two Bitmaps. The return value is the serialized Bitmap value.
+`BITMAP_UNION (expr)`: Calculate the union of two Bitmaps. The return value is the new Bitmap value.
 
-`BITMAP_COUNT (expr)`: Count the number of different values ​​in the Bitmap
+`BITMAP_UNION_COUNT (expr)`: Calculate the cardinality of the union of two Bitmaps, equivalent to BITMAP_COUNT (BITMAP_UNION (expr)). It is recommended to use the BITMAP_UNION_COUNT function first, its performance is better than BITMAP_COUNT (BITMAP_UNION (expr)).
 
-`BITMAP_UNION_COUNT (expr)`: Calculate the cardinality of the union of two Bitmaps, equivalent to BITMAP_COUNT (BITMAP_UNION (expr))
-
-`BITMAP_UNION_INT (expr)`: Count the number of different values ​​in columns of type TINYINT, SMALLINT and INT, return the sum of
-COUNT (DISTINCT expr) same
+`BITMAP_UNION_INT (expr)`: Count the number of different values ​​in columns of type TINYINT, SMALLINT and INT, return the sum of COUNT (DISTINCT expr) same
 
 `INTERSECT_COUNT (bitmap_column_to_count, filter_column, filter_values ​​...)`: The calculation satisfies
 filter_column The cardinality of the intersection of multiple bitmaps of the filter.
-bitmap_column_to_count is a column of type bitmap, filter_column is a column of varying dimensions, and filter_values ​​is a list of dimension values
-
-`BITMAP_OR(expr,expr)`: Calculate the  or of two Bitmaps Column. The return value is the serialized Bitmap value.
-
-`BITMAP_AND(expr,expr)`:Calculate the and of two Bitmaps Column. The return value is the serialized Bitmap value.
-
-
-note:
-1. The parameters of the BITMAP_UNION function currently only support:
--Column with aggregation type BITMAP_UNION in the aggregation model
--TO_BITMAP, BITMAP_HASH and BITMAP_EMPTY functions
-2. It is recommended to use the BITMAP_UNION_COUNT function first, its performance is better than BITMAP_COUNT (BITMAP_UNION (expr))
-
+bitmap_column_to_count is a column of type bitmap, filter_column is a column of varying dimensions, and filter_values ​​is a list of dimension values.
 
 ### Example
 
