@@ -36,6 +36,8 @@ class BetaRowset : public Rowset {
 public:
     virtual ~BetaRowset();
 
+    OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
+
     static std::string segment_file_path(
             const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
 
@@ -66,8 +68,6 @@ protected:
 
     // init segment groups
     OLAPStatus init() override;
-
-    OLAPStatus do_create_reader(RowsetReaderSharedPtr* result) override;
 
     OLAPStatus do_load(bool use_cache) override;
 

@@ -105,7 +105,7 @@ public:
     OLAPStatus load(bool use_cache = true);
 
     // returns OLAP_ERR_ROWSET_CREATE_READER when failed to create reader
-    OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result);
+    virtual OLAPStatus create_reader(std::shared_ptr<RowsetReader>* result) = 0;
 
     // Split range denoted by `start_key` and `end_key` into sub-ranges, each contains roughly
     // `request_block_row_count` rows. Sub-range is represented by pair of OlapTuples and added to `ranges`.
@@ -156,25 +156,25 @@ public:
     // NOTICE: can not call this function in multithreads
     void close() {
         RowsetState old_state = _rowset_state_machine.rowset_state();
-        if (old_state == ROWSET_UNLOADED) {
+        if (old_state != ROWSET_LOADED) {
             return;
         }
+        uint64_t current_refs = _refs_by_reader;
         OLAPStatus st = OLAP_SUCCESS;
         {
             std::lock_guard<SpinLock> l(_lock);
             old_state = _rowset_state_machine.rowset_state();
-            if (old_state == ROWSET_UNLOADED) {
+            if (old_state != ROWSET_LOADED) {
                 return;
             }
-            uint64_t current_refs = _refs_by_reader;
             st = _rowset_state_machine.on_close(current_refs);
-            if (current_refs == 0) {
-                do_close();
-            }
         }
         if (st != OLAP_SUCCESS) {
             LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
             return;
+        }
+        if (current_refs == 0) {
+            do_close();
         }
         LOG(INFO) << "rowset is close. rowset state from:" << old_state
                   << " to " << _rowset_state_machine.rowset_state()
@@ -223,15 +223,11 @@ public:
         // if the refs by reader is 0 and the rowset is closed, should release the resouce
         uint64_t current_refs = --_refs_by_reader;
         if (current_refs == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
-            auto st = _rowset_state_machine.on_close(current_refs);
-            if (st != OLAP_SUCCESS) {
-                LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
-            } else {
-                LOG(INFO) << "close the rowset."
-                      << ", rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+            DCHECK(_rowset_state_machine.rowset_state() == ROWSET_UNLOADING);
+            _rowset_state_machine.on_close(current_refs);
+            LOG(INFO) << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
                       << ", version:" << start_version() << "-" << end_version()
                       << ", tabletid:" << _rowset_meta->tablet_id();
-            }
             // here only one thread will call do_close 
             // because there is only one thread will get _refs_by_reader == 0
             do_close();
@@ -250,8 +246,6 @@ protected:
     // this is non-public because all clients should use RowsetFactory to obtain pointer to initialized Rowset
     virtual OLAPStatus init() = 0;
 
-    virtual OLAPStatus do_create_reader(std::shared_ptr<RowsetReader>* result) = 0;
-
     // The actual implementation of load(). Guaranteed by to called exactly once.
     virtual OLAPStatus do_load(bool use_cache) = 0;
 
@@ -268,7 +262,9 @@ protected:
     bool _is_pending;    // rowset is pending iff it's not in visible state
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
+    // use spin lock for concurrent close
     SpinLock _lock;
+    // mutex lock for load api because it is costly
     Mutex _load_lock;
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset

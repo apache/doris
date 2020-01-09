@@ -25,7 +25,8 @@ Rowset::Rowset(const TabletSchema *schema,
         : _schema(schema),
          _rowset_path(std::move(rowset_path)),
          _rowset_meta(std::move(rowset_meta)),
-         _refs_by_reader(0) {
+         _refs_by_reader(0),
+         _rowset_state_machine(RowsetStateMachine()) {
 
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
@@ -60,11 +61,6 @@ OLAPStatus Rowset::load(bool use_cache) {
         LOG(INFO) << load_log;
     }
     return OLAP_SUCCESS;
-}
-
-OLAPStatus Rowset::create_reader(std::shared_ptr<RowsetReader>* result) {
-    std::lock_guard<SpinLock> l(_lock);
-    return do_create_reader(result);
 }
 
 void Rowset::make_visible(Version version, VersionHash version_hash) {

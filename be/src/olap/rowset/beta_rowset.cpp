@@ -61,7 +61,7 @@ OLAPStatus BetaRowset::do_load(bool /*use_cache*/) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowset::do_create_reader(RowsetReaderSharedPtr* result) {
+OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     // NOTE: We use std::static_pointer_cast for performance
     result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
     return OLAP_SUCCESS;
