@@ -156,6 +156,18 @@ OLAPStatus AlphaRowsetReader::_merge_block(RowBlock** block) {
         copy_row(_dst_cursor, *row_cursor, _read_block->mem_pool());
         _read_block->pos_inc();
         num_rows_in_block++;
+
+        // MergeHeap should advance one step after row been read.
+        // This function must be called after copy_row
+        // Otherwise, the row has read will be modified instantly before handled.
+        // For example:
+        // If I have (1, 1), (2, 2), (3, 3) three records.
+        // Now I have read (1, 1).
+        // Before copy_row, I rebuild the heap
+        // The returned row will be (2, 2) instead of (1, 1)
+        AlphaMergeContext* merge_ctx = _merge_heap.top();
+        _merge_heap.pop();
+        RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(merge_ctx));
     }
     _read_block->set_pos(0);
     _read_block->set_limit(num_rows_in_block);
@@ -205,9 +217,9 @@ OLAPStatus AlphaRowsetReader::_pull_next_row_for_merge_rowset_v2(RowCursor** row
     if (!_merge_heap.empty()) {
         AlphaMergeContext* merge_ctx = _merge_heap.top();
         *row = merge_ctx->row_cursor.get();
-        _merge_heap.pop();
-        
-        RETURN_NOT_OK(_update_merge_ctx_and_build_merge_heap(merge_ctx));
+        // Must not rebuild merge_heap in this place.
+        // Because row have not been copied and is a pointer.
+        // If rebuild merge_heap, content in row will be modified.
         return OLAP_SUCCESS;
     } else {
         // all rows are read
