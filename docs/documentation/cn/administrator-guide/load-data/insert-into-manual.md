@@ -116,19 +116,19 @@ Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果
         ```
         mysql> insert into tbl1 select * from tbl2;
         Query OK, 4 rows affected (0.38 sec)
-        {'label':'insert_8510c568-9eda-4173-9e36-6adc7d35291c', 'status':'visible'}
+        {'label':'insert_8510c568-9eda-4173-9e36-6adc7d35291c', 'status':'visible', 'txnId':'4005'}
         
         mysql> insert into tbl1 with label my_label1 select * from tbl2;
         Query OK, 4 rows affected (0.38 sec)
-        {'label':'my_label1', 'status':'visible'}
+        {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
         
         mysql> insert into tbl1 select * from tbl2;
         Query OK, 2 rows affected, 2 warnings (0.31 sec)
-        {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'visible'}
+        {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'visible', 'txnId':'4005'}
         
         mysql> insert into tbl1 select * from tbl2;
         Query OK, 2 rows affected, 2 warnings (0.31 sec)
-        {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed'}
+        {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
         ```
         
         `Query OK` 表示执行成功。`4 rows affected` 表示总共有4行数据被导入。`2 warnings` 表示被过滤的行数。
@@ -136,14 +136,16 @@ Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果
         同时会返回一个 json 串：
         
         ```
-        {'label':'my_label1', 'status':'visible'}
-        {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed'}
-        {'label':'my_label1', 'status':'visible', 'err':'some other error'}
+        {'label':'my_label1', 'status':'visible', 'txnId':'4005'}
+        {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed', 'txnId':'4005'}
+        {'label':'my_label1', 'status':'visible', 'txnId':'4005', 'err':'some other error'}
         ```
         
         `label` 为用户指定的 label 或自动生成的 label。Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一个在单 database 内部唯一的 Label。
         
         `status` 表示导入数据是否可见。如果可见，显示 `visible`，如果不可见，显示 `committed`。
+        
+        `txnId` 为这个 insert 对应的导入事务的 id。
         
         `err` 字段会显示一些其他非预期错误。
         
@@ -160,14 +162,14 @@ Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果
         可以通过如下语句查看这批数据的可见状态：
         
         ```
-        show transaction where label="xxx";
+        show transaction where id=4005;
         ```
         
-        返回结果中的 `Status` 列如果为 `visible`，则表述数据可见。
+        返回结果中的 `TransactionStatus` 列如果为 `visible`，则表述数据可见。
         
     2. Insert 执行失败
 
-        执行失败表述没有任何数据被成功导入，并返回如下：
+        执行失败表示没有任何数据被成功导入，并返回如下：
         
         ```
         mysql> insert into tbl1 select * from tbl2 where k1 = "a";

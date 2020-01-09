@@ -2103,7 +2103,7 @@ show_param ::=
     {:
         RESULT = new ShowIndexStmt(dbName, tableName);
     :}
-    | KW_TRANSACTION KW_FROM opt_db:dbName opt_wild_where
+    | KW_TRANSACTION opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowTransactionStmt(dbName, parser.where);
     :}
