@@ -111,65 +111,82 @@ Insert Into 本身就是一个 SQL 命令，其返回结果会根据执行结果
 
     在结果集不为空的情况下。返回结果分为如下几种情况：
     
-    1. 结果集全部导入成功，没有数据质量不合格的行：
+    1. Insert 执行成功并可见：
 
         ```
         mysql> insert into tbl1 select * from tbl2;
         Query OK, 4 rows affected (0.38 sec)
-        {'label':'insert_8510c568-9eda-4173-9e36-6adc7d35291c'}
+        {'label':'insert_8510c568-9eda-4173-9e36-6adc7d35291c', 'status':'visible'}
         
         mysql> insert into tbl1 with label my_label1 select * from tbl2;
         Query OK, 4 rows affected (0.38 sec)
-        {'label':'my_label1'}
+        {'label':'my_label1', 'status':'visible'}
+        
+        mysql> insert into tbl1 select * from tbl2;
+        Query OK, 2 rows affected, 2 warnings (0.31 sec)
+        {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'visible'}
+        
+        mysql> insert into tbl1 select * from tbl2;
+        Query OK, 2 rows affected, 2 warnings (0.31 sec)
+        {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed'}
         ```
         
-        `Query OK` 表示执行成功。`4 rows affected` 表示总共有4行数据被导入。同时会返回自动生成的 label 会用户指定的 label。通过如下命令也可以查看到 insert 的执行结果:
+        `Query OK` 表示执行成功。`4 rows affected` 表示总共有4行数据被导入。`2 warnings` 表示被过滤的行数。
+        
+        同时会返回一个 json 串：
         
         ```
-        show load where label="insert_8510c568-9eda-4173-9e36-6adc7d35291c";
-        show load where label="my_label1";
+        {'label':'my_label1', 'status':'visible'}
+        {'label':'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status':'committed'}
+        {'label':'my_label1', 'status':'visible', 'err':'some other error'}
         ```
         
-    2. 结果集有部分或全部数据质量不合格，变量 `enable_insert_strict` 为 false时。
+        `label` 为用户指定的 label 或自动生成的 label。Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一个在单 database 内部唯一的 Label。
+        
+        `status` 表示导入数据是否可见。如果可见，显示 `visible`，如果不可见，显示 `committed`。
+        
+        `err` 字段会显示一些其他非预期错误。
+        
+        当需要查看被过滤的行时，用户可以通过如下语句
+        
+        ```
+        show load where label="xxx";
+        ```
+        
+        返回结果中的 URL 可以用于查询错误的数据，具体见后面 **查看错误行** 小结。
+                
+        **数据不可见是一个临时状态，这批数据最终是一定可见的**
+        
+        可以通过如下语句查看这批数据的可见状态：
+        
+        ```
+        show transaction where label="xxx";
+        ```
+        
+        返回结果中的 `Status` 列如果为 `visible`，则表述数据可见。
+        
+    2. Insert 执行失败
 
+        执行失败表述没有任何数据被成功导入，并返回如下：
+        
+        ```
+        mysql> insert into tbl1 select * from tbl2 where k1 = "a";
+        ERROR 1064 (HY000): all partitions have no load data. url: http://10.74.167.16:8042/api/_load_error_log?file=__shard_2/error_log_insert_stmt_ba8bb9e158e4879-ae8de8507c0bf8a2_ba8bb9e158e4879_ae8de8507c0bf8a2
+        ```
+        
+        其中 `ERROR 1064 (HY000): all partitions have no load data` 显示失败原因。后面的 url 可以用于查询错误的数据，具体见后面 **查看错误行** 小结。
         
 
-如果导入失败，则返回语句执行失败。示例如下：
+**综上，对于 insert 操作返回结果的正确处理逻辑应为：**
 
-```ERROR 1064 (HY000): all partitions have no load data. url: http://ip:port/api/_load_error_log?file=__shard_14/error_log_insert_stmt_f435264d82f342e4-a33764f5f0dfbf00_f435264d82f342e4_a33764f5f0dfbf00```
-
-其中 url 可以用于查询错误的数据，具体见后面 **查看错误行** 小结。
-
-如果导入成功，则返回语句执行成功。示例如下：
-
-```
-Query OK, 100 row affected, 0 warning (0.22 sec)
-```
-
-如果用户指定了 Label，则会也会返回 Label
-```
-Query OK, 100 row affected, 0 warning (0.22 sec)
-{'label':'user_specified_label'}
-```
-
-导入可能部分成功，则会附加 Label 字段。示例如下：
-
-```
-Query OK, 100 row affected, 1 warning (0.23 sec)
-{'label':'7d66c457-658b-4a3e-bdcf-8beee872ef2c'}
-```
-
-```
-Query OK, 100 row affected, 1 warning (0.23 sec)
-{'label':'user_specified_label'}
-```
-
-其中 affected 表示导入的行数。warning 表示失败的行数。用户需要通过 `SHOW LOAD WHERE LABEL="xxx";` 命令，获取 url 查看错误行。
-
-如果没有任何数据，也会返回成功，且 affected 和 warning 都是 0。
-
-Label 是该 Insert Into 导入作业的标识。每个导入作业，都有一个在单 database 内部唯一的 Label。Insert Into 的 Label 则是由系统生成的，用户可以拿着这个 Label 通过查询导入命令异步获取导入状态。
-    
+1. 如果返回结果为 `ERROR 1064 (HY000)`，则表示导入失败。
+2. 如果返回结果为 `Query OK`，则表示执行成功。
+    1. 如果 `rows affected` 为 0，表示结果集为空，没有数据被导入。
+    2. 如果 `rows affected` 大于 0：
+        1. 如果 `status` 为 `committed`，表示数据还不可见。需要通过 `show transaction` 语句查看状态直到 `visible`
+        2. 如果 `status` 为 `visible`，表示数据导入成功。
+    3. 如果 `warnings` 大于 0，表示有数据被过滤，可以通过 `show load` 语句获取 url 查看被过滤的行。
+        
 ## 相关系统配置
 
 ### FE 配置

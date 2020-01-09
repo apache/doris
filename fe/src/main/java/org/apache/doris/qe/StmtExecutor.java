@@ -71,8 +71,8 @@ import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionCommitFailedException;
+import org.apache.doris.transaction.TransactionStatus;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -603,6 +603,7 @@ public class StmtExecutor {
 
         long loadedRows = 0;
         int filteredRows = 0;
+        TransactionStatus txnStatus = TransactionStatus.ABORTED;
         try {
             coord = new Coordinator(context, analyzer, planner);
             coord.setQueryType(TQueryType.LOAD);
@@ -656,10 +657,15 @@ public class StmtExecutor {
                 return;
             }
 
-            Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+            if (!Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
-                    5000);
+                    10000)) {
+                // txn is committed but not visible
+                txnStatus = TransactionStatus.COMMITTED;
+            } else {
+                txnStatus = TransactionStatus.VISIBLE;
+            }
         } catch (Throwable t) {
             // if any throwable being thrown during insert operation, first we should abort this txn
             LOG.warn("handle insert stmt fail: {}", label, t);
@@ -673,9 +679,8 @@ public class StmtExecutor {
                 LOG.warn("errors when abort txn", abortTxnException);
             }
 
-            if (!Config.using_old_load_usage_pattern && !insertStmt.isUserSpecifiedLabel()) {
-                // if not using old usage pattern, or user not specify label,
-                // the exception will be thrown to user directly without a label
+            if (!Config.using_old_load_usage_pattern) {
+                // if not using old load usage pattern, error will be returned directly to user
                 StringBuilder sb = new StringBuilder(t.getMessage());
                 if (!Strings.isNullOrEmpty(coord.getTrackingUrl())) {
                     sb.append(". url: " + coord.getTrackingUrl());
@@ -692,37 +697,35 @@ public class StmtExecutor {
             throwable = t;
         }
 
-        // record insert info for show load stmt if
-        // 1. NOT a streaming insert(deprecated)
-        // 2. using_old_load_usage_pattern is set to true, means a label will be returned for user to show load.
-        // 3. has filtered rows. so a label should be returned for user to show
-        // 4. user specify a label for insert stmt
-        if (!insertStmt.isStreaming() || Config.using_old_load_usage_pattern || filteredRows > 0 || insertStmt.isUserSpecifiedLabel()) {
-            try {
-                context.getCatalog().getLoadManager().recordFinishedLoadJob(
-                        label,
-                        insertStmt.getDb(),
-                        insertStmt.getTargetTable().getId(),
-                        EtlJobType.INSERT,
-                        createTime,
-                        throwable == null ? "" : throwable.getMessage(),
-                        coord.getTrackingUrl()
-                );
-            } catch (MetaNotFoundException e) {
-                LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
-                context.getState().setError("Failed to record info of insert load job, but insert job is "
-                        + (throwable == null ? "success" : "failed"));
-                return;
-            }
+        // Go here, which means:
+        // 1. transaction is finished successfully (COMMITTED or VISIBLE), or
+        // 2. transaction failed but Config.using_old_load_usage_pattern is true.
+        // we will record the load job info for these 2 cases
 
-            // set to OK, which means the insert load job is successfully submitted.
-            // and user can check the job's status by label.
-            context.getState().setOk(loadedRows, filteredRows, "{'label':'" + label + "'}");
-        } else {
-            // just return OK without label, which means this job is successfully done without any error.
-            Preconditions.checkState(loadedRows > 0 && filteredRows == 0);
-            context.getState().setOk(loadedRows, filteredRows, null);
+        String errMsg = "";
+        try {
+            context.getCatalog().getLoadManager().recordFinishedLoadJob(
+                    label,
+                    insertStmt.getDb(),
+                    insertStmt.getTargetTable().getId(),
+                    EtlJobType.INSERT,
+                    createTime,
+                    throwable == null ? "" : throwable.getMessage(),
+                    coord.getTrackingUrl());
+        } catch (MetaNotFoundException e) {
+            LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
+            errMsg = "Record info of insert load with error " + e.getMessage();
         }
+
+        // {'label':'my_label1', 'status':'visible'}
+        // {'label':'my_label1', 'status':'visible', 'err':'error messages'}
+        String info = "{'label':'" + label + "', 'status':'" + txnStatus.name() + "'";
+        if (!Strings.isNullOrEmpty(errMsg)) {
+            info += ", 'err':'" + info + "'";
+        }
+        info += "}";
+
+        context.getState().setOk(loadedRows, filteredRows, info);
     }
 
     private void handleUnsupportedStmt() {
