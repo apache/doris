@@ -26,11 +26,14 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -41,7 +44,9 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -1199,19 +1204,8 @@ public class GlobalTransactionMgr implements Writable {
                             : t.getTransactionStatus().isFinalStatus()))).sorted(TransactionState.TXN_ID_COMPARATOR)
                     .limit(limit)
                     .forEach(t -> {
-                        List<String> info = new ArrayList<String>();
-                        info.add(String.valueOf(t.getTransactionId()));
-                        info.add(t.getLabel());
-                        info.add(t.getCoordinator());
-                        info.add(t.getTransactionStatus().name());
-                        info.add(t.getSourceType().name());
-                        info.add(TimeUtils.longToTimeString(t.getPrepareTime()));
-                        info.add(TimeUtils.longToTimeString(t.getCommitTime()));
-                        info.add(TimeUtils.longToTimeString(t.getFinishTime()));
-                        info.add(t.getReason());
-                        info.add(String.valueOf(t.getErrorReplicas().size()));
-                        info.add(String.valueOf(t.getCallbackId()));
-                        info.add(String.valueOf(t.getTimeoutMs()));
+                        List<String> info = Lists.newArrayList();
+                        getTxnStateInfo(t, info);
                         infos.add(info);
                     });
         } finally {
@@ -1220,6 +1214,63 @@ public class GlobalTransactionMgr implements Writable {
         return infos;
     }
     
+    // get show info of a specified txnId
+    public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
+        List<List<String>> infos = new ArrayList<List<String>>();
+        readLock();
+        try {
+            Database db = Catalog.getInstance().getDb(dbId);
+            if (db == null) {
+                throw new AnalysisException("Database[" + dbId + "] does not exist");
+            }
+            
+            TransactionState txnState = idToTransactionState.get(txnId);
+            if (txnState == null) {
+                throw new AnalysisException("transaction with id " + txnId + " does not exist");
+            }
+            
+            if (ConnectContext.get() != null) {
+                // check auth
+                Set<Long> tblIds = txnState.getIdToTableCommitInfos().keySet();
+                for (Long tblId : tblIds) {
+                    Table tbl = db.getTable(tblId);
+                    if (tbl != null) {
+                        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
+                                tbl.getName(), PrivPredicate.SHOW)) {
+                            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
+                                    "SHOW TRANSACTION",
+                                    ConnectContext.get().getQualifiedUser(),
+                                    ConnectContext.get().getRemoteIP(),
+                                    tbl.getName());
+                        }
+                    }
+                }
+            }
+            
+            List<String> info = Lists.newArrayList();
+            getTxnStateInfo(txnState, info);
+            infos.add(info);
+        } finally {
+            readUnlock();
+        }
+        return infos;
+    }
+    
+    private void getTxnStateInfo(TransactionState txnState, List<String> info) {
+        info.add(String.valueOf(txnState.getTransactionId()));
+        info.add(txnState.getLabel());
+        info.add(txnState.getCoordinator());
+        info.add(txnState.getTransactionStatus().name());
+        info.add(txnState.getSourceType().name());
+        info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
+        info.add(TimeUtils.longToTimeString(txnState.getCommitTime()));
+        info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
+        info.add(txnState.getReason());
+        info.add(String.valueOf(txnState.getErrorReplicas().size()));
+        info.add(String.valueOf(txnState.getCallbackId()));
+        info.add(String.valueOf(txnState.getTimeoutMs()));
+    }
+
     public List<List<Comparable>> getTableTransInfo(long txnId) throws AnalysisException {
         List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
         readLock();
