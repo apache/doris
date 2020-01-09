@@ -61,6 +61,8 @@ import org.powermock.api.easymock.PowerMock;
 import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
+
+import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -106,14 +108,9 @@ abstract public class DorisHttpTestCase {
     public static long testPartitionCurrentVersionHash = 12312;
     public static long testPartitionNextVersionHash = 123123123;
 
-    public static final int HTTP_PORT;
+    public static int HTTP_PORT;
 
-    static {
-        Random r = new Random(System.currentTimeMillis());
-        HTTP_PORT = 20000 + r.nextInt(10000);
-    }
-
-    protected static final String URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+    protected static String URI;
 
     protected String rootAuth = Credentials.basic("root", "");
 
@@ -237,6 +234,23 @@ abstract public class DorisHttpTestCase {
 
     @BeforeClass
     public static void initHttpServer() throws IllegalArgException, InterruptedException {
+        ServerSocket socket = null;
+        try {
+            socket = new ServerSocket(0);
+            socket.setReuseAddress(true);
+            HTTP_PORT = socket.getLocalPort();
+            URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
+        } finally {
+            if (socket != null) {
+                try {
+                    socket.close();
+                } catch (Exception e) {
+                }
+            }
+        }
+
         httpServer = new HttpServer(HTTP_PORT);
         httpServer.setup();
         httpServer.start();
