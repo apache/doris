@@ -63,6 +63,7 @@ OLAPStatus BetaRowset::do_load(bool /*use_cache*/) {
 
 OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     // NOTE: We use std::static_pointer_cast for performance
+    MutexLock release_lock(&_lock);
     result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
     return OLAP_SUCCESS;
 }
