@@ -446,6 +446,12 @@ public:
         return day_diff * 3600 * 24 + time_diff;
     }
 
+    int64_t time_part_diff(const DateTimeValue& rhs) const {
+        int time_diff = (hour() * 3600 + minute() * 60 + second())
+            - (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
+        return time_diff;
+    }
+
     void set_type(int type);
 
     static const char* _s_llvm_class_name;

@@ -122,6 +122,43 @@ TEST_F(TimestampFunctionsTest, convert_tz_test) {
     ASSERT_EQ(20190806013857, dt3.to_int64());
 }
 
+TEST_F(TimestampFunctionsTest, timestampdiff_test) {
+    doris_udf::FunctionContext *context = new doris_udf::FunctionContext();
+    DateTimeValue dt1(20120824000001);
+    doris_udf::DateTimeVal tv1;
+    dt1.to_datetime_val(&tv1);
+    DateTimeValue dt2(20120830000000);
+    doris_udf::DateTimeVal tv2;
+    dt2.to_datetime_val(&tv2);
+
+    //YEAR
+    ASSERT_EQ(0, TimestampFunctions::years_diff(context, tv2, tv1).val);
+    //MONTH
+    ASSERT_EQ(0, TimestampFunctions::months_diff(context, tv2, tv1).val);
+    DateTimeValue dt3(20120924000000);
+    doris_udf::DateTimeVal tv3;
+    dt3.to_datetime_val(&tv3);
+    ASSERT_EQ(0, TimestampFunctions::months_diff(context, tv3, tv1).val);
+    //WEEK
+    ASSERT_EQ(0, TimestampFunctions::weeks_diff(context, tv2, tv1).val);
+    //DAY
+    ASSERT_EQ(5, TimestampFunctions::days_diff(context, tv2, tv1).val);
+    DateTimeValue dt4(20120830000001);
+    doris_udf::DateTimeVal tv4;
+    dt4.to_datetime_val(&tv4);
+    ASSERT_EQ(6, TimestampFunctions::days_diff(context, tv4, tv1).val);
+    DateTimeValue dt5(20120901000001);
+    doris_udf::DateTimeVal tv5;
+    dt5.to_datetime_val(&tv5);
+    ASSERT_EQ(8, TimestampFunctions::days_diff(context, tv5, tv1).val);
+    //HOUR
+    ASSERT_EQ(143, TimestampFunctions::hours_diff(context, tv2, tv1).val);
+    //MINUTE
+    ASSERT_EQ(8639, TimestampFunctions::minutes_diff(context, tv2, tv1).val);
+    //SECOND
+    ASSERT_EQ(518399, TimestampFunctions::seconds_diff(context, tv2, tv1).val);
+}
+
 }
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
