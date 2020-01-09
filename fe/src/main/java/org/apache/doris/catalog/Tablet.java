@@ -211,6 +211,11 @@ public class Tablet extends MetaObject implements Writable {
                 continue;
             }
 
+            // Skip the missing version replica
+            if (replica.getLastFailedVersion() > 0) {
+                continue;
+            }
+
             ReplicaState state = replica.getState();
             if (state.canQuery()) {
                 // replica.getSchemaHash() == -1 is for compatibility
