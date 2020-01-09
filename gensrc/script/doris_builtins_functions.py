@@ -226,6 +226,21 @@ visible_functions = [
     [['convert_tz'], 'DATETIME', ['DATETIME', 'VARCHAR', 'VARCHAR'],
             '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_'],
 
+    [['years_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions10years_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['months_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions11months_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['weeks_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions10weeks_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['days_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions9days_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['hours_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions10hours_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['minutes_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions12minutes_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['seconds_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions12seconds_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+
     # Math builtin functions
     [['pi'], 'DOUBLE', [],
         '_ZN5doris13MathFunctions2piEPN9doris_udf15FunctionContextE'],

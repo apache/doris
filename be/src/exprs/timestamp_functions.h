@@ -130,6 +130,25 @@ public:
     static doris_udf::StringVal day_name(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
 
+    // timestamp function
+    template <TimeUnit unit>
+    static doris_udf::BigIntVal timestamp_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal years_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal months_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal weeks_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal days_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal hours_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal minutes_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal seconds_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+
     // TimeZone correlation functions.
     static doris_udf::DateTimeVal timestamp(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& val);

@@ -195,12 +195,12 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CURRENT, KW_CURRENT_USER,
-    KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_TIME, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
+    KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
     KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
-    KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HUB,
+    KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
@@ -208,7 +208,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD,
     KW_ROUTINE, KW_PAUSE, KW_RESUME, KW_STOP, KW_TASK,
     KW_LOCAL, KW_LOCATION,
-    KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY,
+    KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_PIPE, KW_ORDER, KW_OUTER, KW_OVER,
     KW_PARTITION, KW_PARTITIONS, KW_PATH, KW_PRECEDING,
@@ -219,14 +219,15 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_RETURNS, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROW, KW_ROWS,
-    KW_SCHEMAS, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SHOW,
+    KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SHOW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STORAGE, KW_STRING,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
-    KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
+    KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIME, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW, KW_MATERIALIZED,
-    KW_WARNINGS, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE;
+    KW_WARNINGS, KW_WEEK, KW_WHEN, KW_WHITELIST, KW_WHERE, KW_WITH, KW_WORK, KW_WRITE,
+    KW_YEAR;
 
 terminal COMMA, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -301,6 +302,7 @@ nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name;
 nonterminal FunctionName function_name;
+nonterminal String unit;
 nonterminal Expr where_clause;
 nonterminal Expr where_clause_without_null;
 nonterminal Predicate predicate, between_predicate, comparison_predicate,
@@ -3599,6 +3601,8 @@ non_pred_expr ::=
   {: RESULT = c; :}
   | column_ref:c
   {: RESULT = c; :}
+  | unit:u LPAREN expr_list:exprs RPAREN
+  {: RESULT = new FunctionCallExpr(u, exprs); :}
   | timestamp_arithmetic_expr:e
   {: RESULT = e; :}
   | arithmetic_expr:e
@@ -3745,15 +3749,15 @@ arithmetic_expr ::=
 // This way we do not need to change existing uses of IDENT.
 // We chose not to make DATE_ADD and DATE_SUB keywords for the same reason.
 timestamp_arithmetic_expr ::=
-  KW_INTERVAL expr:v ident:u ADD expr:t
+  KW_INTERVAL expr:v unit:u ADD expr:t
   {: RESULT = new TimestampArithmeticExpr(ArithmeticExpr.Operator.ADD, t, v, u, true); :}
-  | expr:t ADD KW_INTERVAL expr:v ident:u
+  | expr:t ADD KW_INTERVAL expr:v unit:u
   {:
     RESULT = new TimestampArithmeticExpr(ArithmeticExpr.Operator.ADD, t, v, u, false);
   :}
   // Set precedence to KW_INTERVAL (which is higher than ADD) for chaining.
   %prec KW_INTERVAL
-  | expr:t SUBTRACT KW_INTERVAL expr:v ident:u
+  | expr:t SUBTRACT KW_INTERVAL expr:v unit:u
   {:
     RESULT =
         new TimestampArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT, t, v, u, false);
@@ -3766,7 +3770,7 @@ timestamp_arithmetic_expr ::=
   // Although we don't want to accept function names as the expr, we can't parse it
   // it as just an IDENT due to the precedence conflict with function_name.
   | function_name:functionName LPAREN expr_list:l COMMA
-    KW_INTERVAL expr:v ident:u RPAREN
+    KW_INTERVAL expr:v unit:u RPAREN
   {:
     if (l.size() > 1) {
       // Report parsing failure on keyword interval.
@@ -3779,8 +3783,29 @@ timestamp_arithmetic_expr ::=
 
     RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
   :}
+  | function_name:functionName LPAREN unit:u COMMA expr:e1 COMMA expr:e2 RPAREN
+  {:
+    RESULT = new TimestampArithmeticExpr(functionName.getFunction(), e2, e1, u);
+  :}
   ;
 
+unit ::=
+    KW_YEAR
+    {: RESULT = "YEAR"; :}
+    | KW_MONTH
+    {: RESULT = "MONTH"; :}
+    | KW_WEEK
+    {: RESULT = "WEEK"; :}
+    | KW_DAY
+    {: RESULT = "DAY"; :}
+    | KW_HOUR
+    {: RESULT = "HOUR"; :}
+    | KW_MINUTE
+    {: RESULT = "MINUTE"; :}
+    | KW_SECOND
+    {: RESULT = "SECOND"; :}
+    ;
+  
 literal ::=
   INTEGER_LITERAL:l
   {: RESULT = new IntLiteral(l); :}
