@@ -657,15 +657,15 @@ public class StmtExecutor {
                 return;
             }
 
-            if (!Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+            if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                     10000)) {
-                // txn is committed but not visible
-                txnStatus = TransactionStatus.COMMITTED;
-            } else {
                 txnStatus = TransactionStatus.VISIBLE;
+            } else {
+                txnStatus = TransactionStatus.COMMITTED;
             }
+
         } catch (Throwable t) {
             // if any throwable being thrown during insert operation, first we should abort this txn
             LOG.warn("handle insert stmt fail: {}", label, t);
@@ -717,9 +717,10 @@ public class StmtExecutor {
             errMsg = "Record info of insert load with error " + e.getMessage();
         }
 
-        // {'label':'my_label1', 'status':'visible'}
-        // {'label':'my_label1', 'status':'visible', 'err':'error messages'}
-        String info = "{'label':'" + label + "', 'status':'" + txnStatus.name() + "'";
+        // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
+        // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
+        String info = "{'label':'" + label + "', 'status':'" + txnStatus.name() + "', 'txnId':'"
+                + insertStmt.getTransactionId() + "'";
         if (!Strings.isNullOrEmpty(errMsg)) {
             info += ", 'err':'" + info + "'";
         }

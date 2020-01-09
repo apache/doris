@@ -124,7 +124,7 @@ public class TransactionState implements Writable {
             }
         }
     }
-    
+
     private long dbId;
     private long transactionId;
     private String label;

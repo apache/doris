@@ -489,8 +489,8 @@ public class GlobalTransactionMgr implements Writable {
     }
     
     public boolean commitAndPublishTransaction(Database db, long transactionId,
-                                               List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
-                                               TxnCommitAttachment txnCommitAttachment)
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
+            TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         db.writeLock();
         try {
