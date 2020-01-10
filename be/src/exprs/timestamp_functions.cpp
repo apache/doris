@@ -398,23 +398,38 @@ BigIntVal TimestampFunctions::timestamp_diff(FunctionContext* ctx, const DateTim
     switch (unit) {
         case YEAR: {
             int year = (ts_value2.year() - ts_value1.year());
-            year -= (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) < 0;
+            if (year >= 0) {
+                year -= (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) < 0;
+            } else {
+                year += (ts_value2.to_int64() % 10000000000 - ts_value1.to_int64() % 10000000000) > 0;
+            }
             return year;
         }
         case MONTH: {
-            int month = (ts_value2.year() - ts_value1.year()) * 12 +
-                        (ts_value2.month() - ts_value1.month());
-            month -= (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) < 0;
+            int month = (ts_value2.year() - ts_value1.year()) * 12 + (ts_value2.month() - ts_value1.month());
+            if (month >= 0) {
+                month -= (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) < 0;
+            } else {
+                month += (ts_value2.to_int64() % 100000000 - ts_value1.to_int64() % 100000000) > 0;
+            }
             return month;
         }
         case WEEK: {
             int day = ts_value2.daynr() - ts_value1.daynr();
-            day -= ts_value2.time_part_diff(ts_value1) < 0;
+            if (day >= 0) {
+                day -= ts_value2.time_part_diff(ts_value1) < 0;
+            } else {
+                day += ts_value2.time_part_diff(ts_value1) > 0;
+            }
             return day / 7;
         }
         case DAY: {
             int day = ts_value2.daynr() - ts_value1.daynr();
-            day -= ts_value2.time_part_diff(ts_value1) < 0;
+            if (day >= 0) {
+                day -= ts_value2.time_part_diff(ts_value1) < 0;
+            } else {
+                day += ts_value2.time_part_diff(ts_value1) > 0;
+            }
             return day;
         }
         case HOUR: {

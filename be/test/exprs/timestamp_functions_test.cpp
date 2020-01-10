@@ -133,12 +133,20 @@ TEST_F(TimestampFunctionsTest, timestampdiff_test) {
 
     //YEAR
     ASSERT_EQ(0, TimestampFunctions::years_diff(context, tv2, tv1).val);
+    DateTimeValue dt_year(20100930000000);
+    doris_udf::DateTimeVal tv_year;
+    dt_year.to_datetime_val(&tv_year);
+    ASSERT_EQ(-1, TimestampFunctions::years_diff(context, tv_year, tv1).val);
     //MONTH
     ASSERT_EQ(0, TimestampFunctions::months_diff(context, tv2, tv1).val);
     DateTimeValue dt3(20120924000000);
     doris_udf::DateTimeVal tv3;
     dt3.to_datetime_val(&tv3);
     ASSERT_EQ(0, TimestampFunctions::months_diff(context, tv3, tv1).val);
+    DateTimeValue dt_month(20120631000000);
+    doris_udf::DateTimeVal tv_month;
+    dt_month.to_datetime_val(&tv_month);
+    ASSERT_EQ(-1, TimestampFunctions::months_diff(context, tv_month, tv1).val);
     //WEEK
     ASSERT_EQ(0, TimestampFunctions::weeks_diff(context, tv2, tv1).val);
     //DAY
@@ -151,6 +159,12 @@ TEST_F(TimestampFunctionsTest, timestampdiff_test) {
     doris_udf::DateTimeVal tv5;
     dt5.to_datetime_val(&tv5);
     ASSERT_EQ(8, TimestampFunctions::days_diff(context, tv5, tv1).val);
+
+    DateTimeValue dt_day(20120823000005);
+    doris_udf::DateTimeVal tv_day;
+    dt_day.to_datetime_val(&tv_day);
+    ASSERT_EQ(0, TimestampFunctions::days_diff(context, tv_day, tv1).val);
+
     //HOUR
     ASSERT_EQ(143, TimestampFunctions::hours_diff(context, tv2, tv1).val);
     //MINUTE
