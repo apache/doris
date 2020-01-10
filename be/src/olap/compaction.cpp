@@ -175,6 +175,7 @@ OLAPStatus Compaction::gc_unused_rowsets() {
     for (auto& rowset : _input_rowsets) {
         storage_engine->add_unused_rowset(rowset);
     }
+    _input_rowsets.clear();
     return OLAP_SUCCESS;
 }
 

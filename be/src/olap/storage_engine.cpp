@@ -748,7 +748,7 @@ void StorageEngine::start_delete_unused_rowset() {
     for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
         if (it->second.use_count() != 1) {
             ++it;
-        } else if (it->second->need_delete_file()){
+        } else if (it->second->need_delete_file()) {
             LOG(INFO) << "start to remove rowset:" << it->second->rowset_id()
                     << ", version:" << it->second->version().first << "-" << it->second->version().second;
             OLAPStatus status = it->second->remove();
@@ -769,6 +769,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     auto it = _unused_rowsets.find(rowset->unique_id());
     if (it == _unused_rowsets.end()) {
         rowset->set_need_delete_file();
+        rowset->close();
         _unused_rowsets[rowset->unique_id()] = rowset;
         release_rowset_id(rowset->rowset_id());
     }
