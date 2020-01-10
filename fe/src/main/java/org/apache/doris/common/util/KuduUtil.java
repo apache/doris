@@ -353,7 +353,7 @@ public class KuduUtil {
             if (nameSet.contains(desc.getPartitionName())) {
                 throw new AnalysisException("Duplicated partition name: " + desc.getPartitionName());
             }
-            desc.analyze(partDesc.getPartitionColNames().size(), null);
+            desc.analyze(partDesc.getPartitionColNames().size(), null, null);
             nameSet.add(desc.getPartitionName());
         }
     }

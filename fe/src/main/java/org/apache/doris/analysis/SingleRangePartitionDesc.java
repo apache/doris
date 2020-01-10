@@ -87,15 +87,13 @@ public class SingleRangePartitionDesc {
         return this.properties;
     }
 
-    public void analyze(int partColNum, Map<String, String> otherProperties) throws AnalysisException {
+    public void analyze(int partColNum, Map<String, String> otherProperties, Short replicationNum) throws AnalysisException {
         if (isAnalyzed) {
             return;
         }
 
         FeNameFormat.checkPartitionName(partName);
-
         partitionKeyDesc.analyze(partColNum);
-
         if (otherProperties != null) {
             // use given properties
             if (properties != null && !properties.isEmpty()) {
@@ -112,7 +110,8 @@ public class SingleRangePartitionDesc {
         Preconditions.checkNotNull(partitionDataProperty);
 
         // analyze replication num
-        replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
+        replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties,
+            replicationNum == null ? FeConstants.default_replication_num : replicationNum);
         if (replicationNum == null) {
             throw new AnalysisException("Invalid replication number: " + replicationNum);
         }

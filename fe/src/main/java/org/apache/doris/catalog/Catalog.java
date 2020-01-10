@@ -2912,7 +2912,13 @@ public class Catalog {
             // check range
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             // here we check partition's properties
-            singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), null);
+            Short replicationNum = null;
+            if (olapTable.getTableProperty() != null &&olapTable.getTableProperty().getProperties() != null &&
+            olapTable.getTableProperty().getProperties().containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+                replicationNum = Short.parseShort(
+                    olapTable.getTableProperty().getProperties().get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+            }
+            singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), null, replicationNum);
 
             rangePartitionInfo.checkAndCreateRange(singlePartitionDesc);
 
@@ -3494,6 +3500,7 @@ public class Catalog {
             short replicationNum = FeConstants.default_replication_num;
             try {
                 replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
+                olapTable.setReplicationNum(replicationNum);
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -3573,8 +3580,8 @@ public class Catalog {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
-                    PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
-
+                    Short replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
+                    olapTable.setReplicationNum(replicationNum);
                     DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties);
 
                     if (properties != null && !properties.isEmpty()) {
@@ -3787,8 +3794,7 @@ public class Catalog {
     }
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, short replicationNum,
-                                  boolean hidePassword) {
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3891,11 +3897,6 @@ public class Catalog {
                         .append("\"");
             }
 
-            if (replicationNum > 0) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
-                sb.append(replicationNum).append("\"");
-            }
-
             // 5. colocateTable
             String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
@@ -3908,6 +3909,12 @@ public class Catalog {
                 sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().toString());
             }
 
+            // 7. replicationNum
+            Short replicationNum = olapTable.getReplicationNum();
+            if (replicationNum != null) {
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
+                sb.append(replicationNum).append("\"");
+            }
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -3996,14 +4003,9 @@ public class Catalog {
                 sb.append(" ADD PARTITION ").append(partition.getName()).append(" VALUES [");
                 sb.append(entry.getValue().lowerEndpoint().toSql());
                 sb.append(", ").append(entry.getValue().upperEndpoint().toSql()).append(")");
-
                 sb.append("(\"version_info\" = \"");
                 sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
                         .append("\"");
-                if (replicationNum > 0) {
-                    sb.append(", \"replication_num\" = \"").append(replicationNum).append("\"");
-                }
-
                 sb.append(");");
                 addPartitionStmt.add(sb.toString());
             }

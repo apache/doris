@@ -123,6 +123,8 @@ public class OlapTable extends Table {
     // The init value is -1, which means there is not partition and index at all.
     private long baseIndexId = -1;
 
+    private Short replicationNum;
+
     private TableProperty tableProperty;
 
     public OlapTable() {
@@ -148,6 +150,8 @@ public class OlapTable extends Table {
         this.indexes = null;
       
         this.tableProperty = null;
+
+        this.replicationNum = null;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
@@ -905,6 +909,13 @@ public class OlapTable extends Table {
             out.writeBoolean(true);
             tableProperty.write(out);
         }
+        //replicationNum
+        if (replicationNum == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            out.writeShort(replicationNum);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -1009,6 +1020,12 @@ public class OlapTable extends Table {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_71) {
             if (in.readBoolean()) {
                 tableProperty = TableProperty.read(in);
+            }
+        }
+        // replicationNum
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
+            if (in.readBoolean()) {
+                replicationNum =  in.readShort();
             }
         }
     }
@@ -1202,5 +1219,13 @@ public class OlapTable extends Table {
             }
         }
         return hasChanged;
+    }
+
+    public void setReplicationNum(Short replicationNum) {
+        this.replicationNum = replicationNum;
+    }
+
+    public Short getReplicationNum() {
+        return replicationNum;
     }
 }
