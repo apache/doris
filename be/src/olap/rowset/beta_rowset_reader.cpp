@@ -28,9 +28,11 @@ namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
     : _rowset(std::move(rowset)), _stats(&_owned_stats) {
+    _rowset->aquire();
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
+    RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
         // schema change/compaction should use owned_stats

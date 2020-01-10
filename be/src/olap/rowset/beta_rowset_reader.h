@@ -31,7 +31,9 @@ class BetaRowsetReader : public RowsetReader {
 public:
     explicit BetaRowsetReader(BetaRowsetSharedPtr rowset);
 
-    ~BetaRowsetReader() override = default;
+    ~BetaRowsetReader() override {
+        _rowset->release();
+    }
 
     OLAPStatus init(RowsetReaderContext* read_context) override;
 
