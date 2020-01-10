@@ -858,14 +858,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         // index
         out.writeBoolean(indexChange);
-        if (CollectionUtils.isNotEmpty(indexes)) {
-            out.writeBoolean(true);
-            out.writeInt(indexes.size());
-            for (Index index : indexes) {
-                index.write(out);
+        if (indexChange) {
+            if (CollectionUtils.isNotEmpty(indexes)) {
+                out.writeBoolean(true);
+                out.writeInt(indexes.size());
+                for (Index index : indexes) {
+                    index.write(out);
+                }
+            } else {
+                out.writeBoolean(false);
             }
-        } else {
-            out.writeBoolean(false);
         }
     }
 
