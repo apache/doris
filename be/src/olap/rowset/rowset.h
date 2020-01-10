@@ -84,6 +84,18 @@ public:
         return OLAP_SUCCESS;
     }
 
+    OLAPStatus on_release() {
+        switch (_rowset_state) {
+            case ROWSET_UNLOADING:
+                _rowset_state = ROWSET_UNLOADED;
+                break;
+
+            default:
+                return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+        }
+        return OLAP_SUCCESS;
+    }
+
     RowsetState rowset_state() {
         return _rowset_state;
     }
@@ -228,7 +240,7 @@ public:
                 if (_refs_by_reader == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
                     // first do close, then change state
                     do_close();
-                    _rowset_state_machine.on_close(0);
+                    _rowset_state_machine.on_release();
                 }
             }
             if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
