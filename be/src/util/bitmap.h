@@ -268,17 +268,7 @@ public:
 
     // the src is the serialized bitmap data, the type could be EMPTY, SINGLE or BITMAP
     explicit RoaringBitmap(const char* src) {
-        _type = (BitmapDataType)src[0];
-        DCHECK(_type >= 0 && _type <= 2);
-        switch (_type) {
-            case EMPTY:
-                break;
-            case SINGLE:
-                _int_value = decode_fixed32_le(reinterpret_cast<const uint8_t *>(src + 1));
-                break;
-            case BITMAP:
-                _roaring = Roaring::read(src + 1);
-        }
+        deserialize(src);
     }
 
     void update(const uint32_t value) {
@@ -410,17 +400,27 @@ public:
         }
     }
 
-    std::string to_string() const {
+    // deserialize a bitmap from input serialized binary.
+    // the src is the serialized bitmap data, the type could be EMPTY, SINGLE or BITMAP
+    bool deserialize(const char* src) {
+        _type = (BitmapDataType)src[0];
+        DCHECK(_type >= 0 && _type <= 2);
         switch (_type) {
             case EMPTY:
-                return {};
+                break;
             case SINGLE:
-                return std::to_string(_int_value);
+                _int_value = decode_fixed32_le(reinterpret_cast<const uint8_t *>(src + 1));
+                break;
             case BITMAP:
-                return _roaring.toString();
+                _roaring = Roaring::read(src + 1);
+                break;
+            default:
+                return false;
         }
-        return {};
+        return true;
     }
+
+    std::string to_string() const;
 
 private:
     enum BitmapDataType {

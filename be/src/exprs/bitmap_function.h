@@ -55,6 +55,7 @@ public:
     static StringVal bitmap_hash(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_or(FunctionContext* ctx, const StringVal& src,const StringVal& dst);
     static StringVal bitmap_and(FunctionContext* ctx, const StringVal& src,const StringVal& dst);
+    static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
 
     // bitmap_intersect
     template<typename T, typename ValType>

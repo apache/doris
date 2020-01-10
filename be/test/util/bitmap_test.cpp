@@ -267,6 +267,15 @@ TEST_F(BitMapTest, roaring_bitmap_serde) {
     ASSERT_EQ(3, bitmap_serde.cardinality());
 }
 
+TEST_F(BitMapTest, bitmap_to_string) {
+    RoaringBitmap empty;
+    ASSERT_STREQ("[]", empty.to_string().c_str());
+    empty.update(1);
+    ASSERT_STREQ("[1]", empty.to_string().c_str());
+    empty.update(2);
+    ASSERT_STREQ("[1,2]", empty.to_string().c_str());
+}
+
 }
 
 int main(int argc, char** argv) {

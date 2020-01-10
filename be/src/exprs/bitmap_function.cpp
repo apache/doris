@@ -425,9 +425,25 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs
         bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
     }
 
-    StringVal result(ctx,bitmap.size());
+    StringVal result(ctx, bitmap.size());
     bitmap.serialize((char*)result.ptr);
     return result;
+}
+
+StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
+    if (input.is_null) {
+        return StringVal::null();
+    }
+    RoaringBitmap bitmap_obj;
+    RoaringBitmap* bitmap = &bitmap_obj;
+    if (input.len == 0) {
+        bitmap = (RoaringBitmap*)input.ptr;
+    } else {
+        bitmap_obj.deserialize((const char*)input.ptr);
+    }
+
+    std::string str = bitmap->to_string();
+    return AnyValUtil::from_string_temp(ctx, str);
 }
 
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(
