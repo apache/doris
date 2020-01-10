@@ -115,6 +115,8 @@ public class SchemaChangeJobV2Test {
 
     @Test
     public void testAddSchemaChange() throws UserException {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
         SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -130,6 +132,8 @@ public class SchemaChangeJobV2Test {
     // start a schema change, then finished
     @Test
     public void testSchemaChange1() throws Exception {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
         SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
 

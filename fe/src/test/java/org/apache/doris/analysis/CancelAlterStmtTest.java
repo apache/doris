@@ -18,11 +18,16 @@
 package org.apache.doris.analysis;
 
 
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import org.easymock.EasyMock;
@@ -35,9 +40,6 @@ import org.powermock.core.classloader.annotations.PowerMockIgnore;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class, ConnectContext.class })
 public class CancelAlterStmtTest {
 
     private Analyzer analyzer;
@@ -45,36 +47,44 @@ public class CancelAlterStmtTest {
 
     private ConnectContext ctx;
 
-    private PaloAuth auth;
+    private static FakeCatalog fakeCatalog;
 
     @Before
     public void setUp() {
-        auth = new PaloAuth();
-
+        catalog = AccessTestUtil.fetchAdminCatalog();
         ctx = new ConnectContext(null);
         ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
 
-        catalog = AccessTestUtil.fetchAdminCatalog();
+        analyzer = new Analyzer(catalog, ctx);
+        new Expectations(analyzer) {
+            {
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "testDb";
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+                analyzer.getQualifiedUser();
+                minTimes = 0;
+                result = "testUser";
+            }
+        };
 
-        PowerMock.mockStatic(ConnectContext.class);
-        EasyMock.expect(ConnectContext.get()).andReturn(ctx).anyTimes();
-        PowerMock.replay(ConnectContext.class);
-
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("testDb").anyTimes();
-        EasyMock.expect(analyzer.getQualifiedUser()).andReturn("testUser").anyTimes();
-        EasyMock.expect(analyzer.getCatalog()).andReturn(catalog).anyTimes();
-        EasyMock.replay(analyzer);
+        new MockUp<ConnectContext>() {
+            @Mock
+            public ConnectContext get() {
+                return ctx;
+            }
+        };
     }
 
     @Test
     public void testNormal() throws UserException, AnalysisException {
+        fakeCatalog = new FakeCatalog();
+        FakeCatalog.setCatalog(catalog);
+        Assert.assertEquals(Catalog.getInstance().getAuth().checkTblPriv(ConnectContext.get(), "testDb",
+                "testTbl", PrivPredicate.ALTER), true);
+        Assert.assertEquals(Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), "testDb",
+                "testTbl", PrivPredicate.ALTER), true);
         // cancel alter column
         CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN, new TableName(null, "testTbl"));
         stmt.analyze(analyzer);

@@ -17,28 +17,24 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class, ConnectContext.class })
 public class DescribeStmtTest {
     private Analyzer analyzer;
     private Catalog catalog;
     private ConnectContext ctx;
+
+    FakeCatalog fakeCatalog;
 
     @Before
     public void setUp() {
@@ -46,18 +42,19 @@ public class DescribeStmtTest {
         ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
 
-        PowerMock.mockStatic(ConnectContext.class);
-        EasyMock.expect(ConnectContext.get()).andReturn(ctx).anyTimes();
-        PowerMock.replay(ConnectContext.class);
+        new MockUp<ConnectContext>() {
+            @Mock
+            public ConnectContext get() {
+                return ctx;
+            }
+        };
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         catalog = AccessTestUtil.fetchAdminCatalog();
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(AccessTestUtil.fetchSystemInfoService()).anyTimes();
-        PowerMock.replay(Catalog.class);
 
+        fakeCatalog = new FakeCatalog();
+        FakeCatalog.setCatalog(catalog);
+        FakeCatalog.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
     }
 
     @Test

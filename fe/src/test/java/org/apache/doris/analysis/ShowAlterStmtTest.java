@@ -17,49 +17,53 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
-import javax.validation.constraints.Null;
-
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class ShowAlterStmtTest {
     private Analyzer analyzer;
     private Catalog catalog;
     private SystemInfoService systemInfo;
 
+    private static FakeCatalog fakeCatalog;
+
     @Before
     public void setUp() {
+        fakeCatalog = new FakeCatalog();
         catalog = AccessTestUtil.fetchAdminCatalog();
-        systemInfo = new SystemInfoService();
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfo).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+        FakeCatalog.setCatalog(catalog);
 
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("testDb").anyTimes();
-        EasyMock.expect(analyzer.getQualifiedUser()).andReturn("testUser").anyTimes();
-        EasyMock.expect(analyzer.getCatalog()).andReturn(catalog).anyTimes();
-        EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
-        EasyMock.replay(analyzer);
+        analyzer = new Analyzer(catalog, new ConnectContext(null));
+        new Expectations(analyzer) {
+            {
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "testDb";
+
+                analyzer.getQualifiedUser();
+                minTimes = 0;
+                result = "testUser";
+
+                analyzer.getCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                analyzer.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+            }
+        };
     }
 
     @Test
