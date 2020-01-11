@@ -81,10 +81,6 @@ public class CancelAlterStmtTest {
     public void testNormal() throws UserException, AnalysisException {
         fakeCatalog = new FakeCatalog();
         FakeCatalog.setCatalog(catalog);
-        Assert.assertEquals(Catalog.getInstance().getAuth().checkTblPriv(ConnectContext.get(), "testDb",
-                "testTbl", PrivPredicate.ALTER), true);
-        Assert.assertEquals(Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), "testDb",
-                "testTbl", PrivPredicate.ALTER), true);
         // cancel alter column
         CancelAlterTableStmt stmt = new CancelAlterTableStmt(AlterType.COLUMN, new TableName(null, "testTbl"));
         stmt.analyze(analyzer);
