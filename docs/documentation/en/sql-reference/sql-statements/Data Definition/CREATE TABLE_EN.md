@@ -78,7 +78,6 @@ Syntax:
             This type can only be queried by hll_union_agg, hll_cardinality, hll_hash functions.
         BITMAP
             BITMAP type, No need to specify length.
-            This type can only be queried by BITMAP_UNION、BITMAP_COUNT、TO_BITMAP functions.
     ```
     agg_type: Aggregation type. If not specified, the column is key column. Otherwise, the column   is value column.
        * SUM、MAX、MIN、REPLACE
