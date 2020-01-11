@@ -384,23 +384,6 @@ public class FunctionCallExpr extends Expr {
             throw new AnalysisException("BITMAP_UNION_INT params only support TINYINT or SMALLINT or INT");
         }
 
-        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT))) {
-            if (children.size() != 1) {
-                throw new AnalysisException("BITMAP_UNION_COUNT function could only have one child");
-            }
-
-            if (getChild(0) instanceof SlotRef) {
-                SlotRef slotRef = (SlotRef) getChild(0);
-                Column column = slotRef.getDesc().getColumn();
-                if (column != null && column.getAggregationType() != AggregateType.BITMAP_UNION) {
-                    throw new AnalysisException("BITMAP_UNION_COUNT function arg must be bitmap column");
-                }
-            } else {
-                throw new AnalysisException("BITMAP_UNION_COUNT function arg must be bitmap column");
-            }
-            return;
-        }
-
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.INTERSECT_COUNT)) {
             if (children.size() <= 2) {
                 throw new AnalysisException("intersect_count(bitmap_column, column_to_filter, filter_values) " +
@@ -425,53 +408,15 @@ public class FunctionCallExpr extends Expr {
             return;
         }
 
-        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_COUNT))) {
+        if (fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_COUNT)
+                || fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)
+                || fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)) {
             if (children.size() != 1) {
-                throw new AnalysisException("BITMAP_COUNT function could only have one child");
+                throw new AnalysisException(fnName + " function could only have one child");
             }
-
-            if (getChild(0) instanceof SlotRef) {
-                SlotRef slotRef = (SlotRef) getChild(0);
-                Column column = slotRef.getDesc().getColumn();
-                if (column != null && column.getAggregationType() != AggregateType.BITMAP_UNION) {
-                    throw new AnalysisException("BITMAP_COUNT function require the column is BITMAP_UNION aggregate type");
-                } else if (slotRef.getDesc().getSourceExprs().size() == 1) {
-                    Expr sourceExpr = slotRef.getDesc().getSourceExprs().get(0);
-                    if (sourceExpr instanceof FunctionCallExpr) {
-                        FunctionCallExpr functionExpr = (FunctionCallExpr) sourceExpr;
-                        if (!functionExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
-                            throw new AnalysisException("BITMAP_COUNT function only support BITMAP_UNION function as it's child");
-                        }
-                    }
-                }
-            } else if (getChild(0) instanceof FunctionCallExpr) {
-                FunctionCallExpr functionCallExpr = (FunctionCallExpr) getChild(0);
-                if (!functionCallExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
-                    throw new AnalysisException("BITMAP_COUNT function only support BITMAP_UNION function as it's child");
-                }
-            } else {
-                throw new AnalysisException("BITMAP_COUNT only support BITMAP_UNION(column) or BITMAP_COUNT(BITMAP_UNION(column))");
-            }
-            return;
-        }
-
-        if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION))) {
-            if (children.size() != 1) {
-                throw new AnalysisException("BITMAP_UNION function could only have one child");
-            }
-
-            if (getChild(0) instanceof SlotRef) {
-                SlotRef slotRef = (SlotRef) getChild(0);
-                if (slotRef.getDesc().getColumn().getAggregationType() != AggregateType.BITMAP_UNION) {
-                    throw new AnalysisException("BITMAP_UNION function require the column is BITMAP_UNION aggregate type");
-                }
-            } else if (getChild(0) instanceof FunctionCallExpr) {
-                FunctionCallExpr functionCallExpr = (FunctionCallExpr) getChild(0);
-                if (functionCallExpr.getFn().getReturnType() != Type.BITMAP) {
-                    throw new AnalysisException("BITMAP_UNION function require child function return type is BITMAP");
-                }
-            } else {
-                throw new AnalysisException("BITMAP_UNION only support BITMAP_UNION(column) or BITMAP_UNION(TO_BITMAP(column))");
+            Type inputType = getChild(0).getType();
+            if (!inputType.isBitmapType()) {
+                throw new AnalysisException(fnName + " function's argument should be of BITMAP type, but was " + inputType);
             }
             return;
         }

@@ -22,6 +22,7 @@ under the License.
 ## Create table
 
 建表时需要使用聚合模型，数据类型是 bitmap , 聚合函数是 bitmap_union
+
 ```
 CREATE TABLE `pv_bitmap` (
   `dt` int(11) NULL COMMENT "",
@@ -92,11 +93,9 @@ insert into bitmap_table1 select id, bitmap_hash(id_string) from table;
 ### Syntax
 
 
-`BITMAP_UNION(expr)` : 计算两个 Bitmap 的并集，返回值是序列化后的 Bitmap 值
+`BITMAP_UNION(expr)` : 计算输入 Bitmap 的并集，返回新的bitmap
 
-`BITMAP_COUNT(expr)` : 计算 Bitmap 中不同值的个数
-
-`BITMAP_UNION_COUNT(expr)`: 计算两个 Bitmap 的并集的基数值，和 BITMAP_COUNT(BITMAP_UNION(expr)) 等价
+`BITMAP_UNION_COUNT(expr)`: 计算输入 Bitmap 的并集，返回其基数，和 BITMAP_COUNT(BITMAP_UNION(expr)) 等价。目前推荐优先使用 BITMAP_UNION_COUNT ，其性能优于 BITMAP_COUNT(BITMAP_UNION(expr))
 
 `BITMAP_UNION_INT(expr)` : 计算 TINYINT,SMALLINT 和 INT 类型的列中不同值的个数，返回值和
 COUNT(DISTINCT expr) 相同
@@ -104,18 +103,6 @@ COUNT(DISTINCT expr) 相同
 `INTERSECT_COUNT(bitmap_column_to_count, filter_column, filter_values ...)` : 计算满足
 filter_column 过滤条件的多个 bitmap 的交集的基数值。
 bitmap_column_to_count 是 bitmap 类型的列，filter_column 是变化的维度列，filter_values 是维度取值列表
-
-`BITMAP_OR(expr,expr)`: 计算两个Bitmap列的并集，返回值是序列化后 Bitmap 值
-
-`BITMAP_AND(expr,expr)`:计算两个Bitmap列的交集，返回值是序列化后 Bitmap 值
-
-
-
-注意：
-	1. BITMAP_UNION 函数的参数目前仅支持： 
-		- 聚合模型中聚合类型为 BITMAP_UNION 的列
-		- TO_BITMAP, BITMAP_HASH 和 BITMAP_EMPTY 函数
-	2. 推荐优先使用 BITMAP_UNION_COUNT 函数，其性能优于 BITMAP_COUNT(BITMAP_UNION(expr))
 
 
 ### Example
