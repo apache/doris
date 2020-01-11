@@ -35,6 +35,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 
 import java.text.SimpleDateFormat;
@@ -254,7 +255,7 @@ public class DynamicPartitionUtil {
     }
 
     public static int estimateReplicateNum(OlapTable table) {
-        int replicateNum = 3;
+        int replicateNum = table.getReplicationNum() == null ? FeConstants.default_replication_num : table.getReplicationNum();
         long maxPartitionId = 0;
         for (Partition partition: table.getPartitions()) {
             if (partition.getId() > maxPartitionId) {

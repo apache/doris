@@ -2912,12 +2912,7 @@ public class Catalog {
             // check range
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             // here we check partition's properties
-            Short replicationNum = null;
-            if (olapTable.getTableProperty() != null &&olapTable.getTableProperty().getProperties() != null &&
-            olapTable.getTableProperty().getProperties().containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-                replicationNum = Short.parseShort(
-                    olapTable.getTableProperty().getProperties().get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-            }
+            Short replicationNum = olapTable.getReplicationNum();
             singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), null, replicationNum);
 
             rangePartitionInfo.checkAndCreateRange(singlePartitionDesc);
