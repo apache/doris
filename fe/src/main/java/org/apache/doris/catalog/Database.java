@@ -311,18 +311,13 @@ public class Database extends MetaObject implements Writable {
     }
 
     public List<Table> getTables() {
-        List<Table> tables = new ArrayList<Table>(idToTable.values());
-        return tables;
+        return new ArrayList<Table>(idToTable.values());
     }
 
     public Set<String> getTableNamesWithLock() {
         readLock();
         try {
-            Set<String> tableNames = new HashSet<String>();
-            for (String name : this.nameToTable.keySet()) {
-                tableNames.add(name);
-            }
-            return tableNames;
+            return new HashSet<String>(this.nameToTable.keySet());
         } finally {
             readUnlock();
         }
