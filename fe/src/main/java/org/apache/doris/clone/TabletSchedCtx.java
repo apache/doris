@@ -424,8 +424,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         for (Replica replica : tablet.getReplicas()) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be == null) {
-                // BE has been dropped, just return true, so that the caller will not choose this BE.
-                return true;
+                // BE has been dropped, skip it
+                continue;
             }
             if (host.equals(be.getHost())) {
                 return true;
