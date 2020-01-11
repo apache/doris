@@ -53,12 +53,12 @@ public class DescribeStmtTest {
         catalog = AccessTestUtil.fetchAdminCatalog();
 
         fakeCatalog = new FakeCatalog();
-        FakeCatalog.setCatalog(catalog);
         FakeCatalog.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
     }
 
     @Test
     public void testNormal() throws AnalysisException, UserException {
+        FakeCatalog.setCatalog(catalog);
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), false);
         stmt.analyze(analyzer);
         Assert.assertEquals("DESCRIBE `testCluster:testDb.testTbl`", stmt.toString());
@@ -69,6 +69,7 @@ public class DescribeStmtTest {
 
     @Test
     public void testAllNormal() throws AnalysisException, UserException {
+        FakeCatalog.setCatalog(catalog);
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), true);
         stmt.analyze(analyzer);
         Assert.assertEquals("DESCRIBE `testCluster:testDb.testTbl` ALL", stmt.toString());

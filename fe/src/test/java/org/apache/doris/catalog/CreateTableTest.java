@@ -96,6 +96,14 @@ public class CreateTableTest {
             }
         };
 
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
+
         dbTableName.analyze(analyzer);
     }
 
