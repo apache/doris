@@ -52,6 +52,7 @@
 #include "util/file_utils.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
+#include "gutil/strings/substitute.h"
 
 using std::deque;
 using std::list;
@@ -195,22 +196,26 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
 
     std::string type_str;
     EnumToString(TTaskType, task_type, type_str);
+    LOG(INFO) << "submitting task. type=" << type_str << ", signature=" << signature;
 
-    if (_check_task_info(task_type, signature)) {
+    if (_register_task_info(task_type, signature)) {
         // Set the receiving time of task so that we can determine whether it is timed out later
         (const_cast<TAgentTaskRequest&>(task)).__set_recv_time(time(nullptr));
-        lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
-        _tasks.push_back(task);
-        _worker_thread_condition_lock.notify();
-        LOG(INFO) << "success to submit task. type=" << type_str
-                  << ", signature=" << signature;
+        size_t task_count_in_queue = 0;
+        {
+            lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
+            _tasks.push_back(task);
+            task_count_in_queue = _tasks.size();
+            _worker_thread_condition_lock.notify();
+        }
+        LOG(INFO) << "success to submit task. type=" << type_str << ", signature=" << signature
+                << ", task_count_in_queue=" << task_count_in_queue;
     } else {
-        LOG(INFO) << "fail to submit task. type=" << type_str
-                << ", signature=" << signature;
+        LOG(INFO) << "fail to register task. type=" << type_str << ", signature=" << signature;
     }
 }
 
-bool TaskWorkerPool::_check_task_info(const TTaskType::type task_type, int64_t signature) {
+bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
     lock_guard<Mutex> task_signatures_lock(_s_task_signatures_lock);
     set<int64_t>& signature_set = _s_task_signatures[task_type];
     return signature_set.insert(signature).second;
@@ -273,7 +278,7 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
             break;
         } else {
             DorisMetrics::finish_task_requests_failed.increment(1);
-            OLAP_LOG_WARNING("finish task failed. result: %d", result.status.status_code);
+            LOG(WARNING) << "finish task failed. status_code=" << result.status.status_code;
             try_time += 1;
         }
 #ifndef BE_TEST
@@ -726,8 +731,9 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             DorisMetrics::publish_task_failed_total.increment(1);
             // if publish failed, return failed, FE will ignore this error and
             // check error tablet ids and FE will also republish this task
-            LOG(WARNING) << "publish version failed. signature:" << agent_task_req.signature;
-            st = Status::RuntimeError("publish version failed");
+            LOG(WARNING) << "publish version failed. signature:" << agent_task_req.signature
+                    << ", error_code=" << res;
+            st = Status::RuntimeError(strings::Substitute("publish version failed. error=$0", res));
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
             _s_report_version++;

@@ -81,7 +81,7 @@ public:
     virtual void submit_task(const TAgentTaskRequest& task);
 
 private:
-    bool _check_task_info(const TTaskType::type task_type, int64_t signature);
+    bool _register_task_info(const TTaskType::type task_type, int64_t signature);
     void _remove_task_info(const TTaskType::type task_type, int64_t signature);
     void _spawn_callback_worker_thread(CALLBACK_FUNCTION callback_func);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
