@@ -268,16 +268,22 @@ public:
 
     // the src is the serialized bitmap data, the type could be EMPTY, SINGLE or BITMAP
     explicit RoaringBitmap(const char* src) {
-        _type = (BitmapDataType)src[0];
-        DCHECK(_type >= 0 && _type <= 2);
-        switch (_type) {
-            case EMPTY:
-                break;
-            case SINGLE:
-                _int_value = decode_fixed32_le(reinterpret_cast<const uint8_t *>(src + 1));
-                break;
-            case BITMAP:
-                _roaring = Roaring::read(src + 1);
+        deserialize(src);
+    }
+
+    // construct a bitmap from given bits
+    explicit RoaringBitmap(const std::vector<uint32_t>& bits) {
+        switch (bits.size()) {
+        case 0:
+            _type = EMPTY;
+            break;
+        case 1:
+            _type = SINGLE;
+            _int_value = bits[0];
+            break;
+        default:
+            _type = BITMAP;
+            _roaring.addMany(bits.size(), &bits[0]);
         }
     }
 
@@ -371,6 +377,19 @@ public:
         }
     }
 
+    // check if value x is present
+    bool contains(uint32_t x) {
+        switch (_type) {
+        case EMPTY:
+            return false;
+        case SINGLE:
+            return _int_value == x;
+        case BITMAP:
+            return _roaring.contains(x);
+        }
+        return false;
+    }
+
     int64_t cardinality() const {
         switch (_type) {
             case EMPTY:
@@ -410,17 +429,27 @@ public:
         }
     }
 
-    std::string to_string() const {
+    // deserialize a bitmap from input serialized binary.
+    // the src is the serialized bitmap data, the type could be EMPTY, SINGLE or BITMAP
+    bool deserialize(const char* src) {
+        _type = (BitmapDataType)src[0];
+        DCHECK(_type >= 0 && _type <= 2);
         switch (_type) {
             case EMPTY:
-                return {};
+                break;
             case SINGLE:
-                return std::to_string(_int_value);
+                _int_value = decode_fixed32_le(reinterpret_cast<const uint8_t *>(src + 1));
+                break;
             case BITMAP:
-                return _roaring.toString();
+                _roaring = Roaring::read(src + 1);
+                break;
+            default:
+                return false;
         }
-        return {};
+        return true;
     }
+
+    std::string to_string() const;
 
 private:
     enum BitmapDataType {
@@ -430,7 +459,7 @@ private:
     };
 
     Roaring _roaring;
-    uint32_t _int_value;
+    uint32_t _int_value = 0;
     BitmapDataType _type;
 };
 
