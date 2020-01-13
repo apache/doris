@@ -45,7 +45,7 @@ OLAPStatus BetaRowset::init() {
 }
 
 // `use_cache` is ignored because beta rowset doesn't support fd cache now
-OLAPStatus BetaRowset::do_load_once(bool /*use_cache*/) {
+OLAPStatus BetaRowset::do_load(bool /*use_cache*/) {
     // Open all segments under the current rowset
     for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
         std::string seg_path = segment_file_path(_rowset_path, rowset_id(), seg_id);
@@ -62,7 +62,6 @@ OLAPStatus BetaRowset::do_load_once(bool /*use_cache*/) {
 }
 
 OLAPStatus BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
-    RETURN_NOT_OK(load());
     // NOTE: We use std::static_pointer_cast for performance
     result->reset(new BetaRowsetReader(std::static_pointer_cast<BetaRowset>(shared_from_this())));
     return OLAP_SUCCESS;
@@ -79,7 +78,9 @@ OLAPStatus BetaRowset::split_range(const RowCursor& start_key,
 
 OLAPStatus BetaRowset::remove() {
     // TODO should we close and remove all segment reader first?
-    LOG(INFO) << "begin to remove files in rowset " << unique_id();
+    LOG(INFO) << "begin to remove files in rowset " << unique_id()
+            << ", version:" << start_version() << "-" << end_version()
+            << ", tabletid:" << _rowset_meta->tablet_id();
     bool success = true;
     for (int i = 0; i < num_segments(); ++i) {
         std::string path = segment_file_path(_rowset_path, rowset_id(), i);
@@ -97,6 +98,10 @@ OLAPStatus BetaRowset::remove() {
         return OLAP_ERR_ROWSET_DELETE_FILE_FAILED;
     }
     return OLAP_SUCCESS;
+}
+
+void BetaRowset::do_close() {
+    _segments.clear();
 }
 
 OLAPStatus BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id) {

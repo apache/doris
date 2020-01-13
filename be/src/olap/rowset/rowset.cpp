@@ -24,7 +24,9 @@ Rowset::Rowset(const TabletSchema *schema,
                RowsetMetaSharedPtr rowset_meta)
         : _schema(schema),
          _rowset_path(std::move(rowset_path)),
-         _rowset_meta(std::move(rowset_meta)) {
+         _rowset_meta(std::move(rowset_meta)),
+         _refs_by_reader(0),
+         _rowset_state_machine(RowsetStateMachine()) {
 
     _is_pending = !_rowset_meta->has_version();
     if (_is_pending) {
@@ -36,7 +38,26 @@ Rowset::Rowset(const TabletSchema *schema,
 }
 
 OLAPStatus Rowset::load(bool use_cache) {
-    return _load_once.call([this, use_cache] { return do_load_once(use_cache); });
+    // if the state is ROWSET_UNLOADING it means close() is called
+    // and the rowset is already loaded, and the resource is not closed yet.
+    if (_rowset_state_machine.rowset_state() == ROWSET_LOADED) {
+        return OLAP_SUCCESS;
+    }
+    {
+        // before lock, if rowset state is ROWSET_UNLOADING, maybe it is doing do_close in release
+        std::lock_guard<std::mutex> load_lock(_lock);
+        // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
+        if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
+            // first do load, then change the state
+            RETURN_NOT_OK(do_load(use_cache));
+            RETURN_NOT_OK(_rowset_state_machine.on_load());
+        }
+    }
+    // load is done
+    LOG(INFO) << "rowset is loaded. rowset version:" << start_version() << "-" << end_version()
+              << ", state from ROWSET_UNLOADED to ROWSET_LOADED. tabletid:"
+              << _rowset_meta->tablet_id();
+    return OLAP_SUCCESS;
 }
 
 void Rowset::make_visible(Version version, VersionHash version_hash) {
