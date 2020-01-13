@@ -17,54 +17,57 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.nio.channels.SocketChannel;
 import java.util.List;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({"org.apache.log4j.*", "javax.management.*"})
-@PrepareForTest({ConnectContext.class})
 public class ConnectContextTest {
+    @Mocked
     private MysqlChannel channel;
+    @Mocked
     private StmtExecutor executor;
+    @Mocked
+    private SocketChannel socketChannel;
+    @Mocked
+    private Catalog catalog;
+    @Mocked
+    private ConnectScheduler connectScheduler;
 
     @Before
     public void setUp() throws Exception {
-        channel = EasyMock.createMock(MysqlChannel.class);
-        EasyMock.expect(channel.getRemoteHostPortString()).andReturn("127.0.0.1:12345").anyTimes();
-        channel.close();
-        EasyMock.expectLastCall().anyTimes();
-        executor = EasyMock.createMock(StmtExecutor.class);
-        executor.cancel();
-        EasyMock.expectLastCall().anyTimes();
-        PowerMock.expectNew(MysqlChannel.class, EasyMock.isA(SocketChannel.class)).andReturn(channel).anyTimes();
-        EasyMock.expect(channel.getRemoteIp()).andReturn("192.168.1.1").anyTimes();
-        EasyMock.replay(channel);
-        EasyMock.replay(executor);
-        PowerMock.replay(MysqlChannel.class);
+        new Expectations() {
+            {
+                channel.getRemoteHostPortString();
+                minTimes = 0;
+                result = "127.0.0.1:12345";
+
+                channel.close();
+                minTimes = 0;
+
+                channel.getRemoteIp();
+                minTimes = 0;
+                result = "192.168.1.1";
+
+                executor.cancel();
+                minTimes = 0;
+            }
+        };
     }
 
     @Test
     public void testNormal() {
-        ConnectContext ctx = new ConnectContext(EasyMock.createMock(SocketChannel.class));
-
-        // channel
-        Assert.assertEquals(channel, ctx.getMysqlChannel());
+        ConnectContext ctx = new ConnectContext(socketChannel);
 
         // State
         Assert.assertNotNull(ctx.getState());
@@ -101,7 +104,7 @@ public class ConnectContextTest {
 
         // connect scheduler
         Assert.assertNull(ctx.getConnectScheduler());
-        ctx.setConnectScheduler(EasyMock.createMock(ConnectScheduler.class));
+        ctx.setConnectScheduler(connectScheduler);
         Assert.assertNotNull(ctx.getConnectScheduler());
 
         // connection id
@@ -137,7 +140,7 @@ public class ConnectContextTest {
 
         // Catalog
         Assert.assertNull(ctx.getCatalog());
-        ctx.setCatalog(EasyMock.createMock(Catalog.class));
+        ctx.setCatalog(catalog);
         Assert.assertNotNull(ctx.getCatalog());
 
         // clean up
@@ -146,7 +149,7 @@ public class ConnectContextTest {
 
     @Test
     public void testSleepTimeout() {
-        ConnectContext ctx = new ConnectContext(EasyMock.createMock(SocketChannel.class));
+        ConnectContext ctx = new ConnectContext(socketChannel);
         ctx.setCommand(MysqlCommand.COM_SLEEP);
 
         // sleep no time out
@@ -172,7 +175,7 @@ public class ConnectContextTest {
 
     @Test
     public void testOtherTimeout() {
-        ConnectContext ctx = new ConnectContext(EasyMock.createMock(SocketChannel.class));
+        ConnectContext ctx = new ConnectContext(socketChannel);
         ctx.setCommand(MysqlCommand.COM_QUERY);
 
         // sleep no time out
@@ -193,7 +196,7 @@ public class ConnectContextTest {
 
     @Test
     public void testThreadLocal() {
-        ConnectContext ctx = new ConnectContext(EasyMock.createMock(SocketChannel.class));
+        ConnectContext ctx = new ConnectContext(socketChannel);
         Assert.assertNull(ConnectContext.get());
         ctx.setThreadLocalInfo();
         Assert.assertNotNull(ConnectContext.get());
