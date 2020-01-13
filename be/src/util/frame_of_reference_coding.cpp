@@ -38,7 +38,7 @@ static inline uint8_t bits_may_more_than_64(const uint128_t v) {
             __builtin_clzll(lo) + 64,
             128
     };
-    int idx = !hi + ((!lo)&(!hi));
+    int idx = !hi + ((!lo) & (!hi));
     return 128 - z[idx];
 }
 
