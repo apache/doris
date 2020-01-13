@@ -115,6 +115,8 @@ public class SchemaChangeJobV2Test {
 
     @Test
     public void testAddSchemaChange() throws UserException {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
         SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -130,6 +132,8 @@ public class SchemaChangeJobV2Test {
     // start a schema change, then finished
     @Test
     public void testSchemaChange1() throws Exception {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
         SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
 
@@ -204,6 +208,8 @@ public class SchemaChangeJobV2Test {
 
     @Test
     public void testModifyDynamicPartitionNormal() throws UserException {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
         FakeCatalog.setCatalog(masterCatalog);
         SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
@@ -259,6 +265,7 @@ public class SchemaChangeJobV2Test {
 
     public void modifyDynamicPartitionWithoutTableProperty(String propertyKey, String propertyValue, String missPropertyKey)
             throws UserException {
+        fakeCatalog = new FakeCatalog();
         FakeCatalog.setCatalog(masterCatalog);
         SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
