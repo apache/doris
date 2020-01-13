@@ -149,8 +149,8 @@ public class ColocateTableBalancer extends MasterDaemon {
                 // But in previous version we had a bug that replicas of a tablet may be located on same host.
                 // we have to check it.
                 List<List<Long>> backendsPerBucketsSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
-                Set<String> hosts = Sets.newHashSet();
                 OUT: for (List<Long> backendIds : backendsPerBucketsSeq) {
+                    Set<String> hosts = Sets.newHashSet();
                     for (Long beId : backendIds) {
                         Backend be = infoService.getBackend(beId);
                         if (be == null) {
@@ -171,7 +171,6 @@ public class ColocateTableBalancer extends MasterDaemon {
                     continue;
                 }
             }
-            Preconditions.checkState(unavailableBeId != -1);
 
             // find the first bucket which contains the unavailable backend
             LOG.info("backend {} is unavailable in colocate group {}", unavailableBeId, groupId);
