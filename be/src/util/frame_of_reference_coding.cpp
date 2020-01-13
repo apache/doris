@@ -33,7 +33,7 @@ static inline uint8_t bits_less_than_64(const uint64_t v) {
 static inline uint8_t bits_may_more_than_64(const uint128_t v) {
     uint64_t hi = v >> 64;
     uint64_t lo = v;
-    int z[3]={
+    int z[3] = {
             __builtin_clzll(hi),
             __builtin_clzll(lo) + 64,
             128
