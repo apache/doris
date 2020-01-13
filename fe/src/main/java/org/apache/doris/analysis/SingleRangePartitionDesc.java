@@ -110,9 +110,8 @@ public class SingleRangePartitionDesc {
         Preconditions.checkNotNull(partitionDataProperty);
 
         // analyze replication num
-        this.replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties,
-            replicationNum == null ? FeConstants.default_replication_num : replicationNum);
-        if (this.replicationNum == null) {
+        replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
+        if (replicationNum == null) {
             throw new AnalysisException("Invalid replication number: " + replicationNum);
         }
 
