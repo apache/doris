@@ -83,6 +83,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, DECIMALV2);
         builder.put(NULL_TYPE, CHAR);
         builder.put(NULL_TYPE, VARCHAR);
+        builder.put(NULL_TYPE, BITMAP);
         builder.put(NULL_TYPE, TIME);
         // Boolean
         builder.put(BOOLEAN, BOOLEAN);
@@ -377,6 +378,7 @@ public enum PrimitiveType {
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMAL.ordinal()] = DECIMAL;
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[NULL_TYPE.ordinal()][TIME.ordinal()] = TIME;
+        compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;
 
         compatibilityMatrix[BOOLEAN.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
         compatibilityMatrix[BOOLEAN.ordinal()][TINYINT.ordinal()] = TINYINT;
