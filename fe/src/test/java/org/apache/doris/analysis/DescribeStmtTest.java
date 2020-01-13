@@ -17,10 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
@@ -33,8 +33,6 @@ public class DescribeStmtTest {
     private Analyzer analyzer;
     private Catalog catalog;
     private ConnectContext ctx;
-
-    FakeCatalog fakeCatalog;
 
     @Before
     public void setUp() {
@@ -51,12 +49,22 @@ public class DescribeStmtTest {
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         catalog = AccessTestUtil.fetchAdminCatalog();
+
+        new Expectations(catalog) {
+            {
+                Catalog.getInstance();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
     }
 
     @Test
     public void testNormal() throws AnalysisException, UserException {
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setCatalog(catalog);
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), false);
         stmt.analyze(analyzer);
         Assert.assertEquals("DESCRIBE `testCluster:testDb.testTbl`", stmt.toString());
@@ -67,8 +75,6 @@ public class DescribeStmtTest {
 
     @Test
     public void testAllNormal() throws AnalysisException, UserException {
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setCatalog(catalog);
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), true);
         stmt.analyze(analyzer);
         Assert.assertEquals("DESCRIBE `testCluster:testDb.testTbl` ALL", stmt.toString());
