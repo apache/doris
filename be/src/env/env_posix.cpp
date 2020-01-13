@@ -484,7 +484,7 @@ private:
 
 class PosixEnv : public Env {
 public:
-    PosixEnv() { }
+    PosixEnv() : _file_cache("posix_random_file_cache", this, config.file_descriptor_cache_capacity) { }
     ~PosixEnv() override { }
 
     Status new_sequential_file(
@@ -496,6 +496,11 @@ public:
         }
         result->reset(new PosixSequentialFile(fname, f));
         return Status::OK();
+    }
+
+    Status new_random_access_file(const std::string& fname,
+                               std::shared_ptr<RandomAccessFile>* result) override {
+        return _file_cache.open_file(fname, result);
     }
 
     Status new_random_access_file(const std::string& fname,
@@ -687,6 +692,11 @@ private:
         }
         return false; // stat() failed return false
     }
+
+private:
+    // this cache should be better put in file block manager when imported later
+    // And now we only support RandomAccessFile cache
+    FileCache<RandomAccessFile> _file_cache;
 };
 
 // Default Posix Env

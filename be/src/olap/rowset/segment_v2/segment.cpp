@@ -189,6 +189,7 @@ Status Segment::_create_column_readers() {
 
         ColumnReaderOptions opts;
         std::unique_ptr<ColumnReader> reader;
+        // pass Descriptor<RandomAccessFile>* to column reader
         RETURN_IF_ERROR(ColumnReader::create(
             opts, _footer.columns(iter->second), _footer.num_rows(), _input_file.get(), &reader));
         _column_readers[ordinal] = std::move(reader);
