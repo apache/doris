@@ -60,6 +60,7 @@ import com.google.common.collect.Lists;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -286,6 +287,7 @@ public class ShowExecutorTest {
         Assert.assertFalse(resultSet.next());
     }
 
+    @Ignore
     @Test
     public void testDescribe() {
         SystemInfoService clusterInfo = AccessTestUtil.fetchSystemInfoService();

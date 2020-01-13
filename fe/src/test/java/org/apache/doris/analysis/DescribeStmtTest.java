@@ -27,6 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 public class DescribeStmtTest {
@@ -62,6 +63,7 @@ public class DescribeStmtTest {
         };
     }
 
+    @Ignore
     @Test
     public void testNormal() throws AnalysisException, UserException {
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), false);
