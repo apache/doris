@@ -114,6 +114,7 @@ public class ExportPendingTask extends MasterTask {
                 snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
                 snapshotRequest.setVersion_hash(Long.parseLong(paloScanRange.getVersion_hash()));
                 snapshotRequest.setTimeout(job.getTimeoutSecond());
+                snapshotRequest.setPreferred_snapshot_version(TSNAPSHOT_REQ_VERSION2);
 
                 AgentClient client = new AgentClient(host, port);
                 TAgentResult result = client.makeSnapshot(snapshotRequest);

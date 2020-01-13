@@ -450,9 +450,8 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             new_tablet_meta->revise_inc_rs_metas(empty_rowsets);
             new_tablet_meta->revise_rs_metas(rs_metas);
         }
-        if (snapshot_version < ALPHA_ROWSET_VERSION) {
-            res = OLAP_ERR_INVALID_SNAPSHOT_VERSION;
-        } else if (snapshot_version == ALPHA_ROWSET_VERSION) {
+
+        if (snapshot_version == SNAPSHOT_REQ_VERSION1) {
             // convert beta rowset to alpha rowset
             if (request.__isset.missing_version) {
                 res = _convert_beta_rowsets_to_alpha(
@@ -470,10 +469,12 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             LOG(INFO) << "finish convert beta to alpha, res:" << res
                       << ", tablet:" << new_tablet_meta->tablet_id()
                       << ", schema hash:" << new_tablet_meta->schema_hash();
-        } else {
-            // for BETA_ROWSET_VERSION
+        } else if (snapshot_version == SNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);
+        } else {
+            res = OLAP_ERR_INVALID_SNAPSHOT_VERSION;
         }
+
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "convert rowset failed, res:" << res << ", tablet:"
                     << new_tablet_meta->tablet_id() << ", schema hash:" << new_tablet_meta->schema_hash()

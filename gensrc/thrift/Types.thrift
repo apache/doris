@@ -380,3 +380,6 @@ struct TUserIdentity {
     3: optional bool is_domain
 }
 
+const i32 TSNAPSHOT_REQ_VERSION1 = 3;
+const i32 TSNAPSHOT_REQ_VERSION2 = 4;
+
