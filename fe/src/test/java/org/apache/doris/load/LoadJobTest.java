@@ -22,7 +22,7 @@ import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.UnitTestUtil;
@@ -30,16 +30,10 @@ import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -51,9 +45,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({Catalog.class})
 public class LoadJobTest {
 
     @BeforeClass
@@ -144,9 +135,8 @@ public class LoadJobTest {
     @Test
     public void testSerialization() throws Exception {
         // mock meta version
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        FakeCatalog fakeCatalog = new FakeCatalog();
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
 
         File file = new File("./loadJobTest" + System.currentTimeMillis());
         file.createNewFile();

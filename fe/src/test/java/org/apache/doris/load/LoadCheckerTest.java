@@ -17,6 +17,8 @@
 
 package org.apache.doris.load;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -36,16 +38,10 @@ import org.apache.doris.task.MasterTaskExecutor;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -54,9 +50,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({LoadChecker.class, Catalog.class})
 public class LoadCheckerTest {
     private long dbId;
     private long tableId;
@@ -66,8 +59,12 @@ public class LoadCheckerTest {
     private long backendId;
 
     private String label;
-    
+
+    @Mocked
     private Catalog catalog;
+    @Mocked
+    private EditLog editLog;
+    @Mocked
     private Load load;
     private Database db;
     
@@ -84,16 +81,29 @@ public class LoadCheckerTest {
  
         // mock catalog
         db = UnitTestUtil.createDb(dbId, tableId, partitionId, indexId, tabletId, backendId, 1L, 0L);
-        catalog = EasyMock.createNiceMock(Catalog.class);
-        EasyMock.expect(catalog.getDb(dbId)).andReturn(db).anyTimes();
-        EasyMock.expect(catalog.getDb(db.getFullName())).andReturn(db).anyTimes();
-        // mock editLog
-        EditLog editLog = EasyMock.createMock(EditLog.class);
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        // mock static getInstance
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+        new Expectations() {
+            {
+                catalog.getDb(dbId);
+                minTimes = 0;
+                result = db;
+
+                catalog.getDb(db.getFullName());
+                minTimes = 0;
+                result = db;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+                Catalog.getInstance();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
     }
 
     @After
@@ -120,25 +130,28 @@ public class LoadCheckerTest {
     }
     
     @Test
-    public void testRunPendingJobs() throws Exception {
+    public void testRunPendingJobs(@Mocked MasterTaskExecutor executor) throws Exception {
         List<LoadJob> pendingJobs = new ArrayList<LoadJob>();
         LoadJob job = new LoadJob(label);
         job.setState(JobState.PENDING);
         pendingJobs.add(job);
 
         // mock load
-        load = EasyMock.createMock(Load.class);
-        EasyMock.expect(load.getLoadJobs(JobState.PENDING)).andReturn(pendingJobs).times(1);
-        EasyMock.replay(load);
-        EasyMock.expect(catalog.getLoadInstance()).andReturn(load).times(1);
-        EasyMock.replay(catalog);
-        
-        // mock MasterTaskExecutor submit
-        MasterTaskExecutor executor = EasyMock.createMock(MasterTaskExecutor.class);
-        EasyMock.expect(executor.submit(EasyMock.isA(MasterTask.class))).andReturn(true).times(1);
-        EasyMock.replay(executor);
-        PowerMock.expectNew(MasterTaskExecutor.class, EasyMock.anyInt()).andReturn(executor).times(4);
-        PowerMock.replay(MasterTaskExecutor.class);
+        new Expectations() {
+            {
+                load.getLoadJobs(JobState.PENDING);
+                times = 1;
+                result = pendingJobs;
+
+                catalog.getLoadInstance();
+                times = 2;
+                result = load;
+
+                executor.submit((MasterTask) any);
+                times = 1;
+                result = true;
+            }
+        };
         
         // init
         LoadChecker.init(5L);
@@ -149,14 +162,10 @@ public class LoadCheckerTest {
         Map<JobState, LoadChecker> checkers = (Map<JobState, LoadChecker>) checkersField.get(LoadChecker.class);
         Method runPendingJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runPendingJobs", new Class[] {});
         runPendingJobs.invoke(checkers.get(JobState.PENDING), new Object[] {});
-        
-        // verify
-        EasyMock.verify(executor);
-        PowerMock.verifyAll();
     }
 
     @Test
-    public void testRunPendingJobsWithLimit() throws Exception {
+    public void testRunPendingJobsWithLimit(@Mocked MasterTaskExecutor executor) throws Exception {
         List<LoadJob> pendingJobs = new ArrayList<LoadJob>();
         LoadJob job = new LoadJob(label);
         job.setState(JobState.PENDING);
@@ -165,20 +174,29 @@ public class LoadCheckerTest {
         Assert.assertEquals(2, pendingJobs.size());
 
         // mock load
-        load = EasyMock.createMock(Load.class);
-        EasyMock.expect(load.getLoadJobs(JobState.PENDING)).andReturn(pendingJobs).times(1);
-        EasyMock.expect(load.getLoadJobs(JobState.ETL)).andReturn(Lists.newArrayList(job)).times(1);
-        EasyMock.replay(load);
-        EasyMock.expect(catalog.getLoadInstance()).andReturn(load).times(1);
-        EasyMock.replay(catalog);
+        new Expectations() {
+            {
+                load.getLoadJobs(JobState.PENDING);
+                times = 1;
+                result = pendingJobs;
 
-        // mock MasterTaskExecutor submit
-        MasterTaskExecutor executor = EasyMock.createMock(MasterTaskExecutor.class);
-        EasyMock.expect(executor.getTaskNum()).andReturn(1).times(2);
-        EasyMock.expect(executor.submit(EasyMock.isA(MasterTask.class))).andReturn(true).times(1);
-        EasyMock.replay(executor);
-        PowerMock.expectNew(MasterTaskExecutor.class, EasyMock.anyInt()).andReturn(executor).times(4);
-        PowerMock.replay(MasterTaskExecutor.class);
+                load.getLoadJobs(JobState.ETL);
+                times = 1;
+                result = Lists.newArrayList(job);
+
+                catalog.getLoadInstance();
+                times = 1;
+                result = load;
+
+                executor.getTaskNum();
+                times = 2;
+                result = 1;
+
+                executor.submit((MasterTask) any);
+                times = 0;
+                result = true;
+            }
+        };
 
         // init
         LoadChecker.init(5L);
@@ -195,25 +213,28 @@ public class LoadCheckerTest {
     }
 
     @Test
-    public void testRunEtlJobs() throws Exception {
+    public void testRunEtlJobs(@Mocked MasterTaskExecutor executor) throws Exception {
         List<LoadJob> etlJobs = new ArrayList<LoadJob>();
         LoadJob job = new LoadJob(label);
         job.setState(JobState.ETL);
         etlJobs.add(job);
 
         // mock load
-        load = EasyMock.createMock(Load.class);
-        EasyMock.expect(load.getLoadJobs(JobState.ETL)).andReturn(etlJobs).times(1);
-        EasyMock.replay(load);
-        EasyMock.expect(catalog.getLoadInstance()).andReturn(load).times(1);
-        EasyMock.replay(catalog);
-        
-        // mock MasterTaskExecutor submit
-        MasterTaskExecutor executor = EasyMock.createMock(MasterTaskExecutor.class);
-        EasyMock.expect(executor.submit(EasyMock.isA(MasterTask.class))).andReturn(true).times(1);
-        EasyMock.replay(executor);
-        PowerMock.expectNew(MasterTaskExecutor.class, EasyMock.anyInt()).andReturn(executor).times(4);
-        PowerMock.replay(MasterTaskExecutor.class);
+        new Expectations() {
+            {
+                load.getLoadJobs(JobState.ETL);
+                times = 1;
+                result = etlJobs;
+
+                catalog.getLoadInstance();
+                times = 2;
+                result = load;
+
+                executor.submit((MasterTask) any);
+                times = 1;
+                result = true;
+            }
+        };
         
         // init
         LoadChecker.init(5L);
@@ -224,10 +245,6 @@ public class LoadCheckerTest {
         Map<JobState, LoadChecker> checkers = (Map<JobState, LoadChecker>) checkersField.get(LoadChecker.class);
         Method runEtlJobs = UnitTestUtil.getPrivateMethod(LoadChecker.class, "runEtlJobs", new Class[] {});
         runEtlJobs.invoke(checkers.get(JobState.ETL), new Object[] {});
-        
-        // verify
-        EasyMock.verify(executor);
-        PowerMock.verifyAll();
     }
     
     @Test
@@ -265,14 +282,25 @@ public class LoadCheckerTest {
         job.setIdToTabletLoadInfo(tabletLoadInfos);
 
         // mock load
-        load = EasyMock.createMock(Load.class);
-        EasyMock.expect(load.getLoadJobs(JobState.LOADING)).andReturn(etlJobs).anyTimes();
-        EasyMock.expect(load.updateLoadJobState(job, JobState.QUORUM_FINISHED)).andReturn(true).anyTimes();
-        EasyMock.expect(load.cancelLoadJob((LoadJob) EasyMock.anyObject(), (CancelType) EasyMock.anyObject(),
-                                           EasyMock.anyString())).andReturn(true).anyTimes();
-        EasyMock.replay(load);
-        EasyMock.expect(catalog.getLoadInstance()).andReturn(load).times(4);
-        EasyMock.replay(catalog);
+        new Expectations() {
+            {
+                load.getLoadJobs(JobState.LOADING);
+                times = 2;
+                result = etlJobs;
+
+                load.updateLoadJobState(job, JobState.QUORUM_FINISHED);
+                minTimes = 0;
+                result = true;
+
+                load.cancelLoadJob((LoadJob) any, (CancelType) any, anyString);
+                minTimes = 0;
+                result = true;
+
+                catalog.getLoadInstance();
+                times = 4;
+                result = load;
+            }
+        };
         
         // init
         LoadChecker.init(5L);
@@ -296,9 +324,6 @@ public class LoadCheckerTest {
 
         // verify
         runLoadingJobs.invoke(checkers.get(JobState.LOADING), new Object[] {});
-        EasyMock.verify(load);
-        EasyMock.verify(catalog);
-        
         // clear agent tasks
         AgentTaskQueue.clearAllTasks();
     }
@@ -340,15 +365,28 @@ public class LoadCheckerTest {
         job.setIdToTabletLoadInfo(tabletLoadInfos);
 
         // mock load
-        load = EasyMock.createMock(Load.class);
-        EasyMock.expect(load.getLoadJobs(JobState.QUORUM_FINISHED)).andReturn(etlJobs).anyTimes();
-        EasyMock.expect(load.getQuorumFinishedDeleteJobs()).andReturn(deleteJobs).anyTimes();
-        EasyMock.expect(load.updateLoadJobState(job, JobState.FINISHED)).andReturn(true).anyTimes();
-        load.clearJob(job, JobState.QUORUM_FINISHED);
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(load);
-        EasyMock.expect(catalog.getLoadInstance()).andReturn(load).anyTimes();
-        EasyMock.replay(catalog);
+        new Expectations() {
+            {
+                load.getLoadJobs(JobState.QUORUM_FINISHED);
+                minTimes = 0;
+                result = etlJobs;
+
+                load.getQuorumFinishedDeleteJobs();
+                minTimes = 0;
+                result = deleteJobs;
+
+                load.updateLoadJobState(job, JobState.FINISHED);
+                minTimes = 0;
+                result = true;
+
+                load.clearJob(job, JobState.QUORUM_FINISHED);
+                minTimes = 0;
+
+                catalog.getLoadInstance();
+                minTimes = 0;
+                result = load;
+            }
+        };
         
         // init
         LoadChecker.init(5L);
@@ -361,9 +399,6 @@ public class LoadCheckerTest {
                 LoadChecker.class, "runQuorumFinishedJobs", new Class[] {});
         runQuorumFinishedJobs.invoke(checkers.get(JobState.QUORUM_FINISHED), new Object[] {});
         
-        // verify
-        EasyMock.verify(load);
-        EasyMock.verify(catalog);
         Assert.assertEquals(0, AgentTaskQueue.getTaskNum());
     }
     
