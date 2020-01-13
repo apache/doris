@@ -123,8 +123,6 @@ public class OlapTable extends Table {
     // The init value is -1, which means there is not partition and index at all.
     private long baseIndexId = -1;
 
-    private Short replicationNum;
-
     private TableProperty tableProperty;
 
     public OlapTable() {
@@ -150,8 +148,6 @@ public class OlapTable extends Table {
         this.indexes = null;
       
         this.tableProperty = null;
-
-        this.replicationNum = null;
     }
 
     public OlapTable(long id, String tableName, List<Column> baseSchema, KeysType keysType,
@@ -902,19 +898,12 @@ public class OlapTable extends Table {
             out.writeBoolean(false);
         }
       
-        //dynamicProperties
+        // tableProperty
         if (tableProperty == null) {
             out.writeBoolean(false);
         } else {
             out.writeBoolean(true);
             tableProperty.write(out);
-        }
-        //replicationNum
-        if (replicationNum == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            out.writeShort(replicationNum);
         }
     }
 
@@ -1016,16 +1005,10 @@ public class OlapTable extends Table {
                 this.indexes = TableIndexes.read(in);
             }
         }
-        // dynamic partition
+        // tableProperty
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_71) {
             if (in.readBoolean()) {
                 tableProperty = TableProperty.read(in);
-            }
-        }
-        // replicationNum
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
-            if (in.readBoolean()) {
-                replicationNum =  in.readShort();
             }
         }
     }
@@ -1222,10 +1205,17 @@ public class OlapTable extends Table {
     }
 
     public void setReplicationNum(Short replicationNum) {
-        this.replicationNum = replicationNum;
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<String, String>());
+        }
+        tableProperty.getProperties().put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
     }
 
     public Short getReplicationNum() {
-        return replicationNum;
+        if (tableProperty != null && tableProperty.getProperties() != null &&
+            tableProperty.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+            return Short.valueOf(tableProperty.getProperties().get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        }
+        return null;
     }
 }

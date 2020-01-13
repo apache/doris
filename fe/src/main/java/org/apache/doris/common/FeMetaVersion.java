@@ -153,8 +153,6 @@ public final class FeMetaVersion {
     public static final int VERSION_70 = 70;
     // dynamic partition
     public static final int VERSION_71 = 71;
-    // replicationNum
-    public static final int VERSION_72 = 72;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_72;
+    public static final int VERSION_CURRENT = VERSION_71;
 }
