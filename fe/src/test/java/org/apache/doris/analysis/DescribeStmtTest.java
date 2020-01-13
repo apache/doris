@@ -51,13 +51,11 @@ public class DescribeStmtTest {
 
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         catalog = AccessTestUtil.fetchAdminCatalog();
-
-        fakeCatalog = new FakeCatalog();
-        FakeCatalog.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
     }
 
     @Test
     public void testNormal() throws AnalysisException, UserException {
+        fakeCatalog = new FakeCatalog();
         FakeCatalog.setCatalog(catalog);
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), false);
         stmt.analyze(analyzer);
@@ -69,6 +67,7 @@ public class DescribeStmtTest {
 
     @Test
     public void testAllNormal() throws AnalysisException, UserException {
+        fakeCatalog = new FakeCatalog();
         FakeCatalog.setCatalog(catalog);
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), true);
         stmt.analyze(analyzer);
