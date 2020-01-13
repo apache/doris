@@ -171,6 +171,9 @@ public class ConnectContextTest {
         Assert.assertTrue(ctx.isKilled());
         ctx.kill(false);
         Assert.assertTrue(ctx.isKilled());
+
+        // clean up
+        ctx.cleanup();
     }
 
     @Test
@@ -192,6 +195,9 @@ public class ConnectContextTest {
         // Kill
         ctx.kill(true);
         Assert.assertTrue(ctx.isKilled());
+
+        // clean up
+        ctx.cleanup();
     }
 
     @Test

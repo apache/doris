@@ -104,6 +104,9 @@ public class LoadCheckerTest {
                 result = catalog;
             }
         };
+
+        AgentTaskQueue.clearAllTasks();
+        Assert.assertEquals(0, AgentTaskQueue.getTaskNum());
     }
 
     @After
