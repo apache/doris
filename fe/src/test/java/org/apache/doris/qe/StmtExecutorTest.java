@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DdlStmt;
@@ -28,10 +30,10 @@ import org.apache.doris.analysis.SetStmt;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
@@ -44,34 +46,28 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import java_cup.runtime.Symbol;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({"org.apache.log4j.*", "javax.management.*"})
-@PrepareForTest({StmtExecutor.class, DdlExecutor.class, Catalog.class})
 public class StmtExecutorTest {
     private ConnectContext ctx;
     private QueryState state;
     private ConnectScheduler scheduler;
+
+    @Mocked
+    SocketChannel socketChannel;
 
     @BeforeClass
     public static void start() {
@@ -87,97 +83,160 @@ public class StmtExecutorTest {
     @Before
     public void setUp() throws IOException {
         state = new QueryState();
+        scheduler = new ConnectScheduler(10);
+        ctx = new ConnectContext(socketChannel);
 
-        MysqlChannel channel = EasyMock.createMock(MysqlChannel.class);
-        channel.sendOnePacket(EasyMock.isA(ByteBuffer.class));
-        EasyMock.expectLastCall().anyTimes();
-        channel.reset();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(channel);
-
-        scheduler = EasyMock.createMock(ConnectScheduler.class);
-
-        ctx = EasyMock.createMock(ConnectContext.class);
-        EasyMock.expect(ctx.getMysqlChannel()).andReturn(channel).anyTimes();
-        EasyMock.expect(ctx.getSerializer()).andReturn(MysqlSerializer.newInstance()).anyTimes();
-        EasyMock.expect(ctx.getCatalog()).andReturn(AccessTestUtil.fetchAdminCatalog()).anyTimes();
-        EasyMock.expect(ctx.getState()).andReturn(state).anyTimes();
-        EasyMock.expect(ctx.getConnectScheduler()).andReturn(scheduler).anyTimes();
-        EasyMock.expect(ctx.getConnectionId()).andReturn(1).anyTimes();
-        EasyMock.expect(ctx.getQualifiedUser()).andReturn("testUser").anyTimes();
-        EasyMock.expect(ctx.getForwardedStmtId()).andReturn(123L).anyTimes();
-        ctx.setKilled();
-        EasyMock.expectLastCall().anyTimes();
-        ctx.updateReturnRows(EasyMock.anyInt());
-        EasyMock.expectLastCall().anyTimes();
-        ctx.setQueryId(EasyMock.isA(TUniqueId.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(ctx.queryId()).andReturn(new TUniqueId()).anyTimes();
-        EasyMock.expect(ctx.getStartTime()).andReturn(0L).anyTimes();
-        EasyMock.expect(ctx.getDatabase()).andReturn("testDb").anyTimes();
         SessionVariable sessionVariable = new SessionVariable();
-        EasyMock.expect(ctx.getSessionVariable()).andReturn(sessionVariable).anyTimes();
-        ctx.setStmtId(EasyMock.anyLong());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(ctx.getStmtId()).andReturn(1L).anyTimes();
-        EasyMock.replay(ctx);
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        Catalog catalog = AccessTestUtil.fetchAdminCatalog();
+
+        MysqlChannel channel = new MysqlChannel(socketChannel);
+        new Expectations(channel) {
+            {
+                channel.sendOnePacket((ByteBuffer) any);
+                minTimes = 0;
+
+                channel.reset();
+                minTimes = 0;
+            }
+        };
+
+        new Expectations(ctx) {
+            {
+                ctx.getMysqlChannel();
+                minTimes = 0;
+                result = channel;
+
+                ctx.getSerializer();
+                minTimes = 0;
+                result = serializer;
+
+                ctx.getCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                ctx.getState();
+                minTimes = 0;
+                result = state;
+
+                ctx.getConnectScheduler();
+                minTimes = 0;
+                result = scheduler;
+
+                ctx.getConnectionId();
+                minTimes = 0;
+                result = 1;
+
+                ctx.getQualifiedUser();
+                minTimes = 0;
+                result = "testUser";
+
+                ctx.getForwardedStmtId();
+                minTimes = 0;
+                result = 123L;
+
+                ctx.setKilled();
+                minTimes = 0;
+
+                ctx.updateReturnRows(anyInt);
+                minTimes = 0;
+
+                ctx.setQueryId((TUniqueId) any);
+                minTimes = 0;
+
+                ctx.queryId();
+                minTimes = 0;
+                result = new TUniqueId();
+
+                ctx.getStartTime();
+                minTimes = 0;
+                result = 0L;
+
+                ctx.getDatabase();
+                minTimes = 0;
+                result = "testDb";
+
+                ctx.getSessionVariable();
+                minTimes = 0;
+                result = sessionVariable;
+
+                ctx.setStmtId(anyLong);
+                minTimes = 0;
+
+                ctx.getStmtId();
+                minTimes = 0;
+                result = 1L;
+            }
+        };
     }
 
     @Test
-    public void testSelect() throws Exception {
-        QueryStmt queryStmt = EasyMock.createMock(QueryStmt.class);
-        queryStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(queryStmt.getColLabels()).andReturn(Lists.<String>newArrayList()).anyTimes();
-        EasyMock.expect(queryStmt.getResultExprs()).andReturn(Lists.<Expr>newArrayList()).anyTimes();
-        EasyMock.expect(queryStmt.isExplain()).andReturn(false).anyTimes();
-        queryStmt.getDbs(EasyMock.isA(Analyzer.class), EasyMock.isA(SortedMap.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(queryStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        queryStmt.rewriteExprs(EasyMock.isA(ExprRewriter.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(queryStmt);
-
-        Symbol symbol = new Symbol(0, queryStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
-
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
-
-        // mock planner
-        Planner planner = EasyMock.createMock(Planner.class);
-        planner.plan(EasyMock.isA(QueryStmt.class), EasyMock.isA(Analyzer.class), EasyMock.isA(TQueryOptions.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(planner);
-
-        PowerMock.expectNew(Planner.class).andReturn(planner).anyTimes();
-        PowerMock.replay(Planner.class);
-
-        // mock coordinator
-        Coordinator cood = EasyMock.createMock(Coordinator.class);
-        cood.exec();
-        EasyMock.expectLastCall().anyTimes();
-        cood.endProfile();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(cood.getQueryProfile()).andReturn(new RuntimeProfile()).anyTimes();
-        EasyMock.expect(cood.getNext()).andReturn(new RowBatch()).anyTimes();
-        EasyMock.expect(cood.getJobId()).andReturn(-1L).anyTimes();
-        EasyMock.replay(cood);
-        PowerMock.expectNew(Coordinator.class, EasyMock.isA(ConnectContext.class),
-                EasyMock.isA(Analyzer.class), EasyMock.isA(Planner.class))
-                .andReturn(cood).anyTimes();
-        PowerMock.replay(Coordinator.class);
-
+    public void testSelect(@Mocked QueryStmt queryStmt,
+                           @Mocked SqlParser parser,
+                           @Mocked Planner planner,
+                           @Mocked Coordinator coordinator) throws Exception {
         Catalog catalog = Catalog.getInstance();
-        Field field = catalog.getClass().getDeclaredField("canRead");
-        field.setAccessible(true);
-        field.set(catalog, new AtomicBoolean(true));
+        Deencapsulation.setField(catalog, "canRead", new AtomicBoolean(true));
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+        new Expectations() {
+            {
+                queryStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                queryStmt.getColLabels();
+                minTimes = 0;
+                result = Lists.<String>newArrayList();
+
+                queryStmt.getResultExprs();
+                minTimes = 0;
+                result = Lists.<Expr>newArrayList();
+
+                queryStmt.isExplain();
+                minTimes = 0;
+                result = false;
+
+                queryStmt.getDbs((Analyzer) any, (SortedMap) any);
+                minTimes = 0;
+
+                queryStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                queryStmt.rewriteExprs((ExprRewriter) any);
+                minTimes = 0;
+
+                Symbol symbol = new Symbol(0, queryStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+
+                planner.plan((QueryStmt) any, (Analyzer) any, (TQueryOptions) any);
+                minTimes = 0;
+
+                // mock coordinator
+                coordinator.exec();
+                minTimes = 0;
+
+                coordinator.endProfile();
+                minTimes = 0;
+
+                coordinator.getQueryProfile();
+                minTimes = 0;
+                result = new RuntimeProfile();
+
+                coordinator.getNext();
+                minTimes = 0;
+                result = new RowBatch();
+
+                coordinator.getJobId();
+                minTimes = 0;
+                result = -1L;
+
+                Catalog.getInstance();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
 
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
         stmtExecutor.execute();
@@ -186,32 +245,33 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testShow() throws Exception {
-        ShowStmt showStmt = EasyMock.createMock(ShowStmt.class);
-        showStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(showStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.expect(showStmt.toSelectStmt(EasyMock.isA(Analyzer.class))).andReturn(null).anyTimes();
-        EasyMock.replay(showStmt);
+    public void testShow(@Mocked ShowStmt showStmt, @Mocked SqlParser parser, @Mocked ShowExecutor executor) throws Exception {
+        new Expectations() {
+            {
+                showStmt.analyze((Analyzer) any);
+                minTimes = 0;
 
-        Symbol symbol = new Symbol(0, showStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
+                showStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
 
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
+                showStmt.toSelectStmt((Analyzer) any);
+                minTimes = 0;
+                result = null;
 
-        // mock show
-        List<List<String>> rows = Lists.newArrayList();
-        rows.add(Lists.newArrayList("abc", "bcd"));
-        ShowExecutor executor = EasyMock.createMock(ShowExecutor.class);
-        EasyMock.expect(executor.execute()).andReturn(new ShowResultSet(new ShowAuthorStmt().getMetaData(), rows))
-                .anyTimes();
-        EasyMock.replay(executor);
-        PowerMock.expectNew(ShowExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(ShowStmt.class))
-                .andReturn(executor).anyTimes();
-        PowerMock.replay(ShowExecutor.class);
+                Symbol symbol = new Symbol(0, showStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+
+                // mock show
+                List<List<String>> rows = Lists.newArrayList();
+                rows.add(Lists.newArrayList("abc", "bcd"));
+                executor.execute();
+                minTimes = 0;
+                result = new ShowResultSet(new ShowAuthorStmt().getMetaData(), rows);
+            }
+        };
 
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
         stmtExecutor.execute();
@@ -220,58 +280,33 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testShowNull() throws Exception {
-        ShowStmt showStmt = EasyMock.createMock(ShowStmt.class);
-        showStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(showStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.expect(showStmt.toSelectStmt(EasyMock.isA(Analyzer.class))).andReturn(null).anyTimes();
-        EasyMock.replay(showStmt);
+    public void testShowNull(@Mocked ShowStmt showStmt, @Mocked SqlParser parser, @Mocked ShowExecutor executor) throws Exception {
+        new Expectations() {
+            {
+                showStmt.analyze((Analyzer) any);
+                minTimes = 0;
 
-        Symbol symbol = new Symbol(0, showStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
+                showStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
 
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
+                showStmt.toSelectStmt((Analyzer) any);
+                minTimes = 0;
+                result = null;
 
-        // mock show
-        List<List<String>> rows = Lists.newArrayList();
-        rows.add(Lists.newArrayList("abc", "bcd"));
-        ShowExecutor executor = EasyMock.createMock(ShowExecutor.class);
-        EasyMock.expect(executor.execute()).andReturn(null).anyTimes();
-        EasyMock.replay(executor);
-        PowerMock.expectNew(ShowExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(ShowStmt.class))
-                .andReturn(executor).anyTimes();
-        PowerMock.replay(ShowExecutor.class);
+                Symbol symbol = new Symbol(0, showStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
 
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
-        stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
-    }
-
-    @Test
-    public void testKill() throws Exception {
-        KillStmt killStmt = EasyMock.createMock(KillStmt.class);
-        killStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(killStmt.getConnectionId()).andReturn(1L).anyTimes();
-        EasyMock.expect(killStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.replay(killStmt);
-
-        Symbol symbol = new Symbol(0, killStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
-
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
-
-        // suicide
-        EasyMock.expect(scheduler.getContext(1L)).andReturn(ctx);
-        EasyMock.replay(scheduler);
+                // mock show
+                List<List<String>> rows = Lists.newArrayList();
+                rows.add(Lists.newArrayList("abc", "bcd"));
+                executor.execute();
+                minTimes = 0;
+                result = null;
+            }
+        };
 
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
         stmtExecutor.execute();
@@ -280,125 +315,34 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testKillOtherFail() throws Exception {
-        KillStmt killStmt = EasyMock.createMock(KillStmt.class);
-        killStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(killStmt.getConnectionId()).andReturn(1L).anyTimes();
-        EasyMock.expect(killStmt.isConnectionKill()).andReturn(true).anyTimes();
-        EasyMock.expect(killStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.replay(killStmt);
+    public void testKill(@Mocked KillStmt killStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                killStmt.analyze((Analyzer) any);
+                minTimes = 0;
 
-        Symbol symbol = new Symbol(0, killStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
+                killStmt.getConnectionId();
+                minTimes = 0;
+                result = 1L;
 
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
+                killStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
 
-        ConnectContext killCtx = EasyMock.createMock(ConnectContext.class);
-        EasyMock.expect(killCtx.getCatalog()).andReturn(AccessTestUtil.fetchAdminCatalog()).anyTimes();
-        EasyMock.expect(killCtx.getQualifiedUser()).andReturn("blockUser").anyTimes();
-        killCtx.kill(true);
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(killCtx);
-        // suicide
-        EasyMock.expect(scheduler.getContext(1L)).andReturn(killCtx);
-        EasyMock.replay(scheduler);
+                Symbol symbol = new Symbol(0, killStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
 
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
-        stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-    }
-
-    @Test
-    public void testKillOther() throws Exception {
-        KillStmt killStmt = EasyMock.createMock(KillStmt.class);
-        killStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(killStmt.getConnectionId()).andReturn(1L).anyTimes();
-        EasyMock.expect(killStmt.isConnectionKill()).andReturn(true).anyTimes();
-        EasyMock.expect(killStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.replay(killStmt);
-
-        Symbol symbol = new Symbol(0, killStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
-
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
-
-        ConnectContext killCtx = EasyMock.createMock(ConnectContext.class);
-        EasyMock.expect(killCtx.getCatalog()).andReturn(AccessTestUtil.fetchAdminCatalog()).anyTimes();
-        EasyMock.expect(killCtx.getQualifiedUser()).andReturn("killUser").anyTimes();
-        killCtx.kill(true);
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(killCtx);
-        // suicide
-        EasyMock.expect(scheduler.getContext(1L)).andReturn(killCtx);
-        EasyMock.replay(scheduler);
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
-        stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-    }
-
-    @Test
-    public void testKillNoCtx() throws Exception {
-        KillStmt killStmt = EasyMock.createMock(KillStmt.class);
-        killStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(killStmt.getConnectionId()).andReturn(1L).anyTimes();
-        EasyMock.expect(killStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.replay(killStmt);
-
-        Symbol symbol = new Symbol(0, killStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
-
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
-
-        // suicide
-        EasyMock.expect(scheduler.getContext(1L)).andReturn(null);
-        EasyMock.replay(scheduler);
-
-        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
-        stmtExecutor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-    }
-
-    @Test
-    public void testSet() throws Exception {
-        SetStmt setStmt = EasyMock.createMock(SetStmt.class);
-        setStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(setStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.replay(setStmt);
-
-        Symbol symbol = new Symbol(0, setStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
-
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
-
-        // Mock set
-        SetExecutor executor = EasyMock.createMock(SetExecutor.class);
-        executor.execute();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(executor);
-
-        PowerMock.expectNew(SetExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(SetStmt.class))
-                .andReturn(executor).anyTimes();
-        PowerMock.replay(SetExecutor.class);
+        new Expectations(scheduler) {
+            {
+                // suicide
+                scheduler.getContext(1L);
+                result = ctx;
+            }
+        };
 
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
         stmtExecutor.execute();
@@ -407,30 +351,55 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testSetFail() throws Exception {
-        SetStmt setStmt = EasyMock.createMock(SetStmt.class);
-        setStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(setStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.replay(setStmt);
+    public void testKillOtherFail(@Mocked KillStmt killStmt, @Mocked SqlParser parser, @Mocked ConnectContext killCtx) throws Exception {
+        Catalog killCatalog = AccessTestUtil.fetchAdminCatalog();
 
-        Symbol symbol = new Symbol(0, setStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
+        new Expectations() {
+            {
+                killStmt.analyze((Analyzer) any);
+                minTimes = 0;
 
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
+                killStmt.getConnectionId();
+                minTimes = 0;
+                result = 1L;
 
-        // Mock set
-        SetExecutor executor = EasyMock.createMock(SetExecutor.class);
-        executor.execute();
-        EasyMock.expectLastCall().andThrow(new DdlException("failed.")).anyTimes();
-        EasyMock.replay(executor);
+                killStmt.isConnectionKill();
+                minTimes = 0;
+                result = true;
 
-        PowerMock.expectNew(SetExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(SetStmt.class))
-                .andReturn(executor).anyTimes();
-        PowerMock.replay(SetExecutor.class);
+                killStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                Symbol symbol = new Symbol(0, killStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+
+                killCtx.getCatalog();
+                minTimes = 0;
+                result = killCatalog;
+
+                killCtx.getQualifiedUser();
+                minTimes = 0;
+                result = "blockUser";
+
+                killCtx.kill(true);
+                minTimes = 0;
+
+                ConnectContext.get();
+                minTimes = 0;
+                result = ctx;
+            }
+        };
+
+        new Expectations(scheduler) {
+            {
+                // suicide
+                scheduler.getContext(1L);
+                result = killCtx;
+            }
+        };
 
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
         stmtExecutor.execute();
@@ -439,26 +408,179 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testDdl() throws Exception {
-        DdlStmt ddlStmt = EasyMock.createMock(DdlStmt.class);
-        ddlStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(ddlStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.replay(ddlStmt);
+    public void testKillOther(@Mocked KillStmt killStmt, @Mocked SqlParser parser, @Mocked ConnectContext killCtx) throws Exception {
+        Catalog killCatalog = AccessTestUtil.fetchAdminCatalog();
+        new Expectations() {
+            {
+                killStmt.analyze((Analyzer) any);
+                minTimes = 0;
 
-        Symbol symbol = new Symbol(0, ddlStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
+                killStmt.getConnectionId();
+                minTimes = 0;
+                result = 1L;
 
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
+                killStmt.isConnectionKill();
+                minTimes = 0;
+                result = true;
 
-        // Mock ddl
-        PowerMock.mockStatic(DdlExecutor.class);
-        DdlExecutor.execute(EasyMock.isA(Catalog.class), EasyMock.isA(DdlStmt.class), EasyMock.anyString());
-        EasyMock.expectLastCall().anyTimes();
-        PowerMock.replay(DdlExecutor.class);
+                killStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                Symbol symbol = new Symbol(0, killStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+
+                killCtx.getCatalog();
+                minTimes = 0;
+                result = killCatalog;
+
+                killCtx.getQualifiedUser();
+                minTimes = 0;
+                result = "killUser";
+
+                killCtx.kill(true);
+                minTimes = 0;
+
+                ConnectContext.get();
+                minTimes = 0;
+                result = ctx;
+            }
+        };
+
+        new Expectations(scheduler) {
+            {
+                // suicide
+                scheduler.getContext(1L);
+                result = killCtx;
+            }
+        };
+
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+        stmtExecutor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+    }
+
+    @Test
+    public void testKillNoCtx(@Mocked KillStmt killStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                killStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                killStmt.getConnectionId();
+                minTimes = 0;
+                result = 1L;
+
+                killStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                Symbol symbol = new Symbol(0, killStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
+
+        new Expectations(scheduler) {
+            {
+                scheduler.getContext(1L);
+                result = null;
+            }
+        };
+
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+        stmtExecutor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+    }
+
+    @Test
+    public void testSet(@Mocked SetStmt setStmt, @Mocked SqlParser parser, @Mocked SetExecutor executor) throws Exception {
+        new Expectations() {
+            {
+                setStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                setStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                Symbol symbol = new Symbol(0, setStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+
+                // Mock set
+                executor.execute();
+                minTimes = 0;
+            }
+        };
+
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+        stmtExecutor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.OK, state.getStateType());
+    }
+
+    @Test
+    public void testSetFail(@Mocked SetStmt setStmt, @Mocked SqlParser parser, @Mocked SetExecutor executor) throws Exception {
+        new Expectations() {
+            {
+                setStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                setStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                Symbol symbol = new Symbol(0, setStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+
+                // Mock set
+                executor.execute();
+                minTimes = 0;
+                result = new DdlException("failed");
+            }
+        };
+
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, "");
+        stmtExecutor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+    }
+
+    @Test
+    public void testDdl(@Mocked DdlStmt ddlStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                ddlStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                ddlStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                Symbol symbol = new Symbol(0, ddlStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
+
+        DdlExecutor ddlExecutor = new DdlExecutor();
+        new Expectations(ddlExecutor) {
+            {
+                // Mock ddl
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any,  anyString);
+                minTimes = 0;
+            }
+        };
 
         StmtExecutor executor = new StmtExecutor(ctx, "");
         executor.execute();
@@ -467,54 +589,32 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testDdlFail() throws Exception {
-        DdlStmt ddlStmt = EasyMock.createMock(DdlStmt.class);
-        ddlStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(ddlStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.replay(ddlStmt);
+    public void testDdlFail(@Mocked DdlStmt ddlStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                ddlStmt.analyze((Analyzer) any);
+                minTimes = 0;
 
-        Symbol symbol = new Symbol(0, ddlStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
+                ddlStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
 
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
+                Symbol symbol = new Symbol(0, ddlStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
 
-        // Mock ddl
-        PowerMock.mockStatic(DdlExecutor.class);
-        DdlExecutor.execute(EasyMock.isA(Catalog.class), EasyMock.isA(DdlStmt.class), EasyMock.anyString());
-        EasyMock.expectLastCall().andThrow(new DdlException("ddl fail"));
-        PowerMock.replay(DdlExecutor.class);
-
-        StmtExecutor executor = new StmtExecutor(ctx, "");
-        executor.execute();
-
-        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
-    }
-
-    @Test
-    public void testDdlFail2() throws Exception {
-        DdlStmt ddlStmt = EasyMock.createMock(DdlStmt.class);
-        ddlStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(ddlStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.replay(ddlStmt);
-
-        Symbol symbol = new Symbol(0, ddlStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
-
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
-
-        // Mock ddl
-        PowerMock.mockStatic(DdlExecutor.class);
-        DdlExecutor.execute(EasyMock.isA(Catalog.class), EasyMock.isA(DdlStmt.class), EasyMock.anyString());
-        EasyMock.expectLastCall().andThrow(new Exception("bug"));
-        PowerMock.replay(DdlExecutor.class);
+        DdlExecutor ddlExecutor = new DdlExecutor();
+        new Expectations(ddlExecutor) {
+            {
+                // Mock ddl
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any,  anyString);
+                minTimes = 0;
+                result = new DdlException("ddl fail");
+            }
+        };
 
         StmtExecutor executor = new StmtExecutor(ctx, "");
         executor.execute();
@@ -523,19 +623,64 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testUse() throws Exception {
-        UseStmt useStmt = EasyMock.createMock(UseStmt.class);
-        useStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(useStmt.getDatabase()).andReturn("testDb").anyTimes();
-        EasyMock.expect(useStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.expect(useStmt.getClusterName()).andReturn("testCluster").anyTimes();
-        EasyMock.replay(useStmt);
+    public void testDdlFail2(@Mocked DdlStmt ddlStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                ddlStmt.analyze((Analyzer) any);
+                minTimes = 0;
 
-        Symbol symbol = new Symbol(0, useStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
+                ddlStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                Symbol symbol = new Symbol(0, ddlStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
+
+        DdlExecutor ddlExecutor = new DdlExecutor();
+        new Expectations(ddlExecutor) {
+            {
+                // Mock ddl
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any,  anyString);
+                minTimes = 0;
+                result = new Exception("bug");
+            }
+        };
+
+        StmtExecutor executor = new StmtExecutor(ctx, "");
+        executor.execute();
+
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+    }
+
+    @Test
+    public void testUse(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                useStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                useStmt.getDatabase();
+                minTimes = 0;
+                result = "testDb";
+
+                useStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                useStmt.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+
+                Symbol symbol = new Symbol(0, useStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
 
         StmtExecutor executor = new StmtExecutor(ctx, "");
         executor.execute();
@@ -544,22 +689,30 @@ public class StmtExecutorTest {
     }
 
     @Test
-    public void testUseFail() throws Exception {
-        UseStmt useStmt = EasyMock.createMock(UseStmt.class);
-        useStmt.analyze(EasyMock.isA(Analyzer.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(useStmt.getDatabase()).andReturn("blockDb").anyTimes();
-        EasyMock.expect(useStmt.getRedirectStatus()).andReturn(RedirectStatus.NO_FORWARD).anyTimes();
-        EasyMock.expect(useStmt.getClusterName()).andReturn("testCluster").anyTimes();
-        EasyMock.replay(useStmt);
+    public void testUseFail(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                useStmt.analyze((Analyzer) any);
+                minTimes = 0;
 
-        Symbol symbol = new Symbol(0, useStmt);
-        SqlParser parser = EasyMock.createMock(SqlParser.class);
-        EasyMock.expect(parser.parse()).andReturn(symbol).anyTimes();
-        EasyMock.replay(parser);
+                useStmt.getDatabase();
+                minTimes = 0;
+                result = "blockDb";
 
-        PowerMock.expectNew(SqlParser.class, EasyMock.isA(SqlScanner.class)).andReturn(parser);
-        PowerMock.replay(SqlParser.class);
+                useStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                useStmt.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+
+                Symbol symbol = new Symbol(0, useStmt);
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
 
         StmtExecutor executor = new StmtExecutor(ctx, "");
         executor.execute();

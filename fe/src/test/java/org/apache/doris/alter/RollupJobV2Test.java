@@ -17,6 +17,8 @@
 
 package org.apache.doris.alter;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddRollupClause;
@@ -57,24 +59,22 @@ import java.util.List;
 import java.util.Map;
 
 public class RollupJobV2Test {
-
-    private static FakeEditLog fakeEditLog;
-    private static FakeCatalog fakeCatalog;
     private static FakeTransactionIDGenerator fakeTransactionIDGenerator;
     private static GlobalTransactionMgr masterTransMgr;
     private static GlobalTransactionMgr slaveTransMgr;
     private static Catalog masterCatalog;
     private static Catalog slaveCatalog;
 
-    private String transactionSource = "localfe";
+    private static String transactionSource = "localfe";
     private static Analyzer analyzer;
     private static AddRollupClause clause;
+
+    FakeEditLog fakeEditLog;
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
             InvocationTargetException, NoSuchMethodException, SecurityException, AnalysisException {
         fakeEditLog = new FakeEditLog();
-        fakeCatalog = new FakeCatalog();
         fakeTransactionIDGenerator = new FakeTransactionIDGenerator();
         masterCatalog = CatalogTestUtil.createTestCatalog();
         slaveCatalog = CatalogTestUtil.createTestCatalog();
@@ -95,11 +95,22 @@ public class RollupJobV2Test {
 
         FeConstants.runningUnitTest = true;
         AgentTaskQueue.clearAllTasks();
+
+        new MockUp<Catalog>() {
+            @Mock
+            public Catalog getInstance() {
+                return masterCatalog;
+            }
+            @Mock
+            public Catalog getCurrentCatalog() {
+                return masterCatalog;
+            }
+        };
     }
 
     @Test
     public void testAddSchemaChange() throws UserException {
-        FakeCatalog.setCatalog(masterCatalog);
+        fakeEditLog = new FakeEditLog();
         MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
         ArrayList<AlterClause> alterClauses = new ArrayList<>();
         alterClauses.add(clause);
@@ -114,7 +125,7 @@ public class RollupJobV2Test {
     // start a schema change, then finished
     @Test
     public void testSchemaChange1() throws Exception {
-        FakeCatalog.setCatalog(masterCatalog);
+        fakeEditLog = new FakeEditLog();
         MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
 
         // add a rollup job

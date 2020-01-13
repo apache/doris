@@ -1,6 +1,9 @@
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.SystemInfoService;
@@ -19,33 +22,40 @@ import org.powermock.modules.junit4.PowerMockRunner;
 import java.util.Arrays;
 
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class ShowPartitionsStmtTest {
+  @Mocked
   private Analyzer analyzer;
   private Catalog catalog;
   private SystemInfoService systemInfo;
+
+  private FakeCatalog fakeCatalog;
 
   @Rule
   public ExpectedException expectedEx = ExpectedException.none();
 
   @Before
   public void setUp() {
+    fakeCatalog = new FakeCatalog();
     catalog = AccessTestUtil.fetchAdminCatalog();
     systemInfo = new SystemInfoService();
 
-    PowerMock.mockStatic(Catalog.class);
-    EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-    EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfo).anyTimes();
-    EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
-    PowerMock.replay(Catalog.class);
+    FakeCatalog.setCatalog(catalog);
+    new Expectations() {
+      {
+        analyzer.getDefaultDb();
+        minTimes = 0;
+        result = "testDb";
 
-    analyzer = EasyMock.createMock(Analyzer.class);
-    EasyMock.expect(analyzer.getDefaultDb()).andReturn("testDb").anyTimes();
-    EasyMock.expect(analyzer.getCatalog()).andReturn(catalog).anyTimes();
-    EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
-    EasyMock.replay(analyzer);
+        analyzer.getCatalog();
+        minTimes = 0;
+        result = catalog;
+
+        analyzer.getClusterName();
+        minTimes = 0;
+        result = "testCluster";
+      }
+    };
+
   }
 
   @Test
