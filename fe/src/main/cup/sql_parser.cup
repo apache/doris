@@ -302,7 +302,6 @@ nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name;
 nonterminal FunctionName function_name;
-nonterminal String unit;
 nonterminal Expr where_clause;
 nonterminal Expr where_clause_without_null;
 nonterminal Predicate predicate, between_predicate, comparison_predicate,
@@ -3601,8 +3600,6 @@ non_pred_expr ::=
   {: RESULT = c; :}
   | column_ref:c
   {: RESULT = c; :}
-  | unit:u LPAREN expr_list:exprs RPAREN
-  {: RESULT = new FunctionCallExpr(u, exprs); :}
   | timestamp_arithmetic_expr:e
   {: RESULT = e; :}
   | arithmetic_expr:e
@@ -3749,15 +3746,15 @@ arithmetic_expr ::=
 // This way we do not need to change existing uses of IDENT.
 // We chose not to make DATE_ADD and DATE_SUB keywords for the same reason.
 timestamp_arithmetic_expr ::=
-  KW_INTERVAL expr:v unit:u ADD expr:t
+  KW_INTERVAL expr:v ident:u ADD expr:t
   {: RESULT = new TimestampArithmeticExpr(ArithmeticExpr.Operator.ADD, t, v, u, true); :}
-  | expr:t ADD KW_INTERVAL expr:v unit:u
+  | expr:t ADD KW_INTERVAL expr:v ident:u
   {:
     RESULT = new TimestampArithmeticExpr(ArithmeticExpr.Operator.ADD, t, v, u, false);
   :}
   // Set precedence to KW_INTERVAL (which is higher than ADD) for chaining.
   %prec KW_INTERVAL
-  | expr:t SUBTRACT KW_INTERVAL expr:v unit:u
+  | expr:t SUBTRACT KW_INTERVAL expr:v ident:u
   {:
     RESULT =
         new TimestampArithmeticExpr(ArithmeticExpr.Operator.SUBTRACT, t, v, u, false);
@@ -3770,7 +3767,7 @@ timestamp_arithmetic_expr ::=
   // Although we don't want to accept function names as the expr, we can't parse it
   // it as just an IDENT due to the precedence conflict with function_name.
   | function_name:functionName LPAREN expr_list:l COMMA
-    KW_INTERVAL expr:v unit:u RPAREN
+    KW_INTERVAL expr:v ident:u RPAREN
   {:
     if (l.size() > 1) {
       // Report parsing failure on keyword interval.
@@ -3783,29 +3780,12 @@ timestamp_arithmetic_expr ::=
 
     RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
   :}
-  | function_name:functionName LPAREN unit:u COMMA expr:e1 COMMA expr:e2 RPAREN
+  | function_name:functionName LPAREN keyword:u COMMA expr:e1 COMMA expr:e2 RPAREN
   {:
     RESULT = new TimestampArithmeticExpr(functionName.getFunction(), e2, e1, u);
   :}
   ;
 
-unit ::=
-    KW_YEAR
-    {: RESULT = "YEAR"; :}
-    | KW_MONTH
-    {: RESULT = "MONTH"; :}
-    | KW_WEEK
-    {: RESULT = "WEEK"; :}
-    | KW_DAY
-    {: RESULT = "DAY"; :}
-    | KW_HOUR
-    {: RESULT = "HOUR"; :}
-    | KW_MINUTE
-    {: RESULT = "MINUTE"; :}
-    | KW_SECOND
-    {: RESULT = "SECOND"; :}
-    ;
-  
 literal ::=
   INTEGER_LITERAL:l
   {: RESULT = new IntLiteral(l); :}
@@ -4372,6 +4352,20 @@ keyword ::=
     | KW_STOP:id
     {: RESULT = id; :}
     | KW_DYNAMIC:id
+    {: RESULT = id; :}
+    | KW_YEAR:id
+    {: RESULT = id; :}
+    | KW_MONTH:id
+    {: RESULT = id; :}
+    | KW_WEEK:id
+    {: RESULT = id; :}
+    | KW_DAY:id
+    {: RESULT = id; :}
+    | KW_HOUR:id
+    {: RESULT = id; :}
+    | KW_MINUTE:id
+    {: RESULT = id; :}
+    | KW_SECOND:id
     {: RESULT = id; :}
     ;
 

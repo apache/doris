@@ -121,41 +121,41 @@ public class TimestampArithmeticExpr extends Expr {
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         // Check if name of function call is date_sub or date_add.
         String funcOpName;
-        if (funcName != null) {
-            if (funcName.equalsIgnoreCase("TIMESTAMPDIFF")) {
-                timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
-                if (timeUnit == null) {
-                    throw new AnalysisException("Invalid time unit '" + timeUnitIdent
-                            + "' in timestamp arithmetic expression '" + toSql() + "'.");
+        if (funcName != null && funcName.equalsIgnoreCase("TIMESTAMPDIFF")) {
+            timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
+            if (timeUnit == null) {
+                throw new AnalysisException("Invalid time unit '" + timeUnitIdent
+                        + "' in timestamp arithmetic expression '" + toSql() + "'.");
+            }
+            Type dateType = fixType();
+            if (dateType.isDate() && timeUnit.isDateTime()) {
+                dateType = Type.DATETIME;
+            }
+            // The first child must return a timestamp or null.
+            if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
+                if (!dateType.isValid()) {
+                    throw new AnalysisException("Operand '" + getChild(0).toSql()
+                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
+                            + getChild(0).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
                 }
-                Type dateType = fixType();
-                if (dateType.isDate() && timeUnit.isDateTime()) {
-                    dateType = Type.DATETIME;
-                }
-                // The first child must return a timestamp or null.
-                if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
-                    if (!dateType.isValid()) {
-                        throw new AnalysisException("Operand '" + getChild(0).toSql()
-                                + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                                + getChild(0).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
-                    }
-                    castChild(dateType, 0);
-                }
+                castChild(dateType, 0);
+            }
 
-                // The first child must return a timestamp or null.
-                if (!getChild(1).getType().isDateType() && !getChild(1).getType().isNull()) {
-                    if (!dateType.isValid()) {
-                        throw new AnalysisException("Operand '" + getChild(1).toSql()
-                                + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                                + getChild(1).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
-                    }
-                    castChild(dateType, 1);
+            // The first child must return a timestamp or null.
+            if (!getChild(1).getType().isDateType() && !getChild(1).getType().isNull()) {
+                if (!dateType.isValid()) {
+                    throw new AnalysisException("Operand '" + getChild(1).toSql()
+                            + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
+                            + getChild(1).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
                 }
+                castChild(dateType, 1);
+            }
 
-                type = Type.BIGINT;
-                opcode = getOpCode();
-                funcOpName = String.format("%sS_%s", timeUnit, "DIFF");
-            } else {
+            type = Type.BIGINT;
+            opcode = getOpCode();
+            funcOpName = String.format("%sS_%s", timeUnit, "DIFF");
+        } else {
+            if (funcName != null) {
                 if (funcName.toUpperCase().equals("DATE_ADD")
                         || funcName.toUpperCase().equals("DAYS_ADD")
                         || funcName.toUpperCase().equals("ADDDATE")
@@ -171,47 +171,8 @@ public class TimestampArithmeticExpr extends Expr {
                             + "Expected function name 'DATE_ADD/DAYS_ADD/ADDDATE/TIMESTAMPADD'"
                             + "or 'DATE_SUB/DAYS_SUB/SUBDATE");
                 }
-
-                timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
-                if (timeUnit == null) {
-                    throw new AnalysisException("Invalid time unit '" + timeUnitIdent
-                            + "' in timestamp arithmetic expression '" + toSql() + "'.");
-                }
-
-                Type dateType = fixType();
-                if (dateType.isDate() && timeUnit.isDateTime()) {
-                    dateType = Type.DATETIME;
-                }
-                // The first child must return a timestamp or null.
-                if (!getChild(0).getType().isDateType() && !getChild(0).getType().isNull()) {
-                    if (!dateType.isValid()) {
-                        throw new AnalysisException("Operand '" + getChild(0).toSql()
-                                + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                                + getChild(0).getType() + "'. Expected type 'TIMESTAMP/DATE/DATETIME'.");
-                    }
-                    castChild(dateType, 0);
-                }
-
-                if (!getChild(1).getType().isScalarType()) {
-                    throw new AnalysisException("must be a scalar type.");
-                }
-
-                // The second child must be of type 'INT' or castable to it.
-                if (!getChild(1).getType().isScalarType(PrimitiveType.INT)) {
-                    if (!ScalarType.canCastTo((ScalarType) getChild(1).getType(), Type.INT)) {
-                        throw new AnalysisException("Operand '" + getChild(1).toSql()
-                                + "' of timestamp arithmetic expression '" + toSql() + "' returns type '"
-                                + getChild(1).getType() + "' which is incompatible with expected type 'INT'.");
-                    }
-                    castChild(Type.INT, 1);
-                }
-
-                type = dateType;
-                opcode = getOpCode();
-                funcOpName = String.format("%sS_%s", timeUnit,
-                        (op == ArithmeticExpr.Operator.ADD) ? "ADD" : "SUB");
             }
-        } else {
+
             timeUnit = TIME_UNITS_MAP.get(timeUnitIdent.toUpperCase());
             if (timeUnit == null) {
                 throw new AnalysisException("Invalid time unit '" + timeUnitIdent
@@ -260,7 +221,7 @@ public class TimestampArithmeticExpr extends Expr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.COMPUTE_FUNCTION_CALL;
-        msg.setOpcode(opcode);
+        msg.setOpcode(opcode);                    
     }
 
     public ArithmeticExpr.Operator getOp() {
