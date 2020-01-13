@@ -115,10 +115,6 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = db;
 
-                    catalog.getDb(anyLong);
-                    minTimes = 0;
-                    result = db;
-
                     catalog.getDb("testCluster:testDb");
                     minTimes = 0;
                     result = db;

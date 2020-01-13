@@ -18,6 +18,8 @@
 package org.apache.doris.qe;
 
 import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescribeStmt;
@@ -290,19 +292,18 @@ public class ShowExecutorTest {
         Analyzer analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         Catalog catalog = AccessTestUtil.fetchAdminCatalog();
 
-        new Expectations(catalog) {
-            {
-                Catalog.getInstance();
-                minTimes = 0;
-                result = catalog;
-
-                Catalog.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = clusterInfo;
+        new MockUp<Catalog>() {
+            @Mock
+            Catalog getInstance() {
+                return catalog;
+            }
+            @Mock
+            Catalog getCurrentCatalog() {
+                return catalog;
+            }
+            @Mock
+            SystemInfoService getCurrentSystemInfo() {
+                return clusterInfo;
             }
         };
 

@@ -40,6 +40,9 @@ public class DescribeStmtTest {
         ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");
 
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
+        catalog = AccessTestUtil.fetchAdminCatalog();
+
         new MockUp<ConnectContext>() {
             @Mock
             public ConnectContext get() {
@@ -47,18 +50,14 @@ public class DescribeStmtTest {
             }
         };
 
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        catalog = AccessTestUtil.fetchAdminCatalog();
-
-        new Expectations(catalog) {
-            {
-                Catalog.getInstance();
-                minTimes = 0;
-                result = catalog;
-
-                Catalog.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
+        new MockUp<Catalog>() {
+            @Mock
+            Catalog getInstance() {
+                return catalog;
+            }
+            @Mock
+            Catalog getCurrentCatalog() {
+                return catalog;
             }
         };
     }
