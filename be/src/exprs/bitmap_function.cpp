@@ -20,6 +20,8 @@
 #include "exprs/anyval_util.h"
 #include "util/bitmap.h"
 #include "util/string_parser.hpp"
+#include "gutil/strings/split.h"
+#include "gutil/strings/numbers.h"
 
 namespace doris {
 
@@ -444,6 +446,23 @@ StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVa
 
     std::string str = bitmap->to_string();
     return AnyValUtil::from_string_temp(ctx, str);
+}
+
+StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const StringVal& input) {
+    if (input.is_null) {
+        return StringVal::null();
+    }
+
+    std::vector<uint32_t> bits;
+    if (!SplitStringAndParse({(const char*)input.ptr, input.len}, ",", &safe_strtou32, &bits)) {
+        return StringVal::null();
+    }
+
+    RoaringBitmap bitmap(bits);
+
+    StringVal result(ctx, bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
 }
 
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(

@@ -269,11 +269,26 @@ TEST_F(BitMapTest, roaring_bitmap_serde) {
 
 TEST_F(BitMapTest, bitmap_to_string) {
     RoaringBitmap empty;
-    ASSERT_STREQ("[]", empty.to_string().c_str());
+    ASSERT_STREQ("", empty.to_string().c_str());
     empty.update(1);
-    ASSERT_STREQ("[1]", empty.to_string().c_str());
+    ASSERT_STREQ("1", empty.to_string().c_str());
     empty.update(2);
-    ASSERT_STREQ("[1,2]", empty.to_string().c_str());
+    ASSERT_STREQ("1,2", empty.to_string().c_str());
+}
+
+TEST_F(BitMapTest, bitmap_from_vector) {
+    {
+        RoaringBitmap bitmap{std::vector<uint32_t>()};
+        ASSERT_STREQ("", bitmap.to_string().c_str());
+    }
+    {
+        RoaringBitmap bitmap({1});
+        ASSERT_STREQ("1", bitmap.to_string().c_str());
+    }
+    {
+        RoaringBitmap bitmap({1, 2});
+        ASSERT_STREQ("1,2", bitmap.to_string().c_str());
+    }
 }
 
 }

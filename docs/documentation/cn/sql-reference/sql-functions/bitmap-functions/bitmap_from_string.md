@@ -15,25 +15,18 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# bitmap_to_string
+# bitmap_from_string
 
 ## description
 ### Syntax
 
-`VARCHAR BITMAP_TO_STRING(BITMAP input)`
+`BITMAP BITMAP_FROM_STRING(VARCHAR input)`
 
-将一个bitmap转化成一个字符串。输入是null的话会返回null。
+将一个字符串转化为一个BITAMP，如果输入的字符串不合法，返回NULL.
 
 ## example
 
 ```
-mysql> select bitmap_to_string(null);
-+------------------------+
-| bitmap_to_string(NULL) |
-+------------------------+
-| NULL                   |
-+------------------------+
-
 mysql> select bitmap_to_string(bitmap_empty());
 +----------------------------------+
 | bitmap_to_string(bitmap_empty()) |
@@ -41,22 +34,21 @@ mysql> select bitmap_to_string(bitmap_empty());
 |                                  |
 +----------------------------------+
 
-mysql> select bitmap_to_string(to_bitmap(1));
-+--------------------------------+
-| bitmap_to_string(to_bitmap(1)) |
-+--------------------------------+
-| 1                              |
-+--------------------------------+
+mysql> select bitmap_to_string(bitmap_from_string("0, 1, 2"));
++-------------------------------------------------+
+| bitmap_to_string(bitmap_from_string('0, 1, 2')) |
++-------------------------------------------------+
+| 0,1,2                                           |
++-------------------------------------------------+
 
-mysql> select bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2)));
-+---------------------------------------------------------+
-| bitmap_to_string(bitmap_or(to_bitmap(1), to_bitmap(2))) |
-+---------------------------------------------------------+
-| 1,2                                                     |
-+---------------------------------------------------------+
-
+mysql> select bitmap_from_string("-1, 0, 1, 2");
++-----------------------------------+
+| bitmap_from_string('-1, 0, 1, 2') |
++-----------------------------------+
+| NULL                              |
++-----------------------------------+
 ```
 
 ## keyword
 
-    BITMAP_TO_STRING,BITMAP
+    BITMAP_FROM_STRING,BITMAP

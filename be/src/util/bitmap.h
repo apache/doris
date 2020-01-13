@@ -271,6 +271,22 @@ public:
         deserialize(src);
     }
 
+    // construct a bitmap from given bits
+    explicit RoaringBitmap(const std::vector<uint32_t>& bits) {
+        switch (bits.size()) {
+        case 0:
+            _type = EMPTY;
+            break;
+        case 1:
+            _type = SINGLE;
+            _int_value = bits[0];
+            break;
+        default:
+            _type = BITMAP;
+            _roaring.addMany(bits.size(), &bits[0]);
+        }
+    }
+
     void update(const uint32_t value) {
         switch (_type) {
             case EMPTY:
@@ -430,7 +446,7 @@ private:
     };
 
     Roaring _roaring;
-    uint32_t _int_value;
+    uint32_t _int_value = 0;
     BitmapDataType _type;
 };
 

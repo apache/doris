@@ -153,7 +153,6 @@ std::string BitmapToString(const uint8_t *bitmap, size_t num_bits) {
 
 std::string RoaringBitmap::to_string() const {
     std::stringstream ss;
-    ss << "[";
     switch (_type) {
     case EMPTY:
         break;
@@ -182,7 +181,6 @@ std::string RoaringBitmap::to_string() const {
     default:
         break;
     }
-    ss << "]";
     return ss.str();
 }
 
