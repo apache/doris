@@ -86,6 +86,7 @@ set(UTIL_FILES
   zip_util.cpp        
   utf8_check.cpp
   cgroup_util.cpp
+  path_util.cpp
 )
 
 if (WITH_MYSQL)

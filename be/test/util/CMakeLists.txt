@@ -55,3 +55,5 @@ ADD_BE_TEST(radix_sort_test)
 ADD_BE_TEST(zip_util_test)
 ADD_BE_TEST(utf8_check_test)
 ADD_BE_TEST(cgroup_util_test)
+ADD_BE_TEST(path_util_test)
+
