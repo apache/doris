@@ -242,7 +242,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static org.apache.doris.common.util.PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -2915,8 +2914,12 @@ public class Catalog {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             // here we check partition's properties
             Short replicationNum = olapTable.getReplicationNum();
-            singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), null, replicationNum);
-
+            Map<String, String> partitionDescProperties = null;
+            if (replicationNum != null) {
+                partitionDescProperties = new HashMap<>();
+                partitionDescProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
+            }
+            singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), partitionDescProperties);
             rangePartitionInfo.checkAndCreateRange(singlePartitionDesc);
 
             // get distributionInfo
@@ -3479,7 +3482,7 @@ public class Catalog {
         // analyze replication_num
         short replicationNum = FeConstants.default_replication_num;
         try {
-            boolean isReplicationNumSet = properties != null && properties.containsKey(PROPERTIES_REPLICATION_NUM);
+            boolean isReplicationNumSet = properties != null && properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
             replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
             if (isReplicationNumSet) {
                 olapTable.setReplicationNum(replicationNum);
@@ -3910,7 +3913,7 @@ public class Catalog {
             // 7. replicationNum
             Short replicationNum = olapTable.getReplicationNum();
             if (replicationNum != null) {
-                sb.append(",\n \"").append(PROPERTIES_REPLICATION_NUM).append("\" = \"");
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
                 sb.append(replicationNum).append("\"");
             }
             sb.append("\n)");

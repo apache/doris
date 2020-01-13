@@ -87,7 +87,7 @@ public class SingleRangePartitionDesc {
         return this.properties;
     }
 
-    public void analyze(int partColNum, Map<String, String> otherProperties, Short replicationNum) throws AnalysisException {
+    public void analyze(int partColNum, Map<String, String> otherProperties) throws AnalysisException {
         if (isAnalyzed) {
             return;
         }

@@ -120,7 +120,7 @@ public class EsIndexState {
                 PartitionKey partitionKey = PartitionKey.createPartitionKey(
                         desc.getPartitionKeyDesc().getUpperValues(), 
                         ((RangePartitionInfo) partitionInfo).getPartitionColumns());
-                desc.analyze(((RangePartitionInfo) partitionInfo).getPartitionColumns().size(), null, null);
+                desc.analyze(((RangePartitionInfo) partitionInfo).getPartitionColumns().size(), null);
                 indexState.setPartitionDesc(desc);
                 indexState.setPartitionKey(partitionKey);
             }
