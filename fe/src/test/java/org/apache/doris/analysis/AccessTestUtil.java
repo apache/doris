@@ -104,7 +104,6 @@ public class AccessTestUtil {
             table.addPartition(partition);
             table.setBaseIndexId(baseIndex.getId());
             db.createTable(table);
-            long dbId = db.getId();
 
             new Expectations(catalog) {
                 {
@@ -120,7 +119,7 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = null;
 
-                    catalog.getDb(dbId);
+                    catalog.getDb(50000L);
                     minTimes = 0;
                     result = db;
 
