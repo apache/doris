@@ -23,7 +23,6 @@ under the License.
 
 `INT ENDS_WITH (VARCHAR str, VARCHAR suffix)`
 
-
 如果字符串以指定后缀结尾，返回1。否则，返回0
 
 ## example

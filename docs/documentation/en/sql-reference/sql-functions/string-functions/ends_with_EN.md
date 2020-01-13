@@ -17,13 +17,11 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-
 # ends_with
 ## Description
 ### Syntax
 
 `INT ENDS_WITH (VARCHAR str, VARCHAR suffix)`
-
 
 It returns 1 if the string ends with the specified suffix, otherwise it returns 0.
 
