@@ -111,6 +111,14 @@ public class AccessTestUtil {
                     minTimes = 0;
                     result = paloAuth;
 
+                    catalog.getDb(50000L);
+                    minTimes = 0;
+                    result = db;
+
+                    catalog.getDb(anyLong);
+                    minTimes = 0;
+                    result = db;
+
                     catalog.getDb("testCluster:testDb");
                     minTimes = 0;
                     result = db;
@@ -118,10 +126,6 @@ public class AccessTestUtil {
                     catalog.getDb("testCluster:emptyDb");
                     minTimes = 0;
                     result = null;
-
-                    catalog.getDb(50000L);
-                    minTimes = 0;
-                    result = db;
 
                     catalog.getDb(anyString);
                     minTimes = 0;
