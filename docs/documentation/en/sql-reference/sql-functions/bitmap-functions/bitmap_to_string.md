@@ -22,7 +22,8 @@ under the License.
 
 `VARCHAR BITMAP_TO_STRING(BITMAP input)`
 
-Convert a input BITMAP to a string. If input is null, return null.
+Convert a input BITMAP to a string. The string is a separated string, contains all set bits in Bitmap.
+If input is null, return null.
 
 ## example
 

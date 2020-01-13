@@ -377,6 +377,19 @@ public:
         }
     }
 
+    // check if value x is present
+    bool contains(uint32_t x) {
+        switch (_type) {
+        case EMPTY:
+            return false;
+        case SINGLE:
+            return _int_value == x;
+        case BITMAP:
+            return _roaring.contains(x);
+        }
+        return false;
+    }
+
     int64_t cardinality() const {
         switch (_type) {
             case EMPTY:

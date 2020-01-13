@@ -21,6 +21,8 @@
 #include <iostream>
 
 #include "common/logging.h"
+#include "testutil/function_utils.h"
+#include "exprs/bitmap_function.h"
 
 namespace doris {
 
@@ -276,18 +278,28 @@ TEST_F(BitMapTest, bitmap_to_string) {
     ASSERT_STREQ("1,2", empty.to_string().c_str());
 }
 
-TEST_F(BitMapTest, bitmap_from_vector) {
+TEST_F(BitMapTest, bitmap_from_string) {
+    FunctionUtils utils;
+
     {
-        RoaringBitmap bitmap{std::vector<uint32_t>()};
-        ASSERT_STREQ("", bitmap.to_string().c_str());
+        StringVal val = StringVal("0,1,2");
+        auto bitmap_str = BitmapFunctions::bitmap_from_string(utils.get_fn_ctx(), val);
+        ASSERT_FALSE(bitmap_str.is_null);
+        RoaringBitmap bitmap((const char*)bitmap_str.ptr);
+        bitmap.contains(0);
+        bitmap.contains(1);
+        bitmap.contains(2);
+
     }
     {
-        RoaringBitmap bitmap({1});
-        ASSERT_STREQ("1", bitmap.to_string().c_str());
+        StringVal val = StringVal("a,b,1,2");
+        auto bitmap_str = BitmapFunctions::bitmap_from_string(utils.get_fn_ctx(), val);
+        ASSERT_TRUE(bitmap_str.is_null);
     }
     {
-        RoaringBitmap bitmap({1, 2});
-        ASSERT_STREQ("1,2", bitmap.to_string().c_str());
+        StringVal val = StringVal("-1,1,2");
+        auto bitmap_str = BitmapFunctions::bitmap_from_string(utils.get_fn_ctx(), val);
+        ASSERT_TRUE(bitmap_str.is_null);
     }
 }
 
