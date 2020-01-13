@@ -34,6 +34,7 @@
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/Status_types.h"
+#include "gen_cpp/Types_constants.h"
 #include "olap/utils.h"
 #include "olap/snapshot_manager.h"
 #include "runtime/exec_env.h"
@@ -409,14 +410,7 @@ void AgentServer::make_snapshot(TAgentResult& return_value,
     TStatus status;
     vector<string> error_msgs;
     TStatusCode::type status_code = TStatusCode::OK;
-    int32_t return_snapshot_version = SNAPSHOT_REQ_VERSION1
-    // If the request's preferred snapshot version is SNAPSHOT_REQ_VERSION1
-    // Then we will convert the BETA rowset to ALPHA rowset
-    // So, set the return_snapshot_version to SNAPSHOT_REQ_VERSION1
-    if (snapshot_request.preferred_snapshot_version == SNAPSHOT_REQ_VERSION1) {
-        return_snapshot_version = SNAPSHOT_REQ_VERSION1;
-    }
-    return_value.__set_snapshot_version(return_snapshot_version);
+    return_value.__set_snapshot_version(snapshot_request.preferred_snapshot_version);
     string snapshot_path;
     OLAPStatus make_snapshot_status =
             SnapshotManager::instance()->make_snapshot(snapshot_request, &snapshot_path);

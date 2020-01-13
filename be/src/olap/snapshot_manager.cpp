@@ -39,6 +39,8 @@
 
 #include "env/env.h"
 
+#include "gen_cpp/Types_constants.h"
+
 using boost::filesystem::copy_file;
 using boost::filesystem::copy_option;
 using boost::filesystem::path;
@@ -451,7 +453,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             new_tablet_meta->revise_rs_metas(rs_metas);
         }
 
-        if (snapshot_version == SNAPSHOT_REQ_VERSION1) {
+        if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION1) {
             // convert beta rowset to alpha rowset
             if (request.__isset.missing_version) {
                 res = _convert_beta_rowsets_to_alpha(
@@ -469,7 +471,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             LOG(INFO) << "finish convert beta to alpha, res:" << res
                       << ", tablet:" << new_tablet_meta->tablet_id()
                       << ", schema hash:" << new_tablet_meta->schema_hash();
-        } else if (snapshot_version == SNAPSHOT_REQ_VERSION2) {
+        } else if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION2) {
             res = new_tablet_meta->save(header_path);
         } else {
             res = OLAP_ERR_INVALID_SNAPSHOT_VERSION;

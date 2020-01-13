@@ -178,7 +178,7 @@ struct TSnapshotRequest {
     7: optional bool list_files
     // if all nodes has been upgraded, it can be removed.
     8: optional bool allow_incremental_clone
-    9: optional i32 preferred_snapshot_version = 1  // request preferred snapshot version, default value is 1 for old version be
+    9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
 }
 
 struct TReleaseSnapshotRequest {

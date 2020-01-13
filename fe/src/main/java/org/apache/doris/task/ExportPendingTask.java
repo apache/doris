@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TypesConstants;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -114,7 +115,7 @@ public class ExportPendingTask extends MasterTask {
                 snapshotRequest.setVersion(Long.parseLong(paloScanRange.getVersion()));
                 snapshotRequest.setVersion_hash(Long.parseLong(paloScanRange.getVersion_hash()));
                 snapshotRequest.setTimeout(job.getTimeoutSecond());
-                snapshotRequest.setPreferred_snapshot_version(TSNAPSHOT_REQ_VERSION2);
+                snapshotRequest.setPreferred_snapshot_version(TypesConstants.TPREFER_SNAPSHOT_REQ_VERSION);
 
                 AgentClient client = new AgentClient(host, port);
                 TAgentResult result = client.makeSnapshot(snapshotRequest);

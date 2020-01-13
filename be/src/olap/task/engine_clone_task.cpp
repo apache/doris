@@ -32,6 +32,8 @@
 
 #include "env/env.h"
 
+#include "gen_cpp/Types_constants.h"
+
 using std::set;
 using std::stringstream;
 using strings::Substitute;
@@ -400,8 +402,7 @@ Status EngineCloneTask::_make_snapshot(
     TSnapshotRequest request;
     request.__set_tablet_id(tablet_id);
     request.__set_schema_hash(schema_hash);
-    // This is a new version be, should set preferred version to SNAPSHOT_REQ_VERSION2
-    request.__set_preferred_snapshot_version(SNAPSHOT_REQ_VERSION2);
+    request.__set_preferred_snapshot_version(g_Types_constants.TPREFER_SNAPSHOT_REQ_VERSION);
     if (missed_versions != nullptr) {
         // TODO: missing version composed of singleton delta.
         // if not, this place should be rewrote.
