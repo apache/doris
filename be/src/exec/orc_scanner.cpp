@@ -233,9 +233,43 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                             str_slot->len = wbytes;
                             break;
                         }
-                        //TODO (lhy) : support more orc type
-                        case orc::TIMESTAMP:
-                        case orc::DECIMAL:
+                        case orc::DECIMAL: {
+                            int precision = ((orc::Decimal64VectorBatch*) cvb)->precision;
+                            int scale = ((orc::Decimal64VectorBatch*) cvb)->scale;
+
+                            //Decimal64VectorBatch handles decimal columns with precision no greater than 18. 
+                            //Decimal128VectorBatch handles the others. 
+                            std::string decimal_str;
+                            if (precision <= 18) {
+                                decimal_str = std::to_string(((orc::Decimal64VectorBatch*) cvb)->values[_current_line_of_group]);
+                            } else {
+                                decimal_str = ((orc::Decimal128VectorBatch*) cvb)->values[_current_line_of_group].toString();
+                            }
+                            //Orc api will fill in 0 at the end, so size must greater than scale
+                            std::string v = decimal_str.substr(0, decimal_str.size() - scale) + "." 
+                                + decimal_str.substr(decimal_str.size() - scale);
+                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(v.size()));
+                            memcpy(str_slot->ptr, v.c_str(), v.size());
+                            str_slot->len = v.size();
+                            break;
+                        }
+                        case orc::TIMESTAMP: {
+                            int64_t timestamp = ((orc::TimestampVectorBatch*) cvb)->data[_current_line_of_group];
+                            std::string timezone = _state->timezone();
+                            DateTimeValue dtv;
+                            if (!dtv.from_unixtime(timestamp, timezone)) {
+                                std::stringstream str_error;
+                                str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
+                                LOG(WARNING) << str_error.str();
+                                return Status::InternalError(str_error.str());
+                            }
+                            char* buf_end = dtv.to_string((char*) tmp_buf);
+                            wbytes = buf_end - (char*) tmp_buf -1;
+                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                            memcpy(str_slot->ptr, tmp_buf, wbytes);
+                            str_slot->len = wbytes;
+                            break;
+                        }
                         default: {
                             std::stringstream str_error;
                             str_error << "The field name(" << slot_desc->col_name() << ") type not support. ";
