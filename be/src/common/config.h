@@ -312,7 +312,7 @@ namespace config {
 
     CONF_Bool(disable_mem_pools, "false");
 
-    // Whether to allocate chunk using mmap. If you enable this, you'd better to 
+    // Whether to allocate chunk using mmap. If you enable this, you'd better to
     // increase vm.max_map_count's value whose default value is 65530.
     // you can do it as root via "sysctl -w vm.max_map_count=262144" or
     // "echo 262144 > /proc/sys/vm/max_map_count"
@@ -336,7 +336,7 @@ namespace config {
     CONF_Bool(enable_partitioned_hash_join, "false")
     CONF_Bool(enable_partitioned_aggregation, "false")
     CONF_Bool(enable_new_partitioned_aggregation, "true")
-    
+
     // for kudu
     // "The maximum size of the row batch queue, for Kudu scanners."
     CONF_Int32(kudu_max_row_batches, "0")
@@ -363,7 +363,7 @@ namespace config {
 
     // to open/close system metrics
     CONF_Bool(enable_system_metrics, "true");
-    
+
     CONF_Bool(enable_prefetch, "true");
 
     // Number of cores Doris will used, this will effect only when it's greater than 0.
@@ -375,6 +375,10 @@ namespace config {
     // Set this to encrypt and perform an integrity
     // check on all data spilled to disk during a query
     CONF_Bool(disk_spill_encryption, "false");
+
+    // When BE start, If there is a broken disk, BE process will exit by default.
+    // Otherwise, we will ignore the broken disk,
+    CONF_Bool(ignore_broken_disk, "false");
 
     // Writable scratch directories
     CONF_String(scratch_dirs, "/tmp");
@@ -450,7 +454,7 @@ namespace config {
     // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
     // default is 20, batch_size's defualt value is 1024 means 20 * 1024 rows will be cached
     CONF_Int32(max_memory_sink_batch_count, "20");
-    
+
     // This configuration is used for the context gc thread schedule period
     // note: unit is minute, default is 5min
     CONF_Int32(scan_context_gc_interval_min, "5");

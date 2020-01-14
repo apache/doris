@@ -134,6 +134,26 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    auto it = paths.begin();
+    for (;it != paths.end();) {
+        if (!doris::check_dir_existed(it->path)) {
+            if (doris::config::ignore_broken_disk) {
+                LOG(WARNING) << "opendir failed, path=" << it->path;
+                it = paths.erase(it);
+            } else {
+                LOG(FATAL) << "opendir failed, path=" << it->path;
+                exit(-1);
+            }
+        } else {
+            ++it;
+        }
+    }
+
+    if (paths.empty()) {
+        LOG(FATAL) << "All disks are broken, exit.";
+        exit(-1);
+    }
+
     doris::LlvmCodeGen::initialize_llvm();
 
     // initilize libcurl here to avoid concurrent initialization
