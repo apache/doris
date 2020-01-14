@@ -62,7 +62,7 @@ public:
     //      "1,2,3" will be converted to Bitmap with its Bit 1, 2, 3 set.
     //      "-1, 1" will get NULL, because -1 is not a valid bit for Bitmap
     static StringVal bitmap_from_string(FunctionContext* ctx, const StringVal& input);
-    static BooleanVal bitmap_contains(FunctionContext* ctx, const StringVal& src, const IntVal& input);
+    static BooleanVal bitmap_contains(FunctionContext* ctx, const StringVal& src, const BigIntVal& input);
     static BooleanVal bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs);
 
     // bitmap_intersect

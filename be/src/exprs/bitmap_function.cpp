@@ -465,36 +465,37 @@ StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const String
     return result;
 }
 
-BooleanVal BitmapFunctions::bitmap_contains(FunctionContext *ctx, const StringVal &src, const IntVal &input) {
+BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVal& src, const BigIntVal& input) {
     if (src.is_null || input.is_null) {
         return BooleanVal::null();
     }
 
-    if (src.len == 0) {
-        return BooleanVal(false);
-    }
-
     RoaringBitmap bitmap;
-    bitmap.update(input.val);
-    bitmap.intersect(RoaringBitmap((char*)src.ptr));
-
-    if (bitmap.cardinality() == 1) {
-        return BooleanVal(true);
+    if (src.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)src.ptr));
     }
-    return BooleanVal(false);
+    return BooleanVal(bitmap.contains(input.val));
 }
 
-BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext *ctx, const StringVal &lhs, const StringVal &rhs) {
+BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
         return BooleanVal::null();
     }
 
-    if (lhs.len == 0 || rhs.len == 0) {
-        return BooleanVal(false);
+    RoaringBitmap bitmap;
+    if (lhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
     }
 
-    RoaringBitmap bitmap ((char*)lhs.ptr);
-    bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
+    if (rhs.len == 0) {
+        bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+    } else {
+        bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
+    }
 
     if (bitmap.cardinality() == 0) {
         return BooleanVal(false);
