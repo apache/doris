@@ -17,6 +17,8 @@
 
 package org.apache.doris.cluster;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.Analyzer;
@@ -28,6 +30,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -51,15 +54,15 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class SystemInfoServiceTest {
 
+    @Mocked
     private EditLog editLog;
+    @Mocked
     private Catalog catalog;
     private SystemInfoService systemInfoService;
     private TabletInvertedIndex invertedIndex;
+    @Mocked
     private Database db;
 
     private Analyzer analyzer;
@@ -70,42 +73,63 @@ public class SystemInfoServiceTest {
 
     @Before
     public void setUp() throws IOException {
-        editLog = EasyMock.createMock(EditLog.class);
-        editLog.logAddBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logDropBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logBackendStateChange(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(editLog);
+        new Expectations() {
+            {
+                editLog.logAddBackend((Backend) any);
+                minTimes = 0;
 
-        db = EasyMock.createMock(Database.class);
-        db.readLock();
-        EasyMock.expectLastCall().anyTimes();
-        db.readUnlock();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(db);
+                editLog.logDropBackend((Backend) any);
+                minTimes = 0;
 
-        catalog = EasyMock.createMock(Catalog.class);
-        EasyMock.expect(catalog.getNextId()).andReturn(backendId).anyTimes();
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        EasyMock.expect(catalog.getDb(EasyMock.anyLong())).andReturn(db).anyTimes();
-        EasyMock.expect(catalog.getCluster(EasyMock.anyString())).andReturn(new Cluster("cluster", 1)).anyTimes();
+                editLog.logBackendStateChange((Backend) any);
+                minTimes = 0;
 
-        catalog.clear();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(catalog);
+                db.readLock();
+                minTimes = 0;
 
-        PowerMock.mockStatic(Catalog.class);
-        systemInfoService = new SystemInfoService();
-        invertedIndex = new TabletInvertedIndex();
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
-        EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(invertedIndex).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+                db.readUnlock();
+                minTimes = 0;
 
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
+                catalog.getNextId();
+                minTimes = 0;
+                result = backendId;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+
+                catalog.getDb(anyLong);
+                minTimes = 0;
+                result = db;
+
+                catalog.getCluster(anyString);
+                minTimes = 0;
+                result = new Cluster("cluster", 1);
+
+                catalog.clear();
+                minTimes = 0;
+
+                Catalog.getInstance();
+                minTimes = 0;
+                result = catalog;
+
+                systemInfoService = new SystemInfoService();
+                Catalog.getCurrentSystemInfo();
+                minTimes = 0;
+                result = systemInfoService;
+
+                invertedIndex = new TabletInvertedIndex();
+                Catalog.getCurrentInvertedIndex();
+                minTimes = 0;
+                result = invertedIndex;
+
+                Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
+                result = FeConstants.meta_version;
+            }
+        };
+
+        analyzer = new Analyzer(catalog, new ConnectContext(null));
     }
 
     public void mkdir(String dirString) {

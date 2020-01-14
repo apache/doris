@@ -17,6 +17,9 @@
 
 package org.apache.doris.qe;
 
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlProto;
@@ -34,85 +37,64 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicLong;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ConnectScheduler.class, MysqlProto.class, ConnectContext.class})
 public class ConnectSchedulerTest {
     private static final Logger LOG = LoggerFactory.getLogger(ConnectScheduler.class);
-    private AtomicLong succSubmit;
-
-    private ConnectProcessor mockProcessor() {
-        ConnectProcessor processor;
-        // mock processor loop
-        processor = EasyMock.createMock(ConnectProcessor.class);
-        processor.loop();
-        EasyMock.expectLastCall().andDelegateTo(new ConnectProcessor(null) {
-            @Override
-            public void loop() {
-                LOG.warn("starts loop");
-                // Make cancel thread to work
-                succSubmit.incrementAndGet();
-                try {
-                    Thread.sleep(2000);
-                } catch (InterruptedException e) {
-                    LOG.warn("sleep exception");
-                }
-            }
-        }).anyTimes();
-        EasyMock.replay(processor);
-
-        return processor;
-    }
-
-    private ConnectProcessor mockExceptionProcessor() {
-        ConnectProcessor processor;
-        // mock processor loop
-        processor = EasyMock.createMock(ConnectProcessor.class);
-        processor.loop();
-        EasyMock.expectLastCall().andDelegateTo(new ConnectProcessor(null) {
-            @Override
-            public void loop() {
-                throw new RuntimeException("failed");
-            }
-        }).anyTimes();
-        EasyMock.replay(processor);
-
-        return processor;
-    }
+    private static AtomicLong succSubmit;
+    @Mocked
+    SocketChannel socketChannel;
+    @Mocked
+    MysqlChannel channel;
+    @Mocked
+    MysqlProto mysqlProto;
 
     @Before
     public void setUp() throws Exception {
         succSubmit = new AtomicLong(0);
+        new Expectations() {
+            {
+                channel.getRemoteIp();
+                minTimes = 0;
+                result = "192.168.1.1";
 
-        MysqlChannel channel = EasyMock.createMock(MysqlChannel.class);
-        EasyMock.expect(channel.getRemoteIp()).andReturn("192.168.1.1").anyTimes();
-        EasyMock.replay(channel);
-        PowerMock.expectNew(MysqlChannel.class, EasyMock.isA(SocketChannel.class)).andReturn(channel).anyTimes();
-        PowerMock.replay(MysqlChannel.class);
+                // mock negotiate
+                MysqlProto.negotiate((ConnectContext) any);
+                minTimes = 0;
+                result = true;
 
-        // mock negotiate
-        PowerMock.mockStatic(MysqlProto.class);
-        EasyMock.expect(MysqlProto.negotiate(EasyMock.anyObject(ConnectContext.class))).andReturn(true).anyTimes();
-        MysqlProto.sendResponsePacket(EasyMock.anyObject(ConnectContext.class));
-        EasyMock.expectLastCall().anyTimes();
-        PowerMock.replay(MysqlProto.class);
+                MysqlProto.sendResponsePacket((ConnectContext) any);
+                minTimes = 0;
+            }
+        };
     }
 
     @Test
-    public void testSubmit() throws Exception {
+    public void testSubmit(@Mocked ConnectProcessor processor) throws Exception {
         // mock new processor
-        PowerMock.expectNew(ConnectProcessor.class, EasyMock.anyObject(ConnectContext.class))
-                .andReturn(mockProcessor()).once();
-        PowerMock.expectNew(ConnectProcessor.class, EasyMock.anyObject(ConnectContext.class))
-                .andReturn(mockProcessor()).anyTimes();
-        PowerMock.replay(ConnectProcessor.class);
-        ConnectScheduler scheduler = new ConnectScheduler(10);
+        new Expectations() {
+            {
+                processor.loop();
+                result = new Delegate() {
+                    void fakeLoop() {
+                        LOG.warn("starts loop");
+                        // Make cancel thread to work
+                        succSubmit.incrementAndGet();
+                        try {
+                            Thread.sleep(2000);
+                        } catch (InterruptedException e) {
+                            LOG.warn("sleep exception");
+                        }
+                    }
+                };
+            }
+        };
 
+        ConnectScheduler scheduler = new ConnectScheduler(10);
         for (int i = 0; i < 2; ++i) {
-            ConnectContext context = new ConnectContext(EasyMock.createMock(SocketChannel.class));
+            ConnectContext context = new ConnectContext(socketChannel);
             if (i == 1) {
                 context.setCatalog(AccessTestUtil.fetchBlockCatalog());
             } else {
@@ -125,10 +107,14 @@ public class ConnectSchedulerTest {
     }
 
     @Test
-    public void testProcessException() throws Exception {
-        PowerMock.expectNew(ConnectProcessor.class, EasyMock.anyObject(ConnectContext.class))
-                .andReturn(mockExceptionProcessor()).once();
-        PowerMock.replay(ConnectProcessor.class);
+    public void testProcessException(@Mocked ConnectProcessor processor) throws Exception {
+        new Expectations() {
+            {
+                processor.loop();
+                result = new RuntimeException("failed");
+            }
+        };
+
         ConnectScheduler scheduler = new ConnectScheduler(10);
 
         ConnectContext context = new ConnectContext(EasyMock.createMock(SocketChannel.class));
