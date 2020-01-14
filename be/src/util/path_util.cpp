@@ -17,17 +17,14 @@
 
 #include "util/path_util.h"
 
+#include <cstring>
+#include <memory>
 // Use the POSIX version of dirname(3). See `man 3 dirname`
 #include <libgen.h>
 
-#include <cstring>
-
-#include <common/logging.h>
+#include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/stringpiece.h"
-#include "gutil/strings/strip.h"
-#include "env/env.h"
-#include "common/status.h"
 
 using std::string;
 using std::vector;
@@ -40,10 +37,9 @@ namespace path_util {
 const string kTmpInfix = ".doristmp";
 
 string join_path_segments(const string& a, const string& b) {
-    CHECK(!a.empty()) << "empty first component: " << a;
-    CHECK(!b.empty() && b[0] != '/')
-            << "second path component must be non-empty and relative: "
-            << b;
+    DCHECK(!a.empty()) << "empty first component: " << a;
+    DCHECK(!b.empty() && b[0] != '/')
+            << "second path component must be non-empty and relative: " << b;
     if (a.back() == '/') {
         return a + b;
     } else {

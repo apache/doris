@@ -21,8 +21,6 @@
 #include <string>
 #include <vector>
 
-#include "gutil/port.h"
-
 namespace doris {
 namespace path_util {
 
