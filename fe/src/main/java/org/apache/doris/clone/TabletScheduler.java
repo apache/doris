@@ -228,9 +228,9 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     /*
-     * Iterate current tablets, change their priority if necessary.
+     * Iterate current tablets, change their priority to VERY_HIGH if necessary.
      */
-    public synchronized void changePriorityOfTablets(long dbId, long tblId, List<Long> partitionIds) {
+    public synchronized void changeTabletsPriorityToVeryHigh(long dbId, long tblId, List<Long> partitionIds) {
         PriorityQueue<TabletSchedCtx> newPendingTablets = new PriorityQueue<>();
         for (TabletSchedCtx tabletCtx : pendingTablets) {
             if (tabletCtx.getDbId() == dbId && tabletCtx.getTblId() == tblId
@@ -552,6 +552,7 @@ public class TabletScheduler extends MasterDaemon {
                 handleReplicaMissing(tabletCtx, batchTask);
                 break;
             case VERSION_INCOMPLETE:
+            case NEED_FURTHER_REPAIR: // same as version incomplete, it prefer to the dest replica which need further repair
                 handleReplicaVersionIncomplete(tabletCtx, batchTask);
                 break;
             case REPLICA_RELOCATING:
@@ -571,10 +572,6 @@ public class TabletScheduler extends MasterDaemon {
                 break;
             case COLOCATE_REDUNDANT:
                 handleColocateRedundant(tabletCtx);
-                break;
-            case NEED_FURTHER_REPAIR:
-                // same as version incomplete, it prefer to the dest replica which need further repair
-                handleReplicaVersionIncomplete(tabletCtx, batchTask);
                 break;
             default:
                 break;
@@ -1224,9 +1221,7 @@ public class TabletScheduler extends MasterDaemon {
         // 1. remove the tablet ctx if timeout
         List<TabletSchedCtx> timeoutTablets = Lists.newArrayList();
         synchronized (this) {
-            runningTablets.values().stream().filter(t -> t.isTimeout()).forEach(t -> {
-                timeoutTablets.add(t);
-            });
+            runningTablets.values().stream().filter(TabletSchedCtx::isTimeout).forEach(timeoutTablets::add);
 
             for (TabletSchedCtx tabletSchedCtx : timeoutTablets) {
                 removeTabletCtx(tabletSchedCtx, "timeout");
