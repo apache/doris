@@ -100,6 +100,18 @@ public class TabletChecker extends MasterDaemon {
         }
     }
 
+    public static class RepairTabletInfo {
+        public long dbId;
+        public long tblId;
+        public List<Long> partIds;
+
+        public RepairTabletInfo(Long dbId, Long tblId, List<Long> partIds) {
+            this.dbId = dbId;
+            this.tblId = tblId;
+            this.partIds = partIds;
+        }
+    }
+
     public TabletChecker(Catalog catalog, SystemInfoService infoService, TabletScheduler tabletScheduler,
             TabletSchedulerStat stat) {
         super("tablet checker", CHECK_INTERVAL_MS);
@@ -356,42 +368,9 @@ public class TabletChecker extends MasterDaemon {
      * when being scheduled.
      */
     public void repairTable(AdminRepairTableStmt stmt) throws DdlException {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(stmt.getDbName());
-        if (db == null) {
-            throw new DdlException("Database " + stmt.getDbName() + " does not exist");
-        }
-
-        long dbId = db.getId();
-        long tblId = -1;
-        List<Long> partIds = Lists.newArrayList();
-        db.readLock();
-        try {
-            Table tbl = db.getTable(stmt.getTblName());
-            if (tbl == null || tbl.getType() != TableType.OLAP) {
-                throw new DdlException("Table does not exist or is not OLAP table: " + stmt.getTblName());
-            }
-
-            tblId = tbl.getId();
-            OlapTable olapTable = (OlapTable) tbl;
-            if (stmt.getPartitions().isEmpty()) {
-                partIds = olapTable.getPartitions().stream().map(p -> p.getId()).collect(Collectors.toList());
-            } else {
-                for (String partName : stmt.getPartitions()) {
-                    Partition partition = olapTable.getPartition(partName);
-                    if (partition == null) {
-                        throw new DdlException("Partition does not exist: " + partName);
-                    }
-                    partIds.add(partition.getId());
-                }
-            }
-        } finally {
-            db.readUnlock();
-        }
-
-        Preconditions.checkState(tblId != -1);
-        addPrios(dbId, tblId, partIds, stmt.getTimeoutS() * 1000);
-        LOG.info("repair database: {}, table: {}, partition: {}", dbId, tblId, partIds);
+        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+        addPrios(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds, stmt.getTimeoutS() * 1000);
+        LOG.info("repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     /*
@@ -399,42 +378,9 @@ public class TabletChecker extends MasterDaemon {
      * This operation will remove the specified partitions from 'prios'
      */
     public void cancelRepairTable(AdminCancelRepairTableStmt stmt) throws DdlException {
-        Catalog catalog = Catalog.getCurrentCatalog();
-        Database db = catalog.getDb(stmt.getDbName());
-        if (db == null) {
-            throw new DdlException("Database " + stmt.getDbName() + " does not exist");
-        }
-
-        long dbId = db.getId();
-        long tblId = -1;
-        List<Long> partIds = Lists.newArrayList();
-        db.readLock();
-        try {
-            Table tbl = db.getTable(stmt.getTblName());
-            if (tbl == null || tbl.getType() != TableType.OLAP) {
-                throw new DdlException("Table does not exist or is not OLAP table: " + stmt.getTblName());
-            }
-
-            tblId = tbl.getId();
-            OlapTable olapTable = (OlapTable) tbl;
-            if (stmt.getPartitions().isEmpty()) {
-                partIds = olapTable.getPartitions().stream().map(p -> p.getId()).collect(Collectors.toList());
-            } else {
-                for (String partName : stmt.getPartitions()) {
-                    Partition partition = olapTable.getPartition(partName);
-                    if (partition == null) {
-                        throw new DdlException("Partition does not exist: " + partName);
-                    }
-                    partIds.add(partition.getId());
-                }
-            }
-        } finally {
-            db.readUnlock();
-        }
-
-        Preconditions.checkState(tblId != -1);
-        removePrios(dbId, tblId, partIds);
-        LOG.info("cancel repair database: {}, table: {}, partition: {}", dbId, tblId, partIds);
+        RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+        removePrios(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
+        LOG.info("cancel repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     public int getPrioPartitionNum() {
@@ -462,5 +408,45 @@ public class TabletChecker extends MasterDaemon {
             }
         }
         return infos;
+    }
+
+    public static RepairTabletInfo getRepairTabletInfo(String dbName, String tblName, List<String> partitions) throws DdlException {
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Database db = catalog.getDb(dbName);
+        if (db == null) {
+            throw new DdlException("Database " + dbName + " does not exist");
+        }
+
+        long dbId = db.getId();
+        long tblId = -1;
+        List<Long> partIds = Lists.newArrayList();
+        db.readLock();
+        try {
+            Table tbl = db.getTable(tblName);
+            if (tbl == null || tbl.getType() != TableType.OLAP) {
+                throw new DdlException("Table does not exist or is not OLAP table: " + tblName);
+            }
+
+            tblId = tbl.getId();
+            OlapTable olapTable = (OlapTable) tbl;
+
+            if (partitions == null || partitions.isEmpty()) {
+                partIds = olapTable.getPartitions().stream().map(Partition::getId).collect(Collectors.toList());
+            } else {
+                for (String partName : partitions) {
+                    Partition partition = olapTable.getPartition(partName);
+                    if (partition == null) {
+                        throw new DdlException("Partition does not exist: " + partName);
+                    }
+                    partIds.add(partition.getId());
+                }
+            }
+        } finally {
+            db.readUnlock();
+        }
+
+        Preconditions.checkState(tblId != -1);
+
+        return new RepairTabletInfo(dbId, tblId, partIds);
     }
 }

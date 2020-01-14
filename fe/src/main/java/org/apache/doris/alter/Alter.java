@@ -51,7 +51,9 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.View;
+import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -64,6 +66,7 @@ import com.google.common.base.Preconditions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import oshi.util.Util;
 
 import java.util.Arrays;
 import java.util.List;
@@ -271,6 +274,18 @@ public class Alter {
 
             if (olapTable.getPartitions().size() == 0 && !hasPartition) {
                 throw new DdlException("table with empty parition cannot do schema change. [" + tableName + "]");
+            }
+
+            // if table state is unhealthy, change table repair priority, and wait until repair finish or exceed timeout
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                long startRepairTabletMills = System.currentTimeMillis();
+                long waitTimeMs = Config.tablet_repair_wait_time_seconds_while_alter_ops * 1000;
+                TabletChecker.RepairTabletInfo repairTabletInfo = TabletChecker.getRepairTabletInfo(dbName, tableName, null);
+                Catalog.getCurrentCatalog().getTabletChecker().addPrios(repairTabletInfo.dbId,
+                        repairTabletInfo.tblId, repairTabletInfo.partIds, waitTimeMs);
+                while ((System.currentTimeMillis() - startRepairTabletMills) <= waitTimeMs && olapTable.getState() != OlapTableState.NORMAL) {
+                    Util.sleep(1000);
+                }
             }
 
             if (olapTable.getState() != OlapTableState.NORMAL) {
