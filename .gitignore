@@ -13,7 +13,6 @@ thirdparty/installed
 *.iml
 extension/spark-doris-connector/.classpath
 extension/spark-doris-connector/target
-loadManagerTest
 fe/log
 custom-env.sh
 
