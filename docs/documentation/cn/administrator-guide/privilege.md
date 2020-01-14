@@ -101,7 +101,7 @@ Doris 目前支持以下几种权限
     
 ## ADMIN/GRANT 权限说明
 
-ADMIN\_PRIV 和 GRANT\_PRIV 权限同时拥有**“授予权限”**的权限，较为特殊。这里对和这两个权限相关的操作逐一说明。
+ADMIN\_PRIV 和 GRANT\_PRIV 权限同时拥有**授予权限**的权限，较为特殊。这里对和这两个权限相关的操作逐一说明。
 
 1. CREATE USER
 
