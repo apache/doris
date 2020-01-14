@@ -72,18 +72,18 @@ public class ShowTransactionStmt extends ShowStmt {
             throw new AnalysisException("Missing transaction id");
         }
 
-        analyzeSubPredicate(whereClause);
+        analyzeWhereClause();
     }
 
-    private void analyzeSubPredicate(Expr subExpr) throws AnalysisException {
-        if (subExpr == null) {
+    private void analyzeWhereClause() throws AnalysisException {
+        if (whereClause == null) {
             return;
         }
 
         boolean valid = true;
         CHECK: {
-            if (subExpr instanceof BinaryPredicate) {
-                BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
+            if (whereClause instanceof BinaryPredicate) {
+                BinaryPredicate binaryPredicate = (BinaryPredicate) whereClause;
                 if (binaryPredicate.getOp() != Operator.EQ) {
                     valid = false;
                     break CHECK;
@@ -94,23 +94,23 @@ public class ShowTransactionStmt extends ShowStmt {
             }
 
             // left child
-            if (!(subExpr.getChild(0) instanceof SlotRef)) {
+            if (!(whereClause.getChild(0) instanceof SlotRef)) {
                 valid = false;
                 break CHECK;
             }
-            String leftKey = ((SlotRef) subExpr.getChild(0)).getColumnName();
+            String leftKey = ((SlotRef) whereClause.getChild(0)).getColumnName();
             if (!leftKey.equalsIgnoreCase("id")) {
                 valid = false;
                 break CHECK;
             }
 
             // right child
-            if (!(subExpr.getChild(1) instanceof IntLiteral)) {
+            if (!(whereClause.getChild(1) instanceof IntLiteral)) {
                 valid = false;
                 break CHECK;
             }
 
-            txnId = ((IntLiteral) subExpr.getChild(1)).getLongValue();
+            txnId = ((IntLiteral) whereClause.getChild(1)).getLongValue();
         }
 
         if (!valid) {

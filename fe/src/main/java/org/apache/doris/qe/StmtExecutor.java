@@ -719,14 +719,15 @@ public class StmtExecutor {
 
         // {'label':'my_label1', 'status':'visible', 'txnId':'123'}
         // {'label':'my_label1', 'status':'visible', 'txnId':'123' 'err':'error messages'}
-        String info = "{'label':'" + label + "', 'status':'" + txnStatus.name() + "', 'txnId':'"
-                + insertStmt.getTransactionId() + "'";
+        StringBuilder sb = new StringBuilder();
+        sb.append("{'label':'").append(label).append("', 'status':'").append(txnStatus.name());
+        sb.append("', 'txnId':'").append(insertStmt.getTransactionId()).append("'");
         if (!Strings.isNullOrEmpty(errMsg)) {
-            info += ", 'err':'" + info + "'";
+            sb.append(", 'err':'").append(errMsg).append("'");
         }
-        info += "}";
+        sb.append("}");
 
-        context.getState().setOk(loadedRows, filteredRows, info);
+        context.getState().setOk(loadedRows, filteredRows, sb.toString());
     }
 
     private void handleUnsupportedStmt() {
