@@ -57,11 +57,13 @@ public:
     static StringVal bitmap_and(FunctionContext* ctx, const StringVal& src,const StringVal& dst);
     static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
     // Convert a comma separated string to a Bitmap
-    // Example: 
+    // Example:
     //      "" will be converted to an empty Bitmap
     //      "1,2,3" will be converted to Bitmap with its Bit 1, 2, 3 set.
     //      "-1, 1" will get NULL, because -1 is not a valid bit for Bitmap
     static StringVal bitmap_from_string(FunctionContext* ctx, const StringVal& input);
+    static BooleanVal bitmap_contains(FunctionContext* ctx, const StringVal& src, const IntVal& input);
+    static BooleanVal bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs);
 
     // bitmap_intersect
     template<typename T, typename ValType>
