@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "codegen/llvm_codegen.h"
 #include "runtime/exec_env.h"
+#include "util/file_utils.h"
 #include "util/logging.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
@@ -136,7 +137,7 @@ int main(int argc, char** argv) {
 
     auto it = paths.begin();
     for (;it != paths.end();) {
-        if (!doris::check_dir_existed(it->path)) {
+        if (!doris::FileUtils::check_exist(it->path)) {
             if (doris::config::ignore_broken_disk) {
                 LOG(WARNING) << "opendir failed, path=" << it->path;
                 it = paths.erase(it);
