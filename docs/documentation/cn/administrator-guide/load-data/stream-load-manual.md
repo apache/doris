@@ -128,7 +128,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     columns: c2,c1
     
     表达式变换例子：原始文件有两列，目标表也有两列（c1,c2）但是原始文件的两列均需要经过函数变换才能对应目标表的两列，则写法如下：
-    columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
+    columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = month(tmp_c2)
     其中 tmp_*是一个占位符，代表的是原始文件中的两个原始列。
     ```
 

@@ -29,7 +29,7 @@ under the License.
 
 ### 2. 配置git和提交修改
 
-####（1）将代码克隆到本地：
+#### （1）将代码克隆到本地：
 
 ```
 git clone https://github.com/<your_github_name>/incubator-doris.git
@@ -39,14 +39,14 @@ git clone https://github.com/<your_github_name>/incubator-doris.git
   
 clone 完成后，origin 会默认指向 github 上的远程 fork 地址。
 
-####（2）将 apache/incubator-doris 添加为本地仓库的远程分支 upstream：
+#### （2）将 apache/incubator-doris 添加为本地仓库的远程分支 upstream：
 
 ```
 cd  incubator-doris
 git remote add upstream https://github.com/apache/incubator-doris.git
 ```
 
-####（3）检查远程仓库设置：
+#### （3）检查远程仓库设置：
 
 ```
 git remote -v
@@ -56,7 +56,7 @@ upstream  https://github.com/apache/incubator-doris.git (fetch)
 upstream  https://github.com/apache/incubator-doris.git (push)
 ```
 
-####（4）新建分支以便在分支上做修改：
+#### （4）新建分支以便在分支上做修改：
 
 ```
 git checkout -b <your_branch_name>
@@ -66,7 +66,7 @@ git checkout -b <your_branch_name>
 
 创建完成后可进行代码更改。
 
-####（5）提交代码到远程分支：
+#### （5）提交代码到远程分支：
 
 ```
 git commit -a -m "<you_commit_message>"
@@ -115,25 +115,25 @@ git push origin <your_branch_name>
 
 提交PR时的代码冲突一般是由于多人编辑同一个文件引起的，解决冲突主要通过以下步骤即可：
 
-####（1）切换至主分支
+#### （1）切换至主分支
 
 ``` 
 git checkout master
 ```
    
-####（2）同步远端主分支至本地
+#### （2）同步远端主分支至本地
 
 ``` 
 git pull upstream master
 ```
    
-####（3）切换回刚才的分支（假设分支名为fix）
+#### （3）切换回刚才的分支（假设分支名为fix）
 
 ``` 
 git checkout fix
 ```
    
-####（4）进行rebase
+#### （4）进行rebase
    
 ``` 
 git rebase -i master
@@ -154,7 +154,7 @@ git push -f origin fix
    
 ### 5. 一个例子
 
-####（1）对于已经配置好 upstream 的本地分支 fetch 到最新代码
+#### （1）对于已经配置好 upstream 的本地分支 fetch 到最新代码
 
 ```
 $ git branch
@@ -170,7 +170,7 @@ From https://github.com/apache/incubator-doris
    9c36200..0c4edc2  master     -> upstream/master
 ```
 
-####（2）进行rebase
+#### （2）进行rebase
 
 ```
 $ git rebase upstream/master  
@@ -178,7 +178,7 @@ First, rewinding head to replay your work on top of it...
 Fast-forwarded master to upstream/master.
 ```
 
-####（3）检查看是否有别人提交未同步到自己 repo 的提交
+#### （3）检查看是否有别人提交未同步到自己 repo 的提交
 
 ```
 $ git status
@@ -192,7 +192,7 @@ $ git status
 nothing added to commit but untracked files present (use "git add" to track)
 ```
 
-####（4）合并其他人提交的代码到自己的 repo
+#### （4）合并其他人提交的代码到自己的 repo
 
 ```
 $ git push origin master
@@ -206,7 +206,7 @@ To https://lide-reed:fc35ff925bd8fd6629be3f6412bacee99d4e5f97@github.com/lide-re
    9c36200..0c4edc2  master -> master
 ```
 
-####（5）新建分支，准备开发
+#### （5）新建分支，准备开发
 
 ```
 $ git checkout -b my_branch
@@ -217,13 +217,13 @@ $ git branch
 * my_branch
 ```
 
-####（6）代码修改完成后，准备提交
+#### （6）代码修改完成后，准备提交
 
 ```
 $ git add -u
 ```
 
-####（7）填写 message 并提交到本地的新建分支上
+#### （7）填写 message 并提交到本地的新建分支上
 
 ```
 $ git commit -m "Fix a typo"
@@ -231,7 +231,7 @@ $ git commit -m "Fix a typo"
  1 files changed, 2 insertions(+), 2 deletions(-)
 ```
 
-####（8）将分支推到 GitHub 远端自己的 repo 中
+#### （8）将分支推到 GitHub 远端自己的 repo 中
 
 ```
 $ git push origin my_branch

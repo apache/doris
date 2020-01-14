@@ -82,7 +82,7 @@ Doris 的元数据是全内存的。每个 FE 内存中，都维护一个完整�
 3. `image/` 目录下为 image 文件的存放目录。
 
 	* 	`image.[logid]` 是最新的 image 文件。后缀 `logid` 表明 image 所包含的最后一条日志的 id。
-	*  `image.ckpt` 是正在写入的 image 文件，如果写入成功，会重命名为 `image.[logid]`，并替换掉就的 image 文件。
+	*  `image.ckpt` 是正在写入的 image 文件，如果写入成功，会重命名为 `image.[logid]`，并替换掉旧的 image 文件。
 	*  `VERSION` 文件中记录着 `cluster_id`。`cluster_id` 唯一标识一个 Doris 集群。是在 leader 第一次启动时随机生成的一个 32 位整型。也可以通过 fe 配置项 `cluster_id` 来指定一个 cluster id。
 	*  `ROLE` 文件中记录的 FE 自身的角色。只有 `FOLLOWER` 和 `OBSERVER` 两种。其中 `FOLLOWER` 表示 FE 为一个可选举的节点。（注意：即使是 leader 节点，其角色也为 `FOLLOWER`）
 
