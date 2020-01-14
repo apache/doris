@@ -25,32 +25,6 @@
 
 namespace doris {
 
-
-static inline uint8_t bits_less_than_64(const uint64_t v) {
-    return v == 0 ? 0 : 64 - __builtin_clzll(v);
-}
-
-static inline uint8_t bits_may_more_than_64(const uint128_t v) {
-    uint64_t hi = v >> 64;
-    uint64_t lo = v;
-    int z[3] = {
-            __builtin_clzll(hi),
-            __builtin_clzll(lo) + 64,
-            128
-    };
-    int idx = !hi + ((!lo) & (!hi));
-    return 128 - z[idx];
-}
-
-template <typename T>
-static inline uint8_t bits(const T v) {
-    if (sizeof(T) <= 64) {
-        return bits_less_than_64(v);
-    } else {
-        return bits_may_more_than_64(v);
-    }
-}
-
 template<typename T>
 const T* ForEncoder<T>::copy_value(const T *p_data, size_t count) {
     memcpy(&_buffered_values[_buffered_values_num], p_data, count * sizeof(T));
@@ -132,7 +106,7 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
     bool is_ascending = true;
     uint8_t bit_width = 0;
     T half_max_delta = numeric_limits_max() >> 1;
-    bool save_original_value = false;
+    bool is_keep_original_value = false;
 
     // 1. make sure order_flag, save_original_value, and find max&min.
     for (uint8_t i = 1; i < _buffered_values_num; ++i) {
@@ -141,7 +115,7 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
                 is_ascending = false;
             } else {
                 if ((input[i] >> 1) - (input[i - 1] >> 1) > half_max_delta) { // overflow
-                    save_original_value = true;
+                    is_keep_original_value = true;
                 } else {
                     bit_width = std::max(bit_width, bits(input[i]- input[i - 1])) ;
                 }
@@ -159,7 +133,7 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
     }
     if (!is_ascending) {
         if ((max >> 1) - (min >> 1) > half_max_delta) {
-            save_original_value = true;
+            is_keep_original_value = true;
         }
     }
 
@@ -173,7 +147,7 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
     }
 
     // 3.1 save original value.
-    if (save_original_value) {
+    if (is_keep_original_value) {
         bit_width = sizeof(T) * 8;
         uint32_t len = _buffered_values_num * bit_width;
         _buffer->reserve(_buffer->size() + len);
@@ -203,8 +177,13 @@ void ForEncoder<T>::bit_packing_one_frame_value(const T* input) {
         _buffer->resize(origin_size + packing_len);
         bit_pack(delta_values, _buffered_values_num, bit_width, _buffer->data() + origin_size);
     }
-    uint8_t order_flag = (save_original_value ? 2 : 0) | (is_ascending ? 1 : 0);
-    _order_flags.push_back(order_flag);
+    uint8_t storage_format = 0;
+    if (is_keep_original_value) {
+        storage_format = 2;
+    } else if (is_ascending) {
+        storage_format = 1;
+    }
+    _storage_formats.push_back(storage_format);
     _bit_widths.push_back(bit_width);
 
     _buffered_values_num = 0;
@@ -217,10 +196,10 @@ uint32_t ForEncoder<T>::flush() {
     }
 
     // write the footer:
-    // 1 order_flags and bit_widths
-    DCHECK(_order_flags.size() == _bit_widths.size()) << "Size of _order_flags and _bit_widths should be equal.";
-    for (size_t i = 0; i < _order_flags.size(); i++) {
-        _buffer->append(&_order_flags[i], 1);
+    // 1 _storage_formats and bit_widths
+    DCHECK(_storage_formats.size() == _bit_widths.size()) << "Size of _storage_formats and _bit_widths should be equal.";
+    for (size_t i = 0; i < _storage_formats.size(); i++) {
+        _buffer->append(&_storage_formats[i], 1);
         _buffer->append(&_bit_widths[i], 1);
     }
     // 2 frame_value_num and values_num
@@ -260,13 +239,13 @@ bool ForDecoder<T>::init() {
         return false;
     }
 
-    // read order_flags, bit_widths and compute frame_offsets
+    // read _storage_formats, bit_widths and compute frame_offsets
     u_int32_t frame_start_offset = 0;
     for (uint32_t i = 0; i < _frame_count; i++ ) {
         uint8_t order_flag = decode_fixed8(_buffer + bit_width_offset);
         uint8_t bit_width = decode_fixed8(_buffer + bit_width_offset + 1);
         _bit_widths.push_back(bit_width);
-        _order_flags.push_back(order_flag);
+        _storage_formats.push_back(order_flag);
 
         bit_width_offset += 2;
 
@@ -335,12 +314,12 @@ void ForDecoder<T>::decode_current_frame(T* output) {
     }
 
     uint8_t bit_width = _bit_widths[_current_decoded_frame];
-    bool is_ascending = (_order_flags[_current_decoded_frame] & 1) == 1;
-    bool is_original_value = (_order_flags[_current_decoded_frame] & 2) == 2;
 
+    bool is_original_value = _storage_formats[_current_decoded_frame] == 2;
     if (is_original_value) {
         bit_unpack(_buffer + delta_offset, current_frame_size, bit_width, output);
     } else {
+        bool is_ascending = _storage_formats[_current_decoded_frame] == 1;
         std::vector<T> delta_values(current_frame_size);
         bit_unpack(_buffer + delta_offset, current_frame_size, bit_width, delta_values.data());
         if (is_ascending) {

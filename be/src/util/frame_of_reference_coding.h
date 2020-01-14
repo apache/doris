@@ -31,6 +31,33 @@
 #include "util/faststring.h"
 
 namespace doris {
+
+static inline uint8_t bits_less_than_64(const uint64_t v) {
+    return v == 0 ? 0 : 64 - __builtin_clzll(v);
+}
+
+// See https://stackoverflow.com/questions/28423405/counting-the-number-of-leading-zeros-in-a-128-bit-integer
+static inline uint8_t bits_may_more_than_64(const uint128_t v) {
+    uint64_t hi = v >> 64;
+    uint64_t lo = v;
+    int z[3] = {
+            __builtin_clzll(hi),
+            __builtin_clzll(lo) + 64,
+            128
+    };
+    int idx = !hi + ((!lo) & (!hi));
+    return 128 - z[idx];
+}
+
+template <typename T>
+static inline uint8_t bits(const T v) {
+    if (sizeof(T) <= 8) {
+        return bits_less_than_64(v);
+    } else {
+        return bits_may_more_than_64(v);
+    }
+}
+
 // The implementation for frame-of-reference coding
 // The detail of frame-of-reference coding, please refer to
 // https://lemire.me/blog/2012/02/08/effective-compression-using-frame-of-reference-and-delta-coding/
@@ -42,19 +69,19 @@ namespace doris {
 //      BitPackingFrame * FrameCount
 // 2. Footer:
 //
-//      (8 bit OrderFlag + 8 bit BitWidth) * FrameCount
+//      (8 bit StorageFormat + 8 bit BitWidth) * FrameCount
 //       8 bit FrameValueNum
 //      32 bit ValuesNum
 //
-// if the OrderFlag & 2 == 2: save original values
-//      MinValue, (Value[i]) * FrameValueNum
+// There are currently three storage formats
+// (1) if the StorageFormat == 0: When input data order is not ascending and the BitPackingFrame format is:
+//          MinValue, (Value[i] - MinVale) * FrameValueNum
 //
-// if the OrderFlag & 2 == 0:
-//     (1) if the OrderFlag & 1 == 0: not ascending order BitPackingFrame format:
-//          MinValue, (Value - MinVale) * FrameValueNum
-//
-//     (2) if the OrderFlag & 1 == 1: The ascending order BitPackingFrame format:
+// (2) if the StorageFormat == 1: When input data order is ascending and the BitPackingFrame format is:
 //      MinValue, (Value[i] - Value[i - 1]) * FrameValueNum
+//
+// (3) if the StorageFormat == 2:  When overflow occurs when using (1) or (2) and save original values:
+//      MinValue, (Value[i]) * FrameValueNum
 //
 // len(MinValue) can be 32(uint32_t), 64(uint64_t), 128(uint128_t)
 //
@@ -78,7 +105,7 @@ public:
     // underlying buffer size + footer meta size.
     // Note: should call this method before flush.
     uint32_t len() {
-        return _buffer->size() + _order_flags.size() + _bit_widths.size() + 5;
+        return _buffer->size() + _storage_formats.size() + _bit_widths.size() + 5;
     }
 
     // Resets all the state in the encoder.
@@ -103,7 +130,7 @@ private:
     T _buffered_values[FRAME_VALUE_NUM];
 
     faststring* _buffer;
-    std::vector<uint8_t> _order_flags;
+    std::vector<uint8_t> _storage_formats;
     std::vector<uint8_t> _bit_widths;
 };
 
@@ -173,7 +200,7 @@ private:
     uint32_t _frame_count = 0;
     std::vector<uint32_t> _frame_offsets;
     std::vector<uint8_t> _bit_widths;
-    std::vector<uint8_t> _order_flags;
+    std::vector<uint8_t> _storage_formats;
 
     uint32_t _current_index = 0;
     uint32_t _current_decoded_frame = -1;

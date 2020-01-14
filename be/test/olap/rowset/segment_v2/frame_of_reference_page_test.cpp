@@ -246,6 +246,32 @@ TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     ASSERT_EQ(123, s.slice().size);
 }
 
+TEST_F(FrameOfReferencePageTest, TestFindBitsOfInt) {
+    int8_t bits_3 = 0x06;
+    ASSERT_EQ(3, bits(bits_3));
+
+    uint8_t bits_4 = 0x0F;
+    ASSERT_EQ(4, bits(bits_4));
+
+    int32_t bits_17 = 0x000100FF;
+    ASSERT_EQ(17, bits(bits_17));
+
+    int64_t bits_33 = 0x00000001FFFFFFFF;
+    ASSERT_EQ(33, bits(bits_33));
+
+    int128_t bits_0 = 0;
+    ASSERT_EQ(0, bits(bits_0));
+
+    int128_t bits_127 = numeric_limits<int128_t>::max();
+    ASSERT_EQ(127, bits(bits_127));
+
+    uint128_t bits_128 = numeric_limits<uint128_t>::max();
+    ASSERT_EQ(128, bits(bits_128));
+
+    int128_t bits_65 = ((int128_t)1) << 64;
+    ASSERT_EQ(65, bits(bits_65));
+}
+
 }
 
 int main(int argc, char** argv) {
