@@ -39,6 +39,7 @@
 #include "common/status.h"
 #include "codegen/llvm_codegen.h"
 #include "runtime/exec_env.h"
+#include "util/file_utils.h"
 #include "util/logging.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
@@ -131,6 +132,26 @@ int main(int argc, char** argv) {
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
     if (olap_res != doris::OLAP_SUCCESS) {
         LOG(FATAL) << "parse config storage path failed, path=" << doris::config::storage_root_path;
+        exit(-1);
+    }
+
+    auto it = paths.begin();
+    for (;it != paths.end();) {
+        if (!doris::FileUtils::check_exist(it->path)) {
+            if (doris::config::ignore_broken_disk) {
+                LOG(WARNING) << "opendir failed, path=" << it->path;
+                it = paths.erase(it);
+            } else {
+                LOG(FATAL) << "opendir failed, path=" << it->path;
+                exit(-1);
+            }
+        } else {
+            ++it;
+        }
+    }
+
+    if (paths.empty()) {
+        LOG(FATAL) << "All disks are broken, exit.";
         exit(-1);
     }
 
