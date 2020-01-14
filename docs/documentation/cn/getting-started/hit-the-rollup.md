@@ -124,9 +124,9 @@ rollup_index4(k4, k6, k5, k1, k2, k3, k7)
 
 能用的上前缀索引的列上的条件需要是 `=` `<` `>` `<=` `>=` `in` `between` 这些并且这些条件是并列的且关系使用 `and` 连接，对于`or`、`!=` 等这些不能命中，然后看以下查询：
 
-```
-SELECT * FROM test WHERE k1 = 1 AND k2 > 3;
-```
+
+`SELECT * FROM test WHERE k1 = 1 AND k2 > 3;`
+
 	
 有 k1 以及 k2 上的条件，检查只有 Base 的第一列含有条件里的 k1，所以匹配最长的前缀索引即 test，explain一下：
 
@@ -146,7 +146,7 @@ SELECT * FROM test WHERE k1 = 1 AND k2 > 3;
 
 再看以下查询：
 
-`SELECT * FROM test WHERE k4 =1 AND k5 > 3;`
+`SELECT * FROM test WHERE k4 = 1 AND k5 > 3;`
 	
 有 k4 以及 k5 的条件，检查 rollup_index3、rollup_index4 的第一列含有 k4，但是 rollup_index3 的第二列含有k5，所以匹配的前缀索引最长。
 
