@@ -11,6 +11,12 @@ thirdparty/installed
 *.so.tmp
 .DS_Store
 *.iml
+extension/spark-doris-connector/.classpath
+extension/spark-doris-connector/target
+loadManagerTest
+fe/log
+custom-env.sh
+
 
 #ignore eclipse project file & idea  project file
 .cproject
@@ -26,3 +32,6 @@ be/src/gen_cpp/*.cc
 be/src/gen_cpp/*.cpp
 be/src/gen_cpp/*.h
 be/src/gen_cpp/opcode
+
+#ignore vscode project file
+.vscode
