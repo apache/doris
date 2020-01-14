@@ -21,9 +21,10 @@ under the License.
 ## Description
 ### Syntax
 
-`INT ENDS_WITH (VARCHAR str, VARCHAR suffix)`
+`BOOLEAN ENDS_WITH (VARCHAR str, VARCHAR suffix)`
 
-It returns 1 if the string ends with the specified suffix, otherwise it returns 0.
+It returns true if the string ends with the specified suffix, otherwise it returns false. 
+If any parameter is NULL, it returns NULL.
 
 ## example
 

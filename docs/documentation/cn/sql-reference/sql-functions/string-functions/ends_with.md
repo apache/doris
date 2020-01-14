@@ -21,9 +21,9 @@ under the License.
 ## description
 ### Syntax
 
-`INT ENDS_WITH (VARCHAR str, VARCHAR suffix)`
+`BOOLEAN ENDS_WITH (VARCHAR str, VARCHAR suffix)`
 
-如果字符串以指定后缀结尾，返回1。否则，返回0
+如果字符串以指定后缀结尾，返回true。否则，返回false。任意参数为NULL，返回NULL。
 
 ## example
 

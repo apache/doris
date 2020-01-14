@@ -157,6 +157,39 @@ TEST_F(StringFunctionsTest, split_part) {
             StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 4));
 }
 
+TEST_F(StringFunctionsTest, ends_with) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    doris_udf::BooleanVal falseRet = doris_udf::BooleanVal(false);
+    doris_udf::BooleanVal trueRet = doris_udf::BooleanVal(true);
+    doris_udf::BooleanVal nullRet = doris_udf::BooleanVal::null();
+
+    ASSERT_EQ(trueRet, StringFunctions::ends_with(context, StringVal(""), StringVal("")));
+
+    ASSERT_EQ(trueRet, StringFunctions::ends_with(context, StringVal("hello"), StringVal("")));
+
+    ASSERT_EQ(falseRet, StringFunctions::ends_with(context, StringVal(""), StringVal("hello")));
+
+    ASSERT_EQ(trueRet, StringFunctions::ends_with(context, StringVal("hello"), StringVal("hello")));
+
+    ASSERT_EQ(trueRet, StringFunctions::ends_with(context, StringVal(" "), StringVal(" ")));
+
+    ASSERT_EQ(falseRet, StringFunctions::ends_with(context, StringVal("hello"), StringVal(" ")));
+
+    ASSERT_EQ(falseRet, StringFunctions::ends_with(context, StringVal(" "), StringVal("hello")));
+
+    ASSERT_EQ(falseRet, StringFunctions::ends_with(context, StringVal("hello doris"), StringVal("hello")));
+
+    ASSERT_EQ(trueRet, StringFunctions::ends_with(context, StringVal("hello doris"), StringVal("doris")));
+
+    ASSERT_EQ(trueRet, StringFunctions::ends_with(context, StringVal("hello doris"), StringVal("hello doris")));
+
+    ASSERT_EQ(nullRet, StringFunctions::ends_with(context, StringVal("hello"), StringVal::null()));
+
+    ASSERT_EQ(nullRet, StringFunctions::ends_with(context, StringVal::null(), StringVal("hello")));
+
+    ASSERT_EQ(nullRet, StringFunctions::ends_with(context, StringVal::null(), StringVal::null()));
+}
+
 }
 
 int main(int argc, char** argv) {
