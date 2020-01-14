@@ -1206,15 +1206,15 @@ public class OlapTable extends Table {
 
     public void setReplicationNum(Short replicationNum) {
         if (tableProperty == null) {
-            tableProperty = new TableProperty(new HashMap<String, String>());
+            tableProperty = new TableProperty(new HashMap<>());
         }
-        tableProperty.getProperties().put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
+        tableProperty.buildReplicationNum();
     }
 
     public Short getReplicationNum() {
-        if (tableProperty != null && tableProperty.getProperties() != null &&
-            tableProperty.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            return Short.valueOf(tableProperty.getProperties().get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        if (tableProperty != null) {
+            return tableProperty.getReplicationNum();
         }
         return null;
     }

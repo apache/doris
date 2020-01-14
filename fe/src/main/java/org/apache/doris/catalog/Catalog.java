@@ -157,7 +157,7 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
-import org.apache.doris.persist.ModifyDynamicPartitionInfo;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -5097,16 +5097,17 @@ public class Catalog {
         } else {
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(properties);
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
+            tableProperty.buildDynamicProperty();
         }
 
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
                 table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
-        ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
+        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getTableProperty().getProperties());
         editLog.logDynamicPartition(info);
     }
 
-    public void replayModifyTableDynamicPartition(ModifyDynamicPartitionInfo info) {
+    public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info) {
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();
@@ -5117,13 +5118,26 @@ public class Catalog {
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
             TableProperty tableProperty = olapTable.getTableProperty();
             if (tableProperty == null) {
-                olapTable.setTableProperty(new TableProperty(properties).buildDynamicProperty());
+                olapTable.setTableProperty(new TableProperty(properties).buildProperty(opCode));
             } else {
                 tableProperty.modifyTableProperties(properties);
+                tableProperty.buildProperty(opCode);
             }
         } finally {
             db.writeUnlock();
         }
+    }
+
+    public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
+        TableProperty tableProperty = table.getTableProperty();
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(properties);
+        } else {
+            tableProperty.modifyTableProperties(properties);
+        }
+        tableProperty.buildReplicationNum();
+        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getTableProperty().getProperties());
+        editLog.logModifyReplicationNum(info);
     }
 
     /*
