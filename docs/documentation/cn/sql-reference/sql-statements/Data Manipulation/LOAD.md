@@ -93,7 +93,7 @@ under the License.
             
             file_type：
 
-            用于指定导入文件的类型，例如：parquet、csv。默认值通过文件后缀名判断。 
+            用于指定导入文件的类型，例如：parquet、orc、csv。默认值通过文件后缀名判断。 
  
             column_list：
 
