@@ -36,7 +36,7 @@ Doris supports multiple imports. It is recommended to read this document in full
 
 To adapt to different data import requirements, Doris system provides five different import methods. Each import mode supports different data sources and has different usage modes (asynchronous, synchronous).
 
-All import methods support CSV data format. Broker load also supports parquet data format.
+All import methods support CSV data format. Broker load also supports parquet and orc data format.
 
 For instructions on each import mode, please refer to the operation manual for a single import mode.
 
