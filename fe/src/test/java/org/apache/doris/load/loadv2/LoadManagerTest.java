@@ -33,6 +33,7 @@ import org.apache.doris.meta.MetaContext;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -56,6 +57,14 @@ public class LoadManagerTest {
     @Before
     public void setUp() throws Exception {
 
+    }
+
+    @After
+    public void tearDown() throws Exception {
+        File file = new File("./loadManagerTest");
+        if (file.exists()) {
+            file.delete();
+        }
     }
 
     @Test
