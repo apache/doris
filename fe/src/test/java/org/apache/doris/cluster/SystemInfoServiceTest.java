@@ -19,7 +19,6 @@ package org.apache.doris.cluster;
 
 import mockit.Expectations;
 import mockit.Mocked;
-import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DropBackendClause;
@@ -36,15 +35,9 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;

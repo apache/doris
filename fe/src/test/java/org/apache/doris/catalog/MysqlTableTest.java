@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Mocked;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 
@@ -24,15 +25,9 @@ import com.google.common.base.Predicate;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -44,14 +39,14 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class MysqlTableTest {
     private List<Column> columns;
     private Map<String, String> properties;
 
+    @Mocked
     private Catalog catalog;
+
+    private FakeCatalog fakeCatalog;
 
     @Before
     public void setUp() {
@@ -68,11 +63,9 @@ public class MysqlTableTest {
         properties.put("database", "db");
         properties.put("table", "tbl");
 
-        catalog = EasyMock.createMock(Catalog.class);
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        FakeCatalog.setCatalog(catalog);
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test

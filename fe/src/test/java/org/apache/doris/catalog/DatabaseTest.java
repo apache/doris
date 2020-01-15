@@ -17,20 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -42,34 +38,41 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class DatabaseTest {
 
     private Database db;
     private long dbId = 10000;
 
+    @Mocked
     private Catalog catalog;
+    @Mocked
     private EditLog editLog;
 
     @Before
     public void Setup() {
         db = new Database(dbId, "dbTest");
+        new Expectations() {
+            {
+                editLog.logCreateTable((CreateTableInfo) any);
+                minTimes = 0;
 
-        editLog = EasyMock.createMock(EditLog.class);
-        editLog.logCreateTable(EasyMock.anyObject(CreateTableInfo.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(editLog);
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
 
-        catalog = EasyMock.createMock(Catalog.class);
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog);
-        EasyMock.replay(catalog);
+        new Expectations(catalog) {
+            {
+                Catalog.getInstance();
+                minTimes = 0;
+                result = catalog;
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+                Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
+                result = FeConstants.meta_version;
+            }
+        };
     }
 
     @Test

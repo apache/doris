@@ -24,20 +24,12 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlProto;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -117,7 +109,7 @@ public class ConnectSchedulerTest {
 
         ConnectScheduler scheduler = new ConnectScheduler(10);
 
-        ConnectContext context = new ConnectContext(EasyMock.createMock(SocketChannel.class));
+        ConnectContext context = new ConnectContext(socketChannel);
         context.setCatalog(AccessTestUtil.fetchAdminCatalog());
         context.setQualifiedUser("root");
         Assert.assertTrue(scheduler.submit(context));
@@ -136,7 +128,7 @@ public class ConnectSchedulerTest {
     @Test
     public void testSubmitTooMany() throws InterruptedException {
         ConnectScheduler scheduler = new ConnectScheduler(0);
-        ConnectContext context = new ConnectContext(EasyMock.createMock(SocketChannel.class));
+        ConnectContext context = new ConnectContext(socketChannel);
         Assert.assertTrue(scheduler.submit(context));
     }
 }

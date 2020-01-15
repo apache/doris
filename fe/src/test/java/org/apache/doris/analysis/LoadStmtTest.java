@@ -24,7 +24,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -36,7 +35,6 @@ import mockit.Injectable;
 import mockit.Mocked;
 
 public class LoadStmtTest {
-    private DataDescription desc;
     private List<DataDescription> dataDescriptions;
     private Analyzer analyzer;
 
@@ -44,15 +42,14 @@ public class LoadStmtTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
+    @Mocked
+    DataDescription desc;
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         dataDescriptions = Lists.newArrayList();
-        desc = EasyMock.createMock(DataDescription.class);
-        EasyMock.expect(desc.toSql()).andReturn("XXX");
         dataDescriptions.add(desc);
-
         new Expectations() {
             {
                 ConnectContext.get();
@@ -62,6 +59,10 @@ public class LoadStmtTest {
                 ctx.getQualifiedUser();
                 minTimes = 0;
                 result = "default_cluster:user";
+
+                desc.toSql();
+                minTimes = 0;
+                result = "XXX";
             }
         };
     }
@@ -91,9 +92,12 @@ public class LoadStmtTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoData() throws UserException, AnalysisException {
-        desc.analyze(EasyMock.anyString());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(desc);
+        new Expectations() {
+            {
+                desc.analyze(anyString);
+                minTimes = 0;
+            }
+        };
 
         LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null);
         stmt.analyze(analyzer);
