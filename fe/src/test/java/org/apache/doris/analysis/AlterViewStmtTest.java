@@ -17,11 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -31,13 +26,15 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -45,6 +42,12 @@ import org.junit.Test;
 import java.io.StringReader;
 import java.util.LinkedList;
 import java.util.List;
+
+import mockit.Deencapsulation;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 
 public class AlterViewStmtTest {
     private Analyzer analyzer;
