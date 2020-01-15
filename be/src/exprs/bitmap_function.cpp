@@ -470,13 +470,13 @@ BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVa
         return BooleanVal::null();
     }
 
-    RoaringBitmap bitmap;
     if (src.len == 0) {
-        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
-    } else {
-        bitmap.merge(RoaringBitmap((char*)src.ptr));
+        auto bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
+        return {bitmap->contains(input.val)};
     }
-    return BooleanVal(bitmap.contains(input.val));
+
+    RoaringBitmap bitmap ((char*)src.ptr);
+    return {bitmap.contains(input.val)};
 }
 
 BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs) {
@@ -497,10 +497,7 @@ BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal
         bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
     }
 
-    if (bitmap.cardinality() == 0) {
-        return BooleanVal(false);
-    }
-    return BooleanVal(true);
+    return {bitmap.cardinality() != 0};
 }
 
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(
