@@ -126,7 +126,7 @@ public class TabletChecker extends MasterDaemon {
         }
 
         // we also need to change the priority of tablets which are already in
-        tabletScheduler.changePriorityOfTablets(dbId, tblId, partitionIds);
+        tabletScheduler.changeTabletsPriorityToVeryHigh(dbId, tblId, partitionIds);
     }
 
     private void removePrios(long dbId, long tblId, List<Long> partitionIds) {
