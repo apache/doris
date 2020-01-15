@@ -19,7 +19,9 @@ package org.apache.doris.rewrite;
 
 import static org.junit.Assert.fail;
 
+import mockit.Expectations;
 import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -29,33 +31,33 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.common.util.TimeUtils;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import java.time.ZoneId;
 import java.util.Locale;
+import java.util.TimeZone;
 
 public class FEFunctionsTest {
+
+    @Mocked
+    TimeUtils timeUtils;
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
 
     @Before
     public void setUp() {
-        new MockUp<VariableMgr>() {
-            SessionVariable newSessionVariable() {
-                return new SessionVariable();
-            }
-        };
-
-        new MockUp<ConnectContext>() {
-            ConnectContext get() {
-                return new ConnectContext(null);
+        TimeZone tz = TimeZone.getTimeZone(ZoneId.of("Asia/Shanghai"));
+        new Expectations(timeUtils) {
+            {
+                TimeUtils.getTimeZone();
+                minTimes = 0;
+                result = tz;
             }
         };
     }
