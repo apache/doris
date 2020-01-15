@@ -227,7 +227,7 @@ public:
         write_row.set_field_content(0, reinterpret_cast<char*>(&normal_str), _mem_pool.get());
         block.set_row(0, write_row);
         block.finalize(1);
-        ASSERT_EQ(_column_writer->write_batch(&block, &write), OLAP_SUCCESS);
+        ASSERT_EQ(_column_writer->write_batch(&block, &write_row), OLAP_SUCCESS);
         ColumnDataHeaderMessage header;
         ASSERT_EQ(_column_writer->finalize(&header), OLAP_SUCCESS);
         helper.close();
