@@ -280,6 +280,38 @@ TEST_F(BitmapFunctionsTest,bitmap_and) {
     BigIntVal expected(1);
     ASSERT_EQ(expected, result);
 }
+TEST_F(BitmapFunctionsTest,bitmap_contains) {
+    RoaringBitmap bitmap(4);
+    bitmap.update(5);
+    StringVal bitmap_str = convert_bitmap_to_string(ctx,bitmap);
+    BooleanVal result = BitmapFunctions::bitmap_contains(ctx,bitmap_str,5);
+    BooleanVal expected(true);
+    ASSERT_EQ(expected,result);
+
+    BooleanVal result2 = BitmapFunctions::bitmap_contains(ctx,bitmap_str,10);
+    BooleanVal expected2(false);
+    ASSERT_EQ(expected2,result2);
+}
+
+TEST_F(BitmapFunctionsTest,bitmap_has_any) {
+    RoaringBitmap bitmap1(4);
+    bitmap1.update(5);
+
+    RoaringBitmap bitmap2(4);
+    bitmap2.update(5);
+
+    StringVal lhs = convert_bitmap_to_string(ctx,bitmap1);
+    StringVal rhs = convert_bitmap_to_string(ctx,bitmap2);
+    BooleanVal result = BitmapFunctions::bitmap_has_any(ctx,lhs,rhs);
+    BooleanVal expected(true);
+    ASSERT_EQ(expected,result);
+
+    RoaringBitmap bitmap3(10);
+    StringVal r3 = convert_bitmap_to_string(ctx,bitmap3);
+    BooleanVal result1 = BitmapFunctions::bitmap_has_any(ctx,lhs,r3);
+    BooleanVal expected2(false);
+    ASSERT_EQ(expected2,result1);
+}
 
 }
 
