@@ -229,7 +229,7 @@ public class LoadBalancer {
         }
 
         // if all low backends is not available, return
-        if (lowBe.stream().allMatch(b -> !b.isAvailable())) {
+        if (lowBe.stream().noneMatch(BackendLoadStatistic::isAvailable)) {
             throw new SchedException(Status.UNRECOVERABLE, "all low load backends is unavailable");
         }
 
@@ -261,9 +261,7 @@ public class LoadBalancer {
                 continue;
             }
             long pathHash = slot.takeBalanceSlot(replica.getPathHash());
-            if (pathHash == -1) {
-                continue;
-            } else {
+            if (pathHash != -1) {
                 tabletCtx.setSrc(replica);
                 setSource = true;
                 break;
@@ -318,7 +316,6 @@ public class LoadBalancer {
                 long pathHash = slot.takeAnAvailBalanceSlotFrom(pathLow);
                 if (pathHash == -1) {
                     LOG.debug("paths has no available balance slot: {}", pathLow);
-                    continue;
                 } else {
                     tabletCtx.setDest(beStat.getBeId(), pathHash);
                     setDest = true;

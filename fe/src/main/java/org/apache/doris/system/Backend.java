@@ -37,13 +37,13 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 /**
  * This class extends the primary identifier of a Backend with ephemeral state,
@@ -164,26 +164,21 @@ public class Backend implements Writable {
 
     // for test only
     public void updateOnce(int bePort, int httpPort, int beRpcPort) {
-        boolean isChanged = false;
         if (this.bePort.get() != bePort) {
-            isChanged = true;
             this.bePort.set(bePort);
         }
 
         if (this.httpPort.get() != httpPort) {
-            isChanged = true;
             this.httpPort.set(httpPort);
         }
 
         if (this.beRpcPort.get() != beRpcPort) {
-            isChanged = true;
             this.beRpcPort.set(beRpcPort);
         }
 
         long currentTime = System.currentTimeMillis();
         this.lastUpdateMs.set(currentTime);
         if (!isAlive.get()) {
-            isChanged = true;
             this.lastStartTime.set(currentTime);
             LOG.info("{} is alive,", this.toString());
             this.isAlive.set(true);
@@ -354,7 +349,6 @@ public class Backend implements Writable {
     }
 
     public void updateDisks(Map<String, TDisk> backendDisks) {
-
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         // The very first time to init the path info
         if (!initPathInfo) {
@@ -362,11 +356,12 @@ public class Backend implements Writable {
             for (DiskInfo diskInfo : disks.values()) {
                 if (diskInfo.getPathHash() == 0) {
                     allPathHashUpdated = false;
+                    break;
                 }
             }
             if (allPathHashUpdated) {
                 initPathInfo = true;
-                Catalog.getCurrentSystemInfo().updatePathInfo(disks.values().stream().collect(Collectors.toList()), Lists.newArrayList());
+                Catalog.getCurrentSystemInfo().updatePathInfo(new ArrayList<>(disks.values()), Lists.newArrayList());
             }
         }
 
@@ -555,8 +550,6 @@ public class Backend implements Writable {
                 return BackendState.using;
             case 1:
                 return BackendState.offline;
-            case 2:
-                return BackendState.free;
             default:
                 return BackendState.free;
         }

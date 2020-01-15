@@ -203,7 +203,7 @@ public class BackendLoadStatistic {
 
         totalReplicaNumMap = invertedIndex.getReplicaNumByBeIdAndStorageMedium(beId);
         // This is very tricky. because the number of replica on specified medium we get
-        // from getReplicaNumByBeIdAndStorageMedium() is counted based on meta data.
+        // from getReplicaNumByBeIdAndStorageMedium() is defined by table properties,
         // but in fact there may not has SSD disk on this backend. So if we found that no SSD disk on this
         // backend, set the replica number to 0, otherwise, the average replica number on specified medium
         // will be incorrect.
