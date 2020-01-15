@@ -25,14 +25,8 @@ import org.apache.doris.mysql.privilege.UserProperty;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -41,16 +35,13 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class })
 public class UserPropertyTest {
+    private FakeCatalog fakeCatalog;
     @Test
     public void testNormal() throws IOException, DdlException {
         // mock catalog
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
 
         UserProperty property = new UserProperty("root");
         property.getResource().updateGroupShare("low", 991);
