@@ -167,7 +167,7 @@ under the License.
 
         exc_mem_limit: Memory limit. Default is 2GB. Unit is Bytes.
         
-        strict_mode: Whether the data is strictly restricted. The default is true.
+        strict_mode: Whether the data is strictly restricted. The default is false.
 
         timezone: Specify time zones for functions affected by time zones, such as strftime/alignment_timestamp/from_unixtime, etc. See the documentation for details. If not specified, use the "Asia/Shanghai" time zone.
 
