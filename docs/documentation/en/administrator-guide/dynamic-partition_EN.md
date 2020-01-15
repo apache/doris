@@ -32,11 +32,11 @@ Currently, the function of adding partitions dynamically is implemented, and the
 
 ## Principle
 
-In some scenarios, the user will create partitions for the table according to the day and perform routine tasks regularly every day.In this case, the user needs to manually manage the partition, otherwise the data import may fail because the partition is forgot to create, which brings additional maintenance costs to the user.
+In some scenarios, the user will create partitions for the table according to the day and perform routine tasks regularly every day. In this case, the user needs to manually manage the partition, otherwise the data import may fail because the partition is forgot to create, which brings additional maintenance costs to the user.
 
-The design of implementation is that FE will starts a background thread that determines whether or not to start the thread and the scheduling frequency of the thread based on the parameters' dynamic_partition_enable 'and' dynamic_partition_check_interval_seconds' in fe.conf.
+The design of implementation is that FE will starts a background thread that determines whether or not to start the thread and the scheduling frequency of the thread based on the parameters `dynamic_partition_enable` and `dynamic_partition_check_interval_seconds` in `fe.conf`.
 
-When create a olap table, the dynamic_partition properties will be assigned, FE will parse dynamic_partition properties and check the legitimacy of the input parameters firstly, and then persist the properties to FE metadata, register the table to the list of dynamic partition at the same time. Daemon thread will scan the dynamic partition list periodically according to the configuration parameters, 
+When create a olap table, the `dynamic_partition` properties will be assigned. FE will parse `dynamic_partition` properties and check the legitimacy of the input parameters firstly, and then persist the properties to FE metadata, register the table to the list of dynamic partition at the same time. Daemon thread will scan the dynamic partition list periodically according to the configuration parameters,
 read dynamic partition properties of the table, and doing the task of adding partitions. The scheduling information of each time will be kept in the memory of FE. You can check whether the scheduling task is successful through `SHOW DYNAMIC PARTITION TABLES`.
 
 ## Usage
@@ -75,7 +75,7 @@ PROPERTIES(
  );
 ```
 Create a dynamic partition table, specify enable dynamic partition features, take today is 2020-01-08 for example, at every time of scheduling, will create today and after 3 days in advance of four partitions 
-(if the partition is existed, the task will be ignored), partition name respectively according to the specified prefix ` p20200108 ` ` p20200109 ` ` p20200110 ` ` p20200111 `, each partition to 32 the number of points barrels, each partition scope is as follows:
+(if the partition is existed, the task will be ignored), partition name respectively according to the specified prefix `p20200108` `p20200109` `p20200110` `p20200111`, each partition to 32 the number of points barrels, each partition scope is as follows:
 ```
 [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
 [types: [DATE]; keys: [2020-01-09]; ‥types: [DATE]; keys: [2020-01-10]; )
@@ -88,6 +88,7 @@ Create a dynamic partition table, specify enable dynamic partition features, tak
 1. First of all, `dynamic_partition_enable=true` needs to be set in fe.conf, which can be specified by modifying the configuration file when the cluster starts up, or dynamically modified by HTTP interface at run time
 
 2. If you need to add dynamic partitioning properties to a table prior to version 0.12, you need to modify the properties of the table with the following command
+
 ```
 ALTER TABLE dynamic_partition set ("dynamic_partition.enable" = "true", "dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
 ```
@@ -97,6 +98,7 @@ ALTER TABLE dynamic_partition set ("dynamic_partition.enable" = "true", "dynamic
 If you need to stop dynamic partitioning for all dynamic partitioning tables in the cluster, you need to set 'dynamic_partition_enable=true' in fe.conf
 
 If you need to stop dynamic partitioning for a specified table, you can modify the properties of the table with the following command
+
 ```
 ALTER TABLE dynamic_partition set ("dynamic_partition.enable" = "false")
 ```
@@ -104,6 +106,7 @@ ALTER TABLE dynamic_partition set ("dynamic_partition.enable" = "false")
 ### Modify Dynamic Partition Properties
 
 You can modify the properties of the dynamic partition with the following command
+
 ```
 ALTER TABLE dynamic_partition set("key" = "value")
 ```
