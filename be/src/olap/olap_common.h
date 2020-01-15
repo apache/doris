@@ -71,10 +71,7 @@ struct DataDirInfo {
 };
 
 struct TabletInfo {
-    TabletInfo(
-            TTabletId in_tablet_id,
-            TSchemaHash in_schema_hash,
-            UniqueId in_uid) :
+    TabletInfo(TTabletId in_tablet_id, TSchemaHash in_schema_hash, UniqueId in_uid) :
             tablet_id(in_tablet_id),
             schema_hash(in_schema_hash),
             tablet_uid(in_uid) {}
@@ -189,8 +186,9 @@ struct Version {
     int64_t second;
 
     Version(int64_t first_, int64_t second_) : first(first_), second(second_) {}
-
     Version() : first(0), second(0) {}
+
+    friend std::ostream& operator<<(std::ostream& os, const Version& version);
 
     bool operator!=(const Version& rhs) const {
         return first != rhs.first || second != rhs.second;
@@ -199,9 +197,17 @@ struct Version {
     bool operator==(const Version& rhs) const {
         return first == rhs.first && second == rhs.second;
     }
+
+    bool contains(const Version& other) const {
+        return first <= other.first && second >= other.first;
+    }
 };
 
 typedef std::vector<Version> Versions;
+
+inline std::ostream& operator<<(std::ostream& os, const Version& version) {
+    return os << "["<< version.first << "-" << version.second << "]";
+}
 
 // used for hash-struct of hash_map<Version, Rowset*>.
 struct HashOfVersion {
@@ -341,7 +347,6 @@ struct RowsetId {
         out << rowset_id.to_string();
         return out;
     }
-
 };
 
 }  // namespace doris
