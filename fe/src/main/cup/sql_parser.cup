@@ -2015,6 +2015,10 @@ show_param ::=
     {:
         RESULT = new ShowSmallFilesStmt(dbName);
     :}
+    | KW_TRANSACTION opt_db:dbName opt_wild_where
+    {:
+        RESULT = new ShowTransactionStmt(dbName, parser.where);
+    :}
     ;
 
 keys_or_index ::=

@@ -58,6 +58,7 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
+import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.backup.AbstractJob;
@@ -112,6 +113,7 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -236,6 +238,8 @@ public class ShowExecutor {
             handleAdminShowConfig();
         } else if (stmt instanceof ShowSmallFilesStmt) {
             handleShowSmallFiles();
+        } else if (stmt instanceof ShowTransactionStmt) {
+            handleShowTransaction();
         } else {
             handleEmtpy();
         }
@@ -1415,6 +1419,18 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
+    // Show transaction statement.
+    private void handleShowTransaction() throws AnalysisException {
+        ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
+        Database db = ctx.getCatalog().getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName().toString());
+        }
+
+        long txnId = showStmt.getTxnId();
+        GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
+    }
 }
 
 
