@@ -17,13 +17,15 @@
 
 package org.apache.doris.common.util;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.ConnectContext;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -123,8 +125,14 @@ public class TimeUtilsTest {
     }
 
     @Test
-    public void testDateTrans() throws AnalysisException {
-        VariableMgr variableMgr = new VariableMgr();
+    public void testDateTrans(@Mocked ConnectContext ctx) throws AnalysisException {
+        new Expectations(ctx) {
+            {
+                ConnectContext.get();
+                minTimes = 0;
+                result = new ConnectContext(null);
+            }
+        };
         Assert.assertEquals("N/A", TimeUtils.longToTimeString(-2));
 
         long timestamp = 1426125600000L;

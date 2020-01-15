@@ -19,6 +19,8 @@ package org.apache.doris.rewrite;
 
 import static org.junit.Assert.fail;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -28,7 +30,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
-import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.qe.ConnectContext;
 import org.junit.Assert;
 import org.junit.Rule;
 import org.junit.Test;
@@ -42,8 +44,14 @@ public class FEFunctionsTest {
     public ExpectedException expectedEx = ExpectedException.none();
 
     @Test
-    public void unixtimestampTest() {
-        VariableMgr variableMgr = new VariableMgr();
+    public void unixtimestampTest(@Mocked ConnectContext ctx) {
+        new Expectations(ctx) {
+            {
+                ConnectContext.get();
+                minTimes = 0;
+                result = new ConnectContext(null);
+            }
+        };
         try {
             IntLiteral timestamp = FEFunctions.unixTimestamp(new DateLiteral("2018-01-01", Type.DATE));
             Assert.assertEquals(1514736000, timestamp.getValue());
@@ -109,8 +117,14 @@ public class FEFunctionsTest {
     }
     
     @Test
-    public void fromUnixTimeTest() throws AnalysisException {
-        VariableMgr variableMgr = new VariableMgr();
+    public void fromUnixTimeTest(@Mocked ConnectContext ctx) throws AnalysisException {
+        new Expectations(ctx) {
+            {
+                ConnectContext.get();
+                minTimes = 0;
+                result = new ConnectContext(null);
+            }
+        };
         StringLiteral actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000));
         StringLiteral expectedResult = new StringLiteral("1970-01-02 11:46:40");
         Assert.assertEquals(expectedResult, actualResult);
@@ -513,8 +527,14 @@ public class FEFunctionsTest {
     }
 
     @Test
-    public void timeDiffTest() throws AnalysisException {
-        VariableMgr variableMgr = new VariableMgr();
+    public void timeDiffTest(@Mocked ConnectContext ctx) throws AnalysisException {
+        new Expectations(ctx) {
+            {
+                ConnectContext.get();
+                minTimes = 0;
+                result = new ConnectContext(null);
+            }
+        };
         DateLiteral d1 = new DateLiteral("1019-02-28 00:00:00", Type.DATETIME);
         DateLiteral d2 = new DateLiteral("2019-02-28 00:00:00", Type.DATETIME);
         DateLiteral d3 = new DateLiteral("2019-03-28 00:00:00", Type.DATETIME);
