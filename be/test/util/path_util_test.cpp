@@ -30,6 +30,15 @@ using std::vector;
 
 namespace doris {
 
+TEST(TestPathUtil, JoinPathSegments) {
+    ASSERT_EQ("a", path_util::join_path_segments("a", ""));
+    ASSERT_EQ("b", path_util::join_path_segments("", "b"));
+    ASSERT_EQ("a/b", path_util::join_path_segments("a", "b"));
+    ASSERT_EQ("a/b", path_util::join_path_segments("a/", "b"));
+    ASSERT_EQ("a/b", path_util::join_path_segments("a", "/b"));
+    ASSERT_EQ("a/b", path_util::join_path_segments("a/", "/b"));
+}
+
 TEST(TestPathUtil, BaseNameTest) {
     ASSERT_EQ(".", path_util::base_name(""));
     ASSERT_EQ(".", path_util::base_name("."));

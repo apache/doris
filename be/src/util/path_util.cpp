@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/stringpiece.h"
+#include "gutil/strings/strip.h"
 
 using std::string;
 using std::vector;
@@ -37,13 +38,12 @@ namespace path_util {
 const string kTmpInfix = ".doristmp";
 
 string join_path_segments(const string& a, const string& b) {
-    DCHECK(!a.empty()) << "empty first component: " << a;
-    DCHECK(!b.empty() && b[0] != '/')
-            << "second path component must be non-empty and relative: " << b;
-    if (a.back() == '/') {
-        return a + b;
+    if (a.empty()) {
+        return b;
+    } else if (b.empty()) {
+        return a;
     } else {
-        return a + "/" + b;
+        return StripSuffixString(a, "/") + "/" + StripPrefixString(b, "/");
     }
 }
 
