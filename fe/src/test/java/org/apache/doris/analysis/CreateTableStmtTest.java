@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -28,7 +29,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -111,16 +111,23 @@ public class CreateTableStmtTest {
     }
     
     @Test(expected = AnalysisException.class)
-    public void testNoDb() throws UserException, AnalysisException {
+    public void testNoDb(@Mocked Analyzer noDbAnalyzer) throws UserException, AnalysisException {
         // make defalut db return empty;
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("").anyTimes();
-        EasyMock.expect(analyzer.getClusterName()).andReturn("cluster").anyTimes();
-        EasyMock.replay(analyzer);
+        new Expectations() {
+            {
+                noDbAnalyzer.getDefaultDb();
+                minTimes = 0;
+                result = "";
+
+                noDbAnalyzer.getClusterName();
+                minTimes = 0;
+                result = "cluster";
+            }
+        };
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new RandomDistributionDesc(10), null, null, "");
-        stmt.analyze(analyzer);
+        stmt.analyze(noDbAnalyzer);
     }
     
     @Test(expected = AnalysisException.class)

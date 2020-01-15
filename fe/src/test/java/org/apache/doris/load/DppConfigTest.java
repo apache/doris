@@ -17,21 +17,18 @@
 
 package org.apache.doris.load;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LoadException;
 import com.google.common.collect.Maps;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -40,21 +37,22 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class })
 public class DppConfigTest {
+    private FakeCatalog fakeCatalog;
 
     @Test
-    public void testNormal() throws LoadException {
+    public void testNormal(@Mocked Catalog catalog) throws LoadException {
         // mock catalog
         int clusterId = 10;
-        Catalog catalog = EasyMock.createNiceMock(Catalog.class);
-        EasyMock.expect(catalog.getClusterId()).andReturn(clusterId).anyTimes();
-        EasyMock.replay(catalog);
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        FakeCatalog.setCatalog(catalog);
+        new Expectations() {
+            {
+                catalog.getClusterId();
+                minTimes = 0;
+                result = clusterId;
+            }
+        };
 
         Map<String, String> configMap = Maps.newHashMap();
         configMap.put("hadoop_palo_path", "/user/palo2");
@@ -124,9 +122,8 @@ public class DppConfigTest {
     @Test
     public void testSerialization() throws Exception {
         // mock catalog
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeMetaVersion.VERSION_12).anyTimes();
-        PowerMock.replay(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        FakeCatalog.setMetaVersion(FeMetaVersion.VERSION_12);
 
         Map<String, String> configMap = Maps.newHashMap();
         configMap.put("hadoop_palo_path", "/user/palo2");

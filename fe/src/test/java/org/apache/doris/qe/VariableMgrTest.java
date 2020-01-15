@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
@@ -27,42 +29,41 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.persist.EditLog;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class })
 public class VariableMgrTest {
     private static final Logger LOG = LoggerFactory.getLogger(VariableMgrTest.class);
+    @Mocked
     private Catalog catalog;
+    @Mocked
+    private EditLog editLog;
 
     @Before
     public void setUp() {
-        catalog = EasyMock.createNiceMock(Catalog.class);
-        // mock editLog
-        EditLog editLog = EasyMock.createMock(EditLog.class);
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        editLog.logGlobalVariable(EasyMock.anyObject(SessionVariable.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(editLog);
-        // mock static getInstance
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+        new Expectations() {
+            {
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
 
-        EasyMock.replay(catalog);
+                editLog.logGlobalVariable((SessionVariable) any);
+                minTimes = 0;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+                Catalog.getInstance();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
     }
 
     @Test
