@@ -477,6 +477,11 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public BaseFieldtypeTraits<OLAP_
         *reinterpret_cast<CppType*>(buf) = value;
         return OLAP_SUCCESS;
     }
+    static std::string to_string(const void* src) {
+        char buf[1024] = {'\0'};
+        snprintf(buf, sizeof(buf), "%.10f", *reinterpret_cast<const CppType*>(src));
+        return std::string(buf);
+    }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
         if (src_type->type() == OLAP_FIELD_TYPE_VARCHAR) {
             return convert_float_from_varchar<CppType>(dest, src);
@@ -768,6 +773,21 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         memory_copy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
         return OLAP_SUCCESS;
+    }
+
+    static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
+        if (src_type->type() == OLAP_FIELD_TYPE_TINYINT
+            || src_type->type() == OLAP_FIELD_TYPE_SMALLINT
+            || src_type->type() == OLAP_FIELD_TYPE_INT
+            || src_type->type() == OLAP_FIELD_TYPE_BIGINT
+            || src_type->type() == OLAP_FIELD_TYPE_LARGEINT
+            || src_type->type() == OLAP_FIELD_TYPE_FLOAT
+            || src_type->type() == OLAP_FIELD_TYPE_DOUBLE
+            || src_type->type() == OLAP_FIELD_TYPE_DECIMAL) {
+            *reinterpret_cast<CppType*>(dest) = src_type->to_string(src);
+            return OLAP_SUCCESS;
+        }
+        return OLAP_ERR_INVALID_SCHEMA;
     }
 
     static void set_to_min(void* buf) {
