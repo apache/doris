@@ -17,8 +17,7 @@
 
 package org.apache.doris.common.util;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import mockit.MockUp;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -26,13 +25,31 @@ import org.apache.doris.common.AnalysisException;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.VariableMgr;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.util.LinkedList;
 import java.util.List;
 
 public class TimeUtilsTest {
+
+    @Before
+    public void setUp() {
+        new MockUp<VariableMgr>() {
+            SessionVariable newSessionVariable() {
+                return new SessionVariable();
+            }
+        };
+
+        new MockUp<ConnectContext>() {
+            ConnectContext get() {
+                return new ConnectContext(null);
+            }
+        };
+    }
 
     @Test
     public void testNormal() {
@@ -125,14 +142,7 @@ public class TimeUtilsTest {
     }
 
     @Test
-    public void testDateTrans(@Mocked ConnectContext ctx) throws AnalysisException {
-        new Expectations(ctx) {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = new ConnectContext(null);
-            }
-        };
+    public void testDateTrans() throws AnalysisException {
         Assert.assertEquals("N/A", TimeUtils.longToTimeString(-2));
 
         long timestamp = 1426125600000L;
