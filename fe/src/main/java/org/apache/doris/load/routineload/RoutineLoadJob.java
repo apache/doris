@@ -1153,7 +1153,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return false;
         }
         Preconditions.checkState(endTimestamp != -1, endTimestamp);
-        if ((System.currentTimeMillis() - endTimestamp) > Config.label_clean_interval_second * 1000) {
+        if ((System.currentTimeMillis() - endTimestamp) > Config.label_keep_max_second * 1000) {
             return true;
         }
         return false;
