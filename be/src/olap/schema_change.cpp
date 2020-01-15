@@ -1560,7 +1560,7 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
     }
 
     vector<Version> span_versions;
-    base_tablet->capture_consistent_versions(Version(0, rowset->version().second), &span_versions);
+    RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second), &span_versions));
     for (uint32_t i = 0; i < span_versions.size(); i++) {
         versions_to_be_changed->push_back(span_versions[i]);
     }
