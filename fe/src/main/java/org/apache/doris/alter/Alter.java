@@ -276,23 +276,12 @@ public class Alter {
                 throw new DdlException("table with empty parition cannot do schema change. [" + tableName + "]");
             }
 
-            // if table state is unhealthy, change table repair priority, and wait until repair finish or exceed timeout
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                long startRepairTabletMills = System.currentTimeMillis();
-                long waitTimeMs = Config.tablet_repair_wait_time_seconds_while_alter_ops * 1000;
-                TabletChecker.RepairTabletInfo repairTabletInfo = TabletChecker.getRepairTabletInfo(dbName, tableName, null);
-                Catalog.getCurrentCatalog().getTabletChecker().addPrios(repairTabletInfo.dbId,
-                        repairTabletInfo.tblId, repairTabletInfo.partIds, waitTimeMs);
-                while ((System.currentTimeMillis() - startRepairTabletMills) <= waitTimeMs && olapTable.getState() != OlapTableState.NORMAL) {
-                    Util.sleep(1000);
-                }
-            }
-
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
             }
-            
-            if (needTableStable) {
+
+            // schema change job will wait until table become stable
+            if (needTableStable && !hasSchemaChange) {
                 // check if all tablets are healthy, and no tablet is in tablet scheduler
                 boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
                         Catalog.getCurrentCatalog().getTabletScheduler(),

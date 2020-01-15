@@ -190,7 +190,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 throw new AlterCancelException("Table " + tableId + " does not exist");
-            } 
+            }
+
+            boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
+                    Catalog.getCurrentCatalog().getTabletScheduler(),
+                    db.getClusterName());
+            if (!isStable) {
+                LOG.warn("doing schema change job while table is not stable, wait until tablet to be repaired.");
+                return;
+            }
+
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);

@@ -984,11 +984,5 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean dynamic_partition_enable = false;
-
-    /*
-     * Wait time until table with unhealthy tablet be repaired
-     */
-    @ConfField(mutable = true, masterOnly = true)
-    public static long tablet_repair_wait_time_seconds_while_alter_ops = 86400;
 }
 
