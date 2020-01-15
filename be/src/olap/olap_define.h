@@ -53,13 +53,6 @@ static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 // the max length supported for varchar type
 static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
 
-// this is a flag for upgrade from old format to alpha rowset
-static const int32_t ALPHA_ROWSET_VERSION = 3;
-
-static const int32_t BETA_ROWSET_VERSION = 4;
-
-static const int32_t PREFERRED_SNAPSHOT_VERSION = BETA_ROWSET_VERSION;
-
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
 using StringLengthType = uint16_t;
