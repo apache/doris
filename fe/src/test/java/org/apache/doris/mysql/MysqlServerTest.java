@@ -17,12 +17,13 @@
 
 package org.apache.doris.mysql;
 
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
 
 import org.junit.Assert;
-import org.easymock.EasyMock;
-import org.easymock.IAnswer;
 import org.junit.Before;
 import org.junit.Test;
 import org.slf4j.Logger;
@@ -38,17 +39,20 @@ public class MysqlServerTest {
 
     private int submitNum;
     private int submitFailNum;
+    @Mocked
     private ConnectScheduler scheduler;
+    @Mocked
     private ConnectScheduler badScheduler;
 
     @Before
     public void setUp() {
         submitNum = 0;
         submitFailNum = 0;
-        scheduler = EasyMock.createMock(ConnectScheduler.class);
-        EasyMock.expect(scheduler.submit(EasyMock.anyObject(ConnectContext.class)))
-                .andAnswer(new IAnswer<Boolean>() {
-                    @Override
+        new Expectations() {
+            {
+                scheduler.submit((ConnectContext) any);
+                minTimes = 0;
+                result = new Delegate() {
                     public Boolean answer() throws Throwable {
                         LOG.info("answer.");
                         synchronized (MysqlServerTest.this) {
@@ -56,13 +60,11 @@ public class MysqlServerTest {
                         }
                         return Boolean.TRUE;
                     }
-                }).anyTimes();
-        EasyMock.replay(scheduler);
+                };
 
-        badScheduler = EasyMock.createMock(ConnectScheduler.class);
-        EasyMock.expect(badScheduler.submit(EasyMock.anyObject(ConnectContext.class)))
-                .andAnswer(new IAnswer<Boolean>() {
-                    @Override
+                badScheduler.submit((ConnectContext) any);
+                minTimes = 0;
+                result = new Delegate() {
                     public Boolean answer() throws Throwable {
                         LOG.info("answer.");
                         synchronized (MysqlServerTest.this) {
@@ -70,8 +72,9 @@ public class MysqlServerTest {
                         }
                         return Boolean.FALSE;
                     }
-                }).anyTimes();
-        EasyMock.replay(badScheduler);
+                };
+            }
+        };
     }
 
     @Test
