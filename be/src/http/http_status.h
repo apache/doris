@@ -69,6 +69,6 @@ std::string to_code(const HttpStatus& status);
 
 std::string defalut_reason(const HttpStatus& status);
 
-}
+} // namespace doris
 
 #endif

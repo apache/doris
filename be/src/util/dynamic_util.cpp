@@ -18,6 +18,7 @@
 #include "util/dynamic_util.h"
 
 #include <dlfcn.h>
+
 #include <sstream>
 
 namespace doris {
@@ -53,4 +54,4 @@ void dynamic_close(void* handle) {
     dlclose(handle);
 }
 
-}
+} // namespace doris

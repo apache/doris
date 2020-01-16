@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_AGENT_AGENT_SERVER_H
 #define DORIS_BE_SRC_AGENT_AGENT_SERVER_H
 
-#include "thrift/transport/TTransportUtils.h"
 #include "agent/status.h"
 #include "agent/task_worker_pool.h"
 #include "agent/topic_subscriber.h"
@@ -28,6 +27,7 @@
 #include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
+#include "thrift/transport/TTransportUtils.h"
 
 namespace doris {
 
@@ -37,17 +37,15 @@ public:
     ~AgentServer();
 
     // Receive agent task from dm
-    // 
+    //
     // Input parameters:
     // * tasks: The list of agent tasks
     //
     // Output parameters:
     // * return_value: The result of receive agent task,
     //                 contains return code and error messages.
-    void submit_tasks(
-            TAgentResult& return_value,
-            const std::vector<TAgentTaskRequest>& tasks);
-    
+    void submit_tasks(TAgentResult& return_value, const std::vector<TAgentTaskRequest>& tasks);
+
     // Make a snapshot for a local tablet
     //
     // Input parameters:
@@ -57,9 +55,7 @@ public:
     // Output parameters:
     // * return_value: The result of make snapshot,
     //                 contains return code and error messages.
-    void make_snapshot(
-            TAgentResult& return_value,
-            const TSnapshotRequest& snapshot_request);
+    void make_snapshot(TAgentResult& return_value, const TSnapshotRequest& snapshot_request);
 
     // Release useless snapshot
     //
@@ -74,20 +70,17 @@ public:
     // Publish state to agent
     //
     // Input parameters:
-    //   request:  
-    void publish_cluster_state(TAgentResult& return_value, 
-                               const TAgentPublishRequest& request);
+    //   request:
+    void publish_cluster_state(TAgentResult& return_value, const TAgentPublishRequest& request);
 
     // Master call this rpc to submit a etl task
-    void submit_etl_task(TAgentResult& return_value, 
-                         const TMiniLoadEtlTaskRequest& request);
+    void submit_etl_task(TAgentResult& return_value, const TMiniLoadEtlTaskRequest& request);
 
     // Master call this rpc to fetch status of elt task
     void get_etl_status(TMiniLoadEtlStatusResult& return_value,
                         const TMiniLoadEtlStatusRequest& request);
 
-    void delete_etl_files(TAgentResult& result, 
-                          const TDeleteEtlFilesRequest& request);
+    void delete_etl_files(TAgentResult& result, const TDeleteEtlFilesRequest& request);
 
 private:
     ExecEnv* _exec_env;
@@ -115,8 +108,8 @@ private:
     TaskWorkerPool* _update_tablet_meta_info_workers;
 
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
-    
-    TopicSubscriber* _topic_subscriber;   
-};  // class AgentServer
-}  // namespace doris
-#endif  // DORIS_BE_SRC_AGENT_AGENT_SERVER_H
+
+    TopicSubscriber* _topic_subscriber;
+}; // class AgentServer
+} // namespace doris
+#endif // DORIS_BE_SRC_AGENT_AGENT_SERVER_H

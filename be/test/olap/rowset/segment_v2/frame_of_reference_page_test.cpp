@@ -15,15 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/frame_of_reference_page.h"
+
 #include <gtest/gtest.h>
+
 #include <memory>
 
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_decoder.h"
-#include "olap/rowset/segment_v2/frame_of_reference_page.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "util/logging.h"
 
 using doris::segment_v2::PageBuilderOptions;
@@ -32,7 +34,7 @@ using doris::segment_v2::PageDecoderOptions;
 namespace doris {
 class FrameOfReferencePageTest : public testing::Test {
 public:
-    template<FieldType type, class PageDecoderType>
+    template <FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
         MemTracker tracker;
         MemPool pool(&tracker);
@@ -46,13 +48,12 @@ public:
     }
 
     template <FieldType Type, class PageBuilderType, class PageDecoderType>
-    void test_encode_decode_page_template(typename TypeTraits<Type>::CppType* src,
-                                          size_t size) {
+    void test_encode_decode_page_template(typename TypeTraits<Type>::CppType* src, size_t size) {
         typedef typename TypeTraits<Type>::CppType CppType;
         PageBuilderOptions builder_options;
         builder_options.data_page_size = 256 * 1024;
         PageBuilderType for_page_builder(builder_options);
-        for_page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
+        for_page_builder.add(reinterpret_cast<const uint8_t*>(src), &size);
         OwnedSlice s = for_page_builder.finish();
         ASSERT_EQ(size, for_page_builder.count());
         LOG(INFO) << "FrameOfReference Encoded size for 10k values: " << s.slice().size
@@ -78,8 +79,7 @@ public:
 
         for (uint i = 0; i < size; i++) {
             if (src[i] != values[i]) {
-                FAIL() << "Fail at index " << i <<
-                       " inserted=" << src[i] << " got=" << values[i];
+                FAIL() << "Fail at index " << i << " inserted=" << src[i] << " got=" << values[i];
             }
         }
 
@@ -87,7 +87,7 @@ public:
         for (int i = 0; i < 100; i++) {
             int seek_off = random() % size;
             for_page_decoder.seek_to_position_in_page(seek_off);
-            EXPECT_EQ((int32_t )(seek_off), for_page_decoder.current_index());
+            EXPECT_EQ((int32_t)(seek_off), for_page_decoder.current_index());
             CppType ret;
             copy_one<Type, PageDecoderType>(&for_page_decoder, &ret);
             EXPECT_EQ(values[seek_off], ret);
@@ -103,8 +103,10 @@ TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderRandom) {
         ints.get()[i] = random();
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
+                                     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
+                                     segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT> >(
+            ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderEqual) {
@@ -115,8 +117,10 @@ TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderEqual) {
         ints.get()[i] = 12345;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
+                                     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
+                                     segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT> >(
+            ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderSequence) {
@@ -127,8 +131,10 @@ TEST_F(FrameOfReferencePageTest, TestInt32BlockEncoderSequence) {
         ints.get()[i] = 12345 + i;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
-            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_INT,
+                                     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT>,
+                                     segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_INT> >(
+            ints.get(), size);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt64BlockEncoderSequence) {
@@ -139,7 +145,8 @@ TEST_F(FrameOfReferencePageTest, TestInt64BlockEncoderSequence) {
         ints.get()[i] = 21474836478 + i;
     }
 
-    test_encode_decode_page_template<OLAP_FIELD_TYPE_BIGINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_BIGINT>,
+    test_encode_decode_page_template<
+            OLAP_FIELD_TYPE_BIGINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_BIGINT>,
             segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_BIGINT> >(ints.get(), size);
 }
 
@@ -152,7 +159,7 @@ TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
-    page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
+    page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 1 /8 packing value = 20
     // header: 1 + 1 + 4 = 6
@@ -168,7 +175,7 @@ TEST_F(FrameOfReferencePageTest, TestFirstLastValue) {
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
-    page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
+    page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     int32_t first_value = -1;
     page_builder.get_first_value(&first_value);
@@ -187,14 +194,14 @@ TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     PageBuilderOptions builder_options;
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
-    page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
+    page_builder.add(reinterpret_cast<const uint8_t*>(ints.get()), &size);
     OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 7 /8 packing value = 116
     // header: 1 + 1 + 4 = 6
     ASSERT_EQ(122, s.slice().size);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);

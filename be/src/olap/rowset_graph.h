@@ -32,6 +32,7 @@ public:
     OLAPStatus delete_version_from_graph(const Version& version);
     OLAPStatus capture_consistent_versions(const Version& spec_version,
                                            std::vector<Version>* version_path) const;
+
 private:
     OLAPStatus _add_vertex_to_graph(int64_t vertex_value);
 
@@ -47,6 +48,6 @@ private:
     std::unordered_map<int64_t, int64_t> _vertex_index_map;
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_ROWSET_GRAPH_H

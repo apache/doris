@@ -16,8 +16,10 @@
 // under the License.
 
 #include "olap/rowset_graph.h"
-#include "common/logging.h"
+
 #include <queue>
+
+#include "common/logging.h"
 
 namespace doris {
 
@@ -118,8 +120,8 @@ OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
     int64_t start_vertex_value = version.first;
     int64_t end_vertex_value = version.second + 1;
 
-    if (_vertex_index_map.find(start_vertex_value) == _vertex_index_map.end()
-          || _vertex_index_map.find(end_vertex_value) == _vertex_index_map.end()) {
+    if (_vertex_index_map.find(start_vertex_value) == _vertex_index_map.end() ||
+        _vertex_index_map.find(end_vertex_value) == _vertex_index_map.end()) {
         LOG(WARNING) << "vertex for version does not exists. "
                      << "version=" << version.first << "-" << version.second;
         return OLAP_ERR_HEADER_DELETE_VERSION;
@@ -153,9 +155,8 @@ OLAPStatus RowsetGraph::_add_vertex_to_graph(int64_t vertex_value) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetGraph::capture_consistent_versions(
-                            const Version& spec_version,
-                            std::vector<Version>* version_path) const {
+OLAPStatus RowsetGraph::capture_consistent_versions(const Version& spec_version,
+                                                    std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specfied version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;
@@ -227,7 +228,7 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
     if (!visited[end_vertex_index]) {
         LOG(WARNING) << "fail to find path in version_graph. "
                      << "spec_version: " << spec_version.first << "-" << spec_version.second;
-        return OLAP_ERR_VERSION_NOT_EXIST; 
+        return OLAP_ERR_VERSION_NOT_EXIST;
     }
 
     std::vector<int64_t> reversed_path;
@@ -254,14 +255,14 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
         }
 
         shortest_path_for_debug << (*version_path)[version_path->size() - 1].first << '-'
-            << (*version_path)[version_path->size() - 1].second << ' ';
+                                << (*version_path)[version_path->size() - 1].second << ' ';
     }
 
     VLOG(10) << "success to find path for spec_version. "
-            << "spec_version=" << spec_version.first << "-" << spec_version.second
-            << ", path=" << shortest_path_for_debug.str();
+             << "spec_version=" << spec_version.first << "-" << spec_version.second
+             << ", path=" << shortest_path_for_debug.str();
 
     return OLAP_SUCCESS;
 }
 
-}  // namespace doris
+} // namespace doris

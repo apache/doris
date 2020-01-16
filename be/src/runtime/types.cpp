@@ -17,9 +17,9 @@
 
 #include "runtime/types.h"
 
+#include <boost/foreach.hpp>
 #include <ostream>
 #include <sstream>
-#include <boost/foreach.hpp>
 
 #include "codegen/llvm_codegen.h"
 
@@ -27,8 +27,8 @@ namespace doris {
 
 const char* TypeDescriptor::s_llvm_class_name = "struct.doris::TypeDescriptor";
 
-TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx) : 
-        len(-1), precision(-1), scale(-1) {
+TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
+        : len(-1), precision(-1), scale(-1) {
     DCHECK_GE(*idx, 0);
     DCHECK_LT(*idx, types.size());
     const TTypeNode& node = types[*idx];
@@ -96,9 +96,7 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
                 node.struct_fields.back().name = field_name;
             }
         }
-        BOOST_FOREACH(const TypeDescriptor& child, children) {
-            child.to_thrift(thrift_type);
-        }
+        BOOST_FOREACH (const TypeDescriptor& child, children) { child.to_thrift(thrift_type); }
     } else {
         node.type = TTypeNodeType::SCALAR;
         node.__set_scalar_type(TScalarType());
@@ -132,9 +130,7 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
     }
 }
 
-TypeDescriptor::TypeDescriptor(
-        const google::protobuf::RepeatedPtrField<PTypeNode>& types,
-        int* idx)
+TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNode>& types, int* idx)
         : len(-1), precision(-1), scale(-1) {
     DCHECK_GE(*idx, 0);
     DCHECK_LT(*idx, types.size());
@@ -179,14 +175,14 @@ std::string TypeDescriptor::debug_string() const {
 }
 
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type) {
-  os << type.debug_string();
-  return os;
+    os << type.debug_string();
+    return os;
 }
 
 llvm::ConstantStruct* TypeDescriptor::to_ir(LlvmCodeGen* codegen) const {
     // ColumnType = { i32, i32, i32, i32, <vector>, <vector> }
-    llvm::StructType* column_type_type = llvm::cast<llvm::StructType>(
-        codegen->get_type(s_llvm_class_name));
+    llvm::StructType* column_type_type =
+            llvm::cast<llvm::StructType>(codegen->get_type(s_llvm_class_name));
 
     DCHECK_EQ(sizeof(type), sizeof(int32_t));
     llvm::Constant* type_field = llvm::ConstantInt::get(codegen->int_type(), type);
@@ -200,15 +196,14 @@ llvm::ConstantStruct* TypeDescriptor::to_ir(LlvmCodeGen* codegen) const {
     // Create empty 'children' and 'field_names' vectors
     DCHECK(children.empty()) << "Nested types NYI";
     DCHECK(field_names.empty()) << "Nested types NYI";
-    llvm::Constant* children_field = llvm::Constant::getNullValue(
-        column_type_type->getElementType(4));
+    llvm::Constant* children_field =
+            llvm::Constant::getNullValue(column_type_type->getElementType(4));
     llvm::Constant* field_names_field =
-        llvm::Constant::getNullValue(column_type_type->getElementType(5));
+            llvm::Constant::getNullValue(column_type_type->getElementType(5));
 
-    return llvm::cast<llvm::ConstantStruct>(llvm::ConstantStruct::get(
-            column_type_type, type_field, len_field,
-            precision_field, scale_field, children_field, field_names_field, NULL));
+    return llvm::cast<llvm::ConstantStruct>(
+            llvm::ConstantStruct::get(column_type_type, type_field, len_field, precision_field,
+                                      scale_field, children_field, field_names_field, NULL));
 }
 
-}
-
+} // namespace doris

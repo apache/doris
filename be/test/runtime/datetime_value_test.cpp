@@ -17,9 +17,9 @@
 
 #include "runtime/datetime_value.h"
 
-#include <string>
-
 #include <gtest/gtest.h>
+
+#include <string>
 
 #include "common/logging.h"
 #include "util/logging.h"
@@ -28,15 +28,11 @@ namespace doris {
 
 class DateTimeValueTest : public testing::Test {
 public:
-    DateTimeValueTest() {
-        TimezoneDatabase::init();
-    }
+    DateTimeValueTest() { TimezoneDatabase::init(); }
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
 };
 
 // Assert size
@@ -105,7 +101,7 @@ TEST_F(DateTimeValueTest, random_convert) {
 
     DateTimeValue value_check;
 
-    DateTimeValue *value = (DateTimeValue*)buf;
+    DateTimeValue* value = (DateTimeValue*)buf;
     value->from_date_daynr(366);
     value_check.from_date_daynr(366);
     ASSERT_STREQ("0001-01-01", value->debug_string().c_str());
@@ -196,7 +192,7 @@ TEST_F(DateTimeValueTest, check_range) {
     DateTimeValue value;
     value.from_date_int64(19880201123456);
     ASSERT_FALSE(value.check_range());
-    
+
     value._year = 10000;
     ASSERT_TRUE(value.check_range());
     value._year = 1988;
@@ -403,114 +399,114 @@ TEST_F(DateTimeValueTest, from_date_format_str) {
     // %Y-%m-%d
     format_str = "%Y-%m-%d";
     value_str = "1988-02-01";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01", str);
 
     format_str = "%Y-%M-%d";
     value_str = "1988-feb-01";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01", str);
 
     format_str = "%Y-%b-%d";
     value_str = "1988-feb-01";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01", str);
 
     format_str = "%Y%b%d";
     value_str = "1988f01";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01", str);
 
     format_str = "%y%m%d";
     value_str = "880201";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01", str);
 
     format_str = "%y%c%d";
     value_str = "880201";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01", str);
 
     format_str = "%y%c-%e";
     value_str = "882-1";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01", str);
 
     // %j
     format_str = "%Y%j %H";
     value_str = "198832 03";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01 03:00:00", str);
 
     // %x
     format_str = "%X %V %w";
     value_str = "2015 1 1";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("2015-01-05", str);
 
     // %x
     format_str = "%x %v %w";
     value_str = "2015 1 1";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("2014-12-29", str);
 
     // %x
     format_str = "%x %v %W";
     value_str = "2015 1 Monday";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("2014-12-29", str);
 
     // %x
     format_str = "%X %V %a";
     value_str = "2015 1 Mon";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("2015-01-05", str);
 
     // %T
     format_str = "%X %V %a %r";
     value_str = "2015 1 Mon 2:34:56 AM";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("2015-01-05 02:34:56", str);
 
     // %T
     format_str = "%X %V %a %T";
     value_str = "2015 1 Mon 12:34:56";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("2015-01-05 12:34:56", str);
 
     //  hour
     format_str = "%Y-%m-%d %H %i %s";
     value_str = "88-2-1 03 4 5";
-    ASSERT_TRUE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_TRUE(value.from_date_format_str(format_str.c_str(), format_str.size(), value_str.c_str(),
+                                           value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01 03:04:05", str);
 }
@@ -524,25 +520,25 @@ TEST_F(DateTimeValueTest, from_date_format_str_invalid) {
 
     format_str = "%y%c%e";
     value_str = "8821";
-    ASSERT_FALSE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_FALSE(value.from_date_format_str(format_str.c_str(), format_str.size(),
+                                            value_str.c_str(), value_str.size()));
     format_str = "%y-%c-%e";
     value_str = "8821";
-    ASSERT_FALSE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_FALSE(value.from_date_format_str(format_str.c_str(), format_str.size(),
+                                            value_str.c_str(), value_str.size()));
     format_str = "%y%c-%e";
     value_str = "882-30";
-    ASSERT_FALSE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_FALSE(value.from_date_format_str(format_str.c_str(), format_str.size(),
+                                            value_str.c_str(), value_str.size()));
     // %x
     format_str = "%X %v %w";
     value_str = "2015 1 1";
-    ASSERT_FALSE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_FALSE(value.from_date_format_str(format_str.c_str(), format_str.size(),
+                                            value_str.c_str(), value_str.size()));
     format_str = "%x %V %w";
     value_str = "2015 1 1";
-    ASSERT_FALSE(value.from_date_format_str(
-            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    ASSERT_FALSE(value.from_date_format_str(format_str.c_str(), format_str.size(),
+                                            value_str.c_str(), value_str.size()));
 }
 // Calculate format
 TEST_F(DateTimeValueTest, format_str) {
@@ -581,7 +577,7 @@ TEST_F(DateTimeValueTest, format_str) {
     value.from_date_int64(20150205);
     ASSERT_TRUE(value.to_format_string(format_str.c_str(), format_str.size(), str));
     ASSERT_STREQ("05", str);
-    
+
     // %D
     format_str = "%D";
     value.from_date_int64(20150201);
@@ -930,7 +926,7 @@ TEST_F(DateTimeValueTest, from_time_str) {
     ASSERT_TRUE(value.from_date_str(test_str.c_str(), test_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01 12:23:00", str);
-    
+
     test_str = "880201122334";
     ASSERT_TRUE(value.from_date_str(test_str.c_str(), test_str.size()));
     value.to_string(str);
@@ -1393,10 +1389,9 @@ TEST_F(DateTimeValueTest, packed_time) {
 
         ASSERT_TRUE(tv == tv2);
     }
-
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

@@ -19,36 +19,31 @@
 
 #include <atomic>
 #include <functional>
+#include <iomanip>
+#include <mutex>
 #include <ostream>
 #include <set>
 #include <sstream>
 #include <string>
-#include <mutex>
-#include <iomanip>
 
-#include "util/spinlock.h"
 #include "util/core_local.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
 class MetricRegistry;
 
-enum class MetricType {
-    COUNTER,
-    GAUGE,
-    HISTOGRAM,
-    SUMMARY,
-    UNTYPED
-};
+enum class MetricType { COUNTER, GAUGE, HISTOGRAM, SUMMARY, UNTYPED };
 
 std::ostream& operator<<(std::ostream& os, MetricType type);
 
 class Metric {
 public:
-    Metric(MetricType type) :_type(type), _registry(nullptr) { }
+    Metric(MetricType type) : _type(type), _registry(nullptr) {}
     virtual ~Metric() { hide(); }
     MetricType type() const { return _type; }
     void hide();
+
 private:
     friend class MetricRegistry;
 
@@ -58,24 +53,24 @@ private:
 
 class SimpleMetric : public Metric {
 public:
-    SimpleMetric(MetricType type) :Metric(type) { }
-    virtual ~SimpleMetric() { }
+    SimpleMetric(MetricType type) : Metric(type) {}
+    virtual ~SimpleMetric() {}
     virtual std::string to_string() const = 0;
 };
 
 // Metric that only can increment
-template<typename T>
+template <typename T>
 class LockSimpleMetric : public SimpleMetric {
 public:
-    LockSimpleMetric(MetricType type) :SimpleMetric(type), _value(T()) { }
-    virtual ~LockSimpleMetric() { }
+    LockSimpleMetric(MetricType type) : SimpleMetric(type), _value(T()) {}
+    virtual ~LockSimpleMetric() {}
 
     std::string to_string() const override {
         std::stringstream ss;
         ss << value();
         return ss.str();
     }
-    
+
     T value() const {
         std::lock_guard<SpinLock> l(_lock);
         return _value;
@@ -89,6 +84,7 @@ public:
         std::lock_guard<SpinLock> l(this->_lock);
         this->_value = value;
     }
+
 protected:
     // We use spinlock instead of std::atomic is because atomic don't support
     // double's fetch_add
@@ -101,18 +97,18 @@ protected:
     T _value;
 };
 
-template<typename T>
+template <typename T>
 class CoreLocalCounter : public SimpleMetric {
 public:
-    CoreLocalCounter() :SimpleMetric(MetricType::COUNTER), _value() { }
-    virtual ~CoreLocalCounter() { }
+    CoreLocalCounter() : SimpleMetric(MetricType::COUNTER), _value() {}
+    virtual ~CoreLocalCounter() {}
 
     std::string to_string() const override {
         std::stringstream ss;
         ss << value();
         return ss.str();
     }
-    
+
     T value() const {
         T sum = 0;
         for (int i = 0; i < _value.size(); ++i) {
@@ -121,26 +117,25 @@ public:
         return sum;
     }
 
-    void increment(const T& delta) {
-        __sync_fetch_and_add(_value.access(), delta);
-    }
+    void increment(const T& delta) { __sync_fetch_and_add(_value.access(), delta); }
+
 protected:
     CoreLocalValue<T> _value;
 };
 
-template<typename T>
+template <typename T>
 class LockCounter : public LockSimpleMetric<T> {
 public:
-    LockCounter() :LockSimpleMetric<T>(MetricType::COUNTER) { }
-    virtual ~LockCounter() { }
+    LockCounter() : LockSimpleMetric<T>(MetricType::COUNTER) {}
+    virtual ~LockCounter() {}
 };
 
 // This can only used for trival type
-template<typename T>
+template <typename T>
 class LockGauge : public LockSimpleMetric<T> {
 public:
-    LockGauge() :LockSimpleMetric<T>(MetricType::GAUGE) { }
-    virtual ~LockGauge() { }
+    LockGauge() : LockSimpleMetric<T>(MetricType::GAUGE) {}
+    virtual ~LockGauge() {}
 };
 
 // one key-value pair used to
@@ -148,18 +143,15 @@ struct MetricLabel {
     std::string name;
     std::string value;
 
-    MetricLabel() { }
+    MetricLabel() {}
 
-    template<typename T, typename P>
-    MetricLabel(const T& name_, const P& value_) :name(name_), value(value_) {
-    }
+    template <typename T, typename P>
+    MetricLabel(const T& name_, const P& value_) : name(name_), value(value_) {}
 
     bool operator==(const MetricLabel& other) const {
         return name == other.name && value == other.value;
     }
-    bool operator!=(const MetricLabel& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const MetricLabel& other) const { return !(*this == other); }
     bool operator<(const MetricLabel& other) const {
         auto res = name.compare(other.name);
         if (res == 0) {
@@ -174,9 +166,7 @@ struct MetricLabel {
         }
         return res;
     }
-    std::string to_string() const {
-        return name + "=" + value;
-    }
+    std::string to_string() const { return name + "=" + value; }
 };
 
 struct MetricLabels {
@@ -226,13 +216,11 @@ struct MetricLabels {
             return false;
         }
     }
-    bool empty() const {
-        return labels.empty();
-    }
+    bool empty() const { return labels.empty(); }
 
     std::string to_string() const {
         std::stringstream ss;
-        int i = 0; 
+        int i = 0;
         for (auto& label : labels) {
             if (i++ > 0) {
                 ss << ",";
@@ -247,7 +235,7 @@ class MetricCollector;
 
 class MetricsVisitor {
 public:
-    virtual ~MetricsVisitor() { }
+    virtual ~MetricsVisitor() {}
 
     // visit a collector, you can implement collector visitor, or only implement
     // metric visitor
@@ -262,17 +250,14 @@ public:
     void collect(const std::string& prefix, const std::string& name, MetricsVisitor* visitor) {
         visitor->visit(prefix, name, this);
     }
-    bool empty() const {
-        return _metrics.empty();
-    }
+    bool empty() const { return _metrics.empty(); }
     Metric* get_metric(const MetricLabels& labels) const;
     // get all metrics belong to this collector
     void get_metrics(std::vector<Metric*>* metrics);
 
-    const std::map<MetricLabels, Metric*>& metrics() const {
-        return _metrics;
-    }
+    const std::map<MetricLabels, Metric*>& metrics() const { return _metrics; }
     MetricType type() const { return _type; }
+
 private:
     MetricType _type = MetricType::UNTYPED;
     std::map<MetricLabels, Metric*> _metrics;
@@ -280,7 +265,7 @@ private:
 
 class MetricRegistry {
 public:
-    MetricRegistry(const std::string& name) : _name(name) { }
+    MetricRegistry(const std::string& name) : _name(name) {}
     ~MetricRegistry();
     bool register_metric(const std::string& name, Metric* metric) {
         return register_metric(name, MetricLabels::EmptyLabels, metric);
@@ -342,4 +327,4 @@ using IntGauge = LockGauge<int64_t>;
 using UIntGauge = LockGauge<uint64_t>;
 using DoubleGauge = LockGauge<double>;
 
-}
+} // namespace doris

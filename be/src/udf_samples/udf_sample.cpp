@@ -31,4 +31,4 @@ IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2) 
 void AddUdfPrepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
 void AddUdfClose(FunctionContext* context, FunctionContext::FunctionStateScope scope) {}
 
-}
+} // namespace doris_udf

@@ -15,40 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/csv_scan_node.h"
-
-#include <vector>
-#include <arrow/type.h>
 #include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
-#include <boost/scoped_ptr.hpp>
+#include <arrow/type.h>
 #include <gtest/gtest.h>
 
+#include <boost/scoped_ptr.hpp>
+#include <vector>
+
 #include "common/logging.h"
+#include "exec/csv_scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/row.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/result_queue_mgr.h"
-#include "runtime/thread_resource_mgr.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_resource_mgr.h"
 #include "runtime/tuple_row.h"
 #include "util/arrow/row_batch.h"
+#include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
-#include "util/cpu_info.h"
 #include "util/logging.h"
-
 
 namespace doris {
 
 class ArrowWorkFlowTest : public testing::Test {
 public:
-    ArrowWorkFlowTest(){}
-    ~ArrowWorkFlowTest(){}
+    ArrowWorkFlowTest() {}
+    ~ArrowWorkFlowTest() {}
 
 protected:
     virtual void SetUp() {
@@ -76,7 +75,7 @@ private:
     TPlanNode _tnode;
     ExecEnv _exec_env;
     RuntimeState* _state;
-    MemTracker *_mem_tracker;
+    MemTracker* _mem_tracker;
     RowDescriptor* _row_desc;
 }; // end class ArrowWorkFlowTest
 
@@ -316,7 +315,6 @@ void ArrowWorkFlowTest::init_desc_tbl() {
     _tnode.csv_scan_node.__isset.default_values = true;
     _tnode.csv_scan_node.max_filter_ratio = 0.5;
     _tnode.__isset.csv_scan_node = true;
-
 }
 
 TEST_F(ArrowWorkFlowTest, NormalUse) {
@@ -344,7 +342,8 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
         status = convert_to_arrow_schema(scan_node._row_descriptor, &schema);
         ASSERT_TRUE(status.ok());
         std::shared_ptr<arrow::RecordBatch> record_batch;
-        status = convert_to_arrow_batch(row_batch, schema, arrow::default_memory_pool(), &record_batch);
+        status = convert_to_arrow_batch(row_batch, schema, arrow::default_memory_pool(),
+                                        &record_batch);
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(6, record_batch->num_rows());
         ASSERT_EQ(6, record_batch->num_columns());

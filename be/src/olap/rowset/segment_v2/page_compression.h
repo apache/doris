@@ -21,8 +21,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/slice.h"
 #include "util/faststring.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -51,9 +51,8 @@ namespace segment_v2 {
 class PageDecompressor {
 public:
     PageDecompressor(const Slice& compressed_data, const BlockCompressionCodec* codec)
-        : _data(compressed_data), _codec(codec) {
-    }
-    
+            : _data(compressed_data), _codec(codec) {}
+
     // This client will set uncompress content to uncompressed_data.
     // In normal case(compressed_data.data != uncompressed_data.data) client should
     // call delete[] compressed_data.data to free heap memory. However
@@ -61,6 +60,7 @@ public:
     // directly. In this case compressed_data.data == uncompressed_data.data,
     // client should not free content.
     Status decompress_to(Slice* uncompressed_data);
+
 private:
     Slice _data;
     const BlockCompressionCodec* _codec;
@@ -75,20 +75,19 @@ private:
 class PageCompressor {
 public:
     PageCompressor(const BlockCompressionCodec* codec, double min_space_saving = 0.1)
-        : _codec(codec), _min_space_saving(min_space_saving) {
-    }
+            : _codec(codec), _min_space_saving(min_space_saving) {}
 
     // Try to compress input raw data into compressed page
     // according given BlockCompressionCodec. If compressed page is not
     // smaller enough than raw data, this class will return uncompressed data.
-    Status compress(const std::vector<Slice>& raw_data,
-                    std::vector<Slice>* compressed_data);
+    Status compress(const std::vector<Slice>& raw_data, std::vector<Slice>* compressed_data);
 
     // Try to compress input raw data into compressed page by returning OwnedSlice
     // according given BlockCompressionCodec. If compressed page is not
     // smaller enough than raw data, this class will return uncompressed data.
-    Status compress(const std::vector<Slice>& raw_data,
-                    OwnedSlice* compressed_data, bool* compressed);
+    Status compress(const std::vector<Slice>& raw_data, OwnedSlice* compressed_data,
+                    bool* compressed);
+
 private:
     const BlockCompressionCodec* _codec;
 
@@ -99,5 +98,5 @@ private:
     faststring _buf;
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

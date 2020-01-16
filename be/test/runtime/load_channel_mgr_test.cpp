@@ -23,16 +23,16 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
-#include "runtime/exec_env.h"
-#include "runtime/descriptors.h"
-#include "runtime/primitive_type.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
-#include "runtime/descriptor_helper.h"
-#include "util/thrift_util.h"
 #include "olap/delta_writer.h"
 #include "olap/storage_engine.h"
+#include "runtime/descriptor_helper.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/primitive_type.h"
+#include "runtime/row_batch.h"
+#include "runtime/tuple_row.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -43,11 +43,10 @@ OLAPStatus close_status;
 int64_t wait_lock_time_ns;
 
 // mock
-DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* mem_tracker, StorageEngine* storage_engine) : _req(*req) {
-}
+DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* mem_tracker, StorageEngine* storage_engine)
+        : _req(*req) {}
 
-DeltaWriter::~DeltaWriter() {
-}
+DeltaWriter::~DeltaWriter() {}
 
 OLAPStatus DeltaWriter::init() {
     return OLAP_SUCCESS;
@@ -86,13 +85,17 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
     return OLAP_SUCCESS;
 }
 
-int64_t DeltaWriter::partition_id() const { return 1L; }
-int64_t DeltaWriter::mem_consumption() const { return 1024L; }
+int64_t DeltaWriter::partition_id() const {
+    return 1L;
+}
+int64_t DeltaWriter::mem_consumption() const {
+    return 1024L;
+}
 
 class LoadChannelMgrTest : public testing::Test {
 public:
-    LoadChannelMgrTest() { }
-    virtual ~LoadChannelMgrTest() { }
+    LoadChannelMgrTest() {}
+    virtual ~LoadChannelMgrTest() {}
     void SetUp() override {
         _k_tablet_recorder.clear();
         open_status = OLAP_SUCCESS;
@@ -100,6 +103,7 @@ public:
         close_status = OLAP_SUCCESS;
         config::streaming_load_rpc_max_alive_time_sec = 120;
     }
+
 private:
 };
 
@@ -108,11 +112,11 @@ TEST_F(LoadChannelMgrTest, check_builder) {
     {
         TTupleDescriptorBuilder tuple;
         tuple.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(0).build());
+                TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(0).build());
         tuple.add_slot(
-            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(1).build());
+                TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(1).build());
         tuple.add_slot(
-            TSlotDescriptorBuilder().string_type(64).column_name("c3").column_pos(2).build());
+                TSlotDescriptorBuilder().string_type(64).column_name("c3").column_pos(2).build());
         tuple.build(&table_builder);
     }
     DescriptorTbl* desc_tbl = nullptr;
@@ -130,9 +134,9 @@ TDescriptorTable create_descriptor_table() {
     TTupleDescriptorBuilder tuple_builder;
 
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(0).build());
+            TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(0).build());
     tuple_builder.add_slot(
-        TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(1).build());
+            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(1).build());
     tuple_builder.build(&dtb);
 
     return dtb.desc_tbl();
@@ -694,7 +698,7 @@ TEST_F(LoadChannelMgrTest, duplicate_packet) {
     ASSERT_EQ(_k_tablet_recorder[21], 1);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

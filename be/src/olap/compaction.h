@@ -87,10 +87,7 @@ protected:
     RowsetSharedPtr _output_rowset;
     std::unique_ptr<RowsetWriter> _output_rs_writer;
 
-    enum CompactionState {
-        INITED = 0,
-        SUCCESS = 1
-    };
+    enum CompactionState { INITED = 0, SUCCESS = 1 };
     CompactionState _state;
 
     Version _output_version;
@@ -99,6 +96,6 @@ protected:
     DISALLOW_COPY_AND_ASSIGN(Compaction);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_COMPACTION_H

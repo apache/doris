@@ -17,16 +17,16 @@
 
 #pragma once
 
-#include <vector>
 #include <memory>
+#include <vector>
 
 #include "common/status.h"
-#include "util/slice.h"
-#include "olap/field.h"
 #include "gen_cpp/segment_v2.pb.h"
+#include "olap/field.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -60,13 +60,9 @@ public:
 
     void fill_segment_zone_map(ZoneMapPB* const to);
 
-    uint64_t size() {
-        return _page_builder->size();
-    }
+    uint64_t size() { return _page_builder->size(); }
 
-    OwnedSlice finish() {
-        return _page_builder->finish();
-    }
+    OwnedSlice finish() { return _page_builder->finish(); }
 
 private:
     void _reset_zone_map(ZoneMap* zone_map);
@@ -89,17 +85,13 @@ private:
 // ColumnZoneMap
 class ColumnZoneMap {
 public:
-    ColumnZoneMap(const Slice& data) : _data(data), _num_pages(0) { }
-    
+    ColumnZoneMap(const Slice& data) : _data(data), _num_pages(0) {}
+
     Status load();
 
-    const std::vector<ZoneMapPB>& get_column_zone_map() const {
-        return _page_zone_maps;
-    }
+    const std::vector<ZoneMapPB>& get_column_zone_map() const { return _page_zone_maps; }
 
-    int32_t num_pages() const {
-        return _num_pages;
-    }
+    int32_t num_pages() const { return _num_pages; }
 
 private:
     Slice _data;

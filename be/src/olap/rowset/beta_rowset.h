@@ -18,12 +18,12 @@
 #ifndef DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 #define DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
 
+#include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/data_dir.h"
 
 namespace doris {
 
@@ -38,11 +38,10 @@ public:
 
     OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
 
-    static std::string segment_file_path(
-            const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
+    static std::string segment_file_path(const std::string& segment_dir, const RowsetId& rowset_id,
+                                         int segment_id);
 
-    OLAPStatus split_range(const RowCursor& start_key,
-                           const RowCursor& end_key,
+    OLAPStatus split_range(const RowCursor& start_key, const RowCursor& end_key,
                            uint64_t request_block_row_count,
                            std::vector<OlapTuple>* ranges) override;
 
@@ -62,8 +61,7 @@ public:
 protected:
     friend class RowsetFactory;
 
-    BetaRowset(const TabletSchema* schema,
-               std::string rowset_path,
+    BetaRowset(const TabletSchema* schema, std::string rowset_path,
                RowsetMetaSharedPtr rowset_meta);
 
     // init segment groups

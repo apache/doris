@@ -999,4 +999,3 @@ class NewPartitionedHashTable {
 }
 // clang-format on
 #endif
-

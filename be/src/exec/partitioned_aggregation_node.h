@@ -18,19 +18,19 @@
 #ifndef DORIS_BE_SRC_EXEC_PARTITIONED_AGGREGATION_NODE_H
 #define DORIS_BE_SRC_EXEC_PARTITIONED_AGGREGATION_NODE_H
 
-#include <functional>
 #include <boost/scoped_ptr.hpp>
+#include <functional>
 
 #include "exec/exec_node.h"
 #include "exec/partitioned_hash_table.inline.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/buffered_tuple_stream2.h"
-#include "runtime/descriptors.h"  // for TupleId
+#include "runtime/descriptors.h" // for TupleId
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
 
 namespace llvm {
-    class Function;
+class Function;
 }
 
 namespace doris {
@@ -96,8 +96,8 @@ class SlotDescriptor;
 // Likewise, it's easy to mixup the agg fn ctxs, there should be a way to simplify this.
 class PartitionedAggregationNode : public ExecNode {
 public:
-    PartitionedAggregationNode(ObjectPool* pool,
-            const TPlanNode& tnode, const DescriptorTbl& descs);
+    PartitionedAggregationNode(ObjectPool* pool, const TPlanNode& tnode,
+                               const DescriptorTbl& descs);
     // a null dtor to pass codestyle check
     virtual ~PartitionedAggregationNode() {}
 
@@ -203,8 +203,8 @@ private:
     Partition* _output_partition;
     PartitionedHashTable::Iterator _output_iterator;
 
-    typedef Status (*ProcessRowBatchFn)(
-            PartitionedAggregationNode*, RowBatch*, PartitionedHashTableCtx*);
+    typedef Status (*ProcessRowBatchFn)(PartitionedAggregationNode*, RowBatch*,
+                                        PartitionedHashTableCtx*);
     // Jitted ProcessRowBatch function pointer.  Null if codegen is disabled.
     ProcessRowBatchFn _process_row_batch_fn;
 
@@ -274,8 +274,8 @@ private:
     // partition. The streams of each partition always (i.e. regardless of level)
     // initially use small buffers.
     struct Partition {
-        Partition(PartitionedAggregationNode* parent, int level) :
-                parent(parent), is_closed(false), level(level) {}
+        Partition(PartitionedAggregationNode* parent, int level)
+                : parent(parent), is_closed(false), level(level) {}
 
         // Initializes aggregated_row_stream and unaggregated_row_stream, reserving
         // one buffer for each. The buffers backing these streams are reserved, so this
@@ -298,9 +298,7 @@ private:
         // Spills this partition, unpinning streams and cleaning up hash tables as necessary.
         Status spill();
 
-        bool is_spilled() const {
-            return hash_tbl.get() == NULL;
-        }
+        bool is_spilled() const { return hash_tbl.get() == NULL; }
 
         PartitionedAggregationNode* parent;
 
@@ -344,9 +342,9 @@ private:
     // Returns NULL if there was not enough memory to allocate the tuple or an error
     // occurred. When returning NULL, sets *status. If 'stream' is set and its small
     // buffers get full, it will attempt to switch to IO-buffers.
-    Tuple* construct_intermediate_tuple(
-            const std::vector<doris_udf::FunctionContext*>& agg_fn_ctxs,
-            MemPool* pool, BufferedTupleStream2* stream, Status* status);
+    Tuple* construct_intermediate_tuple(const std::vector<doris_udf::FunctionContext*>& agg_fn_ctxs,
+                                        MemPool* pool, BufferedTupleStream2* stream,
+                                        Status* status);
 
     // Updates the given aggregation intermediate tuple with aggregation values computed
     // over 'row' using 'agg_fn_ctxs'. Whether the agg fn evaluator calls Update() or
@@ -357,7 +355,7 @@ private:
     // This function is replaced by codegen (which is why we don't use a vector argument
     // for agg_fn_ctxs).
     void update_tuple(doris_udf::FunctionContext** agg_fn_ctxs, Tuple* tuple, TupleRow* row,
-            bool is_merge = false);
+                      bool is_merge = false);
 
     // Called on the intermediate tuple of each group after all input rows have been
     // consumed and aggregated. Computes the final aggregate values to be returned in
@@ -369,7 +367,7 @@ private:
     // TODO: Coordinate the allocation of new tuples with the release of memory
     // so as not to make memory consumption blow up.
     Tuple* get_output_tuple(const std::vector<doris_udf::FunctionContext*>& agg_fn_ctxs,
-            Tuple* tuple, MemPool* pool);
+                            Tuple* tuple, MemPool* pool);
 
     // Do the aggregation for all tuple rows in the batch when there is no grouping.
     // The PartitionedHashTableCtx argument is unused, but included so the signature matches that of
@@ -383,12 +381,12 @@ private:
     //
     // This function is replaced by codegen. It's inlined into ProcessBatch_true/false in
     // the IR module. We pass in _ht_ctx.get() as an argument for performance.
-    template<bool AGGREGATED_ROWS>
+    template <bool AGGREGATED_ROWS>
     Status IR_ALWAYS_INLINE process_batch(RowBatch* batch, PartitionedHashTableCtx* ht_ctx);
 
     // This function processes each individual row in process_batch(). Must be inlined
     // into process_batch for codegen to substitute function calls with codegen'd versions.
-    template<bool AGGREGATED_ROWS>
+    template <bool AGGREGATED_ROWS>
     Status IR_ALWAYS_INLINE process_row(TupleRow* row, PartitionedHashTableCtx* ht_ctx);
 
     // Create a new intermediate tuple in partition, initialized with row. ht_ctx is
@@ -398,14 +396,16 @@ private:
     // tuple to the partition's stream. Must be inlined into process_batch for codegen to
     // substitute function calls with codegen'd versions. insert_it is an iterator for
     // insertion returned from PartitionedHashTable::FindOrInsert().
-    template<bool AGGREGATED_ROWS>
+    template <bool AGGREGATED_ROWS>
     Status IR_ALWAYS_INLINE add_intermediate_tuple(Partition* partition,
-            PartitionedHashTableCtx* ht_ctx, TupleRow* row, uint32_t hash, PartitionedHashTable::Iterator insert_it);
+                                                   PartitionedHashTableCtx* ht_ctx, TupleRow* row,
+                                                   uint32_t hash,
+                                                   PartitionedHashTable::Iterator insert_it);
 
     // Append a row to a spilled partition. May spill partitions if needed to switch to
     // I/O buffers. Selects the correct stream according to the argument. Inlined into
     // process_batch().
-    template<bool AGGREGATED_ROWS>
+    template <bool AGGREGATED_ROWS>
     Status IR_ALWAYS_INLINE append_spilled_row(Partition* partition, TupleRow* row);
 
     // Append a row to a stream of a spilled partition. May spill partitions if needed
@@ -413,7 +413,7 @@ private:
     Status append_spilled_row(BufferedTupleStream2* stream, TupleRow* row);
 
     // Reads all the rows from input_stream and process them by calling process_batch().
-    template<bool AGGREGATED_ROWS>
+    template <bool AGGREGATED_ROWS>
     Status process_stream(BufferedTupleStream2* input_stream);
 
     // Initializes _hash_partitions. 'level' is the level for the partitions to create.
@@ -451,7 +451,7 @@ private:
 
     // Calls finalizes on all tuples starting at 'it'.
     void cleanup_hash_tbl(const std::vector<doris_udf::FunctionContext*>& agg_fn_ctxs,
-            PartitionedHashTable::Iterator it);
+                          PartitionedHashTable::Iterator it);
 
     // Codegen UpdateSlot(). Returns NULL if codegen is unsuccessful.
     // Assumes is_merge = false;

@@ -17,34 +17,33 @@
 
 #include "runtime/fragment_mgr.h"
 
+#include <gperftools/profiler.h>
+#include <thrift/protocol/TDebugProtocol.h>
+
+#include <boost/bind.hpp>
 #include <memory>
 #include <sstream>
-
-#include <gperftools/profiler.h>
-#include <boost/bind.hpp>
 
 #include "agent/cgroups_mgr.h"
 #include "common/object_pool.h"
 #include "common/resource_tls.h"
-#include "service/backend_options.h"
-#include "runtime/plan_fragment_executor.h"
-#include "runtime/exec_env.h"
-#include "runtime/datetime_value.h"
-#include "util/stopwatch.hpp"
-#include "util/debug_util.h"
-#include "util/doris_metrics.h"
-#include "util/thrift_util.h"
-#include "util/url_coding.h"
-#include "runtime/client_cache.h"
-#include "runtime/descriptors.h"
+#include "gen_cpp/DataSinks_types.h"
+#include "gen_cpp/FrontendService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/DataSinks_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/FrontendService.h"
 #include "gen_cpp/QueryPlanExtra_types.h"
-#include <thrift/protocol/TDebugProtocol.h>
+#include "gen_cpp/Types_types.h"
+#include "runtime/client_cache.h"
+#include "runtime/datetime_value.h"
+#include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
+#include "runtime/plan_fragment_executor.h"
+#include "service/backend_options.h"
+#include "util/debug_util.h"
+#include "util/doris_metrics.h"
+#include "util/stopwatch.hpp"
+#include "util/thrift_util.h"
+#include "util/url_coding.h"
 
 namespace doris {
 
@@ -67,12 +66,8 @@ class RuntimeProfile;
 
 class FragmentExecState {
 public:
-    FragmentExecState(
-        const TUniqueId& query_id,
-        const TUniqueId& instance_id,
-        int backend_num,
-        ExecEnv* exec_env,
-        const TNetworkAddress& coord_hostport);
+    FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
+                      ExecEnv* exec_env, const TNetworkAddress& coord_hostport);
 
     ~FragmentExecState();
 
@@ -87,17 +82,11 @@ public:
 
     Status cancel(const PPlanFragmentCancelReason& reason);
 
-    TUniqueId fragment_instance_id() const {
-        return _fragment_instance_id;
-    }
+    TUniqueId fragment_instance_id() const { return _fragment_instance_id; }
 
-    PlanFragmentExecutor* executor() {
-        return &_executor;
-    }
+    PlanFragmentExecutor* executor() { return &_executor; }
 
-    const DateTimeValue& start_time() const {
-        return _start_time;
-    }
+    const DateTimeValue& start_time() const { return _start_time; }
 
     // Update status of this fragment execute
     Status update_status(Status status) {
@@ -124,7 +113,7 @@ public:
         return false;
     }
 
-    int get_timeout_second() const { return _timeout_second; } 
+    int get_timeout_second() const { return _timeout_second; }
 
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
@@ -153,26 +142,23 @@ private:
     std::unique_ptr<std::thread> _exec_thread;
 };
 
-FragmentExecState::FragmentExecState(
-        const TUniqueId& query_id,
-        const TUniqueId& fragment_instance_id,
-        int backend_num,
-        ExecEnv* exec_env,
-        const TNetworkAddress& coord_addr) :
-            _query_id(query_id),
-            _fragment_instance_id(fragment_instance_id),
-            _backend_num(backend_num),
-            _exec_env(exec_env),
-            _coord_addr(coord_addr),
-            _executor(exec_env, boost::bind<void>(
-                    boost::mem_fn(&FragmentExecState::coordinator_callback), this, _1, _2, _3)),
-            _set_rsc_info(false),
-            _timeout_second(-1) {
+FragmentExecState::FragmentExecState(const TUniqueId& query_id,
+                                     const TUniqueId& fragment_instance_id, int backend_num,
+                                     ExecEnv* exec_env, const TNetworkAddress& coord_addr)
+        : _query_id(query_id),
+          _fragment_instance_id(fragment_instance_id),
+          _backend_num(backend_num),
+          _exec_env(exec_env),
+          _coord_addr(coord_addr),
+          _executor(exec_env,
+                    boost::bind<void>(boost::mem_fn(&FragmentExecState::coordinator_callback), this,
+                                      _1, _2, _3)),
+          _set_rsc_info(false),
+          _timeout_second(-1) {
     _start_time = DateTimeValue::local_time();
 }
 
-FragmentExecState::~FragmentExecState() {
-}
+FragmentExecState::~FragmentExecState() {}
 
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     if (params.__isset.query_options) {
@@ -226,15 +212,13 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason) {
     return Status::OK();
 }
 
-void FragmentExecState::callback(const Status& status, RuntimeProfile* profile, bool done) {
-}
+void FragmentExecState::callback(const Status& status, RuntimeProfile* profile, bool done) {}
 
 std::string FragmentExecState::to_http_path(const std::string& file_name) {
     std::stringstream url;
     url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
         << "/api/_download_load?"
-        << "token=" << _exec_env->token()
-        << "&file=" << file_name;
+        << "token=" << _exec_env->token() << "&file=" << file_name;
     return url.str();
 }
 
@@ -242,16 +226,13 @@ std::string FragmentExecState::to_http_path(const std::string& file_name) {
 // it is only invoked from the executor's reporting thread.
 // Also, the reported status will always reflect the most recent execution status,
 // including the final status when execution finishes.
-void FragmentExecState::coordinator_callback(
-        const Status& status,
-        RuntimeProfile* profile,
-        bool done) {
-    DCHECK(status.ok() || done);  // if !status.ok() => done
+void FragmentExecState::coordinator_callback(const Status& status, RuntimeProfile* profile,
+                                             bool done) {
+    DCHECK(status.ok() || done); // if !status.ok() => done
     Status exec_status = update_status(status);
 
     Status coord_status;
-    FrontendServiceConnection coord(
-        _exec_env->frontend_client_cache(), _coord_addr, &coord_status);
+    FrontendServiceConnection coord(_exec_env->frontend_client_cache(), _coord_addr, &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
         ss << "couldn't get a client for " << _coord_addr;
@@ -278,7 +259,7 @@ void FragmentExecState::coordinator_callback(
         }
         profile->to_thrift(&params.profile);
         params.__isset.profile = true;
-    
+
         if (!runtime_state->output_files().empty()) {
             params.__isset.delta_urls = true;
             for (auto& it : runtime_state->output_files()) {
@@ -286,19 +267,19 @@ void FragmentExecState::coordinator_callback(
             }
         }
         if (runtime_state->num_rows_load_total() > 0 ||
-                runtime_state->num_rows_load_filtered() > 0) {
+            runtime_state->num_rows_load_filtered() > 0) {
             params.__isset.load_counters = true;
             // TODO(zc)
             static std::string s_dpp_normal_all = "dpp.norm.ALL";
             static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
             static std::string s_unselected_rows = "unselected.rows";
-    
-            params.load_counters.emplace(
-                s_dpp_normal_all, std::to_string(runtime_state->num_rows_load_success()));
-            params.load_counters.emplace(
-                s_dpp_abnormal_all, std::to_string(runtime_state->num_rows_load_filtered()));
-            params.load_counters.emplace(
-                s_unselected_rows, std::to_string(runtime_state->num_rows_load_unselected()));
+
+            params.load_counters.emplace(s_dpp_normal_all,
+                                         std::to_string(runtime_state->num_rows_load_success()));
+            params.load_counters.emplace(s_dpp_abnormal_all,
+                                         std::to_string(runtime_state->num_rows_load_filtered()));
+            params.load_counters.emplace(s_unselected_rows,
+                                         std::to_string(runtime_state->num_rows_load_unselected()));
         }
         if (!runtime_state->get_error_log_file_path().empty()) {
             params.__set_tracking_url(
@@ -315,7 +296,7 @@ void FragmentExecState::coordinator_callback(
                 params.commitInfos.push_back(info);
             }
         }
-    
+
         // Send new errors to coordinator
         runtime_state->get_unreported_errors(&(params.error_log));
         params.__isset.error_log = (params.error_log.size() > 0);
@@ -325,7 +306,7 @@ void FragmentExecState::coordinator_callback(
     Status rpc_status;
 
     VLOG_ROW << "debug: reportExecStatus params is "
-            << apache::thrift::ThriftDebugString(params).c_str();
+             << apache::thrift::ThriftDebugString(params).c_str();
     try {
         try {
             coord->reportExecStatus(res, params);
@@ -357,15 +338,14 @@ void FragmentExecState::coordinator_callback(
     }
 }
 
-FragmentMgr::FragmentMgr(ExecEnv* exec_env) :
-        _exec_env(exec_env),
-        _fragment_map(),
-        _stop(false),
-        _cancel_thread(std::bind<void>(&FragmentMgr::cancel_worker, this)),
-        // TODO(zc): we need a better thread-pool
-        // now one user can use all the thread pool, others have no resource.
-        _thread_pool(config::fragment_pool_thread_num, config::fragment_pool_queue_size) {
-}
+FragmentMgr::FragmentMgr(ExecEnv* exec_env)
+        : _exec_env(exec_env),
+          _fragment_map(),
+          _stop(false),
+          _cancel_thread(std::bind<void>(&FragmentMgr::cancel_worker, this)),
+          // TODO(zc): we need a better thread-pool
+          // now one user can use all the thread pool, others have no resource.
+          _thread_pool(config::fragment_pool_thread_num, config::fragment_pool_queue_size) {}
 
 FragmentMgr::~FragmentMgr() {
     // stop thread
@@ -381,12 +361,9 @@ FragmentMgr::~FragmentMgr() {
     }
 }
 
-static void empty_function(PlanFragmentExecutor* exec) {
-}
+static void empty_function(PlanFragmentExecutor* exec) {}
 
-void FragmentMgr::exec_actual(
-        std::shared_ptr<FragmentExecState> exec_state,
-        FinishCallback cb) {
+void FragmentMgr::exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
     exec_state->execute();
 
     {
@@ -397,7 +374,7 @@ void FragmentMgr::exec_actual(
         } else {
             // Impossible
             LOG(WARNING) << "missing entry in fragment exec state map: instance_id="
-                << exec_state->fragment_instance_id();
+                         << exec_state->fragment_instance_id();
         }
     }
     // Callback after remove from this id
@@ -405,8 +382,7 @@ void FragmentMgr::exec_actual(
     // NOTE: 'exec_state' is desconstructed here without lock
 }
 
-Status FragmentMgr::exec_plan_fragment(
-        const TExecPlanFragmentParams& params) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
     return exec_plan_fragment(params, std::bind<void>(&empty_function, std::placeholders::_1));
 }
 
@@ -417,9 +393,7 @@ static void* fragment_executor(void* param) {
     return nullptr;
 }
 
-Status FragmentMgr::exec_plan_fragment(
-        const TExecPlanFragmentParams& params,
-        FinishCallback cb) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
     const TUniqueId& fragment_instance_id = params.params.fragment_instance_id;
     std::shared_ptr<FragmentExecState> exec_state;
     {
@@ -430,12 +404,8 @@ Status FragmentMgr::exec_plan_fragment(
             return Status::OK();
         }
     }
-    exec_state.reset(new FragmentExecState(
-            params.params.query_id,
-            fragment_instance_id,
-            params.backend_num,
-            _exec_env,
-            params.coord));
+    exec_state.reset(new FragmentExecState(params.params.query_id, fragment_instance_id,
+                                           params.backend_num, _exec_env, params.coord));
     RETURN_IF_ERROR(exec_state->prepare(params));
     bool use_pool = true;
     {
@@ -456,7 +426,7 @@ Status FragmentMgr::exec_plan_fragment(
 
     if (use_pool) {
         if (!_thread_pool.offer(
-                boost::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb))) {
+                    boost::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb))) {
             {
                 // Remove the exec state added
                 std::lock_guard<std::mutex> lock(_lock);
@@ -466,11 +436,9 @@ Status FragmentMgr::exec_plan_fragment(
         }
     } else {
         pthread_t id;
-        int ret = pthread_create(&id,
-                       nullptr,
-                       fragment_executor,
-                       new ThreadPool::WorkFunction(
-                           std::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb)));
+        int ret = pthread_create(&id, nullptr, fragment_executor,
+                                 new ThreadPool::WorkFunction(std::bind<void>(
+                                         &FragmentMgr::exec_actual, this, exec_state, cb)));
         if (ret != 0) {
             std::string err_msg("Could not create thread.");
             err_msg.append(strerror(ret));
@@ -515,7 +483,8 @@ void FragmentMgr::cancel_worker() {
         }
         for (auto& id : to_delete) {
             cancel(id, PPlanFragmentCancelReason::TIMEOUT);
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel timouet fragment " << print_id(id);
+            LOG(INFO) << "FragmentMgr cancel worker going to cancel timouet fragment "
+                      << print_id(id);
         }
 
         // check every 1 seconds
@@ -549,7 +518,6 @@ Status FragmentMgr::trigger_profile_report(const PTriggerProfileReportRequest* r
     return Status::OK();
 }
 
-
 void FragmentMgr::debug(std::stringstream& ss) {
     // Keep things simple
     std::lock_guard<std::mutex> lock(_lock);
@@ -558,10 +526,8 @@ void FragmentMgr::debug(std::stringstream& ss) {
     ss << "job_id\t\tstart_time\t\texecute_time(s)\n";
     DateTimeValue now = DateTimeValue::local_time();
     for (auto& it : _fragment_map) {
-        ss << it.first
-            << "\t" << it.second->start_time().debug_string()
-            << "\t" << now.second_diff(it.second->start_time())
-            << "\n";
+        ss << it.first << "\t" << it.second->start_time().debug_string() << "\t"
+           << now.second_diff(it.second->start_time()) << "\n";
     }
 }
 
@@ -569,14 +535,17 @@ void FragmentMgr::debug(std::stringstream& ss) {
  * 1. resolve opaqued_query_plan to thrift structure
  * 2. build TExecPlanFragmentParams
  */
-Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns) {
+Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
+                                                const TUniqueId& fragment_instance_id,
+                                                std::vector<TScanColumnDesc>* selected_columns) {
     const std::string& opaqued_query_plan = params.opaqued_query_plan;
     std::string query_plan_info;
     // base64 decode query plan
     if (!base64_decode(opaqued_query_plan, &query_plan_info)) {
         LOG(WARNING) << "open context error: base64_decode decode opaqued_query_plan failure";
         std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info << " validate error, should not be modified after returned Doris FE processed";
+        msg << "query_plan_info: " << query_plan_info
+            << " validate error, should not be modified after returned Doris FE processed";
         return Status::InvalidArgument(msg.str());
     }
     TQueryPlanInfo t_query_plan_info;
@@ -587,7 +556,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
     if (!st.ok()) {
         LOG(WARNING) << "open context error: deserialize TQueryPlanInfo failure";
         std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info << " deserialize error, should not be modified after returned Doris FE processed";
+        msg << "query_plan_info: " << query_plan_info
+            << " deserialize error, should not be modified after returned Doris FE processed";
         return Status::InvalidArgument(msg.str());
     }
 
@@ -598,14 +568,18 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
     if (!st.ok()) {
         LOG(WARNING) << "open context error: extract DescriptorTbl failure";
         std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info << " create DescriptorTbl error, should not be modified after returned Doris FE processed";
+        msg << "query_plan_info: " << query_plan_info
+            << " create DescriptorTbl error, should not be modified after returned Doris FE "
+               "processed";
         return Status::InvalidArgument(msg.str());
     }
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     if (tuple_desc == nullptr) {
         LOG(WARNING) << "open context error: extract TupleDescriptor failure";
         std::stringstream msg;
-        msg << "query_plan_info: " << query_plan_info << " get  TupleDescriptor error, should not be modified after returned Doris FE processed";
+        msg << "query_plan_info: " << query_plan_info
+            << " get  TupleDescriptor error, should not be modified after returned Doris FE "
+               "processed";
         return Status::InvalidArgument(msg.str());
     }
     // process selected columns form slots
@@ -616,7 +590,8 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
         selected_columns->emplace_back(std::move(col));
     }
 
-    LOG(INFO) << "BackendService execute open()  TQueryPlanInfo: " << apache::thrift::ThriftDebugString(t_query_plan_info);
+    LOG(INFO) << "BackendService execute open()  TQueryPlanInfo: "
+              << apache::thrift::ThriftDebugString(t_query_plan_info);
     // assign the param used to execute PlanFragment
     TExecPlanFragmentParams exec_fragment_params;
     exec_fragment_params.protocol_version = (PaloInternalServiceVersion::type)0;
@@ -672,5 +647,4 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
     return exec_plan_fragment(exec_fragment_params);
 }
 
-}
-
+} // namespace doris

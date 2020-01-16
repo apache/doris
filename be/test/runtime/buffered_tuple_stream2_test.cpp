@@ -15,29 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/buffered_tuple_stream2.inline.h"
-
-#include <boost/scoped_ptr.hpp>
-#include <boost/bind.hpp>
-#include <boost/filesystem.hpp>
-
 #include <gtest/gtest.h>
 
-#include <string>
+#include <boost/bind.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/scoped_ptr.hpp>
 #include <limits> // for std::numeric_limits<int>::max()
+#include <string>
 
-#include "runtime/types.h"
+#include "gen_cpp/Types_types.h"
+#include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/row_batch.h"
 #include "runtime/string_value.hpp"
 #include "runtime/test_env.h"
 #include "runtime/tmp_file_mgr.h"
+#include "runtime/types.h"
 #include "testutil/desc_tbl_builder.h"
-#include "util/logging.h"
-#include "util/disk_info.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
-
-#include "gen_cpp/Types_types.h"
+#include "util/disk_info.h"
+#include "util/logging.h"
 
 using std::vector;
 
@@ -49,15 +46,15 @@ static const uint32_t PRIME = 479001599;
 namespace doris {
 
 static const StringValue STRINGS[] = {
-    StringValue("ABC"),
-    StringValue("HELLO"),
-    StringValue("123456789"),
-    StringValue("FOOBAR"),
-    StringValue("ONE"),
-    StringValue("THREE"),
-    StringValue("abcdefghijklmno"),
-    StringValue("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-    StringValue("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        StringValue("ABC"),
+        StringValue("HELLO"),
+        StringValue("123456789"),
+        StringValue("FOOBAR"),
+        StringValue("ONE"),
+        StringValue("THREE"),
+        StringValue("abcdefghijklmno"),
+        StringValue("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        StringValue("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
 };
 
 static const int NUM_STRINGS = sizeof(STRINGS) / sizeof(StringValue);
@@ -65,8 +62,9 @@ static const int NUM_STRINGS = sizeof(STRINGS) / sizeof(StringValue);
 class SimpleTupleStreamTest : public testing::Test {
 public:
     SimpleTupleStreamTest() : _tracker(-1) {}
-     // A null dtor to pass codestyle check
+    // A null dtor to pass codestyle check
     ~SimpleTupleStreamTest() {}
+
 protected:
     virtual void SetUp() {
         _test_env.reset(new TestEnv());
@@ -85,8 +83,8 @@ protected:
         DescriptorTblBuilder string_builder(&_pool);
         // string_builder.declare_tuple() << TYPE_STRING;
         string_builder.declare_tuple() << TYPE_VARCHAR;
-        _string_desc = _pool.add(new RowDescriptor(
-                    *string_builder.build(), tuple_ids, nullable_tuples));
+        _string_desc =
+                _pool.add(new RowDescriptor(*string_builder.build(), tuple_ids, nullable_tuples));
     }
 
     virtual void TearDown() {
@@ -103,7 +101,7 @@ protected:
         Status status = _test_env->create_query_state(0, limit, block_size, &_runtime_state);
         ASSERT_TRUE(status.ok());
         status = _runtime_state->block_mgr2()->register_client(0, &_tracker, _runtime_state,
-                &_client);
+                                                               &_client);
         ASSERT_TRUE(status.ok());
     }
 
@@ -210,7 +208,7 @@ protected:
 
     template <typename T>
     void ReadValues(BufferedTupleStream2* stream, RowDescriptor* desc, vector<T>* results,
-            int num_batches = -1) {
+                    int num_batches = -1) {
         bool eos = false;
         RowBatch batch(*desc, BATCH_SIZE, &_tracker);
         int batches_read = 0;
@@ -233,19 +231,18 @@ protected:
                 int idx = i * int_tuples + j;
                 if (!gen_null || GenBoolValue(idx)) {
                     ASSERT_EQ(results[idx], GenIntValue(i))
-                        << " results[" << idx << "]: " << results[idx]
-                        << " != " << GenIntValue(i) << " gen_null=" << gen_null;
+                            << " results[" << idx << "]: " << results[idx]
+                            << " != " << GenIntValue(i) << " gen_null=" << gen_null;
                 } else {
                     ASSERT_TRUE(results[idx] == std::numeric_limits<int>::max())
-                        << "i: " << i << " j: " << j << " results[" << idx << "]: "
-                        << results[idx] << " != " << std::numeric_limits<int>::max();
+                            << "i: " << i << " j: " << j << " results[" << idx
+                            << "]: " << results[idx] << " != " << std::numeric_limits<int>::max();
                 }
             }
         }
     }
 
-    virtual void VerifyResults(const vector<StringValue>& results, int exp_rows,
-            bool gen_null) {
+    virtual void VerifyResults(const vector<StringValue>& results, int exp_rows, bool gen_null) {
         const int string_tuples = _string_desc->tuple_descriptors().size();
         EXPECT_EQ(results.size(), exp_rows * string_tuples);
         for (int i = 0; i < exp_rows; ++i) {
@@ -253,12 +250,12 @@ protected:
                 int idx = i * string_tuples + j;
                 if (!gen_null || GenBoolValue(idx)) {
                     ASSERT_TRUE(results[idx] == STRINGS[i % NUM_STRINGS])
-                        << "results[" << idx << "] " << results[idx]
-                        << " != " << STRINGS[i % NUM_STRINGS] << " i=" << i << " gen_null="
-                        << gen_null;
+                            << "results[" << idx << "] " << results[idx]
+                            << " != " << STRINGS[i % NUM_STRINGS] << " i=" << i
+                            << " gen_null=" << gen_null;
                 } else {
                     ASSERT_TRUE(results[idx] == StringValue())
-                        << "results[" << idx << "] " << results[idx] << " not NULL";
+                            << "results[" << idx << "] " << results[idx] << " not NULL";
                 }
             }
         }
@@ -267,8 +264,8 @@ protected:
     // Test adding num_batches of ints to the stream and reading them back.
     template <typename T>
     void TestValues(int num_batches, RowDescriptor* desc, bool gen_null) {
-        BufferedTupleStream2 stream(_runtime_state, *desc, _runtime_state->block_mgr2(),
-                _client, true, false);
+        BufferedTupleStream2 stream(_runtime_state, *desc, _runtime_state->block_mgr2(), _client,
+                                    true, false);
         Status status = stream.init(-1, NULL, true);
         ASSERT_TRUE(status.ok()) << status.get_error_msg();
         status = stream.unpin_stream();
@@ -320,8 +317,8 @@ protected:
     void TestIntValuesInterleaved(int num_batches, int num_batches_before_read) {
         for (int small_buffers = 0; small_buffers < 2; ++small_buffers) {
             BufferedTupleStream2 stream(_runtime_state, *_int_desc, _runtime_state->block_mgr2(),
-                    _client, small_buffers == 0,  // initial small buffers
-                    true); // read_write
+                                        _client, small_buffers == 0, // initial small buffers
+                                        true);                       // read_write
             Status status = stream.init(-1, NULL, true);
             ASSERT_TRUE(status.ok());
             status = stream.prepare_for_read(true);
@@ -342,7 +339,7 @@ protected:
                 batch->reset();
                 if (i % num_batches_before_read == 0) {
                     ReadValues(&stream, _int_desc, &results,
-                            (rand() % num_batches_before_read) + 1);
+                               (rand() % num_batches_before_read) + 1);
                 }
             }
             ReadValues(&stream, _int_desc, &results);
@@ -364,7 +361,6 @@ protected:
     scoped_ptr<MemPool> _mem_pool;
 };
 
-
 // Tests with a non-NULLable tuple per row.
 class SimpleNullStreamTest : public SimpleTupleStreamTest {
 protected:
@@ -374,13 +370,12 @@ protected:
 
         DescriptorTblBuilder int_builder(&_pool);
         int_builder.declare_tuple() << TYPE_INT;
-        _int_desc = _pool.add(new RowDescriptor(
-                    *int_builder.build(), tuple_ids, nullable_tuples));
+        _int_desc = _pool.add(new RowDescriptor(*int_builder.build(), tuple_ids, nullable_tuples));
 
         DescriptorTblBuilder string_builder(&_pool);
         string_builder.declare_tuple() << TYPE_VARCHAR;
-        _string_desc = _pool.add(new RowDescriptor(
-                    *string_builder.build(), tuple_ids, nullable_tuples));
+        _string_desc =
+                _pool.add(new RowDescriptor(*string_builder.build(), tuple_ids, nullable_tuples));
     }
 }; // SimpleNullStreamTest
 
@@ -402,15 +397,14 @@ protected:
         int_builder.declare_tuple() << TYPE_INT;
         int_builder.declare_tuple() << TYPE_INT;
         int_builder.declare_tuple() << TYPE_INT;
-        _int_desc = _pool.add(new RowDescriptor(
-                *int_builder.build(), tuple_ids, nullable_tuples));
+        _int_desc = _pool.add(new RowDescriptor(*int_builder.build(), tuple_ids, nullable_tuples));
 
         DescriptorTblBuilder string_builder(&_pool);
         string_builder.declare_tuple() << TYPE_VARCHAR;
         string_builder.declare_tuple() << TYPE_VARCHAR;
         string_builder.declare_tuple() << TYPE_VARCHAR;
-        _string_desc = _pool.add(new RowDescriptor(
-                    *string_builder.build(), tuple_ids, nullable_tuples));
+        _string_desc =
+                _pool.add(new RowDescriptor(*string_builder.build(), tuple_ids, nullable_tuples));
     }
 };
 
@@ -432,15 +426,14 @@ protected:
         int_builder.declare_tuple() << TYPE_INT;
         int_builder.declare_tuple() << TYPE_INT;
         int_builder.declare_tuple() << TYPE_INT;
-        _int_desc = _pool.add(new RowDescriptor(
-                    *int_builder.build(), tuple_ids, nullable_tuples));
+        _int_desc = _pool.add(new RowDescriptor(*int_builder.build(), tuple_ids, nullable_tuples));
 
         DescriptorTblBuilder string_builder(&_pool);
         string_builder.declare_tuple() << TYPE_VARCHAR;
         string_builder.declare_tuple() << TYPE_VARCHAR;
         string_builder.declare_tuple() << TYPE_VARCHAR;
-        _string_desc = _pool.add(new RowDescriptor(
-                    *string_builder.build(), tuple_ids, nullable_tuples));
+        _string_desc =
+                _pool.add(new RowDescriptor(*string_builder.build(), tuple_ids, nullable_tuples));
     }
 };
 
@@ -527,8 +520,8 @@ TEST_F(SimpleTupleStreamTest, UnpinPin) {
     int buffer_size = 100 * sizeof(int);
     InitBlockMgr(3 * buffer_size, buffer_size);
 
-    BufferedTupleStream2 stream(_runtime_state, *_int_desc, _runtime_state->block_mgr2(),
-            _client, true, false);
+    BufferedTupleStream2 stream(_runtime_state, *_int_desc, _runtime_state->block_mgr2(), _client,
+                                true, false);
     Status status = stream.init(-1, NULL, true);
     ASSERT_TRUE(status.ok());
 
@@ -584,8 +577,8 @@ TEST_F(SimpleTupleStreamTest, SmallBuffers) {
     int buffer_size = 8 * 1024 * 1024;
     InitBlockMgr(2 * buffer_size, buffer_size);
 
-    BufferedTupleStream2 stream(_runtime_state, *_int_desc, _runtime_state->block_mgr2(),
-            _client, true, false);
+    BufferedTupleStream2 stream(_runtime_state, *_int_desc, _runtime_state->block_mgr2(), _client,
+                                true, false);
     Status status = stream.init(-1, NULL, false);
     ASSERT_TRUE(status.ok());
 
@@ -828,7 +821,7 @@ TEST_F(ArrayTupleStreamTest, TestArrayDeepCopy) {
 // TODO: more tests.
 //  - The stream can operate in many modes
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

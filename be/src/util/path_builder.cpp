@@ -17,8 +17,9 @@
 
 #include "util/path_builder.h"
 
-#include <sstream>
 #include <stdlib.h>
+
+#include <sstream>
 
 namespace doris {
 
@@ -50,4 +51,4 @@ void PathBuilder::get_full_build_path(const std::string& path, std::string* full
     *full_path = s.str();
 }
 
-}
+} // namespace doris

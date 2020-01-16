@@ -50,8 +50,7 @@ class IndexPageIterator; // forward decl.
 class IndexPageBuilder {
 public:
     explicit IndexPageBuilder(size_t index_page_size, bool is_leaf)
-        : _index_page_size(index_page_size), _is_leaf(is_leaf) {
-    }
+            : _index_page_size(index_page_size), _is_leaf(is_leaf) {}
 
     void add(const Slice& key, const PagePointer& ptr);
 
@@ -61,9 +60,7 @@ public:
 
     Slice finish();
 
-    uint64_t size() {
-        return _buffer.size();
-    }
+    uint64_t size() { return _buffer.size(); }
 
     // Return the key of the first entry in this index block.
     // The pointed-to data is only valid until the next call to this builder.
@@ -87,7 +84,7 @@ private:
 class IndexPageIterator;
 class IndexPageReader {
 public:
-    IndexPageReader() : _parsed(false) {};
+    IndexPageReader() : _parsed(false){};
 
     Status parse(const Slice& data);
 
@@ -114,6 +111,7 @@ public:
     }
 
     void reset();
+
 private:
     bool _parsed;
 
@@ -124,9 +122,7 @@ private:
 
 class IndexPageIterator {
 public:
-    explicit IndexPageIterator(const IndexPageReader* reader)
-        : _reader(reader), _pos(0) {
-    }
+    explicit IndexPageIterator(const IndexPageReader* reader) : _reader(reader), _pos(0) {}
 
     // Find the largest index entry whose key is <= search_key.
     // Return OK status when such entry exists.
@@ -144,13 +140,10 @@ public:
         return true;
     }
 
-    const Slice& current_key() const {
-        return _reader->get_key(_pos);
-    }
+    const Slice& current_key() const { return _reader->get_key(_pos); }
 
-    const PagePointer& current_page_pointer() const {
-        return _reader->get_value(_pos);
-    }
+    const PagePointer& current_page_pointer() const { return _reader->get_value(_pos); }
+
 private:
     const IndexPageReader* _reader;
 

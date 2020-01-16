@@ -18,14 +18,14 @@
 #include "olap/rowset/unique_rowset_id_generator.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 namespace doris {
 class UniqueRowsetIdGeneratorTest : public testing::Test {
 public:
-    UniqueRowsetIdGeneratorTest() { }
-    virtual ~UniqueRowsetIdGeneratorTest() {
-    }
+    UniqueRowsetIdGeneratorTest() {}
+    virtual ~UniqueRowsetIdGeneratorTest() {}
 };
 
 TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
@@ -49,16 +49,16 @@ TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {
         ASSERT_TRUE(rowset_id.lo == 0);
         ASSERT_STREQ("123", rowset_id.to_string().c_str());
     }
-    
+
     {
         RowsetId rowset_id;
         rowset_id.init("0200000000000003c04f58d989cab2f2efd45faa20449189");
         ASSERT_TRUE(rowset_id.version == 2);
         ASSERT_TRUE(rowset_id.hi == (3 + max_id));
-        ASSERT_STREQ("0200000000000003c04f58d989cab2f2efd45faa20449189", rowset_id.to_string().c_str());
+        ASSERT_STREQ("0200000000000003c04f58d989cab2f2efd45faa20449189",
+                     rowset_id.to_string().c_str());
     }
 }
-
 
 TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
     UniqueId backend_uid = UniqueId::gen_uid();
@@ -92,17 +92,16 @@ TEST_F(UniqueRowsetIdGeneratorTest, GenerateIdTest) {
         in_use = id_generator.id_in_use(rowset_id);
         ASSERT_TRUE(in_use == true);
 
-        std::string rowset_mid_str = rowset_id.to_string().substr(16,16);
+        std::string rowset_mid_str = rowset_id.to_string().substr(16, 16);
         std::string backend_mid_str = backend_uid.to_string().substr(0, 16);
         ASSERT_STREQ(rowset_mid_str.c_str(), backend_mid_str.c_str());
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
-

@@ -16,20 +16,21 @@
 // under the License.
 
 #include <gtest/gtest.h>
+
 #include <sstream>
 
+#include "olap/file_stream.h"
+#include "olap/olap_common.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet.h"
-#include "olap/olap_common.h"
 #include "olap/row_cursor.h"
-#include "olap/wrapper_field.h"
+#include "olap/storage_engine.h"
 #include "olap/stream_index_common.h"
-#include "olap/stream_index_writer.h"
 #include "olap/stream_index_reader.h"
-#include "olap/file_stream.h"
+#include "olap/stream_index_writer.h"
+#include "olap/tablet.h"
+#include "olap/tablet_meta.h"
+#include "olap/wrapper_field.h"
 #include "util/logging.h"
 
 using namespace std;
@@ -38,15 +39,11 @@ namespace doris {
 
 class TestStreamIndex : public testing::Test {
 public:
-    virtual ~TestStreamIndex() {
-    }
+    virtual ~TestStreamIndex() {}
 
-    virtual void SetUp() {     
-    }
-    
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
 
+    virtual void TearDown() {}
 };
 
 TEST_F(TestStreamIndex, index_write) {
@@ -104,12 +101,12 @@ TEST_F(TestStreamIndex, remove_written_position) {
         uint32_t i = 0;
         for (; i < loop; i++) {
             entry.add_position(i);
-            entry.add_position(i*2);
-            entry.add_position(i*3);
-            entry.add_position(i*4);
-            entry.add_position(i*5);
-            entry.add_position(i*6);
-            entry.add_position(i*7);
+            entry.add_position(i * 2);
+            entry.add_position(i * 3);
+            entry.add_position(i * 4);
+            entry.add_position(i * 5);
+            entry.add_position(i * 6);
+            entry.add_position(i * 7);
 
             entry.set_statistic(&stat);
             writer.add_index_entry(entry);
@@ -127,8 +124,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
         ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
-        ASSERT_EQ(OLAP_SUCCESS, 
-            reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+        ASSERT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         ASSERT_EQ(loop, reader.entry_count());
 
@@ -146,12 +142,12 @@ TEST_F(TestStreamIndex, remove_written_position) {
         uint32_t i = 0;
         for (; i < loop; i++) {
             entry.add_position(i);
-            entry.add_position(i*2);
-            entry.add_position(i*3);
-            entry.add_position(i*4);
-            entry.add_position(i*5);
-            entry.add_position(i*6);
-            entry.add_position(i*7);
+            entry.add_position(i * 2);
+            entry.add_position(i * 3);
+            entry.add_position(i * 4);
+            entry.add_position(i * 5);
+            entry.add_position(i * 6);
+            entry.add_position(i * 7);
 
             entry.set_statistic(&stat);
             writer.add_index_entry(entry);
@@ -169,8 +165,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
         ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
-        ASSERT_EQ(OLAP_SUCCESS, 
-            reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+        ASSERT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         ASSERT_EQ(loop, reader.entry_count());
 
@@ -189,12 +184,12 @@ TEST_F(TestStreamIndex, remove_written_position) {
         uint32_t i = 0;
         for (; i < loop; i++) {
             entry.add_position(i);
-            entry.add_position(i*2);
-            entry.add_position(i*3);
-            entry.add_position(i*4);
-            entry.add_position(i*5);
-            entry.add_position(i*6);
-            entry.add_position(i*7);
+            entry.add_position(i * 2);
+            entry.add_position(i * 3);
+            entry.add_position(i * 4);
+            entry.add_position(i * 5);
+            entry.add_position(i * 6);
+            entry.add_position(i * 7);
 
             entry.set_statistic(&stat);
             writer.add_index_entry(entry);
@@ -212,8 +207,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
         ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
-        ASSERT_EQ(OLAP_SUCCESS, 
-            reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+        ASSERT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         ASSERT_EQ(loop, reader.entry_count());
 
@@ -232,12 +226,12 @@ TEST_F(TestStreamIndex, remove_written_position) {
         uint32_t i = 0;
         for (; i < loop; i++) {
             entry.add_position(i);
-            entry.add_position(i*2);
-            entry.add_position(i*3);
-            entry.add_position(i*4);
-            entry.add_position(i*5);
-            entry.add_position(i*6);
-            entry.add_position(i*7);
+            entry.add_position(i * 2);
+            entry.add_position(i * 3);
+            entry.add_position(i * 4);
+            entry.add_position(i * 5);
+            entry.add_position(i * 6);
+            entry.add_position(i * 7);
 
             entry.set_statistic(&stat);
             writer.add_index_entry(entry);
@@ -255,8 +249,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
         ASSERT_EQ(OLAP_SUCCESS, writer.write_to_buffer(buffer, output_size));
 
         StreamIndexReader reader;
-        ASSERT_EQ(OLAP_SUCCESS, 
-            reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
+        ASSERT_EQ(OLAP_SUCCESS, reader.init(buffer, output_size, OLAP_FIELD_TYPE_INT, true, true));
 
         ASSERT_EQ(loop, reader.entry_count());
 
@@ -265,7 +258,7 @@ TEST_F(TestStreamIndex, remove_written_position) {
             ASSERT_EQ(e.positions(0), i * 1);
             ASSERT_EQ(e.positions(1), i * 2);
             ASSERT_EQ(e.positions(2), i * 3);
-            ASSERT_EQ(e.positions(3 ), i * 4);
+            ASSERT_EQ(e.positions(3), i * 4);
         }
     }
     writer.reset();
@@ -281,7 +274,7 @@ TEST_F(TestStreamIndex, test_statistic) {
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "2147483647");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "-2147483648");
 
-    // 1 
+    // 1
     field->from_string("3");
     stat.add(*field);
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "3");
@@ -306,7 +299,7 @@ TEST_F(TestStreamIndex, test_statistic) {
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "899");
 
     stat.reset();
-   // start
+    // start
     ASSERT_STREQ(stat.minimum()->to_string().c_str(), "2147483647");
     ASSERT_STREQ(stat.maximum()->to_string().c_str(), "-2147483648");
 
@@ -343,8 +336,8 @@ TEST_F(TestStreamIndex, statistic) {
     uint32_t i = 0;
     for (; i < loop; i++) {
         entry.add_position(i);
-        entry.add_position(i*2);
-        entry.add_position(i*3);
+        entry.add_position(i * 2);
+        entry.add_position(i * 3);
 
         snprintf(string_buffer, sizeof(string_buffer), "%d", i * 9);
         field->from_string(string_buffer);
@@ -360,9 +353,8 @@ TEST_F(TestStreamIndex, statistic) {
         entry.reset_write_offset();
     }
 
-    size_t output_size = sizeof(StreamIndexHeader) + 
-                        loop * sizeof(uint32_t) * 3 + 
-                        (1 + sizeof(int32_t)) * loop * 2;
+    size_t output_size = sizeof(StreamIndexHeader) + loop * sizeof(uint32_t) * 3 +
+                         (1 + sizeof(int32_t)) * loop * 2;
     ASSERT_EQ(output_size, writer.output_size());
 
     char* buffer = new char[output_size];
@@ -382,7 +374,7 @@ TEST_F(TestStreamIndex, statistic) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -397,5 +389,3 @@ int main(int argc, char** argv) {
     google::protobuf::ShutdownProtobufLibrary();
     return ret;
 }
-
-

@@ -16,13 +16,14 @@
 // under the License.
 
 #include "olap/rowset/segment_v2/block_split_bloom_filter.h"
+
 #include "util/debug_util.h"
 
 namespace doris {
 namespace segment_v2 {
 
 const uint32_t BlockSplitBloomFilter::SALT[8] = {0x47b6137b, 0x44974d91, 0x8824ad5b, 0xa2b7289d,
-        0x705495c7, 0x2df1424b, 0x9efc4947, 0x5c6bfb31};
+                                                 0x705495c7, 0x2df1424b, 0x9efc4947, 0x5c6bfb31};
 
 void BlockSplitBloomFilter::add_hash(uint64_t hash) {
     // most significant 32 bit mod block size as block index(BTW:block size is

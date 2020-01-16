@@ -32,18 +32,15 @@ namespace doris {
 // Data in pip is stored in chunks.
 class StreamLoadPipe : public MessageBodySink, public FileReader {
 public:
-    StreamLoadPipe(size_t max_buffered_bytes = 1024 * 1024,
-                   size_t min_chunk_size = 64 * 1024)
-        : _buffered_bytes(0),
-        _max_buffered_bytes(max_buffered_bytes),
-        _min_chunk_size(min_chunk_size),
-        _finished(false), _cancelled(false) {
-    }
-    virtual ~StreamLoadPipe() { }
+    StreamLoadPipe(size_t max_buffered_bytes = 1024 * 1024, size_t min_chunk_size = 64 * 1024)
+            : _buffered_bytes(0),
+              _max_buffered_bytes(max_buffered_bytes),
+              _min_chunk_size(min_chunk_size),
+              _finished(false),
+              _cancelled(false) {}
+    virtual ~StreamLoadPipe() {}
 
-    Status open() override {
-        return Status::OK();
-    }
+    Status open() override { return Status::OK(); }
 
     Status append(const char* data, size_t size) override {
         size_t pos = 0;
@@ -106,7 +103,7 @@ public:
             }
         }
         DCHECK(bytes_read == *data_size)
-            << "bytes_read=" << bytes_read << ", *data_size=" << *data_size;
+                << "bytes_read=" << bytes_read << ", *data_size=" << *data_size;
         *eof = false;
         return Status::OK();
     }
@@ -115,26 +112,16 @@ public:
         return Status::InternalError("Not implemented");
     }
 
-    int64_t size () override {
-        return 0;
-    }
+    int64_t size() override { return 0; }
 
-    Status seek(int64_t position) override {
-        return Status::InternalError("Not implemented");
-    }
+    Status seek(int64_t position) override { return Status::InternalError("Not implemented"); }
 
-    Status tell(int64_t* position) override {
-        return Status::InternalError("Not implemented");
-    }
+    Status tell(int64_t* position) override { return Status::InternalError("Not implemented"); }
 
     // called when comsumer finished
-    void close() override {
-        cancel();
-    }
+    void close() override { cancel(); }
 
-    bool closed() override {
-        return _cancelled;
-    }
+    bool closed() override { return _cancelled; }
 
     // called when producer finished
     Status finish() override {
@@ -166,8 +153,7 @@ private:
         {
             std::unique_lock<std::mutex> l(_lock);
             // if _buf_queue is empty, we append this buf without size check
-            while (!_cancelled &&
-                   !_buf_queue.empty() &&
+            while (!_cancelled && !_buf_queue.empty() &&
                    _buffered_bytes + buf->remaining() > _max_buffered_bytes) {
                 _put_cond.wait(l);
             }
@@ -196,4 +182,4 @@ private:
     ByteBufferPtr _write_buf;
 };
 
-}
+} // namespace doris

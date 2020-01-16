@@ -28,9 +28,8 @@ using strings::Substitute;
 
 Status PageDecompressor::decompress_to(Slice* uncompressed_data) {
     if (_data.size < 4) {
-        return Status::Corruption(
-            Substitute("Compressed page's size is too small, size=$0, needed=$1",
-                       _data.size, 4));
+        return Status::Corruption(Substitute(
+                "Compressed page's size is too small, size=$0, needed=$1", _data.size, 4));
     }
     // decode uncompressed_bytes from footer
     uint32_t uncompressed_bytes = decode_fixed32_le((uint8_t*)_data.data + _data.size - 4);
@@ -44,15 +43,15 @@ Status PageDecompressor::decompress_to(Slice* uncompressed_data) {
         return Status::OK();
     }
     std::unique_ptr<char[]> buf(new char[uncompressed_bytes]);
-    
+
     Slice uncompressed_slice(buf.get(), uncompressed_bytes);
     RETURN_IF_ERROR(_codec->decompress(compressed_slice, &uncompressed_slice));
     if (uncompressed_slice.size != uncompressed_bytes) {
         // If size after decompress didn't match recorded size, we think this
         // page is corrupt.
         return Status::Corruption(
-            Substitute("Uncompressed size not match, record=$0 vs decompress=$1",
-                       uncompressed_bytes, uncompressed_slice.size));
+                Substitute("Uncompressed size not match, record=$0 vs decompress=$1",
+                           uncompressed_bytes, uncompressed_slice.size));
     }
     *uncompressed_data = Slice(buf.release(), uncompressed_bytes);
     return Status::OK();
@@ -68,7 +67,7 @@ Status PageCompressor::compress(const std::vector<Slice>& raw_data,
 
     double space_saving = 1.0 - (double)compressed_slice.size / uncompressed_bytes;
     if (compressed_slice.size >= uncompressed_bytes || // use integer to make definite
-            space_saving < _min_space_saving) {
+        space_saving < _min_space_saving) {
         // If space saving is not higher enough we just copy uncompressed
         // data to avoid decompression CPU cost
         for (auto& slice : raw_data) {
@@ -88,8 +87,8 @@ Status PageCompressor::compress(const std::vector<Slice>& raw_data,
     return Status::OK();
 }
 
-Status PageCompressor::compress(const std::vector<Slice>& raw_data,
-                                OwnedSlice* compressed_data, bool* compressed) {
+Status PageCompressor::compress(const std::vector<Slice>& raw_data, OwnedSlice* compressed_data,
+                                bool* compressed) {
     size_t uncompressed_bytes = Slice::compute_total_size(raw_data);
     size_t max_compressed_bytes = _codec->max_compressed_len(uncompressed_bytes);
     _buf.resize(max_compressed_bytes + 4);
@@ -98,7 +97,7 @@ Status PageCompressor::compress(const std::vector<Slice>& raw_data,
 
     double space_saving = 1.0 - (double)compression_buffer.size / uncompressed_bytes;
     if (compression_buffer.size >= uncompressed_bytes || // use integer to make definite
-            space_saving < _min_space_saving) {
+        space_saving < _min_space_saving) {
         // If space saving is not higher enough we just copy uncompressed
         // data to avoid decompression CPU cost
         _buf.resize(0);
@@ -116,5 +115,5 @@ Status PageCompressor::compress(const std::vector<Slice>& raw_data,
     return Status::OK();
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

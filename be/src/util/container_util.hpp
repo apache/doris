@@ -18,31 +18,27 @@
 #ifndef DORIS_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
 #define DORIS_BE_SRC_COMMON__UTIL_CONTAINER_UTIL_HPP
 
-#include <map>
 #include <boost/unordered_map.hpp>
+#include <map>
 
-#include "util/hash_util.hpp"
 #include "gen_cpp/Types_types.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
 // Hash function for TNetworkAddress. This function must be called hash_value to be picked
 // up properly by boost.
 inline std::size_t hash_value(const TNetworkAddress& host_port) {
-    uint32_t hash =
-        HashUtil::hash(host_port.hostname.c_str(), host_port.hostname.length(), 0);
+    uint32_t hash = HashUtil::hash(host_port.hostname.c_str(), host_port.hostname.length(), 0);
     return HashUtil::hash(&host_port.port, sizeof(host_port.port), hash);
 }
 
 struct HashTNetworkAddressPtr : public std::unary_function<TNetworkAddress*, size_t> {
-    size_t operator()(const TNetworkAddress* const& p) const {
-        return hash_value(*p);
-    }
+    size_t operator()(const TNetworkAddress* const& p) const { return hash_value(*p); }
 };
 
 struct TNetworkAddressPtrEquals : public std::unary_function<TNetworkAddress*, bool> {
-    bool operator()(const TNetworkAddress* const& p1,
-                    const TNetworkAddress* const& p2) const {
+    bool operator()(const TNetworkAddress* const& p1, const TNetworkAddress* const& p2) const {
         return p1->hostname == p2->hostname && p1->port == p2->port;
     }
 };
@@ -88,7 +84,7 @@ const V& find_with_default(const std::map<K, V>& m, const K& key, const V& defau
 
 template <typename K, typename V>
 const V& find_with_default(const boost::unordered_map<K, V>& m, const K& key,
-                         const V& default_val) {
+                           const V& default_val) {
     typename boost::unordered_map<K, V>::const_iterator it = m.find(key);
 
     if (it == m.end()) {
@@ -98,6 +94,6 @@ const V& find_with_default(const boost::unordered_map<K, V>& m, const K& key,
     return it->second;
 }
 
-}
+} // namespace doris
 
 #endif

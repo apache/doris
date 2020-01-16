@@ -18,30 +18,25 @@
 #pragma once
 
 #include "common/status.h"
-
 #include "util/byte_buffer.h"
 
 namespace doris {
 
 class MessageBodySink {
 public:
-    virtual ~MessageBodySink() { }
+    virtual ~MessageBodySink() {}
     virtual Status append(const char* data, size_t size) = 0;
-    virtual Status append(const ByteBufferPtr& buf) {
-        return append(buf->ptr, buf->remaining());
-    }
+    virtual Status append(const ByteBufferPtr& buf) { return append(buf->ptr, buf->remaining()); }
     // called when all data has been append
-    virtual Status finish() {
-        return Status::OK();
-    }
+    virtual Status finish() { return Status::OK(); }
     // called when read HTTP failed
-    virtual void cancel() { }
+    virtual void cancel() {}
 };
 
 // write message to a local file
 class MessageBodyFileSink : public MessageBodySink {
 public:
-    MessageBodyFileSink(const std::string& path) : _path(path) { }
+    MessageBodyFileSink(const std::string& path) : _path(path) {}
     virtual ~MessageBodyFileSink();
 
     Status open();
@@ -49,9 +44,10 @@ public:
     Status append(const char* data, size_t size) override;
     Status finish() override;
     void cancel() override;
+
 private:
     std::string _path;
     int _fd = -1;
 };
 
-}
+} // namespace doris

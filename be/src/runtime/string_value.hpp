@@ -18,8 +18,9 @@
 #ifndef DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_VALUE_INLINE_H
 #define DORIS_BE_SRC_QUERY_BE_RUNTIME_STRING_VALUE_INLINE_H
 
-#include "runtime/string_value.h"
 #include <cstring>
+
+#include "runtime/string_value.h"
 #include "util/cpu_info.h"
 #ifdef __SSE4_2__
 #include "util/sse_util.hpp"
@@ -44,9 +45,9 @@ static inline int string_compare(const char* s1, int n1, const char* s2, int n2,
         while (len >= sse_util::CHARS_PER_128_BIT_REGISTER) {
             __m128i xmm0 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s1));
             __m128i xmm1 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(s2));
-            int chars_match = _mm_cmpestri(xmm0, sse_util::CHARS_PER_128_BIT_REGISTER,
-                    xmm1, sse_util::CHARS_PER_128_BIT_REGISTER,
-                    sse_util::STRCMP_MODE);
+            int chars_match =
+                    _mm_cmpestri(xmm0, sse_util::CHARS_PER_128_BIT_REGISTER, xmm1,
+                                 sse_util::CHARS_PER_128_BIT_REGISTER, sse_util::STRCMP_MODE);
             if (chars_match != sse_util::CHARS_PER_128_BIT_REGISTER) {
                 return (unsigned char)s1[chars_match] - (unsigned char)s2[chars_match];
             }
@@ -117,6 +118,6 @@ inline StringValue StringValue::trim() const {
     return StringValue(ptr + begin, end - begin + 1);
 }
 
-}
+} // namespace doris
 
 #endif

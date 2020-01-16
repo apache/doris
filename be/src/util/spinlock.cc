@@ -35,4 +35,3 @@ void SpinLock::slow_acquire() {
 }
 
 } // end namespace doris
-

@@ -22,14 +22,13 @@
 #include <iostream>
 #include <utility>
 
+#include "common/names.h"
 #include "gutil/strings/escaping.h"
-#include "gutil/strings/substitute.h"
 #include "gutil/strings/split.h"
+#include "gutil/strings/substitute.h"
 #include "util/error_util.h"
 #include "util/file_utils.h"
 #include "util/string_parser.hpp"
-
-#include "common/names.h"
 
 using strings::CUnescape;
 using strings::Split;
@@ -43,10 +42,11 @@ Status CGroupUtil::find_global_cgroup(const string& subsystem, string* path) {
     string line;
     while (true) {
         if (proc_cgroups.fail()) {
-            return Status::IOError(Substitute("Error reading /proc/self/cgroup: $0", get_str_err_msg()));
+            return Status::IOError(
+                    Substitute("Error reading /proc/self/cgroup: $0", get_str_err_msg()));
         } else if (proc_cgroups.peek() == std::ifstream::traits_type::eof()) {
             return Status::NotFound(
-                       Substitute("Could not find subsystem $0 in /proc/self/cgroup", subsystem));
+                    Substitute("Could not find subsystem $0 in /proc/self/cgroup", subsystem));
         }
         // The line format looks like this:
         // 4:memory:/user.slice
@@ -60,10 +60,9 @@ Status CGroupUtil::find_global_cgroup(const string& subsystem, string* path) {
         // ":" in the path does not appear to be escaped - bail in the unusual case that
         // we get too many tokens.
         if (fields.size() != 3) {
-            return Status::InvalidArgument(
-                       Substitute(
-                           "Could not parse line from /proc/self/cgroup - had $0 > 3 tokens: '$1'",
-                           fields.size(), line));
+            return Status::InvalidArgument(Substitute(
+                    "Could not parse line from /proc/self/cgroup - had $0 > 3 tokens: '$1'",
+                    fields.size(), line));
         }
         vector<string> subsystems = Split(fields[1], ",");
         auto it = std::find(subsystems.begin(), subsystems.end(), subsystem);
@@ -77,7 +76,8 @@ Status CGroupUtil::find_global_cgroup(const string& subsystem, string* path) {
 static Status unescape_path(const string& escaped, string* unescaped) {
     string err;
     if (!CUnescape(escaped, unescaped, &err)) {
-        return Status::InvalidArgument(Substitute("Could not unescape path '$0': $1", escaped, err));
+        return Status::InvalidArgument(
+                Substitute("Could not unescape path '$0': $1", escaped, err));
     }
     return Status::OK();
 }
@@ -87,7 +87,8 @@ static Status read_cgroup_value(const string& limit_file_path, int64_t* val) {
     string line;
     getline(limit_file, line);
     if (limit_file.fail() || limit_file.bad()) {
-        return Status::IOError(Substitute("Error reading $0: $1", limit_file_path, get_str_err_msg()));
+        return Status::IOError(
+                Substitute("Error reading $0: $1", limit_file_path, get_str_err_msg()));
     }
     StringParser::ParseResult pr;
     // Parse into an an int64_t If it overflows, returning the max value of int64_t is ok because that
@@ -95,22 +96,21 @@ static Status read_cgroup_value(const string& limit_file_path, int64_t* val) {
     *val = StringParser::string_to_int<int64_t>(line.c_str(), line.size(), &pr);
     if ((pr != StringParser::PARSE_SUCCESS && pr != StringParser::PARSE_OVERFLOW)) {
         return Status::InvalidArgument(
-                   Substitute("Failed to parse $0 as int64: '$1'", limit_file_path, line));
+                Substitute("Failed to parse $0 as int64: '$1'", limit_file_path, line));
     }
     return Status::OK();
 }
 
-Status CGroupUtil::find_cgroup_mounts(
-    const string& subsystem, pair<string, string>* result) {
+Status CGroupUtil::find_cgroup_mounts(const string& subsystem, pair<string, string>* result) {
     ifstream mountinfo("/proc/self/mountinfo", ios::in);
     string line;
     while (true) {
         if (mountinfo.fail() || mountinfo.bad()) {
-            return Status::IOError(Substitute("Error reading /proc/self/mountinfo: $0", get_str_err_msg()));
+            return Status::IOError(
+                    Substitute("Error reading /proc/self/mountinfo: $0", get_str_err_msg()));
         } else if (mountinfo.eof()) {
             return Status::NotFound(
-                       Substitute("Could not find subsystem $0 in /proc/self/mountinfo",
-                                  subsystem));
+                    Substitute("Could not find subsystem $0 in /proc/self/mountinfo", subsystem));
         }
         // The relevant lines look like below (see proc manpage for full documentation). The
         // first example is running outside of a container, the second example is running
@@ -124,10 +124,9 @@ Status CGroupUtil::find_cgroup_mounts(
         if (!mountinfo.good()) continue;
         vector<string> fields = Split(line, " ", SkipWhitespace());
         if (fields.size() < 7) {
-            return Status::InvalidArgument(
-                       Substitute(
-                           "Could not parse line from /proc/self/mountinfo - had $0 > 7 tokens: '$1'",
-                           fields.size(), line));
+            return Status::InvalidArgument(Substitute(
+                    "Could not parse line from /proc/self/mountinfo - had $0 > 7 tokens: '$1'",
+                    fields.size(), line));
         }
         if (fields[fields.size() - 3] != "cgroup") continue;
         // This is a cgroup mount. Check if it's the mount we're looking for.
@@ -156,8 +155,7 @@ Status CGroupUtil::find_abs_cgroup_path(const string& subsystem, string* path) {
     const string& system_path = paths.second;
     if (path->compare(0, system_path.size(), system_path) != 0) {
         return Status::InvalidArgument(
-                   Substitute("Expected CGroup path '$0' to start with '$1'",
-                              *path, system_path));
+                Substitute("Expected CGroup path '$0' to start with '$1'", *path, system_path));
     }
     path->replace(0, system_path.size(), mount_path);
     return Status::OK();
@@ -216,7 +214,7 @@ std::string CGroupUtil::debug_string() {
     float cpu_limit;
     status = find_cgroup_cpu_limit(&cpu_limit);
     if (status.ok()) {
-        if (cpu_limit >0) {
+        if (cpu_limit > 0) {
             std::stringstream stream;
             stream << std::fixed << std::setprecision(1) << cpu_limit;
             cpu_limit_str = stream.str();
@@ -226,7 +224,8 @@ std::string CGroupUtil::debug_string() {
     } else {
         cpu_limit_str = status.get_error_msg();
     }
-    return Substitute("Process CGroup Info: memory.limit_in_bytes=$0, cpu cfs limits: $1", mem_limit_str, cpu_limit_str);
+    return Substitute("Process CGroup Info: memory.limit_in_bytes=$0, cpu cfs limits: $1",
+                      mem_limit_str, cpu_limit_str);
 }
 
 bool CGroupUtil::enable() {
@@ -234,4 +233,3 @@ bool CGroupUtil::enable() {
 }
 
 } // namespace doris
-

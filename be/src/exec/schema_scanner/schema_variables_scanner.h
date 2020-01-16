@@ -18,8 +18,9 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_VARIABLES_SCANNER_H
 #define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCANNER_SCHEMA_VARIABLES_SCANNER_H
 
-#include <string>
 #include <map>
+#include <string>
+
 #include "exec/schema_scanner.h"
 #include "gen_cpp/FrontendService_types.h"
 
@@ -30,16 +31,16 @@ public:
     SchemaVariablesScanner(TVarType::type type);
     virtual ~SchemaVariablesScanner();
 
-    virtual Status start(RuntimeState *state);
-    virtual Status get_next_row(Tuple *tuple, MemPool *pool, bool *eos);
+    virtual Status start(RuntimeState* state);
+    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
 
 private:
     struct VariableStruct {
-        const char *name;
-        const char *value;
+        const char* name;
+        const char* value;
     };
 
-    Status fill_one_row(Tuple *tuple, MemPool *pool);
+    Status fill_one_row(Tuple* tuple, MemPool* pool);
 
     int _index;
     static SchemaScanner::ColumnDesc _s_vars_columns[];
@@ -49,5 +50,5 @@ private:
     std::map<std::string, std::string>::iterator _begin;
 };
 
-}
+} // namespace doris
 #endif

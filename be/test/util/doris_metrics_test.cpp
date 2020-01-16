@@ -15,26 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/doris_metrics.h"
+
 #include <gtest/gtest.h>
 
 #include "common/config.h"
 #include "util/logging.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
 class DorisMetricsTest : public testing::Test {
 public:
-    DorisMetricsTest() { }
-    virtual ~DorisMetricsTest() {
-    }
+    DorisMetricsTest() {}
+    virtual ~DorisMetricsTest() {}
 };
 
 class TestMetricsVisitor : public MetricsVisitor {
 public:
-    virtual ~TestMetricsVisitor() { }
-    void visit(const std::string& prefix, const std::string& name,
-               MetricCollector* collector) {
+    virtual ~TestMetricsVisitor() {}
+    void visit(const std::string& prefix, const std::string& name, MetricCollector* collector) {
         for (auto& it : collector->metrics()) {
             Metric* metric = it.second;
             auto& labels = it.first;
@@ -68,9 +67,8 @@ public:
             }
         }
     }
-    std::string to_string() {
-        return _ss.str();
-    }
+    std::string to_string() { return _ss.str(); }
+
 private:
     std::stringstream _ss;
 };
@@ -132,15 +130,15 @@ TEST_F(DorisMetricsTest, Normal) {
     }
     {
         DorisMetrics::push_requests_success_total.increment(106);
-        auto metric = metrics->get_metric("push_requests_total",
-                                          MetricLabels().add("status", "SUCCESS"));
+        auto metric =
+                metrics->get_metric("push_requests_total", MetricLabels().add("status", "SUCCESS"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("106", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         DorisMetrics::push_requests_fail_total.increment(107);
-        auto metric = metrics->get_metric("push_requests_total",
-                                          MetricLabels().add("status", "FAIL"));
+        auto metric =
+                metrics->get_metric("push_requests_total", MetricLabels().add("status", "FAIL"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("107", ((SimpleMetric*)metric)->to_string().c_str());
     }
@@ -165,73 +163,73 @@ TEST_F(DorisMetricsTest, Normal) {
     // engine request
     {
         DorisMetrics::create_tablet_requests_total.increment(15);
-        auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "create_tablet")
-                                          .add("status", "total"));
+        auto metric = metrics->get_metric(
+                "engine_requests_total",
+                MetricLabels().add("type", "create_tablet").add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("15", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         DorisMetrics::drop_tablet_requests_total.increment(16);
-        auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "drop_tablet")
-                                          .add("status", "total"));
+        auto metric = metrics->get_metric(
+                "engine_requests_total",
+                MetricLabels().add("type", "drop_tablet").add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("16", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         DorisMetrics::report_all_tablets_requests_total.increment(17);
-        auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "report_all_tablets")
-                                          .add("status", "total"));
+        auto metric = metrics->get_metric(
+                "engine_requests_total",
+                MetricLabels().add("type", "report_all_tablets").add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("17", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         DorisMetrics::report_tablet_requests_total.increment(18);
-        auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "report_tablet")
-                                          .add("status", "total"));
+        auto metric = metrics->get_metric(
+                "engine_requests_total",
+                MetricLabels().add("type", "report_tablet").add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("18", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         DorisMetrics::schema_change_requests_total.increment(19);
-        auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "schema_change")
-                                          .add("status", "total"));
+        auto metric = metrics->get_metric(
+                "engine_requests_total",
+                MetricLabels().add("type", "schema_change").add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("19", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         DorisMetrics::create_rollup_requests_total.increment(20);
-        auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "create_rollup")
-                                          .add("status", "total"));
+        auto metric = metrics->get_metric(
+                "engine_requests_total",
+                MetricLabels().add("type", "create_rollup").add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("20", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         DorisMetrics::storage_migrate_requests_total.increment(21);
-        auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "storage_migrate")
-                                          .add("status", "total"));
+        auto metric = metrics->get_metric(
+                "engine_requests_total",
+                MetricLabels().add("type", "storage_migrate").add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("21", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
         DorisMetrics::delete_requests_total.increment(22);
-        auto metric = metrics->get_metric("engine_requests_total",
-                                          MetricLabels().add("type", "delete")
-                                          .add("status", "total"));
+        auto metric =
+                metrics->get_metric("engine_requests_total",
+                                    MetricLabels().add("type", "delete").add("status", "total"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("22", ((SimpleMetric*)metric)->to_string().c_str());
     }
     //  comapction
     {
         DorisMetrics::base_compaction_deltas_total.increment(30);
-        auto metric = metrics->get_metric("compaction_deltas_total",
-                                          MetricLabels().add("type", "base"));
+        auto metric =
+                metrics->get_metric("compaction_deltas_total", MetricLabels().add("type", "base"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("30", ((SimpleMetric*)metric)->to_string().c_str());
     }
@@ -244,8 +242,8 @@ TEST_F(DorisMetricsTest, Normal) {
     }
     {
         DorisMetrics::base_compaction_bytes_total.increment(32);
-        auto metric = metrics->get_metric("compaction_bytes_total",
-                                          MetricLabels().add("type", "base"));
+        auto metric =
+                metrics->get_metric("compaction_bytes_total", MetricLabels().add("type", "base"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("32", ((SimpleMetric*)metric)->to_string().c_str());
     }
@@ -265,7 +263,7 @@ TEST_F(DorisMetricsTest, Normal) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
 #if 0

@@ -40,4 +40,4 @@ BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val) {
     return val;
 }
 
-}
+} // namespace doris_udf

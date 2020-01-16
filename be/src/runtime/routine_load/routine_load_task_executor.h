@@ -21,11 +21,10 @@
 #include <map>
 #include <mutex>
 
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/routine_load/data_consumer_pool.h"
 #include "util/thread_pool.hpp"
 #include "util/uid_util.h"
-
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 
@@ -40,13 +39,12 @@ class TRoutineLoadTask;
 // to FE finally.
 class RoutineLoadTaskExecutor {
 public:
-    typedef std::function<void (StreamLoadContext*)> ExecFinishCallback; 
+    typedef std::function<void(StreamLoadContext*)> ExecFinishCallback;
 
-    RoutineLoadTaskExecutor(ExecEnv* exec_env):
-        _exec_env(exec_env),
-        _thread_pool(config::routine_load_thread_pool_size, 1),
-        _data_consumer_pool(10) {
-
+    RoutineLoadTaskExecutor(ExecEnv* exec_env)
+            : _exec_env(exec_env),
+              _thread_pool(config::routine_load_thread_pool_size, 1),
+              _data_consumer_pool(10) {
         _data_consumer_pool.start_bg_worker();
     }
 
@@ -54,20 +52,18 @@ public:
         _thread_pool.shutdown();
         _thread_pool.join();
     }
-    
+
     // submit a routine load task
     Status submit_task(const TRoutineLoadTask& task);
-    
-    Status get_kafka_partition_meta(const PKafkaMetaProxyRequest& request, std::vector<int32_t>* partition_ids);
+
+    Status get_kafka_partition_meta(const PKafkaMetaProxyRequest& request,
+                                    std::vector<int32_t>* partition_ids);
 
 private:
     // execute the task
     void exec_task(StreamLoadContext* ctx, DataConsumerPool* pool, ExecFinishCallback cb);
-    
-    void err_handler(
-            StreamLoadContext* ctx,
-            const Status& st,
-            const std::string& err_msg);
+
+    void err_handler(StreamLoadContext* ctx, const Status& st, const std::string& err_msg);
 
     // for test only
     Status _execute_plan_for_test(StreamLoadContext* ctx);
@@ -82,4 +78,4 @@ private:
     std::unordered_map<UniqueId, StreamLoadContext*> _task_map;
 };
 
-} // end namespace
+} // namespace doris

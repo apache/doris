@@ -18,9 +18,10 @@
 #ifndef DORIS_BE_SRC_OLAP_NULL_PREDICATE_H
 #define DORIS_BE_SRC_OLAP_NULL_PREDICATE_H
 
+#include <stdint.h>
+
 #include <roaring/roaring.hh>
 
-#include <stdint.h>
 #include "olap/column_predicate.h"
 
 namespace doris {
@@ -37,7 +38,7 @@ public:
     void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const override;
 
     virtual Status evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators,
-        uint32_t num_rows, Roaring* roaring) const override;
+                            uint32_t num_rows, Roaring* roaring) const override;
 
 private:
     bool _is_null; //true for null, false for not null

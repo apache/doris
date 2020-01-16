@@ -18,15 +18,15 @@
 #include "util/coding.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 namespace doris {
 
 class CodingTest : public testing::Test {
 public:
-    CodingTest() { }
-    virtual ~CodingTest() {
-    }
+    CodingTest() {}
+    virtual ~CodingTest() {}
 };
 
 TEST_F(CodingTest, fixed_le) {
@@ -59,7 +59,6 @@ TEST_F(CodingTest, fixed_le) {
     encode_fixed64_le(buf, 12345543211234554321UL);
     val64 = decode_fixed64_le((const uint8_t*)str.data() + 4);
     ASSERT_EQ(12345543211234554321UL, val64);
-
 }
 
 TEST_F(CodingTest, variant) {
@@ -157,10 +156,9 @@ TEST_F(CodingTest, put_varint) {
     ASSERT_EQ(4, val32);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

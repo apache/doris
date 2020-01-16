@@ -24,7 +24,7 @@ void TimezoneDatabase::init() {
     // an error here since this is done when the backend is created and this
     // information might not actually get used by any queries.
     char filestr[] = "/tmp/doris.tzdb.XXXXXXX";
-    FILE *file = NULL;
+    FILE* file = NULL;
     int fd = -1;
 
     if ((fd = mkstemp(filestr)) == -1) {
@@ -53,17 +53,19 @@ void TimezoneDatabase::init() {
     close(fd);
 }
 
-boost::local_time::time_zone_ptr TimezoneDatabase::find_timezone(const std::string &tz) {
+boost::local_time::time_zone_ptr TimezoneDatabase::find_timezone(const std::string& tz) {
     try {
         // See if they specified a zone id
         if (tz.find_first_of('/') != std::string::npos) {
             return _s_tz_database.time_zone_from_region(tz);
         } else if (tz == "CST") {
-            boost::local_time::time_zone_ptr tzp(new boost::local_time::posix_time_zone(std::string("TMP") + "+08:00"));
+            boost::local_time::time_zone_ptr tzp(
+                    new boost::local_time::posix_time_zone(std::string("TMP") + "+08:00"));
             return tzp;
         } else {
             //eg. +08:00
-            boost::local_time::time_zone_ptr tzp(new boost::local_time::posix_time_zone(std::string("TMP") + tz));
+            boost::local_time::time_zone_ptr tzp(
+                    new boost::local_time::posix_time_zone(std::string("TMP") + tz));
             return tzp;
         }
     } catch (boost::exception& e) {
@@ -74,7 +76,7 @@ boost::local_time::time_zone_ptr TimezoneDatabase::find_timezone(const std::stri
 const std::string TimezoneDatabase::default_time_zone = "+08:00";
 
 const char* TimezoneDatabase::_s_timezone_database_str =
-"\"ID\",\"STD ABBR\",\"STD NAME\",\"DST ABBR\",\"DST NAME\",\"GMT offset\",\"DST adjustment\",\
+        "\"ID\",\"STD ABBR\",\"STD NAME\",\"DST ABBR\",\"DST NAME\",\"GMT offset\",\"DST adjustment\",\
 \"DST Start Date rule\",\"Start time\",\"DST End date rule\",\"End time\"\n\
 \"Africa/Abidjan\",\"GMT\",\"GMT\",\"\",\"\",\"+00:00:00\",\"+00:00:00\",\"\",\"\",\"\",\"+00:00:00\"\n\
 \"Africa/Accra\",\"GMT\",\"GMT\",\"\",\"\",\"+00:00:00\",\"+00:00:00\",\"\",\"\",\"\",\"+00:00:00\"\n\
@@ -460,4 +462,4 @@ const char* TimezoneDatabase::_s_timezone_database_str =
 \"Pacific/Yap\",\"YAPT\",\"YAPT\",\"\",\"\",\
 \"+10:00:00\",\"+00:00:00\",\"\",\"\",\"\",\"+00:00:00\"\n";
 
-}
+} // namespace doris

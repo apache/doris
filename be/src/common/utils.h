@@ -30,7 +30,7 @@ struct AuthInfo {
     int64_t auth_code = -1;
 };
 
-template<class T>
+template <class T>
 void set_request_auth(T* req, const AuthInfo& auth) {
     if (auth.auth_code != -1) {
         // if auth_code is set, no need to set other info
@@ -49,4 +49,4 @@ void set_request_auth(T* req, const AuthInfo& auth) {
     }
 }
 
-}
+} // namespace doris

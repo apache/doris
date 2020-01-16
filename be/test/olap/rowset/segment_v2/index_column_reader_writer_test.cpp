@@ -15,40 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/bitmap_index_reader.h"
-#include "olap/rowset/segment_v2/bitmap_index_writer.h"
-#include "olap/key_coder.h"
-
 #include <gtest/gtest.h>
 
 #include "common/logging.h"
 #include "env/env.h"
-#include "olap/olap_common.h"
-#include "olap/types.h"
 #include "olap/column_block.h"
-#include "util/file_utils.h"
-#include "runtime/mem_tracker.h"
+#include "olap/key_coder.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/bitmap_index_reader.h"
+#include "olap/rowset/segment_v2/bitmap_index_writer.h"
+#include "olap/types.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
+#include "util/file_utils.h"
 
 namespace doris {
 namespace segment_v2 {
 
 class IndexColumnReaderWriterTest : public testing::Test {
-   public:
-    IndexColumnReaderWriterTest() : _pool(&_tracker) { }
-    virtual ~IndexColumnReaderWriterTest() {
-    }
-   private:
+public:
+    IndexColumnReaderWriterTest() : _pool(&_tracker) {}
+    virtual ~IndexColumnReaderWriterTest() {}
+
+private:
     MemTracker _tracker;
     MemPool _pool;
 };
 
 const std::string dname = "./ut_dir/index_column_reader_writer_test";
 
-template<FieldType type>
-void wirte_index_file(std::string& file_name, const void* values,
-                      size_t value_count, size_t null_count,
-                      BitmapIndexColumnPB* bitmap_index_meta) {
+template <FieldType type>
+void wirte_index_file(std::string& file_name, const void* values, size_t value_count,
+                      size_t null_count, BitmapIndexColumnPB* bitmap_index_meta) {
     const TypeInfo* type_info = get_type_info(type);
     FileUtils::create_dir(dname);
     std::string fname = dname + "/" + file_name;
@@ -66,10 +64,9 @@ void wirte_index_file(std::string& file_name, const void* values,
     }
 }
 
-template<FieldType type>
+template <FieldType type>
 void get_bitmap_reader_iter(std::string& file_name, BitmapIndexColumnPB& bitmap_index_meta,
-                            std::unique_ptr<RandomAccessFile>* rfile,
-                            BitmapIndexReader** reader,
+                            std::unique_ptr<RandomAccessFile>* rfile, BitmapIndexReader** reader,
                             BitmapIndexIterator** iter) {
     file_name = dname + "/" + file_name;
     auto st = Env::Default()->new_random_access_file(file_name, rfile);
@@ -92,14 +89,13 @@ TEST_F(IndexColumnReaderWriterTest, test_invert) {
 
     std::string file_name = "invert";
     BitmapIndexColumnPB bitmap_index_meta;
-    wirte_index_file<OLAP_FIELD_TYPE_INT>(file_name, val, num_uint8_rows, 0,
-                                          &bitmap_index_meta);
+    wirte_index_file<OLAP_FIELD_TYPE_INT>(file_name, val, num_uint8_rows, 0, &bitmap_index_meta);
     {
         std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, bitmap_index_meta,
-                                                    &rfile, &reader, &iter);
+        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, bitmap_index_meta, &rfile, &reader,
+                                                    &iter);
 
         int value = 2;
         bool exact_match;
@@ -147,15 +143,14 @@ TEST_F(IndexColumnReaderWriterTest, test_invert_2) {
 
     std::string file_name = "invert2";
     BitmapIndexColumnPB bitmap_index_meta;
-    wirte_index_file<OLAP_FIELD_TYPE_INT>(file_name, val, num_uint8_rows, 0,
-                                          &bitmap_index_meta);
+    wirte_index_file<OLAP_FIELD_TYPE_INT>(file_name, val, num_uint8_rows, 0, &bitmap_index_meta);
 
     {
         std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, bitmap_index_meta,
-                                                    &rfile, &reader, &iter);
+        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, bitmap_index_meta, &rfile, &reader,
+                                                    &iter);
 
         int value = 1026;
         bool exact_match;
@@ -184,14 +179,13 @@ TEST_F(IndexColumnReaderWriterTest, test_multi_pages) {
 
     std::string file_name = "mul";
     BitmapIndexColumnPB bitmap_index_meta;
-    wirte_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num_uint8_rows, 0,
-                                             &bitmap_index_meta);
+    wirte_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num_uint8_rows, 0, &bitmap_index_meta);
     {
         std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, bitmap_index_meta,
-                                                       &rfile, &reader, &iter);
+        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, bitmap_index_meta, &rfile,
+                                                       &reader, &iter);
 
         int64_t value = 2019;
         bool exact_match;
@@ -201,7 +195,7 @@ TEST_F(IndexColumnReaderWriterTest, test_multi_pages) {
 
         Roaring bitmap;
         iter->read_bitmap(iter->current_ordinal(), &bitmap);
-        ASSERT_EQ(1,bitmap.cardinality());
+        ASSERT_EQ(1, bitmap.cardinality());
 
         delete reader;
         delete iter;
@@ -223,20 +217,20 @@ TEST_F(IndexColumnReaderWriterTest, test_null) {
         std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, bitmap_index_meta,
-                                                       &rfile, &reader, &iter);
+        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, bitmap_index_meta, &rfile,
+                                                       &reader, &iter);
 
         Roaring bitmap;
         iter->read_null_bitmap(&bitmap);
-        ASSERT_EQ(30,bitmap.cardinality());
+        ASSERT_EQ(30, bitmap.cardinality());
 
         delete reader;
         delete iter;
     }
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

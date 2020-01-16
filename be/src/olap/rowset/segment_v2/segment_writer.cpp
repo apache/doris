@@ -17,10 +17,10 @@
 
 #include "olap/rowset/segment_v2/segment_writer.h"
 
-#include "env/env.h" // Env
-#include "olap/row.h" // ContiguousRow
-#include "olap/row_block.h" // RowBlock
-#include "olap/row_cursor.h" // RowCursor
+#include "env/env.h"                              // Env
+#include "olap/row.h"                             // ContiguousRow
+#include "olap/row_block.h"                       // RowBlock
+#include "olap/row_cursor.h"                      // RowCursor
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
 #include "olap/short_key_index.h"
 #include "util/crc32c.h"
@@ -32,13 +32,11 @@ const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
 SegmentWriter::SegmentWriter(std::string fname, uint32_t segment_id,
-                             const TabletSchema* tablet_schema,
-                             const SegmentWriterOptions& opts)
+                             const TabletSchema* tablet_schema, const SegmentWriterOptions& opts)
         : _fname(std::move(fname)),
-        _segment_id(segment_id),
-        _tablet_schema(tablet_schema),
-        _opts(opts) {
-}
+          _segment_id(segment_id),
+          _tablet_schema(tablet_schema),
+          _opts(opts) {}
 
 SegmentWriter::~SegmentWriter() = default;
 
@@ -64,9 +62,9 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         }
         if (column.is_bf_column()) {
             opts.need_bloom_filter = true;
-            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
-                    || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
-                    && !_opts.whether_to_filter_value) {
+            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE ||
+                 column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL) &&
+                !_opts.whether_to_filter_value) {
                 // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or
                 // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
                 // do not write the bloom filter index because it is useless
@@ -75,9 +73,9 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         }
         if (column.has_bitmap_index()) {
             opts.need_bitmap_index = true;
-            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
-                 || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
-                && !_opts.whether_to_filter_value) {
+            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE ||
+                 column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL) &&
+                !_opts.whether_to_filter_value) {
                 // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or
                 // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
                 // do not write the bitmap index because it is useless
@@ -87,7 +85,8 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
 
         std::unique_ptr<Field> field(FieldFactory::create(column));
         DCHECK(field.get() != nullptr);
-        std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, std::move(field), is_nullable, _output_file.get()));
+        std::unique_ptr<ColumnWriter> writer(
+                new ColumnWriter(opts, std::move(field), is_nullable, _output_file.get()));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
     }
@@ -95,7 +94,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
     return Status::OK();
 }
 
-template<typename RowType>
+template <typename RowType>
 Status SegmentWriter::append_row(const RowType& row) {
     for (size_t cid = 0; cid < _column_writers.size(); ++cid) {
         auto cell = row.cell(cid);
@@ -223,5 +222,5 @@ Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
     return Status::OK();
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

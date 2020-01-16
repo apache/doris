@@ -30,7 +30,7 @@ namespace doris {
 
 class ExecEnv;
 
-template<typename T>
+template <typename T>
 class PInternalServiceImpl : public T {
 public:
     PInternalServiceImpl(ExecEnv* exec_env);
@@ -41,23 +41,18 @@ public:
                        ::doris::PTransmitDataResult* response,
                        ::google::protobuf::Closure* done) override;
 
-    void exec_plan_fragment(
-        google::protobuf::RpcController* controller,
-        const PExecPlanFragmentRequest* request,
-        PExecPlanFragmentResult* result,
-        google::protobuf::Closure* done) override;
+    void exec_plan_fragment(google::protobuf::RpcController* controller,
+                            const PExecPlanFragmentRequest* request,
+                            PExecPlanFragmentResult* result,
+                            google::protobuf::Closure* done) override;
 
-    void cancel_plan_fragment(
-        google::protobuf::RpcController* controller,
-        const PCancelPlanFragmentRequest* request,
-        PCancelPlanFragmentResult* result,
-        google::protobuf::Closure* done) override;
+    void cancel_plan_fragment(google::protobuf::RpcController* controller,
+                              const PCancelPlanFragmentRequest* request,
+                              PCancelPlanFragmentResult* result,
+                              google::protobuf::Closure* done) override;
 
-    void fetch_data(
-        google::protobuf::RpcController* controller,
-        const PFetchDataRequest* request,
-        PFetchDataResult* result,
-        google::protobuf::Closure* done) override;
+    void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
+                    PFetchDataResult* result, google::protobuf::Closure* done) override;
 
     void tablet_writer_open(google::protobuf::RpcController* controller,
                             const PTabletWriterOpenRequest* request,
@@ -74,23 +69,20 @@ public:
                               PTabletWriterCancelResult* response,
                               google::protobuf::Closure* done) override;
 
-    void trigger_profile_report(
-        google::protobuf::RpcController* controller,
-        const PTriggerProfileReportRequest* request,
-        PTriggerProfileReportResult* result,
-        google::protobuf::Closure* done) override;
+    void trigger_profile_report(google::protobuf::RpcController* controller,
+                                const PTriggerProfileReportRequest* request,
+                                PTriggerProfileReportResult* result,
+                                google::protobuf::Closure* done) override;
 
-    void get_info(
-        google::protobuf::RpcController* controller,
-        const PProxyRequest* request,
-        PProxyResult* response,
-        google::protobuf::Closure* done) override;
+    void get_info(google::protobuf::RpcController* controller, const PProxyRequest* request,
+                  PProxyResult* response, google::protobuf::Closure* done) override;
 
 private:
     Status _exec_plan_fragment(brpc::Controller* cntl);
+
 private:
     ExecEnv* _exec_env;
     ThreadPool _tablet_worker_pool;
 };
 
-}
+} // namespace doris

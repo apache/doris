@@ -16,6 +16,7 @@
 // under the License.
 
 #include "runtime/test_env.h"
+
 #include "util/disk_info.h"
 #include "util/doris_metrics.h"
 
@@ -44,8 +45,7 @@ void TestEnv::init_metrics() {
     _metrics.reset(new MetricRegistry("test_env"));
 }
 
-void TestEnv::init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs,
-        bool one_dir_per_device) {
+void TestEnv::init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs, bool one_dir_per_device) {
     // Need to recreate metrics to avoid error when registering metric twice.
     init_metrics();
     _tmp_file_mgr.reset(new TmpFileMgr());
@@ -70,7 +70,7 @@ RuntimeState* TestEnv::create_runtime_state(int64_t query_id) {
 }
 
 Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_size,
-        RuntimeState** runtime_state) {
+                                   RuntimeState** runtime_state) {
     *runtime_state = create_runtime_state(query_id);
     if (*runtime_state == NULL) {
         return Status::InternalError("Unexpected error creating RuntimeState");
@@ -78,9 +78,8 @@ Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_
 
     shared_ptr<BufferedBlockMgr2> mgr;
     RETURN_IF_ERROR(BufferedBlockMgr2::create(
-                *runtime_state, _block_mgr_parent_tracker.get(),
-                (*runtime_state)->runtime_profile(), _tmp_file_mgr.get(),
-                calculate_mem_tracker(max_buffers, block_size), block_size, &mgr));
+            *runtime_state, _block_mgr_parent_tracker.get(), (*runtime_state)->runtime_profile(),
+            _tmp_file_mgr.get(), calculate_mem_tracker(max_buffers, block_size), block_size, &mgr));
     (*runtime_state)->set_block_mgr2(mgr);
     // (*runtime_state)->_block_mgr = mgr;
 
@@ -88,13 +87,12 @@ Status TestEnv::create_query_state(int64_t query_id, int max_buffers, int block_
     return Status::OK();
 }
 
-Status TestEnv::create_query_states(int64_t start_query_id, int num_mgrs,
-        int buffers_per_mgr, int block_size,
-        std::vector<RuntimeState*>* runtime_states) {
+Status TestEnv::create_query_states(int64_t start_query_id, int num_mgrs, int buffers_per_mgr,
+                                    int block_size, std::vector<RuntimeState*>* runtime_states) {
     for (int i = 0; i < num_mgrs; ++i) {
         RuntimeState* runtime_state = NULL;
         RETURN_IF_ERROR(create_query_state(start_query_id + i, buffers_per_mgr, block_size,
-                    &runtime_state));
+                                           &runtime_state));
         runtime_states->push_back(runtime_state);
     }
     return Status::OK();

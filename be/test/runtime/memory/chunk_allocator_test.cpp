@@ -36,7 +36,7 @@ TEST(ChunkAllocatorTest, Normal) {
         ChunkAllocator::instance()->free(chunk);
     }
 }
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

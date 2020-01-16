@@ -17,27 +17,28 @@
 
 #include "olap/key_coder.h"
 
-#include <limits>
 #include <gtest/gtest.h>
 #include <string.h>
 
-#include "util/debug_util.h"
+#include <limits>
+
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "util/debug_util.h"
 
 namespace doris {
 
 class KeyCoderTest : public testing::Test {
 public:
-    KeyCoderTest() : _pool(&_tracker) { }
-    virtual ~KeyCoderTest() {
-    }
+    KeyCoderTest() : _pool(&_tracker) {}
+    virtual ~KeyCoderTest() {}
+
 private:
     MemTracker _tracker;
     MemPool _pool;
 };
 
-template<FieldType type>
+template <FieldType type>
 void test_integer_encode() {
     using CppType = typename CppTypeTraits<type>::CppType;
 
@@ -85,7 +86,7 @@ void test_integer_encode() {
     for (auto i = 0; i < 100; ++i) {
         CppType val1 = random();
         CppType val2 = random();
-        
+
         std::string buf1;
         std::string buf2;
 
@@ -156,7 +157,7 @@ TEST_F(KeyCoderTest, test_date) {
     for (auto i = 0; i < 100; ++i) {
         CppType val1 = random();
         CppType val2 = random();
-        
+
         std::string buf1;
         std::string buf2;
 
@@ -279,10 +280,9 @@ TEST_F(KeyCoderTest, test_varchar) {
     }
 }
 
-
 } // namespace doris
 
-int main(int argc, char **argv) {
-    testing::InitGoogleTest(&argc, argv); 
+int main(int argc, char** argv) {
+    testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

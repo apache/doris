@@ -51,7 +51,7 @@ Status BitmapIndexIterator::read_bitmap(rowid_t ordinal, Roaring* result) {
     Slice value;
     uint8_t nullmap;
     size_t num_to_read = 1;
-    ColumnBlock block(_reader->type_info(), (uint8_t*) &value, &nullmap, num_to_read, _pool.get());
+    ColumnBlock block(_reader->type_info(), (uint8_t*)&value, &nullmap, num_to_read, _pool.get());
     ColumnBlockView column_block_view(&block);
 
     RETURN_IF_ERROR(_bitmap_column_iter.seek_to_ordinal(ordinal));

@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/exec_node.h"
 #include "runtime/buffered_block_mgr.h"
-#include "runtime/runtime_state.h"
+
+#include "exec/exec_node.h"
 #include "runtime/mem_pool.h"
-#include "util/runtime_profile.h"
 #include "runtime/mem_tracker.h"
+#include "runtime/runtime_state.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -29,15 +30,13 @@ namespace doris {
 
 // BufferedBlockMgr::Block methods.
 BufferedBlockMgr::Block::Block()
-    : _buffer_desc(NULL),
-      // _block_mgr(block_mgr),
-      _valid_data_len(0),
-      _num_rows(0)
-{
-}
+        : _buffer_desc(NULL),
+          // _block_mgr(block_mgr),
+          _valid_data_len(0),
+          _num_rows(0) {}
 
-Status BufferedBlockMgr::create(RuntimeState* state,
-        int64_t block_size, boost::shared_ptr<BufferedBlockMgr>* block_mgr) {
+Status BufferedBlockMgr::create(RuntimeState* state, int64_t block_size,
+                                boost::shared_ptr<BufferedBlockMgr>* block_mgr) {
     block_mgr->reset(new BufferedBlockMgr(state, block_size));
     (*block_mgr)->init(state);
     return Status::OK();
@@ -54,9 +53,7 @@ void BufferedBlockMgr::Block::init() {
 }
 
 BufferedBlockMgr::BufferedBlockMgr(RuntimeState* state, int64_t block_size)
-    : _max_block_size(block_size)
-{
-}
+        : _max_block_size(block_size) {}
 
 Status BufferedBlockMgr::get_new_block(Block** block, int64_t len) {
     DCHECK_LE(len, _max_block_size) << "Cannot request blocks bigger than max_len";
@@ -83,8 +80,8 @@ Status BufferedBlockMgr::get_new_block(Block** block, int64_t len) {
 }
 
 //Status BufferedBlockMgr::Block::delete() {
-  //// TODO: delete block or not,we should delete the new BLOCK
-  //return Status::OK();
+//// TODO: delete block or not,we should delete the new BLOCK
+//return Status::OK();
 //}
 
 Status BufferedBlockMgr::get_new_block(Block** block) {

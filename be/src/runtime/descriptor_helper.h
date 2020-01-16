@@ -31,14 +31,13 @@ public:
 
     void add_slots(const std::vector<TSlotDescriptor>& slots) {
         _desc_tbl.__isset.slotDescriptors = true;
-        _desc_tbl.slotDescriptors.insert(
-            _desc_tbl.slotDescriptors.end(), slots.begin(), slots.end());
+        _desc_tbl.slotDescriptors.insert(_desc_tbl.slotDescriptors.end(), slots.begin(),
+                                         slots.end());
     }
-    void add_tuple(const TTupleDescriptor& tuple) {
-        _desc_tbl.tupleDescriptors.push_back(tuple);
-    }
+    void add_tuple(const TTupleDescriptor& tuple) { _desc_tbl.tupleDescriptors.push_back(tuple); }
 
     TDescriptorTable desc_tbl() { return _desc_tbl; }
+
 private:
     TSlotId _next_slot_id = 0;
     TTupleId _next_tuple_id = 0;
@@ -92,9 +91,8 @@ public:
         _slot_desc.columnPos = column_pos;
         return *this;
     }
-    TSlotDescriptor build() {
-        return _slot_desc;
-    }
+    TSlotDescriptor build() { return _slot_desc; }
+
 private:
     friend TTupleDescriptorBuilder;
     TSlotDescriptor _slot_desc;
@@ -121,8 +119,7 @@ public:
         int null_offset = 0;
         for (int i = 0; i < _slot_descs.size(); ++i) {
             auto& slot_desc = _slot_descs[i];
-            int size = get_slot_size(
-                thrift_to_type(slot_desc.slotType.types[0].scalar_type.type));
+            int size = get_slot_size(thrift_to_type(slot_desc.slotType.types[0].scalar_type.type));
             int align = (size > 16) ? 16 : size;
             offset = ((offset + align - 1) / align) * align;
             slot_desc.id = tb->next_slot_id();
@@ -148,10 +145,11 @@ public:
         tb->add_slots(_slot_descs);
         tb->add_tuple(_tuple_desc);
     }
+
 private:
     TTupleId _tuple_id;
     std::vector<TSlotDescriptor> _slot_descs;
     TTupleDescriptor _tuple_desc;
 };
 
-}
+} // namespace doris

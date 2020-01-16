@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/page_compression.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 #include "common/logging.h"
@@ -28,15 +29,15 @@ namespace segment_v2 {
 
 class PageCompressionTest : public testing::Test {
 public:
-    PageCompressionTest() { }
-    virtual ~PageCompressionTest() {
-    }
+    PageCompressionTest() {}
+    virtual ~PageCompressionTest() {}
 };
 
 static std::string generate_rand_str(size_t len) {
-    static char charset[] = "0123456789"
-        "abcdefghijklmnopqrstuvwxyz"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    static char charset[] =
+            "0123456789"
+            "abcdefghijklmnopqrstuvwxyz"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     std::string result;
     result.resize(len);
     for (int i = 0; i < len; ++i) {
@@ -46,9 +47,10 @@ static std::string generate_rand_str(size_t len) {
 }
 
 static std::string generate_str(size_t len) {
-    static char charset[] = "0123456789"
-        "abcdefghijklmnopqrstuvwxyz"
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    static char charset[] =
+            "0123456789"
+            "abcdefghijklmnopqrstuvwxyz"
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     std::string result;
     result.resize(len);
     for (int i = 0; i < len; ++i) {
@@ -133,11 +135,10 @@ TEST_F(PageCompressionTest, bad_case) {
     }
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

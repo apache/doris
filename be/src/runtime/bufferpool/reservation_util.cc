@@ -27,15 +27,14 @@ const double ReservationUtil::RESERVATION_MEM_FRACTION = 0.8;
 const int64_t ReservationUtil::RESERVATION_MEM_MIN_REMAINING = 75 * 1024 * 1024;
 
 int64_t ReservationUtil::GetReservationLimitFromMemLimit(int64_t mem_limit) {
-  int64_t max_reservation = std::min<int64_t>(
-      RESERVATION_MEM_FRACTION * mem_limit, mem_limit - RESERVATION_MEM_MIN_REMAINING);
-  return std::max<int64_t>(0, max_reservation);
+    int64_t max_reservation = std::min<int64_t>(RESERVATION_MEM_FRACTION * mem_limit,
+                                                mem_limit - RESERVATION_MEM_MIN_REMAINING);
+    return std::max<int64_t>(0, max_reservation);
 }
 
 int64_t ReservationUtil::GetMinMemLimitFromReservation(int64_t buffer_reservation) {
-  buffer_reservation = std::max<int64_t>(0, buffer_reservation);
-  return std::max<int64_t>(
-      buffer_reservation * (1.0 / ReservationUtil::RESERVATION_MEM_FRACTION),
-      buffer_reservation + ReservationUtil::RESERVATION_MEM_MIN_REMAINING);
+    buffer_reservation = std::max<int64_t>(0, buffer_reservation);
+    return std::max<int64_t>(buffer_reservation * (1.0 / ReservationUtil::RESERVATION_MEM_FRACTION),
+                             buffer_reservation + ReservationUtil::RESERVATION_MEM_MIN_REMAINING);
 }
-}
+} // namespace doris

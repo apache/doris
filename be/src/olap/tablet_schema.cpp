@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vector>
-
 #include "olap/tablet_schema.h"
+
+#include <vector>
 
 namespace doris {
 
@@ -111,145 +111,145 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
 
 std::string TabletColumn::get_string_by_field_type(FieldType type) {
     switch (type) {
-        case OLAP_FIELD_TYPE_TINYINT:
-            return "TINYINT";
+    case OLAP_FIELD_TYPE_TINYINT:
+        return "TINYINT";
 
-        case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
-            return "UNSIGNED_TINYINT";
+    case OLAP_FIELD_TYPE_UNSIGNED_TINYINT:
+        return "UNSIGNED_TINYINT";
 
-        case OLAP_FIELD_TYPE_SMALLINT:
-            return "SMALLINT";
+    case OLAP_FIELD_TYPE_SMALLINT:
+        return "SMALLINT";
 
-        case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
-            return "UNSIGNED_SMALLINT";
+    case OLAP_FIELD_TYPE_UNSIGNED_SMALLINT:
+        return "UNSIGNED_SMALLINT";
 
-        case OLAP_FIELD_TYPE_INT:
-            return "INT";
+    case OLAP_FIELD_TYPE_INT:
+        return "INT";
 
-        case OLAP_FIELD_TYPE_UNSIGNED_INT:
-            return "UNSIGNED_INT";
+    case OLAP_FIELD_TYPE_UNSIGNED_INT:
+        return "UNSIGNED_INT";
 
-        case OLAP_FIELD_TYPE_BIGINT:
-            return "BIGINT";
+    case OLAP_FIELD_TYPE_BIGINT:
+        return "BIGINT";
 
-        case OLAP_FIELD_TYPE_LARGEINT:
-            return "LARGEINT";
+    case OLAP_FIELD_TYPE_LARGEINT:
+        return "LARGEINT";
 
-        case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
-            return "UNSIGNED_BIGINT";
+    case OLAP_FIELD_TYPE_UNSIGNED_BIGINT:
+        return "UNSIGNED_BIGINT";
 
-        case OLAP_FIELD_TYPE_FLOAT:
-            return "FLOAT";
+    case OLAP_FIELD_TYPE_FLOAT:
+        return "FLOAT";
 
-        case OLAP_FIELD_TYPE_DOUBLE:
-            return "DOUBLE";
+    case OLAP_FIELD_TYPE_DOUBLE:
+        return "DOUBLE";
 
-        case OLAP_FIELD_TYPE_DISCRETE_DOUBLE:
-            return "DISCRETE_DOUBLE";
+    case OLAP_FIELD_TYPE_DISCRETE_DOUBLE:
+        return "DISCRETE_DOUBLE";
 
-        case OLAP_FIELD_TYPE_CHAR:
-            return "CHAR";
+    case OLAP_FIELD_TYPE_CHAR:
+        return "CHAR";
 
-        case OLAP_FIELD_TYPE_DATE:
-            return "DATE";
+    case OLAP_FIELD_TYPE_DATE:
+        return "DATE";
 
-        case OLAP_FIELD_TYPE_DATETIME:
-            return "DATETIME";
+    case OLAP_FIELD_TYPE_DATETIME:
+        return "DATETIME";
 
-        case OLAP_FIELD_TYPE_DECIMAL:
-            return "DECIMAL";
+    case OLAP_FIELD_TYPE_DECIMAL:
+        return "DECIMAL";
 
-        case OLAP_FIELD_TYPE_VARCHAR:
-            return "VARCHAR";
+    case OLAP_FIELD_TYPE_VARCHAR:
+        return "VARCHAR";
 
-        case OLAP_FIELD_TYPE_BOOL:
-            return "BOOLEAN";
+    case OLAP_FIELD_TYPE_BOOL:
+        return "BOOLEAN";
 
-        case OLAP_FIELD_TYPE_HLL:
-            return "HLL";
+    case OLAP_FIELD_TYPE_HLL:
+        return "HLL";
 
-        case OLAP_FIELD_TYPE_STRUCT:
-            return "STRUCT";
+    case OLAP_FIELD_TYPE_STRUCT:
+        return "STRUCT";
 
-        case OLAP_FIELD_TYPE_LIST:
-            return "LIST";
+    case OLAP_FIELD_TYPE_LIST:
+        return "LIST";
 
-        case OLAP_FIELD_TYPE_MAP:
-            return "MAP";
+    case OLAP_FIELD_TYPE_MAP:
+        return "MAP";
 
-        case OLAP_FIELD_TYPE_OBJECT:
-            return "OBJECT";
+    case OLAP_FIELD_TYPE_OBJECT:
+        return "OBJECT";
 
-        default:
-            return "UNKNOWN";
+    default:
+        return "UNKNOWN";
     }
 }
 
 std::string TabletColumn::get_string_by_aggregation_type(FieldAggregationMethod type) {
     switch (type) {
-        case OLAP_FIELD_AGGREGATION_NONE:
-            return "NONE";
+    case OLAP_FIELD_AGGREGATION_NONE:
+        return "NONE";
 
-        case OLAP_FIELD_AGGREGATION_SUM:
-            return "SUM";
+    case OLAP_FIELD_AGGREGATION_SUM:
+        return "SUM";
 
-        case OLAP_FIELD_AGGREGATION_MIN:
-            return "MIN";
+    case OLAP_FIELD_AGGREGATION_MIN:
+        return "MIN";
 
-        case OLAP_FIELD_AGGREGATION_MAX:
-            return "MAX";
+    case OLAP_FIELD_AGGREGATION_MAX:
+        return "MAX";
 
-        case OLAP_FIELD_AGGREGATION_REPLACE:
-            return "REPLACE";
+    case OLAP_FIELD_AGGREGATION_REPLACE:
+        return "REPLACE";
 
-        case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
-            return "REPLACE_IF_NOT_NULL";
+    case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
+        return "REPLACE_IF_NOT_NULL";
 
-        case OLAP_FIELD_AGGREGATION_HLL_UNION:
-            return "HLL_UNION";
+    case OLAP_FIELD_AGGREGATION_HLL_UNION:
+        return "HLL_UNION";
 
-        case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
-            return "BITMAP_UNION";
+    case OLAP_FIELD_AGGREGATION_BITMAP_UNION:
+        return "BITMAP_UNION";
 
-        default:
-            return "UNKNOWN";
+    default:
+        return "UNKNOWN";
     }
 }
 
 uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length) {
     switch (type) {
-        case TPrimitiveType::TINYINT:
-        case TPrimitiveType::BOOLEAN:
-            return 1;
-        case TPrimitiveType::SMALLINT:
-            return 2;
-        case TPrimitiveType::INT:
-            return 4;
-        case TPrimitiveType::BIGINT:
-            return 8;
-        case TPrimitiveType::LARGEINT:
-            return 16;
-        case TPrimitiveType::DATE:
-            return 3;
-        case TPrimitiveType::DATETIME:
-            return 8;
-        case TPrimitiveType::FLOAT:
-            return 4;
-        case TPrimitiveType::DOUBLE:
-            return 8;
-        case TPrimitiveType::OBJECT:
-            return 16;
-        case TPrimitiveType::CHAR:
-            return string_length;
-        case TPrimitiveType::VARCHAR:
-        case TPrimitiveType::HLL:
-            return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
-        case TPrimitiveType::DECIMAL:    
-        case TPrimitiveType::DECIMALV2:    
-            return 12; // use 12 bytes in olap engine.
-        default:
-            OLAP_LOG_WARNING("unknown field type. [type=%d]", type);
-            return 0;
+    case TPrimitiveType::TINYINT:
+    case TPrimitiveType::BOOLEAN:
+        return 1;
+    case TPrimitiveType::SMALLINT:
+        return 2;
+    case TPrimitiveType::INT:
+        return 4;
+    case TPrimitiveType::BIGINT:
+        return 8;
+    case TPrimitiveType::LARGEINT:
+        return 16;
+    case TPrimitiveType::DATE:
+        return 3;
+    case TPrimitiveType::DATETIME:
+        return 8;
+    case TPrimitiveType::FLOAT:
+        return 4;
+    case TPrimitiveType::DOUBLE:
+        return 8;
+    case TPrimitiveType::OBJECT:
+        return 16;
+    case TPrimitiveType::CHAR:
+        return string_length;
+    case TPrimitiveType::VARCHAR:
+    case TPrimitiveType::HLL:
+        return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
+    case TPrimitiveType::DECIMAL:
+    case TPrimitiveType::DECIMALV2:
+        return 12; // use 12 bytes in olap engine.
+    default:
+        OLAP_LOG_WARNING("unknown field type. [type=%d]", type);
+        return 0;
     }
 }
 
@@ -268,13 +268,13 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, boo
 }
 
 OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
-    _unique_id = column.unique_id(); 
+    _unique_id = column.unique_id();
     _col_name = column.name();
     _type = TabletColumn::get_field_type_by_string(column.type());
     _is_key = column.is_key();
     _is_nullable = column.is_nullable();
 
-    _has_default_value = column.has_default_value(); 
+    _has_default_value = column.has_default_value();
     if (_has_default_value) {
         _default_value = column.default_value();
     }
@@ -339,10 +339,7 @@ OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
 }
 
 TabletSchema::TabletSchema()
-    : _num_columns(0),
-      _num_key_columns(0),
-      _num_null_columns(0),
-      _num_short_key_columns(0) { }
+        : _num_columns(0), _num_key_columns(0), _num_null_columns(0), _num_short_key_columns(0) {}
 
 OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _keys_type = schema.keys_type();
@@ -364,7 +361,7 @@ OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _next_column_unique_id = schema.next_column_unique_id();
     if (schema.has_bf_fpp()) {
         _has_bf_fpp = true;
-        _bf_fpp = schema.bf_fpp(); 
+        _bf_fpp = schema.bf_fpp();
     } else {
         _has_bf_fpp = false;
         _bf_fpp = BLOOM_FILTER_DEFAULT_FPP;
@@ -417,8 +414,7 @@ const std::vector<TabletColumn>& TabletSchema::columns() const {
 }
 
 const TabletColumn& TabletSchema::column(size_t ordinal) const {
-    DCHECK(ordinal < _num_columns)
-        << "ordinal:" << ordinal << ", _num_columns:" << _num_columns;
+    DCHECK(ordinal < _num_columns) << "ordinal:" << ordinal << ", _num_columns:" << _num_columns;
     return _cols[ordinal];
 }
 

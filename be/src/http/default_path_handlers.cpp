@@ -17,19 +17,20 @@
 
 #include "http/default_path_handlers.h"
 
-#include <sstream>
-#include <fstream>
+#include <gperftools/malloc_extension.h>
 #include <sys/stat.h>
+
 #include <boost/algorithm/string.hpp>
 #include <boost/bind.hpp>
-#include <gperftools/malloc_extension.h>
+#include <fstream>
+#include <sstream>
 
 #include "common/logging.h"
+#include "http/web_page_handler.h"
 #include "runtime/mem_tracker.h"
 #include "util/debug_util.h"
 #include "util/logging.h"
 #include "util/pretty_printer.h"
-#include "http/web_page_handler.h"
 
 namespace doris {
 
@@ -60,8 +61,6 @@ void logs_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* ou
     }*/
 
     (*output) << "<br/>Couldn't open INFO log file: ";
-
-
 }
 
 // Registered to handle "/flags", and prints out all command-line flags and their values
@@ -72,15 +71,13 @@ void config_handler(const WebPageHandler::ArgumentMap& args, std::stringstream* 
 
 // Registered to handle "/memz", and prints out memory allocation statistics.
 void mem_usage_handler(MemTracker* mem_tracker, const WebPageHandler::ArgumentMap& args,
-                     std::stringstream* output) {
+                       std::stringstream* output) {
     if (mem_tracker != NULL) {
         (*output) << "<pre>"
-                  << "Mem Limit: "
-                  << PrettyPrinter::print(mem_tracker->limit(), TUnit::BYTES)
+                  << "Mem Limit: " << PrettyPrinter::print(mem_tracker->limit(), TUnit::BYTES)
                   << std::endl
                   << "Mem Consumption: "
-                  << PrettyPrinter::print(mem_tracker->consumption(), TUnit::BYTES)
-                  << std::endl
+                  << PrettyPrinter::print(mem_tracker->consumption(), TUnit::BYTES) << std::endl
                   << "</pre>";
     } else {
         (*output) << "<pre>"
@@ -105,8 +102,7 @@ void add_default_path_handlers(WebPageHandler* web_page_handler, MemTracker* pro
     web_page_handler->register_page("/logs", logs_handler);
     web_page_handler->register_page("/varz", config_handler);
     web_page_handler->register_page(
-            "/memz",
-            boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2));
+            "/memz", boost::bind<void>(&mem_usage_handler, process_mem_tracker, _1, _2));
 }
 
-}
+} // namespace doris

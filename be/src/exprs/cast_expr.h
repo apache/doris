@@ -25,30 +25,31 @@ namespace doris {
 
 class CastExpr : public Expr {
 public:
-    CastExpr(const TExprNode& node) : Expr(node) { }
-    virtual ~CastExpr() { }
+    CastExpr(const TExprNode& node) : Expr(node) {}
+    virtual ~CastExpr() {}
     static Expr* from_thrift(const TExprNode& node);
+
 protected:
     Status codegen_cast_fn(RuntimeState* state, llvm::Function** fn);
 };
 
-#define CAST_EXPR_DEFINE(CLASS) \
-    class CLASS : public CastExpr { \
-    public: \
-        CLASS(const TExprNode& node) : CastExpr(node) { } \
-        virtual ~CLASS() { } \
-        virtual Expr* clone(ObjectPool* pool) const override { \
-            return pool->add(new CLASS(*this)); \
-        } \
+#define CAST_EXPR_DEFINE(CLASS)                                                           \
+    class CLASS : public CastExpr {                                                       \
+    public:                                                                               \
+        CLASS(const TExprNode& node) : CastExpr(node) {}                                  \
+        virtual ~CLASS() {}                                                               \
+        virtual Expr* clone(ObjectPool* pool) const override {                            \
+            return pool->add(new CLASS(*this));                                           \
+        }                                                                                 \
         virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn); \
-        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*); \
-        virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*); \
-        virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*); \
-        virtual IntVal get_int_val(ExprContext* context, TupleRow*); \
-        virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*); \
-        virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*); \
-        virtual FloatVal get_float_val(ExprContext* context, TupleRow*); \
-        virtual DoubleVal get_double_val(ExprContext* context, TupleRow*); \
+        virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*);              \
+        virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);             \
+        virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);           \
+        virtual IntVal get_int_val(ExprContext* context, TupleRow*);                      \
+        virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*);               \
+        virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow*);           \
+        virtual FloatVal get_float_val(ExprContext* context, TupleRow*);                  \
+        virtual DoubleVal get_double_val(ExprContext* context, TupleRow*);                \
     };
 
 CAST_EXPR_DEFINE(CastBooleanExpr);
@@ -60,6 +61,6 @@ CAST_EXPR_DEFINE(CastLargeIntExpr);
 CAST_EXPR_DEFINE(CastFloatExpr);
 CAST_EXPR_DEFINE(CastDoubleExpr);
 
-}
+} // namespace doris
 
 #endif

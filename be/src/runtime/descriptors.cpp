@@ -17,19 +17,19 @@
 
 #include "runtime/descriptors.h"
 
+#include <llvm/ExecutionEngine/ExecutionEngine.h>
+#include <llvm/IR/DataLayout.h>
+
 #include <boost/algorithm/string/join.hpp>
 #include <ios>
 #include <sstream>
 
-#include <llvm/ExecutionEngine/ExecutionEngine.h>
-#include <llvm/IR/DataLayout.h>
-
 #include "codegen/llvm_codegen.h"
 #include "common/object_pool.h"
-#include "gen_cpp/Descriptors_types.h"
-#include "gen_cpp/descriptors.pb.h"
-#include "gen_cpp/PlanNodes_types.h"
 #include "exprs/expr.h"
+#include "gen_cpp/Descriptors_types.h"
+#include "gen_cpp/PlanNodes_types.h"
+#include "gen_cpp/descriptors.pb.h"
 
 namespace doris {
 using boost::algorithm::join;
@@ -37,8 +37,8 @@ using boost::algorithm::join;
 const int RowDescriptor::INVALID_IDX = -1;
 std::string NullIndicatorOffset::debug_string() const {
     std::stringstream out;
-    out << "(offset=" << byte_offset
-        << " mask=" << std::hex << static_cast<int>(bit_mask) << std::dec << ")";
+    out << "(offset=" << byte_offset << " mask=" << std::hex << static_cast<int>(bit_mask)
+        << std::dec << ")";
     return out.str();
 }
 
@@ -48,38 +48,36 @@ std::ostream& operator<<(std::ostream& os, const NullIndicatorOffset& null_indic
 }
 
 SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
-    : _id(tdesc.id),
-      _type(TypeDescriptor::from_thrift(tdesc.slotType)),
-      _parent(tdesc.parent),
-      _col_pos(tdesc.columnPos),
-      _tuple_offset(tdesc.byteOffset),
-      _null_indicator_offset(tdesc.nullIndicatorByte, tdesc.nullIndicatorBit),
-      _col_name(tdesc.colName),
-      _slot_idx(tdesc.slotIdx),
-      _slot_size(_type.get_slot_size()),
-      _field_idx(-1),
-      _is_materialized(tdesc.isMaterialized),
-      _is_null_fn(NULL),
-      _set_not_null_fn(NULL),
-      _set_null_fn(NULL) {
-}
+        : _id(tdesc.id),
+          _type(TypeDescriptor::from_thrift(tdesc.slotType)),
+          _parent(tdesc.parent),
+          _col_pos(tdesc.columnPos),
+          _tuple_offset(tdesc.byteOffset),
+          _null_indicator_offset(tdesc.nullIndicatorByte, tdesc.nullIndicatorBit),
+          _col_name(tdesc.colName),
+          _slot_idx(tdesc.slotIdx),
+          _slot_size(_type.get_slot_size()),
+          _field_idx(-1),
+          _is_materialized(tdesc.isMaterialized),
+          _is_null_fn(NULL),
+          _set_not_null_fn(NULL),
+          _set_null_fn(NULL) {}
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         : _id(pdesc.id()),
-        _type(TypeDescriptor::from_protobuf(pdesc.slot_type())),
-        _parent(pdesc.parent()),
-        _col_pos(pdesc.column_pos()),
-        _tuple_offset(pdesc.byte_offset()),
-        _null_indicator_offset(pdesc.null_indicator_byte(), pdesc.null_indicator_bit()),
-        _col_name(pdesc.col_name()),
-        _slot_idx(pdesc.slot_idx()),
-        _slot_size(_type.get_slot_size()),
-        _field_idx(-1),
-        _is_materialized(pdesc.is_materialized()),
-        _is_null_fn(NULL),
-        _set_not_null_fn(NULL),
-        _set_null_fn(NULL) {
-}
+          _type(TypeDescriptor::from_protobuf(pdesc.slot_type())),
+          _parent(pdesc.parent()),
+          _col_pos(pdesc.column_pos()),
+          _tuple_offset(pdesc.byte_offset()),
+          _null_indicator_offset(pdesc.null_indicator_byte(), pdesc.null_indicator_bit()),
+          _col_name(pdesc.col_name()),
+          _slot_idx(pdesc.slot_idx()),
+          _slot_size(_type.get_slot_size()),
+          _field_idx(-1),
+          _is_materialized(pdesc.is_materialized()),
+          _is_null_fn(NULL),
+          _set_not_null_fn(NULL),
+          _set_null_fn(NULL) {}
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_id(_id);
@@ -96,19 +94,17 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
 
 std::string SlotDescriptor::debug_string() const {
     std::stringstream out;
-    out << "Slot(id=" << _id << " type=" << _type
-        << " col=" << _col_pos << " offset=" << _tuple_offset
-        << " null=" << _null_indicator_offset.debug_string() << ")";
+    out << "Slot(id=" << _id << " type=" << _type << " col=" << _col_pos
+        << " offset=" << _tuple_offset << " null=" << _null_indicator_offset.debug_string() << ")";
     return out.str();
 }
 
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
-    : _name(tdesc.tableName),
-      _database(tdesc.dbName),
-      _id(tdesc.id),
-      _num_cols(tdesc.numCols),
-      _num_clustering_cols(tdesc.numClusteringCols) {
-}
+        : _name(tdesc.tableName),
+          _database(tdesc.dbName),
+          _id(tdesc.id),
+          _num_cols(tdesc.numCols),
+          _num_clustering_cols(tdesc.numClusteringCols) {}
 
 std::string TableDescriptor::debug_string() const {
     std::stringstream out;
@@ -116,9 +112,7 @@ std::string TableDescriptor::debug_string() const {
     return out.str();
 }
 
-OlapTableDescriptor::OlapTableDescriptor(const TTableDescriptor& tdesc)
-    : TableDescriptor(tdesc) {
-}
+OlapTableDescriptor::OlapTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
 std::string OlapTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -127,11 +121,8 @@ std::string OlapTableDescriptor::debug_string() const {
 }
 
 SchemaTableDescriptor::SchemaTableDescriptor(const TTableDescriptor& tdesc)
-    : TableDescriptor(tdesc),
-      _schema_table_type(tdesc.schemaTable.tableType) {
-}
-SchemaTableDescriptor::~SchemaTableDescriptor() {
-}
+        : TableDescriptor(tdesc), _schema_table_type(tdesc.schemaTable.tableType) {}
+SchemaTableDescriptor::~SchemaTableDescriptor() {}
 
 std::string SchemaTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -140,11 +131,9 @@ std::string SchemaTableDescriptor::debug_string() const {
 }
 
 BrokerTableDescriptor::BrokerTableDescriptor(const TTableDescriptor& tdesc)
-    : TableDescriptor(tdesc) {
-}
+        : TableDescriptor(tdesc) {}
 
-BrokerTableDescriptor::~BrokerTableDescriptor() {
-}
+BrokerTableDescriptor::~BrokerTableDescriptor() {}
 
 std::string BrokerTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -152,12 +141,9 @@ std::string BrokerTableDescriptor::debug_string() const {
     return out.str();
 }
 
-EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc)
-    : TableDescriptor(tdesc) {
-}
+EsTableDescriptor::EsTableDescriptor(const TTableDescriptor& tdesc) : TableDescriptor(tdesc) {}
 
-EsTableDescriptor::~EsTableDescriptor() {
-}
+EsTableDescriptor::~EsTableDescriptor() {}
 
 std::string EsTableDescriptor::debug_string() const {
     std::stringstream out;
@@ -166,67 +152,64 @@ std::string EsTableDescriptor::debug_string() const {
 }
 
 KuduTableDescriptor::KuduTableDescriptor(const TTableDescriptor& tdesc)
-  : TableDescriptor(tdesc),
-    table_name_(tdesc.kuduTable.table_name),
-    key_columns_(tdesc.kuduTable.key_columns),
-    master_addresses_(tdesc.kuduTable.master_addresses) {
-}
+        : TableDescriptor(tdesc),
+          table_name_(tdesc.kuduTable.table_name),
+          key_columns_(tdesc.kuduTable.key_columns),
+          master_addresses_(tdesc.kuduTable.master_addresses) {}
 
 std::string KuduTableDescriptor::DebugString() const {
-  std::stringstream out;
-  out << "KuduTable(" << TableDescriptor::debug_string() << " table=" << table_name_;
-  out << " master_addrs=[" << boost::join(master_addresses_, ",") << "]";
-  out << " key_columns=[";
-  out << join(key_columns_, ":");
-  out << "])";
-  return out.str();
-}
-
-MySQLTableDescriptor::MySQLTableDescriptor(const TTableDescriptor& tdesc)
-    : TableDescriptor(tdesc),
-      _mysql_db(tdesc.mysqlTable.db),
-      _mysql_table(tdesc.mysqlTable.table),
-      _host(tdesc.mysqlTable.host),
-      _port(tdesc.mysqlTable.port),
-      _user(tdesc.mysqlTable.user),
-      _passwd(tdesc.mysqlTable.passwd) {
-}
-
-std::string MySQLTableDescriptor::debug_string() const {
-
     std::stringstream out;
-    out << "MySQLTable(" << TableDescriptor::debug_string() << " _db" << _mysql_db << " table=" <<
-        _mysql_table
-        << " host=" << _host << " port=" << _port << " user=" << _user << " passwd=" << _passwd;
+    out << "KuduTable(" << TableDescriptor::debug_string() << " table=" << table_name_;
+    out << " master_addrs=[" << boost::join(master_addresses_, ",") << "]";
+    out << " key_columns=[";
+    out << join(key_columns_, ":");
+    out << "])";
     return out.str();
 }
 
-TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc) :
-        _id(tdesc.id),
-        _table_desc(NULL),
-        _byte_size(tdesc.byteSize),
-        _num_null_bytes(tdesc.numNullBytes),
-        _num_materialized_slots(0),
-        _slots(),
-        _has_varlen_slots(false),
-        _llvm_struct(NULL) {
-      if (false == tdesc.__isset.numNullSlots) {
+MySQLTableDescriptor::MySQLTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc),
+          _mysql_db(tdesc.mysqlTable.db),
+          _mysql_table(tdesc.mysqlTable.table),
+          _host(tdesc.mysqlTable.host),
+          _port(tdesc.mysqlTable.port),
+          _user(tdesc.mysqlTable.user),
+          _passwd(tdesc.mysqlTable.passwd) {}
+
+std::string MySQLTableDescriptor::debug_string() const {
+    std::stringstream out;
+    out << "MySQLTable(" << TableDescriptor::debug_string() << " _db" << _mysql_db
+        << " table=" << _mysql_table << " host=" << _host << " port=" << _port << " user=" << _user
+        << " passwd=" << _passwd;
+    return out.str();
+}
+
+TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc)
+        : _id(tdesc.id),
+          _table_desc(NULL),
+          _byte_size(tdesc.byteSize),
+          _num_null_bytes(tdesc.numNullBytes),
+          _num_materialized_slots(0),
+          _slots(),
+          _has_varlen_slots(false),
+          _llvm_struct(NULL) {
+    if (false == tdesc.__isset.numNullSlots) {
         //be compatible for existing tables with no NULL value
         _num_null_slots = 0;
-      } else {
+    } else {
         _num_null_slots = tdesc.numNullSlots;
-      }
+    }
 }
 
 TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc)
         : _id(pdesc.id()),
-        _table_desc(NULL),
-        _byte_size(pdesc.byte_size()),
-        _num_null_bytes(pdesc.num_null_bytes()),
-        _num_materialized_slots(0),
-        _slots(),
-        _has_varlen_slots(false),
-        _llvm_struct(NULL) {
+          _table_desc(NULL),
+          _byte_size(pdesc.byte_size()),
+          _num_null_bytes(pdesc.num_null_bytes()),
+          _num_materialized_slots(0),
+          _slots(),
+          _has_varlen_slots(false),
+          _llvm_struct(NULL) {
     if (!pdesc.has_num_null_slots()) {
         //be compatible for existing tables with no NULL value
         _num_null_slots = 0;
@@ -252,7 +235,7 @@ void TupleDescriptor::add_slot(SlotDescriptor* slot) {
 
 std::vector<SlotDescriptor*> TupleDescriptor::slots_ordered_by_idx() const {
     std::vector<SlotDescriptor*> sorted_slots(slots().size());
-    for (SlotDescriptor* slot: slots()) {
+    for (SlotDescriptor* slot : slots()) {
         sorted_slots[slot->_slot_idx] = slot;
     }
     return sorted_slots;
@@ -265,7 +248,7 @@ bool TupleDescriptor::layout_equals(const TupleDescriptor& other_desc) const {
     std::vector<SlotDescriptor*> slots = slots_ordered_by_idx();
     std::vector<SlotDescriptor*> other_slots = other_desc.slots_ordered_by_idx();
     for (int i = 0; i < slots.size(); ++i) {
-      if (!slots[i]->layout_equals(*other_slots[i])) return false;
+        if (!slots[i]->layout_equals(*other_slots[i])) return false;
     }
     return true;
 }
@@ -300,11 +283,9 @@ std::string TupleDescriptor::debug_string() const {
     return out.str();
 }
 
-RowDescriptor::RowDescriptor(
-            const DescriptorTbl& desc_tbl,
-            const std::vector<TTupleId>& row_tuples,
-            const std::vector<bool>& nullable_tuples) :
-        _tuple_idx_nullable_map(nullable_tuples) {
+RowDescriptor::RowDescriptor(const DescriptorTbl& desc_tbl, const std::vector<TTupleId>& row_tuples,
+                             const std::vector<bool>& nullable_tuples)
+        : _tuple_idx_nullable_map(nullable_tuples) {
     DCHECK(nullable_tuples.size() == row_tuples.size());
     DCHECK_GT(row_tuples.size(), 0);
     _num_null_slots = 0;
@@ -321,9 +302,8 @@ RowDescriptor::RowDescriptor(
     init_has_varlen_slots();
 }
 
-RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable) :
-        _tuple_desc_map(1, tuple_desc),
-        _tuple_idx_nullable_map(1, is_nullable) {
+RowDescriptor::RowDescriptor(TupleDescriptor* tuple_desc, bool is_nullable)
+        : _tuple_desc_map(1, tuple_desc), _tuple_idx_nullable_map(1, is_nullable) {
     init_tuple_idx_map();
     init_has_varlen_slots();
 }
@@ -389,7 +369,7 @@ void RowDescriptor::to_thrift(std::vector<TTupleId>* row_tuple_ids) {
 }
 
 void RowDescriptor::to_protobuf(
-        google::protobuf::RepeatedField<google::protobuf::int32 >* row_tuple_ids) {
+        google::protobuf::RepeatedField<google::protobuf::int32>* row_tuple_ids) {
     row_tuple_ids->Clear();
     for (auto desc : _tuple_desc_map) {
         row_tuple_ids->Add(desc->id());
@@ -427,11 +407,11 @@ bool RowDescriptor::equals(const RowDescriptor& other_desc) const {
 }
 
 bool RowDescriptor::layout_is_prefix_of(const RowDescriptor& other_desc) const {
-  if (_tuple_desc_map.size() > other_desc._tuple_desc_map.size()) return false;
-  for (int i = 0; i < _tuple_desc_map.size(); ++i) {
-    if (!_tuple_desc_map[i]->layout_equals(*other_desc._tuple_desc_map[i])) return false;
-  }
-  return true;
+    if (_tuple_desc_map.size() > other_desc._tuple_desc_map.size()) return false;
+    for (int i = 0; i < _tuple_desc_map.size(); ++i) {
+        if (!_tuple_desc_map[i]->layout_equals(*other_desc._tuple_desc_map[i])) return false;
+    }
+    return true;
 }
 
 bool RowDescriptor::layout_equals(const RowDescriptor& other_desc) const {
@@ -445,7 +425,7 @@ std::string RowDescriptor::debug_string() const {
     ss << "tuple_desc_map: [";
     for (int i = 0; i < _tuple_desc_map.size(); ++i) {
         ss << _tuple_desc_map[i]->debug_string();
-        if (i != _tuple_desc_map.size() -1) {
+        if (i != _tuple_desc_map.size() - 1) {
             ss << ", ";
         }
     }
@@ -454,7 +434,7 @@ std::string RowDescriptor::debug_string() const {
     ss << "tuple_id_map: [";
     for (int i = 0; i < _tuple_idx_map.size(); ++i) {
         ss << _tuple_idx_map[i];
-        if (i != _tuple_idx_map.size() -1) {
+        if (i != _tuple_idx_map.size() - 1) {
             ss << ", ";
         }
     }
@@ -463,7 +443,7 @@ std::string RowDescriptor::debug_string() const {
     ss << "tuple_is_nullable: [";
     for (int i = 0; i < _tuple_idx_nullable_map.size(); ++i) {
         ss << _tuple_idx_nullable_map[i];
-        if (i != _tuple_idx_nullable_map.size() -1) {
+        if (i != _tuple_idx_nullable_map.size() - 1) {
             ss << ", ";
         }
     }
@@ -574,8 +554,8 @@ SlotDescriptor* DescriptorTbl::get_slot_descriptor(SlotId id) const {
 void DescriptorTbl::get_tuple_descs(std::vector<TupleDescriptor*>* descs) const {
     descs->clear();
 
-    for (TupleDescriptorMap::const_iterator i = _tuple_desc_map.begin();
-            i != _tuple_desc_map.end(); ++i) {
+    for (TupleDescriptorMap::const_iterator i = _tuple_desc_map.begin(); i != _tuple_desc_map.end();
+         ++i) {
         descs->push_back(i->second);
     }
 }
@@ -586,7 +566,7 @@ bool SlotDescriptor::layout_equals(const SlotDescriptor& other_desc) const {
     if (slot_size() != other_desc.slot_size()) return false;
     if (tuple_offset() != other_desc.tuple_offset()) return false;
     if (!null_indicator_offset().equals(other_desc.null_indicator_offset())) return false;
-  return true;
+    return true;
 }
 
 // Generate function to check if a slot is null.  The resulting IR looks like:
@@ -636,8 +616,8 @@ llvm::Function* SlotDescriptor::codegen_is_null(LlvmCodeGen* codegen, llvm::Stru
 //   store i8 %0, i8* %null_byte_ptr
 //   ret void
 // }
-llvm::Function* SlotDescriptor::codegen_update_null(LlvmCodeGen* codegen,
-        llvm::StructType* tuple, bool set_null) {
+llvm::Function* SlotDescriptor::codegen_update_null(LlvmCodeGen* codegen, llvm::StructType* tuple,
+                                                    bool set_null) {
     if (set_null && _set_null_fn != NULL) {
         return _set_null_fn;
     }
@@ -656,18 +636,17 @@ llvm::Function* SlotDescriptor::codegen_update_null(LlvmCodeGen* codegen,
     llvm::Function* fn = prototype.generate_prototype(&builder, &tuple_ptr);
 
     llvm::Value* null_byte_ptr =
-        builder.CreateStructGEP(
-            tuple_ptr, _null_indicator_offset.byte_offset, "null_byte_ptr");
+            builder.CreateStructGEP(tuple_ptr, _null_indicator_offset.byte_offset, "null_byte_ptr");
     llvm::Value* null_byte = builder.CreateLoad(null_byte_ptr, "null_byte");
     llvm::Value* result = NULL;
 
     if (set_null) {
-        llvm::Value* null_set = codegen->get_int_constant(
-                              TYPE_TINYINT, _null_indicator_offset.bit_mask);
+        llvm::Value* null_set =
+                codegen->get_int_constant(TYPE_TINYINT, _null_indicator_offset.bit_mask);
         result = builder.CreateOr(null_byte, null_set);
     } else {
         llvm::Value* null_clear_val =
-            codegen->get_int_constant(TYPE_TINYINT, ~_null_indicator_offset.bit_mask);
+                codegen->get_int_constant(TYPE_TINYINT, ~_null_indicator_offset.bit_mask);
         result = builder.CreateAnd(null_byte, null_clear_val);
     }
 
@@ -715,8 +694,8 @@ llvm::StructType* TupleDescriptor::generate_llvm_struct(LlvmCodeGen* codegen) {
     }
 
     // Construct the struct type.
-    llvm::StructType* tuple_struct = llvm::StructType::get(
-        codegen->context(), llvm::ArrayRef<llvm::Type*>(struct_fields));
+    llvm::StructType* tuple_struct =
+            llvm::StructType::get(codegen->context(), llvm::ArrayRef<llvm::Type*>(struct_fields));
 
     // Verify the alignment is correct.  It is essential that the layout matches
     // identically.  If the layout does not match, return NULL indicating the
@@ -754,12 +733,12 @@ std::string DescriptorTbl::debug_string() const {
     std::stringstream out;
     out << "tuples:\n";
 
-    for (TupleDescriptorMap::const_iterator i = _tuple_desc_map.begin();
-            i != _tuple_desc_map.end(); ++i) {
+    for (TupleDescriptorMap::const_iterator i = _tuple_desc_map.begin(); i != _tuple_desc_map.end();
+         ++i) {
         out << i->second->debug_string() << '\n';
     }
 
     return out.str();
 }
 
-}
+} // namespace doris

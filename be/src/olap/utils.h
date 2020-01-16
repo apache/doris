@@ -23,6 +23,7 @@
 #include <sys/time.h>
 #include <zlib.h>
 
+#include <boost/filesystem.hpp>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -33,8 +34,6 @@
 #include <sstream>
 #include <string>
 #include <vector>
-
-#include <boost/filesystem.hpp>
 
 #include "common/logging.h"
 #if defined(__i386) || defined(__x86_64__)
@@ -49,18 +48,8 @@ namespace doris {
 void write_log_info(char* buf, size_t buf_len, const char* fmt, ...);
 
 // 用来加速运算
-const static int32_t g_power_table[] = {
-    1,
-    10,
-    100,
-    1000,
-    10000,
-    100000,
-    1000000,
-    10000000,
-    100000000,
-    1000000000
-};
+const static int32_t g_power_table[] = {1,      10,      100,      1000,      10000,
+                                        100000, 1000000, 10000000, 100000000, 1000000000};
 
 // 计时工具，用于确定一段代码执行的时间，用于性能调优
 class OlapStopWatch {
@@ -72,20 +61,14 @@ public:
                           (now.tv_usec - _begin_time.tv_usec));
     }
 
-    double get_elapse_second() {
-        return get_elapse_time_us() / 1000000.0;
-    }
+    double get_elapse_second() { return get_elapse_time_us() / 1000000.0; }
 
-    void reset() {
-        gettimeofday(&_begin_time, 0);
-    }
+    void reset() { gettimeofday(&_begin_time, 0); }
 
-    OlapStopWatch() {
-        reset();
-    }
+    OlapStopWatch() { reset(); }
 
 private:
-    struct timeval _begin_time;    // 起始时间戳
+    struct timeval _begin_time; // 起始时间戳
 };
 
 // @brief 切分字符串
@@ -93,9 +76,8 @@ private:
 // @param separator 分隔符
 // @param result 切分结果
 template <typename T>
-OLAPStatus split_string(const std::string& base,
-                    const T separator,
-                    std::vector<std::string>* result) {
+OLAPStatus split_string(const std::string& base, const T separator,
+                        std::vector<std::string>* result) {
     if (!result) {
         return OLAP_ERR_OTHER_ERROR;
     }
@@ -124,7 +106,7 @@ OLAPStatus split_string(const std::string& base,
 
 template <typename T>
 void _destruct_object(const void* obj, void*) {
-    delete((const T*)obj);
+    delete ((const T*)obj);
 }
 
 template <typename T>
@@ -134,19 +116,11 @@ void _destruct_array(const void* array, void*) {
 
 // 根据压缩类型的不同，执行压缩。dest_buf_len是dest_buf的最大长度，
 // 通过指针返回的written_len是实际写入的长度。
-OLAPStatus olap_compress(const char* src_buf,
-                     size_t src_len,
-                     char* dest_buf,
-                     size_t dest_len,
-                     size_t* written_len,
-                     OLAPCompressionType compression_type);
+OLAPStatus olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
+                         size_t* written_len, OLAPCompressionType compression_type);
 
-OLAPStatus olap_decompress(const char* src_buf,
-                       size_t src_len,
-                       char* dest_buf,
-                       size_t dest_len,
-                       size_t* written_len,
-                       OLAPCompressionType compression_type);
+OLAPStatus olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
+                           size_t* written_len, OLAPCompressionType compression_type);
 
 // 计算adler32的包装函数
 // 第一次使用的时候第一个参数传宏ADLER32_INIT, 之后的调用传上次计算的结果
@@ -173,16 +147,14 @@ public:
 
     // wait until obtain the lock
     OLAPStatus lock();
-    
+
     // try obtaining the lock
     OLAPStatus trylock();
-    
+
     // unlock is called after lock()
     OLAPStatus unlock();
 
-    pthread_mutex_t* getlock() {
-        return &_lock;
-    }
+    pthread_mutex_t* getlock() { return &_lock; }
 
 private:
     pthread_mutex_t _lock;
@@ -194,8 +166,7 @@ private:
 class MutexLock {
 public:
     // wait until obtain the lock
-    explicit MutexLock(Mutex* mutex, bool try_lock = false)
-        : _mutex(mutex), _locked(false) {
+    explicit MutexLock(Mutex* mutex, bool try_lock = false) : _mutex(mutex), _locked(false) {
         if (try_lock) {
             _locked = (_mutex->trylock() == OLAP_SUCCESS);
         } else {
@@ -260,8 +231,7 @@ private:
 //
 class ReadLock {
 public:
-    explicit ReadLock(RWMutex* mutex, bool try_lock = false)
-            : _mutex(mutex), _locked(false) {
+    explicit ReadLock(RWMutex* mutex, bool try_lock = false) : _mutex(mutex), _locked(false) {
         if (try_lock) {
             _locked = this->_mutex->tryrdlock() == OLAP_SUCCESS;
         } else {
@@ -269,9 +239,9 @@ public:
             _locked = true;
         }
     }
-    ~ReadLock() { 
+    ~ReadLock() {
         if (_locked) {
-            this->_mutex->unlock(); 
+            this->_mutex->unlock();
         }
     }
 
@@ -290,8 +260,7 @@ private:
 //
 class WriteLock {
 public:
-    explicit WriteLock(RWMutex* mutex, bool try_lock = false)
-            : _mutex(mutex), _locked(false) {
+    explicit WriteLock(RWMutex* mutex, bool try_lock = false) : _mutex(mutex), _locked(false) {
         if (try_lock) {
             _locked = this->_mutex->trywrlock() == OLAP_SUCCESS;
         } else {
@@ -299,10 +268,10 @@ public:
             _locked = true;
         }
     }
-    ~WriteLock() { 
+    ~WriteLock() {
         if (_locked) {
             this->_mutex->unlock();
-        } 
+        }
     }
 
     bool own_lock() { return _locked; }
@@ -353,16 +322,14 @@ class BinarySearchIterator : public std::iterator<std::random_access_iterator_ta
 public:
     BinarySearchIterator() : _offset(0u) {}
     explicit BinarySearchIterator(iterator_offset_t offset) : _offset(offset) {}
-    
-    iterator_offset_t operator*() const {
-        return _offset;
-    }
-    
+
+    iterator_offset_t operator*() const { return _offset; }
+
     BinarySearchIterator& operator++() {
         ++_offset;
         return *this;
     }
-    
+
     BinarySearchIterator& operator-=(size_t step) {
         _offset = _offset - step;
         return *this;
@@ -372,13 +339,13 @@ public:
         _offset = _offset + step;
         return *this;
     }
-    
+
     bool operator!=(const BinarySearchIterator& iterator) {
         return this->_offset != iterator._offset;
     }
-    
+
 private:
-    iterator_offset_t  _offset;
+    iterator_offset_t _offset;
 };
 
 int operator-(const BinarySearchIterator& left, const BinarySearchIterator& right);
@@ -388,10 +355,10 @@ unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsig
 
 OLAPStatus copy_file(const std::string& src, const std::string& dest);
 
-OLAPStatus copy_dir(const std::string &src_dir, const std::string &dst_dir);
+OLAPStatus copy_dir(const std::string& src_dir, const std::string& dst_dir);
 
 //转换两个list
-template<typename T1, typename T2>
+template <typename T1, typename T2>
 void static_cast_assign_vector(std::vector<T1>* v1, const std::vector<T2>& v2) {
     if (NULL != v1) {
         //GCC3.4的模板展开貌似有问题， 这里如果使用迭代器会编译失败
@@ -415,16 +382,12 @@ private:
 };
 
 inline bool is_io_error(OLAPStatus status) {
-    return (((OLAP_ERR_IO_ERROR == status || OLAP_ERR_READ_UNENOUGH == status)&& errno == EIO)
-                || OLAP_ERR_CHECKSUM_ERROR == status
-                || OLAP_ERR_FILE_DATA_ERROR == status
-                || OLAP_ERR_TEST_FILE_ERROR == status
-                || OLAP_ERR_ROWBLOCK_READ_INFO_ERROR == status);
+    return (((OLAP_ERR_IO_ERROR == status || OLAP_ERR_READ_UNENOUGH == status) && errno == EIO) ||
+            OLAP_ERR_CHECKSUM_ERROR == status || OLAP_ERR_FILE_DATA_ERROR == status ||
+            OLAP_ERR_TEST_FILE_ERROR == status || OLAP_ERR_ROWBLOCK_READ_INFO_ERROR == status);
 }
 
-#define ENDSWITH(str, suffix)   \
-    ((str).rfind(suffix) == (str).size() - strlen(suffix))
-
+#define ENDSWITH(str, suffix) ((str).rfind(suffix) == (str).size() - strlen(suffix))
 
 // 检查int8_t, int16_t, int32_t, int64_t的值是否溢出
 template <typename T>
@@ -433,10 +396,8 @@ bool valid_signed_number(const std::string& value_str) {
     errno = 0;
     int64_t value = strtol(value_str.c_str(), &endptr, 10);
 
-    if ((errno == ERANGE && (value == LONG_MAX || value == LONG_MIN))
-            || (errno != 0 && value == 0)
-            || endptr == value_str
-            || *endptr != '\0') {
+    if ((errno == ERANGE && (value == LONG_MAX || value == LONG_MIN)) ||
+        (errno != 0 && value == 0) || endptr == value_str || *endptr != '\0') {
         return false;
     }
 
@@ -461,10 +422,8 @@ bool valid_unsigned_number(const std::string& value_str) {
     errno = 0;
     uint64_t value = strtoul(value_str.c_str(), &endptr, 10);
 
-    if ((errno == ERANGE && (value == ULONG_MAX))
-            || (errno != 0 && value == 0)
-            || endptr == value_str
-            || *endptr != '\0') {
+    if ((errno == ERANGE && (value == ULONG_MAX)) || (errno != 0 && value == 0) ||
+        endptr == value_str || *endptr != '\0') {
         return false;
     }
 
@@ -480,20 +439,20 @@ bool valid_decimal(const std::string& value_str, const uint32_t precision, const
 // 粗略检查date或者datetime类型是否正确
 bool valid_datetime(const std::string& value_str);
 
-#define OLAP_LOG_WRITE(level, fmt, arg...) \
-    do { \
-        char buf[10240] = {0}; \
+#define OLAP_LOG_WRITE(level, fmt, arg...)      \
+    do {                                        \
+        char buf[10240] = {0};                  \
         write_log_info(buf, 10240, fmt, ##arg); \
-        LOG(level) << buf; \
+        LOG(level) << buf;                      \
     } while (0)
 
-#define OLAP_VLOG_WRITE(level, fmt, arg...) \
-    do { \
-        if (OLAP_UNLIKELY(VLOG_IS_ON(level))) { \
-            char buf[10240] = {0}; \
+#define OLAP_VLOG_WRITE(level, fmt, arg...)         \
+    do {                                            \
+        if (OLAP_UNLIKELY(VLOG_IS_ON(level))) {     \
+            char buf[10240] = {0};                  \
             write_log_info(buf, 10240, fmt, ##arg); \
-            VLOG(level) << buf; \
-        } \
+            VLOG(level) << buf;                     \
+        }                                           \
     } while (0)
 
 // Log define for non-network usage
@@ -504,16 +463,17 @@ bool valid_datetime(const std::string& value_str);
 #define OLAP_LOG_SETBASIC(type, fmt, arg...)
 
 // Util used to get string name of thrift enum item
-#define EnumToString(enum_type, index, out) \
-    do {\
-        std::map<int, const char*>::const_iterator it = _##enum_type##_VALUES_TO_NAMES.find(index);\
-        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {\
-            out = "NULL";\
-        } else {\
-            out = it->second;\
-        }\
+#define EnumToString(enum_type, index, out)                 \
+    do {                                                    \
+        std::map<int, const char*>::const_iterator it =     \
+                _##enum_type##_VALUES_TO_NAMES.find(index); \
+        if (it == _##enum_type##_VALUES_TO_NAMES.end()) {   \
+            out = "NULL";                                   \
+        } else {                                            \
+            out = it->second;                               \
+        }                                                   \
     } while (0)
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_UTILS_H

@@ -24,8 +24,8 @@
 #include "runtime/row_batch.h"
 #include "runtime/sorter.h"
 #include "runtime/tuple_row.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 using std::vector;
 
@@ -40,12 +40,11 @@ namespace doris {
 class SortedRunMerger::BatchedRowSupplier {
 public:
     // Construct an instance from a sorted input run.
-    BatchedRowSupplier(SortedRunMerger* parent, const RunBatchSupplier& sorted_run) :
-            _sorted_run(sorted_run),
-        _input_row_batch(NULL),
-        _input_row_batch_index(-1),
-        _parent(parent) {
-    }
+    BatchedRowSupplier(SortedRunMerger* parent, const RunBatchSupplier& sorted_run)
+            : _sorted_run(sorted_run),
+              _input_row_batch(NULL),
+              _input_row_batch_index(-1),
+              _parent(parent) {}
 
     ~BatchedRowSupplier() {}
 
@@ -82,9 +81,7 @@ public:
         return Status::OK();
     }
 
-    TupleRow* current_row() const {
-        return _input_row_batch->get_row(_input_row_batch_index);
-    }
+    TupleRow* current_row() const { return _input_row_batch->get_row(_input_row_batch_index); }
 
 private:
     friend class SortedRunMerger;
@@ -111,8 +108,8 @@ void SortedRunMerger::heapify(int parent_index) {
     int least_child = 0;
     // Find the least child of parent.
     if (right_index >= _min_heap.size() ||
-            _compare_less_than(_min_heap[left_index]->current_row(),
-                _min_heap[right_index]->current_row())) {
+        _compare_less_than(_min_heap[left_index]->current_row(),
+                           _min_heap[right_index]->current_row())) {
         least_child = left_index;
     } else {
         least_child = right_index;
@@ -121,25 +118,26 @@ void SortedRunMerger::heapify(int parent_index) {
     // If the parent is out of place, swap it with the least child and invoke
     // heapify recursively.
     if (_compare_less_than(_min_heap[least_child]->current_row(),
-                _min_heap[parent_index]->current_row())) {
+                           _min_heap[parent_index]->current_row())) {
         iter_swap(_min_heap.begin() + least_child, _min_heap.begin() + parent_index);
         heapify(least_child);
     }
 }
 
 SortedRunMerger::SortedRunMerger(const TupleRowComparator& compare_less_than,
-        RowDescriptor* row_desc, RuntimeProfile* profile, bool deep_copy_input) :
-            _compare_less_than(compare_less_than),
-            _input_row_desc(row_desc),
-            _deep_copy_input(deep_copy_input) {
-        _get_next_timer = ADD_TIMER(profile, "MergeGetNext");
-        _get_next_batch_timer = ADD_TIMER(profile, "MergeGetNextBatch");
-    }
+                                 RowDescriptor* row_desc, RuntimeProfile* profile,
+                                 bool deep_copy_input)
+        : _compare_less_than(compare_less_than),
+          _input_row_desc(row_desc),
+          _deep_copy_input(deep_copy_input) {
+    _get_next_timer = ADD_TIMER(profile, "MergeGetNext");
+    _get_next_batch_timer = ADD_TIMER(profile, "MergeGetNextBatch");
+}
 
 Status SortedRunMerger::prepare(const vector<RunBatchSupplier>& input_runs) {
     DCHECK_EQ(_min_heap.size(), 0);
     _min_heap.reserve(input_runs.size());
-    BOOST_FOREACH(const RunBatchSupplier& input_run, input_runs) {
+    BOOST_FOREACH (const RunBatchSupplier& input_run, input_runs) {
         BatchedRowSupplier* new_elem = _pool.add(new BatchedRowSupplier(this, input_run));
         DCHECK(new_elem != NULL);
         bool empty = false;
@@ -170,11 +168,11 @@ Status SortedRunMerger::get_next(RowBatch* output_batch, bool* eos) {
         TupleRow* output_row = output_batch->get_row(output_row_index);
         if (_deep_copy_input) {
             min->current_row()->deep_copy(output_row, _input_row_desc->tuple_descriptors(),
-                    output_batch->tuple_data_pool(), false);
+                                          output_batch->tuple_data_pool(), false);
         } else {
             // Simply copy tuple pointers if deep_copy is false.
             memcpy(output_row, min->current_row(),
-                    _input_row_desc->tuple_descriptors().size() * sizeof(Tuple*));
+                   _input_row_desc->tuple_descriptors().size() * sizeof(Tuple*));
         }
 
         output_batch->commit_last_row();
@@ -182,8 +180,7 @@ Status SortedRunMerger::get_next(RowBatch* output_batch, bool* eos) {
         bool min_run_complete = false;
         // Advance to the next element in min. output_batch is supplied to transfer
         // resource ownership if the input batch in min is exhausted.
-        RETURN_IF_ERROR(min->next(_deep_copy_input ? NULL : output_batch,
-                    &min_run_complete));
+        RETURN_IF_ERROR(min->next(_deep_copy_input ? NULL : output_batch, &min_run_complete));
         if (min_run_complete) {
             // Remove the element from the heap.
             iter_swap(_min_heap.begin(), _min_heap.end() - 1);

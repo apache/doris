@@ -74,5 +74,5 @@ OrdinalPageIndexIterator OrdinalPageIndex::seek_at_or_before(rowid_t rid) {
     return OrdinalPageIndexIterator(this, left);
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memory/chunk_allocator.h"
 #include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
-#include "util/bit_util.h"
-#include "util/doris_metrics.h"
+
+#include <stdio.h>
 
 #include <algorithm>
-#include <stdio.h>
 #include <sstream>
 
 #include "common/names.h"
+#include "runtime/mem_tracker.h"
+#include "runtime/memory/chunk_allocator.h"
+#include "util/bit_util.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -38,9 +39,7 @@ const char* MemPool::LLVM_CLASS_NAME = "class.doris::MemPool";
 const int MemPool::DEFAULT_ALIGNMENT;
 uint32_t MemPool::k_zero_length_region_ alignas(std::max_align_t) = MEM_POOL_POISON;
 
-MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_)
-        : chunk(chunk_),
-        allocated_bytes(0) {
+MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_) : chunk(chunk_), allocated_bytes(0) {
     DorisMetrics::memory_pool_bytes_total.increment(chunk.size);
 }
 
@@ -56,7 +55,7 @@ MemPool::~MemPool() {
 
 void MemPool::clear() {
     current_chunk_idx_ = -1;
-    for (auto& chunk: chunks_) {
+    for (auto& chunk : chunks_) {
         chunk.allocated_bytes = 0;
         ASAN_POISON_MEMORY_REGION(chunk.chunk.data, chunk.chunk.size);
     }
@@ -66,7 +65,7 @@ void MemPool::clear() {
 
 void MemPool::free_all() {
     int64_t total_bytes_released = 0;
-    for (auto& chunk: chunks_) {
+    for (auto& chunk : chunks_) {
         total_bytes_released += chunk.chunk.size;
         ChunkAllocator::instance()->free(chunk.chunk);
     }
@@ -90,8 +89,7 @@ bool MemPool::find_chunk(size_t min_size, bool check_limits) {
         first_free_idx = 0;
     } else {
         DCHECK_GE(current_chunk_idx_, 0);
-        first_free_idx = current_chunk_idx_ +
-            (chunks_[current_chunk_idx_].allocated_bytes > 0);
+        first_free_idx = current_chunk_idx_ + (chunks_[current_chunk_idx_].allocated_bytes > 0);
     }
     for (int idx = current_chunk_idx_ + 1; idx < chunks_.size(); ++idx) {
         // All chunks after 'current_chunk_idx_' should be free.
@@ -224,15 +222,11 @@ string MemPool::debug_string() {
     out << "MemPool(#chunks=" << chunks_.size() << " [";
     for (int i = 0; i < chunks_.size(); ++i) {
         sprintf(str, "0x%lx=", reinterpret_cast<size_t>(chunks_[i].chunk.data));
-        out << (i > 0 ? " " : "")
-            << str
-            << chunks_[i].chunk.size
-            << "/" << chunks_[i].allocated_bytes;
+        out << (i > 0 ? " " : "") << str << chunks_[i].chunk.size << "/"
+            << chunks_[i].allocated_bytes;
     }
-    out << "] current_chunk=" << current_chunk_idx_
-        << " total_sizes=" << total_reserved_bytes_
-        << " total_alloc=" << total_allocated_bytes_
-        << ")";
+    out << "] current_chunk=" << current_chunk_idx_ << " total_sizes=" << total_reserved_bytes_
+        << " total_alloc=" << total_allocated_bytes_ << ")";
     return out.str();
 }
 
@@ -260,4 +254,4 @@ bool MemPool::check_integrity(bool check_current_chunk_empty) {
     return true;
 }
 
-}
+} // namespace doris

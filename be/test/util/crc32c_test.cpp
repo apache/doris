@@ -18,16 +18,18 @@
 // the following code are modified from RocksDB:
 // https://github.com/facebook/rocksdb/blob/master/util/crc32c_test.cc
 
+#include "util/crc32c.h"
+
 #include <gtest/gtest.h>
+
 #include <vector>
 
-#include "util/crc32c.h"
 #include "util/slice.h"
 
 namespace doris {
 namespace crc32c {
 
-class CRC { };
+class CRC {};
 
 TEST(CRC, StandardResults) {
     // Original Fast_CRC32 tests.
@@ -51,18 +53,10 @@ TEST(CRC, StandardResults) {
     ASSERT_EQ(0x113fdb5cU, Value(buf, sizeof(buf)));
 
     unsigned char data[48] = {
-        0x01, 0xc0, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x14, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x04, 0x00,
-        0x00, 0x00, 0x00, 0x14,
-        0x00, 0x00, 0x00, 0x18,
-        0x28, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x02, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
+            0x01, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00,
+            0x00, 0x00, 0x00, 0x14, 0x00, 0x00, 0x00, 0x18, 0x28, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     };
     ASSERT_EQ(0xd9963a56, Value(reinterpret_cast<char*>(data), sizeof(data)));
 }
@@ -72,19 +66,16 @@ TEST(CRC, Values) {
 }
 
 TEST(CRC, Extend) {
-    ASSERT_EQ(Value("hello world", 11),
-              Extend(Value("hello ", 6), "world", 5));
+    ASSERT_EQ(Value("hello world", 11), Extend(Value("hello ", 6), "world", 5));
 
-    std::vector<Slice> slices = { Slice("hello "), Slice("world") };
-    ASSERT_EQ(Value("hello world", 11),
-              Value(slices));
+    std::vector<Slice> slices = {Slice("hello "), Slice("world")};
+    ASSERT_EQ(Value("hello world", 11), Value(slices));
 }
 
-}  // namespace crc32c
-}  // namespace doris
+} // namespace crc32c
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

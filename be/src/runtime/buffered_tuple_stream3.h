@@ -18,10 +18,10 @@
 #ifndef DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
 #define DORIS_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
 
+#include <boost/function.hpp>
+#include <boost/scoped_ptr.hpp>
 #include <set>
 #include <vector>
-#include <boost/scoped_ptr.hpp>
-#include <boost/function.hpp>
 
 #include "common/global_types.h"
 #include "common/status.h"

@@ -17,9 +17,9 @@
 
 #pragma once
 
-#include "olap/column_block.h" // for ColumnBlockView
+#include "common/status.h"                 // for Status
+#include "olap/column_block.h"             // for ColumnBlockView
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
-#include "common/status.h" // for Status
 
 namespace doris {
 namespace segment_v2 {
@@ -27,9 +27,9 @@ namespace segment_v2 {
 // PageDecoder is used to decode page.
 class PageDecoder {
 public:
-    PageDecoder() { }
+    PageDecoder() {}
 
-    virtual ~PageDecoder() { }
+    virtual ~PageDecoder() {}
 
     // Call this to do some preparation for decoder.
     // eg: parse data page header

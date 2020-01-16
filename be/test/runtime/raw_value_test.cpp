@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
 #include "runtime/raw_value.h"
+
+#include <gtest/gtest.h>
 
 namespace doris {
 
-class RawValueTest : public testing::Test {
-};
+class RawValueTest : public testing::Test {};
 
 TEST_F(RawValueTest, Compare) {
     int64_t v1;
@@ -42,7 +42,7 @@ TEST_F(RawValueTest, Compare) {
     EXPECT_LT(RawValue::compare(&i2, &i1, TYPE_INT), 0);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

@@ -26,28 +26,22 @@
 namespace doris {
 
 class QueryStatisticsRecvr;
- 
-// This is responsible for collecting query statistics, usually it consists of 
+
+// This is responsible for collecting query statistics, usually it consists of
 // two parts, one is current fragment or plan's statistics, the other is sub fragment
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
 class QueryStatistics {
 public:
-
-    QueryStatistics() : scan_rows(0), scan_bytes(0) {
-    }
+    QueryStatistics() : scan_rows(0), scan_bytes(0) {}
 
     void merge(const QueryStatistics& other) {
         scan_rows += other.scan_rows;
         scan_bytes += other.scan_bytes;
     }
 
-    void add_scan_rows(int64_t scan_rows) {
-        this->scan_rows += scan_rows;
-    }
+    void add_scan_rows(int64_t scan_rows) { this->scan_rows += scan_rows; }
 
-    void add_scan_bytes(int64_t scan_bytes) {
-        this->scan_bytes += scan_bytes;
-    }
+    void add_scan_bytes(int64_t scan_bytes) { this->scan_bytes += scan_bytes; }
 
     void merge(QueryStatisticsRecvr* recvr);
 
@@ -68,7 +62,6 @@ public:
     }
 
 private:
-
     int64_t scan_rows;
     int64_t scan_bytes;
 };
@@ -76,14 +69,12 @@ private:
 // It is used for collecting sub plan query statistics in DataStreamRecvr.
 class QueryStatisticsRecvr {
 public:
-
     ~QueryStatisticsRecvr();
 
     void insert(const PQueryStatistics& statistics, int sender_id);
 
 private:
-
-friend class QueryStatistics;
+    friend class QueryStatistics;
 
     void merge(QueryStatistics* statistics) {
         std::lock_guard<SpinLock> l(_lock);
@@ -91,11 +82,11 @@ friend class QueryStatistics;
             statistics->merge(*(pair.second));
         }
     }
- 
+
     std::map<int, QueryStatistics*> _query_statistics;
     SpinLock _lock;
 };
 
-}
+} // namespace doris
 
 #endif

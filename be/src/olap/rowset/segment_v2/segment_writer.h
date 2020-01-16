@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "common/logging.h" // LOG
-#include "common/status.h" // Status
+#include "common/status.h"  // Status
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "olap/schema.h"
@@ -50,15 +50,13 @@ struct SegmentWriterOptions {
 
 class SegmentWriter {
 public:
-    explicit SegmentWriter(std::string file_name,
-                           uint32_t segment_id,
-                           const TabletSchema* tablet_schema,
-                           const SegmentWriterOptions& opts);
+    explicit SegmentWriter(std::string file_name, uint32_t segment_id,
+                           const TabletSchema* tablet_schema, const SegmentWriterOptions& opts);
 
     ~SegmentWriter();
     Status init(uint32_t write_mbytes_per_sec);
 
-    template<typename RowType>
+    template <typename RowType>
     Status append_row(const RowType& row);
 
     uint64_t estimate_segment_size();
@@ -97,5 +95,5 @@ private:
     uint32_t _row_count = 0;
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

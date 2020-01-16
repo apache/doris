@@ -19,20 +19,20 @@
 
 #include <gtest/gtest.h>
 
+#include "common/config.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "common/config.h"
 #include "runtime/decimal_value.h"
+#include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
+#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/tuple_row.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
-#include "runtime/descriptor_helper.h"
 
 namespace doris {
 namespace stream_load {
@@ -41,8 +41,8 @@ Status k_add_batch_status;
 
 class OlapTableSinkTest : public testing::Test {
 public:
-    OlapTableSinkTest() { }
-    virtual ~OlapTableSinkTest() { }
+    OlapTableSinkTest() {}
+    virtual ~OlapTableSinkTest() {}
     void SetUp() override {
         k_add_batch_status = Status::OK();
 
@@ -63,6 +63,7 @@ public:
         delete _env._thread_mgr;
         _env._thread_mgr = nullptr;
     }
+
 private:
     ExecEnv _env;
 };
@@ -102,24 +103,42 @@ TDataSink get_data_sink(TDescriptorTable* desc_tbl) {
         {
             TTupleDescriptorBuilder tuple_builder;
 
-            tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(1).build());
-            tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(2).build());
-            tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(10).column_name("c3").column_pos(3).build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_INT)
+                                           .column_name("c1")
+                                           .column_pos(1)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_BIGINT)
+                                           .column_name("c2")
+                                           .column_pos(2)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .string_type(10)
+                                           .column_name("c3")
+                                           .column_pos(3)
+                                           .build());
 
             tuple_builder.build(&dtb);
         }
         {
             TTupleDescriptorBuilder tuple_builder;
 
-            tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(1).build());
-            tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("c2").column_pos(2).build());
-            tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(20).column_name("c3").column_pos(3).build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_INT)
+                                           .column_name("c1")
+                                           .column_pos(1)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_BIGINT)
+                                           .column_name("c2")
+                                           .column_pos(2)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .string_type(20)
+                                           .column_name("c3")
+                                           .column_pos(3)
+                                           .build());
 
             tuple_builder.build(&dtb);
         }
@@ -208,10 +227,16 @@ TDataSink get_decimal_sink(TDescriptorTable* desc_tbl) {
         {
             TTupleDescriptorBuilder tuple_builder;
 
-            tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_INT).column_name("c1").column_pos(1).build());
-            tuple_builder.add_slot(
-                TSlotDescriptorBuilder().decimal_type(5, 2).column_name("c2").column_pos(2).build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .type(TYPE_INT)
+                                           .column_name("c1")
+                                           .column_pos(1)
+                                           .build());
+            tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                           .decimal_type(5, 2)
+                                           .column_name("c2")
+                                           .column_pos(2)
+                                           .build());
 
             tuple_builder.build(&dtb);
         }
@@ -267,8 +292,8 @@ TDataSink get_decimal_sink(TDescriptorTable* desc_tbl) {
 
 class TestInternalService : public palo::PInternalService {
 public:
-    TestInternalService() { }
-    virtual ~TestInternalService() { }
+    TestInternalService() {}
+    virtual ~TestInternalService() {}
 
     void transmit_data(::google::protobuf::RpcController* controller,
                        const ::doris::PTransmitDataParams* request,
@@ -276,7 +301,6 @@ public:
                        ::google::protobuf::Closure* done) override {
         done->Run();
     }
-
 
     void tablet_writer_open(google::protobuf::RpcController* controller,
                             const PTabletWriterOpenRequest* request,
@@ -302,7 +326,7 @@ public:
             if (request->has_row_batch() && _row_desc != nullptr) {
                 MemTracker tracker;
                 RowBatch batch(*_row_desc, request->row_batch(), &tracker);
-                for (int i = 0; i < batch.num_rows(); ++i){
+                for (int i = 0; i < batch.num_rows(); ++i) {
                     LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);
                     _output_set->emplace(batch.get_row(i)->to_string(*_row_desc));
                 }
@@ -354,7 +378,7 @@ TEST_F(OlapTableSinkTest, normal) {
     LOG(INFO) << "tuple_desc=" << tuple_desc->debug_string();
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
-    
+
     OlapTableSink sink(&obj_pool, row_desc, {}, &st);
     ASSERT_TRUE(st.ok());
 
@@ -460,7 +484,7 @@ TEST_F(OlapTableSinkTest, convert) {
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
 
-    // expr 
+    // expr
     std::vector<TExpr> exprs;
     exprs.resize(3);
     exprs[0].nodes.resize(1);
@@ -585,7 +609,7 @@ TEST_F(OlapTableSinkTest, init_fail1) {
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
 
-    // expr 
+    // expr
     std::vector<TExpr> exprs;
     exprs.resize(1);
     exprs[0].nodes.resize(1);
@@ -643,7 +667,7 @@ TEST_F(OlapTableSinkTest, init_fail3) {
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
 
-    // expr 
+    // expr
     std::vector<TExpr> exprs;
     exprs.resize(3);
     exprs[0].nodes.resize(1);
@@ -702,7 +726,7 @@ TEST_F(OlapTableSinkTest, init_fail4) {
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
 
-    // expr 
+    // expr
     std::vector<TExpr> exprs;
     exprs.resize(3);
     exprs[0].nodes.resize(1);
@@ -769,7 +793,7 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
 
     RowDescriptor row_desc(*desc_tbl, {0}, {false});
 
-    // expr 
+    // expr
     std::vector<TExpr> exprs;
     exprs.resize(3);
     exprs[0].nodes.resize(1);
@@ -869,7 +893,7 @@ TEST_F(OlapTableSinkTest, decimal) {
     service->_row_desc = &row_desc;
     std::set<std::string> output_set;
     service->_output_set = &output_set;
-    
+
     OlapTableSink sink(&obj_pool, row_desc, {}, &st);
     ASSERT_TRUE(st.ok());
 
@@ -936,8 +960,8 @@ TEST_F(OlapTableSinkTest, decimal) {
     delete server;
 }
 
-}
-}
+} // namespace stream_load
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     doris::CpuInfo::init();

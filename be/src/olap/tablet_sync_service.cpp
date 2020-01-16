@@ -24,28 +24,31 @@ namespace doris {
 TabletSyncService::TabletSyncService() {
     // TODO(ygl): add new config
     _fetch_rowset_pool = new BatchProcessThreadPool<FetchRowsetMetaTask>(
-        3,  // thread num
-        10000,  // queue size
-        10, // batch size
-        std::bind<void>(std::mem_fn(&TabletSyncService::_fetch_rowset_meta_thread), this, std::placeholders::_1));
+            3,     // thread num
+            10000, // queue size
+            10,    // batch size
+            std::bind<void>(std::mem_fn(&TabletSyncService::_fetch_rowset_meta_thread), this,
+                            std::placeholders::_1));
 
     _push_rowset_pool = new BatchProcessThreadPool<PushRowsetMetaTask>(
-        3,  // thread num
-        10000,  // queue size
-        10, // batch size
-        std::bind<void>(std::mem_fn(&TabletSyncService::_push_rowset_meta_thread), this, std::placeholders::_1));
+            3,     // thread num
+            10000, // queue size
+            10,    // batch size
+            std::bind<void>(std::mem_fn(&TabletSyncService::_push_rowset_meta_thread), this,
+                            std::placeholders::_1));
     _fetch_tablet_pool = new BatchProcessThreadPool<FetchTabletMetaTask>(
-        3,  // thread num
-        10000,  // queue size
-        10, // batch size
-        std::bind<void>(std::mem_fn(&TabletSyncService::_fetch_tablet_meta_thread), this, std::placeholders::_1));
+            3,     // thread num
+            10000, // queue size
+            10,    // batch size
+            std::bind<void>(std::mem_fn(&TabletSyncService::_fetch_tablet_meta_thread), this,
+                            std::placeholders::_1));
     _push_tablet_pool = new BatchProcessThreadPool<PushTabletMetaTask>(
-        3,  // thread num
-        10000,  // queue size
-        10, // batch size
-        std::bind<void>(std::mem_fn(&TabletSyncService::_push_tablet_meta_thread), this, std::placeholders::_1));
+            3,     // thread num
+            10000, // queue size
+            10,    // batch size
+            std::bind<void>(std::mem_fn(&TabletSyncService::_push_tablet_meta_thread), this,
+                            std::placeholders::_1));
 }
-
 
 TabletSyncService::~TabletSyncService() {
     if (_fetch_rowset_pool != nullptr) {
@@ -69,7 +72,8 @@ TabletSyncService::~TabletSyncService() {
 // tablet_id + txn_id could find a unique rowset
 // return a future object, caller could using it to wait the task to finished
 // and check the status
-std::future<OLAPStatus> TabletSyncService::fetch_rowset(TabletSharedPtr tablet, int64_t txn_id, bool load_data) {
+std::future<OLAPStatus> TabletSyncService::fetch_rowset(TabletSharedPtr tablet, int64_t txn_id,
+                                                        bool load_data) {
     auto pro = make_shared<promise<OLAPStatus>>();
     FetchRowsetMetaTask fetch_task;
     fetch_task.tablet = tablet;
@@ -81,7 +85,8 @@ std::future<OLAPStatus> TabletSyncService::fetch_rowset(TabletSharedPtr tablet, 
 }
 
 // fetch rowset meta and data using version
-std::future<OLAPStatus> TabletSyncService::fetch_rowset(TabletSharedPtr tablet, Version& version, bool load_data) {
+std::future<OLAPStatus> TabletSyncService::fetch_rowset(TabletSharedPtr tablet, Version& version,
+                                                        bool load_data) {
     auto pro = make_shared<promise<OLAPStatus>>();
     FetchRowsetMetaTask fetch_task;
     fetch_task.tablet = tablet;
@@ -117,7 +122,8 @@ std::future<OLAPStatus> TabletSyncService::delete_rowset_meta(RowsetMetaPB& rows
 // when create a tablet, if it's eco_mode and term > 1 then should fetch
 // all rowset and tablet meta from remote meta store
 // Maybe, it's better to add a callback function here
-std::future<OLAPStatus> TabletSyncService::fetch_tablet_meta(TabletSharedPtr tablet, bool load_data) {
+std::future<OLAPStatus> TabletSyncService::fetch_tablet_meta(TabletSharedPtr tablet,
+                                                             bool load_data) {
     auto pro = make_shared<promise<OLAPStatus>>();
     FetchTabletMetaTask fetch_task;
     fetch_task.tablet = tablet;
@@ -152,4 +158,4 @@ void TabletSyncService::_push_tablet_meta_thread(std::vector<PushTabletMetaTask>
     return;
 }
 
-} // doris
+} // namespace doris

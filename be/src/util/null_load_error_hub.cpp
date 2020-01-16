@@ -19,11 +19,9 @@
 
 namespace doris {
 
-NullLoadErrorHub::NullLoadErrorHub() {
-}
+NullLoadErrorHub::NullLoadErrorHub() {}
 
-NullLoadErrorHub::~NullLoadErrorHub() {
-}
+NullLoadErrorHub::~NullLoadErrorHub() {}
 
 Status NullLoadErrorHub::prepare() {
     _is_valid = true;
@@ -48,4 +46,3 @@ std::string NullLoadErrorHub::debug_string() const {
 }
 
 } // end namespace doris
-

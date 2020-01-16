@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_PARSE_UTIL_H
 #define DORIS_BE_SRC_COMMON_UTIL_PARSE_UTIL_H
 
-#include <string>
 #include <boost/cstdint.hpp>
+#include <string>
 
 namespace doris {
 
@@ -39,6 +39,6 @@ public:
     static int64_t parse_mem_spec(const std::string& mem_spec_str, bool* is_percent);
 };
 
-}
+} // namespace doris
 
 #endif

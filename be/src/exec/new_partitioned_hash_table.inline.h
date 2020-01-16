@@ -406,4 +406,3 @@ inline int64_t NewPartitionedHashTable::NumInsertsBeforeResize() const {
 }
 // clang-format on
 #endif
-

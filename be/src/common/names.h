@@ -77,13 +77,11 @@ using std::setfill;
 using std::setw;
 #endif
 
-
 #ifdef _GLIBCXX_FSTREAM
 using std::fstream;
 using std::ifstream;
 using std::ofstream;
 #endif
-
 
 #ifdef _GLIBCXX_SSTREAM
 using std::stringstream;
@@ -133,14 +131,14 @@ using boost::lexical_cast;
 using boost::shared_mutex;
 #endif
 
-
 /// In older versions of boost, when including mutex.hpp, it would include locks.hpp that
 /// would in turn provide lock_guard<>. In more recent versions, including mutex.hpp would
 /// include lock_types.hpp that does not provide lock_guard<>. This check verifies if boost
 /// locks have been included and makes sure to only include lock_guard if the provided lock
 /// implementations were not included using lock_types.hpp (for older boost versions) or if
 /// lock_guard.hpp was explicitly included.
-#if (defined(BOOST_THREAD_LOCKS_HPP) && BOOST_VERSION < 105300)  || defined(BOOST_THREAD_LOCK_GUARD_HPP)
+#if (defined(BOOST_THREAD_LOCKS_HPP) && BOOST_VERSION < 105300) || \
+        defined(BOOST_THREAD_LOCK_GUARD_HPP)
 using boost::lock_guard;
 #endif
 

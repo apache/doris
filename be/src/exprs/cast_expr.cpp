@@ -17,8 +17,8 @@
 
 #include "exprs/cast_expr.h"
 
-#include "codegen/llvm_codegen.h"
 #include "codegen/codegen_anyval.h"
+#include "codegen/llvm_codegen.h"
 #include "runtime/runtime_state.h"
 
 using llvm::BasicBlock;
@@ -57,18 +57,16 @@ Expr* CastExpr::from_thrift(const TExprNode& node) {
 }
 
 #define CAST_SAME(CLASS, TYPE, FN) \
-    TYPE CLASS::FN(ExprContext* context, TupleRow* row) { \
-        return _children[0]->FN(context, row); \
-    }
+    TYPE CLASS::FN(ExprContext* context, TupleRow* row) { return _children[0]->FN(context, row); }
 
 #define CAST_FUNCTION(CLASS, TO_TYPE, TO_FN, FROM_TYPE, FROM_FN) \
-    TO_TYPE CLASS::TO_FN(ExprContext* context, TupleRow* row) { \
-        FROM_TYPE v = _children[0]->FROM_FN(context, row); \
-        if (v.is_null) { \
-            return TO_TYPE::null(); \
-        } \
-        return TO_TYPE(v.val); \
-    } 
+    TO_TYPE CLASS::TO_FN(ExprContext* context, TupleRow* row) {  \
+        FROM_TYPE v = _children[0]->FROM_FN(context, row);       \
+        if (v.is_null) {                                         \
+            return TO_TYPE::null();                              \
+        }                                                        \
+        return TO_TYPE(v.val);                                   \
+    }
 
 #define CAST_FROM_BOOLEAN(TO_TYPE, TO_FN) \
     CAST_FUNCTION(CastBooleanExpr, TO_TYPE, TO_FN, BooleanVal, get_boolean_val)
@@ -176,7 +174,7 @@ CAST_FROM_DOUBLE(FloatVal, get_float_val)
 //   %0 = extractvalue { i8, i64 } %child_val, 0
 //   %child_is_null = trunc i8 %0 to i1
 //   br i1 %child_is_null, label %ret, label %child_not_null
-// 
+//
 // child_not_null:                                     ; preds = %entry
 //   %val = add i64 %2, %3
 //   br label %ret
@@ -212,11 +210,11 @@ Status CastExpr::codegen_cast_fn(RuntimeState* state, llvm::Function** fn) {
     // entry block
     builder.SetInsertPoint(entry_block);
     CodegenAnyVal child_val = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, _children[0]->type(), child_fn, args, "child_val");
+            codegen, &builder, _children[0]->type(), child_fn, args, "child_val");
     // if (v1.is_null) return null;
     Value* child_is_null = child_val.get_is_null();
     builder.CreateCondBr(child_is_null, ret_block, child_not_null_block);
-    
+
     // child_not_null_block
     builder.SetInsertPoint(child_not_null_block);
     Value* val = NULL;
@@ -237,8 +235,7 @@ Status CastExpr::codegen_cast_fn(RuntimeState* state, llvm::Function** fn) {
     val_phi->addIncoming(null, entry_block);
     val_phi->addIncoming(val, child_not_null_block);
 
-    CodegenAnyVal result = CodegenAnyVal::get_non_null_val(
-        codegen, &builder, type(), "result");
+    CodegenAnyVal result = CodegenAnyVal::get_non_null_val(codegen, &builder, type(), "result");
     result.set_is_null(is_null_phi);
     result.set_val(val_phi);
     builder.CreateRet(result.value());
@@ -247,15 +244,15 @@ Status CastExpr::codegen_cast_fn(RuntimeState* state, llvm::Function** fn) {
     return Status::OK();
 }
 
-#define CODEGEN_DEFINE(CLASS) \
+#define CODEGEN_DEFINE(CLASS)                                                         \
     Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
-        if (_ir_compute_fn != NULL) { \
-            *fn = _ir_compute_fn; \
-            return Status::OK(); \
-        } \
-        RETURN_IF_ERROR(codegen_cast_fn(state, fn)); \
-        _ir_compute_fn = *fn; \
-        return Status::OK(); \
+        if (_ir_compute_fn != NULL) {                                                 \
+            *fn = _ir_compute_fn;                                                     \
+            return Status::OK();                                                      \
+        }                                                                             \
+        RETURN_IF_ERROR(codegen_cast_fn(state, fn));                                  \
+        _ir_compute_fn = *fn;                                                         \
+        return Status::OK();                                                          \
     }
 
 CODEGEN_DEFINE(CastBooleanExpr);
@@ -266,4 +263,4 @@ CODEGEN_DEFINE(CastBigIntExpr);
 CODEGEN_DEFINE(CastLargeIntExpr);
 CODEGEN_DEFINE(CastFloatExpr);
 CODEGEN_DEFINE(CastDoubleExpr);
-}
+} // namespace doris

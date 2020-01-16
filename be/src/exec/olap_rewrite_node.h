@@ -34,7 +34,7 @@ public:
     OlapRewriteNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual ~OlapRewriteNode() { }
+    virtual ~OlapRewriteNode() {}
     virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
@@ -66,6 +66,6 @@ private:
     std::vector<DecimalV2Value> _max_decimalv2_val;
 };
 
-}
+} // namespace doris
 
 #endif

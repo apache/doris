@@ -85,9 +85,7 @@ public:
     const std::vector<int64_t>* counters(int snapshot) const;
 
     // Returns readable names for the added counters
-    const std::vector<std::string>* counter_names() const {
-        return &_counter_names;
-    }
+    const std::vector<std::string>* counter_names() const { return &_counter_names; }
 
     // Prints out the names and results for all snapshots to 'out'
     void pretty_print(std::ostream* out) const;
@@ -139,6 +137,6 @@ private:
     int _group_fd;
 };
 
-}
+} // namespace doris
 
 #endif

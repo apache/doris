@@ -19,7 +19,6 @@
 
 #include "exprs/agg_fn_evaluator.h"
 #include "exprs/anyval_util.h"
-
 #include "runtime/buffered_tuple_stream.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
@@ -33,40 +32,37 @@ namespace doris {
 using doris_udf::BigIntVal;
 
 AnalyticEvalNode::AnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
-                                   const DescriptorTbl& descs) :
-        ExecNode(pool, tnode, descs),
-        _window(tnode.analytic_node.window),
-        _intermediate_tuple_desc(
-            descs.get_tuple_descriptor(tnode.analytic_node.intermediate_tuple_id)),
-        _result_tuple_desc(
-            descs.get_tuple_descriptor(tnode.analytic_node.output_tuple_id)),
-        _buffered_tuple_desc(NULL),
-        _partition_by_eq_expr_ctx(NULL),
-        _order_by_eq_expr_ctx(NULL),
-        _rows_start_offset(0),
-        _rows_end_offset(0),
-        _has_first_val_null_offset(false),
-        _first_val_null_offset(0),
-        _last_result_idx(-1),
-        _prev_pool_last_result_idx(-1),
-        _prev_pool_last_window_idx(-1),
-        _curr_tuple(NULL),
-        _dummy_result_tuple(NULL),
-        _curr_partition_idx(-1),
-        _prev_input_row(NULL),
-        _input_eos(false),
-        _evaluation_timer(NULL) {
+                                   const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _window(tnode.analytic_node.window),
+          _intermediate_tuple_desc(
+                  descs.get_tuple_descriptor(tnode.analytic_node.intermediate_tuple_id)),
+          _result_tuple_desc(descs.get_tuple_descriptor(tnode.analytic_node.output_tuple_id)),
+          _buffered_tuple_desc(NULL),
+          _partition_by_eq_expr_ctx(NULL),
+          _order_by_eq_expr_ctx(NULL),
+          _rows_start_offset(0),
+          _rows_end_offset(0),
+          _has_first_val_null_offset(false),
+          _first_val_null_offset(0),
+          _last_result_idx(-1),
+          _prev_pool_last_result_idx(-1),
+          _prev_pool_last_window_idx(-1),
+          _curr_tuple(NULL),
+          _dummy_result_tuple(NULL),
+          _curr_partition_idx(-1),
+          _prev_input_row(NULL),
+          _input_eos(false),
+          _evaluation_timer(NULL) {
     if (tnode.analytic_node.__isset.buffered_tuple_id) {
-        _buffered_tuple_desc = descs.get_tuple_descriptor(
-                                   tnode.analytic_node.buffered_tuple_id);
+        _buffered_tuple_desc = descs.get_tuple_descriptor(tnode.analytic_node.buffered_tuple_id);
     }
 
     if (!tnode.analytic_node.__isset.window) {
         _fn_scope = AnalyticEvalNode::PARTITION;
     } else if (tnode.analytic_node.window.type == TAnalyticWindowType::RANGE) {
         _fn_scope = AnalyticEvalNode::RANGE;
-        DCHECK(!_window.__isset.window_start)
-                << "RANGE windows must have UNBOUNDED PRECEDING";
+        DCHECK(!_window.__isset.window_start) << "RANGE windows must have UNBOUNDED PRECEDING";
         DCHECK(!_window.__isset.window_end ||
                _window.window_end.type == TAnalyticWindowBoundaryType::CURRENT_ROW)
                 << "RANGE window end bound must be CURRENT ROW or UNBOUNDED FOLLOWING";
@@ -105,7 +101,7 @@ AnalyticEvalNode::AnalyticEvalNode(ObjectPool* pool, const TPlanNode& tnode,
         }
     }
 
-    VLOG_ROW << "tnode=" <<  apache::thrift::ThriftDebugString(tnode);
+    VLOG_ROW << "tnode=" << apache::thrift::ThriftDebugString(tnode);
 }
 
 Status AnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -115,8 +111,8 @@ Status AnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     for (int i = 0; i < analytic_node.analytic_functions.size(); ++i) {
         AggFnEvaluator* evaluator = NULL;
-        RETURN_IF_ERROR(AggFnEvaluator::create(
-                _pool, analytic_node.analytic_functions[i], true, &evaluator));
+        RETURN_IF_ERROR(AggFnEvaluator::create(_pool, analytic_node.analytic_functions[i], true,
+                                               &evaluator));
         _evaluators.push_back(evaluator);
         const TFunction& fn = analytic_node.analytic_functions[i].nodes[0].fn;
         _is_lead_fn.push_back("lead" == fn.name.function_name);
@@ -130,14 +126,14 @@ Status AnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     if (analytic_node.__isset.partition_by_eq) {
         DCHECK(analytic_node.__isset.buffered_tuple_id);
-        RETURN_IF_ERROR(Expr::create_expr_tree(
-                _pool, analytic_node.partition_by_eq, &_partition_by_eq_expr_ctx));
+        RETURN_IF_ERROR(Expr::create_expr_tree(_pool, analytic_node.partition_by_eq,
+                                               &_partition_by_eq_expr_ctx));
     }
 
     if (analytic_node.__isset.order_by_eq) {
         DCHECK(analytic_node.__isset.buffered_tuple_id);
-        RETURN_IF_ERROR(Expr::create_expr_tree(
-                _pool, analytic_node.order_by_eq, &_order_by_eq_expr_ctx));
+        RETURN_IF_ERROR(
+                Expr::create_expr_tree(_pool, analytic_node.order_by_eq, &_order_by_eq_expr_ctx));
     }
 
     return Status::OK();
@@ -157,9 +153,9 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
 
     for (int i = 0; i < _evaluators.size(); ++i) {
         doris_udf::FunctionContext* ctx;
-        RETURN_IF_ERROR(_evaluators[i]->prepare(state, child(0)->row_desc(), _mem_pool.get(),
-                _intermediate_tuple_desc->slots()[i], _result_tuple_desc->slots()[i],
-                mem_tracker(), &ctx));
+        RETURN_IF_ERROR(_evaluators[i]->prepare(
+                state, child(0)->row_desc(), _mem_pool.get(), _intermediate_tuple_desc->slots()[i],
+                _result_tuple_desc->slots()[i], mem_tracker(), &ctx));
         _fn_ctxs.push_back(ctx);
         state->obj_pool()->add(ctx);
     }
@@ -173,19 +169,18 @@ Status AnalyticEvalNode::prepare(RuntimeState* state) {
 
         if (_partition_by_eq_expr_ctx != NULL) {
             RETURN_IF_ERROR(
-                _partition_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
+                    _partition_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
             //AddExprCtxToFree(_partition_by_eq_expr_ctx);
         }
 
         if (_order_by_eq_expr_ctx != NULL) {
             RETURN_IF_ERROR(
-                _order_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
+                    _order_by_eq_expr_ctx->prepare(state, cmp_row_desc, expr_mem_tracker()));
             //AddExprCtxToFree(_order_by_eq_expr_ctx);
         }
     }
 
-    _child_tuple_cmp_row = reinterpret_cast<TupleRow*>(
-                               _mem_pool->allocate(sizeof(Tuple*) * 2));
+    _child_tuple_cmp_row = reinterpret_cast<TupleRow*>(_mem_pool->allocate(sizeof(Tuple*) * 2));
     return Status::OK();
 }
 
@@ -204,10 +199,10 @@ Status AnalyticEvalNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(_evaluators[i]->open(state, _fn_ctxs[i]));
 
         if ("first_value_rewrite" == _evaluators[i]->fn_name() &&
-                _fn_ctxs[i]->get_num_args() == 2) {
+            _fn_ctxs[i]->get_num_args() == 2) {
             DCHECK(!_has_first_val_null_offset);
             _first_val_null_offset =
-                reinterpret_cast<BigIntVal*>(_fn_ctxs[i]->get_constant_arg(1))->val;
+                    reinterpret_cast<BigIntVal*>(_fn_ctxs[i]->get_constant_arg(1))->val;
             VLOG_FILE << id() << " FIRST_VAL rewrite null offset: " << _first_val_null_offset;
             _has_first_val_null_offset = true;
         }
@@ -316,14 +311,13 @@ std::string AnalyticEvalNode::debug_state_string(bool detailed) const {
     stringstream ss;
     ss << "num_returned=" << _input_stream->rows_returned()
        << " num_rows=" << _input_stream->num_rows()
-       << " _curr_partition_idx=" << _curr_partition_idx
-       << " last_result_idx=" << _last_result_idx;
+       << " _curr_partition_idx=" << _curr_partition_idx << " last_result_idx=" << _last_result_idx;
 
     if (detailed) {
         ss << " result_tuples idx: [";
 
         for (std::list<std::pair<int64_t, Tuple*> >::const_iterator it = _result_tuples.begin();
-                it != _result_tuples.end(); ++it) {
+             it != _result_tuples.end(); ++it) {
             ss << it->first;
 
             if (*it != _result_tuples.back()) {
@@ -337,7 +331,7 @@ std::string AnalyticEvalNode::debug_state_string(bool detailed) const {
             ss << " window_tuples idx: [";
 
             for (std::list<std::pair<int64_t, Tuple*> >::const_iterator it = _window_tuples.begin();
-                    it != _window_tuples.end(); ++it) {
+                 it != _window_tuples.end(); ++it) {
                 ss << it->first;
 
                 if (*it != _window_tuples.back()) {
@@ -371,8 +365,7 @@ std::string AnalyticEvalNode::debug_state_string(bool detailed) const {
 void AnalyticEvalNode::add_result_tuple(int64_t stream_idx) {
     VLOG_ROW << id() << " add_result_tuple idx=" << stream_idx;
     DCHECK(_curr_tuple != NULL);
-    Tuple* result_tuple = Tuple::create(_result_tuple_desc->byte_size(),
-                                        _curr_tuple_pool.get());
+    Tuple* result_tuple = Tuple::create(_result_tuple_desc->byte_size(), _curr_tuple_pool.get());
 
     AggFnEvaluator::get_value(_evaluators, _fn_ctxs, _curr_tuple, result_tuple);
     DCHECK_GT(stream_idx, _last_result_idx);
@@ -382,7 +375,7 @@ void AnalyticEvalNode::add_result_tuple(int64_t stream_idx) {
 }
 
 inline void AnalyticEvalNode::try_add_result_tuple_for_prev_row(bool next_partition,
-        int64_t stream_idx, TupleRow* row) {
+                                                                int64_t stream_idx, TupleRow* row) {
     // The analytic fns are finalized after the previous row if we found a new partition
     // or the window is a RANGE and the order by exprs changed. For ROWS windows we do not
     // need to compare the current row to the previous row.
@@ -397,8 +390,7 @@ inline void AnalyticEvalNode::try_add_result_tuple_for_prev_row(bool next_partit
     }
 }
 
-inline void AnalyticEvalNode::try_add_result_tuple_for_curr_row(int64_t stream_idx,
-        TupleRow* row) {
+inline void AnalyticEvalNode::try_add_result_tuple_for_curr_row(int64_t stream_idx, TupleRow* row) {
     VLOG_ROW << id() << " try_add_result_tuple_for_curr_row idx=" << stream_idx;
 
     // We only add results at this point for ROWS windows (unless unbounded following)
@@ -438,7 +430,7 @@ inline void AnalyticEvalNode::try_remove_rows_before_window(int64_t stream_idx) 
 }
 
 inline void AnalyticEvalNode::try_add_remaining_results(int64_t partition_idx,
-        int64_t prev_partition_idx) {
+                                                        int64_t prev_partition_idx) {
     DCHECK_LT(prev_partition_idx, partition_idx);
 
     // For PARTITION, RANGE, or ROWS with UNBOUNDED PRECEDING: add a result tuple for the
@@ -467,7 +459,7 @@ inline void AnalyticEvalNode::try_add_remaining_results(int64_t partition_idx,
              << " " << debug_state_string(true);
 
     for (int64_t next_result_idx = _last_result_idx + 1; next_result_idx < partition_idx;
-            ++next_result_idx) {
+         ++next_result_idx) {
         if (_window_tuples.empty()) {
             break;
         }
@@ -512,32 +504,30 @@ inline void AnalyticEvalNode::init_next_partition(int64_t stream_idx) {
         removed_results_past_partition = true;
         DCHECK(_window.__isset.window_end &&
                _window.window_end.type == TAnalyticWindowBoundaryType::PRECEDING);
-        VLOG_ROW << id() << " Removing result past partition idx: "
-                 << _result_tuples.back().first;
+        VLOG_ROW << id() << " Removing result past partition idx: " << _result_tuples.back().first;
         Tuple* prev_result_tuple = _result_tuples.back().second;
         _result_tuples.pop_back();
 
-        if (_result_tuples.empty() ||
-                _result_tuples.back().first < prev_partition_stream_idx) {
+        if (_result_tuples.empty() || _result_tuples.back().first < prev_partition_stream_idx) {
             // prev_result_tuple was the last result tuple in the partition, add it back with
             // the index of the last row in the partition so that all output rows in this
             // partition get the default result tuple.
             _result_tuples.push_back(
-                std::pair<int64_t, Tuple*>(_curr_partition_idx - 1, prev_result_tuple));
+                    std::pair<int64_t, Tuple*>(_curr_partition_idx - 1, prev_result_tuple));
         }
 
         _last_result_idx = _result_tuples.back().first;
     }
 
     if (removed_results_past_partition) {
-        VLOG_ROW << id() << " After removing results past partition: "
-                 << debug_state_string(true);
+        VLOG_ROW << id() << " After removing results past partition: " << debug_state_string(true);
         DCHECK_EQ(_last_result_idx, _curr_partition_idx - 1);
         DCHECK_LE(_input_stream->rows_returned(), _last_result_idx);
     }
 
-    if (_fn_scope == ROWS && stream_idx > 0 && (!_window.__isset.window_end ||
-            _window.window_end.type == TAnalyticWindowBoundaryType::FOLLOWING)) {
+    if (_fn_scope == ROWS && stream_idx > 0 &&
+        (!_window.__isset.window_end ||
+         _window.window_end.type == TAnalyticWindowBoundaryType::FOLLOWING)) {
         try_add_remaining_results(stream_idx, prev_partition_stream_idx);
     }
 
@@ -555,7 +545,7 @@ inline void AnalyticEvalNode::init_next_partition(int64_t stream_idx) {
     // count()) for output rows that have no input rows in the window. We need to add this
     // result tuple before any input rows are consumed and the evaluators are updated.
     if (_fn_scope == ROWS && _window.__isset.window_end &&
-            _window.window_end.type == TAnalyticWindowBoundaryType::PRECEDING) {
+        _window.window_end.type == TAnalyticWindowBoundaryType::PRECEDING) {
         if (_has_first_val_null_offset) {
             // Special handling for FIRST_VALUE which has the window rewritten in the FE
             // in order to evaluate the fn efficiently with a trivial agg fn implementation.
@@ -591,8 +581,7 @@ Status AnalyticEvalNode::process_child_batches(RuntimeState* state) {
     // Consume child batches until eos or there are enough rows to return more than an
     // output batch. Ensuring there is at least one more row left after returning results
     // allows us to simplify the logic dealing with _last_result_idx and _result_tuples.
-    while (_curr_child_batch.get() != NULL &&
-            num_output_rows_ready() < state->batch_size() + 1) {
+    while (_curr_child_batch.get() != NULL && num_output_rows_ready() < state->batch_size() + 1) {
         RETURN_IF_CANCELLED(state);
         //RETURN_IF_ERROR(QueryMaintenance(state));
         RETURN_IF_ERROR(process_child_batch(state));
@@ -658,14 +647,14 @@ Status AnalyticEvalNode::process_child_batch(RuntimeState* state) {
 
         // The _evaluators are updated with the current row.
         if (_fn_scope != ROWS || !_window.__isset.window_start ||
-                stream_idx - _rows_start_offset >= _curr_partition_idx) {
+            stream_idx - _rows_start_offset >= _curr_partition_idx) {
             VLOG_ROW << id() << " Update idx=" << stream_idx;
             AggFnEvaluator::add(_evaluators, _fn_ctxs, row, _curr_tuple);
 
             if (_window.__isset.window_start) {
                 VLOG_ROW << id() << " Adding tuple to window at idx=" << stream_idx;
-                Tuple* tuple = row->get_tuple(0)->deep_copy(*_child_tuple_desc,
-                               _curr_tuple_pool.get());
+                Tuple* tuple =
+                        row->get_tuple(0)->deep_copy(*_child_tuple_desc, _curr_tuple_pool.get());
                 _window_tuples.push_back(std::pair<int64_t, Tuple*>(stream_idx, tuple));
                 last_window_tuple_idx = stream_idx;
             }
@@ -701,21 +690,20 @@ Status AnalyticEvalNode::process_child_batch(RuntimeState* state) {
     // Transfer resources to _prev_tuple_pool when enough resources have accumulated
     // and the _prev_tuple_pool has already been transfered to an output batch.
     if (_curr_tuple_pool->total_allocated_bytes() > MAX_TUPLE_POOL_SIZE &&
-            (_prev_pool_last_result_idx == -1 || _prev_pool_last_window_idx == -1)) {
+        (_prev_pool_last_result_idx == -1 || _prev_pool_last_window_idx == -1)) {
         _prev_tuple_pool->acquire_data(_curr_tuple_pool.get(), false);
         _prev_pool_last_result_idx = _last_result_idx;
         _prev_pool_last_window_idx = last_window_tuple_idx;
-        VLOG_FILE << id() << " Transfer resources from curr to prev pool at idx: "
-                  << stream_idx << ", stores tuples with last result idx: "
-                  << _prev_pool_last_result_idx << " last window idx: "
-                  << _prev_pool_last_window_idx;
+        VLOG_FILE << id() << " Transfer resources from curr to prev pool at idx: " << stream_idx
+                  << ", stores tuples with last result idx: " << _prev_pool_last_result_idx
+                  << " last window idx: " << _prev_pool_last_window_idx;
     }
 
     return Status::OK();
 }
 
 Status AnalyticEvalNode::get_next_output_batch(RuntimeState* state, RowBatch* output_batch,
-        bool* eos) {
+                                               bool* eos) {
     SCOPED_TIMER(_evaluation_timer);
     VLOG_FILE << id() << " get_next_output_batch: " << debug_state_string(false)
               << " tuple pool size:" << _curr_tuple_pool->total_allocated_bytes();
@@ -821,8 +809,8 @@ Status AnalyticEvalNode::get_next(RuntimeState* state, RowBatch* row_batch, bool
     // Transfer resources to the output row batch if enough have accumulated and they're
     // no longer needed by output rows to be returned later.
     if (_prev_pool_last_result_idx != -1 &&
-            _prev_pool_last_result_idx < _input_stream->rows_returned() &&
-            _prev_pool_last_window_idx < _window_tuples.front().first) {
+        _prev_pool_last_result_idx < _input_stream->rows_returned() &&
+        _prev_pool_last_window_idx < _window_tuples.front().first) {
         VLOG_FILE << id() << " Transfer prev pool to output batch, "
                   << " pool size: " << _prev_tuple_pool->total_allocated_bytes()
                   << " last result idx: " << _prev_pool_last_result_idx
@@ -916,4 +904,4 @@ void AnalyticEvalNode::debug_string(int indentation_level, stringstream* out) co
 //  return ExecNode::QueryMaintenance(state);
 //}
 
-}
+} // namespace doris

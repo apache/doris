@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/encoding_info.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 #include "common/logging.h"
@@ -29,9 +30,8 @@ namespace segment_v2 {
 
 class EncodingInfoTest : public testing::Test {
 public:
-    EncodingInfoTest() { }
-    virtual ~EncodingInfoTest() {
-    }
+    EncodingInfoTest() {}
+    virtual ~EncodingInfoTest() {}
 };
 
 TEST_F(EncodingInfoTest, normal) {
@@ -49,11 +49,10 @@ TEST_F(EncodingInfoTest, no_encoding) {
     ASSERT_FALSE(status.ok());
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

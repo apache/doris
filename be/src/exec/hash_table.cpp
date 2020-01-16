@@ -19,12 +19,11 @@
 
 #include "codegen/codegen_anyval.h"
 #include "codegen/llvm_codegen.h"
-
 #include "exprs/expr.h"
-#include "runtime/raw_value.h"
-#include "runtime/string_value.hpp"
 #include "runtime/mem_tracker.h"
+#include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
+#include "runtime/string_value.hpp"
 #include "util/doris_metrics.h"
 
 using llvm::BasicBlock;
@@ -41,24 +40,22 @@ const float HashTable::MAX_BUCKET_OCCUPANCY_FRACTION = 0.75f;
 const char* HashTable::_s_llvm_class_name = "class.doris::HashTable";
 
 HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
-                     const vector<ExprContext*>& probe_expr_ctxs,
-                     int num_build_tuples, bool stores_nulls, 
-                     const std::vector<bool>& finds_nulls,
-                     int32_t initial_seed,
-                     MemTracker* mem_tracker, int64_t num_buckets) :
-        _build_expr_ctxs(build_expr_ctxs),
-        _probe_expr_ctxs(probe_expr_ctxs),
-        _num_build_tuples(num_build_tuples),
-        _stores_nulls(stores_nulls),
-        _finds_nulls(finds_nulls),
-        _initial_seed(initial_seed),
-        _node_byte_size(sizeof(Node) + sizeof(Tuple*) * _num_build_tuples),
-        _num_filled_buckets(0),
-        _nodes(NULL),
-        _num_nodes(0),
-        _exceeded_limit(false),
-        _mem_tracker(mem_tracker),
-        _mem_limit_exceeded(false) {
+                     const vector<ExprContext*>& probe_expr_ctxs, int num_build_tuples,
+                     bool stores_nulls, const std::vector<bool>& finds_nulls, int32_t initial_seed,
+                     MemTracker* mem_tracker, int64_t num_buckets)
+        : _build_expr_ctxs(build_expr_ctxs),
+          _probe_expr_ctxs(probe_expr_ctxs),
+          _num_build_tuples(num_build_tuples),
+          _stores_nulls(stores_nulls),
+          _finds_nulls(finds_nulls),
+          _initial_seed(initial_seed),
+          _node_byte_size(sizeof(Node) + sizeof(Tuple*) * _num_build_tuples),
+          _num_filled_buckets(0),
+          _nodes(NULL),
+          _num_nodes(0),
+          _exceeded_limit(false),
+          _mem_tracker(mem_tracker),
+          _mem_limit_exceeded(false) {
     DCHECK(mem_tracker != NULL);
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
 
@@ -69,8 +66,8 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
     _mem_tracker->consume(_buckets.capacity() * sizeof(Bucket));
 
     // Compute the layout and buffer size to store the evaluated expr results
-    _results_buffer_size = Expr::compute_results_layout(_build_expr_ctxs,
-                           &_expr_values_buffer_offsets, &_var_result_begin);
+    _results_buffer_size = Expr::compute_results_layout(
+            _build_expr_ctxs, &_expr_values_buffer_offsets, &_var_result_begin);
     _expr_values_buffer = new uint8_t[_results_buffer_size];
     memset(_expr_values_buffer, 0, sizeof(uint8_t) * _results_buffer_size);
     _expr_value_null_bits = new uint8_t[_build_expr_ctxs.size()];
@@ -91,8 +88,7 @@ HashTable::HashTable(const vector<ExprContext*>& build_expr_ctxs,
     }
 }
 
-HashTable::~HashTable() {
-}
+HashTable::~HashTable() {}
 
 void HashTable::close() {
     // TODO: use tr1::array?
@@ -172,7 +168,6 @@ uint32_t HashTable::hash_variable_len_row() {
                 hash = decimal->hash(hash);
             }
         }
-        
     }
 
     return hash;
@@ -198,7 +193,6 @@ bool HashTable::equals(TupleRow* build_row) {
 
         if (!RawValue::eq(loc, val, _build_expr_ctxs[i]->root()->type())) {
             return false;
-
         }
     }
 
@@ -269,7 +263,7 @@ void HashTable::grow_node_array() {
     memset(new_nodes, 0, new_size);
     memcpy(new_nodes, _nodes, old_size);
     free(_nodes);
-    _nodes = new_nodes; 
+    _nodes = new_nodes;
 
 #if 0
     if (DorisMetrics::hash_table_total_bytes() != NULL) {
@@ -331,9 +325,8 @@ std::string HashTable::debug_string(bool skip_empty, const RowDescriptor* desc) 
 // Helper function to store a value into the results buffer if the expr
 // evaluated to NULL.  We don't want (NULL, 1) to hash to the same as (0,1) so
 // we'll pick a more random value.
-static void codegen_assign_null_value(
-        LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder,
-        Value* dst, const TypeDescriptor& type) {
+static void codegen_assign_null_value(LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder,
+                                      Value* dst, const TypeDescriptor& type) {
     int64_t fvn_seed = HashUtil::FNV_SEED;
 
     if (type.type == TYPE_CHAR || type.type == TYPE_VARCHAR) {
@@ -362,15 +355,13 @@ static void codegen_assign_null_value(
         case TYPE_FLOAT: {
             // Don't care about the value, just the bit pattern
             float fvn_seed_float = *reinterpret_cast<float*>(&fvn_seed);
-            null_value = llvm::ConstantFP::get(
-                codegen->context(), llvm::APFloat(fvn_seed_float));
+            null_value = llvm::ConstantFP::get(codegen->context(), llvm::APFloat(fvn_seed_float));
             break;
         }
         case TYPE_DOUBLE: {
             // Don't care about the value, just the bit pattern
             double fvn_seed_double = *reinterpret_cast<double*>(&fvn_seed);
-            null_value = llvm::ConstantFP::get(
-                codegen->context(), llvm::APFloat(fvn_seed_double));
+            null_value = llvm::ConstantFP::get(codegen->context(), llvm::APFloat(fvn_seed_double));
             break;
         }
         default:
@@ -412,8 +403,8 @@ Function* HashTable::codegen_eval_tuple_row(RuntimeState* state, bool build) {
     const std::vector<ExprContext*>& ctxs = build ? _build_expr_ctxs : _probe_expr_ctxs;
     for (int i = 0; i < ctxs.size(); ++i) {
         PrimitiveType type = ctxs[i]->root()->type().type;
-        if (type == TYPE_DATE || type == TYPE_DATETIME
-                || type == TYPE_DECIMAL || type == TYPE_CHAR || type == TYPE_DECIMALV2) {
+        if (type == TYPE_DATE || type == TYPE_DATETIME || type == TYPE_DECIMAL ||
+            type == TYPE_CHAR || type == TYPE_DECIMALV2) {
             return NULL;
         }
     }
@@ -432,8 +423,8 @@ Function* HashTable::codegen_eval_tuple_row(RuntimeState* state, bool build) {
     DCHECK(this_type != NULL);
     PointerType* this_ptr_type = PointerType::get(this_type, 0);
 
-    LlvmCodeGen::FnPrototype prototype(
-        codegen, build ? "eval_build_row" : "eval_probe_row", codegen->get_type(TYPE_BOOLEAN));
+    LlvmCodeGen::FnPrototype prototype(codegen, build ? "eval_build_row" : "eval_probe_row",
+                                       codegen->get_type(TYPE_BOOLEAN));
     prototype.add_argument(LlvmCodeGen::NamedVariable("this_ptr", this_ptr_type));
     prototype.add_argument(LlvmCodeGen::NamedVariable("row", tuple_row_ptr_type));
 
@@ -456,7 +447,7 @@ Function* HashTable::codegen_eval_tuple_row(RuntimeState* state, bool build) {
             // Convert result buffer to llvm ptr type
             void* loc = _expr_values_buffer + _expr_values_buffer_offsets[i];
             Value* llvm_loc = codegen->cast_ptr_to_llvm_ptr(
-                codegen->get_ptr_type(ctxs[i]->root()->type()), loc);
+                    codegen->get_ptr_type(ctxs[i]->root()->type()), loc);
 
             BasicBlock* null_block = BasicBlock::Create(context, "null", fn);
             BasicBlock* not_null_block = BasicBlock::Create(context, "not_null", fn);
@@ -475,18 +466,18 @@ Function* HashTable::codegen_eval_tuple_row(RuntimeState* state, bool build) {
             }
 
             Value* ctx_arg = codegen->cast_ptr_to_llvm_ptr(
-                codegen->get_ptr_type(ExprContext::_s_llvm_class_name), ctxs[i]);
-            Value* expr_fn_args[] = { ctx_arg, row };
-            CodegenAnyVal result = CodegenAnyVal::create_call_wrapped(
-                codegen, &builder, ctxs[i]->root()->type(),
-                expr_fn, expr_fn_args, "result", NULL);
+                    codegen->get_ptr_type(ExprContext::_s_llvm_class_name), ctxs[i]);
+            Value* expr_fn_args[] = {ctx_arg, row};
+            CodegenAnyVal result =
+                    CodegenAnyVal::create_call_wrapped(codegen, &builder, ctxs[i]->root()->type(),
+                                                       expr_fn, expr_fn_args, "result", NULL);
             Value* is_null = result.get_is_null();
 
             // Set null-byte result
             Value* null_byte = builder.CreateZExt(is_null, codegen->get_type(TYPE_TINYINT));
             uint8_t* null_byte_loc = &_expr_value_null_bits[i];
             Value* llvm_null_byte_loc =
-                codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(), null_byte_loc);
+                    codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(), null_byte_loc);
             builder.CreateStore(null_byte, llvm_null_byte_loc);
 
             builder.CreateCondBr(is_null, null_block, not_null_block);
@@ -587,8 +578,8 @@ Function* HashTable::codegen_hash_current_row(RuntimeState* state) {
 
         // Hash string slots
         for (int i = 0; i < _build_expr_ctxs.size(); ++i) {
-            if (_build_expr_ctxs[i]->root()->type().type != TYPE_CHAR
-                && _build_expr_ctxs[i]->root()->type().type != TYPE_VARCHAR) {
+            if (_build_expr_ctxs[i]->root()->type().type != TYPE_CHAR &&
+                _build_expr_ctxs[i]->root()->type().type != TYPE_VARCHAR) {
                 continue;
             }
 
@@ -608,10 +599,10 @@ Function* HashTable::codegen_hash_current_row(RuntimeState* state) {
 
                 uint8_t* null_byte_loc = &_expr_value_null_bits[i];
                 Value* llvm_null_byte_loc =
-                    codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(), null_byte_loc);
+                        codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(), null_byte_loc);
                 Value* null_byte = builder.CreateLoad(llvm_null_byte_loc);
-                Value* is_null = builder.CreateICmpNE(
-                    null_byte, codegen->get_int_constant(TYPE_TINYINT, 0));
+                Value* is_null =
+                        builder.CreateICmpNE(null_byte, codegen->get_int_constant(TYPE_TINYINT, 0));
                 builder.CreateCondBr(is_null, null_block, not_null_block);
 
                 // For null, we just want to call the hash function on the portion of
@@ -627,8 +618,8 @@ Function* HashTable::codegen_hash_current_row(RuntimeState* state) {
             }
 
             // Convert _expr_values_buffer loc to llvm value
-            Value* str_val = codegen->cast_ptr_to_llvm_ptr(
-                codegen->get_ptr_type(TYPE_VARCHAR), loc);
+            Value* str_val =
+                    codegen->cast_ptr_to_llvm_ptr(codegen->get_ptr_type(TYPE_VARCHAR), loc);
 
             Value* ptr = builder.CreateStructGEP(str_val, 0, "ptr");
             Value* len = builder.CreateStructGEP(str_val, 1, "len");
@@ -637,8 +628,7 @@ Function* HashTable::codegen_hash_current_row(RuntimeState* state) {
 
             // Call hash(ptr, len, hash_result);
             Function* general_hash_fn = codegen->get_hash_function();
-            Value* string_hash_result =
-                builder.CreateCall3(general_hash_fn, ptr, len, hash_result);
+            Value* string_hash_result = builder.CreateCall3(general_hash_fn, ptr, len, hash_result);
 
             if (_stores_nulls) {
                 builder.CreateBr(continue_block);
@@ -761,11 +751,11 @@ Function* HashTable::codegen_equals(RuntimeState* state) {
             }
 
             Value* ctx_arg = codegen->cast_ptr_to_llvm_ptr(
-                codegen->get_ptr_type(ExprContext::_s_llvm_class_name), _build_expr_ctxs[i]);
-            Value* expr_fn_args[] = { ctx_arg, row };
+                    codegen->get_ptr_type(ExprContext::_s_llvm_class_name), _build_expr_ctxs[i]);
+            Value* expr_fn_args[] = {ctx_arg, row};
             CodegenAnyVal result = CodegenAnyVal::create_call_wrapped(
-                codegen, &builder, _build_expr_ctxs[i]->root()->type(),
-                expr_fn, expr_fn_args, "result", NULL);
+                    codegen, &builder, _build_expr_ctxs[i]->root()->type(), expr_fn, expr_fn_args,
+                    "result", NULL);
             Value* is_null = result.get_is_null();
 
             // Determine if probe is null (i.e. _expr_value_null_bits[i] == true). In
@@ -774,16 +764,16 @@ Function* HashTable::codegen_equals(RuntimeState* state) {
             uint8_t* null_byte_loc = &_expr_value_null_bits[i];
             if (_stores_nulls) {
                 Value* llvm_null_byte_loc =
-                    codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(), null_byte_loc);
+                        codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(), null_byte_loc);
                 Value* null_byte = builder.CreateLoad(llvm_null_byte_loc);
-                probe_is_null = builder.CreateICmpNE(
-                    null_byte, codegen->get_int_constant(TYPE_TINYINT, 0));
+                probe_is_null =
+                        builder.CreateICmpNE(null_byte, codegen->get_int_constant(TYPE_TINYINT, 0));
             }
 
             // Get llvm value for probe_val from '_expr_values_buffer'
             void* loc = _expr_values_buffer + _expr_values_buffer_offsets[i];
             Value* probe_val = codegen->cast_ptr_to_llvm_ptr(
-                codegen->get_ptr_type(_build_expr_ctxs[i]->root()->type()), loc);
+                    codegen->get_ptr_type(_build_expr_ctxs[i]->root()->type()), loc);
 
             // Branch for GetValue() returning NULL
             builder.CreateCondBr(is_null, null_block, not_null_block);
@@ -817,4 +807,4 @@ Function* HashTable::codegen_equals(RuntimeState* state) {
     return codegen->finalize_function(fn);
 }
 
-}
+} // namespace doris

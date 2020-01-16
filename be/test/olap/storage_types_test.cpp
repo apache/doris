@@ -15,25 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/types.h"
-
 #include <gtest/gtest.h>
 
-#include "runtime/mem_tracker.h"
-#include "runtime/mem_pool.h"
-#include "util/slice.h"
 #include "olap/field.h"
+#include "olap/types.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
+#include "util/slice.h"
 
 namespace doris {
 
 class TypesTest : public testing::Test {
 public:
-    TypesTest() { }
-    virtual ~TypesTest() {
-    }
+    TypesTest() {}
+    virtual ~TypesTest() {}
 };
 
-template<FieldType field_type>
+template <FieldType field_type>
 void common_test(typename TypeTraits<field_type>::CppType src_val) {
     TypeInfo* type = get_type_info(field_type);
 
@@ -58,7 +56,6 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
         typename TypeTraits<field_type>::CppType dst_val;
         type->set_to_min((char*)&dst_val);
 
-
         ASSERT_FALSE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) > 0);
     }
@@ -71,7 +68,7 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
     }
 }
 
-template<FieldType fieldType>
+template <FieldType fieldType>
 void test_char(Slice src_val) {
     Field* field = FieldFactory::create_by_type(fieldType);
     field->_length = src_val.size;
@@ -115,12 +112,12 @@ void test_char(Slice src_val) {
     }
 }
 
-template<>
+template <>
 void common_test<OLAP_FIELD_TYPE_CHAR>(Slice src_val) {
     test_char<OLAP_FIELD_TYPE_VARCHAR>(src_val);
 }
 
-template<>
+template <>
 void common_test<OLAP_FIELD_TYPE_VARCHAR>(Slice src_val) {
     test_char<OLAP_FIELD_TYPE_VARCHAR>(src_val);
 }
@@ -149,7 +146,7 @@ TEST(TypesTest, copy_and_equal) {
 
 } // namespace doris
 
-int main(int argc, char **argv) {
-    testing::InitGoogleTest(&argc, argv); 
+int main(int argc, char** argv) {
+    testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -17,48 +17,44 @@
 
 #include "exec/es_http_scanner.h"
 
-#include <sstream>
 #include <iostream>
+#include <sstream>
 
+#include "exprs/expr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
-#include "exprs/expr.h"
 
 namespace doris {
 
-EsHttpScanner::EsHttpScanner(
-            RuntimeState* state,
-            RuntimeProfile* profile,
-            TupleId tuple_id,
-            const std::map<std::string, std::string>& properties,
-            const std::vector<ExprContext*>& conjunct_ctxs,
-            EsScanCounter* counter) :
-        _state(state),
-        _profile(profile),
-        _tuple_id(tuple_id),
-        _properties(properties),
-        _conjunct_ctxs(conjunct_ctxs),
-        _next_range(0),
-        _line_eof(false),
-        _batch_eof(false),
+EsHttpScanner::EsHttpScanner(RuntimeState* state, RuntimeProfile* profile, TupleId tuple_id,
+                             const std::map<std::string, std::string>& properties,
+                             const std::vector<ExprContext*>& conjunct_ctxs, EsScanCounter* counter)
+        : _state(state),
+          _profile(profile),
+          _tuple_id(tuple_id),
+          _properties(properties),
+          _conjunct_ctxs(conjunct_ctxs),
+          _next_range(0),
+          _line_eof(false),
+          _batch_eof(false),
 #if BE_TEST
-        _mem_tracker(new MemTracker()),
-        _mem_pool(_mem_tracker.get()),
-#else 
-        _mem_tracker(new MemTracker(-1, "EsHttp Scanner", state->instance_mem_tracker())),
-        _mem_pool(_state->instance_mem_tracker()),
+          _mem_tracker(new MemTracker()),
+          _mem_pool(_mem_tracker.get()),
+#else
+          _mem_tracker(new MemTracker(-1, "EsHttp Scanner", state->instance_mem_tracker())),
+          _mem_pool(_state->instance_mem_tracker()),
 #endif
-        _tuple_desc(nullptr),
-        _counter(counter),
-        _es_reader(nullptr),
-        _es_scroll_parser(nullptr),
-        _rows_read_counter(nullptr),
-        _read_timer(nullptr),
-        _materialize_timer(nullptr) {
+          _tuple_desc(nullptr),
+          _counter(counter),
+          _es_reader(nullptr),
+          _es_scroll_parser(nullptr),
+          _rows_read_counter(nullptr),
+          _read_timer(nullptr),
+          _materialize_timer(nullptr) {
 }
 
 EsHttpScanner::~EsHttpScanner() {
@@ -88,7 +84,8 @@ Status EsHttpScanner::open() {
     return Status::OK();
 }
 
-Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, const std::map<std::string, std::string>& docvalue_context) {
+Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof,
+                               const std::map<std::string, std::string>& docvalue_context) {
     SCOPED_TIMER(_read_timer);
     if (_line_eof && _batch_eof) {
         *eof = true;
@@ -106,8 +103,8 @@ Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, con
 
         COUNTER_UPDATE(_rows_read_counter, 1);
         SCOPED_TIMER(_materialize_timer);
-        RETURN_IF_ERROR(_es_scroll_parser->fill_tuple(
-                        _tuple_desc, tuple, tuple_pool, &_line_eof, docvalue_context));
+        RETURN_IF_ERROR(_es_scroll_parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof,
+                                                      docvalue_context));
         if (!_line_eof) {
             break;
         }
@@ -124,4 +121,4 @@ void EsHttpScanner::close() {
     Expr::close(_conjunct_ctxs, _state);
 }
 
-}
+} // namespace doris

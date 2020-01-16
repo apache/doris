@@ -29,9 +29,7 @@ class Literal : public Expr {
 public:
     virtual ~Literal();
 
-    virtual Expr* clone(ObjectPool* pool) const override { 
-        return pool->add(new Literal(*this));
-    }
+    virtual Expr* clone(ObjectPool* pool) const override { return pool->add(new Literal(*this)); }
 
     virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
 
@@ -56,6 +54,6 @@ private:
     ExprValue _value;
 };
 
-}
+} // namespace doris
 
 #endif

@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/metrics.h"
-
 #include <map>
 #include <memory>
+
+#include "util/metrics.h"
 
 namespace doris {
 
@@ -34,25 +34,20 @@ public:
     ~SystemMetrics();
 
     // install system metrics to registry
-    void install(MetricRegistry* registry,
-                 const std::set<std::string>& disk_devices,
+    void install(MetricRegistry* registry, const std::set<std::string>& disk_devices,
                  const std::vector<std::string>& network_interfaces);
 
     // update metrics
     void update();
 
     void get_disks_io_time(std::map<std::string, int64_t>* map);
-    int64_t get_max_io_util(
-        const std::map<std::string, int64_t>& lst_value, int64_t interval_sec);
+    int64_t get_max_io_util(const std::map<std::string, int64_t>& lst_value, int64_t interval_sec);
 
-    void get_network_traffic(
-            std::map<std::string, int64_t>* send_map,
-            std::map<std::string, int64_t>* rcv_map);
-    void get_max_net_traffic(
-            const std::map<std::string, int64_t>& lst_send_map,
-            const std::map<std::string, int64_t>& lst_rcv_map,
-            int64_t interval_sec,
-            int64_t* send_rate, int64_t* rcv_rate);
+    void get_network_traffic(std::map<std::string, int64_t>* send_map,
+                             std::map<std::string, int64_t>* rcv_map);
+    void get_max_net_traffic(const std::map<std::string, int64_t>& lst_send_map,
+                             const std::map<std::string, int64_t>& lst_rcv_map,
+                             int64_t interval_sec, int64_t* send_rate, int64_t* rcv_rate);
 
 private:
     void _install_cpu_metrics(MetricRegistry*);
@@ -63,12 +58,10 @@ private:
     void _install_memory_metrics(MetricRegistry* registry);
     void _update_memory_metrics();
 
-    void _install_disk_metrics(MetricRegistry* registry,
-                               const std::set<std::string>& devices);
+    void _install_disk_metrics(MetricRegistry* registry, const std::set<std::string>& devices);
     void _update_disk_metrics();
 
-    void _install_net_metrics(MetricRegistry* registry,
-                              const std::vector<std::string>& interfaces);
+    void _install_net_metrics(MetricRegistry* registry, const std::vector<std::string>& interfaces);
     void _update_net_metrics();
 
     void _install_fd_metrics(MetricRegistry* registry);
@@ -90,4 +83,4 @@ private:
     MetricRegistry* _registry = nullptr;
 };
 
-}
+} // namespace doris

@@ -21,8 +21,8 @@
 
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "udf/udf_internal.h"
 #include "udf/udf.h"
+#include "udf/udf_internal.h"
 
 namespace doris {
 
@@ -31,17 +31,17 @@ FunctionUtils::FunctionUtils() {
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
     _mem_tracker = new MemTracker();
     _memory_pool = new MemPool(_mem_tracker);
-    _fn_ctx = FunctionContextImpl::create_context(
-        _state, _memory_pool, return_type, arg_types, 0, false);
+    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types, 0,
+                                                  false);
 }
-FunctionUtils::FunctionUtils(RuntimeState* state) {       
+FunctionUtils::FunctionUtils(RuntimeState* state) {
     _state = state;
     doris_udf::FunctionContext::TypeDesc return_type;
     std::vector<doris_udf::FunctionContext::TypeDesc> arg_types;
     _mem_tracker = new MemTracker();
     _memory_pool = new MemPool(_mem_tracker);
-    _fn_ctx = FunctionContextImpl::create_context(
-        _state, _memory_pool, return_type, arg_types, 0, false);
+    _fn_ctx = FunctionContextImpl::create_context(_state, _memory_pool, return_type, arg_types, 0,
+                                                  false);
 }
 
 FunctionUtils::~FunctionUtils() {
@@ -51,4 +51,4 @@ FunctionUtils::~FunctionUtils() {
     delete _mem_tracker;
 }
 
-}
+} // namespace doris

@@ -15,27 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <sstream>
-#include <fstream>
+#include "olap/rowset/rowset_converter.h"
 
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
+#include <fstream>
+#include <sstream>
+#include <string>
+
 #include "boost/filesystem.hpp"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
-#include "util/logging.h"
-#include "util/file_utils.h"
+#include "olap/data_dir.h"
+#include "olap/olap_cond.h"
 #include "olap/olap_meta.h"
-#include "olap/tablet_meta.h"
-#include "olap/rowset/rowset_writer.h"
-#include "olap/rowset/rowset_writer_context.h"
-#include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_reader.h"
-#include "olap/rowset/rowset_converter.h"
-#include "olap/data_dir.h"
+#include "olap/rowset/rowset_reader_context.h"
+#include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/storage_engine.h"
-#include "olap/olap_cond.h"
+#include "olap/tablet_meta.h"
+#include "util/file_utils.h"
+#include "util/logging.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -51,7 +52,7 @@ namespace doris {
 static const uint32_t MAX_PATH_LEN = 1024;
 
 void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_type,
-        RowsetWriterContext* rowset_writer_context) {
+                                  RowsetWriterContext* rowset_writer_context) {
     RowsetId rowset_id;
     rowset_id.init(10000);
     rowset_writer_context->rowset_id = rowset_id;
@@ -67,9 +68,12 @@ void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_
     rowset_writer_context->version_hash = 110;
 }
 
-void create_rowset_reader_context(TabletSchema* tablet_schema, const std::vector<uint32_t>* return_columns,
-        const DeleteHandler* delete_handler, std::vector<ColumnPredicate*>* predicates,
-        std::set<uint32_t>* load_bf_columns, Conditions* conditions, RowsetReaderContext* rowset_reader_context) {
+void create_rowset_reader_context(TabletSchema* tablet_schema,
+                                  const std::vector<uint32_t>* return_columns,
+                                  const DeleteHandler* delete_handler,
+                                  std::vector<ColumnPredicate*>* predicates,
+                                  std::set<uint32_t>* load_bf_columns, Conditions* conditions,
+                                  RowsetReaderContext* rowset_reader_context) {
     rowset_reader_context->reader_type = READER_ALTER_TABLE;
     rowset_reader_context->tablet_schema = tablet_schema;
     rowset_reader_context->need_ordered_result = true;
@@ -112,7 +116,7 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     column_2->set_is_key(true);
     column_2->set_is_nullable(false);
     column_2->set_is_bf_column(false);
-    
+
     ColumnPB* column_3 = tablet_schema_pb.add_column();
     column_3->set_unique_id(3);
     column_3->set_name("v1");
@@ -168,9 +172,7 @@ public:
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
 
-    virtual void TearDown() {
-        FileUtils::remove_all(config::storage_root_path);
-    }
+    virtual void TearDown() { FileUtils::remove_all(config::storage_root_path); }
 
     void process(RowsetTypePB src_type, RowsetTypePB dst_type);
 
@@ -187,7 +189,8 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     RowsetWriterContext rowset_writer_context;
     create_rowset_writer_context(&tablet_schema, src_type, &rowset_writer_context);
     std::unique_ptr<RowsetWriter> _rowset_writer;
-    ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset_writer(rowset_writer_context, &_rowset_writer));
+    ASSERT_EQ(OLAP_SUCCESS,
+              RowsetFactory::create_rowset_writer(rowset_writer_context, &_rowset_writer));
     RowCursor row;
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -217,13 +220,15 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     RowsetConverter rowset_converter(tablet_meta);
     RowsetMetaPB dst_rowset_meta_pb;
     if (dst_type == BETA_ROWSET) {
-        ASSERT_EQ(OLAP_SUCCESS, rowset_converter.convert_alpha_to_beta(
-            src_rowset->rowset_meta(), _schema_hash_path, &dst_rowset_meta_pb));
+        ASSERT_EQ(OLAP_SUCCESS,
+                  rowset_converter.convert_alpha_to_beta(src_rowset->rowset_meta(),
+                                                         _schema_hash_path, &dst_rowset_meta_pb));
     } else {
-        ASSERT_EQ(OLAP_SUCCESS, rowset_converter.convert_beta_to_alpha(
-            src_rowset->rowset_meta(), _schema_hash_path, &dst_rowset_meta_pb));
+        ASSERT_EQ(OLAP_SUCCESS,
+                  rowset_converter.convert_beta_to_alpha(src_rowset->rowset_meta(),
+                                                         _schema_hash_path, &dst_rowset_meta_pb));
     }
-    
+
     ASSERT_EQ(dst_type, dst_rowset_meta_pb.rowset_type());
     ASSERT_EQ(12345, dst_rowset_meta_pb.tablet_id());
     ASSERT_EQ(1024, dst_rowset_meta_pb.num_rows());
@@ -232,9 +237,9 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     RowsetMetaSharedPtr dst_rowset_meta(new RowsetMeta());
     ASSERT_TRUE(dst_rowset_meta->init_from_pb(dst_rowset_meta_pb));
     RowsetSharedPtr dst_rowset;
-    ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(&tablet_schema,
-            _schema_hash_path, dst_rowset_meta, &dst_rowset));
-    
+    ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(&tablet_schema, _schema_hash_path,
+                                                         dst_rowset_meta, &dst_rowset));
+
     RowsetReaderSharedPtr dst_rowset_reader;
     ASSERT_EQ(OLAP_SUCCESS, dst_rowset->create_reader(&dst_rowset_reader));
     RowsetReaderContext rowset_reader_context;
@@ -242,12 +247,12 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     std::vector<ColumnPredicate*> predicates;
     Conditions conditions;
     std::vector<uint32_t> return_columns;
-    for (int i = 0;  i < tablet_schema.num_columns(); ++i) {
+    for (int i = 0; i < tablet_schema.num_columns(); ++i) {
         return_columns.push_back(i);
     }
     DeleteHandler delete_handler;
-    create_rowset_reader_context(&tablet_schema, &return_columns, &delete_handler,
-            &predicates, &load_bf_columns, &conditions, &rowset_reader_context);
+    create_rowset_reader_context(&tablet_schema, &return_columns, &delete_handler, &predicates,
+                                 &load_bf_columns, &conditions, &rowset_reader_context);
     res = dst_rowset_reader->init(&rowset_reader_context);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
@@ -273,9 +278,9 @@ TEST_F(RowsetConverterTest, TestConvertBetaRowsetToAlpha) {
     process(ALPHA_ROWSET, BETA_ROWSET);
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

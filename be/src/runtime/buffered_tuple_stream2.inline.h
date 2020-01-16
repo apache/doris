@@ -19,7 +19,6 @@
 #define DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_INLINE_H
 
 #include "runtime/buffered_tuple_stream2.h"
-
 #include "runtime/descriptors.h"
 #include "runtime/tuple_row.h"
 
@@ -39,7 +38,7 @@ inline bool BufferedTupleStream2::add_row(TupleRow* row, Status* status) {
     return deep_copy(row);
 }
 
-inline uint8_t* BufferedTupleStream2::allocate_row(int size, Status *status) {
+inline uint8_t* BufferedTupleStream2::allocate_row(int size, Status* status) {
     DCHECK(!_closed);
     if (UNLIKELY(_write_block == NULL || _write_block->bytes_remaining() < size)) {
         bool got_block;
@@ -73,8 +72,8 @@ inline void BufferedTupleStream2::get_tuple_row(const RowIdx& idx, TupleRow* row
             const uint8_t* null_word = _block_start_idx[idx.block()] + (tuple_idx >> 3);
             const uint32_t null_pos = tuple_idx & 7;
             const bool is_not_null = ((*null_word & (1 << (7 - null_pos))) == 0);
-            row->set_tuple(i, reinterpret_cast<Tuple*>(
-                        reinterpret_cast<uint64_t>(data) * is_not_null));
+            row->set_tuple(
+                    i, reinterpret_cast<Tuple*>(reinterpret_cast<uint64_t>(data) * is_not_null));
             data += _desc.tuple_descriptors()[i]->byte_size() * is_not_null;
             ++tuple_idx;
         }
@@ -86,6 +85,6 @@ inline void BufferedTupleStream2::get_tuple_row(const RowIdx& idx, TupleRow* row
     }
 }
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_RUNTIME_BUFFERED_TUPLE_STREAM2_INLINE_H

@@ -28,6 +28,6 @@ typedef int SlotId;
 typedef int TableId;
 typedef int PlanNodeId;
 
-};
+}; // namespace doris
 
 #endif

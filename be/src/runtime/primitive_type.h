@@ -21,11 +21,11 @@
 #include <string>
 
 #include "common/logging.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/Opcodes_types.h"
+#include "gen_cpp/Types_types.h"
+#include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/datetime_value.h"
 #include "runtime/large_int_value.h"
 #include "runtime/string_value.h"
 
@@ -33,27 +33,28 @@ namespace doris {
 
 enum PrimitiveType {
     INVALID_TYPE = 0,
-    TYPE_NULL,    /* 1 */
-    TYPE_BOOLEAN, /* 2 */
-    TYPE_TINYINT, /* 3 */
+    TYPE_NULL,     /* 1 */
+    TYPE_BOOLEAN,  /* 2 */
+    TYPE_TINYINT,  /* 3 */
     TYPE_SMALLINT, /* 4 */
-    TYPE_INT, /* 5 */
-    TYPE_BIGINT, /* 6 */
+    TYPE_INT,      /* 5 */
+    TYPE_BIGINT,   /* 6 */
     TYPE_LARGEINT, /* 7 */
-    TYPE_FLOAT, /* 8 */
-    TYPE_DOUBLE, /* 9 */
-    TYPE_VARCHAR, /* 10 */
-    TYPE_DATE, /* 11 */
+    TYPE_FLOAT,    /* 8 */
+    TYPE_DOUBLE,   /* 9 */
+    TYPE_VARCHAR,  /* 10 */
+    TYPE_DATE,     /* 11 */
     TYPE_DATETIME, /* 12 */
-    TYPE_BINARY,   /* 13 */   // Not implemented
-    TYPE_DECIMAL,  /* 14 */
-    TYPE_CHAR, /* 15 */
+    TYPE_BINARY,
+    /* 13 */      // Not implemented
+    TYPE_DECIMAL, /* 14 */
+    TYPE_CHAR,    /* 15 */
 
-    TYPE_STRUCT, /* 16 */
-    TYPE_ARRAY, /* 17 */
-    TYPE_MAP, /* 18 */
-    TYPE_HLL, /* 19 */
-    TYPE_DECIMALV2,  /* 20 */
+    TYPE_STRUCT,    /* 16 */
+    TYPE_ARRAY,     /* 17 */
+    TYPE_MAP,       /* 18 */
+    TYPE_HLL,       /* 19 */
+    TYPE_DECIMALV2, /* 20 */
 
     TYPE_TIME, /* 21 */
     TYPE_OBJECT,
@@ -92,7 +93,7 @@ inline bool is_enumeration_type(PrimitiveType type) {
 // inline bool is_date_type(PrimitiveType type) {
 //     return type == TYPE_DATETIME || type == TYPE_DATE;
 // }
-// 
+//
 // inline bool is_string_type(PrimitiveType type) {
 //     return type == TYPE_CHAR || type == TYPE_VARCHAR;
 // }
@@ -230,8 +231,7 @@ inline int get_slot_size(PrimitiveType type) {
 
 inline bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
     if (lhs == TYPE_VARCHAR) {
-        return  rhs == TYPE_CHAR || rhs == TYPE_VARCHAR
-                || rhs == TYPE_HLL || rhs == TYPE_OBJECT;
+        return rhs == TYPE_CHAR || rhs == TYPE_VARCHAR || rhs == TYPE_HLL || rhs == TYPE_OBJECT;
     }
 
     if (lhs == TYPE_OBJECT) {
@@ -254,6 +254,6 @@ std::string type_to_odbc_string(PrimitiveType t);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val);
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name);
 
-}
+} // namespace doris
 
 #endif

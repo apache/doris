@@ -15,18 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/partitioned_hash_table.inline.h"
+#include <gtest/gtest.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include <boost/scoped_ptr.hpp>
-
-#include <stdlib.h>
-#include <stdio.h>
 #include <iostream>
 #include <vector>
 
-#include <gtest/gtest.h>
-
 #include "common/compiler_util.h"
+#include "exec/partitioned_hash_table.inline.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
@@ -103,8 +101,8 @@ protected:
 
     // Wrapper to call private methods on PartitionedHashTable
     // TODO: understand google testing, there must be a more natural way to do this
-    void ResizeTable(
-            PartitionedHashTable* table, int64_t new_size, PartitionedHashTableCtx* ht_ctx) {
+    void ResizeTable(PartitionedHashTable* table, int64_t new_size,
+                     PartitionedHashTableCtx* ht_ctx) {
         table->resize_buckets(new_size, ht_ctx);
     }
 
@@ -113,7 +111,7 @@ protected:
     // stored in results, indexed by the key.  Results must have been preallocated to
     // be at least max size.
     void FullScan(PartitionedHashTable* table, PartitionedHashTableCtx* ht_ctx, int min, int max,
-            bool all_unique, TupleRow** results, TupleRow** expected) {
+                  bool all_unique, TupleRow** results, TupleRow** expected) {
         PartitionedHashTable::Iterator iter = table->begin(ht_ctx);
         while (!iter.at_end()) {
             TupleRow* row = iter.get_row();
@@ -133,10 +131,8 @@ protected:
     // evaluated over build_exprs
     void ValidateMatch(TupleRow* probe_row, TupleRow* build_row) {
         EXPECT_TRUE(probe_row != build_row);
-        int32_t build_val =
-            *reinterpret_cast<int32_t*>(_build_expr_ctxs[0]->get_value(probe_row));
-        int32_t probe_val =
-            *reinterpret_cast<int32_t*>(_probe_expr_ctxs[0]->get_value(build_row));
+        int32_t build_val = *reinterpret_cast<int32_t*>(_build_expr_ctxs[0]->get_value(probe_row));
+        int32_t probe_val = *reinterpret_cast<int32_t*>(_probe_expr_ctxs[0]->get_value(build_row));
         EXPECT_EQ(build_val, probe_val);
     }
 
@@ -146,7 +142,7 @@ protected:
     };
 
     void ProbeTest(PartitionedHashTable* table, PartitionedHashTableCtx* ht_ctx,
-            ProbeTestData* data, int num_data, bool scan) {
+                   ProbeTestData* data, int num_data, bool scan) {
         uint32_t hash = 0;
         for (int i = 0; i < num_data; ++i) {
             TupleRow* row = data[i].probe_row;
@@ -174,7 +170,7 @@ protected:
                 } else {
                     EXPECT_EQ(data[i].expected_build_rows.size(), 1);
                     EXPECT_EQ(data[i].expected_build_rows[0]->get_tuple(0),
-                            iter.get_row()->get_tuple(0));
+                              iter.get_row()->get_tuple(0));
                     ValidateMatch(row, iter.get_row());
                 }
             }
@@ -183,21 +179,22 @@ protected:
 
     // Construct hash table with custom block manager. Returns result of PartitionedHashTable::init()
     bool CreateHashTable(bool quadratic, int64_t initial_num_buckets,
-            scoped_ptr<PartitionedHashTable>* table, int block_size = 8 * 1024 * 1024,
-            int max_num_blocks = 100, int reserved_blocks = 10) {
-        EXPECT_TRUE(_test_env->create_query_state(0, max_num_blocks, block_size,
-                    &_runtime_state).ok());
+                         scoped_ptr<PartitionedHashTable>* table, int block_size = 8 * 1024 * 1024,
+                         int max_num_blocks = 100, int reserved_blocks = 10) {
+        EXPECT_TRUE(
+                _test_env->create_query_state(0, max_num_blocks, block_size, &_runtime_state).ok());
         _runtime_state->init_mem_trackers(TUniqueId());
 
         BufferedBlockMgr2::Client* client;
-        EXPECT_TRUE(_runtime_state->block_mgr2()->register_client(reserved_blocks, &_limit,
-                    _runtime_state, &client).ok());
+        EXPECT_TRUE(_runtime_state->block_mgr2()
+                            ->register_client(reserved_blocks, &_limit, _runtime_state, &client)
+                            .ok());
 
         // Initial_num_buckets must be a power of two.
         EXPECT_EQ(initial_num_buckets, BitUtil::next_power_of_two(initial_num_buckets));
         int64_t max_num_buckets = 1L << 31;
         table->reset(new PartitionedHashTable(quadratic, _runtime_state, client, 1, NULL,
-                    max_num_buckets, initial_num_buckets));
+                                              max_num_buckets, initial_num_buckets));
         return (*table)->init();
     }
 
@@ -208,17 +205,13 @@ protected:
         TupleRow* probe_row3 = CreateTupleRow(3);
         TupleRow* probe_row4 = CreateTupleRow(4);
 
-        int32_t* val_row1 =
-            reinterpret_cast<int32_t*>(_build_expr_ctxs[0]->get_value(build_row1));
+        int32_t* val_row1 = reinterpret_cast<int32_t*>(_build_expr_ctxs[0]->get_value(build_row1));
         EXPECT_EQ(*val_row1, 1);
-        int32_t* val_row2 =
-            reinterpret_cast<int32_t*>(_build_expr_ctxs[0]->get_value(build_row2));
+        int32_t* val_row2 = reinterpret_cast<int32_t*>(_build_expr_ctxs[0]->get_value(build_row2));
         EXPECT_EQ(*val_row2, 2);
-        int32_t* val_row3 =
-            reinterpret_cast<int32_t*>(_probe_expr_ctxs[0]->get_value(probe_row3));
+        int32_t* val_row3 = reinterpret_cast<int32_t*>(_probe_expr_ctxs[0]->get_value(probe_row3));
         EXPECT_EQ(*val_row3, 3);
-        int32_t* val_row4 =
-            reinterpret_cast<int32_t*>(_probe_expr_ctxs[0]->get_value(probe_row4));
+        int32_t* val_row4 = reinterpret_cast<int32_t*>(_probe_expr_ctxs[0]->get_value(probe_row4));
         EXPECT_EQ(*val_row4, 4);
 
         // Create and close the hash table.
@@ -297,8 +290,7 @@ protected:
         ht_ctx.close();
     }
 
-    void ScanTest(bool quadratic, int initial_size, int rows_to_insert,
-            int additional_rows) {
+    void ScanTest(bool quadratic, int initial_size, int rows_to_insert, int additional_rows) {
         scoped_ptr<PartitionedHashTable> hash_table;
         ASSERT_TRUE(CreateHashTable(quadratic, initial_size, &hash_table));
 
@@ -344,7 +336,7 @@ protected:
         EXPECT_EQ(hash_table->num_buckets(), target_size);
         ProbeTest(hash_table.get(), &ht_ctx, probe_rows, total_rows, true);
 
-        delete [] probe_rows;
+        delete[] probe_rows;
         hash_table->close();
         ht_ctx.close();
     }
@@ -481,8 +473,8 @@ protected:
         const int reserved_blocks = 0;
         const int table_size = 1024;
         scoped_ptr<PartitionedHashTable> hash_table;
-        ASSERT_FALSE(CreateHashTable(quadratic, table_size, &hash_table, block_size,
-                    max_num_blocks, reserved_blocks));
+        ASSERT_FALSE(CreateHashTable(quadratic, table_size, &hash_table, block_size, max_num_blocks,
+                                     reserved_blocks));
         PartitionedHashTableCtx ht_ctx(_build_expr_ctxs, _probe_expr_ctxs, false, false, 1, 0, 1);
         PartitionedHashTable::Iterator iter = hash_table->begin(&ht_ctx);
         EXPECT_TRUE(iter.at_end());

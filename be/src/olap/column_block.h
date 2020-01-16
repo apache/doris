@@ -32,10 +32,14 @@ class ColumnBlockCell;
 // It doesn't own any data, user should keep the life of input data.
 class ColumnBlock {
 public:
-    ColumnBlock(const TypeInfo* type_info, uint8_t* data, uint8_t* null_bitmap,
-                size_t nrows, MemPool* pool)
-        : _type_info(type_info), _data(data), _null_bitmap(null_bitmap),
-          _nrows(nrows), _delete_state(DEL_NOT_SATISFIED), _pool(pool) { }
+    ColumnBlock(const TypeInfo* type_info, uint8_t* data, uint8_t* null_bitmap, size_t nrows,
+                MemPool* pool)
+            : _type_info(type_info),
+              _data(data),
+              _null_bitmap(null_bitmap),
+              _nrows(nrows),
+              _delete_state(DEL_NOT_SATISFIED),
+              _pool(pool) {}
 
     const TypeInfo* type_info() const { return _type_info; }
     uint8_t* data() const { return _data; }
@@ -44,9 +48,7 @@ public:
     MemPool* pool() const { return _pool; }
     const uint8_t* cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
     uint8_t* mutable_cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
-    bool is_null(size_t idx) const {
-        return is_nullable() && BitmapTest(_null_bitmap, idx);
-    }
+    bool is_null(size_t idx) const { return is_nullable() && BitmapTest(_null_bitmap, idx); }
     void set_is_null(size_t idx, bool is_null) const {
         if (is_nullable()) {
             BitmapChange(_null_bitmap, idx, is_null);
@@ -57,9 +59,7 @@ public:
 
     size_t nrows() const { return _nrows; }
 
-    void set_delete_state(DelCondSatisfied delete_state) {
-        _delete_state = delete_state;
-    }
+    void set_delete_state(DelCondSatisfied delete_state) { _delete_state = delete_state; }
 
     DelCondSatisfied delete_state() const { return _delete_state; }
 
@@ -73,12 +73,13 @@ private:
 };
 
 struct ColumnBlockCell {
-    ColumnBlockCell(ColumnBlock block, size_t idx) : _block(block), _idx(idx) { }
+    ColumnBlockCell(ColumnBlock block, size_t idx) : _block(block), _idx(idx) {}
 
     bool is_null() const { return _block.is_null(_idx); }
     void set_is_null(bool is_null) const { return _block.set_is_null(_idx, is_null); }
     uint8_t* mutable_cell_ptr() const { return _block.mutable_cell_ptr(_idx); }
     const uint8_t* cell_ptr() const { return _block.cell_ptr(_idx); }
+
 private:
     ColumnBlock _block;
     size_t _idx;
@@ -93,8 +94,7 @@ inline ColumnBlockCell ColumnBlock::cell(size_t idx) const {
 class ColumnBlockView {
 public:
     explicit ColumnBlockView(ColumnBlock* block, size_t row_offset = 0)
-        : _block(block), _row_offset(row_offset) {
-    }
+            : _block(block), _row_offset(row_offset) {}
     void advance(size_t skip) { _row_offset += skip; }
     size_t first_row_index() const { return _row_offset; }
     ColumnBlock* column_block() { return _block; }
@@ -105,9 +105,10 @@ public:
     }
     bool is_nullable() const { return _block->is_nullable(); }
     uint8_t* data() const { return _block->mutable_cell_ptr(_row_offset); }
+
 private:
     ColumnBlock* _block;
     size_t _row_offset;
 };
 
-}
+} // namespace doris

@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf/uda_test_harness.h"
+#include <gtest/gtest.h>
 
 #include <iostream>
-#include <gtest/gtest.h>
-#include "util/logging.h"
+
 #include "common/logging.h"
+#include "udf/uda_test_harness.h"
+#include "util/logging.h"
 
 namespace doris_udf {
 
@@ -195,8 +196,7 @@ void DistinctEstimateInit(FunctionContext* context, StringVal* val) {
     memset(val->ptr, 0, 256);
 }
 
-void DistinctEstimatUpdate(FunctionContext* context,
-                           const int64_t* input, StringVal* val) {
+void DistinctEstimatUpdate(FunctionContext* context, const int64_t* input, StringVal* val) {
     if (input == NULL) {
         return;
     }
@@ -209,8 +209,7 @@ void DistinctEstimatUpdate(FunctionContext* context,
     }
 }
 
-StringVal DistinctEstimatSerialize(FunctionContext* context,
-                                   const StringVal& intermediate) {
+StringVal DistinctEstimatSerialize(FunctionContext* context, const StringVal& intermediate) {
     int compressed_size = 0;
     uint8_t* result = NULL; // SnappyCompress(intermediate.ptr, intermediate.len);
     return StringVal(result, compressed_size);
@@ -232,8 +231,8 @@ BigIntVal DistinctEstimateFinalize(FunctionContext* context, const StringVal& va
 }
 
 TEST(CountTest, Basic) {
-    UdaTestHarness<BigIntVal, BigIntVal, IntVal> test(
-        CountInit, CountUpdate, CountMerge, NULL, CountFinalize);
+    UdaTestHarness<BigIntVal, BigIntVal, IntVal> test(CountInit, CountUpdate, CountMerge, NULL,
+                                                      CountFinalize);
     std::vector<IntVal> no_nulls;
     no_nulls.resize(1000);
 
@@ -246,17 +245,17 @@ TEST(CountMultiArgTest, Basic) {
     std::vector<IntVal> no_nulls;
     no_nulls.resize(num);
 
-    UdaTestHarness2<BigIntVal, BigIntVal, IntVal, IntVal> test2(
-        CountInit, Count2Update, CountMerge, NULL, CountFinalize);
+    UdaTestHarness2<BigIntVal, BigIntVal, IntVal, IntVal> test2(CountInit, Count2Update, CountMerge,
+                                                                NULL, CountFinalize);
     EXPECT_TRUE(test2.execute(no_nulls, no_nulls, BigIntVal(2 * num)));
     EXPECT_FALSE(test2.execute(no_nulls, no_nulls, BigIntVal(100)));
 
     UdaTestHarness3<BigIntVal, BigIntVal, IntVal, IntVal, IntVal> test3(
-        CountInit, Count3Update, CountMerge, NULL, CountFinalize);
+            CountInit, Count3Update, CountMerge, NULL, CountFinalize);
     EXPECT_TRUE(test3.execute(no_nulls, no_nulls, no_nulls, BigIntVal(3 * num)));
 
     UdaTestHarness4<BigIntVal, BigIntVal, IntVal, IntVal, IntVal, IntVal> test4(
-        CountInit, Count4Update, CountMerge, NULL, CountFinalize);
+            CountInit, Count4Update, CountMerge, NULL, CountFinalize);
     EXPECT_TRUE(test4.execute(no_nulls, no_nulls, no_nulls, no_nulls, BigIntVal(4 * num)));
 }
 
@@ -273,8 +272,8 @@ bool FuzzyCompare(const BigIntVal& r1, const BigIntVal& r2) {
 }
 
 TEST(CountTest, FuzzyEquals) {
-    UdaTestHarness<BigIntVal, BigIntVal, IntVal> test(
-        CountInit, CountUpdate, CountMerge, NULL, CountFinalize);
+    UdaTestHarness<BigIntVal, BigIntVal, IntVal> test(CountInit, CountUpdate, CountMerge, NULL,
+                                                      CountFinalize);
     std::vector<IntVal> no_nulls;
     no_nulls.resize(1000);
 
@@ -288,8 +287,8 @@ TEST(CountTest, FuzzyEquals) {
 }
 
 TEST(MinTest, Basic) {
-    UdaTestHarness<StringVal, BufferVal, StringVal> test(
-        MinInit, MinUpdate, MinMerge, MinSerialize, MinFinalize);
+    UdaTestHarness<StringVal, BufferVal, StringVal> test(MinInit, MinUpdate, MinMerge, MinSerialize,
+                                                         MinFinalize);
     test.set_intermediate_size(sizeof(MinState));
 
     std::vector<StringVal> values;
@@ -314,7 +313,7 @@ TEST(MinTest, Basic) {
     values.push_back(StringVal("ZZZ"));
     EXPECT_TRUE(test.execute(values, StringVal("ZZZ"))) << test.get_error_msg();
 }
-}
+} // namespace doris_udf
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

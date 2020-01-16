@@ -26,8 +26,8 @@
 #include "gutil/macros.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -67,8 +67,7 @@ struct IndexedColumnWriterOptions {
 class IndexedColumnWriter {
 public:
     explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                 const TypeInfo* typeinfo,
-                                 WritableFile* output_file);
+                                 const TypeInfo* typeinfo, WritableFile* output_file);
 
     ~IndexedColumnWriter();
 

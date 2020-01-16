@@ -18,26 +18,26 @@
 #ifndef DORIS_BE_SRC_QUERY_CODEGEN_LLVM_CODEGEN_H
 #define DORIS_BE_SRC_QUERY_CODEGEN_LLVM_CODEGEN_H
 
+#include <llvm/Analysis/Verifier.h>
+#include <llvm/IR/DerivedTypes.h>
+#include <llvm/IR/IRBuilder.h>
+#include <llvm/IR/Intrinsics.h>
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/raw_ostream.h>
+
+#include <boost/scoped_ptr.hpp>
+#include <boost/thread/mutex.hpp>
 #include <map>
 #include <string>
 #include <vector>
-#include <boost/scoped_ptr.hpp>
-#include <boost/thread/mutex.hpp>
-
-#include <llvm/IR/DerivedTypes.h>
-#include <llvm/IR/Intrinsics.h>
-#include <llvm/IR/IRBuilder.h>
-#include <llvm/IR/LLVMContext.h>
-#include <llvm/IR/Module.h>
-#include <llvm/Analysis/Verifier.h>
-#include <llvm/Support/raw_ostream.h>
-#include <llvm/Support/MemoryBuffer.h>
 
 #include "common/status.h"
-#include "runtime/primitive_type.h"
-#include "exprs/expr.h"
-#include "util/runtime_profile.h"
 #include "doris_ir/doris_ir_functions.h"
+#include "exprs/expr.h"
+#include "runtime/primitive_type.h"
+#include "util/runtime_profile.h"
 
 // Forward declare all llvm classes to avoid namespace pollution.
 namespace llvm {
@@ -57,12 +57,12 @@ class TargetData;
 class Type;
 class Value;
 
-template<bool B, typename T, typename I>
+template <bool B, typename T, typename I>
 class IRBuilder;
 
-template<bool preserveName>
+template <bool preserveName>
 class IRBuilderDefaultInserter;
-}
+} // namespace llvm
 
 namespace doris {
 
@@ -119,18 +119,14 @@ public:
 
     // Loads and parses the precompiled doris IR module
     // codegen will contain the created object on success.
-    static Status load_doris_ir(
-        ObjectPool*, const std::string& id, boost::scoped_ptr<LlvmCodeGen>* codegen);
+    static Status load_doris_ir(ObjectPool*, const std::string& id,
+                                boost::scoped_ptr<LlvmCodeGen>* codegen);
 
     // Removes all jit compiled dynamically linked functions from the process.
     ~LlvmCodeGen();
 
-    RuntimeProfile* runtime_profile() {
-        return &_profile;
-    }
-    RuntimeProfile::Counter* codegen_timer() {
-        return _codegen_timer;
-    }
+    RuntimeProfile* runtime_profile() { return &_profile; }
+    RuntimeProfile::Counter* codegen_timer() { return _codegen_timer; }
 
     // Turns on/off optimization passes
     void enable_optimizations(bool enable);
@@ -163,14 +159,10 @@ public:
         FnPrototype(LlvmCodeGen*, const std::string& name, llvm::Type* ret_type);
 
         // Returns name of function
-        const std::string& name() const {
-            return _name;
-        }
+        const std::string& name() const { return _name; }
 
         // Add argument
-        void add_argument(const NamedVariable& var) {
-            _args.push_back(var);
-        }
+        void add_argument(const NamedVariable& var) { _args.push_back(var); }
 
         void add_argument(const std::string& name, llvm::Type* type) {
             _args.push_back(NamedVariable(name, type));
@@ -183,7 +175,7 @@ public:
         // values (params[0] is the first arg, etc).
         // In that case, params should be preallocated to be number of arguments
         llvm::Function* generate_prototype(LlvmBuilder* builder = NULL,
-                                          llvm::Value** params = NULL);
+                                           llvm::Value** params = NULL);
 
     private:
         friend class LlvmCodeGen;
@@ -197,8 +189,7 @@ public:
     /// Codegens IR to load array[idx] and returns the loaded value. 'array' should be a
     /// C-style array (e.g. i32*) or an IR array (e.g. [10 x i32]). This function does not
     /// do bounds checking.
-    llvm::Value* codegen_array_at(
-        LlvmBuilder*, llvm::Value* array, int idx, const char* name);
+    llvm::Value* codegen_array_at(LlvmBuilder*, llvm::Value* array, int idx, const char* name);
 
     /// Return a pointer type to 'type'
     llvm::PointerType* get_ptr_type(llvm::Type* type);
@@ -233,19 +224,13 @@ public:
 
     // Returns reference to llvm context object.  Each LlvmCodeGen has its own
     // context to allow multiple threads to be calling into llvm at the same time.
-    llvm::LLVMContext& context() {
-        return *_context.get();
-    }
+    llvm::LLVMContext& context() { return *_context.get(); }
 
     // Returns execution engine interface
-    llvm::ExecutionEngine* execution_engine() {
-        return _execution_engine.get();
-    }
+    llvm::ExecutionEngine* execution_engine() { return _execution_engine.get(); }
 
     // Returns the underlying llvm module
-    llvm::Module* module() {
-        return _module;
-    }
+    llvm::Module* module() { return _module; }
 
     // Register a expr function with unique id.  It can be subsequently retrieved via
     // get_registered_expr_fn with that id.
@@ -296,7 +281,8 @@ public:
     // body with the codegened version.  The codegened bodies differ from instance
     // to instance since they are specific to the node's tuple desc.
     llvm::Function* replace_call_sites(llvm::Function* caller, bool update_in_place,
-                                     llvm::Function* new_fn, const std::string& target_name, int* num_replaced);
+                                       llvm::Function* new_fn, const std::string& target_name,
+                                       int* num_replaced);
 
     /// Returns a copy of fn. The copy is added to the module.
     llvm::Function* clone_function(llvm::Function* fn);
@@ -361,7 +347,7 @@ public:
     void codegen_debug_trace(LlvmBuilder* builder, const char* message);
 
     /// Returns the string representation of a llvm::Value* or llvm::Type*
-    template <typename T> 
+    template <typename T>
     static std::string print(T* value_or_type) {
         std::string str;
         llvm::raw_string_ostream stream(str);
@@ -391,8 +377,8 @@ public:
     // This is not related to get_scratch_buffer which is used for structs that are returned
     // to the caller.
     llvm::AllocaInst* create_entry_block_alloca(llvm::Function* f, const NamedVariable& var);
-    llvm::AllocaInst* create_entry_block_alloca(
-        const LlvmBuilder& builder, llvm::Type* type, const char* name);
+    llvm::AllocaInst* create_entry_block_alloca(const LlvmBuilder& builder, llvm::Type* type,
+                                                const char* name);
 
     // Utility to create two blocks in 'fn' for if/else codegen.  if_block and else_block
     // are return parameters.  insert_before is optional and if set, the two blocks
@@ -400,9 +386,9 @@ public:
     // of 'fn'.  Being able to place blocks is useful for debugging so the IR has a
     // better looking control flow.
     void create_if_else_blocks(llvm::Function* fn, const std::string& if_name,
-                            const std::string& else_name,
-                            llvm::BasicBlock** if_block, llvm::BasicBlock** else_block,
-                            llvm::BasicBlock* insert_before = NULL);
+                               const std::string& else_name, llvm::BasicBlock** if_block,
+                               llvm::BasicBlock** else_block,
+                               llvm::BasicBlock* insert_before = NULL);
 
     // Returns offset into scratch buffer: offset points to area of size 'byte_size'
     // Called by expr generation to request scratch buffer.  This is used for struct
@@ -421,60 +407,26 @@ public:
     llvm::Value* get_int_constant(PrimitiveType type, int64_t val);
 
     // Returns true/false constants (bool type)
-    llvm::Value* true_value() {
-        return _true_value;
-    }
-    llvm::Value* false_value() {
-        return _false_value;
-    }
-    llvm::Value* null_ptr_value() {
-        return llvm::ConstantPointerNull::get(ptr_type());
-    }
+    llvm::Value* true_value() { return _true_value; }
+    llvm::Value* false_value() { return _false_value; }
+    llvm::Value* null_ptr_value() { return llvm::ConstantPointerNull::get(ptr_type()); }
 
     // Simple wrappers to reduce code verbosity
-    llvm::Type* boolean_type() {
-        return get_type(TYPE_BOOLEAN);
-    }
-    llvm::Type* tinyint_type() {
-        return get_type(TYPE_TINYINT);
-    }
-    llvm::Type* smallint_type() {
-        return get_type(TYPE_SMALLINT);
-    }
-    llvm::Type* int_type() {
-        return get_type(TYPE_INT);
-    }
-    llvm::Type* bigint_type() {
-        return get_type(TYPE_BIGINT);
-    }
-    llvm::Type* largeint_type() {
-        return get_type(TYPE_LARGEINT);
-    }
-    llvm::Type* float_type() {
-        return get_type(TYPE_FLOAT);
-    }
-    llvm::Type* double_type() {
-        return get_type(TYPE_DOUBLE);
-    }
-    llvm::Type* string_val_type() const {
-        return _string_val_type;
-    }
-    llvm::Type* datetime_val_type() const {
-        return _datetime_val_type;
-    }
-    llvm::Type* decimal_val_type() const {
-        return _decimal_val_type;
-    }
-    llvm::PointerType* ptr_type() {
-        return _ptr_type;
-    }
-    llvm::Type* void_type() {
-        return _void_type;
-    }
+    llvm::Type* boolean_type() { return get_type(TYPE_BOOLEAN); }
+    llvm::Type* tinyint_type() { return get_type(TYPE_TINYINT); }
+    llvm::Type* smallint_type() { return get_type(TYPE_SMALLINT); }
+    llvm::Type* int_type() { return get_type(TYPE_INT); }
+    llvm::Type* bigint_type() { return get_type(TYPE_BIGINT); }
+    llvm::Type* largeint_type() { return get_type(TYPE_LARGEINT); }
+    llvm::Type* float_type() { return get_type(TYPE_FLOAT); }
+    llvm::Type* double_type() { return get_type(TYPE_DOUBLE); }
+    llvm::Type* string_val_type() const { return _string_val_type; }
+    llvm::Type* datetime_val_type() const { return _datetime_val_type; }
+    llvm::Type* decimal_val_type() const { return _decimal_val_type; }
+    llvm::PointerType* ptr_type() { return _ptr_type; }
+    llvm::Type* void_type() { return _void_type; }
 
-    llvm::Type* i128_type() { 
-        return llvm::Type::getIntNTy(context(), 128); 
-    }
+    llvm::Type* i128_type() { return llvm::Type::getIntNTy(context(), 128); }
 
     // Fills 'functions' with all the functions that are defined in the module.
     // Note: this does not include functions that are just declared
@@ -491,8 +443,8 @@ public:
     // we need to assign the fields one by one
     void codegen_assign(LlvmBuilder*, llvm::Value* dst, llvm::Value* src, PrimitiveType);
 
-    llvm::Instruction::CastOps get_cast_op(
-            const TypeDescriptor& from_type, const TypeDescriptor& to_type);
+    llvm::Instruction::CastOps get_cast_op(const TypeDescriptor& from_type,
+                                           const TypeDescriptor& to_type);
 
 private:
     friend class LlvmCodeGenTest;
@@ -510,12 +462,12 @@ private:
     // codegen object.  This is used by tests to load custom modules.
     // codegen will contain the created object on success.
     static Status load_from_file(ObjectPool*, const std::string& file,
-                               boost::scoped_ptr<LlvmCodeGen>* codegen);
+                                 boost::scoped_ptr<LlvmCodeGen>* codegen);
 
     /// Load a pre-compiled IR module from module_ir.  This creates a top level codegen
     /// object.  codegen will contain the created object on success.
     static Status load_from_memory(ObjectPool* pool, llvm::MemoryBuffer* module_ir,
-                                   const std::string& module_name, const std::string& id, 
+                                   const std::string& module_name, const std::string& id,
                                    boost::scoped_ptr<LlvmCodeGen>* codegen);
 
     /// Loads an LLVM module. 'module_ir' should be a reference to a memory buffer containing
@@ -624,18 +576,17 @@ private:
     std::vector<std::string> _debug_strings;
 
     // llvm representation of a few common types.  Owned by context.
-    llvm::PointerType* _ptr_type;     // int8_t*
-    llvm::Type* _void_type;           // void
-    llvm::Type* _string_val_type;     // StringVal
-    llvm::Type* _decimal_val_type;    // StringVal
-    llvm::Type* _datetime_val_type;   // DateTimeValue
+    llvm::PointerType* _ptr_type;   // int8_t*
+    llvm::Type* _void_type;         // void
+    llvm::Type* _string_val_type;   // StringVal
+    llvm::Type* _decimal_val_type;  // StringVal
+    llvm::Type* _datetime_val_type; // DateTimeValue
 
     // llvm constants to help with code gen verbosity
     llvm::Value* _true_value;
     llvm::Value* _false_value;
 };
 
-}
+} // namespace doris
 
 #endif
-

@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <sstream>
 #include <fstream>
+#include <sstream>
+#include <string>
 
-#include "gtest/gtest.h"
+#include "boost/filesystem.hpp"
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
-#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
-#include "boost/filesystem.hpp"
-#include "json2pb/json_to_pb.h"
 #include "util/file_utils.h"
 
 #ifndef BE_TEST
@@ -66,17 +66,15 @@ public:
 
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
-        string tmp_data_path = _engine_data_path + "/data"; 
+        string tmp_data_path = _engine_data_path + "/data";
         if (boost::filesystem::exists(tmp_data_path)) {
             boost::filesystem::remove_all(tmp_data_path);
         }
         copy_dir(test_engine_data_path, tmp_data_path);
         _tablet_id = 15007;
         _schema_hash = 368169781;
-        _tablet_data_path = tmp_data_path 
-                + "/" + std::to_string(0)
-                + "/" + std::to_string(_tablet_id)
-                + "/" + std::to_string(_schema_hash);
+        _tablet_data_path = tmp_data_path + "/" + std::to_string(0) + "/" +
+                            std::to_string(_tablet_id) + "/" + std::to_string(_schema_hash);
     }
 
     virtual void TearDown() {
@@ -142,7 +140,6 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_st = _tablet_mgr.create_tablet(create_tablet_req, data_dirs);
     ASSERT_TRUE(create_st == OLAP_ERR_CE_TABLET_ID_EXIST);
 }
-
 
 TEST_F(TabletMgrTest, DropTablet) {
     TColumnType col_type;
@@ -229,7 +226,9 @@ TEST_F(TabletMgrTest, GetRowsetId) {
     }
     // normal case
     {
-        std::string path = _engine_data_path + "/data/0/15007/368169781/020000000000000100000000000000020000000000000003_0_0.dat";
+        std::string path =
+                _engine_data_path +
+                "/data/0/15007/368169781/020000000000000100000000000000020000000000000003_0_0.dat";
         TTabletId tid;
         TSchemaHash schema_hash;
         ASSERT_TRUE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
@@ -272,7 +271,9 @@ TEST_F(TabletMgrTest, GetRowsetId) {
     }
     // not match pattern
     {
-        std::string path = _engine_data_path + "/data/0/15007/123abc/020000000000000100000000000000020000000000000003_0_0.dat";
+        std::string path =
+                _engine_data_path +
+                "/data/0/15007/123abc/020000000000000100000000000000020000000000000003_0_0.dat";
         TTabletId tid;
         TSchemaHash schema_hash;
         ASSERT_FALSE(_tablet_mgr.get_tablet_id_and_schema_hash_from_path(path, &tid, &schema_hash));
@@ -282,9 +283,9 @@ TEST_F(TabletMgrTest, GetRowsetId) {
     }
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

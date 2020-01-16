@@ -17,13 +17,13 @@
 
 #pragma once
 
-#include <unordered_map>
 #include <mutex>
 #include <ostream>
+#include <unordered_map>
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/mem_tracker.h"
 #include "util/uid_util.h"
@@ -37,16 +37,16 @@ class TabletsChannel;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker* mem_tracker, int64_t timeout_s);
+    LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker* mem_tracker,
+                int64_t timeout_s);
     ~LoadChannel();
 
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
-    Status add_batch(
-            const PTabletWriterAddBatchRequest& request,
-            google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+    Status add_batch(const PTabletWriterAddBatchRequest& request,
+                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
@@ -76,7 +76,7 @@ private:
 private:
     UniqueId _load_id;
     // this mem tracker tracks the total mem comsuption of this load task
-    std::unique_ptr<MemTracker> _mem_tracker; 
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     // lock protect the tablets channel map
     std::mutex _lock;
@@ -95,10 +95,9 @@ private:
 };
 
 inline std::ostream& operator<<(std::ostream& os, const LoadChannel& load_channel) {
-    os << "LoadChannel(id=" << load_channel.load_id()
-       << ", mem=" << load_channel.mem_consumption()
+    os << "LoadChannel(id=" << load_channel.load_id() << ", mem=" << load_channel.mem_consumption()
        << ", last_update_time=" << static_cast<uint64_t>(load_channel.last_updated_time()) << ")";
     return os;
 }
 
-}
+} // namespace doris

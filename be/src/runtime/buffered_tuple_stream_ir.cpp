@@ -16,7 +16,6 @@
 // under the License.
 
 #include "runtime/buffered_tuple_stream.h"
-
 #include "runtime/descriptors.h"
 #include "runtime/tuple_row.h"
 
@@ -138,4 +137,4 @@ bool BufferedTupleStream::deep_copy_internal(TupleRow* row, uint8_t** dst) {
     ++_num_rows;
     return true;
 }
-}
+} // namespace doris

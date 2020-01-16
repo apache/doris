@@ -17,39 +17,40 @@
 
 #include "olap/rowset/beta_rowset_writer.h"
 
-#include <cmath> // lround
-#include <cstdio> // remove
+#include <cmath>   // lround
+#include <cstdio>  // remove
 #include <cstring> // strerror_r
-#include <ctime> // time
+#include <ctime>   // time
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "olap/olap_define.h"
+#include "olap/row.h"        // ContiguousRow
+#include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
-#include "olap/row.h" // ContiguousRow
-#include "olap/row_cursor.h" // RowCursor
 
 namespace doris {
 
 BetaRowsetWriter::BetaRowsetWriter()
-    : _rowset_meta(nullptr),
-      _num_segment(0),
-      _segment_writer(nullptr),
-      _num_rows_written(0),
-      _total_data_size(0),
-      _total_index_size(0) {
+        : _rowset_meta(nullptr),
+          _num_segment(0),
+          _segment_writer(nullptr),
+          _num_rows_written(0),
+          _total_data_size(0),
+          _total_index_size(0) {
     auto size = static_cast<double>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
     size *= OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE;
     _max_segment_size = static_cast<uint32_t>(lround(size));
 }
 
 BetaRowsetWriter::~BetaRowsetWriter() {
-    if (!_rowset_build) { // abnormal exit, remove all files generated
+    if (!_rowset_build) {               // abnormal exit, remove all files generated
         _segment_writer.reset(nullptr); // ensure all files are closed
         for (int i = 0; i < _num_segment; ++i) {
-            auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix, _context.rowset_id, i);
+            auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix,
+                                                      _context.rowset_id, i);
             if (::remove(path.c_str()) != 0) {
                 char errmsg[64];
                 LOG(WARNING) << "failed to delete file. err=" << strerror_r(errno, errmsg, 64)
@@ -82,7 +83,7 @@ OLAPStatus BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     return OLAP_SUCCESS;
 }
 
-template<typename RowType>
+template <typename RowType>
 OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
     if (PREDICT_FALSE(_segment_writer == nullptr)) {
         RETURN_NOT_OK(_create_segment_writer());
@@ -94,7 +95,7 @@ OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
     if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= _max_segment_size ||
-            _segment_writer->num_rows_written() >= _context.max_rows_per_segment)) {
+                      _segment_writer->num_rows_written() >= _context.max_rows_per_segment)) {
         RETURN_NOT_OK(_flush_segment_writer());
     }
     _num_rows_written++;
@@ -118,8 +119,8 @@ OLAPStatus BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus BetaRowsetWriter::add_rowset_for_linked_schema_change(RowsetSharedPtr rowset,
-                                                                 const SchemaMapping& schema_mapping) {
+OLAPStatus BetaRowsetWriter::add_rowset_for_linked_schema_change(
+        RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) {
     // TODO use schema_mapping to transfer zonemap
     return add_rowset(rowset);
 }
@@ -150,10 +151,8 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     }
 
     RowsetSharedPtr rowset;
-    auto status = RowsetFactory::create_rowset(_context.tablet_schema,
-                                               _context.rowset_path_prefix,
-                                               _rowset_meta,
-                                               &rowset);
+    auto status = RowsetFactory::create_rowset(_context.tablet_schema, _context.rowset_path_prefix,
+                                               _rowset_meta, &rowset);
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
         return nullptr;
@@ -163,10 +162,12 @@ RowsetSharedPtr BetaRowsetWriter::build() {
 }
 
 OLAPStatus BetaRowsetWriter::_create_segment_writer() {
-    auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix, _context.rowset_id, _num_segment);
+    auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix, _context.rowset_id,
+                                              _num_segment);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.whether_to_filter_value = _context.version.first == 0;
-    _segment_writer.reset(new segment_v2::SegmentWriter(path, _num_segment, _context.tablet_schema, writer_options));
+    _segment_writer.reset(new segment_v2::SegmentWriter(path, _num_segment, _context.tablet_schema,
+                                                        writer_options));
     // TODO set write_mbytes_per_sec based on writer type (load/base compaction/cumulative compaction)
     auto s = _segment_writer->init(config::push_write_mbytes_per_sec);
     if (!s.ok()) {

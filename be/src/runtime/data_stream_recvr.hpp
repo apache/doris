@@ -41,24 +41,19 @@ public:
     // Sets 'is_cancelled' to true if receiver fragment got cancelled, otherwise false.
     // The caller owns the batch.
     // TODO: error handling
-    RowBatch* get_batch(bool* is_cancelled) {
-        return _cb->get_batch(is_cancelled);
-    }
+    RowBatch* get_batch(bool* is_cancelled) { return _cb->get_batch(is_cancelled); }
 
-    RuntimeProfile* profile() {
-        return _cb->profile();
-    }
+    RuntimeProfile* profile() { return _cb->profile(); }
 
 private:
     friend class DataStreamMgr;
     DataStreamMgr* _mgr;
     boost::shared_ptr<DataStreamMgr::StreamControlBlock> _cb;
 
-    DataStreamRecvr(DataStreamMgr* mgr,
-                    boost::shared_ptr<DataStreamMgr::StreamControlBlock> cb)
-        : _mgr(mgr), _cb(cb) {}
+    DataStreamRecvr(DataStreamMgr* mgr, boost::shared_ptr<DataStreamMgr::StreamControlBlock> cb)
+            : _mgr(mgr), _cb(cb) {}
 };
 
-}
+} // namespace doris
 
 #endif

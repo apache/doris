@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include <string>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <unordered_set>
 
@@ -35,6 +35,7 @@ public:
     ~BrokerMgr();
     void init();
     const std::string& get_client_id(const TNetworkAddress& address);
+
 private:
     void ping(const TNetworkAddress& addr);
     void ping_worker();
@@ -47,4 +48,4 @@ private:
     std::thread _ping_thread;
 };
 
-}
+} // namespace doris

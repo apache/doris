@@ -16,19 +16,18 @@
 // under the License.
 
 #include <cstdint>
-#include <vector>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/Types_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "util/bitmap.h"
 #include "util/thread_pool.hpp"
 #include "util/uid_util.h"
-
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/internal_service.pb.h"
 
 namespace doris {
 
@@ -36,10 +35,9 @@ struct TabletsChannelKey {
     UniqueId id;
     int64_t index_id;
 
-    TabletsChannelKey(const PUniqueId& pid, int64_t index_id_)
-        : id(pid), index_id(index_id_) { }
+    TabletsChannelKey(const PUniqueId& pid, int64_t index_id_) : id(pid), index_id(index_id_) {}
 
-    ~TabletsChannelKey() noexcept { }
+    ~TabletsChannelKey() noexcept {}
 
     bool operator==(const TabletsChannelKey& rhs) const noexcept {
         return index_id == rhs.index_id && id == rhs.id;
@@ -65,8 +63,8 @@ public:
     Status add_batch(const PTabletWriterAddBatchRequest& batch);
 
     Status close(int sender_id, bool* finished,
-        const google::protobuf::RepeatedField<int64_t>& partition_ids,
-        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+                 const google::protobuf::RepeatedField<int64_t>& partition_ids,
+                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     Status cancel();
 
@@ -117,5 +115,4 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
 };
 
-
-} // end namespace
+} // namespace doris

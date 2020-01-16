@@ -45,7 +45,7 @@ class IndexedColumnIterator;
 class IndexedColumnReader {
 public:
     explicit IndexedColumnReader(RandomAccessFile* file, const IndexedColumnMetaPB& meta)
-        : _file(file), _meta(meta) {};
+            : _file(file), _meta(meta){};
 
     Status load();
 
@@ -87,10 +87,9 @@ private:
 class IndexedColumnIterator {
 public:
     explicit IndexedColumnIterator(const IndexedColumnReader* reader)
-        : _reader(reader),
-          _ordinal_iter(&reader->_ordinal_index_reader),
-          _value_iter(&reader->_value_index_reader) {
-    }
+            : _reader(reader),
+              _ordinal_iter(&reader->_ordinal_index_reader),
+              _value_iter(&reader->_value_index_reader) {}
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
     // Return NotFound if provided seek point is past the end.
@@ -115,6 +114,7 @@ public:
     // into ColumnBlock. when read string type data, memory will allocated
     // from Arena
     Status next_batch(size_t* n, ColumnBlockView* column_view);
+
 private:
     Status _read_data_page(const PagePointer& page_pointer, ParsedPage* page);
 
