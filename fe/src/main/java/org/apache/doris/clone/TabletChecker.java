@@ -138,7 +138,7 @@ public class TabletChecker extends MasterDaemon {
         }
 
         // we also need to change the priority of tablets which are already in
-        tabletScheduler.changePriorityOfTablets(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
+        tabletScheduler.changeTabletsPriorityToVeryHigh(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
     private void removePrios(RepairTabletInfo repairTabletInfo) {

@@ -17,8 +17,7 @@
 
 package org.apache.doris.backup;
 
-import org.apache.doris.alter.MaterializedViewHandler;
-import org.apache.doris.alter.SchemaChangeHandler;
+import mockit.Expectations;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
@@ -26,6 +25,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -46,6 +46,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -59,8 +60,6 @@ import org.apache.doris.thrift.TStorageType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
-
-import org.easymock.EasyMock;
 
 import java.util.List;
 import java.util.Map;
@@ -202,21 +201,27 @@ public class CatalogMocker {
     }
 
     private static PaloAuth fetchAdminAccess() {
-        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
-        EasyMock.expect(auth.checkGlobalPriv(EasyMock.isA(ConnectContext.class),
-                                             EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
-        EasyMock.expect(auth.checkDbPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
-                                         EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
-        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
-                                          EasyMock.isA(String.class),
-                                          EasyMock.isA(PrivPredicate.class))).andReturn(true).anyTimes();
-        EasyMock.replay(auth);
+        PaloAuth auth = new PaloAuth();
+        new Expectations(auth) {
+            {
+                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
+                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+            }
+        };
         return auth;
     }
 
     public static SystemInfoService fetchSystemInfoService() {
-        SystemInfoService clusterInfo = EasyMock.createMock(SystemInfoService.class);
-        EasyMock.replay(clusterInfo);
+        SystemInfoService clusterInfo = new SystemInfoService();
         return clusterInfo;
     }
 
@@ -380,41 +385,78 @@ public class CatalogMocker {
 
     public static Catalog fetchAdminCatalog() {
         try {
-            Catalog catalog = EasyMock.createMock(Catalog.class);
-            EasyMock.expect(catalog.getAuth()).andReturn(fetchAdminAccess()).anyTimes();
+            FakeEditLog fakeEditLog = new FakeEditLog();
 
-            Database db = mockDb();
+            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
 
-            EasyMock.expect(catalog.getDb(TEST_DB_NAME)).andReturn(db).anyTimes();
-            EasyMock.expect(catalog.getDb(WRONG_DB)).andReturn(null).anyTimes();
-            EasyMock.expect(catalog.getDb(TEST_DB_ID)).andReturn(db).anyTimes();
-            EasyMock.expect(catalog.getDb(EasyMock.isA(String.class))).andReturn(new Database()).anyTimes();
-            EasyMock.expect(catalog.getDbNames()).andReturn(Lists.newArrayList(TEST_DB_NAME)).anyTimes();
-            EasyMock.expect(catalog.getLoadInstance()).andReturn(new Load()).anyTimes();
-            EasyMock.expect(catalog.getSchemaChangeHandler()).andReturn(new SchemaChangeHandler()).anyTimes();
-            EasyMock.expect(catalog.getRollupHandler()).andReturn(new MaterializedViewHandler()).anyTimes();
-            EasyMock.expect(catalog.getEditLog()).andReturn(EasyMock.createMock(EditLog.class)).anyTimes();
-            catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.eq(WRONG_DB));
-            EasyMock.expectLastCall().andThrow(new DdlException("failed.")).anyTimes();
-            catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class));
-            EasyMock.expectLastCall().anyTimes();
-            EasyMock.replay(catalog);
+            Database db = new Database();
+            PaloAuth paloAuth = fetchAdminAccess();
+
+            new Expectations(catalog) {
+                {
+                    catalog.getAuth();
+                    minTimes = 0;
+                    result = paloAuth;
+
+                    catalog.getDb(TEST_DB_NAME);
+                    minTimes = 0;
+                    result = db;
+
+                    catalog.getDb(WRONG_DB);
+                    minTimes = 0;
+                    result = null;
+
+                    catalog.getDb(TEST_DB_ID);
+                    minTimes = 0;
+                    result = db;
+
+                    catalog.getDb(anyString);
+                    minTimes = 0;
+                    result = new Database();
+
+                    catalog.getDbNames();
+                    minTimes = 0;
+                    result = Lists.newArrayList(TEST_DB_NAME);
+
+                    catalog.getLoadInstance();
+                    minTimes = 0;
+                    result = new Load();
+
+                    catalog.getEditLog();
+                    minTimes = 0;
+                    result = new EditLog("name");
+
+                    catalog.changeDb((ConnectContext) any, WRONG_DB);
+                    minTimes = 0;
+                    result = new DdlException("failed");
+
+                    catalog.changeDb((ConnectContext) any, anyString);
+                    minTimes = 0;
+                }
+            };
             return catalog;
-        } catch (DdlException | AnalysisException e) {
+        } catch (DdlException e) {
             return null;
         }
     }
 
     public static PaloAuth fetchBlockAccess() {
-        PaloAuth auth = EasyMock.createMock(PaloAuth.class);
-        EasyMock.expect(auth.checkGlobalPriv(EasyMock.isA(ConnectContext.class),
-                                             EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
-        EasyMock.expect(auth.checkDbPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
-                                         EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
-        EasyMock.expect(auth.checkTblPriv(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class),
-                                          EasyMock.isA(String.class),
-                                          EasyMock.isA(PrivPredicate.class))).andReturn(false).anyTimes();
-        EasyMock.replay(auth);
+        PaloAuth auth = new PaloAuth();
+        new Expectations(auth) {
+            {
+                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+
+                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+
+                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = false;
+            }
+        };
         return auth;
     }
 }

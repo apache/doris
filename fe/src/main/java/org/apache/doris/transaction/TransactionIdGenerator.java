@@ -66,8 +66,7 @@ public class TransactionIdGenerator {
         out.writeLong(batchEndId);
     }
     public void readFields(DataInput in) throws IOException {
-        long endId = in.readLong();
-        batchEndId = endId;
+        batchEndId = in.readLong();
         // maybe a little rough
         nextId = batchEndId;
     }

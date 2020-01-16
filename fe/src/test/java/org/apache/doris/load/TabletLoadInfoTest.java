@@ -17,17 +17,11 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.FeConstants;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -35,17 +29,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class })
 public class TabletLoadInfoTest {
-
+    private FakeCatalog fakeCatalog;
     @Test
     public void testSerialization() throws Exception {
         // mock catalog
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
 
         // test
         File file = new File("./tabletLoadInfoTest");

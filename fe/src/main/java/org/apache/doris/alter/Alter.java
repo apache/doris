@@ -125,7 +125,6 @@ public class Alter {
         } finally {
             db.writeUnlock();
         }
-
     }
 
     public void processAlterTable(AlterTableStmt stmt) throws UserException {
@@ -381,7 +380,7 @@ public class Alter {
         String inlineViewDef = alterViewInfo.getInlineViewDef();
         List<Column> newFullSchema = alterViewInfo.getNewFullSchema();
 
-        Database db = Catalog.getInstance().getDb(dbId);
+        Database db = Catalog.getCurrentCatalog().getDb(dbId);
         db.writeLock();
         try {
             View view = (View) db.getTable(tableId);

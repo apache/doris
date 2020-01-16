@@ -226,6 +226,21 @@ visible_functions = [
     [['convert_tz'], 'DATETIME', ['DATETIME', 'VARCHAR', 'VARCHAR'],
             '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_'],
 
+    [['years_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions10years_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['months_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions11months_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['weeks_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions10weeks_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['days_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions9days_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['hours_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions10hours_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['minutes_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions12minutes_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['seconds_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions12seconds_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+
     # Math builtin functions
     [['pi'], 'DOUBLE', [],
         '_ZN5doris13MathFunctions2piEPN9doris_udf15FunctionContextE'],
@@ -489,6 +504,8 @@ visible_functions = [
     [['strright', 'right'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions5rightEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
+    [['ends_with'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
+        '_ZN5doris15StringFunctions9ends_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['space'], 'VARCHAR', ['INT'],
         '_ZN5doris15StringFunctions5spaceEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
     [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'],
@@ -618,6 +635,10 @@ visible_functions = [
         '_ZN5doris15BitmapFunctions16bitmap_to_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['bitmap_from_string'], 'BITMAP', ['VARCHAR'],
         '_ZN5doris15BitmapFunctions18bitmap_from_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['bitmap_contains'], 'BOOLEAN', ['BITMAP','BIGINT'],
+        '_ZN5doris15BitmapFunctions15bitmap_containsEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValE'],
+    [['bitmap_has_any'], 'BOOLEAN', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions14bitmap_has_anyEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
 
     # hash functions
     [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'],

@@ -124,7 +124,7 @@ public class TransactionState implements Writable {
             }
         }
     }
-    
+
     private long dbId;
     private long transactionId;
     private String label;
@@ -211,11 +211,8 @@ public class TransactionState implements Writable {
     }
     
     public boolean isRunning() {
-        if (transactionStatus == TransactionStatus.PREPARE
-                || transactionStatus == TransactionStatus.COMMITTED) {
-            return true;
-        }
-        return false;
+        return transactionStatus == TransactionStatus.PREPARE
+                || transactionStatus == TransactionStatus.COMMITTED;
     }
     
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {

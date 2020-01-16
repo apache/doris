@@ -17,7 +17,9 @@
 
 package org.apache.doris.mysql;
 
-import org.easymock.EasyMock;
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -30,44 +32,54 @@ import java.nio.channels.SocketChannel;
 public class MysqlChannelTest {
     int packetId = 0;
     int readIdx = 0;
+    @Mocked
     private SocketChannel channel;
 
     @Before
     public void setUp() throws IOException {
         packetId = 0;
         readIdx = 0;
-        channel = EasyMock.createMock(SocketChannel.class);
-        EasyMock.expect(channel.getRemoteAddress()).andReturn(new InetSocketAddress(1024)).anyTimes();
+        new Expectations() {
+            {
+                channel.getRemoteAddress();
+                minTimes = 0;
+                result = new InetSocketAddress(1024);
+            }
+        };
     }
 
     @Test
     public void testReceive() throws IOException {
         // mock
-        EasyMock.expect(channel.read(EasyMock.anyObject(ByteBuffer.class))).andDelegateTo(new WrapperSocketChannel() {
-            @Override
-            public int read(ByteBuffer buffer) {
-                MysqlSerializer serializer = MysqlSerializer.newInstance();
-                if (readIdx == 0) {
-                    readIdx++;
-                    serializer.writeInt3(10);
-                    serializer.writeInt1(packetId++);
+        new Expectations() {
+            {
+                channel.read((ByteBuffer) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    int fakeRead(ByteBuffer buffer) {
+                        MysqlSerializer serializer = MysqlSerializer.newInstance();
+                        if (readIdx == 0) {
+                            readIdx++;
+                            serializer.writeInt3(10);
+                            serializer.writeInt1(packetId++);
 
-                    buffer.put(serializer.toArray());
-                    return 4;
-                } else if (readIdx == 1) {
-                    readIdx++;
-                    byte[] buf = new byte[buffer.remaining()];
-                    for (int i = 0; i < buffer.remaining(); ++i) {
-                        buf[i] = (byte) ('a' + i);
+                            buffer.put(serializer.toArray());
+                            return 4;
+                        } else if (readIdx == 1) {
+                            readIdx++;
+                            byte[] buf = new byte[buffer.remaining()];
+                            for (int i = 0; i < buffer.remaining(); ++i) {
+                                buf[i] = (byte) ('a' + i);
 
+                            }
+                            buffer.put(buf);
+                            return 10;
+                        }
+                        return -1;
                     }
-                    buffer.put(buf);
-                    return 10;
-                }
-                return -1;
+                };
             }
-        }).anyTimes();
-        EasyMock.replay(channel);
+        };
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
@@ -81,53 +93,56 @@ public class MysqlChannelTest {
     @Test
     public void testLongPacket() throws IOException {
         // mock
-        EasyMock.expect(channel.read(EasyMock.anyObject(ByteBuffer.class))).andDelegateTo(new WrapperSocketChannel() {
-            @Override
-            public int read(ByteBuffer buffer) {
-                int maxLen = 0xffffff - 1;
-                MysqlSerializer serializer = MysqlSerializer.newInstance();
-                if (readIdx == 0) {
-                    // packet
-                    readIdx++;
-                    serializer.writeInt3(maxLen);
-                    serializer.writeInt1(packetId++);
+        new Expectations() {
+            {
+                channel.read((ByteBuffer) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    int fakeRead(ByteBuffer buffer) {
+                        int maxLen = 0xffffff - 1;
+                        MysqlSerializer serializer = MysqlSerializer.newInstance();
+                        if (readIdx == 0) {
+                            // packet
+                            readIdx++;
+                            serializer.writeInt3(maxLen);
+                            serializer.writeInt1(packetId++);
 
-                    buffer.put(serializer.toArray());
-                    return 4;
-                } else if (readIdx == 1) {
-                    readIdx++;
-                    int readLen = buffer.remaining();
-                    byte[] buf = new byte[readLen];
-                    for (int i = 0; i < readLen; ++i) {
-                        buf[i] = (byte) ('a' + (i % 26));
+                            buffer.put(serializer.toArray());
+                            return 4;
+                        } else if (readIdx == 1) {
+                            readIdx++;
+                            int readLen = buffer.remaining();
+                            byte[] buf = new byte[readLen];
+                            for (int i = 0; i < readLen; ++i) {
+                                buf[i] = (byte) ('a' + (i % 26));
 
+                            }
+                            buffer.put(buf);
+                            return readLen;
+                        } else if (readIdx == 2) {
+                            // packet
+                            readIdx++;
+                            serializer.writeInt3(10);
+                            serializer.writeInt1(packetId++);
+
+                            buffer.put(serializer.toArray());
+                            return 4;
+                        } else if (readIdx == 3) {
+                            readIdx++;
+                            int readLen = buffer.remaining();
+                            byte[] buf = new byte[readLen];
+                            for (int i = 0; i < readLen; ++i) {
+                                buf[i] = (byte) ('a' + (maxLen + i) % 26);
+
+                            }
+                            buffer.put(buf);
+                            return readLen;
+                        }
+                        return 0;
                     }
-                    buffer.put(buf);
-                    return readLen;
-                } else if (readIdx == 2) {
-                    // packet
-                    readIdx++;
-                    serializer.writeInt3(10);
-                    serializer.writeInt1(packetId++);
-
-                    buffer.put(serializer.toArray());
-                    return 4;
-                } else if (readIdx == 3) {
-                    readIdx++;
-                    int readLen = buffer.remaining();
-                    byte[] buf = new byte[readLen];
-                    for (int i = 0; i < readLen; ++i) {
-                        buf[i] = (byte) ('a' + (maxLen + i) % 26);
-
-                    }
-                    buffer.put(buf);
-                    return readLen;
-                }
-                return 0;
+                };
             }
-
-        }).anyTimes();
-        EasyMock.replay(channel);
+        };
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
@@ -141,52 +156,56 @@ public class MysqlChannelTest {
     @Test(expected = IOException.class)
     public void testBadSeq() throws IOException {
         // mock
-        EasyMock.expect(channel.read(EasyMock.anyObject(ByteBuffer.class))).andDelegateTo(new WrapperSocketChannel() {
-            @Override
-            public int read(ByteBuffer buffer) {
-                int maxLen = 0xffffff - 1;
-                MysqlSerializer serializer = MysqlSerializer.newInstance();
-                if (readIdx == 0) {
-                    // packet
-                    readIdx++;
-                    serializer.writeInt3(maxLen);
-                    serializer.writeInt1(packetId++);
+        new Expectations() {
+            {
+                channel.read((ByteBuffer) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    int fakeRead(ByteBuffer buffer) {
+                        int maxLen = 0xffffff - 1;
+                        MysqlSerializer serializer = MysqlSerializer.newInstance();
+                        if (readIdx == 0) {
+                            // packet
+                            readIdx++;
+                            serializer.writeInt3(maxLen);
+                            serializer.writeInt1(packetId++);
 
-                    buffer.put(serializer.toArray());
-                    return 4;
-                } else if (readIdx == 1) {
-                    readIdx++;
-                    int readLen = buffer.remaining();
-                    byte[] buf = new byte[readLen];
-                    for (int i = 0; i < readLen; ++i) {
-                        buf[i] = (byte) ('a' + (i % 26));
+                            buffer.put(serializer.toArray());
+                            return 4;
+                        } else if (readIdx == 1) {
+                            readIdx++;
+                            int readLen = buffer.remaining();
+                            byte[] buf = new byte[readLen];
+                            for (int i = 0; i < readLen; ++i) {
+                                buf[i] = (byte) ('a' + (i % 26));
 
+                            }
+                            buffer.put(buf);
+                            return readLen;
+                        } else if (readIdx == 2) {
+                            // packet
+                            readIdx++;
+                            serializer.writeInt3(10);
+                            // NOTE: Bad packet seq
+                            serializer.writeInt1(0);
+
+                            buffer.put(serializer.toArray());
+                            return 4;
+                        } else if (readIdx == 3) {
+                            readIdx++;
+                            byte[] buf = new byte[buffer.remaining()];
+                            for (int i = 0; i < buffer.remaining(); ++i) {
+                                buf[i] = (byte) ('a' + (i % 26));
+
+                            }
+                            buffer.put(buf);
+                            return buffer.remaining();
+                        }
+                        return 0;
                     }
-                    buffer.put(buf);
-                    return readLen;
-                } else if (readIdx == 2) {
-                    // packet
-                    readIdx++;
-                    serializer.writeInt3(10);
-                    // NOTE: Bad packet seq
-                    serializer.writeInt1(0);
-
-                    buffer.put(serializer.toArray());
-                    return 4;
-                } else if (readIdx == 3) {
-                    readIdx++;
-                    byte[] buf = new byte[buffer.remaining()];
-                    for (int i = 0; i < buffer.remaining(); ++i) {
-                        buf[i] = (byte) ('a' + (i % 26));
-
-                    }
-                    buffer.put(buf);
-                    return buffer.remaining();
-                }
-                return 0;
+                };
             }
-        }).anyTimes();
-        EasyMock.replay(channel);
+        };
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
@@ -196,8 +215,13 @@ public class MysqlChannelTest {
     @Test(expected = IOException.class)
     public void testException() throws IOException {
         // mock
-        EasyMock.expect(channel.read(EasyMock.anyObject(ByteBuffer.class))).andThrow(new IOException()).anyTimes();
-        EasyMock.replay(channel);
+        new Expectations() {
+            {
+                channel.read((ByteBuffer) any);
+                minTimes = 0;
+                result = new IOException();
+            }
+        };
 
         MysqlChannel channel1 = new MysqlChannel(channel);
 
@@ -208,16 +232,21 @@ public class MysqlChannelTest {
     @Test
     public void testSend() throws IOException {
         // mock
-        EasyMock.expect(channel.write(EasyMock.anyObject(ByteBuffer.class))).andDelegateTo(new WrapperSocketChannel() {
-                    @Override
-                    public int write(ByteBuffer buffer) {
+        new Expectations() {
+            {
+                channel.write((ByteBuffer) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    int fakeWrite(ByteBuffer buffer) {
                         int writeLen = 0;
                         writeLen += buffer.remaining();
                         buffer.position(buffer.limit());
                         return writeLen;
                     }
-                }).anyTimes();
-        EasyMock.replay(channel);
+                };
+            }
+        };
+
         MysqlChannel channel1 = new MysqlChannel(channel);
         ByteBuffer buf = ByteBuffer.allocate(1000);
         channel1.sendOnePacket(buf);
@@ -229,8 +258,13 @@ public class MysqlChannelTest {
     @Test(expected = IOException.class)
     public void testSendException() throws IOException {
         // mock
-        EasyMock.expect(channel.write(EasyMock.anyObject(ByteBuffer.class))).andThrow(new IOException()).anyTimes();
-        EasyMock.replay(channel);
+        new Expectations() {
+            {
+                channel.write((ByteBuffer) any);
+                minTimes = 0;
+                result = new IOException();
+            }
+        };
         MysqlChannel channel1 = new MysqlChannel(channel);
         ByteBuffer buf = ByteBuffer.allocate(1000);
         channel1.sendOnePacket(buf);
@@ -242,17 +276,20 @@ public class MysqlChannelTest {
     @Test(expected = IOException.class)
     public void testSendFail() throws IOException {
         // mock
-        EasyMock.expect(channel.write(EasyMock.anyObject(ByteBuffer.class))).andDelegateTo(new WrapperSocketChannel() {
-                    @Override
-                    public int write(ByteBuffer buffer) {
+        new Expectations() {
+            {
+                channel.write((ByteBuffer) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    int fakeWrite(ByteBuffer buffer) {
                         int writeLen = 0;
                         writeLen += buffer.remaining();
                         buffer.position(buffer.limit());
                         return writeLen - 1;
                     }
-
-                }).anyTimes();
-        EasyMock.replay(channel);
+                };
+            }
+        };
         MysqlChannel channel1 = new MysqlChannel(channel);
         ByteBuffer buf = ByteBuffer.allocate(1000);
         channel1.sendAndFlush(buf);
