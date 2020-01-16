@@ -253,6 +253,7 @@ struct TAgentTaskRequest {
     8: optional TCloneReq clone_req
     9: optional TPushReq push_req
     10: optional TCancelDeleteDataReq cancel_delete_data_req //deprecated
+    // Deprecated
     11: optional Types.TResourceInfo resource_info
     12: optional TStorageMediumMigrateReq storage_medium_migrate_req
     13: optional TCheckConsistencyReq check_consistency_req
