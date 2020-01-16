@@ -211,11 +211,9 @@ EncodingInfoResolver::EncodingInfoResolver() {
 
     _add_map<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE, true>();
 
     _add_map<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
-    _add_map<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE, true>();
 
     _add_map<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();

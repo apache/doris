@@ -219,12 +219,6 @@ Status BitmapIndexWriter::create(const TypeInfo* typeinfo, std::unique_ptr<Bitma
         case OLAP_FIELD_TYPE_LARGEINT:
             res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_LARGEINT>(typeinfo));
             break;
-        case OLAP_FIELD_TYPE_FLOAT:
-            res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_FLOAT>(typeinfo));
-            break;
-        case OLAP_FIELD_TYPE_DOUBLE:
-            res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DOUBLE>(typeinfo));
-            break;
         case OLAP_FIELD_TYPE_DECIMAL:
             res->reset(new BitmapIndexWriterImpl<OLAP_FIELD_TYPE_DECIMAL>(typeinfo));
             break;
