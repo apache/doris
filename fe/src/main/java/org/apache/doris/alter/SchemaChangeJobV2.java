@@ -184,7 +184,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 totalReplicaNum += tablet.getReplicas().size();
             }
         }
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
+        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
         db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
