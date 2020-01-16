@@ -17,9 +17,8 @@
 
 #include "runtime/string_value.hpp"
 
-#include <gtest/gtest.h>
-
 #include <string>
+#include <gtest/gtest.h>
 
 #include "util/cpu_info.h"
 
@@ -82,7 +81,7 @@ TEST(StringValueTest, TestCompare) {
     }
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
 #if 0
@@ -98,3 +97,4 @@ int main(int argc, char** argv) {
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
+

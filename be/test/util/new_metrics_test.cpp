@@ -29,8 +29,9 @@ namespace doris {
 
 class MetricsTest : public testing::Test {
 public:
-    MetricsTest() {}
-    virtual ~MetricsTest() {}
+    MetricsTest() { }
+    virtual ~MetricsTest() {
+    }
 };
 
 TEST_F(MetricsTest, Counter) {
@@ -74,7 +75,8 @@ TEST_F(MetricsTest, CounterPerf) {
             counter.increment(1);
         }
         uint64_t elapsed = watch.elapsed_time();
-        LOG(INFO) << "counter elapsed: " << elapsed << "ns, ns/iter:" << elapsed / 100000000;
+        LOG(INFO) << "counter elapsed: " << elapsed
+                  << "ns, ns/iter:" << elapsed / 100000000;
     }
     {
         MonotonicStopWatch watch;
@@ -83,7 +85,8 @@ TEST_F(MetricsTest, CounterPerf) {
             sum += 1;
         }
         uint64_t elapsed = watch.elapsed_time();
-        LOG(INFO) << "value elapsed: " << elapsed << "ns, ns/iter:" << elapsed / 100000000;
+        LOG(INFO) << "value elapsed: " << elapsed
+                  << "ns, ns/iter:" << elapsed / 100000000;
     }
     ASSERT_EQ(100000000, counter.value());
     ASSERT_EQ(100000000, sum);
@@ -152,8 +155,7 @@ TEST_F(MetricsTest, MetricLabels) {
     ASSERT_FALSE(labels == MetricLabels().add("path", "/home").add("type", "get"));
     ASSERT_FALSE(labels == MetricLabels().add("path", "/home"));
     ASSERT_TRUE(labels < MetricLabels().add("path", "/sports"));
-    ASSERT_TRUE(labels <
-                MetricLabels().add("path", "/home").add("type", "put").add("xstatus", "404"));
+    ASSERT_TRUE(labels < MetricLabels().add("path", "/home").add("type", "put").add("xstatus", "404"));
     ASSERT_FALSE(labels < MetricLabels().add("path", "/abc"));
     ASSERT_FALSE(labels < MetricLabels().add("path", "/home").add("type", "put"));
 
@@ -162,8 +164,9 @@ TEST_F(MetricsTest, MetricLabels) {
 
 class TestMetricsVisitor : public MetricsVisitor {
 public:
-    virtual ~TestMetricsVisitor() {}
-    void visit(const std::string& prefix, const std::string& name, MetricCollector* collector) {
+    virtual ~TestMetricsVisitor() { }
+    void visit(const std::string& prefix, const std::string& name,
+               MetricCollector* collector) {
         for (auto& it : collector->metrics()) {
             Metric* metric = it.second;
             auto& labels = it.first;
@@ -194,8 +197,9 @@ public:
             }
         }
     }
-    std::string to_string() { return _ss.str(); }
-
+    std::string to_string() {
+        return _ss.str();
+    }
 private:
     std::stringstream _ss;
 };
@@ -229,7 +233,7 @@ TEST_F(MetricsTest, MetricCollector) {
     }
     // test get_metric
     ASSERT_TRUE(collector.get_metric(MetricLabels()) == nullptr);
-    ASSERT_TRUE(collector.get_metric(MetricLabels().add("type", "get")) != nullptr);
+    ASSERT_TRUE(collector.get_metric(MetricLabels().add("type" ,"get")) != nullptr);
     std::vector<Metric*> metrics;
     collector.get_metrics(&metrics);
     ASSERT_EQ(1, metrics.size());
@@ -285,7 +289,7 @@ TEST_F(MetricsTest, MetricRegistry2) {
     }
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

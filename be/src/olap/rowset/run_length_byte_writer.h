@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_WRITER_H
 
-#include "olap/olap_define.h"
 #include "olap/stream_index_writer.h"
+#include "olap/olap_define.h"
 
 namespace doris {
 
@@ -39,7 +39,6 @@ public:
     static const int32_t MIN_REPEAT_SIZE = 3;
     static const int32_t MAX_LITERAL_SIZE = 128;
     static const int32_t MAX_REPEAT_SIZE = 127 + MIN_REPEAT_SIZE;
-
 private:
     OLAPStatus _write_values();
 
@@ -52,6 +51,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RunLengthByteWriter);
 };
 
-} // namespace doris
+}  // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_BYTE_WRITER_H

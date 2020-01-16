@@ -18,7 +18,6 @@
 #include "olap/rowset/segment_v2/ordinal_page_index.h"
 
 #include <gtest/gtest.h>
-
 #include <iostream>
 
 #include "common/logging.h"
@@ -28,8 +27,9 @@ namespace segment_v2 {
 
 class OrdinalPageIndexTest : public testing::Test {
 public:
-    OrdinalPageIndexTest() {}
-    virtual ~OrdinalPageIndexTest() {}
+    OrdinalPageIndexTest() { }
+    virtual ~OrdinalPageIndexTest() {
+    }
 };
 
 TEST_F(OrdinalPageIndexTest, normal) {
@@ -78,6 +78,7 @@ TEST_F(OrdinalPageIndexTest, normal) {
         ASSERT_TRUE(iter.valid());
         ASSERT_EQ(4097 + 4096, iter.rowid());
         ASSERT_EQ(PagePointer(2 * 16 * 1024, 16 * 1024), iter.page());
+
     }
 
     {
@@ -98,10 +99,11 @@ TEST_F(OrdinalPageIndexTest, corrupt) {
     ASSERT_FALSE(st.ok());
 }
 
-} // namespace segment_v2
-} // namespace doris
+}
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+

@@ -17,13 +17,16 @@
 
 #include "olap/rowset/run_length_byte_reader.h"
 
-#include "olap/in_stream.h"
 #include "olap/rowset/column_reader.h"
+#include "olap/in_stream.h"
 
 namespace doris {
 
-RunLengthByteReader::RunLengthByteReader(ReadOnlyFileStream* input)
-        : _input(input), _num_literals(0), _used(0), _repeat(false) {}
+RunLengthByteReader::RunLengthByteReader(ReadOnlyFileStream* input) : 
+        _input(input),
+        _num_literals(0),
+        _used(0),
+        _repeat(false) {}
 
 OLAPStatus RunLengthByteReader::_read_values() {
     OLAPStatus res = OLAP_SUCCESS;
@@ -142,4 +145,4 @@ OLAPStatus RunLengthByteReader::skip(uint64_t num_values) {
     return res;
 }
 
-} // namespace doris
+}  // namespace doris

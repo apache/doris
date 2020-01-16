@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#pragma once 
 
 #include <string>
 #include <vector>
@@ -24,9 +24,10 @@ namespace doris {
 
 class OlapTuple {
 public:
-    OlapTuple() {}
+    OlapTuple() { }
     OlapTuple(const std::vector<std::string>& values)
-            : _values(values), _nulls(values.size(), false) {}
+        : _values(values), _nulls(values.size(), false) {
+    }
 
     void add_null() {
         _values.push_back("");
@@ -44,7 +45,7 @@ public:
         _values.reserve(size);
         _nulls.reserve(size);
     }
-
+    
     void set_value(size_t i, const std::string& value, bool is_null = false) {
         _values[i] = value;
         _nulls[i] = is_null;
@@ -58,7 +59,6 @@ public:
         _values.clear();
         _nulls.clear();
     }
-
 private:
     friend std::ostream& operator<<(std::ostream& os, const OlapTuple& tuple);
 
@@ -68,9 +68,7 @@ private:
 
 inline std::ostream& operator<<(std::ostream& os, const OlapTuple& tuple) {
     for (int i = 0; i < tuple._values.size(); ++i) {
-        if (i > 0) {
-            os << ",";
-        }
+        if (i > 0) { os << ","; }
         if (tuple._nulls[i]) {
             os << "null";
         } else {
@@ -80,4 +78,4 @@ inline std::ostream& operator<<(std::ostream& os, const OlapTuple& tuple) {
     return os;
 }
 
-} // namespace doris
+}

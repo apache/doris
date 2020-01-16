@@ -29,5 +29,6 @@ inline uint64_t low_bits(__int128 x) {
     return x & 0xffffffffffffffff;
 }
 
-} // namespace doris
+}
 #endif
+

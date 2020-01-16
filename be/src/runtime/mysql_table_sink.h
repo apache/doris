@@ -37,7 +37,8 @@ class MemTracker;
 // This class is a sinker, which put input data to mysql table
 class MysqlTableSink : public DataSink {
 public:
-    MysqlTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
+    MysqlTableSink(ObjectPool* pool, 
+                   const RowDescriptor& row_desc,
                    const std::vector<TExpr>& t_exprs);
 
     virtual ~MysqlTableSink();
@@ -56,7 +57,9 @@ public:
     // hosts. Further send() calls are illegal after calling close().
     virtual Status close(RuntimeState* state, Status exec_status);
 
-    virtual RuntimeProfile* profile() { return _profile; }
+    virtual RuntimeProfile* profile() {
+        return _profile;
+    }
 
 private:
     // owned by RuntimeState
@@ -73,6 +76,6 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
 };
 
-} // namespace doris
+}
 
 #endif

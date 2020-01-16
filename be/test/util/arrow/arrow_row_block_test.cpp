@@ -15,31 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include "util/arrow/row_block.h"
 
+#include <gtest/gtest.h>
 #include <sstream>
 
 #include "common/logging.h"
-#include "util/arrow/row_block.h"
 
 #define ARROW_UTIL_LOGGING_H
-#include <arrow/buffer.h>
 #include <arrow/json/api.h>
 #include <arrow/json/test_common.h>
-#include <arrow/memory_pool.h>
+#include <arrow/buffer.h>
 #include <arrow/pretty_print.h>
+#include <arrow/memory_pool.h>
 #include <arrow/record_batch.h>
 
-#include "olap/row_block2.h"
-#include "olap/schema.h"
 #include "olap/tablet_schema_helper.h"
+#include "olap/schema.h"
+#include "olap/row_block2.h"
 
 namespace doris {
 
 class ArrowRowBlockTest : public testing::Test {
 public:
-    ArrowRowBlockTest() {}
-    virtual ~ArrowRowBlockTest() {}
+    ArrowRowBlockTest() { }
+    virtual ~ArrowRowBlockTest() {
+    }
 };
 
 std::string test_str() {
@@ -60,9 +61,10 @@ TEST_F(ArrowRowBlockTest, Normal) {
     std::shared_ptr<arrow::Buffer> buffer;
     MakeBuffer(test_str(), &buffer);
     arrow::json::ParseOptions parse_opts = arrow::json::ParseOptions::Defaults();
-    parse_opts.explicit_schema = arrow::schema({
-            arrow::field("c1", arrow::int64()),
-    });
+    parse_opts.explicit_schema = arrow::schema(
+        {
+        arrow::field("c1", arrow::int64()),
+        });
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
     auto arrow_st = arrow::json::ParseOne(parse_opts, buffer, &record_batch);
@@ -90,9 +92,10 @@ TEST_F(ArrowRowBlockTest, Normal) {
     }
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+

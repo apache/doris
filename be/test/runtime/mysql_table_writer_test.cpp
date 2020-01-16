@@ -17,20 +17,20 @@
 
 #include "runtime/mysql_table_writer.h"
 
-#include <gtest/gtest.h>
-
 #include <string>
+
+#include <gtest/gtest.h>
 
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 //#include "exprs/int_literal.h"
-#include "exprs/date_literal.h"
-#include "exprs/expr.h"
 #include "exprs/float_literal.h"
+#include "exprs/date_literal.h"
 #include "exprs/string_literal.h"
-#include "gen_cpp/Types_types.h"
+#include "exprs/expr.h"
 #include "runtime/primitive_type.h"
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
@@ -49,7 +49,8 @@ struct TestDataTuple {
 
 class MysqlTableWriterTest : public testing::Test {
 public:
-    MysqlTableWriterTest() : _row_batch(_row_desc, 1024) {
+    MysqlTableWriterTest() :
+            _row_batch(_row_desc, 1024) {
         _conn_info.host = "host";
         _conn_info.port = 9999;
         _conn_info.user = "user";
@@ -59,13 +60,14 @@ public:
         _row_batch.commit_last_row();
     }
 
-    ~MysqlTableWriterTest() {}
-
+    ~MysqlTableWriterTest() {
+    }
 protected:
-    virtual void SetUp() {}
-    virtual void TearDown() {}
+    virtual void SetUp() {
+    }
+    virtual void TearDown() {
+    }
     void format_one(TestDataTuple& data, std::vector<Expr*>& output_expr);
-
 private:
     RowDescriptor _row_desc;
     RowBatch _row_batch;
@@ -184,7 +186,7 @@ TEST_F(MysqlTableWriterTest, NormalTest) {
     ASSERT_TRUE(writer.append(&_row_batch).ok());
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

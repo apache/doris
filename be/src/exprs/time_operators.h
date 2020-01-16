@@ -19,7 +19,6 @@
 #define DORIS_BE_SRC_EXPRS_TIME_OPERATORS_H
 
 #include <stdint.h>
-
 #include "udf/udf.h"
 
 namespace doris {
@@ -45,5 +44,5 @@ public:
     static DateTimeVal cast_to_datetime_val(FunctionContext*, const DoubleVal&);
     static DecimalVal cast_to_decimal_val(FunctionContext*, const DoubleVal&);
 };
-} // namespace doris
+}
 #endif

@@ -17,16 +17,17 @@
 
 #include "util/network_util.h"
 
-#include <arpa/inet.h>
-#include <common/logging.h>
-#include <ifaddrs.h>
-#include <limits.h>
-#include <netdb.h>
-#include <sys/socket.h>
 #include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+#include <arpa/inet.h>
+#include <limits.h>
+#include <ifaddrs.h>
+#include <common/logging.h>
+
+#include <sstream>
 
 #include <boost/foreach.hpp>
-#include <sstream>
 
 namespace doris {
 
@@ -34,7 +35,7 @@ InetAddress::InetAddress(struct sockaddr* addr) {
     this->addr = *(struct sockaddr_in*)addr;
 }
 
-bool InetAddress::is_address_v4() const {
+bool InetAddress::is_address_v4 () const {
     return addr.sin_family == AF_INET;
 }
 
@@ -84,7 +85,7 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
     while (it != NULL) {
         char addr_buf[64];
         const char* result =
-                inet_ntop(AF_INET, &((sockaddr_in*)it->ai_addr)->sin_addr, addr_buf, 64);
+            inet_ntop(AF_INET, &((sockaddr_in*)it->ai_addr)->sin_addr, addr_buf, 64);
 
         if (result == NULL) {
             std::stringstream ss;
@@ -102,7 +103,7 @@ Status hostname_to_ip_addrs(const std::string& name, std::vector<std::string>* a
 }
 
 bool find_first_non_localhost(const std::vector<std::string>& addresses, std::string* addr) {
-    BOOST_FOREACH (const std::string& candidate, addresses) {
+    BOOST_FOREACH(const std::string & candidate, addresses) {
         if (candidate != LOCALHOST) {
             *addr = candidate;
             return true;
@@ -161,8 +162,8 @@ Status get_inet_interfaces(std::vector<std::string>* interfaces, bool include_ip
     if (getifaddrs(&if_addrs)) {
         std::stringstream ss;
         char buf[64];
-        ss << "getifaddrs failed, errno:" << errno << ", message"
-           << strerror_r(errno, buf, sizeof(buf));
+        ss << "getifaddrs failed, errno:" << errno
+            << ", message" << strerror_r(errno, buf, sizeof(buf));
         return Status::InternalError(ss.str());
     }
 
@@ -181,4 +182,4 @@ Status get_inet_interfaces(std::vector<std::string>* interfaces, bool include_ip
     return Status::OK();
 }
 
-} // namespace doris
+}

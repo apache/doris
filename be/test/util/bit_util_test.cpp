@@ -15,16 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/bit_util.h"
-
-#include <gtest/gtest.h>
-#include <stdio.h>
 #include <stdlib.h>
-
-#include <boost/utility.hpp>
+#include <stdio.h>
 #include <iostream>
 
+#include <boost/utility.hpp>
+#include <gtest/gtest.h>
 #include "common/config.h"
+#include "util/bit_util.h"
 #include "util/cpu_info.h"
 #include "util/logging.h"
 
@@ -51,7 +49,7 @@ TEST(BitUtil, Popcount) {
     EXPECT_EQ(BitUtil::popcount_no_hw(0), 0);
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -64,3 +62,4 @@ int main(int argc, char** argv) {
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
+

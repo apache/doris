@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exec/aggregation_node.h"
+
 #include "exec/hash_table.hpp"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -47,4 +48,5 @@ void AggregationNode::process_row_batch_with_grouping(RowBatch* batch, MemPool* 
     }
 }
 
-} // namespace doris
+}
+

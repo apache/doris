@@ -23,8 +23,9 @@ namespace doris {
 
 class BrpcStubCacheTest : public testing::Test {
 public:
-    BrpcStubCacheTest() {}
-    virtual ~BrpcStubCacheTest() {}
+    BrpcStubCacheTest() { }
+    virtual ~BrpcStubCacheTest() {
+    }
 };
 
 TEST_F(BrpcStubCacheTest, normal) {
@@ -52,7 +53,7 @@ TEST_F(BrpcStubCacheTest, invalid) {
     ASSERT_EQ(nullptr, stub1);
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

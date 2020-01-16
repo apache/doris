@@ -17,15 +17,16 @@
 
 #pragma once
 
-#include <boost/algorithm/string.hpp>
-#include <boost/algorithm/string/case_conv.hpp> // to_lower_copy
-#include <boost/functional/hash.hpp>
 #include <map>
 #include <set>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
+#include <unordered_map>
 #include <vector>
+
+#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/case_conv.hpp> // to_lower_copy
+#include <boost/functional/hash.hpp>
 
 namespace doris {
 
@@ -63,10 +64,9 @@ size_t hash_of_path(const std::string& identifier, const std::string& path);
 
 using StringCaseSet = std::set<std::string, StringCaseLess>;
 using StringCaseUnorderedSet = std::unordered_set<std::string, StringCaseHasher, StringCaseEqual>;
-template <class T>
+template<class T>
 using StringCaseMap = std::map<std::string, T, StringCaseLess>;
-template <class T>
-using StringCaseUnorderedMap =
-        std::unordered_map<std::string, T, StringCaseHasher, StringCaseEqual>;
+template<class T>
+using StringCaseUnorderedMap = std::unordered_map<std::string, T, StringCaseHasher, StringCaseEqual>;
 
-} // namespace doris
+}

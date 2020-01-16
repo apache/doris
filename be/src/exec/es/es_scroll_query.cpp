@@ -28,14 +28,17 @@
 
 namespace doris {
 
-ESScrollQueryBuilder::ESScrollQueryBuilder() {}
+ESScrollQueryBuilder::ESScrollQueryBuilder() {
 
-ESScrollQueryBuilder::~ESScrollQueryBuilder() {}
+}
 
-std::string ESScrollQueryBuilder::build_next_scroll_body(const std::string& scroll_id,
-                                                         const std::string& scroll) {
+ESScrollQueryBuilder::~ESScrollQueryBuilder() {
+    
+}
+
+std::string ESScrollQueryBuilder::build_next_scroll_body(const std::string& scroll_id, const std::string& scroll) {
     rapidjson::Document scroll_dsl;
-    rapidjson::Document::AllocatorType& allocator = scroll_dsl.GetAllocator();
+    rapidjson::Document::AllocatorType &allocator = scroll_dsl.GetAllocator();
     scroll_dsl.SetObject();
     rapidjson::Value scroll_id_value(scroll_id.c_str(), allocator);
     scroll_dsl.AddMember("scroll_id", scroll_id_value, allocator);
@@ -48,22 +51,21 @@ std::string ESScrollQueryBuilder::build_next_scroll_body(const std::string& scro
 }
 std::string ESScrollQueryBuilder::build_clear_scroll_body(const std::string& scroll_id) {
     rapidjson::Document delete_scroll_dsl;
-    rapidjson::Document::AllocatorType& allocator = delete_scroll_dsl.GetAllocator();
+    rapidjson::Document::AllocatorType &allocator = delete_scroll_dsl.GetAllocator();
     delete_scroll_dsl.SetObject();
     rapidjson::Value scroll_id_value(scroll_id.c_str(), allocator);
     delete_scroll_dsl.AddMember("scroll_id", scroll_id_value, allocator);
-    rapidjson::StringBuffer buffer;
+    rapidjson::StringBuffer buffer;  
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     delete_scroll_dsl.Accept(writer);
     return buffer.GetString();
 }
 
-std::string ESScrollQueryBuilder::build(
-        const std::map<std::string, std::string>& properties,
-        const std::vector<std::string>& fields, std::vector<EsPredicate*>& predicates,
-        const std::map<std::string, std::string>& docvalue_context) {
+std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>& properties,
+                const std::vector<std::string>& fields,
+                std::vector<EsPredicate*>& predicates, const std::map<std::string, std::string>& docvalue_context) {
     rapidjson::Document es_query_dsl;
-    rapidjson::Document::AllocatorType& allocator = es_query_dsl.GetAllocator();
+    rapidjson::Document::AllocatorType &allocator = es_query_dsl.GetAllocator();
     es_query_dsl.SetObject();
     // generate the filter caluse
     rapidjson::Document scratch_document;
@@ -123,6 +125,7 @@ std::string ESScrollQueryBuilder::build(
     es_query_dsl.Accept(writer);
     std::string es_query_dsl_json = buffer.GetString();
     LOG(INFO) << "Generated ES queryDSL [ " << es_query_dsl_json << " ]";
-    return es_query_dsl_json;
+    return es_query_dsl_json;                
+
 }
-} // namespace doris
+}

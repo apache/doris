@@ -23,16 +23,18 @@
 #include <thread>
 
 #include "common/logging.h"
-#include "time.h"
 #include "util/stopwatch.hpp"
+#include "time.h"
 
 namespace doris {
 
 // Fixture for testing class Decompressor
 class CoreLocalTest : public ::testing::Test {
 protected:
-    CoreLocalTest() {}
-    ~CoreLocalTest() {}
+    CoreLocalTest() {
+    }
+    ~CoreLocalTest() {
+    }
 };
 
 void updater(CoreLocalValue<int64_t>* value, int64_t* used_ns) {
@@ -114,7 +116,7 @@ TEST_F(CoreLocalTest, CoreLocalValueNormal) {
     }
     ASSERT_EQ(10000 + value.size(), sum);
 }
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

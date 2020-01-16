@@ -18,27 +18,32 @@
 #ifndef DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_HPP
 #define DORIS_BE_SRC_QUERY_EXEC_TEXT_CONVERTER_HPP
 
+#include "text_converter.h"
+
 #include <boost/algorithm/string.hpp>
 
-#include "olap/utils.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
+#include "runtime/datetime_value.h"
 #include "runtime/tuple.h"
-#include "text_converter.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
+#include "olap/utils.h"
 
 namespace doris {
 
 // Note: this function has a codegen'd version.  Changing this function requires
 // corresponding changes to CodegenWriteSlot.
-inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tuple,
-                                      const char* data, int len, bool copy_string, bool need_escape,
+inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc,
+                                      Tuple* tuple,
+                                      const char* data,
+                                      int len,
+                                      bool copy_string,
+                                      bool need_escape,
                                       MemPool* pool) {
     //小批量导入只有\N被认为是NULL,没有批量导入的replace_value函数
     if (true == slot_desc->is_nullable()) {
@@ -78,27 +83,28 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
     }
 
     case TYPE_BOOLEAN:
-        *reinterpret_cast<bool*>(slot) = StringParser::string_to_bool(data, len, &parse_result);
+        *reinterpret_cast<bool*>(slot) =
+            StringParser::string_to_bool(data, len, &parse_result);
         break;
 
     case TYPE_TINYINT:
         *reinterpret_cast<int8_t*>(slot) =
-                StringParser::string_to_int<int8_t>(data, len, &parse_result);
+            StringParser::string_to_int<int8_t>(data, len, &parse_result);
         break;
 
     case TYPE_SMALLINT:
         *reinterpret_cast<int16_t*>(slot) =
-                StringParser::string_to_int<int16_t>(data, len, &parse_result);
+            StringParser::string_to_int<int16_t>(data, len, &parse_result);
         break;
 
     case TYPE_INT:
         *reinterpret_cast<int32_t*>(slot) =
-                StringParser::string_to_int<int32_t>(data, len, &parse_result);
+            StringParser::string_to_int<int32_t>(data, len, &parse_result);
         break;
 
     case TYPE_BIGINT:
         *reinterpret_cast<int64_t*>(slot) =
-                StringParser::string_to_int<int64_t>(data, len, &parse_result);
+            StringParser::string_to_int<int64_t>(data, len, &parse_result);
         break;
 
     case TYPE_LARGEINT: {
@@ -109,12 +115,12 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
 
     case TYPE_FLOAT:
         *reinterpret_cast<float*>(slot) =
-                StringParser::string_to_float<float>(data, len, &parse_result);
+            StringParser::string_to_float<float>(data, len, &parse_result);
         break;
 
     case TYPE_DOUBLE:
         *reinterpret_cast<double*>(slot) =
-                StringParser::string_to_float<double>(data, len, &parse_result);
+            StringParser::string_to_float<double>(data, len, &parse_result);
         break;
 
     case TYPE_DATE: {
@@ -123,7 +129,7 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
             parse_result = StringParser::PARSE_FAILURE;
             break;
         }
-        // For compatibility with DPP, which only support years after 1900
+        // For compatibility with DPP, which only support years after 1900 
         if (ts_slot->year() < 1900) {
             parse_result = StringParser::PARSE_FAILURE;
             break;
@@ -138,7 +144,7 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
         if (!ts_slot->from_date_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
         }
-        // For compatibility with DPP, which only support years after 1900
+        // For compatibility with DPP, which only support years after 1900 
         if (ts_slot->year() < 1900) {
             parse_result = StringParser::PARSE_FAILURE;
             break;
@@ -165,8 +171,8 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
             parse_result = StringParser::PARSE_FAILURE;
         }
 
-        *reinterpret_cast<PackedInt128*>(slot) =
-                *reinterpret_cast<const PackedInt128*>(&decimal_slot);
+        *reinterpret_cast<PackedInt128*>(slot) = 
+            *reinterpret_cast<const PackedInt128*>(&decimal_slot);
 
         break;
     }
@@ -185,6 +191,6 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
     return true;
 }
 
-} // namespace doris
+}
 
 #endif

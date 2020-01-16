@@ -19,22 +19,25 @@
 
 #include <sstream>
 
-#include "codegen/llvm_codegen.h"
 #include "exprs/anyval_util.h"
+#include "exprs/anyval_util.h"
+#include "codegen/llvm_codegen.h"
 #include "runtime/raw_value.h"
-#include "runtime/runtime_state.h"
 #include "runtime/string_value.hpp"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
-InPredicate::InPredicate(const TExprNode& node)
-        : Predicate(node),
-          _is_not_in(node.in_predicate.is_not_in),
-          _is_prepare(false),
-          _null_in_set(false),
-          _hybird_set() {}
+InPredicate::InPredicate(const TExprNode& node) : 
+        Predicate(node),
+    _is_not_in(node.in_predicate.is_not_in),
+    _is_prepare(false),
+    _null_in_set(false),
+    _hybird_set() {
+}
 
-InPredicate::~InPredicate() {}
+InPredicate::~InPredicate() {
+}
 
 Status InPredicate::prepare(RuntimeState* state, const TypeDescriptor& type) {
     if (_is_prepare) {
@@ -49,8 +52,10 @@ Status InPredicate::prepare(RuntimeState* state, const TypeDescriptor& type) {
     return Status::OK();
 }
 
-Status InPredicate::open(RuntimeState* state, ExprContext* context,
-                         FunctionContext::FunctionStateScope scope) {
+Status InPredicate::open(
+        RuntimeState* state,
+        ExprContext* context,
+        FunctionContext::FunctionStateScope scope) {
     Expr::open(state, context, scope);
 
     for (int i = 1; i < _children.size(); ++i) {
@@ -74,8 +79,8 @@ Status InPredicate::open(RuntimeState* state, ExprContext* context,
     return Status::OK();
 }
 
-Status InPredicate::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                            ExprContext* context) {
+Status InPredicate::prepare(
+        RuntimeState* state, const RowDescriptor& row_desc, ExprContext* context) {
     for (int i = 0; i < _children.size(); ++i) {
         RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
     }
@@ -134,4 +139,4 @@ BooleanVal InPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row) {
     return BooleanVal(_is_not_in);
 }
 
-} // namespace doris
+}

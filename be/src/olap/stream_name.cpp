@@ -19,11 +19,13 @@
 
 namespace doris {
 
-StreamName::StreamName(uint32_t unique_column_id, StreamInfoMessage::Kind kind)
-        : _unique_column_id(unique_column_id), _kind(kind) {}
+StreamName::StreamName(uint32_t unique_column_id, StreamInfoMessage::Kind kind) : 
+        _unique_column_id(unique_column_id),
+        _kind(kind) {}
 
-bool StreamName::operator<(const StreamName& another) const {
-    if (_kind == StreamInfoMessage::ROW_INDEX || another._kind == StreamInfoMessage::ROW_INDEX) {
+bool StreamName::operator < (const StreamName& another) const {
+    if (_kind == StreamInfoMessage::ROW_INDEX ||
+            another._kind == StreamInfoMessage::ROW_INDEX) {
         // if both are indexes
         if (_kind == another._kind) {
             return _unique_column_id < another._unique_column_id;
@@ -39,8 +41,9 @@ bool StreamName::operator<(const StreamName& another) const {
     }
 }
 
-bool StreamName::operator==(const StreamName& another) const {
-    return _unique_column_id == another._unique_column_id && _kind == another._kind;
+bool StreamName::operator == (const StreamName& another) const {
+    return _unique_column_id == another._unique_column_id &&
+           _kind == another._kind;
 }
 
-} // namespace doris
+}  // namespace doris

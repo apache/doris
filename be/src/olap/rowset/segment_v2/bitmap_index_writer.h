@@ -45,10 +45,9 @@ public:
     virtual Status finish(WritableFile* file, BitmapIndexColumnPB* meta) = 0;
 
     virtual uint64_t size() const = 0;
-
 private:
     DISALLOW_COPY_AND_ASSIGN(BitmapIndexWriter);
 };
 
-} // namespace segment_v2
+} // segment_v2
 } // namespace doris

@@ -25,8 +25,11 @@ class Status;
 class TTxnCommitAttachment;
 
 class StreamLoadExecutor {
+
 public:
-    StreamLoadExecutor(ExecEnv* exec_env) : _exec_env(exec_env) {}
+    StreamLoadExecutor(ExecEnv* exec_env):
+        _exec_env(exec_env) {
+    }
 
     Status begin_txn(StreamLoadContext* ctx);
 
@@ -45,4 +48,4 @@ private:
     ExecEnv* _exec_env;
 };
 
-} // namespace doris
+}

@@ -19,7 +19,6 @@
 
 #include <stdint.h>
 #include <time.h>
-
 #include <string>
 
 #include "olap/field.h"
@@ -30,4 +29,5 @@ uint64_t timestamp_from_datetime(const std::string& datetime_str);
 uint24_t timestamp_from_date(const std::string& date_str);
 std::string time_str_from_double(double time);
 
-} // namespace doris
+}  // namespace doris
+

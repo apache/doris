@@ -25,9 +25,9 @@ namespace doris {
 
 class StreamLoadPipeTest : public testing::Test {
 public:
-    StreamLoadPipeTest() {}
-    virtual ~StreamLoadPipeTest() {}
-    void SetUp() override {}
+    StreamLoadPipeTest() { }
+    virtual ~StreamLoadPipeTest() { }
+    void SetUp() override { }
 };
 
 TEST_F(StreamLoadPipeTest, append_buffer) {
@@ -135,6 +135,7 @@ TEST_F(StreamLoadPipeTest, append_bytes2) {
 
     t1.join();
 }
+
 
 TEST_F(StreamLoadPipeTest, append_mix) {
     StreamLoadPipe pipe(66, 64);
@@ -253,7 +254,7 @@ TEST_F(StreamLoadPipeTest, close) {
     t1.join();
 }
 
-} // namespace doris
+}
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

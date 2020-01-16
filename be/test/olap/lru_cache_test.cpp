@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/lru_cache.h"
+#include <vector>
 
 #include <gtest/gtest.h>
 
-#include <vector>
-
+#include "olap/lru_cache.h"
 #include "util/logging.h"
 
 using namespace doris;
@@ -37,7 +36,7 @@ void PutFixed32(std::string* dst, uint32_t value) {
 uint32_t DecodeFixed32(const char* ptr) {
     // Load the raw bytes
     uint32_t result;
-    memcpy(&result, ptr, sizeof(result)); // gcc optimizes this to a plain load
+    memcpy(&result, ptr, sizeof(result));  // gcc optimizes this to a plain load
     return result;
 }
 
@@ -72,9 +71,13 @@ public:
     std::vector<int> _deleted_values;
     Cache* _cache;
 
-    CacheTest() : _cache(new_lru_cache(kCacheSize)) { _s_current = this; }
+    CacheTest() : _cache(new_lru_cache(kCacheSize)) {
+        _s_current = this;
+    }
 
-    ~CacheTest() { delete _cache; }
+    ~CacheTest() {
+        delete _cache;
+    }
 
     int Lookup(int key) {
         std::string result;
@@ -99,9 +102,14 @@ public:
         _cache->erase(EncodeKey(&result, key));
     }
 
-    void SetUp() {}
+    void SetUp() {
 
-    void TearDown() {}
+    }
+
+    void TearDown() {
+
+    }
+
 };
 CacheTest* CacheTest::_s_current;
 
@@ -110,18 +118,18 @@ TEST_F(CacheTest, HitAndMiss) {
 
     Insert(100, 101, 1);
     ASSERT_EQ(101, Lookup(100));
-    ASSERT_EQ(-1, Lookup(200));
-    ASSERT_EQ(-1, Lookup(300));
+    ASSERT_EQ(-1,  Lookup(200));
+    ASSERT_EQ(-1,  Lookup(300));
 
     Insert(200, 201, 1);
     ASSERT_EQ(101, Lookup(100));
     ASSERT_EQ(201, Lookup(200));
-    ASSERT_EQ(-1, Lookup(300));
+    ASSERT_EQ(-1,  Lookup(300));
 
     Insert(100, 102, 1);
     ASSERT_EQ(102, Lookup(100));
     ASSERT_EQ(201, Lookup(200));
-    ASSERT_EQ(-1, Lookup(300));
+    ASSERT_EQ(-1,  Lookup(300));
 
     ASSERT_EQ(1, _deleted_keys.size());
     ASSERT_EQ(100, _deleted_keys[0]);
@@ -135,14 +143,14 @@ TEST_F(CacheTest, Erase) {
     Insert(100, 101, 1);
     Insert(200, 201, 1);
     Erase(100);
-    ASSERT_EQ(-1, Lookup(100));
+    ASSERT_EQ(-1,  Lookup(100));
     ASSERT_EQ(201, Lookup(200));
     ASSERT_EQ(1, _deleted_keys.size());
     ASSERT_EQ(100, _deleted_keys[0]);
     ASSERT_EQ(101, _deleted_values[0]);
 
     Erase(100);
-    ASSERT_EQ(-1, Lookup(100));
+    ASSERT_EQ(-1,  Lookup(100));
     ASSERT_EQ(201, Lookup(200));
     ASSERT_EQ(1, _deleted_keys.size());
 }
@@ -226,7 +234,7 @@ TEST_F(CacheTest, NewId) {
     ASSERT_NE(a, b);
 }
 
-} // namespace doris
+}  // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

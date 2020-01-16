@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/tdigest.h"
-
-#include <gtest/gtest.h>
-
 #include <random>
+#include <gtest/gtest.h>
+#include "util/tdigest.h"
 
 namespace doris {
 
@@ -76,8 +74,7 @@ static double quantile(const double q, const std::vector<double>& values) {
         } else {
             index -= 0.5;
             const int intIndex = static_cast<int>(index);
-            q1 = values[intIndex + 1] * (index - intIndex) +
-                 values[intIndex] * (intIndex + 1 - index);
+            q1 = values[intIndex + 1] * (index - intIndex) + values[intIndex] * (intIndex + 1 - index);
         }
     }
     return q1;
@@ -125,7 +122,7 @@ TEST_F(TDigestTest, FewValues) {
     std::uniform_int_distribution<> bools(0, 1);
     std::uniform_real_distribution<> qvalue(0.0, 1.0);
 
-    const auto length = 10; //dist(gen);
+    const auto length = 10;//dist(gen);
 
     std::vector<double> values;
     values.reserve(length);
@@ -178,10 +175,11 @@ TEST_F(TDigestTest, MoreThan2BValues) {
 }
 
 TEST_F(TDigestTest, MergeTest) {
+
     TDigest digest1(1000);
     TDigest digest2(1000);
 
-    digest2.add(std::vector<const TDigest*>{&digest1});
+    digest2.add(std::vector<const TDigest *> {&digest1});
 }
 
 TEST_F(TDigestTest, TestSorted) {
@@ -244,7 +242,7 @@ TEST_F(TDigestTest, Montonicity) {
     }
 }
 
-} // namespace doris
+}  // namespace stesting
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

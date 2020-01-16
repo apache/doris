@@ -17,8 +17,9 @@
 
 #include "runtime/thread_resource_mgr.h"
 
-#include <boost/algorithm/string.hpp>
 #include <vector>
+
+#include <boost/algorithm/string.hpp>
 
 #include "common/logging.h"
 #include "util/cpu_info.h"
@@ -42,7 +43,9 @@ ThreadResourceMgr::ThreadResourceMgr() {
     _per_pool_quota = 0;
 }
 
-ThreadResourceMgr::ResourcePool::ResourcePool(ThreadResourceMgr* parent) : _parent(parent) {}
+ThreadResourceMgr::ResourcePool::ResourcePool(ThreadResourceMgr* parent)
+    : _parent(parent) {
+}
 
 void ThreadResourceMgr::ResourcePool::reset() {
     _num_threads = 0;
@@ -79,7 +82,7 @@ ThreadResourceMgr::ResourcePool* ThreadResourceMgr::register_pool() {
 
 void ThreadResourceMgr::unregister_pool(ResourcePool* pool) {
     DCHECK(pool != NULL);
-    boost::unique_lock<boost::mutex> l(_lock);
+    boost::unique_lock< boost::mutex> l(_lock);
     DCHECK(_pools.find(pool) != _pools.end());
     _pools.erase(pool);
     _free_pool_objs.push_back(pool);
@@ -97,7 +100,8 @@ void ThreadResourceMgr::update_pool_quotas(ResourcePool* new_pool) {
         return;
     }
 
-    _per_pool_quota = ceil(static_cast<double>(_system_threads_quota) / _pools.size());
+    _per_pool_quota =
+        ceil(static_cast<double>(_system_threads_quota) / _pools.size());
 
     for (Pools::iterator it = _pools.begin(); it != _pools.end(); ++it) {
         ResourcePool* pool = *it;
@@ -114,4 +118,5 @@ void ThreadResourceMgr::update_pool_quotas(ResourcePool* new_pool) {
     }
 }
 
-} // namespace doris
+}
+

@@ -17,18 +17,19 @@
 
 #include "exprs/es_functions.h"
 
-#include "exprs/anyval_util.h"
 #include "exprs/expr.h"
-#include "runtime/tuple_row.h"
+#include "exprs/anyval_util.h"
 #include "util/debug_util.h"
+#include "runtime/tuple_row.h"
 
 namespace doris {
 
-void ESFunctions::init() {}
+void ESFunctions::init() {
+}
 
-BooleanVal ESFunctions::match(FunctionContext* ctx, const StringVal& col,
-                              const StringVal& condition) {
+BooleanVal ESFunctions::match(FunctionContext* ctx, const StringVal& col, 
+            const StringVal& condition) {
     return BooleanVal(true);
 }
 
-} // namespace doris
+} // doris

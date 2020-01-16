@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/PaloBrokerService_types.h"
+#include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "util/cpu_info.h"
 #include "util/stopwatch.hpp"
@@ -35,13 +36,16 @@ class RuntimeState;
 
 class BrokerReaderTest : public testing::Test {
 public:
-    BrokerReaderTest() { init(); }
+    BrokerReaderTest() {
+        init();
+    }
     void init();
 
 protected:
-    virtual void SetUp() {}
-    virtual void TearDown() {}
-
+    virtual void SetUp() {
+    }
+    virtual void TearDown() {
+    }
 private:
     ExecEnv* _env;
     std::map<std::string, std::string> _properties;

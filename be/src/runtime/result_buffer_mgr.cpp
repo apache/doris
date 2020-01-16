@@ -16,14 +16,12 @@
 // under the License.
 
 #include "runtime/result_buffer_mgr.h"
-
 #include <boost/bind.hpp>
-
-#include "gen_cpp/PaloInternalService_types.h"
-#include "gen_cpp/types.pb.h"
 #include "runtime/buffer_control_block.h"
 #include "runtime/raw_value.h"
 #include "util/debug_util.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/types.pb.h"
 
 namespace doris {
 
@@ -33,7 +31,9 @@ namespace doris {
 //    return value;
 //}
 
-ResultBufferMgr::ResultBufferMgr() : _is_stop(false) {}
+ResultBufferMgr::ResultBufferMgr()
+    : _is_stop(false) {
+}
 
 ResultBufferMgr::~ResultBufferMgr() {
     _is_stop = true;
@@ -41,21 +41,24 @@ ResultBufferMgr::~ResultBufferMgr() {
 }
 
 Status ResultBufferMgr::init() {
-    _cancel_thread.reset(new boost::thread(
-            boost::bind<void>(boost::mem_fn(&ResultBufferMgr::cancel_thread), this)));
+    _cancel_thread.reset(
+            new boost::thread(
+                    boost::bind<void>(boost::mem_fn(&ResultBufferMgr::cancel_thread), this)));
     return Status::OK();
 }
 
-Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
-                                      boost::shared_ptr<BufferControlBlock>* sender) {
+Status ResultBufferMgr::create_sender(
+    const TUniqueId& query_id, int buffer_size,
+    boost::shared_ptr<BufferControlBlock>* sender) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
-        LOG(WARNING) << "already have buffer control block for this instance " << query_id;
+        LOG(WARNING) << "already have buffer control block for this instance "
+                     << query_id;
         return Status::OK();
     }
 
     boost::shared_ptr<BufferControlBlock> control_block(
-            new BufferControlBlock(query_id, buffer_size));
+        new BufferControlBlock(query_id, buffer_size));
     {
         boost::lock_guard<boost::mutex> l(_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));
@@ -65,7 +68,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
 }
 
 boost::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
-        const TUniqueId& query_id) {
+    const TUniqueId& query_id) {
     // TODO(zhaochun): this lock can be bottleneck?
     boost::lock_guard<boost::mutex> l(_lock);
     BufferMap::iterator iter = _buffer_map.find(query_id);
@@ -77,7 +80,8 @@ boost::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(
     return boost::shared_ptr<BufferControlBlock>();
 }
 
-Status ResultBufferMgr::fetch_data(const TUniqueId& query_id, TFetchDataResult* result) {
+Status ResultBufferMgr::fetch_data(
+    const TUniqueId& query_id, TFetchDataResult* result) {
     boost::shared_ptr<BufferControlBlock> cb = find_control_block(query_id);
 
     if (NULL == cb) {
@@ -118,8 +122,8 @@ Status ResultBufferMgr::cancel_at_time(time_t cancel_time, const TUniqueId& quer
     TimeoutMap::iterator iter = _timeout_map.find(cancel_time);
 
     if (_timeout_map.end() == iter) {
-        _timeout_map.insert(
-                std::pair<time_t, std::vector<TUniqueId> >(cancel_time, std::vector<TUniqueId>()));
+        _timeout_map.insert(std::pair<time_t, std::vector<TUniqueId> >(
+                                 cancel_time, std::vector<TUniqueId>()));
         iter = _timeout_map.find(cancel_time);
     }
 
@@ -158,4 +162,4 @@ void ResultBufferMgr::cancel_thread() {
     LOG(INFO) << "result buffer manager cancel thread finish.";
 }
 
-} // namespace doris
+}

@@ -18,14 +18,13 @@
 #ifndef DORIS_BE_UDF_UDF_DEBUG_H
 #define DORIS_BE_UDF_UDF_DEBUG_H
 
-#include <sstream>
 #include <string>
-
+#include <sstream>
 #include "udf/udf.h"
 
 namespace doris_udf {
 
-template <typename T>
+template<typename T>
 std::string debug_string(const T& val) {
     if (val.is_null) {
         return "NULL";
@@ -36,7 +35,7 @@ std::string debug_string(const T& val) {
     return ss.str();
 }
 
-template <>
+template<>
 std::string debug_string(const StringVal& val) {
     if (val.is_null) {
         return "NULL";
@@ -45,6 +44,7 @@ std::string debug_string(const StringVal& val) {
     return std::string(reinterpret_cast<const char*>(val.ptr), val.len);
 }
 
-} // namespace doris_udf
+}
 
 #endif
+

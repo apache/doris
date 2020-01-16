@@ -15,25 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/dpp_sink_internal.h"
-
 #include <gtest/gtest.h>
-
 #include "common/object_pool.h"
-#include "gen_cpp/DataSinks_types.h"
-#include "gen_cpp/Exprs_types.h"
-#include "gen_cpp/Types_types.h"
+#include "runtime/dpp_sink_internal.h"
 #include "runtime/descriptors.h"
+#include "gen_cpp/Exprs_types.h"
+#include "gen_cpp/DataSinks_types.h"
+#include "gen_cpp/Types_types.h"
 
 namespace doris {
 
 class DppSinkInternalTest : public testing::Test {
 public:
-    DppSinkInternalTest() {}
+    DppSinkInternalTest() {
+    }
 
 protected:
-    virtual void SetUp() {}
-    virtual void TearDown() {}
+    virtual void SetUp() {
+    }
+    virtual void TearDown() {
+    }
 };
 
 TEST_F(DppSinkInternalTest, RollupNormal) {
@@ -201,7 +202,7 @@ TEST_F(DppSinkInternalTest, ZeroBucket) {
     ASSERT_FALSE(PartitionInfo::from_thrift(&pool, t_partition, &info).ok());
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

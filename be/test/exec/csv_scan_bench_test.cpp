@@ -15,25 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
+#include "exec/csv_scan_node.h"
 
 #include <vector>
 
-#include "exec/csv_scan_node.h"
+#include "gperftools/profiler.h"
+#include <gtest/gtest.h>
+
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
-#include "gperftools/profiler.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "util/debug_util.h"
 #include "util/logging.h"
+#include "util/debug_util.h"
 
 namespace doris {
 
 class CsvScanNodeBenchTest : public testing::Test {
 public:
-    CsvScanNodeBenchTest() {}
-    ~CsvScanNodeBenchTest() {}
+    CsvScanNodeBenchTest(){}
+    ~CsvScanNodeBenchTest(){}
 
 protected:
     virtual void SetUp() {
@@ -44,7 +45,9 @@ protected:
         system("cp -r ./be/test/query/exec/test_data/csv_scanner ./test_run/.");
         init();
     }
-    virtual void TearDown() { system("rm -rf ./test_run"); }
+    virtual void TearDown() {
+        system("rm -rf ./test_run");
+    }
 
     void init();
     void init_desc_tbl();
@@ -292,6 +295,7 @@ void CsvScanNodeBenchTest::init_desc_tbl() {
     _tnode.csv_scan_node.__isset.default_values = true;
     _tnode.csv_scan_node.max_filter_ratio = 0.5;
     _tnode.__isset.csv_scan_node = true;
+
 }
 
 TEST_F(CsvScanNodeBenchTest, NormalUse) {
@@ -313,6 +317,7 @@ TEST_F(CsvScanNodeBenchTest, NormalUse) {
         int num = row_batch.num_rows();
         // ASSERT_TRUE(num > 0);
         // std::cout << "num: " << num << std::endl;
+
     }
 
     ASSERT_TRUE(scan_node.close(_state).ok());

@@ -15,31 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/count_down_latch.hpp"
-
 #include <gtest/gtest.h>
+#include "common/config.h"
+#include "util/count_down_latch.hpp"
+#include "util/logging.h"
 
 #include <memory>
-
-#include "common/config.h"
-#include "util/logging.h"
 
 namespace doris {
 
 class CountDownLatchTest : public testing::Test {
 public:
-    CountDownLatchTest() {}
+    CountDownLatchTest() {
+    }
 
 protected:
-    virtual void SetUp() {}
-    virtual void TearDown() {}
+    virtual void SetUp() {
+    }
+    virtual void TearDown() {
+    }
 };
 
 struct WokerCtx {
-    WokerCtx(int count_param)
-            : latch(CountDownLatch(count_param)), u_sleep_time(0), count(count_param) {}
+    WokerCtx(int count_param) :
+            latch(CountDownLatch(count_param)), 
+            u_sleep_time(0),
+            count(count_param) {
+    }
 
-    ~WokerCtx() {}
+    ~WokerCtx() {
+    }
 
     CountDownLatch latch;
     int u_sleep_time;
@@ -83,7 +88,7 @@ TEST_F(CountDownLatchTest, Timeout) {
     pthread_join(id, nullptr);
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

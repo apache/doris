@@ -17,26 +17,27 @@
 
 #include "exprs/json_functions.h"
 
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-#include <re2/re2.h>
 #include <stdlib.h>
 #include <sys/time.h>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/tokenizer.hpp>
 #include <sstream>
 #include <string>
 #include <vector>
 
-#include "common/logging.h"
-#include "exprs/anyval_util.h"
+#include <boost/algorithm/string.hpp>
+#include <boost/tokenizer.hpp>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/document.h>
+#include <rapidjson/writer.h>
+#include <re2/re2.h>
+
 #include "exprs/expr.h"
+#include "exprs/anyval_util.h"
+#include "common/logging.h"
 #include "olap/olap_define.h"
-#include "rapidjson/error/en.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
+#include "rapidjson/error/en.h"
 
 namespace doris {
 
@@ -44,10 +45,11 @@ namespace doris {
 // json path cannot contains: ", [, ]
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+)\\])?");
 
-void JsonFunctions::init() {}
+void JsonFunctions::init() {
+}
 
-IntVal JsonFunctions::get_json_int(FunctionContext* context, const StringVal& json_str,
-                                   const StringVal& path) {
+IntVal JsonFunctions::get_json_int(
+        FunctionContext* context, const StringVal& json_str, const StringVal& path) {
     if (json_str.is_null || path.is_null) {
         return IntVal::null();
     }
@@ -55,7 +57,7 @@ IntVal JsonFunctions::get_json_int(FunctionContext* context, const StringVal& js
     std::string path_string((char*)path.ptr, path.len);
     rapidjson::Document document;
     rapidjson::Value* root =
-            get_json_object(context, json_string, path_string, JSON_FUN_INT, &document);
+        get_json_object(context, json_string, path_string, JSON_FUN_INT, &document);
     if (root->IsInt()) {
         return IntVal(root->GetInt());
     } else {
@@ -63,8 +65,8 @@ IntVal JsonFunctions::get_json_int(FunctionContext* context, const StringVal& js
     }
 }
 
-StringVal JsonFunctions::get_json_string(FunctionContext* context, const StringVal& json_str,
-                                         const StringVal& path) {
+StringVal JsonFunctions::get_json_string(
+        FunctionContext* context, const StringVal& json_str, const StringVal& path) {
     if (json_str.is_null || path.is_null) {
         return StringVal::null();
     }
@@ -73,7 +75,7 @@ StringVal JsonFunctions::get_json_string(FunctionContext* context, const StringV
     std::string path_string((char*)path.ptr, path.len);
     rapidjson::Document document;
     rapidjson::Value* root =
-            get_json_object(context, json_string, path_string, JSON_FUN_STRING, &document);
+        get_json_object(context, json_string, path_string, JSON_FUN_STRING, &document);
     if (root->IsNull()) {
         return StringVal::null();
     } else if (root->IsString()) {
@@ -86,8 +88,8 @@ StringVal JsonFunctions::get_json_string(FunctionContext* context, const StringV
     }
 }
 
-DoubleVal JsonFunctions::get_json_double(FunctionContext* context, const StringVal& json_str,
-                                         const StringVal& path) {
+DoubleVal JsonFunctions::get_json_double(
+        FunctionContext* context, const StringVal& json_str, const StringVal& path) {
     if (json_str.is_null || path.is_null) {
         return DoubleVal::null();
     }
@@ -95,7 +97,7 @@ DoubleVal JsonFunctions::get_json_double(FunctionContext* context, const StringV
     std::string path_string((char*)path.ptr, path.len);
     rapidjson::Document document;
     rapidjson::Value* root =
-            get_json_object(context, json_string, path_string, JSON_FUN_DOUBLE, &document);
+        get_json_object(context, json_string, path_string, JSON_FUN_DOUBLE, &document);
     if (root->IsInt()) {
         return DoubleVal(static_cast<double>(root->GetInt()));
     } else if (root->IsDouble()) {
@@ -105,11 +107,13 @@ DoubleVal JsonFunctions::get_json_double(FunctionContext* context, const StringV
     }
 }
 
-rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
-                                                 const std::string& json_string,
-                                                 const std::string& path_string,
-                                                 const JsonFunctionType& fntype,
-                                                 rapidjson::Document* document) {
+rapidjson::Value* JsonFunctions::get_json_object(
+        FunctionContext* context,
+        const std::string& json_string,
+        const std::string& path_string,
+        const JsonFunctionType& fntype,
+        rapidjson::Document* document) {
+
     // split path by ".", and escape quota by "\"
     // eg:
     //    '$.text#abc.xyz'  ->  [$, text#abc, xyz]
@@ -118,18 +122,15 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
     std::vector<JsonPath>* parsed_paths;
     std::vector<JsonPath> tmp_parsed_paths;
 #ifndef BE_TEST
-    parsed_paths = reinterpret_cast<std::vector<JsonPath>*>(
-            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    parsed_paths = reinterpret_cast<std::vector<JsonPath>*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     if (parsed_paths == nullptr) {
-        boost::tokenizer<boost::escaped_list_separator<char> > tok(
-                path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+        boost::tokenizer<boost::escaped_list_separator<char> > tok(path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
         std::vector<std::string> paths(tok.begin(), tok.end());
         get_parsed_paths(paths, &tmp_parsed_paths);
         parsed_paths = &tmp_parsed_paths;
     }
 #else
-    boost::tokenizer<boost::escaped_list_separator<char> > tok(
-            path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
+    boost::tokenizer<boost::escaped_list_separator<char> > tok(path_string, boost::escaped_list_separator<char>("\\", ".", "\""));
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &tmp_parsed_paths);
     parsed_paths = &tmp_parsed_paths;
@@ -152,8 +153,8 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
     //rapidjson::Document document;
     document->Parse(json_string.c_str());
     if (UNLIKELY(document->HasParseError())) {
-        VLOG(1) << "Error at offset " << document->GetErrorOffset() << ": "
-                << GetParseError_En(document->GetParseError());
+        VLOG(1) << "Error at offset " << document->GetErrorOffset()
+            << ": " << GetParseError_En(document->GetParseError());
         document->SetNull();
         return document;
     }
@@ -205,7 +206,7 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
                 }
 
                 root = is_null ? &(array_obj->SetNull()) : array_obj;
-            } else if (root->IsObject()) {
+            } else if (root->IsObject()){
                 if (!root->HasMember(col.c_str())) {
                     root->SetNull();
                 } else {
@@ -230,13 +231,14 @@ rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
                 root->SetNull();
             }
         }
-    }
+     }
 
-    return root;
+     return root;
 }
 
-void JsonFunctions::json_path_prepare(doris_udf::FunctionContext* context,
-                                      doris_udf::FunctionContext::FunctionStateScope scope) {
+void JsonFunctions::json_path_prepare(
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
@@ -250,8 +252,8 @@ void JsonFunctions::json_path_prepare(doris_udf::FunctionContext* context,
     }
 
     std::string path_str(reinterpret_cast<char*>(path->ptr), path->len);
-    boost::tokenizer<boost::escaped_list_separator<char> > tok(
-            path_str, boost::escaped_list_separator<char>("\\", ".", "\""));
+    boost::tokenizer<boost::escaped_list_separator<char> > tok(path_str,
+            boost::escaped_list_separator<char>("\\", ".", "\""));
     std::vector<std::string> path_exprs(tok.begin(), tok.end());
     std::vector<JsonPath>* parsed_paths = new std::vector<JsonPath>();
     get_parsed_paths(path_exprs, parsed_paths);
@@ -260,8 +262,10 @@ void JsonFunctions::json_path_prepare(doris_udf::FunctionContext* context,
     VLOG(10) << "prepare json path. size: " << parsed_paths->size();
 }
 
-void JsonFunctions::get_parsed_paths(const std::vector<std::string>& path_exprs,
-                                     std::vector<JsonPath>* parsed_paths) {
+void JsonFunctions::get_parsed_paths(
+        const std::vector<std::string>& path_exprs,
+        std::vector<JsonPath>* parsed_paths) {
+
     if (path_exprs[0] != "$") {
         parsed_paths->emplace_back("", -1, false);
     } else {
@@ -283,17 +287,18 @@ void JsonFunctions::get_parsed_paths(const std::vector<std::string>& path_exprs,
     }
 }
 
-void JsonFunctions::json_path_close(doris_udf::FunctionContext* context,
-                                    doris_udf::FunctionContext::FunctionStateScope scope) {
+void JsonFunctions::json_path_close(
+        doris_udf::FunctionContext* context,
+        doris_udf::FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
-    std::vector<JsonPath>* parsed_paths =
-            reinterpret_cast<std::vector<JsonPath>*>(context->get_function_state(scope));
+    std::vector<JsonPath>* parsed_paths = reinterpret_cast<std::vector<JsonPath>*>(context->get_function_state(scope));
     if (parsed_paths != nullptr) {
         delete parsed_paths;
         VLOG(10) << "close json path";
     }
 }
 
-} // namespace doris
+}
+

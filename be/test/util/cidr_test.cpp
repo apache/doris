@@ -17,11 +17,11 @@
 
 #include "util/cidr.h"
 
-#include <gtest/gtest.h>
-#include <stdio.h>
 #include <stdlib.h>
-
+#include <stdio.h>
 #include <iostream>
+
+#include <gtest/gtest.h>
 
 #include "util/cpu_info.h"
 #include "util/logging.h"
@@ -67,3 +67,4 @@ int main(int argc, char** argv) {
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();
 }
+

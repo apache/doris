@@ -21,12 +21,14 @@
 
 namespace doris {
 
-ExecEnv::ExecEnv() {}
+ExecEnv::ExecEnv() {
+}
 
-ExecEnv::~ExecEnv() {}
+ExecEnv::~ExecEnv() {
+}
 
 const std::string& ExecEnv::token() const {
     return _master_info->token;
 }
 
-} // namespace doris
+}

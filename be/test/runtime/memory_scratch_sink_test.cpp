@@ -15,25 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/memory_scratch_sink.h"
-
 #include <gtest/gtest.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 #include <iostream>
+#include <stdlib.h>
+#include <stdio.h>
 
 #include "common/config.h"
 #include "common/logging.h"
 #include "exec/csv_scan_node.h"
 #include "exprs/expr.h"
 #include "gen_cpp/DorisExternalService_types.h"
+#include "gen_cpp/Types_types.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Types_types.h"
 #include "olap/options.h"
 #include "olap/row.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory_scratch_sink.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/primitive_type.h"
 #include "runtime/result_queue_mgr.h"
@@ -41,9 +39,9 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/tuple_row.h"
-#include "testutil/desc_tbl_builder.h"
 #include "util/blocking_queue.hpp"
 #include "util/logging.h"
+#include "testutil/desc_tbl_builder.h"
 
 namespace doris {
 
@@ -96,10 +94,11 @@ private:
     TPlanNode _tnode;
     RowDescriptor* _row_desc;
     TMemoryScratchSink _tsink;
-    MemTracker* _mem_tracker;
+    MemTracker *_mem_tracker;
     DescriptorTbl* _desc_tbl;
     std::vector<TExpr> _exprs;
 };
+
 
 void MemoryScratchSinkTest::init() {
     init_desc_tbl();
@@ -172,6 +171,7 @@ void MemoryScratchSinkTest::init_desc_tbl() {
 
     DescriptorTbl::create(&_obj_pool, _t_desc_table, &_desc_tbl);
 
+
     vector<TTupleId> row_tids;
     row_tids.push_back(0);
 
@@ -209,6 +209,7 @@ void MemoryScratchSinkTest::init_desc_tbl() {
     _tnode.csv_scan_node.__isset.default_values = true;
     _tnode.csv_scan_node.max_filter_ratio = 0.5;
     _tnode.__isset.csv_scan_node = true;
+
 }
 
 TEST_F(MemoryScratchSinkTest, work_flow_normal) {
@@ -245,7 +246,7 @@ TEST_F(MemoryScratchSinkTest, work_flow_normal) {
     ASSERT_TRUE(scan_node.close(_state).ok());
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

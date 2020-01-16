@@ -43,12 +43,13 @@ namespace doris {
 //          ... do work...
 //          cond.dec();
 //
-//      thread3(waiter):
-//          cond.block_wait();
+//      thread3(waiter):    
+//          cond.block_wait();            
 
 class CounterCondVariable {
 public:
-    explicit CounterCondVariable(int init = 0) : _count(init) {}
+    explicit CounterCondVariable(int init = 0) : _count(init) {
+    }
 
     // increase the counter
     void inc(int inc = 1) {
@@ -80,4 +81,4 @@ private:
     int _count;
 };
 
-} // namespace doris
+} // end namespace

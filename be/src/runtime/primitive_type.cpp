@@ -16,9 +16,7 @@
 // under the License.
 
 #include "runtime/primitive_type.h"
-
 #include <sstream>
-
 #include "gen_cpp/Types_types.h"
 
 namespace doris {
@@ -88,7 +86,7 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::CHAR:
         return TYPE_CHAR;
-
+            
     case TPrimitiveType::HLL:
         return TYPE_HLL;
 
@@ -161,7 +159,7 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
 
     case TYPE_OBJECT:
         return TPrimitiveType::OBJECT;
-
+            
     default:
         return TPrimitiveType::INVALID_TYPE;
     }
@@ -290,7 +288,7 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
     case TYPE_CHAR:
         return "char";
-
+            
     case TYPE_HLL:
         return "hll";
 
@@ -303,12 +301,12 @@ std::string type_to_odbc_string(PrimitiveType t) {
 
 // for test only
 TTypeDesc gen_type_desc(const TPrimitiveType::type val) {
-    std::vector<TTypeNode> types_list;
+    std::vector<TTypeNode>  types_list;
     TTypeNode type_node;
     TTypeDesc type_desc;
     TScalarType scalar_type;
     scalar_type.__set_type(val);
-    type_node.__set_scalar_type(scalar_type);
+    type_node.__set_scalar_type(scalar_type);  
     types_list.push_back(type_node);
     type_desc.__set_types(types_list);
     return type_desc;
@@ -316,7 +314,7 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val) {
 
 // for test only
 TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name) {
-    std::vector<TTypeNode> types_list;
+    std::vector<TTypeNode>  types_list;
     TTypeNode type_node;
     TTypeDesc type_desc;
     TScalarType scalar_type;
@@ -326,10 +324,10 @@ TTypeDesc gen_type_desc(const TPrimitiveType::type val, const std::string& name)
     field.__set_name(name);
     fields.push_back(field);
     type_node.__set_struct_fields(fields);
-    type_node.__set_scalar_type(scalar_type);
+    type_node.__set_scalar_type(scalar_type);  
     types_list.push_back(type_node);
     type_desc.__set_types(types_list);
     return type_desc;
 }
 
-} // namespace doris
+}

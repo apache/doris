@@ -18,14 +18,22 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_HTTP_METHOD_H
 #define DORIS_BE_SRC_COMMON_UTIL_HTTP_METHOD_H
 
-#include <event2/http.h>
-
 #include <string>
+
+#include <event2/http.h>
 
 namespace doris {
 
 // Http method enumerate
-enum HttpMethod { GET, PUT, POST, DELETE, HEAD, OPTIONS, UNKNOWN };
+enum HttpMethod {
+    GET,
+    PUT,
+    POST,
+    DELETE,
+    HEAD,
+    OPTIONS,
+    UNKNOWN
+};
 
 // Convert string to HttpMethod
 HttpMethod to_http_method(const char* method);
@@ -52,5 +60,5 @@ inline HttpMethod to_http_method(evhttp_cmd_type type) {
 
 std::string to_method_desc(const HttpMethod& method);
 
-} // namespace doris
+}
 #endif

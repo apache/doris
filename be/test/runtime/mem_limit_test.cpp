@@ -15,11 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/mem_tracker.h"
+
 #include <gtest/gtest.h>
 
-#include "runtime/mem_tracker.h"
-#include "util/logging.h"
 #include "util/metrics.h"
+#include "util/logging.h"
 
 namespace doris {
 

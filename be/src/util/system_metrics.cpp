@@ -17,8 +17,8 @@
 
 #include "util/system_metrics.h"
 
-#include <gperftools/malloc_extension.h>
 #include <stdio.h>
+#include <gperftools/malloc_extension.h>
 
 #include <functional>
 
@@ -33,8 +33,9 @@ struct CpuMetrics {
     IntLockCounter metrics[k_num_metrics];
 };
 
-const char* CpuMetrics::k_names[] = {"user", "nice",     "system", "idle",  "iowait",
-                                     "irq",  "soft_irq", "steal",  "guest", "guest_nice"};
+const char* CpuMetrics::k_names[] = {
+    "user", "nice", "system", "idle", "iowait",
+    "irq", "soft_irq", "steal", "guest", "guest_nice"};
 
 struct MemoryMetrics {
     IntGauge allocated_bytes;
@@ -63,7 +64,8 @@ struct FileDescriptorMetrics {
     IntGauge fd_num_used;
 };
 
-SystemMetrics::SystemMetrics() {}
+SystemMetrics::SystemMetrics() {
+}
 
 SystemMetrics::~SystemMetrics() {
     // we must deregister us from registry
@@ -82,7 +84,8 @@ SystemMetrics::~SystemMetrics() {
     }
 }
 
-void SystemMetrics::install(MetricRegistry* registry, const std::set<std::string>& disk_devices,
+void SystemMetrics::install(MetricRegistry* registry,
+                            const std::set<std::string>& disk_devices,
                             const std::vector<std::string>& network_interfaces) {
     DCHECK(_registry == nullptr);
     if (!registry->register_hook(_s_hook_name, std::bind(&SystemMetrics::update, this))) {
@@ -108,7 +111,8 @@ void SystemMetrics::_install_cpu_metrics(MetricRegistry* registry) {
     _cpu_total.reset(new CpuMetrics());
 
     for (int i = 0; i < CpuMetrics::k_num_metrics; ++i) {
-        registry->register_metric("cpu", MetricLabels().add("mode", CpuMetrics::k_names[i]),
+        registry->register_metric("cpu",
+                                  MetricLabels().add("mode", CpuMetrics::k_names[i]),
                                   &_cpu_total->metrics[i]);
     }
 }
@@ -129,14 +133,14 @@ void SystemMetrics::_update_cpu_metrics() {
     if (fp == nullptr) {
         char buf[64];
         LOG(WARNING) << "open /proc/stat failed, errno=" << errno
-                     << ", message=" << strerror_r(errno, buf, 64);
+            << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
 
     if (getline(&_line_ptr, &_line_buf_size, fp) < 0) {
         char buf[64];
         LOG(WARNING) << "getline failed, errno=" << errno
-                     << ", message=" << strerror_r(errno, buf, 64);
+            << ", message=" << strerror_r(errno, buf, 64);
         fclose(fp);
         return;
     }
@@ -144,12 +148,16 @@ void SystemMetrics::_update_cpu_metrics() {
     char cpu[16];
     int64_t values[CpuMetrics::k_num_metrics];
     memset(values, 0, sizeof(values));
-    sscanf(_line_ptr,
-           "%15s"
-           " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64
-           " %" PRId64 " %" PRId64 " %" PRId64,
-           cpu, &values[0], &values[1], &values[2], &values[3], &values[4], &values[5], &values[6],
-           &values[7], &values[8], &values[9]);
+    sscanf(_line_ptr, "%15s"
+           " %" PRId64 " %" PRId64 " %" PRId64
+           " %" PRId64 " %" PRId64 " %" PRId64
+           " %" PRId64 " %" PRId64 " %" PRId64
+           " %" PRId64,
+           cpu,
+           &values[0], &values[1], &values[2],
+           &values[3], &values[4], &values[5],
+           &values[6], &values[7], &values[8],
+           &values[9]);
 
     for (int i = 0; i < CpuMetrics::k_num_metrics; ++i) {
         _cpu_total->metrics[i].set_value(values[i]);
@@ -169,8 +177,8 @@ void SystemMetrics::_update_memory_metrics() {
     LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
 #else
     size_t allocated_bytes = 0;
-    MallocExtension::instance()->GetNumericProperty("generic.current_allocated_bytes",
-                                                    &allocated_bytes);
+    MallocExtension::instance()->GetNumericProperty(
+        "generic.current_allocated_bytes", &allocated_bytes);
     _memory_metrics->allocated_bytes.set_value(allocated_bytes);
 #endif
 }
@@ -180,7 +188,9 @@ void SystemMetrics::_install_disk_metrics(MetricRegistry* registry,
     for (auto& disk : devices) {
         DiskMetrics* metrics = new DiskMetrics();
 #define REGISTER_DISK_METRIC(name) \
-    registry->register_metric("disk_" #name, MetricLabels().add("device", disk), &metrics->name)
+        registry->register_metric("disk_"#name, \
+                                  MetricLabels().add("device", disk), \
+                                  &metrics->name)
         REGISTER_DISK_METRIC(reads_completed);
         REGISTER_DISK_METRIC(bytes_read);
         REGISTER_DISK_METRIC(read_time_ms);
@@ -202,7 +212,7 @@ void SystemMetrics::_update_disk_metrics() {
     if (fp == nullptr) {
         char buf[64];
         LOG(WARNING) << "open /proc/diskstats failed, errno=" << errno
-                     << ", message=" << strerror_r(errno, buf, 64);
+            << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
 
@@ -228,13 +238,16 @@ void SystemMetrics::_update_disk_metrics() {
     int64_t values[11];
     while (getline(&_line_ptr, &_line_buf_size, fp) > 0) {
         memset(values, 0, sizeof(values));
-        int num = sscanf(_line_ptr,
-                         "%d %d %1023s"
-                         " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64
-                         " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64 " %" PRId64,
-                         &major, &minor, device, &values[0], &values[1], &values[2], &values[3],
-                         &values[4], &values[5], &values[6], &values[7], &values[8], &values[9],
-                         &values[10]);
+        int num = sscanf(_line_ptr, "%d %d %1023s"
+                         " %" PRId64 " %" PRId64 " %" PRId64
+                         " %" PRId64 " %" PRId64 " %" PRId64
+                         " %" PRId64 " %" PRId64 " %" PRId64
+                         " %" PRId64 " %" PRId64,
+                         &major, &minor, device,
+                         &values[0], &values[1], &values[2],
+                         &values[3], &values[4], &values[5],
+                         &values[6], &values[7], &values[8],
+                         &values[9], &values[10]);
         if (num < 4) {
             continue;
         }
@@ -263,7 +276,7 @@ void SystemMetrics::_update_disk_metrics() {
     if (ferror(fp) != 0) {
         char buf[64];
         LOG(WARNING) << "getline failed, errno=" << errno
-                     << ", message=" << strerror_r(errno, buf, 64);
+            << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
 }
@@ -273,7 +286,9 @@ void SystemMetrics::_install_net_metrics(MetricRegistry* registry,
     for (auto& net : interfaces) {
         NetMetrics* metrics = new NetMetrics();
 #define REGISTER_NETWORK_METRIC(name) \
-    registry->register_metric("network_" #name, MetricLabels().add("device", net), &metrics->name)
+        registry->register_metric("network_"#name, \
+                                  MetricLabels().add("device", net), \
+                                  &metrics->name)
         REGISTER_NETWORK_METRIC(receive_bytes);
         REGISTER_NETWORK_METRIC(receive_packets);
         REGISTER_NETWORK_METRIC(send_bytes);
@@ -292,7 +307,7 @@ void SystemMetrics::_update_net_metrics() {
     if (fp == nullptr) {
         char buf[64];
         LOG(WARNING) << "open /proc/net/dev failed, errno=" << errno
-                     << ", message=" << strerror_r(errno, buf, 64);
+            << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
 
@@ -301,7 +316,7 @@ void SystemMetrics::_update_net_metrics() {
         getline(&_line_ptr, &_line_buf_size, fp) < 0) {
         char buf[64];
         LOG(WARNING) << "read /proc/net/dev first two line failed, errno=" << errno
-                     << ", message=" << strerror_r(errno, buf, 64);
+            << ", message=" << strerror_r(errno, buf, 64);
         fclose(fp);
         return;
     }
@@ -320,7 +335,7 @@ void SystemMetrics::_update_net_metrics() {
         if (ptr == nullptr) {
             continue;
         }
-        char* start = _line_ptr;
+        char *start = _line_ptr;
         while (isspace(*start)) {
             start++;
         }
@@ -339,26 +354,25 @@ void SystemMetrics::_update_net_metrics() {
             // receive: bytes packets errs drop fifo frame compressed multicast
             // send:    bytes packets errs drop fifo colls carrier compressed
             sscanf(ptr,
-                   " %" PRId64 " %" PRId64
-                   " %*d %*d %*d %*d %*d %*d"
+                   " %" PRId64 " %" PRId64 " %*d %*d %*d %*d %*d %*d"
                    " %" PRId64 " %" PRId64 " %*d %*d %*d %*d %*d %*d",
-                   &receive_bytes, &receive_packets, &send_bytes, &send_packets);
+                   &receive_bytes, &receive_packets,
+                   &send_bytes, &send_packets);
             break;
         case 2:
             // receive: bytes packets errs drop fifo frame
             // send:    bytes packets errs drop fifo colls carrier
             sscanf(ptr,
-                   " %" PRId64 " %" PRId64
-                   " %*d %*d %*d %*d"
+                   " %" PRId64 " %" PRId64 " %*d %*d %*d %*d"
                    " %" PRId64 " %" PRId64 " %*d %*d %*d %*d %*d",
-                   &receive_bytes, &receive_packets, &send_bytes, &send_packets);
+                   &receive_bytes, &receive_packets,
+                   &send_bytes, &send_packets);
             break;
         case 1:
             // receive: packets errs drop fifo frame
             // send: packets errs drop fifo colls carrier
             sscanf(ptr,
-                   " %" PRId64
-                   " %*d %*d %*d %*d"
+                   " %" PRId64 " %*d %*d %*d %*d"
                    " %" PRId64 " %*d %*d %*d %*d %*d",
                    &receive_packets, &send_packets);
             break;
@@ -373,7 +387,7 @@ void SystemMetrics::_update_net_metrics() {
     if (ferror(fp) != 0) {
         char buf[64];
         LOG(WARNING) << "getline failed, errno=" << errno
-                     << ", message=" << strerror_r(errno, buf, 64);
+            << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
 }
@@ -393,7 +407,7 @@ void SystemMetrics::_update_fd_metrics() {
     if (fp == nullptr) {
         char buf[64];
         LOG(WARNING) << "open /proc/sys/fs/file-nr failed, errno=" << errno
-                     << ", message=" << strerror_r(errno, buf, 64);
+            << ", message=" << strerror_r(errno, buf, 64);
         return;
     }
 
@@ -405,8 +419,8 @@ void SystemMetrics::_update_fd_metrics() {
     int64_t values[3];
     if (getline(&_line_ptr, &_line_buf_size, fp) > 0) {
         memset(values, 0, sizeof(values));
-        int num = sscanf(_line_ptr, "%" PRId64 " %" PRId64 " %" PRId64, &values[0], &values[1],
-                         &values[2]);
+        int num = sscanf(_line_ptr, "%" PRId64 " %" PRId64 " %" PRId64,
+                         &values[0], &values[1], &values[2]);
         if (num == 3) {
             _fd_metrics->fd_num_limit.set_value(values[2]);
             _fd_metrics->fd_num_used.set_value(values[0] - values[1]);
@@ -416,13 +430,13 @@ void SystemMetrics::_update_fd_metrics() {
     if (ferror(fp) != 0) {
         char buf[64];
         LOG(WARNING) << "getline failed, errno=" << errno
-                     << ", message=" << strerror_r(errno, buf, 64);
+            << ", message=" << strerror_r(errno, buf, 64);
     }
     fclose(fp);
 }
 
-int64_t SystemMetrics::get_max_io_util(const std::map<std::string, int64_t>& lst_value,
-                                       int64_t interval_sec) {
+int64_t SystemMetrics::get_max_io_util(
+        const std::map<std::string, int64_t>& lst_value, int64_t interval_sec) {
     int64_t max = 0;
     for (auto& it : _disk_metrics) {
         int64_t cur = it.second->io_time_ms.value();
@@ -443,23 +457,23 @@ void SystemMetrics::get_disks_io_time(std::map<std::string, int64_t>* map) {
     }
 }
 
-void SystemMetrics::get_network_traffic(std::map<std::string, int64_t>* send_map,
-                                        std::map<std::string, int64_t>* rcv_map) {
+void SystemMetrics::get_network_traffic(
+            std::map<std::string, int64_t>* send_map,
+            std::map<std::string, int64_t>* rcv_map) {
     send_map->clear();
     rcv_map->clear();
     for (auto& it : _net_metrics) {
-        if (it.first == "lo") {
-            continue;
-        }
+        if (it.first == "lo") { continue; }
         send_map->emplace(it.first, it.second->send_bytes.value());
         rcv_map->emplace(it.first, it.second->receive_bytes.value());
     }
 }
 
-void SystemMetrics::get_max_net_traffic(const std::map<std::string, int64_t>& lst_send_map,
-                                        const std::map<std::string, int64_t>& lst_rcv_map,
-                                        int64_t interval_sec, int64_t* send_rate,
-                                        int64_t* rcv_rate) {
+void SystemMetrics::get_max_net_traffic(
+            const std::map<std::string, int64_t>& lst_send_map,
+            const std::map<std::string, int64_t>& lst_rcv_map,
+            int64_t interval_sec,
+            int64_t* send_rate, int64_t* rcv_rate) {
     int64_t max_send = 0;
     int64_t max_rcv = 0;
     for (auto& it : _net_metrics) {
@@ -471,7 +485,7 @@ void SystemMetrics::get_max_net_traffic(const std::map<std::string, int64_t>& ls
             int64_t incr = cur_send - find_send->second;
             if (incr > max_send) max_send = incr;
         }
-        const auto find_rcv = lst_rcv_map.find(it.first);
+        const auto find_rcv= lst_rcv_map.find(it.first);
         if (find_rcv != lst_rcv_map.end()) {
             int64_t incr = cur_rcv - find_rcv->second;
             if (incr > max_rcv) max_rcv = incr;
@@ -481,4 +495,4 @@ void SystemMetrics::get_max_net_traffic(const std::map<std::string, int64_t>& ls
     *send_rate = max_send / interval_sec;
     *rcv_rate = max_rcv / interval_sec;
 }
-} // namespace doris
+} // end namespace

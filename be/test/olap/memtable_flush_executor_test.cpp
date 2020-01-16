@@ -17,10 +17,9 @@
 
 #include "olap/memtable_flush_executor.h"
 
-#include <gtest/gtest.h>
 #include <sys/file.h>
-
 #include <string>
+#include <gtest/gtest.h>
 
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
@@ -28,17 +27,17 @@
 #include "olap/delta_writer.h"
 #include "olap/field.h"
 #include "olap/memtable.h"
-#include "olap/options.h"
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "runtime/tuple.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "runtime/tuple.h"
-#include "util/file_utils.h"
 #include "util/logging.h"
+#include "util/file_utils.h"
+#include "olap/options.h"
+#include "olap/tablet_meta_manager.h"
 
 namespace doris {
 
@@ -82,12 +81,16 @@ Schema create_schema() {
 
 class TestMemTableFlushExecutor : public ::testing::Test {
 public:
-    TestMemTableFlushExecutor() {}
-    ~TestMemTableFlushExecutor() {}
+    TestMemTableFlushExecutor() { }
+    ~TestMemTableFlushExecutor() { }
 
-    void SetUp() { std::cout << "setup" << std::endl; }
+    void SetUp() {
+        std::cout << "setup" << std::endl;
+    }
 
-    void TearDown() { std::cout << "tear down" << std::endl; }
+    void TearDown(){
+        std::cout << "tear down" << std::endl;
+    }
 };
 
 TEST_F(TestMemTableFlushExecutor, create_flush_handler) {

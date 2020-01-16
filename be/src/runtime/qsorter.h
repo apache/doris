@@ -18,8 +18,9 @@
 #ifndef DORIS_BE_RUNTIME_QSORTER_H
 #define DORIS_BE_RUNTIME_QSORTER_H
 
-#include <boost/scoped_ptr.hpp>
 #include <vector>
+
+#include <boost/scoped_ptr.hpp>
 
 #include "common/status.h"
 #include "runtime/sorter.h"
@@ -37,10 +38,13 @@ class MemPool;
 // So when data is too large, 'add_batch' will return failure
 class QSorter : public Sorter {
 public:
-    QSorter(const RowDescriptor& row_desc, const std::vector<ExprContext*>& order_expr_ctxs,
+    QSorter(
+            const RowDescriptor& row_desc,
+            const std::vector<ExprContext*>& order_expr_ctxs,
             RuntimeState* state);
 
-    virtual ~QSorter() {}
+    virtual ~QSorter() {
+    }
 
     virtual Status prepare(RuntimeState* state);
 
@@ -56,7 +60,9 @@ public:
 
     virtual Status close(RuntimeState* state);
     // hll merge will create
-    MemPool* get_mem_pool() { return _tuple_pool.get(); };
+    MemPool* get_mem_pool() { 
+        return _tuple_pool.get(); 
+    };
 
 private:
     Status insert_tuple_row(TupleRow* input_row);
@@ -74,6 +80,6 @@ private:
     boost::scoped_ptr<MemPool> _tuple_pool;
 };
 
-} // namespace doris
+}
 
 #endif

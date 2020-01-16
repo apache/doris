@@ -15,15 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/mysql_scanner.h"
-
+#include <string>
 #include <gtest/gtest.h>
 
-#include <string>
-
 #include "common/object_pool.h"
-#include "runtime/descriptors.h"
+#include "exec/mysql_scanner.h"
 #include "runtime/mem_pool.h"
+#include "runtime/descriptors.h"
 
 namespace doris {
 
@@ -38,7 +36,8 @@ public:
     }
 
 protected:
-    virtual void SetUp() {}
+    virtual void SetUp() {
+    }
     MysqlScannerParam _param;
 };
 
@@ -113,7 +112,7 @@ TEST_F(MysqlScannerTest, open_failed) {
     ASSERT_FALSE(status.ok());
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -125,3 +124,4 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+

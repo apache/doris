@@ -39,6 +39,7 @@ private:
     static void load_doris_home();
 };
 
-} // namespace doris
+}
 
 #endif
+

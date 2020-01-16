@@ -19,7 +19,6 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_IS_NULL_PREDICATE_H
 
 #include <string>
-
 #include "exprs/predicate.h"
 
 namespace doris {
@@ -28,12 +27,12 @@ class IsNullPredicate {
 public:
     static void init();
 
-    template <typename T>
+    template<typename T> 
     static BooleanVal is_null(FunctionContext* ctx, const T& val);
 
-    template <typename T>
+    template<typename T> 
     static BooleanVal is_not_null(FunctionContext* ctx, const T& val);
 };
 
-} // namespace doris
+}
 #endif

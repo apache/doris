@@ -21,13 +21,14 @@
 #include <vector>
 
 #include "olap/olap_define.h"
+#include "olap/tablet.h"
 #include "olap/reader.h"
 #include "olap/row_cursor.h"
-#include "olap/tablet.h"
 
 namespace doris {
 
-OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
+OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet,
+                                 ReaderType reader_type,
                                  const std::vector<RowsetReaderSharedPtr>& src_rowset_readers,
                                  RowsetWriter* dst_rowset_writer,
                                  Merger::Statistics* stats_output) {
@@ -40,9 +41,8 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     RETURN_NOT_OK(reader.init(reader_params));
 
     RowCursor row_cursor;
-    RETURN_NOT_OK_LOG(
-            row_cursor.init(tablet->tablet_schema()),
-            "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
+    RETURN_NOT_OK_LOG(row_cursor.init(tablet->tablet_schema()),
+                 "failed to init row cursor when merging rowsets of tablet " + tablet->full_name());
     row_cursor.allocate_memory_for_string_type(tablet->tablet_schema());
 
     std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
@@ -54,15 +54,13 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         ObjectPool objectPool;
         bool eof = false;
         // Read one row into row_cursor
-        RETURN_NOT_OK_LOG(
-                reader.next_row_with_aggregation(&row_cursor, mem_pool.get(), &objectPool, &eof),
-                "failed to read next row when merging rowsets of tablet " + tablet->full_name());
+        RETURN_NOT_OK_LOG(reader.next_row_with_aggregation(&row_cursor, mem_pool.get(), &objectPool, &eof),
+                          "failed to read next row when merging rowsets of tablet " + tablet->full_name());
         if (eof) {
             break;
         }
-        RETURN_NOT_OK_LOG(
-                dst_rowset_writer->add_row(row_cursor),
-                "failed to write row when merging rowsets of tablet " + tablet->full_name());
+        RETURN_NOT_OK_LOG(dst_rowset_writer->add_row(row_cursor),
+                          "failed to write row when merging rowsets of tablet " + tablet->full_name());
         output_rows++;
         // the memory allocate by mem pool has been copied,
         // so we should release memory immediately
@@ -75,10 +73,9 @@ OLAPStatus Merger::merge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
         stats_output->filtered_rows = reader.filtered_rows();
     }
 
-    RETURN_NOT_OK_LOG(
-            dst_rowset_writer->flush(),
-            "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
+    RETURN_NOT_OK_LOG(dst_rowset_writer->flush(),
+                 "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
     return OLAP_SUCCESS;
 }
 
-} // namespace doris
+}  // namespace doris

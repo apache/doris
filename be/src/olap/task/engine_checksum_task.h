@@ -27,12 +27,15 @@ namespace doris {
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineChecksumTask : public EngineTask {
+
 public:
     virtual OLAPStatus execute();
 
 public:
-    EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, TVersion version,
-                       TVersionHash version_hash, uint32_t* checksum);
+    EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_hash, 
+        TVersion version,
+        TVersionHash version_hash,
+        uint32_t* checksum);
 
     ~EngineChecksumTask() {}
 
@@ -41,11 +44,11 @@ private:
 
 private:
     TTabletId _tablet_id;
-    TSchemaHash _schema_hash;
+    TSchemaHash _schema_hash; 
     TVersion _version;
     TVersionHash _version_hash;
     uint32_t* _checksum;
 }; // EngineTask
 
-} // namespace doris
+} // doris
 #endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_CHECKSUM_TASK_H

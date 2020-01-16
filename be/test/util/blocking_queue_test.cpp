@@ -17,12 +17,11 @@
 
 #include "util/blocking_queue.hpp"
 
-#include <glog/logging.h>
-#include <gtest/gtest.h>
 #include <unistd.h>
-
 #include <boost/thread.hpp>
 #include <boost/thread/mutex.hpp>
+#include <glog/logging.h>
+#include <gtest/gtest.h>
 
 namespace doris {
 
@@ -53,11 +52,12 @@ TEST(BlockingQueueTest, TestGetFromShutdownQueue) {
 
 class MultiThreadTest {
 public:
-    MultiThreadTest()
-            : _iterations(10000),
-              _nthreads(5),
-              _queue(_iterations * _nthreads / 10),
-              _num_inserters(_nthreads) {}
+    MultiThreadTest() : 
+            _iterations(10000),
+            _nthreads(5),
+            _queue(_iterations*_nthreads / 10),
+            _num_inserters(_nthreads) {
+    }
 
     void inserter_thread(int arg) {
         for (int i = 0; i < _iterations; ++i) {
@@ -142,4 +142,4 @@ TEST(BlockingQueueTest, TestMultipleThreads) {
     test.Run();
 }
 
-} // namespace doris
+}

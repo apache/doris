@@ -15,20 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/dpp_sink.h"
-
 #include <gtest/gtest.h>
 
-#include "common/object_pool.h"
+#include "runtime/dpp_sink.h"
+
 #include "exprs/expr.h"
-#include "gen_cpp/Descriptors_types.h"
+#include "exprs/expr.h"
 #include "runtime/descriptors.h"
-#include "runtime/dpp_sink_internal.h"
-#include "runtime/mem_pool.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/tuple.h"
+#include "runtime/runtime_state.h"
+#include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "runtime/tuple.h"
+#include "runtime/mem_pool.h"
+#include "runtime/dpp_sink_internal.h"
+#include "gen_cpp/Descriptors_types.h"
+#include "common/object_pool.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -41,7 +43,8 @@ public:
         init_runtime_state();
         init_rollups();
     }
-    ~DppSinkTest() {}
+    ~DppSinkTest() {
+    }
 
     void init_desc_tbl();
 
@@ -52,8 +55,10 @@ public:
     void init_rollups();
 
 protected:
-    virtual void SetUp() {}
-    virtual void TearDown() {}
+    virtual void SetUp() {
+    }
+    virtual void TearDown() {
+    }
 
 private:
     ObjectPool _obj_pool;
@@ -249,7 +254,7 @@ TEST_F(DppSinkTest, WithData) {
     ASSERT_TRUE(sink.finish(_state).ok());
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

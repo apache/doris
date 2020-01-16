@@ -18,10 +18,9 @@
 #include "util/symbols_util.h"
 
 #include <cxxabi.h>
-
+#include <sstream>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/regex.hpp>
-#include <sstream>
 
 using boost::algorithm::split_regex;
 using boost::regex;
@@ -117,8 +116,8 @@ static void append_seq_id(int seq_id, std::stringstream* out) {
     (*out) << "_";
 }
 
-static void append_any_val_type(int namespace_id, const TypeDescriptor& type,
-                                std::stringstream* s) {
+static void append_any_val_type(
+        int namespace_id, const TypeDescriptor& type, std::stringstream* s) {
     (*s) << "N";
     // All the AnyVal types are in the doris_udf namespace, that token
     // already came with doris_udf::FunctionContext
@@ -173,8 +172,8 @@ static void append_any_val_type(int namespace_id, const TypeDescriptor& type,
 }
 
 std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
-                                              const std::vector<TypeDescriptor>& arg_types,
-                                              bool has_var_args, TypeDescriptor* ret_arg_type) {
+        const std::vector<TypeDescriptor>& arg_types, bool has_var_args,
+        TypeDescriptor* ret_arg_type) {
     // We need to split fn_name by :: to separate scoping from tokens
     std::vector<std::string> name_tokens;
     split_regex(name_tokens, fn_name, regex("::"));
@@ -190,7 +189,7 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
     std::stringstream ss;
     ss << MANGLE_PREFIX;
     if (name_tokens.size() > 1) {
-        ss << "N";                        // Start namespace
+        ss << "N";  // Start namespace
         seq_id += name_tokens.size() - 1; // Append for all the name space tokens.
     }
     for (int i = 0; i < name_tokens.size(); ++i) {
@@ -217,7 +216,7 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
             // We always specify varargs as int32 followed by the type.
             ss << "i"; // The argument for the number of varargs.
             ss << "P"; // This indicates what follows is a ptr (that is the array of varargs)
-            ++seq_id;  // For "P"
+            ++seq_id; // For "P"
             if (repeated_symbol_idx > 0) {
                 append_seq_id(repeated_symbol_idx - 1, &ss);
                 continue;
@@ -228,10 +227,10 @@ std::string SymbolsUtil::mangle_user_function(const std::string& fn_name,
                 continue;
             }
             ss << "R"; // This indicates it is a reference type
-            ++seq_id;  // For R.
+            ++seq_id; // For R.
         }
 
-        ss << "K";   // This indicates it is const
+        ss << "K"; // This indicates it is const
         seq_id += 2; // For doris_udf::*Val, which is two tokens.
         append_any_val_type(doris_udf_seq_id, arg_types[i], &ss);
         argument_map[arg_types[i].type] = seq_id;
@@ -269,7 +268,7 @@ std::string SymbolsUtil::mangle_prepare_or_close_function(const std::string& fn_
     std::stringstream ss;
     ss << MANGLE_PREFIX;
     if (name_tokens.size() > 1) {
-        ss << "N";                        // Start namespace
+        ss << "N";  // Start namespace
         seq_id += name_tokens.size() - 1; // Append for all the name space tokens.
     }
     for (int i = 0; i < name_tokens.size(); ++i) {
@@ -292,4 +291,5 @@ std::string SymbolsUtil::mangle_prepare_or_close_function(const std::string& fn_
 
     return ss.str();
 }
-} // namespace doris
+}
+

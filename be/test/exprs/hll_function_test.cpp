@@ -15,18 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/hll_function.h"
-
-#include <gtest/gtest.h>
-
 #include <iostream>
 #include <string>
 
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
-#include "olap/hll.h"
+#include "exprs/hll_function.h"
 #include "testutil/function_utils.h"
+#include "olap/hll.h"
 #include "util/logging.h"
+
+#include <gtest/gtest.h>
 
 namespace doris {
 
@@ -46,7 +45,9 @@ public:
         utils = new FunctionUtils();
         ctx = utils->get_fn_ctx();
     }
-    void TearDown() { delete utils; }
+    void TearDown() {
+        delete utils;
+    }
 
 private:
     FunctionUtils* utils;
@@ -107,7 +108,7 @@ TEST_F(HllFunctionsTest, hll_merge) {
     ASSERT_EQ(expected, hll.estimate_cardinality());
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

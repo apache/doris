@@ -18,23 +18,29 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_BUFFER_BUILDER_HPP
 #define DORIS_BE_SRC_COMMON_UTIL_BUFFER_BUILDER_HPP
 
-#include <glog/loging.h>
 #include <stdlib.h>
-
 #include <boost/cstdint.hpp>
+#include <glog/loging.h>
 
 namespace doris {
 
 // Utility class to build an in-memory buffer.
 class BufferBuilder {
 public:
-    BufferBuilder(uint8_t* dst_buffer, int dst_len)
-            : _buffer(dst_buffer), _capacity(dst_len), _size(0) {}
+    BufferBuilder(uint8_t* dst_buffer, int dst_len) : 
+            _buffer(dst_buffer),
+            _capacity(dst_len),
+            _size(0) {
+    }
 
-    BufferBuilder(char* dst_buffer, int dst_len)
-            : _buffer(reinterpret_cast<uint8_t*>(dst_buffer)), _capacity(dst_len), _size(0) {}
+    BufferBuilder(char* dst_buffer, int dst_len) : 
+            _buffer(reinterpret_cast<uint8_t*>(dst_buffer)),
+            _capacity(dst_len),
+            _size(0) {
+    }
 
-    ~BufferBuilder() {}
+    ~BufferBuilder() {
+    }
 
     inline void append(const void* buffer, int len) {
         DCHECK_LE(_size + len, _capacity);
@@ -42,13 +48,17 @@ public:
         _size += len;
     }
 
-    template <typename T>
+    template<typename T>
     inline void append(const T& v) {
         append(&v, sizeof(T));
     }
 
-    int capacity() const { return _capacity; }
-    int size() const { return _size; }
+    int capacity() const {
+        return _capacity;
+    }
+    int size() const {
+        return _size;
+    }
 
 private:
     uint8_t* _buffer;
@@ -56,6 +66,6 @@ private:
     int _size;
 };
 
-} // namespace doris
+}
 
 #endif

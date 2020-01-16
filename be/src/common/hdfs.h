@@ -29,3 +29,4 @@ typedef void* hdfsFile;
 #endif
 
 #endif
+

@@ -29,4 +29,5 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override;
 };
 
-} // namespace doris
+}
+

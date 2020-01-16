@@ -19,12 +19,15 @@
 
 namespace doris {
 
-EmptySetNode::EmptySetNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs) {}
-
-Status EmptySetNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    *eos = true;
-    return Status::OK();
+EmptySetNode::EmptySetNode(ObjectPool* pool, const TPlanNode& tnode,
+                     const DescriptorTbl& descs)
+    : ExecNode(pool, tnode, descs) {
 }
 
-} // namespace doris
+Status EmptySetNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
+  *eos = true;
+  return Status::OK();
+}
+
+}
+

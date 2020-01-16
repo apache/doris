@@ -26,7 +26,8 @@ namespace doris {
 
 class FileWriter {
 public:
-    virtual ~FileWriter() {}
+    virtual ~FileWriter() {
+    }
 
     virtual Status open() = 0;
 

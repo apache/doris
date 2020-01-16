@@ -15,9 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "util/frame_of_reference_coding.h"
-
 #include <gtest/gtest.h>
+#include "util/frame_of_reference_coding.h"
 
 namespace doris {
 class TestForCoding : public testing::Test {
@@ -66,6 +65,7 @@ public:
         ASSERT_EQ(expect_result, actual_result);
     }
 };
+
 
 TEST_F(TestForCoding, TestHalfFrame) {
     test_frame_of_reference_encode_decode(64);
@@ -243,7 +243,7 @@ TEST_F(TestForCoding, TestValueSeek) {
     ASSERT_EQ(found, false);
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);

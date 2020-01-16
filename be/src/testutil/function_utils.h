@@ -31,8 +31,9 @@ public:
     FunctionUtils(RuntimeState* state);
     ~FunctionUtils();
 
-    doris_udf::FunctionContext* get_fn_ctx() { return _fn_ctx; }
-
+    doris_udf::FunctionContext* get_fn_ctx() {
+        return _fn_ctx;
+    }
 private:
     RuntimeState* _state = nullptr;
     MemTracker* _mem_tracker = nullptr;
@@ -40,4 +41,4 @@ private:
     doris_udf::FunctionContext* _fn_ctx = nullptr;
 };
 
-} // namespace doris
+}

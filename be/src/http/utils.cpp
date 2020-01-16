@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "common/utils.h"
-
 #include <http/utils.h>
 
 #include "common/logging.h"
+#include "common/utils.h"
 #include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -79,4 +78,4 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     return true;
 }
 
-} // namespace doris
+}

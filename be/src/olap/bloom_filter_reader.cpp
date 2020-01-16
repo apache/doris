@@ -27,8 +27,12 @@ BloomFilterIndexReader::~BloomFilterIndexReader() {
     }
 }
 
-OLAPStatus BloomFilterIndexReader::init(char* buffer, size_t buffer_size, bool is_using_cache,
-                                        uint32_t hash_function_num, uint32_t bit_num) {
+OLAPStatus BloomFilterIndexReader::init(
+        char* buffer,
+        size_t buffer_size,
+        bool is_using_cache,
+        uint32_t hash_function_num,
+        uint32_t bit_num) {
     OLAPStatus res = OLAP_SUCCESS;
 
     _buffer = buffer;
@@ -41,8 +45,7 @@ OLAPStatus BloomFilterIndexReader::init(char* buffer, size_t buffer_size, bool i
     _hash_function_num = hash_function_num;
     _start_offset = sizeof(BloomFilterIndexHeader);
     if (_step_size * _entry_count + _start_offset > _buffer_size) {
-        OLAP_LOG_WARNING(
-                "invalid param found. "
+        OLAP_LOG_WARNING("invalid param found. "
                 "[buffer_size=%lu bit_num=%u block_count=%lu header_size=%lu]",
                 buffer_size, bit_num, _entry_count, _start_offset);
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
@@ -53,7 +56,7 @@ OLAPStatus BloomFilterIndexReader::init(char* buffer, size_t buffer_size, bool i
 
 const BloomFilter& BloomFilterIndexReader::entry(uint64_t entry_id) {
     _entry.init((uint64_t*)(_buffer + _start_offset + _step_size * entry_id),
-                _step_size / sizeof(uint64_t), _hash_function_num);
+            _step_size / sizeof(uint64_t), _hash_function_num);
     return _entry;
 }
 
@@ -61,4 +64,4 @@ size_t BloomFilterIndexReader::entry_count() {
     return _entry_count;
 }
 
-} // namespace doris
+}  // namespace doris

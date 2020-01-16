@@ -24,7 +24,8 @@
 
 namespace doris {
 
-class ResourceTlsTest : public testing::Test {};
+class ResourceTlsTest : public testing::Test {
+};
 
 TEST_F(ResourceTlsTest, EmptyTest) {
     ASSERT_TRUE(ResourceTls::get_resource_tls() == nullptr);
@@ -34,16 +35,16 @@ TEST_F(ResourceTlsTest, EmptyTest) {
 TEST_F(ResourceTlsTest, NormalTest) {
     ResourceTls::init();
     ASSERT_TRUE(ResourceTls::get_resource_tls() == nullptr);
-    TResourceInfo* info = new TResourceInfo();
+    TResourceInfo *info = new TResourceInfo();
     info->user = "testUser";
     info->group = "testGroup";
     ASSERT_TRUE(ResourceTls::set_resource_tls(info) == 0);
-    TResourceInfo* getInfo = ResourceTls::get_resource_tls();
+    TResourceInfo *getInfo = ResourceTls::get_resource_tls();
     ASSERT_STREQ("testUser", getInfo->user.c_str());
     ASSERT_STREQ("testGroup", getInfo->group.c_str());
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

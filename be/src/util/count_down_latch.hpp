@@ -46,7 +46,9 @@ public:
         pthread_mutex_unlock(&_lock);
     }
 
-    void count_down() { count_down(1); }
+    void count_down() {
+        count_down(1);
+    }
 
     // 0 means ok
     // -1 means fail
@@ -87,6 +89,7 @@ private:
     pthread_cond_t _cond;
 };
 
-} // namespace doris
+}
 
 #endif
+

@@ -17,12 +17,11 @@
 
 #pragma once
 
-#include <time.h>
-
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <time.h>
 #include <thread>
 #include <utility>
 
@@ -42,12 +41,13 @@ public:
     std::string context_id;
     short keep_alive_min;
     ScanContext(std::string id) : context_id(std::move(id)) {}
-    ScanContext(const TUniqueId& fragment_id, int64_t offset)
-            : fragment_instance_id(fragment_id), offset(offset) {}
+    ScanContext(const TUniqueId& fragment_id, int64_t offset) : fragment_instance_id(fragment_id), offset(offset) {}
 };
 
 class ExternalScanContextMgr {
+
 public:
+
     ExternalScanContextMgr(ExecEnv* exec_env);
 
     ~ExternalScanContextMgr() {
@@ -61,7 +61,9 @@ public:
 
     Status clear_scan_context(const std::string& context_id);
 
+
 private:
+
     ExecEnv* _exec_env;
     std::map<std::string, std::shared_ptr<ScanContext>> _active_contexts;
     void gc_expired_context();
@@ -71,4 +73,4 @@ private:
     u_int32_t _scan_context_gc_interval_min;
 };
 
-} // namespace doris
+}

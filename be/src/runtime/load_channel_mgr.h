@@ -17,15 +17,15 @@
 
 #pragma once
 
-#include <ctime>
+#include <unordered_map>
 #include <memory>
 #include <mutex>
 #include <thread>
-#include <unordered_map>
+#include <ctime>
 
 #include "common/status.h"
-#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/tablets_channel.h"
 #include "util/uid_util.h"
@@ -53,6 +53,7 @@ public:
 
     // cancel all tablet stream for 'load_id' load
     Status cancel(const PTabletWriterCancelRequest& request);
+
 
 private:
     // calculate the totol memory limit of all load processes on this Backend
@@ -84,4 +85,4 @@ private:
     std::atomic<bool> _is_stopped;
 };
 
-} // namespace doris
+}

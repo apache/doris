@@ -35,8 +35,8 @@ class BloomFilterOptions;
 
 class BloomFilterIndexWriter {
 public:
-    static Status create(const BloomFilterOptions& bf_options, const TypeInfo* typeinfo,
-                         std::unique_ptr<BloomFilterIndexWriter>* res);
+    static Status create(const BloomFilterOptions& bf_options,
+            const TypeInfo* typeinfo, std::unique_ptr<BloomFilterIndexWriter>* res);
 
     BloomFilterIndexWriter() = default;
     virtual ~BloomFilterIndexWriter() = default;
@@ -50,10 +50,9 @@ public:
     virtual Status finish(WritableFile* file, BloomFilterIndexPB* meta) = 0;
 
     virtual uint64_t size() = 0;
-
 private:
     DISALLOW_COPY_AND_ASSIGN(BloomFilterIndexWriter);
 };
 
-} // namespace segment_v2
+} // segment_v2
 } // namespace doris

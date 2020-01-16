@@ -15,14 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/raw_value.h"
-
-#include <boost/functional/hash.hpp>
 #include <sstream>
+#include <boost/functional/hash.hpp>
 
-#include "olap/utils.h"
+#include "runtime/raw_value.h"
 #include "runtime/string_value.hpp"
 #include "runtime/tuple.h"
+#include "olap/utils.h"
 #include "util/types.h"
 
 namespace doris {
@@ -30,7 +29,7 @@ namespace doris {
 const int RawValue::ASCII_PRECISION = 16; // print 16 digits for double/float
 
 void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& type,
-                                    std::stringstream* stream) {
+                                 std::stringstream* stream) {
     if (value == NULL) {
         return;
     }
@@ -99,7 +98,7 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
 }
 
 void RawValue::print_value(const void* value, const TypeDescriptor& type, int scale,
-                           std::stringstream* stream) {
+                          std::stringstream* stream) {
     if (value == NULL) {
         *stream << "NULL";
         return;
@@ -184,7 +183,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
 }
 
 void RawValue::print_value(const void* value, const TypeDescriptor& type, int scale,
-                           std::string* str) {
+                          std::string* str) {
     if (value == NULL) {
         *str = "NULL";
         return;
@@ -274,11 +273,13 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
 
     case TYPE_DATE:
     case TYPE_DATETIME:
-        *reinterpret_cast<DateTimeValue*>(dst) = *reinterpret_cast<const DateTimeValue*>(value);
+        *reinterpret_cast<DateTimeValue*>(dst) =
+            *reinterpret_cast<const DateTimeValue*>(value);
         break;
 
     case TYPE_DECIMAL:
-        *reinterpret_cast<DecimalValue*>(dst) = *reinterpret_cast<const DecimalValue*>(value);
+        *reinterpret_cast<DecimalValue*>(dst) =
+                *reinterpret_cast<const DecimalValue*>(value);
         break;
 
     case TYPE_DECIMALV2:
@@ -312,55 +313,56 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
 void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, uint8_t** buf) {
     DCHECK(value != NULL);
     switch (type.type) {
-    case TYPE_BOOLEAN:
-        *reinterpret_cast<bool*>(dst) = *reinterpret_cast<const bool*>(value);
-        break;
-    case TYPE_TINYINT:
-        *reinterpret_cast<int8_t*>(dst) = *reinterpret_cast<const int8_t*>(value);
-        break;
-    case TYPE_SMALLINT:
-        *reinterpret_cast<int16_t*>(dst) = *reinterpret_cast<const int16_t*>(value);
-        break;
-    case TYPE_INT:
-        *reinterpret_cast<int32_t*>(dst) = *reinterpret_cast<const int32_t*>(value);
-        break;
-    case TYPE_BIGINT:
-        *reinterpret_cast<int64_t*>(dst) = *reinterpret_cast<const int64_t*>(value);
-        break;
-    case TYPE_LARGEINT:
-        *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
-        break;
-    case TYPE_FLOAT:
-        *reinterpret_cast<float*>(dst) = *reinterpret_cast<const float*>(value);
-        break;
-    case TYPE_DOUBLE:
-        *reinterpret_cast<double*>(dst) = *reinterpret_cast<const double*>(value);
-        break;
-    case TYPE_DATE:
-    case TYPE_DATETIME:
-        *reinterpret_cast<DateTimeValue*>(dst) = *reinterpret_cast<const DateTimeValue*>(value);
-        break;
-    case TYPE_VARCHAR:
-    case TYPE_CHAR: {
-        DCHECK(buf != NULL);
-        const StringValue* src = reinterpret_cast<const StringValue*>(value);
-        StringValue* dest = reinterpret_cast<StringValue*>(dst);
-        dest->len = src->len;
-        dest->ptr = reinterpret_cast<char*>(*buf);
-        memcpy(dest->ptr, src->ptr, dest->len);
-        *buf += dest->len;
-        break;
-    }
-    case TYPE_DECIMAL:
-        *reinterpret_cast<DecimalValue*>(dst) = *reinterpret_cast<const DecimalValue*>(value);
-        break;
+        case TYPE_BOOLEAN:
+            *reinterpret_cast<bool*>(dst) = *reinterpret_cast<const bool*>(value);
+            break;
+        case TYPE_TINYINT:
+            *reinterpret_cast<int8_t*>(dst) = *reinterpret_cast<const int8_t*>(value);
+            break;
+        case TYPE_SMALLINT:
+            *reinterpret_cast<int16_t*>(dst) = *reinterpret_cast<const int16_t*>(value);
+            break;
+        case TYPE_INT:
+            *reinterpret_cast<int32_t*>(dst) = *reinterpret_cast<const int32_t*>(value);
+            break;
+        case TYPE_BIGINT:
+            *reinterpret_cast<int64_t*>(dst) = *reinterpret_cast<const int64_t*>(value);
+            break;
+        case TYPE_LARGEINT:
+            *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
+            break;
+        case TYPE_FLOAT:
+            *reinterpret_cast<float*>(dst) = *reinterpret_cast<const float*>(value);
+            break;
+        case TYPE_DOUBLE:
+            *reinterpret_cast<double*>(dst) = *reinterpret_cast<const double*>(value);
+            break;
+        case TYPE_DATE:
+        case TYPE_DATETIME:
+            *reinterpret_cast<DateTimeValue*>(dst) =
+                *reinterpret_cast<const DateTimeValue*>(value);
+            break;
+        case TYPE_VARCHAR:
+        case TYPE_CHAR: {
+            DCHECK(buf != NULL);
+            const StringValue* src = reinterpret_cast<const StringValue*>(value);
+            StringValue* dest = reinterpret_cast<StringValue*>(dst);
+            dest->len = src->len;
+            dest->ptr = reinterpret_cast<char*>(*buf);
+            memcpy(dest->ptr, src->ptr, dest->len);
+            *buf += dest->len;
+            break;
+        }
+        case TYPE_DECIMAL:
+            *reinterpret_cast<DecimalValue*>(dst) = *reinterpret_cast<const DecimalValue*>(value);
+            break;
 
-    case TYPE_DECIMALV2:
-        *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
-        break;
+        case TYPE_DECIMALV2:
+            *reinterpret_cast<PackedInt128*>(dst) = *reinterpret_cast<const PackedInt128*>(value);
+            break;
 
-    default:
-        DCHECK(false) << "RawValue::write(): bad type: " << type.debug_string();
+        default:
+            DCHECK(false) << "RawValue::write(): bad type: " << type.debug_string();
     }
 }
 
@@ -374,4 +376,4 @@ void RawValue::write(const void* value, Tuple* tuple, const SlotDescriptor* slot
     }
 }
 
-} // namespace doris
+}

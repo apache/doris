@@ -17,29 +17,33 @@
 
 #include "runtime/etl_job_mgr.h"
 
-#include <gtest/gtest.h>
-
 #include "gen_cpp/Types_types.h"
-#include "runtime/exec_env.h"
+#include <gtest/gtest.h>
 #include "runtime/fragment_mgr.h"
+#include "runtime/exec_env.h"
 #include "util/cpu_info.h"
 
 namespace doris {
 // Mock fragment mgr
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
+                                       FinishCallback cb) {
     return Status::OK();
 }
 
-FragmentMgr::FragmentMgr(ExecEnv* exec_env) : _thread_pool(10, 128) {}
+FragmentMgr::FragmentMgr(ExecEnv* exec_env) :
+        _thread_pool(10, 128) {
+}
 
-FragmentMgr::~FragmentMgr() {}
+FragmentMgr::~FragmentMgr() {
+}
 
-void FragmentMgr::debug(std::stringstream& ss) {}
+void FragmentMgr::debug(std::stringstream& ss) {
+}
 
 class EtlJobMgrTest : public testing::Test {
 public:
-    EtlJobMgrTest() {}
-
+    EtlJobMgrTest() {
+    }
 private:
     ExecEnv _exec_env;
 };
@@ -218,7 +222,7 @@ TEST_F(EtlJobMgrTest, FinishUnknowJob) {
     ASSERT_EQ(TStatusCode::OK, res.status.status_code);
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

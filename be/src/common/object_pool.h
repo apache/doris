@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_COMMON_COMMON_OBJECT_POOL_H
 #define DORIS_BE_SRC_COMMON_COMMON_OBJECT_POOL_H
 
-#include <boost/thread/locks.hpp>
-#include <boost/thread/mutex.hpp>
 #include <vector>
+#include <boost/thread/mutex.hpp>
+#include <boost/thread/locks.hpp>
 
 #include "util/spinlock.h"
 
@@ -31,9 +31,11 @@ namespace doris {
 // Thread-safe.
 class ObjectPool {
 public:
-    ObjectPool() : _objects() {}
+    ObjectPool(): _objects() {}
 
-    ~ObjectPool() { clear(); }
+    ~ObjectPool() {
+        clear();
+    }
 
     template <class T>
     T* add(T* t) {
@@ -68,8 +70,10 @@ private:
 
     template <class T>
     struct SpecificElement : GenericElement {
-        SpecificElement(T* t) : t(t) {}
-        ~SpecificElement() { delete t; }
+        SpecificElement(T* t): t(t) {}
+        ~SpecificElement() {
+            delete t;
+        }
 
         T* t;
     };
@@ -79,6 +83,6 @@ private:
     SpinLock _lock;
 };
 
-} // namespace doris
+}
 
 #endif

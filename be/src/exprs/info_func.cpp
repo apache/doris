@@ -23,8 +23,11 @@
 
 namespace doris {
 
-InfoFunc::InfoFunc(const TExprNode& node)
-        : Expr(node), _int_value(node.info_func.int_value), _str_value(node.info_func.str_value) {}
+InfoFunc::InfoFunc(const TExprNode& node) :
+        Expr(node),
+    _int_value(node.info_func.int_value),
+    _str_value(node.info_func.str_value) {
+}
 
 StringVal InfoFunc::get_string_val(ExprContext* context, TupleRow*) {
     StringVal val;
@@ -40,8 +43,8 @@ BigIntVal InfoFunc::get_big_int_val(ExprContext* context, TupleRow*) {
 
 std::string InfoFunc::debug_string() const {
     std::stringstream out;
-    out << "InfoFunc(" << Expr::debug_string() << " int_value: " << _int_value
-        << "; str_value: " << _str_value << ")";
+    out << "InfoFunc(" << Expr::debug_string()
+        << " int_value: " << _int_value << "; str_value: " << _str_value << ")";
     return out.str();
 }
 
@@ -59,4 +62,4 @@ void* InfoFunc::compute_fn(Expr* e, TupleRow* row) {
     return NULL;
 }
 
-} // namespace doris
+}

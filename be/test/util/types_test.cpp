@@ -25,8 +25,10 @@ namespace doris {
 
 class TypesTest : public ::testing::Test {
 protected:
-    TypesTest() {}
-    virtual ~TypesTest() {}
+    TypesTest() {
+    }
+    virtual ~TypesTest() {
+    }
 };
 
 TEST_F(TypesTest, packed_int128) {
@@ -50,9 +52,10 @@ TEST_F(TypesTest, packed_int128) {
     }
 }
 
-} // namespace doris
+}
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+

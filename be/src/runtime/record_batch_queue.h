@@ -19,7 +19,6 @@
 #define DORIS_RECORD_BATCH_QUEUE_H
 
 #include <util/spinlock.h>
-
 #include "common/status.h"
 #include "util/blocking_queue.hpp"
 
@@ -62,6 +61,6 @@ private:
     Status _status;
 };
 
-} // namespace doris
+}
 
 #endif //DORIS_RECORD_BATCH_QUEUE_H
