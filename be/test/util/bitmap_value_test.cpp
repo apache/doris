@@ -229,7 +229,7 @@ TEST(BitmapValueTest, Roaring64Map) {
     size_t size_before = r1.getSizeInBytes();
     r1.runOptimize();
     size_t size_after = r1.getSizeInBytes();
-    ASSERT_LT(size_before, size_after);
+    ASSERT_LT(size_after, size_before);
 
     Roaring64Map r2 = Roaring64Map::bitmapOf(5, 1ull, 2ull, 234294967296ull,
                                              195839473298ull, 14000000000000000100ull);
@@ -264,7 +264,7 @@ TEST(BitmapValueTest, Roaring64Map) {
     const Roaring64Map *allmybitmaps[] = {&r1, &r2, &r3};
     Roaring64Map bigunion = Roaring64Map::fastunion(3, allmybitmaps);
     ASSERT_TRUE(r1_2_3 == bigunion);
-    ASSERT_EQ(1807, r1_2_3.cardinality());
+    ASSERT_EQ(1806, r1_2_3.cardinality());
 
     // we can compute intersection two-by-two
     Roaring64Map i1_2 = r1 & r2;
