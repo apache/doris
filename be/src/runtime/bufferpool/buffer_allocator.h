@@ -24,6 +24,7 @@
 #include "runtime/bufferpool/free_list.h"
 #include "util/aligned_new.h"
 
+// clang-format off
 namespace doris {
 
 /// The internal buffer allocator used by BufferPool to allocator power-of-two sized
@@ -241,5 +242,5 @@ struct BufferPool::BufferAllocator {
   int max_scavenge_attempts_;
 };
 }
-
+// clang-format on
 #endif

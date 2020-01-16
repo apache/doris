@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "exec/new_partitioned_aggregation_node.h"
 
 #include "exec/new_partitioned_hash_table.inline.h"
@@ -249,3 +250,4 @@ template Status NewPartitionedAggregationNode::ProcessBatch<false>(RowBatch*,
 template Status NewPartitionedAggregationNode::ProcessBatch<true>(RowBatch*,
     NewPartitionedHashTableCtx*);
 
+// clang-format on

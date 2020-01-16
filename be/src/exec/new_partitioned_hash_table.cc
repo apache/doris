@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "exec/new_partitioned_hash_table.inline.h"
 
 #include <functional>
@@ -1259,6 +1260,6 @@ Status NewPartitionedHashTableCtx::ReplaceHashTableConstants(LlvmCodeGen* codege
       fn, FLAGS_enable_quadratic_probing, "quadratic_probing");
   return Status::OK();
 }
-
+// clang-format on
 #endif
 

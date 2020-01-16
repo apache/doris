@@ -654,6 +654,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding3) {
 // test fo gap > 255
 TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding4) { 
     // write data
+    // clang-format off
     int64_t write_data[] = {300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
@@ -669,6 +670,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding4) {
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             876012345678912};
+    // clang-format on
     
     for (int32_t i = 0; i < 281; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
@@ -692,6 +694,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding4) {
 // test for [if (max_gap == 511)]
 TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) { 
     // write data
+    // clang-format off
     int64_t write_data[] = {300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
@@ -718,6 +721,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) {
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 876012345678912};
+    // clang-format on
     
     for (int32_t i = 0; i < 512; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
@@ -745,6 +749,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) {
 // The byte number is encoding as (8-1) = 7, in 111 binary form.
 TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding6) {
     // write data
+    // clang-format off
     int64_t write_data[] = {-17887939293638656, -15605417571528704,
                             -15605417571528704, -13322895849418752,
                             -13322895849418752, -84742859065569280,
@@ -760,6 +765,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding6) {
                             -15605417571528704, -15605417571528704,
                             -13322895849418752, -13322895849418752,
                             -15605417571528704, -13322895849418752};
+    // clang-format on
     for (int32_t i = 0; i < 30; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
@@ -803,6 +809,7 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows1) {
 TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) { 
 
     // write data
+    // clang-format off
     int64_t write_data[388] = {-10655366027330, -8, -8, 17062988027150, 33791751739027, 11226586316144, 
     28085455533984, 3809037113342, 4519464927340, 7057442420685, 14594401530747, 51297588056932, 22756638885750, 
     33503880074496, 37462526094279, 2768357503914, 10013218679000, 9782540355504, 14191567385952, 7500449144168, 
@@ -860,7 +867,7 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) {
     1984995522276, 38210789175216, 13140877390832, 36472949862774, 11003144677000, 34026969817136, 68246909413281, 
     9480783308290, 8927412760982, 44662728145200, 4559499822921, 13378660270086, 50432177305629, 33536986417717, 
     8548419242610, 43216481118384, 37549778463076, 2, 9223372036854775807};
-
+    // clang-format on
 
     for (int32_t i = 0; i < 388; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
