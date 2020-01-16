@@ -24,6 +24,7 @@
 #include <string.h>
 #include <string>
 
+#include "util/coding.h"
 #include "util/slice.h"
 #include "util/faststring.h"
 #include "runtime/mem_pool.h"

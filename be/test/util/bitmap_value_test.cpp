@@ -210,6 +210,91 @@ TEST(BitmapValueTest, bitmap_serde) {
     }
 }
 
+// Forked from CRoaring's UT of Roaring64Map
+TEST(BitmapValueTest, Roaring64Map) {
+    // create a new empty bitmap
+    Roaring64Map r1;
+    uint64_t r1_sum = 0;
+    // then we can add values
+    for (uint64_t i = 100; i < 1000; i++) {
+        r1.add(i);
+        r1_sum += i;
+    }
+    for (uint64_t i = 14000000000000000100ull; i < 14000000000000001000ull; i++) {
+        r1.add(i);
+        r1_sum += i;
+    }
+    ASSERT_TRUE(r1.contains((uint64_t)14000000000000000500ull));
+    ASSERT_EQ(1800, r1.cardinality());
+    size_t size_before = r1.getSizeInBytes();
+    r1.runOptimize();
+    size_t size_after = r1.getSizeInBytes();
+    ASSERT_LT(size_before, size_after);
+
+    Roaring64Map r2 = Roaring64Map::bitmapOf(5, 1ull, 2ull, 234294967296ull,
+                                             195839473298ull, 14000000000000000100ull);
+    ASSERT_EQ(1ull, r2.minimum());
+    ASSERT_EQ(14000000000000000100ull, r2.maximum());
+    ASSERT_EQ(4ull, r2.rank(234294967296ull));
+
+    // we can also create a bitmap from a pointer to 32-bit integers
+    const uint32_t values[] = {2, 3, 4};
+    Roaring64Map r3(3, values);
+    ASSERT_EQ(3, r3.cardinality());
+
+    // we can also go in reverse and go from arrays to bitmaps
+    uint64_t card1 = r1.cardinality();
+    uint64_t* arr1 = new uint64_t[card1];
+    ASSERT_TRUE(arr1 != nullptr);
+    r1.toUint64Array(arr1);
+    Roaring64Map r1f(card1, arr1);
+    delete[] arr1;
+    // bitmaps shall be equal
+    ASSERT_TRUE(r1 == r1f);
+
+    // we can copy and compare bitmaps
+    Roaring64Map z(r3);
+    ASSERT_TRUE(r3 == z);
+
+    // we can compute union two-by-two
+    Roaring64Map r1_2_3 = r1 | r2;
+    r1_2_3 |= r3;
+
+    // we can compute a big union
+    const Roaring64Map *allmybitmaps[] = {&r1, &r2, &r3};
+    Roaring64Map bigunion = Roaring64Map::fastunion(3, allmybitmaps);
+    ASSERT_TRUE(r1_2_3 == bigunion);
+    ASSERT_EQ(1807, r1_2_3.cardinality());
+
+    // we can compute intersection two-by-two
+    Roaring64Map i1_2 = r1 & r2;
+    ASSERT_EQ(1, i1_2.cardinality());
+
+    // we can write a bitmap to a pointer and recover it later
+    uint32_t expectedsize = r1.getSizeInBytes();
+    char* serializedbytes = new char[expectedsize];
+    r1.write(serializedbytes);
+    Roaring64Map t = Roaring64Map::read(serializedbytes);
+    ASSERT_TRUE(r1 == t);
+    delete[] serializedbytes;
+
+    // we can iterate over all values using custom functions
+    uint64_t sum = 0;
+    auto func = [](uint64_t value, void* param) {
+        *(uint64_t*)param += value;
+        return true;  // we always process all values
+    };
+    r1.iterate(func, &sum);
+    ASSERT_EQ(r1_sum, sum);
+
+    // we can also iterate the C++ way
+    sum = 0;
+    for (Roaring64Map::const_iterator i = t.begin() ; i != t.end() ; i++) {
+        sum += *i;
+    }
+    ASSERT_EQ(r1_sum, sum);
+}
+
 TEST(BitmapValueTest, bitmap_to_string) {
     BitmapValue empty;
     ASSERT_STREQ("", empty.to_string().c_str());

@@ -55,7 +55,7 @@ struct BitmapTypeCode {
         BITMAP32 = 2,
         // A bitmap containing only one element that is in (UINT32_MAX, UINT64_MAX]
         // Payload := UInt64LittleEndian(8 byte)
-        // (added in 0.12)
+        // added in 0.12
         SINGLE64 = 3,
         // A bitmap whose maximum element is in (UINT32_MAX, UINT64_MAX].
         //
@@ -74,9 +74,9 @@ struct BitmapTypeCode {
 };
 
 // Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.2.60/cpp/roaring64map.hh
-// The main differences are
-// - we use a custom serialized format (see BitmapTypeCode::BITMAP32 and BitmapTypeCode::BITMAP64)
-// - added clear() and is32BitsEnough() member functions
+// What we change includes
+// - a custom serialization format is used inside read()/write()/getSizeInBytes()
+// - added clear() and is32BitsEnough()
 class Roaring64Map {
 public:
     /**
@@ -845,10 +845,8 @@ private:
     }
 };
 
-/**
- * Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.2.60/cpp/roaring64map.hh
- * Used to go through the set bits. Not optimally fast, but convenient.
- */
+// Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.2.60/cpp/roaring64map.hh
+// Used to go through the set bits. Not optimally fast, but convenient.
 class Roaring64MapSetBitForwardIterator final {
 public:
     typedef std::forward_iterator_tag iterator_category;
