@@ -196,7 +196,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     Catalog.getCurrentCatalog().getTabletScheduler(),
                     db.getClusterName());
             if (!isStable) {
-                LOG.warn("doing schema change job while table is not stable, wait until tablet to be repaired.");
+                errMsg = "table is unstable";
+                LOG.warn("doing schema change job: " + jobId + "while table is not stable.");
                 return;
             }
 

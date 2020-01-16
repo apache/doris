@@ -121,42 +121,42 @@ public class TabletChecker extends MasterDaemon {
         this.stat = stat;
     }
 
-    public void addPrios(long dbId, long tblId, List<Long> partitionIds, long timeoutMs) {
-        Preconditions.checkArgument(!partitionIds.isEmpty());
+    private void addPrios(RepairTabletInfo repairTabletInfo, long timeoutMs) {
+        Preconditions.checkArgument(!repairTabletInfo.partIds.isEmpty());
         long currentTime = System.currentTimeMillis();
         synchronized (prios) {
-            Set<PrioPart> parts = prios.get(dbId, tblId);
+            Set<PrioPart> parts = prios.get(repairTabletInfo.dbId, repairTabletInfo.tblId);
             if (parts == null) {
                 parts = Sets.newHashSet();
-                prios.put(dbId, tblId, parts);
+                prios.put(repairTabletInfo.dbId, repairTabletInfo.tblId, parts);
             }
 
-            for (long partId : partitionIds) {
+            for (long partId : repairTabletInfo.partIds) {
                 PrioPart prioPart = new PrioPart(partId, currentTime, timeoutMs);
                 parts.add(prioPart);
             }
         }
 
         // we also need to change the priority of tablets which are already in
-        tabletScheduler.changePriorityOfTablets(dbId, tblId, partitionIds);
+        tabletScheduler.changePriorityOfTablets(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
-    private void removePrios(long dbId, long tblId, List<Long> partitionIds) {
-        Preconditions.checkArgument(!partitionIds.isEmpty());
+    private void removePrios(RepairTabletInfo repairTabletInfo) {
+        Preconditions.checkArgument(!repairTabletInfo.partIds.isEmpty());
         synchronized (prios) {
-            Map<Long, Set<PrioPart>> tblMap = prios.row(dbId);
+            Map<Long, Set<PrioPart>> tblMap = prios.row(repairTabletInfo.dbId);
             if (tblMap == null) {
                 return;
             }
-            Set<PrioPart> parts = tblMap.get(tblId);
+            Set<PrioPart> parts = tblMap.get(repairTabletInfo.tblId);
             if (parts == null) {
                 return;
             }
-            for (long partId : partitionIds) {
+            for (long partId : repairTabletInfo.partIds) {
                 parts.remove(new PrioPart(partId, -1, -1));
             }
             if (parts.isEmpty()) {
-                tblMap.remove(tblId);
+                tblMap.remove(repairTabletInfo.tblId);
             }
         }
 
@@ -283,7 +283,8 @@ public class TabletChecker extends MasterDaemon {
                             // priorities.
                             LOG.debug("partition is healthy, remove from prios: {}-{}-{}",
                                     db.getId(), olapTbl.getId(), partition.getId());
-                            removePrios(db.getId(), olapTbl.getId(), Lists.newArrayList(partition.getId()));
+                            removePrios(new RepairTabletInfo(db.getId(),
+                                    olapTbl.getId(), Lists.newArrayList(partition.getId())));
                         }
                     } // partitions
                 } // tables
@@ -369,7 +370,7 @@ public class TabletChecker extends MasterDaemon {
      */
     public void repairTable(AdminRepairTableStmt stmt) throws DdlException {
         RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
-        addPrios(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds, stmt.getTimeoutS() * 1000);
+        addPrios(repairTabletInfo, stmt.getTimeoutS());
         LOG.info("repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 
@@ -379,7 +380,7 @@ public class TabletChecker extends MasterDaemon {
      */
     public void cancelRepairTable(AdminCancelRepairTableStmt stmt) throws DdlException {
         RepairTabletInfo repairTabletInfo = getRepairTabletInfo(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
-        removePrios(repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
+        removePrios(repairTabletInfo);
         LOG.info("cancel repair database: {}, table: {}, partition: {}", repairTabletInfo.dbId, repairTabletInfo.tblId, repairTabletInfo.partIds);
     }
 

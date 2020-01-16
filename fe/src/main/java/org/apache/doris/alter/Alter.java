@@ -278,7 +278,7 @@ public class Alter {
             }
 
             // schema change job will wait until table become stable
-            if (needTableStable && !hasSchemaChange) {
+            if (needTableStable && !hasSchemaChange && !hasAddMaterializedView) {
                 // check if all tablets are healthy, and no tablet is in tablet scheduler
                 boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
                         Catalog.getCurrentCatalog().getTabletScheduler(),
