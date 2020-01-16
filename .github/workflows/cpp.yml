@@ -1,5 +1,10 @@
 name: Check C++ Style
 on:
+  push:
+    paths:
+      - '.github/workflows/cpp.yml'
+      - '.clang-format'
+      - 'be/**'
   pull_request:
     paths:
       - '.github/workflows/cpp.yml'
