@@ -17,12 +17,12 @@
 
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 
-#include "env/env.h" // for RandomAccessFile
+#include "env/env.h"                  // for RandomAccessFile
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
-#include "olap/rowset/segment_v2/index_page.h" // for IndexPageReader
-#include "olap/rowset/segment_v2/options.h" // for PageDecoderOptions
+#include "olap/rowset/segment_v2/index_page.h"    // for IndexPageReader
+#include "olap/rowset/segment_v2/options.h"       // for PageDecoderOptions
 #include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
 #include "util/crc32c.h"
@@ -47,7 +47,8 @@ Status IndexedColumnReader::load() {
         if (_meta.ordinal_index_meta().is_root_data_page()) {
             _sole_data_page = PagePointer(_meta.ordinal_index_meta().root_page());
         } else {
-            RETURN_IF_ERROR(read_page(_meta.ordinal_index_meta().root_page(), &_ordinal_index_page_handle));
+            RETURN_IF_ERROR(
+                    read_page(_meta.ordinal_index_meta().root_page(), &_ordinal_index_page_handle));
             RETURN_IF_ERROR(_ordinal_index_reader.parse(_ordinal_index_page_handle.data()));
             _has_index_page = true;
         }
@@ -58,7 +59,8 @@ Status IndexedColumnReader::load() {
         if (_meta.value_index_meta().is_root_data_page()) {
             _sole_data_page = PagePointer(_meta.value_index_meta().root_page());
         } else {
-            RETURN_IF_ERROR(read_page(_meta.value_index_meta().root_page(), &_value_index_page_handle));
+            RETURN_IF_ERROR(
+                    read_page(_meta.value_index_meta().root_page(), &_value_index_page_handle));
             RETURN_IF_ERROR(_value_index_reader.parse(_value_index_page_handle.data()));
             _has_index_page = true;
         }
@@ -79,7 +81,8 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle)
     // Now we read this from file.
     size_t page_size = pp.size;
     if (page_size < sizeof(uint32_t)) {
-        return Status::Corruption(Substitute("Bad page, page size is too small, size=$0", page_size));
+        return Status::Corruption(
+                Substitute("Bad page, page size is too small, size=$0", page_size));
     }
 
     // Now we use this buffer to store page from storage, if this page is compressed
@@ -94,7 +97,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle)
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
         if (expect != actual) {
             return Status::Corruption(
-                Substitute("Page checksum mismatch, actual=$0 vs expect=$1", actual, expect));
+                    Substitute("Page checksum mismatch, actual=$0 vs expect=$1", actual, expect));
         }
     }
 
@@ -139,7 +142,8 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& page_pointer, P
 
     // create page data decoder
     PageDecoderOptions options;
-    RETURN_IF_ERROR(_reader->encoding_info()->create_page_decoder(data, options, &page->data_decoder));
+    RETURN_IF_ERROR(
+            _reader->encoding_info()->create_page_decoder(data, options, &page->data_decoder));
     RETURN_IF_ERROR(page->data_decoder->init());
 
     page->offset_in_page = 0;
@@ -167,7 +171,8 @@ Status IndexedColumnIterator::seek_to_ordinal(rowid_t idx) {
             std::string key;
             KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_INT>::full_encode_ascending(&idx, &key);
             RETURN_IF_ERROR(_ordinal_iter.seek_at_or_before(key));
-            RETURN_IF_ERROR(_read_data_page(_ordinal_iter.current_page_pointer(), _data_page.get()));
+            RETURN_IF_ERROR(
+                    _read_data_page(_ordinal_iter.current_page_pointer(), _data_page.get()));
             _current_iter = &_ordinal_iter;
         } else {
             RETURN_IF_ERROR(_read_data_page(_reader->_sole_data_page, _data_page.get()));
@@ -249,7 +254,8 @@ Status IndexedColumnIterator::next_batch(size_t* n, ColumnBlockView* column_view
                 break; // no more data page
             }
             _data_page.reset(new ParsedPage());
-            RETURN_IF_ERROR(_read_data_page(_current_iter->current_page_pointer(), _data_page.get()));
+            RETURN_IF_ERROR(
+                    _read_data_page(_current_iter->current_page_pointer(), _data_page.get()));
         }
 
         size_t rows_to_read = std::min(_data_page->remaining(), remaining);

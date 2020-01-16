@@ -20,17 +20,16 @@
 #include <sstream>
 #include <string>
 
-#include "http/http_channel.h"
-#include "http/http_request.h"
-#include "http/http_response.h"
-#include "http/http_headers.h"
-#include "http/http_status.h"
-
-#include "olap/storage_engine.h"
-#include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
+#include "http/http_channel.h"
+#include "http/http_headers.h"
+#include "http/http_request.h"
+#include "http/http_response.h"
+#include "http/http_status.h"
+#include "olap/olap_define.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet.h"
 #include "util/json_util.h"
 
 namespace doris {
@@ -38,7 +37,7 @@ namespace doris {
 const static std::string HEADER_JSON = "application/json";
 
 // for viewing the compaction status
-Status CompactionAction::_handle_show_compaction(HttpRequest *req, std::string* json_result) {
+Status CompactionAction::_handle_show_compaction(HttpRequest* req, std::string* json_result) {
     std::string req_tablet_id = req->param(TABLET_ID_KEY);
     std::string req_schema_hash = req->param(TABLET_SCHEMA_HASH_KEY);
     if (req_tablet_id == "" && req_schema_hash == "") {
@@ -51,19 +50,21 @@ Status CompactionAction::_handle_show_compaction(HttpRequest *req, std::string* 
     uint64_t tablet_id = std::stoull(req_tablet_id);
     uint32_t schema_hash = std::stoul(req_schema_hash);
 
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found");
     }
 
     OLAPStatus s = tablet->get_compaction_status(json_result);
     if (s != OLAP_SUCCESS) {
-        return Status::InternalError(strings::Substitute("failed to get tablet compaction status. res $0", s));
+        return Status::InternalError(
+                strings::Substitute("failed to get tablet compaction status. res $0", s));
     }
     return Status::OK();
 }
 
-void CompactionAction::handle(HttpRequest *req) {
+void CompactionAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.c_str());
 
     if (_type == CompactionActionType::SHOW_INFO) {
@@ -75,7 +76,8 @@ void CompactionAction::handle(HttpRequest *req) {
             HttpChannel::send_reply(req, HttpStatus::OK, json_result);
         }
     } else {
-        HttpChannel::send_reply(req, HttpStatus::OK, to_json(Status::NotSupported("Action not supported")));
+        HttpChannel::send_reply(req, HttpStatus::OK,
+                                to_json(Status::NotSupported("Action not supported")));
     }
 }
 

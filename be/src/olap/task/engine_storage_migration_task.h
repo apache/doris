@@ -27,7 +27,6 @@ namespace doris {
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineStorageMigrationTask : public EngineTask {
-
 public:
     virtual OLAPStatus execute();
 
@@ -36,25 +35,23 @@ public:
     ~EngineStorageMigrationTask() {}
 
 private:
-    OLAPStatus _storage_medium_migrate(
-                TTabletId tablet_id, TSchemaHash schema_hash,
-                TStorageMedium::type storage_medium);
-    
+    OLAPStatus _storage_medium_migrate(TTabletId tablet_id, TSchemaHash schema_hash,
+                                       TStorageMedium::type storage_medium);
+
     OLAPStatus _generate_new_header(DataDir* store, const uint64_t new_shard,
                                     const TabletSharedPtr& tablet,
                                     const std::vector<RowsetSharedPtr>& consistent_rowsets,
                                     TabletMetaSharedPtr new_tablet_meta);
-    
+
     // TODO: hkp
     // rewrite this function
-    OLAPStatus _copy_index_and_data_files(
-            const std::string& header_path,
-            const TabletSharedPtr& ref_tablet,
-            std::vector<RowsetSharedPtr>& consistent_rowsets);
+    OLAPStatus _copy_index_and_data_files(const std::string& header_path,
+                                          const TabletSharedPtr& ref_tablet,
+                                          std::vector<RowsetSharedPtr>& consistent_rowsets);
 
 private:
     const TStorageMediumMigrateReq& _storage_medium_migrate_req;
 }; // EngineTask
 
-} // doris
+} // namespace doris
 #endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H

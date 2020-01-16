@@ -17,17 +17,17 @@
 
 #include "util/disk_info.h"
 
-#include <iostream>
-#include <fstream>
-#include <sstream>
-#include <unistd.h>
-#include <sys/vfs.h>
-#include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
+#include <sys/types.h>
+#include <sys/vfs.h>
+#include <unistd.h>
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/join.hpp>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
 #include "gutil/strings/split.h"
 
@@ -163,7 +163,7 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
         std::stringstream ss;
         char buf[64];
         ss << "open /proc/mounts failed, errno:" << errno
-            << ", message:" << strerror_r(errno, buf, 64);
+           << ", message:" << strerror_r(errno, buf, 64);
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -175,7 +175,7 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
         size_t max_mount_size = 0;
         std::string match_dev;
         rewind(fp);
-        while (getline(&line_ptr, &line_buf_size, fp) > 0)  {
+        while (getline(&line_ptr, &line_buf_size, fp) > 0) {
             char dev_path[4096];
             char mount_path[4096];
             int num = sscanf(line_ptr, "%4095s %4095s", dev_path, mount_path);
@@ -183,8 +183,7 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
                 continue;
             }
             size_t mount_size = strlen(mount_path);
-            if (mount_size < max_mount_size ||
-                path.size() < mount_size ||
+            if (mount_size < max_mount_size || path.size() < mount_size ||
                 strncmp(path.c_str(), mount_path, mount_size) != 0) {
                 continue;
             }
@@ -199,7 +198,7 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
             std::stringstream ss;
             char buf[64];
             ss << "open /proc/mounts failed, errno:" << errno
-                << ", message:" << strerror_r(errno, buf, 64);
+               << ", message:" << strerror_r(errno, buf, 64);
             LOG(WARNING) << ss.str();
             status = Status::InternalError(ss.str());
             break;
@@ -215,4 +214,4 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
     return status;
 }
 
-}
+} // namespace doris

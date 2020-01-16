@@ -19,12 +19,11 @@
 
 #include <algorithm>
 
-#include "gutil/strings/split.h"
-
 #include "common/logging.h"
 #include "common/status.h"
-#include "util/network_util.h"
+#include "gutil/strings/split.h"
 #include "util/cidr.h"
+#include "util/network_util.h"
 
 namespace doris {
 
@@ -87,8 +86,8 @@ bool BackendOptions::analyze_priority_cidrs() {
     }
     LOG(INFO) << "priority cidrs in conf: " << config::priority_networks;
 
-    std::vector<std::string> cidr_strs = strings::Split(
-            config::priority_networks, PRIORITY_CIDR_SEPARATOR);
+    std::vector<std::string> cidr_strs =
+            strings::Split(config::priority_networks, PRIORITY_CIDR_SEPARATOR);
 
     for (auto& cidr_str : cidr_strs) {
         CIDR cidr;
@@ -110,4 +109,4 @@ bool BackendOptions::is_in_prior_network(const std::string& ip) {
     return false;
 }
 
-}
+} // namespace doris

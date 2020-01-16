@@ -28,21 +28,19 @@ namespace doris {
 class Status;
 
 class ScrollParser {
-
 public:
     ScrollParser();
     ~ScrollParser();
 
     Status parse(const std::string& scroll_result, bool exactly_once = false);
-    Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, 
-                MemPool* mem_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
+    Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, MemPool* mem_pool,
+                      bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
 
     const std::string& get_scroll_id();
     int get_total();
     int get_size();
 
 private:
-
     std::string _scroll_id;
     int _total;
     int _size;
@@ -51,4 +49,4 @@ private:
     rapidjson::Document _document_node;
     rapidjson::Value _inner_hits_node;
 };
-}
+} // namespace doris

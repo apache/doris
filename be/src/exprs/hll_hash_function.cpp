@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/aggregate_functions.h"
 #include "exprs/hll_hash_function.h"
+
+#include "exprs/aggregate_functions.h"
 
 namespace doris {
 
 using doris_udf::BigIntVal;
 using doris_udf::StringVal;
 
-void HllHashFunctions::init() {
-}
+void HllHashFunctions::init() {}
 
 StringVal HllHashFunctions::hll_hash(FunctionContext* ctx, const StringVal& input) {
     HyperLogLog hll;
@@ -48,4 +48,4 @@ BigIntVal HllHashFunctions::hll_cardinality(FunctionContext* ctx, const HllVal& 
     return AggregateFunctions::hll_union_agg_finalize(ctx, dst);
 }
 
-}
+} // namespace doris

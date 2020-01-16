@@ -36,5 +36,4 @@ std::string TupleRow::to_string(const RowDescriptor& d) {
     return out.str();
 }
 
-}
-
+} // namespace doris

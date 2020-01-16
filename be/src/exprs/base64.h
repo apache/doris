@@ -18,19 +18,14 @@
 #ifndef DORIS_BE_EXPRS_BASE64_H
 #define DORIS_BE_EXPRS_BASE64_H
 
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 
 namespace doris {
 
-int64_t base64_decode2(
-        const char *data,
-        size_t length,
-        char *decoded_data);
+int64_t base64_decode2(const char* data, size_t length, char* decoded_data);
 
-size_t base64_encode2(const unsigned char *data,
-                     size_t length,
-                     unsigned char *encoded_data);
+size_t base64_encode2(const unsigned char* data, size_t length, unsigned char* encoded_data);
 
-}
+} // namespace doris
 #endif

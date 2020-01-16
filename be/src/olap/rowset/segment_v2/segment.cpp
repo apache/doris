@@ -18,24 +18,22 @@
 #include "olap/rowset/segment_v2/segment.h"
 
 #include "common/logging.h" // LOG
-#include "env/env.h" // RandomAccessFile
+#include "env/env.h"        // RandomAccessFile
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
-#include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
-#include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
-#include "util/slice.h" // Slice
+#include "olap/rowset/segment_v2/segment_iterator.h"
+#include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
+#include "util/slice.h" // Slice
 
 namespace doris {
 namespace segment_v2 {
 
 using strings::Substitute;
 
-Status Segment::open(std::string filename,
-                     uint32_t segment_id,
-                     const TabletSchema* tablet_schema,
+Status Segment::open(std::string filename, uint32_t segment_id, const TabletSchema* tablet_schema,
                      std::shared_ptr<Segment>* output) {
     std::shared_ptr<Segment> segment(new Segment(std::move(filename), segment_id, tablet_schema));
     RETURN_IF_ERROR(segment->_open());
@@ -43,13 +41,8 @@ Status Segment::open(std::string filename,
     return Status::OK();
 }
 
-Segment::Segment(
-        std::string fname, uint32_t segment_id,
-        const TabletSchema* tablet_schema)
-        : _fname(std::move(fname)),
-        _segment_id(segment_id),
-        _tablet_schema(tablet_schema) {
-}
+Segment::Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema)
+        : _fname(std::move(fname)), _segment_id(segment_id), _tablet_schema(tablet_schema) {}
 
 Segment::~Segment() = default;
 
@@ -60,8 +53,7 @@ Status Segment::_open() {
     return Status::OK();
 }
 
-Status Segment::new_iterator(const Schema& schema,
-                             const StorageReadOptions& read_options,
+Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& read_options,
                              std::unique_ptr<RowwiseIterator>* iter) {
     DCHECK_NOTNULL(read_options.stats);
     // trying to prune the current segment by segment-level zone map
@@ -85,7 +77,8 @@ Status Segment::new_iterator(const Schema& schema,
             // TODO Logic here and the similar logic in ColumnReader::_get_filtered_pages should be unified.
             TypeInfo* type_info = get_type_info((FieldType)c_meta.type());
             if (type_info == nullptr) {
-                return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", c_meta.type()));
+                return Status::NotSupported(
+                        Substitute("unsupported typeinfo, type=$0", c_meta.type()));
             }
             FieldType type = type_info->type();
             const Field* field = schema.column(column_id);
@@ -122,7 +115,8 @@ Status Segment::_parse_footer() {
     RETURN_IF_ERROR(_input_file->size(&file_size));
 
     if (file_size < 12) {
-        return Status::Corruption(Substitute("Bad segment file $0: file size $1 < 12", _fname, file_size));
+        return Status::Corruption(
+                Substitute("Bad segment file $0: file size $1 < 12", _fname, file_size));
     }
 
     uint8_t fixed_buf[12];
@@ -130,14 +124,15 @@ Status Segment::_parse_footer() {
 
     // validate magic number
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
-        return Status::Corruption(Substitute("Bad segment file $0: magic number not match", _fname));
+        return Status::Corruption(
+                Substitute("Bad segment file $0: magic number not match", _fname));
     }
 
     // read footer PB
     uint32_t footer_length = decode_fixed32_le(fixed_buf);
     if (file_size < 12 + footer_length) {
-        return Status::Corruption(
-            Substitute("Bad segment file $0: file size $1 < $2", _fname, file_size, 12 + footer_length));
+        return Status::Corruption(Substitute("Bad segment file $0: file size $1 < $2", _fname,
+                                             file_size, 12 + footer_length));
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
@@ -148,13 +143,14 @@ Status Segment::_parse_footer() {
     uint32_t actual_checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     if (actual_checksum != expect_checksum) {
         return Status::Corruption(
-            Substitute("Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2",
-                       _fname, actual_checksum, expect_checksum));
+                Substitute("Bad segment file $0: footer checksum not match, actual=$1 vs expect=$2",
+                           _fname, actual_checksum, expect_checksum));
     }
 
     // deserialize footer PB
     if (!_footer.ParseFromString(footer_buf)) {
-        return Status::Corruption(Substitute("Bad segment file $0: failed to parse SegmentFooterPB", _fname));
+        return Status::Corruption(
+                Substitute("Bad segment file $0: failed to parse SegmentFooterPB", _fname));
     }
     return Status::OK();
 }
@@ -189,8 +185,8 @@ Status Segment::_create_column_readers() {
 
         ColumnReaderOptions opts;
         std::unique_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(ColumnReader::create(
-            opts, _footer.columns(iter->second), _footer.num_rows(), _input_file.get(), &reader));
+        RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(iter->second),
+                                             _footer.num_rows(), _input_file.get(), &reader));
         _column_readers[ordinal] = std::move(reader);
     }
     return Status::OK();
@@ -203,11 +199,9 @@ Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
-                new DefaultValueColumnIterator(tablet_column.has_default_value(),
-                tablet_column.default_value(),
-                tablet_column.is_nullable(),
-                tablet_column.type(),
-                tablet_column.length()));
+                new DefaultValueColumnIterator(
+                        tablet_column.has_default_value(), tablet_column.default_value(),
+                        tablet_column.is_nullable(), tablet_column.type(), tablet_column.length()));
         ColumnIteratorOptions iter_opts;
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();
@@ -223,5 +217,5 @@ Status Segment::new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** it
     return Status::OK();
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

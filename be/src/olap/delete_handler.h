@@ -34,7 +34,6 @@ class RowCursor;
 
 class DeleteConditionHandler {
 public:
-
     DeleteConditionHandler() {}
     ~DeleteConditionHandler() {}
 
@@ -51,13 +50,14 @@ public:
     std::string construct_sub_predicates(const TCondition& condition);
 
 private:
-
     // 检查指定的删除条件版本是否符合要求；
     // 如果不符合要求，返回OLAP_ERR_DELETE_INVALID_VERSION；符合要求返回OLAP_SUCCESS
-    OLAPStatus _check_version_valid(std::vector<Version>* all_file_versions, const int32_t filter_version);
+    OLAPStatus _check_version_valid(std::vector<Version>* all_file_versions,
+                                    const int32_t filter_version);
 
     // 检查指定版本的删除条件是否已经存在。如果存在，返回指定版本删除条件的数组下标；不存在返回-1
-    int _check_whether_condition_exist(const DelPredicateArray& delete_conditions, int cond_version);
+    int _check_whether_condition_exist(const DelPredicateArray& delete_conditions,
+                                       int cond_version);
 
     int32_t _get_field_index(const TabletSchema& schema, const std::string& field_name) const {
         for (int i = 0; i < schema.num_columns(); i++) {
@@ -100,9 +100,7 @@ public:
     DeleteHandler() : _is_inited(false) {}
     ~DeleteHandler() {}
 
-    bool get_init_status() const {
-        return _is_inited;
-    }
+    bool get_init_status() const { return _is_inited; }
 
     // 初始化handler，将从Header文件中取出小于等于指定版本号的删除条件填充到_del_conds中
     // 调用前需要先对Header文件加读锁
@@ -114,8 +112,8 @@ public:
     //     * OLAP_SUCCESS: 调用成功
     //     * OLAP_ERR_DELETE_INVALID_PARAMETERS: 参数不符合要求
     //     * OLAP_ERR_MALLOC_ERROR: 在填充_del_conds时，分配内存失败
-    OLAPStatus init(const TabletSchema& schema,
-        const DelPredicateArray& delete_conditions, int32_t version);
+    OLAPStatus init(const TabletSchema& schema, const DelPredicateArray& delete_conditions,
+                    int32_t version);
 
     // 判定一条数据是否符合删除条件
     //
@@ -128,13 +126,9 @@ public:
     bool is_filter_data(const int32_t data_version, const RowCursor& row) const;
 
     // 返回handler中有存有多少条删除条件
-    cond_num_t conditions_num() const{
-        return _del_conds.size();
-    }
+    cond_num_t conditions_num() const { return _del_conds.size(); }
 
-    bool empty() const {
-        return _del_conds.empty();
-    }
+    bool empty() const { return _del_conds.empty(); }
 
     // 返回handler中存有的所有删除条件的版本号
     std::vector<int32_t> get_conds_version();
@@ -143,12 +137,10 @@ public:
     void finalize();
 
     // 获取只读删除条件
-    const std::vector<DeleteConditions>& get_delete_conditions() const {
-        return _del_conds;
-    }
+    const std::vector<DeleteConditions>& get_delete_conditions() const { return _del_conds; }
 
-    void get_delete_conditions_after_version(int32_t version,
-            std::vector<const Conditions*>* delete_conditions) const;
+    void get_delete_conditions_after_version(
+            int32_t version, std::vector<const Conditions*>* delete_conditions) const;
 
 private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'
@@ -158,5 +150,5 @@ private:
     std::vector<DeleteConditions> _del_conds;
 };
 
-}  // namespace doris
+} // namespace doris
 #endif // DORIS_BE_SRC_OLAP_DELETE_HANDLER_H

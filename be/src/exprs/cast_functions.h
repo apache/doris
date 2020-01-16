@@ -139,6 +139,6 @@ public:
     static DateTimeVal cast_to_date_val(FunctionContext* context, const StringVal& val);
 };
 
-}
+} // namespace doris
 
 #endif

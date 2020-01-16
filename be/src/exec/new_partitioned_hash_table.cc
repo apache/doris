@@ -1262,4 +1262,3 @@ Status NewPartitionedHashTableCtx::ReplaceHashTableConstants(LlvmCodeGen* codege
 }
 // clang-format on
 #endif
-

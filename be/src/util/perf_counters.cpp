@@ -17,17 +17,16 @@
 
 #include "util/perf_counters.h"
 
+#include <linux/perf_event.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syscall.h>
 
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
-
-#include <sys/syscall.h>
-#include <linux/perf_event.h>
 
 #include "util/debug_util.h"
 
@@ -51,10 +50,8 @@ enum PERF_IO_IDX {
 
 // Wrapper around sys call.  This syscall is hard to use and this is how it is recommended
 // to be used.
-static inline int sys_perf_event_open(
-    struct perf_event_attr* attr,
-    pid_t pid, int cpu, int group_fd,
-    unsigned long flags) {
+static inline int sys_perf_event_open(struct perf_event_attr* attr, pid_t pid, int cpu,
+                                      int group_fd, unsigned long flags) {
     attr->size = sizeof(*attr);
     return syscall(__NR_perf_event_open, attr, pid, cpu, group_fd, flags);
 }
@@ -366,7 +363,7 @@ bool PerfCounters::get_proc_self_status_counters(vector<int64_t>& buffer) {
                 istringstream stream(buf);
                 int64_t value;
                 stream >> value;
-                buffer[i] = value * 1024;  // values in file are in kb
+                buffer[i] = value * 1024; // values in file are in kb
             }
         }
     }
@@ -378,8 +375,7 @@ bool PerfCounters::get_proc_self_status_counters(vector<int64_t>& buffer) {
     return true;
 }
 
-PerfCounters::PerfCounters() : _group_fd(-1) {
-}
+PerfCounters::PerfCounters() : _group_fd(-1) {}
 
 // Close all fds for the counters
 PerfCounters::~PerfCounters() {
@@ -506,7 +502,7 @@ void PerfCounters::pretty_print(ostream* s) const {
 
         for (int i = 0; i < snapshot.size(); ++i) {
             stream << setw(PRETTY_PRINT_WIDTH)
-                    << PrettyPrinter::print(snapshot[i], _counters[i].type);
+                   << PrettyPrinter::print(snapshot[i], _counters[i].type);
         }
 
         stream << endl;
@@ -515,5 +511,4 @@ void PerfCounters::pretty_print(ostream* s) const {
     stream << endl;
 }
 
-}
-
+} // namespace doris

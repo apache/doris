@@ -18,10 +18,10 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_READER_H
 
+#include "olap/iterators.h"
 #include "olap/row_block.h"
 #include "olap/row_block2.h"
 #include "olap/row_cursor.h"
-#include "olap/iterators.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_reader.h"
 
@@ -31,9 +31,7 @@ class BetaRowsetReader : public RowsetReader {
 public:
     explicit BetaRowsetReader(BetaRowsetSharedPtr rowset);
 
-    ~BetaRowsetReader() override {
-        _rowset->release();
-    }
+    ~BetaRowsetReader() override { _rowset->release(); }
 
     OLAPStatus init(RowsetReaderContext* read_context) override;
 
@@ -47,9 +45,7 @@ public:
 
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
-    int64_t filtered_rows() override {
-        return _stats->rows_del_filtered;
-    }
+    int64_t filtered_rows() override { return _stats->rows_del_filtered; }
 
 private:
     BetaRowsetSharedPtr _rowset;

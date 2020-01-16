@@ -16,13 +16,15 @@
 // under the License.
 
 #include "runtime/merge_sorter.h"
+
+#include <boost/foreach.hpp>
+#include <string>
+
 #include "runtime/buffered_block_mgr.h"
+#include "runtime/mem_tracker.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include <string>
-#include <boost/foreach.hpp>
-#include "runtime/mem_tracker.h"
 
 namespace doris {
 // A run is a sequence of blocks containing tuples that are or will eventually be in
@@ -122,7 +124,6 @@ private:
     // Number of tuples returned via get_next(), maintained for debug purposes.
     int64_t _num_tuples_returned;
 
-
     // Members used when a run is read in get_next()
     // The index into the fixed_ and _var_len_blocks vectors of the current blocks being
     // processed in get_next().
@@ -139,8 +140,8 @@ private:
 // cancellation during an in-memory sort.
 class MergeSorter::TupleSorter {
 public:
-    TupleSorter(const TupleRowComparator& less_than_comp, int64_t block_size,
-                int tuple_size, RuntimeState* state);
+    TupleSorter(const TupleRowComparator& less_than_comp, int64_t block_size, int tuple_size,
+                RuntimeState* state);
 
     ~TupleSorter() {
         delete[] _temp_tuple_buffer;
@@ -166,9 +167,7 @@ private:
     // sort.
     class TupleIterator {
     public:
-        TupleIterator(TupleSorter* parent, int64_t index)
-            : _parent(parent),
-              _index(index) {
+        TupleIterator(TupleSorter* parent, int64_t index) : _parent(parent), _index(index) {
             DCHECK_GE(index, 0);
             DCHECK_LE(index, _parent->_run->_num_tuples);
             // If the run is empty, only _index is initialized.
@@ -281,28 +280,24 @@ private:
 }; // class TupleSorter
 
 // MergeSorter::Run methods
-MergeSorter::Run::Run(MergeSorter* parent, TupleDescriptor* sort_tuple_desc,
-                 bool materialize_slots)
-    : _sorter(parent),
-      _sort_tuple_desc(sort_tuple_desc),
-      _sort_tuple_size(sort_tuple_desc->byte_size()),
-      _block_size(parent->_block_mgr->max_block_size()),
-      _has_var_len_slots(sort_tuple_desc->string_slots().size() > 0),
-      _materialize_slots(materialize_slots),
-      _is_sorted(!materialize_slots),
-      _num_tuples(0) {
-}
+MergeSorter::Run::Run(MergeSorter* parent, TupleDescriptor* sort_tuple_desc, bool materialize_slots)
+        : _sorter(parent),
+          _sort_tuple_desc(sort_tuple_desc),
+          _sort_tuple_size(sort_tuple_desc->byte_size()),
+          _block_size(parent->_block_mgr->max_block_size()),
+          _has_var_len_slots(sort_tuple_desc->string_slots().size() > 0),
+          _materialize_slots(materialize_slots),
+          _is_sorted(!materialize_slots),
+          _num_tuples(0) {}
 
 Status MergeSorter::Run::init() {
     BufferedBlockMgr::Block* block = NULL;
-    RETURN_IF_ERROR(
-        _sorter->_block_mgr->get_new_block(&block));
+    RETURN_IF_ERROR(_sorter->_block_mgr->get_new_block(&block));
     DCHECK(block != NULL);
     _fixed_len_blocks.push_back(block);
 
     if (_has_var_len_slots) {
-        RETURN_IF_ERROR(
-            _sorter->_block_mgr->get_new_block(&block));
+        RETURN_IF_ERROR(_sorter->_block_mgr->get_new_block(&block));
         DCHECK(block != NULL);
         _var_len_blocks.push_back(block);
     }
@@ -345,7 +340,8 @@ Status MergeSorter::Run::add_batch(RowBatch* batch, int start_index, int* num_pr
             Tuple* new_tuple = cur_fixed_len_block->allocate<Tuple>(_sort_tuple_size);
             if (_materialize_slots) {
                 new_tuple->materialize_exprs<has_var_len_data>(input_row, *_sort_tuple_desc,
-                        _sorter->_sort_tuple_slot_expr_ctxs, NULL, &var_values, &total_var_len);
+                                                               _sorter->_sort_tuple_slot_expr_ctxs,
+                                                               NULL, &var_values, &total_var_len);
                 if (total_var_len > _sorter->_block_mgr->max_block_size()) {
                     std::stringstream ss;
                     ss << "Variable length data in a single tuple larger than block size ";
@@ -422,9 +418,9 @@ Status MergeSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
 
     // get_next fills rows into the output batch until a block boundary is reached.
     while (!output_batch->is_full() &&
-            _fixed_len_block_offset < fixed_len_block->valid_data_len()) {
-        Tuple* input_tuple = reinterpret_cast<Tuple*>(
-                                 fixed_len_block->buffer() + _fixed_len_block_offset);
+           _fixed_len_block_offset < fixed_len_block->valid_data_len()) {
+        Tuple* input_tuple =
+                reinterpret_cast<Tuple*>(fixed_len_block->buffer() + _fixed_len_block_offset);
 
         int output_row_idx = output_batch->add_row();
         output_batch->get_row(output_row_idx)->set_tuple(0, input_tuple);
@@ -442,7 +438,7 @@ Status MergeSorter::Run::get_next(RowBatch* output_batch, bool* eos) {
 }
 
 Status MergeSorter::Run::try_add_block(std::vector<BufferedBlockMgr::Block*>* block_sequence,
-                                bool* added) {
+                                       bool* added) {
     DCHECK(!block_sequence->empty());
 
     BufferedBlockMgr::Block* last_block = block_sequence->back();
@@ -460,27 +456,25 @@ Status MergeSorter::Run::try_add_block(std::vector<BufferedBlockMgr::Block*>* bl
 }
 
 void MergeSorter::Run::copy_var_len_data(char* dest, const std::vector<StringValue*>& var_values) {
-    BOOST_FOREACH(StringValue* var_val, var_values) {
+    BOOST_FOREACH (StringValue* var_val, var_values) {
         memcpy(dest, var_val->ptr, var_val->len);
         var_val->ptr = dest;
         dest += var_val->len;
     }
 }
 
-
 // MergeSorter::TupleSorter methods.
 MergeSorter::TupleSorter::TupleSorter(const TupleRowComparator& comp, int64_t block_size,
-                                 int tuple_size, RuntimeState* state)
-    : _tuple_size(tuple_size),
-      _block_capacity(block_size / tuple_size),
-      _last_tuple_block_offset(tuple_size * ((block_size / tuple_size) - 1)),
-      _less_than_comp(comp),
-      _state(state) {
+                                      int tuple_size, RuntimeState* state)
+        : _tuple_size(tuple_size),
+          _block_capacity(block_size / tuple_size),
+          _last_tuple_block_offset(tuple_size * ((block_size / tuple_size) - 1)),
+          _less_than_comp(comp),
+          _state(state) {
     _temp_tuple_buffer = new uint8_t[tuple_size];
     _temp_tuple_row = reinterpret_cast<TupleRow*>(&_temp_tuple_buffer);
     _swap_buffer = new uint8_t[tuple_size];
 }
-
 
 // Sort the sequence of tuples from [first, last).
 // Begin with a sorted sequence of size 1 [first, first+1).
@@ -489,7 +483,7 @@ MergeSorter::TupleSorter::TupleSorter(const TupleRowComparator& comp, int64_t bl
 // (reverse order) to find its correct place in the sorted sequence, copying tuples
 // along the way.
 void MergeSorter::TupleSorter::insertion_sort(const TupleIterator& first,
-                                        const TupleIterator& last) {
+                                              const TupleIterator& last) {
     TupleIterator insert_iter = first;
     insert_iter.next();
     for (; insert_iter._index < last._index; insert_iter.next()) {
@@ -519,8 +513,8 @@ void MergeSorter::TupleSorter::insertion_sort(const TupleIterator& first,
 }
 
 MergeSorter::TupleSorter::TupleIterator MergeSorter::TupleSorter::partition(TupleIterator first,
-        TupleIterator last, Tuple* pivot) {
-
+                                                                            TupleIterator last,
+                                                                            Tuple* pivot) {
     // Copy pivot into temp_tuple since it points to a tuple within [first, last).
     memcpy(_temp_tuple_buffer, pivot, _tuple_size);
 
@@ -545,18 +539,16 @@ MergeSorter::TupleSorter::TupleIterator MergeSorter::TupleSorter::partition(Tupl
     }
 
     return first;
-
 }
 
 void MergeSorter::TupleSorter::sort_helper(TupleIterator first, TupleIterator last) {
     if (UNLIKELY(_state->is_cancelled())) return;
     // Use insertion sort for smaller sequences.
     while (last._index - first._index > INSERTION_THRESHOLD) {
-        TupleIterator iter(this, first._index + (last._index - first._index)/2);
+        TupleIterator iter(this, first._index + (last._index - first._index) / 2);
         // Parititon() splits the tuples in [first, last) into two groups (<= pivot
         // and >= pivot) in-place. 'cut' is the index of the first tuple in the second group.
-        TupleIterator cut = partition(first, last,
-                                      reinterpret_cast<Tuple*>(iter._current_tuple));
+        TupleIterator cut = partition(first, last, reinterpret_cast<Tuple*>(iter._current_tuple));
         sort_helper(cut, last);
         last = cut;
         if (UNLIKELY(_state->is_cancelled())) return;
@@ -572,19 +564,19 @@ inline void MergeSorter::TupleSorter::swap(uint8_t* left, uint8_t* right) {
 
 // MergeSorter methods
 MergeSorter::MergeSorter(const TupleRowComparator& compare_less_than,
-               const std::vector<ExprContext*>& slot_materialize_expr_ctxs,
-               RowDescriptor* output_row_desc,
-               RuntimeProfile* profile, RuntimeState* state)
-    : _state(state),
-      _compare_less_than(compare_less_than),
-      _block_mgr(state->block_mgr()),
-      _output_row_desc(output_row_desc),
-      _sort_tuple_slot_expr_ctxs(slot_materialize_expr_ctxs),
-      _profile(profile) {
+                         const std::vector<ExprContext*>& slot_materialize_expr_ctxs,
+                         RowDescriptor* output_row_desc, RuntimeProfile* profile,
+                         RuntimeState* state)
+        : _state(state),
+          _compare_less_than(compare_less_than),
+          _block_mgr(state->block_mgr()),
+          _output_row_desc(output_row_desc),
+          _sort_tuple_slot_expr_ctxs(slot_materialize_expr_ctxs),
+          _profile(profile) {
     TupleDescriptor* sort_tuple_desc = output_row_desc->tuple_descriptors()[0];
     _has_var_len_slots = sort_tuple_desc->string_slots().size() > 0;
-    _in_mem_tuple_sorter.reset(new TupleSorter(compare_less_than,
-                               _block_mgr->max_block_size(), sort_tuple_desc->byte_size(), state));
+    _in_mem_tuple_sorter.reset(new TupleSorter(compare_less_than, _block_mgr->max_block_size(),
+                                               sort_tuple_desc->byte_size(), state));
 
     _initial_runs_counter = ADD_COUNTER(_profile, "InitialRunsCreated", TUnit::UNIT);
     _num_merges_counter = ADD_COUNTER(_profile, "TotalMergesPerformed", TUnit::UNIT);
@@ -595,8 +587,7 @@ MergeSorter::MergeSorter(const TupleRowComparator& compare_less_than,
     _unsorted_run->init();
 }
 
-MergeSorter::~MergeSorter() {
-}
+MergeSorter::~MergeSorter() {}
 
 Status MergeSorter::add_batch(RowBatch* batch) {
     int num_processed = 0;
@@ -618,13 +609,13 @@ Status MergeSorter::add_batch(RowBatch* batch) {
 }
 
 Status MergeSorter::input_done() {
-// Sort the tuples accumulated so far in the current run.
+    // Sort the tuples accumulated so far in the current run.
     RETURN_IF_ERROR(sort_run());
 
     DCHECK(_sorted_runs.size() == 1);
 
-// The entire input fit in one run. Read sorted rows in get_next() directly
-// from the sorted run.
+    // The entire input fit in one run. Read sorted rows in get_next() directly
+    // from the sorted run.
     _sorted_runs.back()->prepare_read();
 
     return Status::OK();

@@ -20,27 +20,23 @@
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
 
-namespace doris 
-{
+namespace doris {
 
-SchemaScanner::ColumnDesc SchemaDummyScanner::_s_dummy_columns[] = {
-};
+SchemaScanner::ColumnDesc SchemaDummyScanner::_s_dummy_columns[] = {};
 
-SchemaDummyScanner::SchemaDummyScanner() 
-        : SchemaScanner(_s_dummy_columns, 
-                        sizeof(_s_dummy_columns) / sizeof(SchemaScanner::ColumnDesc)) {
-}
+SchemaDummyScanner::SchemaDummyScanner()
+        : SchemaScanner(_s_dummy_columns,
+                        sizeof(_s_dummy_columns) / sizeof(SchemaScanner::ColumnDesc)) {}
 
-SchemaDummyScanner::~SchemaDummyScanner() {
-}
+SchemaDummyScanner::~SchemaDummyScanner() {}
 
 Status SchemaDummyScanner::start() {
     return Status::OK();
 }
 
-Status SchemaDummyScanner::get_next_row(Tuple *tuple, MemPool *pool, bool *eos) {
+Status SchemaDummyScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
     *eos = true;
     return Status::OK();
 }
 
-}
+} // namespace doris

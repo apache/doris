@@ -16,7 +16,7 @@
 // under the License.
 
 #ifndef DORIS_BE_RUNTIME_RESULT_WRITER_H
-#define  DORIS_BE_RUNTIME_RESULT_WRITER_H
+#define DORIS_BE_RUNTIME_RESULT_WRITER_H
 
 #include <vector>
 
@@ -52,6 +52,6 @@ private:
     MysqlRowBuffer* _row_buffer;
 };
 
-}
+} // namespace doris
 
 #endif

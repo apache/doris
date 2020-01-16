@@ -17,16 +17,12 @@
 
 #pragma once
 
-#include "http/http_handler.h"
 #include "common/status.h"
+#include "http/http_handler.h"
 
 namespace doris {
 
-
-enum CompactionActionType {
-    SHOW_INFO = 1,
-    RUN_COMPACTION = 2
-};
+enum CompactionActionType { SHOW_INFO = 1, RUN_COMPACTION = 2 };
 
 // This action is used for viewing the compaction status.
 // See compaction-action.md for details.
@@ -36,14 +32,13 @@ public:
 
     virtual ~CompactionAction() {}
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
 
 private:
-    Status _handle_show_compaction(HttpRequest *req, std::string* json_result);
+    Status _handle_show_compaction(HttpRequest* req, std::string* json_result);
 
 private:
     CompactionActionType _type;
 };
 
 } // end namespace doris
-

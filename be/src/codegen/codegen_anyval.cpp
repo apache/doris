@@ -27,17 +27,17 @@ using llvm::Constant;
 
 namespace doris {
 
-const char* CodegenAnyVal::_s_llvm_booleanval_name   = "struct.doris_udf::BooleanVal";
-const char* CodegenAnyVal::_s_llvm_tinyintval_name   = "struct.doris_udf::TinyIntVal";
-const char* CodegenAnyVal::_s_llvm_smallintval_name  = "struct.doris_udf::SmallIntVal";
-const char* CodegenAnyVal::_s_llvm_intval_name       = "struct.doris_udf::IntVal";
-const char* CodegenAnyVal::_s_llvm_bigintval_name    = "struct.doris_udf::BigIntVal";
-const char* CodegenAnyVal::_s_llvm_largeintval_name  = "struct.doris_udf::LargeIntVal";
-const char* CodegenAnyVal::_s_llvm_floatval_name     = "struct.doris_udf::FloatVal";
-const char* CodegenAnyVal::_s_llvm_doubleval_name    = "struct.doris_udf::DoubleVal";
-const char* CodegenAnyVal::_s_llvm_stringval_name    = "struct.doris_udf::StringVal";
+const char* CodegenAnyVal::_s_llvm_booleanval_name = "struct.doris_udf::BooleanVal";
+const char* CodegenAnyVal::_s_llvm_tinyintval_name = "struct.doris_udf::TinyIntVal";
+const char* CodegenAnyVal::_s_llvm_smallintval_name = "struct.doris_udf::SmallIntVal";
+const char* CodegenAnyVal::_s_llvm_intval_name = "struct.doris_udf::IntVal";
+const char* CodegenAnyVal::_s_llvm_bigintval_name = "struct.doris_udf::BigIntVal";
+const char* CodegenAnyVal::_s_llvm_largeintval_name = "struct.doris_udf::LargeIntVal";
+const char* CodegenAnyVal::_s_llvm_floatval_name = "struct.doris_udf::FloatVal";
+const char* CodegenAnyVal::_s_llvm_doubleval_name = "struct.doris_udf::DoubleVal";
+const char* CodegenAnyVal::_s_llvm_stringval_name = "struct.doris_udf::StringVal";
 const char* CodegenAnyVal::_s_llvm_datetimeval_name = "struct.doris_udf::DateTimeVal";
-const char* CodegenAnyVal::_s_llvm_decimalval_name   = "struct.doris_udf::DecimalVal";
+const char* CodegenAnyVal::_s_llvm_decimalval_name = "struct.doris_udf::DecimalVal";
 
 Type* CodegenAnyVal::get_lowered_type(LlvmCodeGen* cg, const TypeDescriptor& type) {
     switch (type.type) {
@@ -63,7 +63,7 @@ Type* CodegenAnyVal::get_lowered_type(LlvmCodeGen* cg, const TypeDescriptor& typ
     case TYPE_HLL:
         return llvm::StructType::get(cg->bigint_type(), cg->ptr_type(), NULL);
     case TYPE_DATE:
-    case TYPE_DATETIME: // %"struct.doris_udf::DateTimeVal" (isn't lowered) 
+    case TYPE_DATETIME: // %"struct.doris_udf::DateTimeVal" (isn't lowered)
         // = { {i8}, i64, i32 }
         return cg->get_type(_s_llvm_datetimeval_name);
     case TYPE_DECIMAL: // %"struct.doris_udf::DecimalVal" (isn't lowered)
@@ -130,9 +130,9 @@ Type* CodegenAnyVal::get_unlowered_ptr_type(LlvmCodeGen* cg, const TypeDescripto
     return get_unlowered_type(cg, type)->getPointerTo();
 }
 
-Value* CodegenAnyVal::create_call(
-        LlvmCodeGen* cg, LlvmCodeGen::LlvmBuilder* builder, llvm::Function* fn,
-        llvm::ArrayRef<Value*> args, const char* name, Value* result_ptr) {
+Value* CodegenAnyVal::create_call(LlvmCodeGen* cg, LlvmCodeGen::LlvmBuilder* builder,
+                                  llvm::Function* fn, llvm::ArrayRef<Value*> args, const char* name,
+                                  Value* result_ptr) {
     if (fn->getReturnType()->isVoidTy()) {
         // Void return type indicates that this function returns a DecimalVal via the first
         // argument (which should be a DecimalVal*).
@@ -142,8 +142,9 @@ Value* CodegenAnyVal::create_call(
 
         // We need to pass a DecimalVal pointer to 'fn' that will be populated with the result
         // value. Use 'result_ptr' if specified, otherwise alloca one.
-        Value* ret_ptr = (result_ptr == NULL) ?
-            cg->create_entry_block_alloca(*builder, ret_type, name) : result_ptr;
+        Value* ret_ptr = (result_ptr == NULL)
+                                 ? cg->create_entry_block_alloca(*builder, ret_type, name)
+                                 : result_ptr;
         std::vector<Value*> new_args = args.vec();
         new_args.insert(new_args.begin(), ret_ptr);
         builder->CreateCall(fn, new_args);
@@ -165,22 +166,17 @@ Value* CodegenAnyVal::create_call(
     }
 }
 
-CodegenAnyVal CodegenAnyVal::create_call_wrapped(
-        LlvmCodeGen* cg, LlvmCodeGen::LlvmBuilder* builder, const TypeDescriptor& type,
-        llvm::Function* fn, llvm::ArrayRef<Value*> args, 
-        const char* name, Value* result_ptr) {
+CodegenAnyVal CodegenAnyVal::create_call_wrapped(LlvmCodeGen* cg, LlvmCodeGen::LlvmBuilder* builder,
+                                                 const TypeDescriptor& type, llvm::Function* fn,
+                                                 llvm::ArrayRef<Value*> args, const char* name,
+                                                 Value* result_ptr) {
     Value* v = create_call(cg, builder, fn, args, name, result_ptr);
     return CodegenAnyVal(cg, builder, type, v, name);
 }
 
-CodegenAnyVal::CodegenAnyVal(
-        LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder,
-        const TypeDescriptor& type, Value* value, const char* name) : 
-            _type(type),
-            _value(value),
-            _name(name),
-            _codegen(codegen),
-            _builder(builder) {
+CodegenAnyVal::CodegenAnyVal(LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder,
+                             const TypeDescriptor& type, Value* value, const char* name)
+        : _type(type), _value(value), _name(name), _codegen(codegen), _builder(builder) {
     Type* value_type = get_lowered_type(codegen, type);
     if (_value == NULL) {
         // No Value* was specified, so allocate one on the stack and load it.
@@ -235,8 +231,7 @@ void CodegenAnyVal::set_is_null(Value* is_null) {
     case TYPE_BIGINT:
     case TYPE_DOUBLE: {
         // Lowered type is of form { i8, * }. Set the i8 value to 'is_null'.
-        Value* is_null_ext =
-            _builder->CreateZExt(is_null, _codegen->tinyint_type(), "is_null_ext");
+        Value* is_null_ext = _builder->CreateZExt(is_null, _codegen->tinyint_type(), "is_null_ext");
         _value = _builder->CreateInsertValue(_value, is_null_ext, 0, _name);
         break;
     }
@@ -246,8 +241,7 @@ void CodegenAnyVal::set_is_null(Value* is_null) {
     case TYPE_DECIMAL: {
         // Lowered type is of form { {i8}, [15 x i8], {i128} }. Set the i8 value to
         // 'is_null'.
-        Value* is_null_ext =
-            _builder->CreateZExt(is_null, _codegen->tinyint_type(), "is_null_ext");
+        Value* is_null_ext = _builder->CreateZExt(is_null, _codegen->tinyint_type(), "is_null_ext");
         // Index into the {i8} struct as well as the outer struct.
         uint32_t idxs[] = {0, 0};
         _value = _builder->CreateInsertValue(_value, is_null_ext, idxs, _name);
@@ -439,19 +433,19 @@ Value* CodegenAnyVal::get_unlowered_ptr() {
 }
 
 void CodegenAnyVal::set_from_raw_ptr(Value* raw_ptr) {
-    Value* val_ptr =
-        _builder->CreateBitCast(raw_ptr, _codegen->get_ptr_type(_type), "val_ptr");
+    Value* val_ptr = _builder->CreateBitCast(raw_ptr, _codegen->get_ptr_type(_type), "val_ptr");
     Value* val = _builder->CreateLoad(val_ptr);
     set_from_raw_value(val);
 }
 
 void CodegenAnyVal::set_from_raw_value(Value* raw_val) {
     DCHECK_EQ(raw_val->getType(), _codegen->get_type(_type))
-        << std::endl << LlvmCodeGen::print(raw_val)
-        << std::endl << _type << " => " << LlvmCodeGen::print(_codegen->get_type(_type));
+            << std::endl
+            << LlvmCodeGen::print(raw_val) << std::endl
+            << _type << " => " << LlvmCodeGen::print(_codegen->get_type(_type));
     switch (_type.type) {
     case TYPE_VARCHAR:
-    case TYPE_CHAR: 
+    case TYPE_CHAR:
     case TYPE_HLL: {
         // Convert StringValue to StringVal
         set_ptr(_builder->CreateExtractValue(raw_val, 0, "ptr"));
@@ -495,7 +489,7 @@ Value* CodegenAnyVal::to_native_value() {
     Value* raw_val = llvm::Constant::getNullValue(raw_type);
     switch (_type.type) {
     case TYPE_CHAR:
-    case TYPE_VARCHAR: 
+    case TYPE_VARCHAR:
     case TYPE_HLL: {
         // Convert StringVal to StringValue
         raw_val = _builder->CreateInsertValue(raw_val, get_ptr(), 0);
@@ -517,7 +511,7 @@ Value* CodegenAnyVal::to_native_value() {
     case TYPE_DATETIME: {
         Function* func = _codegen->get_function(IRFunction::FROM_DATETIME_VAL);
         Value* raw_val_ptr = _codegen->create_entry_block_alloca(
-            *_builder, _codegen->get_type(TYPE_DECIMAL), "raw_val_ptr");
+                *_builder, _codegen->get_type(TYPE_DECIMAL), "raw_val_ptr");
         _builder->CreateCall2(func, raw_val_ptr, _value);
         raw_val = _builder->CreateLoad(raw_val_ptr, "result");
         break;
@@ -525,7 +519,7 @@ Value* CodegenAnyVal::to_native_value() {
     case TYPE_DECIMAL: {
         Function* func = _codegen->get_function(IRFunction::FROM_DECIMAL_VAL);
         Value* raw_val_ptr = _codegen->create_entry_block_alloca(
-            *_builder, _codegen->get_type(TYPE_DECIMAL), "raw_val_ptr");
+                *_builder, _codegen->get_type(TYPE_DECIMAL), "raw_val_ptr");
         _builder->CreateCall2(func, raw_val_ptr, _value);
         raw_val = _builder->CreateLoad(raw_val_ptr, "result");
         break;
@@ -563,20 +557,16 @@ Value* CodegenAnyVal::eq(CodegenAnyVal* other) {
     case TYPE_VARCHAR:
     case TYPE_HLL: {
         llvm::Function* eq_fn = _codegen->get_function(IRFunction::CODEGEN_ANYVAL_STRING_VAL_EQ);
-        return _builder->CreateCall2(
-            eq_fn, get_unlowered_ptr(), other->get_unlowered_ptr(), "eq");
+        return _builder->CreateCall2(eq_fn, get_unlowered_ptr(), other->get_unlowered_ptr(), "eq");
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        llvm::Function* eq_fn = _codegen->get_function(
-            IRFunction::CODEGEN_ANYVAL_DATETIME_VAL_EQ);
-        return _builder->CreateCall2(
-            eq_fn, get_unlowered_ptr(), other->get_unlowered_ptr(), "eq");
+        llvm::Function* eq_fn = _codegen->get_function(IRFunction::CODEGEN_ANYVAL_DATETIME_VAL_EQ);
+        return _builder->CreateCall2(eq_fn, get_unlowered_ptr(), other->get_unlowered_ptr(), "eq");
     }
     case TYPE_DECIMAL: {
         llvm::Function* eq_fn = _codegen->get_function(IRFunction::CODEGEN_ANYVAL_DECIMAL_VAL_EQ);
-        return _builder->CreateCall2(
-            eq_fn, get_unlowered_ptr(), other->get_unlowered_ptr(), "eq");
+        return _builder->CreateCall2(eq_fn, get_unlowered_ptr(), other->get_unlowered_ptr(), "eq");
     }
     default:
         DCHECK(false) << "NYI: " << _type;
@@ -603,21 +593,19 @@ Value* CodegenAnyVal::eq_to_native_ptr(Value* native_ptr) {
     case TYPE_DOUBLE:
         return _builder->CreateFCmpUEQ(get_val(), val, "cmp_raw");
     case TYPE_CHAR:
-    case TYPE_VARCHAR: 
+    case TYPE_VARCHAR:
     case TYPE_HLL: {
-        llvm::Function* eq_fn = _codegen->get_function(
-            IRFunction::CODEGEN_ANYVAL_STRING_VALUE_EQ);
+        llvm::Function* eq_fn = _codegen->get_function(IRFunction::CODEGEN_ANYVAL_STRING_VALUE_EQ);
         return _builder->CreateCall2(eq_fn, get_unlowered_ptr(), native_ptr, "cmp_raw");
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        llvm::Function* eq_fn = _codegen->get_function(
-            IRFunction::CODEGEN_ANYVAL_DATETIME_VALUE_EQ);
+        llvm::Function* eq_fn =
+                _codegen->get_function(IRFunction::CODEGEN_ANYVAL_DATETIME_VALUE_EQ);
         return _builder->CreateCall2(eq_fn, get_unlowered_ptr(), native_ptr, "cmp_raw");
     }
     case TYPE_DECIMAL: {
-        llvm::Function* eq_fn = _codegen->get_function(
-            IRFunction::CODEGEN_ANYVAL_DECIMAL_VALUE_EQ);
+        llvm::Function* eq_fn = _codegen->get_function(IRFunction::CODEGEN_ANYVAL_DECIMAL_VALUE_EQ);
         return _builder->CreateCall2(eq_fn, get_unlowered_ptr(), native_ptr, "cmp_raw");
     }
 
@@ -635,15 +623,14 @@ Value* CodegenAnyVal::compare(CodegenAnyVal* other, const char* name) {
     Value* void_v2 = _builder->CreateBitCast(v2, _codegen->ptr_type());
     Value* type_ptr = _codegen->get_ptr_to(_builder, _type.to_ir(_codegen), "type");
     llvm::Function* compare_fn = _codegen->get_function(IRFunction::RAW_VALUE_COMPARE);
-    Value* args[] = { void_v1, void_v2, type_ptr };
+    Value* args[] = {void_v1, void_v2, type_ptr};
     return _builder->CreateCall(compare_fn, args, name);
 }
 
 Value* CodegenAnyVal::get_high_bits(int num_bits, Value* v, const char* name) {
     DCHECK_EQ(v->getType()->getIntegerBitWidth(), num_bits * 2);
     Value* shifted = _builder->CreateAShr(v, num_bits);
-    return _builder->CreateTrunc(
-        shifted, llvm::IntegerType::get(_codegen->context(), num_bits));
+    return _builder->CreateTrunc(shifted, llvm::IntegerType::get(_codegen->context(), num_bits));
 }
 
 // Example output: (num_bits = 8)
@@ -651,12 +638,11 @@ Value* CodegenAnyVal::get_high_bits(int num_bits, Value* v, const char* name) {
 // %2 = shl i16 %1, 8
 // %3 = and i16 %dst1 255 ; clear the top half of dst
 // %dst2 = or i16 %3, %2  ; set the top of half of dst to src
-Value* CodegenAnyVal::set_high_bits(
-        int num_bits, Value* src, Value* dst, const char* name) {
+Value* CodegenAnyVal::set_high_bits(int num_bits, Value* src, Value* dst, const char* name) {
     DCHECK_LE(src->getType()->getIntegerBitWidth(), num_bits);
     DCHECK_EQ(dst->getType()->getIntegerBitWidth(), num_bits * 2);
-    Value* extended_src = _builder->CreateZExt(
-        src, llvm::IntegerType::get(_codegen->context(), num_bits * 2));
+    Value* extended_src =
+            _builder->CreateZExt(src, llvm::IntegerType::get(_codegen->context(), num_bits * 2));
     Value* shifted_src = _builder->CreateShl(extended_src, num_bits);
     Value* masked_dst = _builder->CreateAnd(dst, (1LL << num_bits) - 1);
     return _builder->CreateOr(masked_dst, shifted_src, name);
@@ -674,11 +660,11 @@ Value* CodegenAnyVal::get_null_val(LlvmCodeGen* codegen, Type* val_type) {
         if (struct_type->getElementType(0)->isStructTy()) {
             // Return the struct { {1}, 0, 0 } (the 'is_null' byte, i.e. the first value's first
             // byte, is set to 1, the other bytes don't matter)
-            llvm::StructType* anyval_struct_type = llvm::cast<llvm::StructType>(
-                struct_type->getElementType(0));
+            llvm::StructType* anyval_struct_type =
+                    llvm::cast<llvm::StructType>(struct_type->getElementType(0));
             Type* is_null_type = anyval_struct_type->getElementType(0);
             llvm::Constant* null_anyval = llvm::ConstantStruct::get(
-                anyval_struct_type, llvm::ConstantInt::get(is_null_type, 1));
+                    anyval_struct_type, llvm::ConstantInt::get(is_null_type, 1));
             elements.push_back(null_anyval);
         } else {
             Type* type1 = struct_type->getElementType(0);
@@ -695,14 +681,13 @@ Value* CodegenAnyVal::get_null_val(LlvmCodeGen* codegen, Type* val_type) {
     return llvm::ConstantInt::get(val_type, 1);
 }
 
-CodegenAnyVal CodegenAnyVal::get_non_null_val(
-        LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder,
-        const TypeDescriptor& type, const char* name) {
+CodegenAnyVal CodegenAnyVal::get_non_null_val(LlvmCodeGen* codegen,
+                                              LlvmCodeGen::LlvmBuilder* builder,
+                                              const TypeDescriptor& type, const char* name) {
     Type* val_type = get_lowered_type(codegen, type);
     // All zeros => 'is_null' = false
     Value* value = llvm::Constant::getNullValue(val_type);
     return CodegenAnyVal(codegen, builder, type, value, name);
 }
 
-}
-
+} // namespace doris

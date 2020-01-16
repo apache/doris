@@ -20,13 +20,13 @@
 #include <string>
 
 #include "env/env.h"
+#include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
 #include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
-#include "olap/key_coder.h"
 #include "olap/types.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
@@ -36,8 +36,7 @@ namespace doris {
 namespace segment_v2 {
 
 IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
-                                         const TypeInfo* typeinfo,
-                                         WritableFile* output_file)
+                                         const TypeInfo* typeinfo, WritableFile* output_file)
         : _options(options),
           _typeinfo(typeinfo),
           _file(output_file),
@@ -80,7 +79,8 @@ Status IndexedColumnWriter::add(const void* value) {
         _typeinfo->deep_copy(_first_value.data(), value, &_mem_pool);
     }
     size_t num_to_write = 1;
-    RETURN_IF_ERROR(_data_page_builder->add(reinterpret_cast<const uint8_t*>(value), &num_to_write));
+    RETURN_IF_ERROR(
+            _data_page_builder->add(reinterpret_cast<const uint8_t*>(value), &num_to_write));
     _num_values++;
     if (_data_page_builder->is_page_full()) {
         RETURN_IF_ERROR(_finish_current_data_page());
@@ -106,14 +106,14 @@ Status IndexedColumnWriter::_finish_current_data_page() {
     return _append_data_page({Slice(page_header), page_data.slice()}, first_rowid);
 }
 
-Status IndexedColumnWriter::_append_data_page(const std::vector<Slice>& data_page, rowid_t first_rowid) {
+Status IndexedColumnWriter::_append_data_page(const std::vector<Slice>& data_page,
+                                              rowid_t first_rowid) {
     RETURN_IF_ERROR(_append_page(data_page, &_last_data_page));
     _num_data_pages++;
 
     if (_options.write_ordinal_index) {
         std::string key;
-        KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_INT>::full_encode_ascending(
-            &first_rowid, &key);
+        KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_INT>::full_encode_ascending(&first_rowid, &key);
         _ordinal_index_builder->add(key, _last_data_page);
     }
 
@@ -155,12 +155,11 @@ Status IndexedColumnWriter::_append_page(const std::vector<Slice>& page, PagePoi
 Status IndexedColumnWriter::finish(IndexedColumnMetaPB* meta) {
     RETURN_IF_ERROR(_finish_current_data_page());
     if (_options.write_ordinal_index) {
-        RETURN_IF_ERROR(_flush_index(_ordinal_index_builder.get(),
-                                     meta->mutable_ordinal_index_meta()));
+        RETURN_IF_ERROR(
+                _flush_index(_ordinal_index_builder.get(), meta->mutable_ordinal_index_meta()));
     }
     if (_options.write_value_index) {
-        RETURN_IF_ERROR(_flush_index(_value_index_builder.get(),
-                                     meta->mutable_value_index_meta()));
+        RETURN_IF_ERROR(_flush_index(_value_index_builder.get(), meta->mutable_value_index_meta()));
     }
     meta->set_data_type(_typeinfo->type());
     meta->set_encoding(_options.encoding);

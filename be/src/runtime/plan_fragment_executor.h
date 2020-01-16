@@ -18,12 +18,12 @@
 #ifndef DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 #define DORIS_BE_RUNTIME_PLAN_FRAGMENT_EXECUTOR_H
 
-#include <vector>
-#include <boost/scoped_ptr.hpp>
 #include <boost/function.hpp>
+#include <boost/scoped_ptr.hpp>
+#include <vector>
 
-#include "common/status.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 
@@ -69,9 +69,8 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    typedef boost::function <
-    void (const Status& status, RuntimeProfile* profile, bool done) >
-    report_status_callback;
+    typedef boost::function<void(const Status& status, RuntimeProfile* profile, bool done)>
+            report_status_callback;
 
     // report_status_cb, if !empty(), is used to report the accumulated profile
     // information periodically during execution (open() or get_next()).
@@ -121,33 +120,23 @@ public:
     void release_thread_token();
 
     // call these only after prepare()
-    RuntimeState* runtime_state() {
-        return _runtime_state.get();
-    }
+    RuntimeState* runtime_state() { return _runtime_state.get(); }
     const RowDescriptor& row_desc();
 
     // Profile information for plan and output sink.
     RuntimeProfile* profile();
 
-    const Status& status() const {
-        return _status;
-    }
+    const Status& status() const { return _status; }
 
-    DataSink* get_sink() {
-        return _sink.get();
-    }
+    DataSink* get_sink() { return _sink.get(); }
 
-    void report_profile_once() {
-        _stop_report_thread_cv.notify_one();
-    }
+    void report_profile_once() { _stop_report_thread_cv.notify_one(); }
 
-    void set_is_report_on_cancel(bool val) {
-        _is_report_on_cancel = val;
-    }
+    void set_is_report_on_cancel(bool val) { _is_report_on_cancel = val; }
 
 private:
-    ExecEnv* _exec_env;  // not owned
-    ExecNode* _plan;  // lives in _runtime_state->obj_pool()
+    ExecEnv* _exec_env; // not owned
+    ExecNode* _plan;    // lives in _runtime_state->obj_pool()
     TUniqueId _query_id;
     // MemTracker* _mem_tracker;
     boost::scoped_ptr<MemTracker> _mem_tracker;
@@ -164,7 +153,7 @@ private:
     // Indicates that profile reporting thread started.
     // Tied to _report_thread_lock.
     boost::condition_variable _report_thread_started_cv;
-    bool _report_thread_active;  // true if we started the thread
+    bool _report_thread_active; // true if we started the thread
 
     // true if _plan->get_next() indicated that it's done
     bool _done;
@@ -213,15 +202,13 @@ private:
     // of the execution.
     RuntimeProfile::Counter* _average_thread_tokens;
 
-    // It is shared with BufferControlBlock and will be called in two different 
-    // threads. But their calls are all at different time, there is no problem of 
+    // It is shared with BufferControlBlock and will be called in two different
+    // threads. But their calls are all at different time, there is no problem of
     // multithreaded access.
     std::shared_ptr<QueryStatistics> _query_statistics;
-    bool _collect_query_statistics_with_every_batch;    
+    bool _collect_query_statistics_with_every_batch;
 
-    ObjectPool* obj_pool() {
-        return _runtime_state->obj_pool();
-    }
+    ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }
 
     // typedef for TPlanFragmentExecParams.per_node_scan_ranges
     typedef std::map<TPlanNodeId, std::vector<TScanRangeParams> > PerNodeScanRanges;
@@ -268,14 +255,11 @@ private:
     void print_volume_ids(const TPlanExecParams& params);
     void print_volume_ids(const PerNodeScanRanges& per_node_scan_ranges);
 
-    const DescriptorTbl& desc_tbl() {
-        return _runtime_state->desc_tbl();
-    }
+    const DescriptorTbl& desc_tbl() { return _runtime_state->desc_tbl(); }
 
     void collect_query_statistics();
-
 };
 
-}
+} // namespace doris
 
 #endif

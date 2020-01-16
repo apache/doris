@@ -19,10 +19,9 @@
 #define DORIS_BE_RUNTIME_BUFFERPOOL_FREE_LIST_H
 
 #include <algorithm>
+#include <boost/thread/locks.hpp>
 #include <cstdint>
 #include <vector>
-
-#include <boost/thread/locks.hpp>
 
 #include "common/logging.h"
 #include "gutil/macros.h"
@@ -55,66 +54,66 @@ using BufferHandle = BufferPool::BufferHandle;
 /// will tend to consolidate free buffers in higher parts of the address space, allowing
 /// coalescing of the holes in most cases.
 class FreeList {
- public:
-  FreeList() {}
+public:
+    FreeList() {}
 
-  /// Gets a free buffer. If the list is non-empty, returns true and sets 'buffer' to
-  /// one of the buffers previously added with AddFreeBuffer(). Otherwise returns false.
-  bool PopFreeBuffer(BufferHandle* buffer) {
-    if (free_list_.empty()) return false;
-    std::pop_heap(free_list_.begin(), free_list_.end(), HeapCompare);
-    *buffer = std::move(free_list_.back());
-    free_list_.pop_back();
-    return true;
-  }
-
-  /// Adds a free buffer to the list.
-  void AddFreeBuffer(BufferHandle&& buffer) {
-    buffer.Poison();
-    free_list_.emplace_back(std::move(buffer));
-    std::push_heap(free_list_.begin(), free_list_.end(), HeapCompare);
-  }
-
-  /// Get the 'num_buffers' buffers with the highest memory address from the list to
-  /// free. The average time complexity is n log n, where n is the current size of the
-  /// list.
-  std::vector<BufferHandle> GetBuffersToFree(int64_t num_buffers) {
-    std::vector<BufferHandle> buffers;
-    DCHECK_LE(num_buffers, free_list_.size());
-    // Sort the list so we can free the buffers with higher memory addresses.
-    // Note that the sorted list is still a valid min-heap.
-    std::sort(free_list_.begin(), free_list_.end(), SortCompare);
-
-    for (int64_t i = 0; i < num_buffers; ++i) {
-      buffers.emplace_back(std::move(free_list_.back()));
-      free_list_.pop_back();
+    /// Gets a free buffer. If the list is non-empty, returns true and sets 'buffer' to
+    /// one of the buffers previously added with AddFreeBuffer(). Otherwise returns false.
+    bool PopFreeBuffer(BufferHandle* buffer) {
+        if (free_list_.empty()) return false;
+        std::pop_heap(free_list_.begin(), free_list_.end(), HeapCompare);
+        *buffer = std::move(free_list_.back());
+        free_list_.pop_back();
+        return true;
     }
-    return buffers;
-  }
 
-  /// Returns the number of buffers currently in the list.
-  int64_t Size() const { return free_list_.size(); }
+    /// Adds a free buffer to the list.
+    void AddFreeBuffer(BufferHandle&& buffer) {
+        buffer.Poison();
+        free_list_.emplace_back(std::move(buffer));
+        std::push_heap(free_list_.begin(), free_list_.end(), HeapCompare);
+    }
 
- private:
-  friend class FreeListTest;
+    /// Get the 'num_buffers' buffers with the highest memory address from the list to
+    /// free. The average time complexity is n log n, where n is the current size of the
+    /// list.
+    std::vector<BufferHandle> GetBuffersToFree(int64_t num_buffers) {
+        std::vector<BufferHandle> buffers;
+        DCHECK_LE(num_buffers, free_list_.size());
+        // Sort the list so we can free the buffers with higher memory addresses.
+        // Note that the sorted list is still a valid min-heap.
+        std::sort(free_list_.begin(), free_list_.end(), SortCompare);
 
-  DISALLOW_COPY_AND_ASSIGN(FreeList);
+        for (int64_t i = 0; i < num_buffers; ++i) {
+            buffers.emplace_back(std::move(free_list_.back()));
+            free_list_.pop_back();
+        }
+        return buffers;
+    }
 
-  /// Compare function that orders by memory address.
-  inline static bool SortCompare(const BufferHandle& b1, const BufferHandle& b2) {
-    return b1.data() < b2.data();
-  }
+    /// Returns the number of buffers currently in the list.
+    int64_t Size() const { return free_list_.size(); }
 
-  /// Compare function that orders by memory address. Needs to be inverse of SortCompare()
-  /// because C++ provides a max-heap.
-  inline static bool HeapCompare(const BufferHandle& b1, const BufferHandle& b2) {
-    return SortCompare(b2, b1);
-  }
+private:
+    friend class FreeListTest;
 
-  /// List of free memory buffers. Maintained as a min-heap ordered by the memory address
-  /// of the buffer.
-  std::vector<BufferHandle> free_list_;
+    DISALLOW_COPY_AND_ASSIGN(FreeList);
+
+    /// Compare function that orders by memory address.
+    inline static bool SortCompare(const BufferHandle& b1, const BufferHandle& b2) {
+        return b1.data() < b2.data();
+    }
+
+    /// Compare function that orders by memory address. Needs to be inverse of SortCompare()
+    /// because C++ provides a max-heap.
+    inline static bool HeapCompare(const BufferHandle& b1, const BufferHandle& b2) {
+        return SortCompare(b2, b1);
+    }
+
+    /// List of free memory buffers. Maintained as a min-heap ordered by the memory address
+    /// of the buffer.
+    std::vector<BufferHandle> free_list_;
 };
-}
+} // namespace doris
 
 #endif

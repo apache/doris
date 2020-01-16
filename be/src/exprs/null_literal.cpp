@@ -17,8 +17,8 @@
 
 #include "null_literal.h"
 
-#include "codegen/llvm_codegen.h"
 #include "codegen/codegen_anyval.h"
+#include "codegen/llvm_codegen.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/runtime_state.h"
 
@@ -28,9 +28,7 @@ using llvm::Value;
 
 namespace doris {
 
-NullLiteral::NullLiteral(const TExprNode& node) : 
-        Expr(node) {
-}
+NullLiteral::NullLiteral(const TExprNode& node) : Expr(node) {}
 
 // NullLiteral::NullLiteral(PrimitiveType type) : Expr(TypeDescriptor(type)) {
 // }
@@ -105,4 +103,4 @@ Status NullLiteral::get_codegend_compute_fn(RuntimeState* state, llvm::Function*
     return Status::OK();
 }
 
-}
+} // namespace doris

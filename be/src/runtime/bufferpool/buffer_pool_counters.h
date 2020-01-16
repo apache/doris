@@ -24,38 +24,38 @@ namespace doris {
 
 /// A set of counters for each buffer pool client.
 struct BufferPoolClientCounters {
- public:
-  /// Total amount of time spent inside BufferAllocator::AllocateBuffer().
-  RuntimeProfile::Counter* alloc_time;
+public:
+    /// Total amount of time spent inside BufferAllocator::AllocateBuffer().
+    RuntimeProfile::Counter* alloc_time;
 
-  /// Number of buffers allocated via BufferAllocator::AllocateBuffer().
-  RuntimeProfile::Counter* cumulative_allocations;
+    /// Number of buffers allocated via BufferAllocator::AllocateBuffer().
+    RuntimeProfile::Counter* cumulative_allocations;
 
-  /// Bytes of buffers allocated via BufferAllocator::AllocateBuffer().
-  RuntimeProfile::Counter* cumulative_bytes_alloced;
+    /// Bytes of buffers allocated via BufferAllocator::AllocateBuffer().
+    RuntimeProfile::Counter* cumulative_bytes_alloced;
 
-  /// Amount of time spent waiting for reads from disk to complete.
-  RuntimeProfile::Counter* read_wait_time;
+    /// Amount of time spent waiting for reads from disk to complete.
+    RuntimeProfile::Counter* read_wait_time;
 
-  /// Total number of read I/O operations issued.
-  RuntimeProfile::Counter* read_io_ops;
+    /// Total number of read I/O operations issued.
+    RuntimeProfile::Counter* read_io_ops;
 
-  /// Total bytes read from disk.
-  RuntimeProfile::Counter* bytes_read;
+    /// Total bytes read from disk.
+    RuntimeProfile::Counter* bytes_read;
 
-  /// Amount of time spent waiting for writes to disk to complete.
-  RuntimeProfile::Counter* write_wait_time;
+    /// Amount of time spent waiting for writes to disk to complete.
+    RuntimeProfile::Counter* write_wait_time;
 
-  /// Total number of write I/O operations issued.
-  RuntimeProfile::Counter* write_io_ops;
+    /// Total number of write I/O operations issued.
+    RuntimeProfile::Counter* write_io_ops;
 
-  /// Total bytes written to disk.
-  RuntimeProfile::Counter* bytes_written;
+    /// Total bytes written to disk.
+    RuntimeProfile::Counter* bytes_written;
 
-  /// The peak total size of unpinned pages.
-  RuntimeProfile::HighWaterMarkCounter* peak_unpinned_bytes;
+    /// The peak total size of unpinned pages.
+    RuntimeProfile::HighWaterMarkCounter* peak_unpinned_bytes;
 };
 
-}
+} // namespace doris
 
 #endif

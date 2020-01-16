@@ -40,7 +40,7 @@ void Schema::copy_from(const Schema& other) {
 
     _cols.resize(other._cols.size(), nullptr);
     for (auto cid : _col_ids) {
-        _cols[cid] =  other._cols[cid]->clone();
+        _cols[cid] = other._cols[cid]->clone();
     }
 }
 
@@ -58,7 +58,7 @@ void Schema::init_field(const std::vector<TabletColumn>& columns,
 }
 
 void Schema::init_field(const std::vector<const Field*>& cols,
-                const std::vector<ColumnId>& col_ids) {
+                        const std::vector<ColumnId>& col_ids) {
     _cols.resize(cols.size(), nullptr);
     // we must make sure that the offset is the same with RowBlock's
     std::unordered_set<uint32_t> column_set(col_ids.begin(), col_ids.end());
@@ -70,8 +70,7 @@ void Schema::init_field(const std::vector<const Field*>& cols,
     }
 }
 
-void Schema::init(const std::vector<ColumnId>& col_ids,
-                   size_t num_key_columns) {
+void Schema::init(const std::vector<ColumnId>& col_ids, size_t num_key_columns) {
     _num_key_columns = num_key_columns;
     _col_ids = col_ids;
     _col_offsets.resize(_cols.size(), -1);
@@ -97,4 +96,4 @@ Schema::~Schema() {
     }
 }
 
-}
+} // namespace doris

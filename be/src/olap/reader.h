@@ -19,25 +19,25 @@
 #define DORIS_BE_SRC_OLAP_READER_H
 
 #include <gen_cpp/PaloInternalService_types.h>
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include <list>
 #include <memory>
 #include <queue>
 #include <sstream>
 #include <stack>
 #include <string>
-#include <thrift/protocol/TDebugProtocol.h>
 #include <utility>
 #include <vector>
 
+#include "olap/column_predicate.h"
 #include "olap/delete_handler.h"
 #include "olap/olap_cond.h"
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h"
-#include "util/runtime_profile.h"
-
-#include "olap/column_predicate.h"
-#include "olap/tablet.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/tablet.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -68,12 +68,12 @@ struct ReaderParams {
     RuntimeProfile* profile;
     RuntimeState* runtime_state;
 
-    ReaderParams() :
-            reader_type(READER_QUERY),
-            aggregation(false),
-            version(-1, 0),
-            profile(NULL),
-            runtime_state(NULL) {
+    ReaderParams()
+            : reader_type(READER_QUERY),
+              aggregation(false),
+              version(-1, 0),
+              profile(NULL),
+              runtime_state(NULL) {
         start_key.clear();
         end_key.clear();
         conditions.clear();
@@ -89,25 +89,22 @@ struct ReaderParams {
     std::string to_string() {
         std::stringstream ss;
 
-        ss << "tablet=" << tablet->full_name()
-           << " reader_type=" << reader_type
-           << " aggregation=" << aggregation
-           << " version=" << version.first << "-" << version.second
-           << " range=" << range
-           << " end_range=" << end_range;
+        ss << "tablet=" << tablet->full_name() << " reader_type=" << reader_type
+           << " aggregation=" << aggregation << " version=" << version.first << "-"
+           << version.second << " range=" << range << " end_range=" << end_range;
 
         for (auto& key : start_key) {
             ss << " keys=" << key;
         }
 
-        for (auto& key : end_key){
+        for (auto& key : end_key) {
             ss << " end_keys=" << key;
         }
 
         for (int i = 0, size = conditions.size(); i < size; ++i) {
             ss << " conditions=" << apache::thrift::ThriftDebugString(conditions[i]);
         }
-        
+
         return ss.str();
     }
 };
@@ -126,17 +123,14 @@ public:
     // Return OLAP_SUCCESS and set `*eof` to false when next row is read into `row_cursor`.
     // Return OLAP_SUCCESS and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
-    OLAPStatus next_row_with_aggregation(RowCursor *row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool *eof) {
+    OLAPStatus next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool,
+                                         ObjectPool* agg_pool, bool* eof) {
         return (this->*_next_row_func)(row_cursor, mem_pool, agg_pool, eof);
     }
 
-    uint64_t merged_rows() const {
-        return _merged_rows;
-    }
+    uint64_t merged_rows() const { return _merged_rows; }
 
-    uint64_t filtered_rows() const {
-        return _stats.rows_del_filtered;
-    }
+    uint64_t filtered_rows() const { return _stats.rows_del_filtered; }
 
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
@@ -155,8 +149,7 @@ private:
 
         std::string to_string() const {
             std::stringstream ss;
-            ss << "range=" << range
-               << " end_range=" << end_range;
+            ss << "range=" << range << " end_range=" << end_range;
 
             for (int i = 0, size = this->start_keys.size(); i < size; ++i) {
                 ss << " keys=" << start_keys[i]->to_string();
@@ -201,9 +194,12 @@ private:
 
     OLAPStatus _init_load_bf_columns(const ReaderParams& read_params);
 
-    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
-    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
-    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof);
+    OLAPStatus _dup_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                 bool* eof);
+    OLAPStatus _agg_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                 bool* eof);
+    OLAPStatus _unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
+                                    bool* eof);
 
     TabletSharedPtr tablet() { return _tablet; }
 
@@ -234,7 +230,8 @@ private:
 
     DeleteHandler _delete_handler;
 
-    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool, bool* eof) = nullptr;
+    OLAPStatus (Reader::*_next_row_func)(RowCursor* row_cursor, MemPool* mem_pool,
+                                         ObjectPool* agg_pool, bool* eof) = nullptr;
 
     bool _aggregation;
     // for agg query, we don't need to finalize when scan agg object data
@@ -251,9 +248,8 @@ private:
 
     OlapReaderStatistics _stats;
     DISALLOW_COPY_AND_ASSIGN(Reader);
-
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_READER_H

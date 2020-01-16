@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_HTTP_DOWNLOAD_ACTION_H
-#define  DORIS_BE_SRC_HTTP_DOWNLOAD_ACTION_H
+#ifndef DORIS_BE_SRC_HTTP_DOWNLOAD_ACTION_H
+#define DORIS_BE_SRC_HTTP_DOWNLOAD_ACTION_H
 
 #include "exec/csv_scanner.h"
 #include "exec/scan_node.h"
-#include "runtime/descriptors.h"
 #include "http/http_handler.h"
+#include "runtime/descriptors.h"
 
 namespace doris {
 
@@ -41,7 +41,7 @@ public:
 
     virtual ~DownloadAction() {}
 
-    void handle(HttpRequest *req) override;
+    void handle(HttpRequest* req) override;
 
 private:
     enum DOWNLOAD_TYPE {
@@ -49,21 +49,18 @@ private:
         ERROR_LOG = 2,
     };
 
-    Status check_token(HttpRequest *req);
+    Status check_token(HttpRequest* req);
     Status check_path_is_allowed(const std::string& path);
     Status check_log_path_is_allowed(const std::string& file_path);
 
-    void handle_normal(HttpRequest *req, const std::string& file_param);
-    void handle_error_log(
-            HttpRequest *req,
-            const std::string& file_param);
+    void handle_normal(HttpRequest* req, const std::string& file_param);
+    void handle_error_log(HttpRequest* req, const std::string& file_param);
 
-    void do_file_response(const std::string& dir_path, HttpRequest *req);
-    void do_dir_response(const std::string& dir_path, HttpRequest *req);
+    void do_file_response(const std::string& dir_path, HttpRequest* req);
+    void do_dir_response(const std::string& dir_path, HttpRequest* req);
 
-    Status get_file_content(
-            FILE* fp, char* buffer, int32_t buffer_size,
-            int32_t* readed_size, bool* eos);
+    Status get_file_content(FILE* fp, char* buffer, int32_t buffer_size, int32_t* readed_size,
+                            bool* eos);
 
     int64_t get_file_size(FILE* fp);
 
@@ -77,9 +74,7 @@ private:
     std::vector<std::string> _allow_paths;
     std::string _error_log_root_dir;
 
-
 }; // end class DownloadAction
 
 } // end namespace doris
 #endif // DORIS_BE_SRC_HTTP_DOWNLOAD_ACTION_H
-

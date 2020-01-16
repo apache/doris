@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_SRC_OLAP_OLAP_DEFINE_H
 #define DORIS_BE_SRC_OLAP_OLAP_DEFINE_H
 
+#include <stdint.h>
+
 #include <cstdlib>
 #include <sstream>
 #include <string>
-
-#include <stdint.h>
 
 namespace doris {
 // 以下是一些统一的define
@@ -126,9 +126,9 @@ enum OLAPStatus {
     OLAP_ERR_UB_NETWORK_ERROR = -118,
     OLAP_ERR_FILE_FORMAT_ERROR = -119,
     OLAP_ERR_EVAL_CONJUNCTS_ERROR = -120,
-    OLAP_ERR_COPY_FILE_ERROR =  -121,
-    OLAP_ERR_FILE_ALREADY_EXIST =  -122,
-    OLAP_ERR_TOO_FEW_FILE_DESCRITPROR =  -123,
+    OLAP_ERR_COPY_FILE_ERROR = -121,
+    OLAP_ERR_FILE_ALREADY_EXIST = -122,
+    OLAP_ERR_TOO_FEW_FILE_DESCRITPROR = -123,
 
     // common errors codes
     // [-200, -300)
@@ -246,9 +246,9 @@ enum OLAPStatus {
     OLAP_ERR_PUSH_INPUT_DATA_ERROR = -910,
     OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST = -911,
     // only support realtime push api, batch process is deprecated and is removed
-    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912, 
-    OLAP_ERR_PUSH_COMMIT_ROWSET = -913, 
-    OLAP_ERR_PUSH_ROWSET_NOT_FOUND = -914, 
+    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912,
+    OLAP_ERR_PUSH_COMMIT_ROWSET = -913,
+    OLAP_ERR_PUSH_ROWSET_NOT_FOUND = -914,
 
     // SegmentGroup
     // [-1000, -1100)
@@ -347,7 +347,7 @@ enum OLAPStatus {
     OLAP_ERR_META_PUT = -3004,
     OLAP_ERR_META_ITERATOR = -3005,
     OLAP_ERR_META_DELETE = -3006,
-    OLAP_ERR_META_ALREADY_EXIST  = -3007,
+    OLAP_ERR_META_ALREADY_EXIST = -3007,
 
     // Rowset
     // [-3100, -3200)
@@ -396,28 +396,30 @@ const std::string ROWSET_ID_PREFIX = "s_";
 #endif
 
 #ifndef RETURN_NOT_OK
-#define RETURN_NOT_OK(s) do {                           \
-    OLAPStatus _s = (s);                                \
-    if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {            \
-        return _s;                                      \
-    }                                                   \
-} while (0);
+#define RETURN_NOT_OK(s)                         \
+    do {                                         \
+        OLAPStatus _s = (s);                     \
+        if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) { \
+            return _s;                           \
+        }                                        \
+    } while (0);
 #endif
 
 #ifndef RETURN_NOT_OK_LOG
-#define RETURN_NOT_OK_LOG(s, msg) do {                  \
-    OLAPStatus _s = (s);                                \
-    if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {            \
-        LOG(WARNING) << (msg) << "[res=" << _s <<"]";   \
-        return _s;                                      \
-    }                                                   \
-} while (0);
+#define RETURN_NOT_OK_LOG(s, msg)                          \
+    do {                                                   \
+        OLAPStatus _s = (s);                               \
+        if (OLAP_UNLIKELY(_s != OLAP_SUCCESS)) {           \
+            LOG(WARNING) << (msg) << "[res=" << _s << "]"; \
+            return _s;                                     \
+        }                                                  \
+    } while (0);
 #endif
 
 // Declare copy constructor and equal operator as private
 #ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(type_t) \
-    type_t& operator=(const type_t&); \
+    type_t& operator=(const type_t&);    \
     type_t(const type_t&);
 #endif
 
@@ -425,43 +427,45 @@ const std::string ROWSET_ID_PREFIX = "s_";
 #define OLAP_UNUSED_ARG(a) (void)(a)
 
 // thread-safe(gcc only) method for obtaining singleton
-#define DECLARE_SINGLETON(classname) \
-    public: \
-        static classname *instance() { \
-            classname *p_instance = NULL; \
-            try { \
-                static classname s_instance; \
-                p_instance = &s_instance; \
-            } catch (...) { \
-                p_instance = NULL; \
-            } \
-            return p_instance; \
-        } \
-    protected: \
-        classname(); \
-    private: \
-        ~classname();
+#define DECLARE_SINGLETON(classname)     \
+public:                                  \
+    static classname* instance() {       \
+        classname* p_instance = NULL;    \
+        try {                            \
+            static classname s_instance; \
+            p_instance = &s_instance;    \
+        } catch (...) {                  \
+            p_instance = NULL;           \
+        }                                \
+        return p_instance;               \
+    }                                    \
+                                         \
+protected:                               \
+    classname();                         \
+                                         \
+private:                                 \
+    ~classname();
 
-#define SAFE_DELETE(ptr) \
-    do { \
+#define SAFE_DELETE(ptr)   \
+    do {                   \
         if (NULL != ptr) { \
-            delete ptr; \
-            ptr = NULL; \
-        } \
+            delete ptr;    \
+            ptr = NULL;    \
+        }                  \
     } while (0)
 
 #define SAFE_DELETE_ARRAY(ptr) \
-    do { \
-        if (NULL != ptr) { \
-            delete [] ptr; \
-            ptr = NULL; \
-        } \
+    do {                       \
+        if (NULL != ptr) {     \
+            delete[] ptr;      \
+            ptr = NULL;        \
+        }                      \
     } while (0)
 
 #ifndef BUILD_VERSION
 #define BUILD_VERSION "Unknow"
 #endif
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_DEFINE_H

@@ -21,26 +21,26 @@ namespace doris {
 
 void (*FieldTypeTraits<OLAP_FIELD_TYPE_CHAR>::set_to_max)(void*) = nullptr;
 
-template<typename TypeTraitsClass>
+template <typename TypeTraitsClass>
 TypeInfo::TypeInfo(TypeTraitsClass t)
-      : _equal(TypeTraitsClass::equal),
-        _cmp(TypeTraitsClass::cmp),
-        _shallow_copy(TypeTraitsClass::shallow_copy),
-        _deep_copy(TypeTraitsClass::deep_copy),
-        _copy_object(TypeTraitsClass::copy_object),
-        _direct_copy(TypeTraitsClass::direct_copy),
-        _convert_from(TypeTraitsClass::convert_from),
-        _from_string(TypeTraitsClass::from_string),
-        _to_string(TypeTraitsClass::to_string),
-        _set_to_max(TypeTraitsClass::set_to_max),
-        _set_to_min(TypeTraitsClass::set_to_min),
-        _hash_code(TypeTraitsClass::hash_code),
-        _size(TypeTraitsClass::size),
-        _field_type(TypeTraitsClass::type) {
-}
+        : _equal(TypeTraitsClass::equal),
+          _cmp(TypeTraitsClass::cmp),
+          _shallow_copy(TypeTraitsClass::shallow_copy),
+          _deep_copy(TypeTraitsClass::deep_copy),
+          _copy_object(TypeTraitsClass::copy_object),
+          _direct_copy(TypeTraitsClass::direct_copy),
+          _convert_from(TypeTraitsClass::convert_from),
+          _from_string(TypeTraitsClass::from_string),
+          _to_string(TypeTraitsClass::to_string),
+          _set_to_max(TypeTraitsClass::set_to_max),
+          _set_to_min(TypeTraitsClass::set_to_min),
+          _hash_code(TypeTraitsClass::hash_code),
+          _size(TypeTraitsClass::size),
+          _field_type(TypeTraitsClass::type) {}
 
 class TypeInfoResolver {
     DECLARE_SINGLETON(TypeInfoResolver);
+
 public:
     TypeInfo* get_type_info(const FieldType t) {
         auto pair = _mapping.find(t);
@@ -49,15 +49,13 @@ public:
     }
 
 private:
-    template<FieldType field_type> void add_mapping() {
+    template <FieldType field_type>
+    void add_mapping() {
         TypeTraits<field_type> traits;
-        _mapping.emplace(field_type,
-                 std::shared_ptr<TypeInfo>(new TypeInfo(traits)));
+        _mapping.emplace(field_type, std::shared_ptr<TypeInfo>(new TypeInfo(traits)));
     }
 
-    std::unordered_map<FieldType,
-        std::shared_ptr<TypeInfo>,
-        std::hash<size_t>> _mapping;
+    std::unordered_map<FieldType, std::shared_ptr<TypeInfo>, std::hash<size_t>> _mapping;
 
     DISALLOW_COPY_AND_ASSIGN(TypeInfoResolver);
 };

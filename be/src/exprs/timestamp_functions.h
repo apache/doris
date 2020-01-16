@@ -18,13 +18,14 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_TIMESTAMP_FUNCTIONS_H
 #define DORIS_BE_SRC_QUERY_EXPRS_TIMESTAMP_FUNCTIONS_H
 
-#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/date_time/gregorian/gregorian.hpp>
-#include <boost/date_time/time_zone_base.hpp>
 #include <boost/date_time/local_time/local_time.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/date_time/time_zone_base.hpp>
 #include <boost/thread/thread.hpp>
-#include "runtime/string_value.h"
+
 #include "runtime/datetime_value.h"
+#include "runtime/string_value.h"
 
 namespace doris {
 
@@ -37,126 +38,134 @@ public:
     static void init();
 
     // Functions to extract parts of the timestamp, return integers.
-    static doris_udf::IntVal year(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal quarter(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal month(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal day_of_week(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal day_of_month(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal day_of_year(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal week_of_year(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal hour(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal minute(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal second(
-        doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal year(doris_udf::FunctionContext* context,
+                                  const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal quarter(doris_udf::FunctionContext* context,
+                                     const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal month(doris_udf::FunctionContext* context,
+                                   const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal day_of_week(doris_udf::FunctionContext* context,
+                                         const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal day_of_month(doris_udf::FunctionContext* context,
+                                          const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal day_of_year(doris_udf::FunctionContext* context,
+                                         const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal week_of_year(doris_udf::FunctionContext* context,
+                                          const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal hour(doris_udf::FunctionContext* context,
+                                  const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal minute(doris_udf::FunctionContext* context,
+                                    const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal second(doris_udf::FunctionContext* context,
+                                    const doris_udf::DateTimeVal& ts_val);
 
     // Date/time functions.
-    static doris_udf::DateTimeVal to_date(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::IntVal date_diff(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1,
-        const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::DoubleVal time_diff(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1,
-        const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::DateTimeVal years_add(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal years_sub(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal months_add(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal months_sub(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal weeks_add(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal weeks_sub(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal days_add(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal days_sub(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal hours_add(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal hours_sub(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal minutes_add(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal minutes_sub(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal seconds_add(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal seconds_sub(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal micros_add(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::DateTimeVal micros_sub(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::IntVal& count);
-    static doris_udf::StringVal date_format(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-        const doris_udf::StringVal& format);
-    static doris_udf::DateTimeVal from_days(
-        doris_udf::FunctionContext* ctx, const doris_udf::IntVal& days);
-    static doris_udf::IntVal to_days(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::DateTimeVal str_to_date(
-        doris_udf::FunctionContext* ctx, const doris_udf::StringVal& str,
-        const doris_udf::StringVal& format);
-    static doris_udf::StringVal month_name(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
-    static doris_udf::StringVal day_name(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal to_date(doris_udf::FunctionContext* ctx,
+                                          const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::IntVal date_diff(doris_udf::FunctionContext* ctx,
+                                       const doris_udf::DateTimeVal& ts_val1,
+                                       const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::DoubleVal time_diff(doris_udf::FunctionContext* ctx,
+                                          const doris_udf::DateTimeVal& ts_val1,
+                                          const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::DateTimeVal years_add(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::DateTimeVal& ts_val,
+                                            const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal years_sub(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::DateTimeVal& ts_val,
+                                            const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal months_add(doris_udf::FunctionContext* ctx,
+                                             const doris_udf::DateTimeVal& ts_val,
+                                             const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal months_sub(doris_udf::FunctionContext* ctx,
+                                             const doris_udf::DateTimeVal& ts_val,
+                                             const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal weeks_add(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::DateTimeVal& ts_val,
+                                            const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal weeks_sub(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::DateTimeVal& ts_val,
+                                            const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal days_add(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::DateTimeVal& ts_val,
+                                           const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal days_sub(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::DateTimeVal& ts_val,
+                                           const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal hours_add(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::DateTimeVal& ts_val,
+                                            const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal hours_sub(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::DateTimeVal& ts_val,
+                                            const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal minutes_add(doris_udf::FunctionContext* ctx,
+                                              const doris_udf::DateTimeVal& ts_val,
+                                              const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal minutes_sub(doris_udf::FunctionContext* ctx,
+                                              const doris_udf::DateTimeVal& ts_val,
+                                              const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal seconds_add(doris_udf::FunctionContext* ctx,
+                                              const doris_udf::DateTimeVal& ts_val,
+                                              const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal seconds_sub(doris_udf::FunctionContext* ctx,
+                                              const doris_udf::DateTimeVal& ts_val,
+                                              const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal micros_add(doris_udf::FunctionContext* ctx,
+                                             const doris_udf::DateTimeVal& ts_val,
+                                             const doris_udf::IntVal& count);
+    static doris_udf::DateTimeVal micros_sub(doris_udf::FunctionContext* ctx,
+                                             const doris_udf::DateTimeVal& ts_val,
+                                             const doris_udf::IntVal& count);
+    static doris_udf::StringVal date_format(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::DateTimeVal& ts_val,
+                                            const doris_udf::StringVal& format);
+    static doris_udf::DateTimeVal from_days(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::IntVal& days);
+    static doris_udf::IntVal to_days(doris_udf::FunctionContext* ctx,
+                                     const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::DateTimeVal str_to_date(doris_udf::FunctionContext* ctx,
+                                              const doris_udf::StringVal& str,
+                                              const doris_udf::StringVal& format);
+    static doris_udf::StringVal month_name(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::DateTimeVal& ts_val);
+    static doris_udf::StringVal day_name(doris_udf::FunctionContext* ctx,
+                                         const doris_udf::DateTimeVal& ts_val);
 
     // timestamp function
     template <TimeUnit unit>
-    static doris_udf::BigIntVal timestamp_diff(
-            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::BigIntVal years_diff(
-            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::BigIntVal months_diff(
-            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::BigIntVal weeks_diff(
-            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::BigIntVal days_diff(
-            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::BigIntVal hours_diff(
-            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::BigIntVal minutes_diff(
-            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
-    static doris_udf::BigIntVal seconds_diff(
-            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal timestamp_diff(doris_udf::FunctionContext* ctx,
+                                               const doris_udf::DateTimeVal& ts_val1,
+                                               const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal years_diff(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::DateTimeVal& ts_val1,
+                                           const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal months_diff(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::DateTimeVal& ts_val1,
+                                            const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal weeks_diff(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::DateTimeVal& ts_val1,
+                                           const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal days_diff(doris_udf::FunctionContext* ctx,
+                                          const doris_udf::DateTimeVal& ts_val1,
+                                          const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal hours_diff(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::DateTimeVal& ts_val1,
+                                           const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal minutes_diff(doris_udf::FunctionContext* ctx,
+                                             const doris_udf::DateTimeVal& ts_val1,
+                                             const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal seconds_diff(doris_udf::FunctionContext* ctx,
+                                             const doris_udf::DateTimeVal& ts_val1,
+                                             const doris_udf::DateTimeVal& ts_val2);
 
     // TimeZone correlation functions.
-    static doris_udf::DateTimeVal timestamp(
-        doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& val);
+    static doris_udf::DateTimeVal timestamp(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::DateTimeVal& val);
     // Helper for add/sub functions on the time portion.
     template <TimeUnit unit>
-    static doris_udf::DateTimeVal timestamp_time_op(
-            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val,
-            const doris_udf::IntVal& count, bool is_add);
+    static doris_udf::DateTimeVal timestamp_time_op(doris_udf::FunctionContext* ctx,
+                                                    const doris_udf::DateTimeVal& ts_val,
+                                                    const doris_udf::IntVal& count, bool is_add);
     static doris_udf::DateTimeVal now(doris_udf::FunctionContext* context);
     static doris_udf::DoubleVal curtime(doris_udf::FunctionContext* context);
     static doris_udf::DateTimeVal curdate(doris_udf::FunctionContext* context);
@@ -164,23 +173,24 @@ public:
     /// Returns the current time.
     static doris_udf::IntVal to_unix(doris_udf::FunctionContext* context);
     /// Converts 'tv_val' to a unix time_t
-    static doris_udf::IntVal to_unix(
-            doris_udf::FunctionContext* context, const doris_udf::DateTimeVal& tv_val);
+    static doris_udf::IntVal to_unix(doris_udf::FunctionContext* context,
+                                     const doris_udf::DateTimeVal& tv_val);
     /// Parses 'string_val' based on the format 'fmt'.
-    static doris_udf::IntVal to_unix(
-            doris_udf::FunctionContext* context, const doris_udf::StringVal& string_val,
-            const doris_udf::StringVal& fmt);
+    static doris_udf::IntVal to_unix(doris_udf::FunctionContext* context,
+                                     const doris_udf::StringVal& string_val,
+                                     const doris_udf::StringVal& fmt);
     /// Return a timestamp string from a unix time_t
     /// Optional second argument is the format of the string.
     /// TIME is the integer type of the unix time argument.
-    static doris_udf::StringVal from_unix(
-            doris_udf::FunctionContext* context, const doris_udf::IntVal& unix_time);
-    static doris_udf::StringVal from_unix(
-            doris_udf::FunctionContext* context, const doris_udf::IntVal& unix_time,
-            const doris_udf::StringVal& fmt);
+    static doris_udf::StringVal from_unix(doris_udf::FunctionContext* context,
+                                          const doris_udf::IntVal& unix_time);
+    static doris_udf::StringVal from_unix(doris_udf::FunctionContext* context,
+                                          const doris_udf::IntVal& unix_time,
+                                          const doris_udf::StringVal& fmt);
     static doris_udf::DateTimeVal convert_tz(doris_udf::FunctionContext* ctx,
-            const doris_udf::DateTimeVal& ts_val, const doris_udf::StringVal& from_tz,
-            const doris_udf::StringVal& to_tz);
+                                             const doris_udf::DateTimeVal& ts_val,
+                                             const doris_udf::StringVal& from_tz,
+                                             const doris_udf::StringVal& to_tz);
 
     // Helper function to check date/time format strings.
     // TODO: eventually return format converted from Java to Boost.
@@ -193,6 +203,6 @@ public:
     // Issue a warning for a bad format string.
     static void report_bad_format(const StringVal* format);
 };
-}
+} // namespace doris
 
 #endif

@@ -18,44 +18,42 @@
 #include "service/backend_service.h"
 
 #include <arrow/record_batch.h>
-#include <boost/shared_ptr.hpp>
 #include <gperftools/heap-profiler.h>
-#include <memory>
 #include <thrift/concurrency/PosixThreadFactory.h>
-#include <thrift/protocol/TDebugProtocol.h>
 #include <thrift/processor/TMultiplexedProcessor.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
-#include "common/logging.h"
+#include <boost/shared_ptr.hpp>
+#include <memory>
+
 #include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
-#include "gen_cpp/TDorisExternalService.h"
-#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/DorisExternalService_types.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/TDorisExternalService.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/storage_engine.h"
-
-#include "runtime/external_scan_context_mgr.h"
-#include "runtime/fragment_mgr.h"
 #include "runtime/data_stream_mgr.h"
-#include "runtime/export_task_mgr.h"
-#include "runtime/result_buffer_mgr.h"
-#include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/export_task_mgr.h"
+#include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/result_queue_mgr.h"
 #include "runtime/primitive_type.h"
+#include "runtime/result_buffer_mgr.h"
+#include "runtime/result_queue_mgr.h"
+#include "runtime/routine_load/routine_load_task_executor.h"
 #include "service/backend_options.h"
+#include "util/arrow/row_batch.h"
 #include "util/blocking_queue.hpp"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
-#include "util/arrow/row_batch.h"
+#include "util/network_util.h"
+#include "util/thrift_server.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
-#include "util/network_util.h"
-#include "util/thrift_util.h"
-#include "util/thrift_server.h"
 
 namespace doris {
 
@@ -66,9 +64,8 @@ using apache::thrift::transport::TTransportException;
 using apache::thrift::concurrency::ThreadFactory;
 using apache::thrift::concurrency::PosixThreadFactory;
 
-BackendService::BackendService(ExecEnv* exec_env) :
-        _exec_env(exec_env),
-        _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {
+BackendService::BackendService(ExecEnv* exec_env)
+        : _exec_env(exec_env), _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
     // tcmalloc and address sanitizer can not be used together
     if (!config::heap_profile_dir.empty()) {
@@ -89,10 +86,7 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
 
     boost::shared_ptr<TProcessor> be_processor(new BackendServiceProcessor(handler));
 
-    *server = new ThriftServer("backend",
-                               be_processor,
-                               port,
-                               exec_env->metrics(),
+    *server = new ThriftServer("backend", be_processor, port, exec_env->metrics(),
                                config::be_service_threads);
 
     LOG(INFO) << "DorisInternalService listening on " << port;
@@ -103,9 +97,9 @@ Status BackendService::create_service(ExecEnv* exec_env, int port, ThriftServer*
 void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
     LOG(INFO) << "exec_plan_fragment() instance_id=" << params.params.fragment_instance_id
-        << " coord=" << params.coord << " backend#=" << params.backend_num;
+              << " coord=" << params.coord << " backend#=" << params.backend_num;
     VLOG_ROW << "exec_plan_fragment params is "
-            << apache::thrift::ThriftDebugString(params).c_str();
+             << apache::thrift::ThriftDebugString(params).c_str();
     start_plan_fragment_execution(params).set_t_status(&return_val);
 }
 
@@ -125,8 +119,7 @@ void BackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
 void BackendService::transmit_data(TTransmitDataResult& return_val,
                                    const TTransmitDataParams& params) {
     VLOG_ROW << "transmit_data(): instance_id=" << params.dest_fragment_instance_id
-             << " node_id=" << params.dest_node_id
-             << " #rows=" << params.row_batch.num_rows
+             << " node_id=" << params.dest_node_id << " #rows=" << params.row_batch.num_rows
              << " eos=" << (params.eos ? "true" : "false");
     // VLOG_ROW << "transmit_data params: " << apache::thrift::ThriftDebugString(params).c_str();
 
@@ -164,72 +157,70 @@ void BackendService::transmit_data(TTransmitDataResult& return_val,
     }
 }
 
-void BackendService::fetch_data(TFetchDataResult& return_val,
-                                const TFetchDataParams& params) {
+void BackendService::fetch_data(TFetchDataResult& return_val, const TFetchDataParams& params) {
     // maybe hang in this function
     Status status = _exec_env->result_mgr()->fetch_data(params.fragment_instance_id, &return_val);
     status.set_t_status(&return_val);
 }
 
 void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
-//    VLOG_ROW << "submit_export_task. request  is "
-//            << apache::thrift::ThriftDebugString(request).c_str();
-//
-//    Status status = _exec_env->export_task_mgr()->start_task(request);
-//    if (status.ok()) {
-//        VLOG_RPC << "start export task successfull id="
-//            << request.params.params.fragment_instance_id;
-//    } else {
-//        VLOG_RPC << "start export task failed id="
-//            << request.params.params.fragment_instance_id
-//            << " and err_msg=" << status.get_error_msg();
-//    }
-//    status.to_thrift(&t_status);
+    //    VLOG_ROW << "submit_export_task. request  is "
+    //            << apache::thrift::ThriftDebugString(request).c_str();
+    //
+    //    Status status = _exec_env->export_task_mgr()->start_task(request);
+    //    if (status.ok()) {
+    //        VLOG_RPC << "start export task successfull id="
+    //            << request.params.params.fragment_instance_id;
+    //    } else {
+    //        VLOG_RPC << "start export task failed id="
+    //            << request.params.params.fragment_instance_id
+    //            << " and err_msg=" << status.get_error_msg();
+    //    }
+    //    status.to_thrift(&t_status);
 }
 
 void BackendService::get_export_status(TExportStatusResult& result, const TUniqueId& task_id) {
-//    VLOG_ROW << "get_export_status. task_id  is " << task_id;
-//    Status status = _exec_env->export_task_mgr()->get_task_state(task_id, &result);
-//    if (!status.ok()) {
-//        LOG(WARNING) << "get export task state failed. [id=" << task_id << "]";
-//    } else {
-//        VLOG_RPC << "get export task state successful. [id=" << task_id
-//            << ",status=" << result.status.status_code
-//            << ",state=" << result.state
-//            << ",files=";
-//        for (auto& item : result.files) {
-//            VLOG_RPC << item << ", ";
-//        }
-//        VLOG_RPC << "]";
-//    }
-//    status.to_thrift(&result.status);
-//    result.__set_state(TExportState::RUNNING);
+    //    VLOG_ROW << "get_export_status. task_id  is " << task_id;
+    //    Status status = _exec_env->export_task_mgr()->get_task_state(task_id, &result);
+    //    if (!status.ok()) {
+    //        LOG(WARNING) << "get export task state failed. [id=" << task_id << "]";
+    //    } else {
+    //        VLOG_RPC << "get export task state successful. [id=" << task_id
+    //            << ",status=" << result.status.status_code
+    //            << ",state=" << result.state
+    //            << ",files=";
+    //        for (auto& item : result.files) {
+    //            VLOG_RPC << item << ", ";
+    //        }
+    //        VLOG_RPC << "]";
+    //    }
+    //    status.to_thrift(&result.status);
+    //    result.__set_state(TExportState::RUNNING);
 }
 
 void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_id) {
-//    VLOG_ROW << "erase_export_task. task_id  is " << task_id;
-//    Status status = _exec_env->export_task_mgr()->erase_task(task_id);
-//    if (!status.ok()) {
-//        LOG(WARNING) << "delete export task failed. because "
-//            << status.get_error_msg() << " with task_id " << task_id;
-//    } else {
-//        VLOG_RPC << "delete export task successful with task_id " << task_id;
-//    }
-//    status.to_thrift(&t_status);
+    //    VLOG_ROW << "erase_export_task. task_id  is " << task_id;
+    //    Status status = _exec_env->export_task_mgr()->erase_task(task_id);
+    //    if (!status.ok()) {
+    //        LOG(WARNING) << "delete export task failed. because "
+    //            << status.get_error_msg() << " with task_id " << task_id;
+    //    } else {
+    //        VLOG_RPC << "delete export task successful with task_id " << task_id;
+    //    }
+    //    status.to_thrift(&t_status);
 }
 
 void BackendService::get_tablet_stat(TTabletStatResult& result) {
     StorageEngine::instance()->tablet_manager()->get_tablet_stat(result);
 }
 
-void BackendService::submit_routine_load_task(
-        TStatus& t_status, const std::vector<TRoutineLoadTask>& tasks) {
-    
+void BackendService::submit_routine_load_task(TStatus& t_status,
+                                              const std::vector<TRoutineLoadTask>& tasks) {
     for (auto& task : tasks) {
         Status st = _exec_env->routine_load_task_executor()->submit_task(task);
         if (!st.ok()) {
-            LOG(WARNING) << "failed to submit routine load task. job id: " <<  task.job_id
-                    << " task id: " << task.id;
+            LOG(WARNING) << "failed to submit routine load task. job id: " << task.job_id
+                         << " task id: " << task.id;
             return st.to_thrift(&t_status);
         }
     }
@@ -248,7 +239,7 @@ void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParam
     _exec_env->external_scan_context_mgr()->create_scan_context(&p_context);
     p_context->fragment_instance_id = fragment_instance_id;
     p_context->offset = 0;
-    p_context->last_access_time  = time(NULL);
+    p_context->last_access_time = time(NULL);
     if (params.__isset.keep_alive_min) {
         p_context->keep_alive_min = params.keep_alive_min;
     } else {
@@ -256,7 +247,8 @@ void BackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParam
     }
     std::vector<TScanColumnDesc> selected_columns;
     // start the scan procedure
-    Status exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(params, fragment_instance_id, &selected_columns);
+    Status exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(
+            params, fragment_instance_id, &selected_columns);
     exec_st.to_thrift(&t_status);
     //return status
     // t_status.status_code = TStatusCode::OK;
@@ -278,11 +270,13 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
         return;
     }
     if (offset != context->offset) {
-        LOG(ERROR) << "getNext error: context offset [" <<  context->offset<<" ]" << " ,client offset [ " << offset << " ]";
+        LOG(ERROR) << "getNext error: context offset [" << context->offset << " ]"
+                   << " ,client offset [ " << offset << " ]";
         // invalid offset
         t_status.status_code = TStatusCode::NOT_FOUND;
         std::stringstream msg;
-        msg << "context_id: " << context_id << " send offset: " << offset << "diff with context offset: " << context->offset; 
+        msg << "context_id: " << context_id << " send offset: " << offset
+            << "diff with context offset: " << context->offset;
         t_status.error_msgs.push_back(msg.str());
         result_.status = t_status;
     } else {
@@ -308,7 +302,8 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
                 }
             }
         } else {
-            LOG(WARNING) << "fragment_instance_id [" << print_id(fragment_instance_id) << "] fetch result status [" << st.to_string() + "]";
+            LOG(WARNING) << "fragment_instance_id [" << print_id(fragment_instance_id)
+                         << "] fetch result status [" << st.to_string() + "]";
             st.to_thrift(&t_status);
             result_.status = t_status;
         }

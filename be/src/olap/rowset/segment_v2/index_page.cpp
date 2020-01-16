@@ -35,7 +35,7 @@ void IndexPageBuilder::add(const Slice& key, const PagePointer& ptr) {
 
 bool IndexPageBuilder::is_full() const {
     // estimate size of IndexPageFooterPB to be 16
-    return _buffer.size()  + 16 > _index_page_size;
+    return _buffer.size() + 16 > _index_page_size;
 }
 
 Slice IndexPageBuilder::finish() {

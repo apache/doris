@@ -17,8 +17,8 @@
 
 #include "exprs/arithmetic_expr.h"
 
-#include "codegen/llvm_codegen.h"
 #include "codegen/codegen_anyval.h"
+#include "codegen/llvm_codegen.h"
 #include "runtime/runtime_state.h"
 
 using llvm::BasicBlock;
@@ -59,120 +59,120 @@ Expr* ArithmeticExpr::from_thrift(const TExprNode& node) {
     return NULL;
 }
 
-#define BINARY_OP_CHECK_ZERO_FN(TYPE, CLASS, FN, OP) \
+#define BINARY_OP_CHECK_ZERO_FN(TYPE, CLASS, FN, OP)      \
     TYPE CLASS::FN(ExprContext* context, TupleRow* row) { \
-        TYPE v1 = _children[0]->FN(context, row); \
-        if (v1.is_null) { \
-            return TYPE::null(); \
-        } \
-        TYPE v2 = _children[1]->FN(context, row); \
-        if (v2.is_null || v2.val == 0) { \
-            return TYPE::null(); \
-        } \
-        return TYPE(v1.val OP v2.val); \
+        TYPE v1 = _children[0]->FN(context, row);         \
+        if (v1.is_null) {                                 \
+            return TYPE::null();                          \
+        }                                                 \
+        TYPE v2 = _children[1]->FN(context, row);         \
+        if (v2.is_null || v2.val == 0) {                  \
+            return TYPE::null();                          \
+        }                                                 \
+        return TYPE(v1.val OP v2.val);                    \
     }
 
-#define BINARY_OP_FN(TYPE, CLASS, FN, OP) \
+#define BINARY_OP_FN(TYPE, CLASS, FN, OP)                 \
     TYPE CLASS::FN(ExprContext* context, TupleRow* row) { \
-        TYPE v1 = _children[0]->FN(context, row); \
-        if (v1.is_null) { \
-            return TYPE::null(); \
-        } \
-        TYPE v2 = _children[1]->FN(context, row); \
-        if (v2.is_null) { \
-            return TYPE::null(); \
-        } \
-        return TYPE(v1.val OP v2.val); \
+        TYPE v1 = _children[0]->FN(context, row);         \
+        if (v1.is_null) {                                 \
+            return TYPE::null();                          \
+        }                                                 \
+        TYPE v2 = _children[1]->FN(context, row);         \
+        if (v2.is_null) {                                 \
+            return TYPE::null();                          \
+        }                                                 \
+        return TYPE(v1.val OP v2.val);                    \
     }
 
-#define BINARY_ARITH_FNS(CLASS, OP) \
-    BINARY_OP_FN(TinyIntVal, CLASS, get_tiny_int_val, OP) \
+#define BINARY_ARITH_FNS(CLASS, OP)                         \
+    BINARY_OP_FN(TinyIntVal, CLASS, get_tiny_int_val, OP)   \
     BINARY_OP_FN(SmallIntVal, CLASS, get_small_int_val, OP) \
-    BINARY_OP_FN(IntVal, CLASS, get_int_val, OP) \
-    BINARY_OP_FN(BigIntVal, CLASS, get_big_int_val, OP) \
+    BINARY_OP_FN(IntVal, CLASS, get_int_val, OP)            \
+    BINARY_OP_FN(BigIntVal, CLASS, get_big_int_val, OP)     \
     BINARY_OP_FN(LargeIntVal, CLASS, get_large_int_val, OP) \
-    BINARY_OP_FN(FloatVal, CLASS, get_float_val, OP) \
-    BINARY_OP_FN(DoubleVal, CLASS, get_double_val, OP) \
+    BINARY_OP_FN(FloatVal, CLASS, get_float_val, OP)        \
+    BINARY_OP_FN(DoubleVal, CLASS, get_double_val, OP)
 
 BINARY_ARITH_FNS(AddExpr, +)
 BINARY_ARITH_FNS(SubExpr, -)
 BINARY_ARITH_FNS(MulExpr, *)
 
-#define BINARY_DIV_FNS() \
-    BINARY_OP_CHECK_ZERO_FN(TinyIntVal, DivExpr, get_tiny_int_val, /) \
+#define BINARY_DIV_FNS()                                                \
+    BINARY_OP_CHECK_ZERO_FN(TinyIntVal, DivExpr, get_tiny_int_val, /)   \
     BINARY_OP_CHECK_ZERO_FN(SmallIntVal, DivExpr, get_small_int_val, /) \
-    BINARY_OP_CHECK_ZERO_FN(IntVal, DivExpr, get_int_val, /) \
-    BINARY_OP_CHECK_ZERO_FN(BigIntVal, DivExpr, get_big_int_val, /) \
+    BINARY_OP_CHECK_ZERO_FN(IntVal, DivExpr, get_int_val, /)            \
+    BINARY_OP_CHECK_ZERO_FN(BigIntVal, DivExpr, get_big_int_val, /)     \
     BINARY_OP_CHECK_ZERO_FN(LargeIntVal, DivExpr, get_large_int_val, /) \
-    BINARY_OP_CHECK_ZERO_FN(FloatVal, DivExpr, get_float_val, /) \
-    BINARY_OP_CHECK_ZERO_FN(DoubleVal, DivExpr, get_double_val, /) \
+    BINARY_OP_CHECK_ZERO_FN(FloatVal, DivExpr, get_float_val, /)        \
+    BINARY_OP_CHECK_ZERO_FN(DoubleVal, DivExpr, get_double_val, /)
 
 BINARY_DIV_FNS()
 
-#define BINARY_MOD_FNS() \
-    BINARY_OP_CHECK_ZERO_FN(TinyIntVal, ModExpr, get_tiny_int_val, %) \
+#define BINARY_MOD_FNS()                                                \
+    BINARY_OP_CHECK_ZERO_FN(TinyIntVal, ModExpr, get_tiny_int_val, %)   \
     BINARY_OP_CHECK_ZERO_FN(SmallIntVal, ModExpr, get_small_int_val, %) \
-    BINARY_OP_CHECK_ZERO_FN(IntVal, ModExpr, get_int_val, %) \
-    BINARY_OP_CHECK_ZERO_FN(BigIntVal, ModExpr, get_big_int_val, %) \
-    BINARY_OP_CHECK_ZERO_FN(LargeIntVal, ModExpr, get_large_int_val, %) \
+    BINARY_OP_CHECK_ZERO_FN(IntVal, ModExpr, get_int_val, %)            \
+    BINARY_OP_CHECK_ZERO_FN(BigIntVal, ModExpr, get_big_int_val, %)     \
+    BINARY_OP_CHECK_ZERO_FN(LargeIntVal, ModExpr, get_large_int_val, %)
 
 BINARY_MOD_FNS()
 
-FloatVal ModExpr::get_float_val(ExprContext* context, TupleRow* row) { 
-    FloatVal v1 = _children[0]->get_float_val(context, row); 
+FloatVal ModExpr::get_float_val(ExprContext* context, TupleRow* row) {
+    FloatVal v1 = _children[0]->get_float_val(context, row);
     if (v1.is_null) {
         return FloatVal::null();
     }
-    FloatVal v2 = _children[1]->get_float_val(context, row); 
+    FloatVal v2 = _children[1]->get_float_val(context, row);
     if (v2.is_null) {
         return FloatVal::null();
     }
     return FloatVal(fmod(v1.val, v2.val));
 }
 
-DoubleVal ModExpr::get_double_val(ExprContext* context, TupleRow* row) { 
-    DoubleVal v1 = _children[0]->get_double_val(context, row); 
+DoubleVal ModExpr::get_double_val(ExprContext* context, TupleRow* row) {
+    DoubleVal v1 = _children[0]->get_double_val(context, row);
     if (v1.is_null) {
         return DoubleVal::null();
     }
-    DoubleVal v2 = _children[1]->get_double_val(context, row); 
+    DoubleVal v2 = _children[1]->get_double_val(context, row);
     if (v2.is_null) {
         return DoubleVal::null();
     }
     return DoubleVal(fmod(v1.val, v2.val));
 }
 
-#define BINARY_BIT_FNS(CLASS, OP) \
-    BINARY_OP_FN(TinyIntVal, CLASS, get_tiny_int_val, OP) \
+#define BINARY_BIT_FNS(CLASS, OP)                           \
+    BINARY_OP_FN(TinyIntVal, CLASS, get_tiny_int_val, OP)   \
     BINARY_OP_FN(SmallIntVal, CLASS, get_small_int_val, OP) \
-    BINARY_OP_FN(IntVal, CLASS, get_int_val, OP) \
-    BINARY_OP_FN(BigIntVal, CLASS, get_big_int_val, OP) \
-    BINARY_OP_FN(LargeIntVal, CLASS, get_large_int_val, OP) \
+    BINARY_OP_FN(IntVal, CLASS, get_int_val, OP)            \
+    BINARY_OP_FN(BigIntVal, CLASS, get_big_int_val, OP)     \
+    BINARY_OP_FN(LargeIntVal, CLASS, get_large_int_val, OP)
 
 BINARY_BIT_FNS(BitAndExpr, &)
 BINARY_BIT_FNS(BitOrExpr, |)
 BINARY_BIT_FNS(BitXorExpr, ^)
 
-#define BITNOT_OP_FN(TYPE, FN) \
+#define BITNOT_OP_FN(TYPE, FN)                                 \
     TYPE BitNotExpr::FN(ExprContext* context, TupleRow* row) { \
-        TYPE v = _children[0]->FN(context, row); \
-        if (v.is_null) { \
-            return TYPE::null(); \
-        } \
-        return TYPE(~v.val); \
+        TYPE v = _children[0]->FN(context, row);               \
+        if (v.is_null) {                                       \
+            return TYPE::null();                               \
+        }                                                      \
+        return TYPE(~v.val);                                   \
     }
 
-#define BITNOT_FNS() \
-    BITNOT_OP_FN(TinyIntVal, get_tiny_int_val) \
+#define BITNOT_FNS()                             \
+    BITNOT_OP_FN(TinyIntVal, get_tiny_int_val)   \
     BITNOT_OP_FN(SmallIntVal, get_small_int_val) \
-    BITNOT_OP_FN(IntVal, get_int_val) \
-    BITNOT_OP_FN(BigIntVal, get_big_int_val) \
-    BITNOT_OP_FN(LargeIntVal, get_large_int_val) \
+    BITNOT_OP_FN(IntVal, get_int_val)            \
+    BITNOT_OP_FN(BigIntVal, get_big_int_val)     \
+    BITNOT_OP_FN(LargeIntVal, get_large_int_val)
 
 BITNOT_FNS()
 
-// IR codegen for compound add predicates.  Compound predicate has non trivial 
-// null handling as well as many branches so this is pretty complicated.  The IR 
+// IR codegen for compound add predicates.  Compound predicate has non trivial
+// null handling as well as many branches so this is pretty complicated.  The IR
 // for x && y is:
 //
 // define i16 @Add(%"class.doris::ExprContext"* %context,
@@ -183,14 +183,14 @@ BITNOT_FNS()
 //   %0 = extractvalue { i8, i64 } %lhs_val, 0
 //   %lhs_is_null = trunc i8 %0 to i1
 //   br i1 %lhs_is_null, label %null, label %lhs_not_null
-// 
+//
 // lhs_not_null:                                     ; preds = %entry
 //   %rhs_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
 //                                             %"class.doris::TupleRow"* %row)
 //   %1 = extractvalue { i8, i64 } %lhs_val, 0
 //   %rhs_is_null = trunc i8 %1 to i1
 //   br i1 %rhs_is_null, label %null, label %rhs_not_null
-// 
+//
 // rhs_not_null:                                     ; preds = %entry
 //   %2 = extractvalue { i8, i64 } %lhs_val, 1
 //   %3 = extractvalue { i8, i64 } %rhs_val, 1
@@ -204,8 +204,8 @@ BITNOT_FNS()
 //   %7 = or i16 0, %6
 //   ret i16 %7
 // }
-Status ArithmeticExpr::codegen_binary_op(
-        RuntimeState* state, llvm::Function** fn, BinaryOpType op_type) {
+Status ArithmeticExpr::codegen_binary_op(RuntimeState* state, llvm::Function** fn,
+                                         BinaryOpType op_type) {
     LlvmCodeGen* codegen = NULL;
     RETURN_IF_ERROR(state->get_codegen(&codegen));
     Function* lhs_fn = NULL;
@@ -228,7 +228,7 @@ Status ArithmeticExpr::codegen_binary_op(
     BasicBlock* lhs_not_null_block = BasicBlock::Create(cg_ctx, "lhs_not_null", *fn);
     BasicBlock* rhs_not_null_block = NULL;
     if ((op_type == BinaryOpType::DIV || op_type == BinaryOpType::MOD)) {
-            // && _type.type != TYPE_DOUBLE && _type.type != TYPE_FLOAT) {
+        // && _type.type != TYPE_DOUBLE && _type.type != TYPE_FLOAT) {
         rhs_not_null_block = BasicBlock::Create(cg_ctx, "rhs_not_null", *fn);
     }
     BasicBlock* compute_block = BasicBlock::Create(cg_ctx, "compute", *fn);
@@ -238,20 +238,20 @@ Status ArithmeticExpr::codegen_binary_op(
     // entry block
     builder.SetInsertPoint(entry_block);
     CodegenAnyVal lhs_val = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, _children[0]->type(), lhs_fn, args, "lhs_val");
+            codegen, &builder, _children[0]->type(), lhs_fn, args, "lhs_val");
     // if (v1.is_null) return null;
     Value* lhs_is_null = lhs_val.get_is_null();
     builder.CreateCondBr(lhs_is_null, null_block, lhs_not_null_block);
-    
+
     // lhs_not_null_block
     builder.SetInsertPoint(lhs_not_null_block);
     CodegenAnyVal rhs_val = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, _children[1]->type(), rhs_fn, args, "lhs_val");
+            codegen, &builder, _children[1]->type(), rhs_fn, args, "lhs_val");
     Value* rhs_is_null = rhs_val.get_is_null();
     // if (v2.is_null) return null;
     Value* rhs_llvm_val = NULL;
     if ((op_type == BinaryOpType::DIV || op_type == BinaryOpType::MOD)) {
-            // && _type.type != TYPE_DOUBLE && _type.type != TYPE_FLOAT) {
+        // && _type.type != TYPE_DOUBLE && _type.type != TYPE_FLOAT) {
         builder.CreateCondBr(rhs_is_null, null_block, rhs_not_null_block);
         // if (v2.val == 0)
         builder.SetInsertPoint(rhs_not_null_block);
@@ -425,8 +425,7 @@ Status ArithmeticExpr::codegen_binary_op(
     val_phi->addIncoming(null, null_block);
     val_phi->addIncoming(val, compute_block);
 
-    CodegenAnyVal result = CodegenAnyVal::get_non_null_val(
-        codegen, &builder, type(), "result");
+    CodegenAnyVal result = CodegenAnyVal::get_non_null_val(codegen, &builder, type(), "result");
     result.set_is_null(is_null_phi);
     result.set_val(val_phi);
     builder.CreateRet(result.value());
@@ -440,7 +439,7 @@ Status AddExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
         *fn = _ir_compute_fn;
         return Status::OK();
     }
-    RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::ADD));
+    RETURN_IF_ERROR(codegen_binary_op(state, fn, BinaryOpType::ADD));
     _ir_compute_fn = *fn;
     return Status::OK();
 }
@@ -450,7 +449,7 @@ Status SubExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
         *fn = _ir_compute_fn;
         return Status::OK();
     }
-    RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::SUB));
+    RETURN_IF_ERROR(codegen_binary_op(state, fn, BinaryOpType::SUB));
     _ir_compute_fn = *fn;
     return Status::OK();
 }
@@ -460,7 +459,7 @@ Status MulExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
         *fn = _ir_compute_fn;
         return Status::OK();
     }
-    RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::MUL));
+    RETURN_IF_ERROR(codegen_binary_op(state, fn, BinaryOpType::MUL));
     _ir_compute_fn = *fn;
     return Status::OK();
 }
@@ -470,7 +469,7 @@ Status DivExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
         *fn = _ir_compute_fn;
         return Status::OK();
     }
-    RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::DIV));
+    RETURN_IF_ERROR(codegen_binary_op(state, fn, BinaryOpType::DIV));
     _ir_compute_fn = *fn;
     return Status::OK();
 }
@@ -480,7 +479,7 @@ Status ModExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
         *fn = _ir_compute_fn;
         return Status::OK();
     }
-    RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::MOD));
+    RETURN_IF_ERROR(codegen_binary_op(state, fn, BinaryOpType::MOD));
     _ir_compute_fn = *fn;
     return Status::OK();
 }
@@ -490,7 +489,7 @@ Status BitAndExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function**
         *fn = _ir_compute_fn;
         return Status::OK();
     }
-    RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::BIT_AND));
+    RETURN_IF_ERROR(codegen_binary_op(state, fn, BinaryOpType::BIT_AND));
     _ir_compute_fn = *fn;
     return Status::OK();
 }
@@ -500,7 +499,7 @@ Status BitOrExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function** 
         *fn = _ir_compute_fn;
         return Status::OK();
     }
-    RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::BIT_OR));
+    RETURN_IF_ERROR(codegen_binary_op(state, fn, BinaryOpType::BIT_OR));
     _ir_compute_fn = *fn;
     return Status::OK();
 }
@@ -510,13 +509,13 @@ Status BitXorExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function**
         *fn = _ir_compute_fn;
         return Status::OK();
     }
-    RETURN_IF_ERROR(codegen_binary_op(state, fn , BinaryOpType::BIT_XOR));
+    RETURN_IF_ERROR(codegen_binary_op(state, fn, BinaryOpType::BIT_XOR));
     _ir_compute_fn = *fn;
     return Status::OK();
 }
 
-// IR codegen for compound add predicates.  Compound predicate has non trivial 
-// null handling as well as many branches so this is pretty complicated.  The IR 
+// IR codegen for compound add predicates.  Compound predicate has non trivial
+// null handling as well as many branches so this is pretty complicated.  The IR
 // for x && y is:
 //
 // define i16 @Add(%"class.doris::ExprContext"* %context,
@@ -527,7 +526,7 @@ Status BitXorExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function**
 //   %0 = extractvalue { i8, i64 } %lhs_val, 0
 //   %lhs_is_null = trunc i8 %0 to i1
 //   br i1 %lhs_is_null, label %null, label %lhs_not_null
-// 
+//
 // ret:                                              ; preds = %not_null_block, %null_block
 //   %ret3 = phi i1 [ false, %null_block ], [ %4, %not_null_block ]
 //   %5 = zext i1 %ret3 to i16
@@ -563,11 +562,11 @@ Status BitNotExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function**
     // entry block
     builder.SetInsertPoint(entry_block);
     CodegenAnyVal child_val = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, _children[0]->type(), child_fn, args, "child_val");
+            codegen, &builder, _children[0]->type(), child_fn, args, "child_val");
     // if (v1.is_null) return null;
     Value* child_is_null = child_val.get_is_null();
     builder.CreateCondBr(child_is_null, ret_block, compute_block);
-    
+
     // compute_block
     builder.SetInsertPoint(compute_block);
     Value* val = builder.CreateNot(child_val.get_val(), "val");
@@ -593,5 +592,4 @@ Status BitNotExpr::get_codegend_compute_fn(RuntimeState* state, llvm::Function**
     return Status::OK();
 }
 
-}
-
+} // namespace doris

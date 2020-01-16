@@ -18,48 +18,47 @@
 #ifndef DORIS_BE_SRC_UTIL_CONDITION_VARIABLE_H
 #define DORIS_BE_SRC_UTIL_CONDITION_VARIABLE_H
 
-#include <boost/thread/pthread/timespec.hpp>
-#include <boost/thread/mutex.hpp>
 #include <pthread.h>
 #include <unistd.h>
+
+#include <boost/thread/mutex.hpp>
+#include <boost/thread/pthread/timespec.hpp>
 
 namespace doris {
 
 /// Simple wrapper around POSIX pthread condition variable. This has lower overhead than
 /// boost's implementation as it doesn't implement boost thread interruption.
 class ConditionVariable {
- public:
-  ConditionVariable() { pthread_cond_init(&cv_, NULL); }
+public:
+    ConditionVariable() { pthread_cond_init(&cv_, NULL); }
 
-  ~ConditionVariable() { pthread_cond_destroy(&cv_); }
+    ~ConditionVariable() { pthread_cond_destroy(&cv_); }
 
-  /// Wait indefinitely on the condition variable until it's notified.
-  inline void Wait(boost::unique_lock<boost::mutex>& lock) {
-    DCHECK(lock.owns_lock());
-    pthread_mutex_t* mutex = lock.mutex()->native_handle();
-    pthread_cond_wait(&cv_, mutex);
-  }
+    /// Wait indefinitely on the condition variable until it's notified.
+    inline void Wait(boost::unique_lock<boost::mutex>& lock) {
+        DCHECK(lock.owns_lock());
+        pthread_mutex_t* mutex = lock.mutex()->native_handle();
+        pthread_cond_wait(&cv_, mutex);
+    }
 
-  /// Wait until the condition variable is notified or 'timeout' has passed.
-  /// Returns true if the condition variable is notified before the absolute timeout
-  /// specified in 'timeout' has passed. Returns false otherwise.
-  inline bool TimedWait(boost::unique_lock<boost::mutex>& lock,
-      const struct timespec* timeout) {
-    DCHECK(lock.owns_lock());
-    pthread_mutex_t* mutex = lock.mutex()->native_handle();
-    return pthread_cond_timedwait(&cv_, mutex, timeout) == 0;
-  }
+    /// Wait until the condition variable is notified or 'timeout' has passed.
+    /// Returns true if the condition variable is notified before the absolute timeout
+    /// specified in 'timeout' has passed. Returns false otherwise.
+    inline bool TimedWait(boost::unique_lock<boost::mutex>& lock, const struct timespec* timeout) {
+        DCHECK(lock.owns_lock());
+        pthread_mutex_t* mutex = lock.mutex()->native_handle();
+        return pthread_cond_timedwait(&cv_, mutex, timeout) == 0;
+    }
 
-  /// Notify a single waiter on this condition variable.
-  inline void NotifyOne() { pthread_cond_signal(&cv_); }
+    /// Notify a single waiter on this condition variable.
+    inline void NotifyOne() { pthread_cond_signal(&cv_); }
 
-  /// Notify all waiters on this condition variable.
-  inline void NotifyAll() { pthread_cond_broadcast(&cv_); }
+    /// Notify all waiters on this condition variable.
+    inline void NotifyAll() { pthread_cond_broadcast(&cv_); }
 
- private:
-  pthread_cond_t cv_;
-
+private:
+    pthread_cond_t cv_;
 };
 
-}
+} // namespace doris
 #endif

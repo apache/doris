@@ -33,4 +33,4 @@ struct PackedInt128 {
     __int128 value;
 } __attribute__((packed));
 
-}
+} // namespace doris

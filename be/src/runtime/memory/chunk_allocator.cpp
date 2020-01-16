@@ -54,13 +54,12 @@ ChunkAllocator* ChunkAllocator::instance() {
 }
 #endif
 
-
 // Keep free chunk's ptr in size separated free list.
 // This class is thread-safe.
 class ChunkArena {
 public:
-    ChunkArena() : _chunk_lists(64) { }
-    
+    ChunkArena() : _chunk_lists(64) {}
+
     ~ChunkArena() {
         for (int i = 0; i < 64; ++i) {
             if (_chunk_lists[i].empty()) continue;
@@ -94,6 +93,7 @@ public:
         std::lock_guard<SpinLock> l(_lock);
         _chunk_lists[idx].push_back(ptr);
     }
+
 private:
     SpinLock _lock;
     std::vector<std::vector<uint8_t*>> _chunk_lists;
@@ -106,11 +106,9 @@ void ChunkAllocator::init_instance(size_t reserve_limit) {
 #define REGISTER_METIRC_WITH_NAME(name, metric) \
     DorisMetrics::metrics()->register_metric(#name, &metric)
 
-#define REGISTER_METIRC_WITH_PREFIX(prefix, name) \
-    REGISTER_METIRC_WITH_NAME(prefix##name, name)
+#define REGISTER_METIRC_WITH_PREFIX(prefix, name) REGISTER_METIRC_WITH_NAME(prefix##name, name)
 
-#define REGISTER_METIRC(name) \
-    REGISTER_METIRC_WITH_PREFIX(chunk_pool_, name)
+#define REGISTER_METIRC(name) REGISTER_METIRC_WITH_PREFIX(chunk_pool_, name)
 
     REGISTER_METIRC(local_core_alloc_count);
     REGISTER_METIRC(other_core_alloc_count);
@@ -122,8 +120,8 @@ void ChunkAllocator::init_instance(size_t reserve_limit) {
 
 ChunkAllocator::ChunkAllocator(size_t reserve_limit)
         : _reserve_bytes_limit(reserve_limit),
-        _reserved_bytes(0),
-        _arenas(CpuInfo::get_max_num_cores()) {
+          _reserved_bytes(0),
+          _arenas(CpuInfo::get_max_num_cores()) {
     for (int i = 0; i < _arenas.size(); ++i) {
         _arenas[i].reset(new ChunkArena());
     }
@@ -181,7 +179,7 @@ void ChunkAllocator::free(const Chunk& chunk) {
             }
             system_free_count.increment(1);
             system_free_cost_ns.increment(cost_ns);
-            
+
             return;
         }
     } while (!_reserved_bytes.compare_exchange_weak(old_reserved_bytes, new_reserved_bytes));
@@ -189,4 +187,4 @@ void ChunkAllocator::free(const Chunk& chunk) {
     _arenas[chunk.core_id]->push_free_chunk(chunk.data, chunk.size);
 }
 
-}
+} // namespace doris

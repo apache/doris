@@ -21,15 +21,15 @@
 #include <cstdint>
 #include <memory>
 #include <queue>
-#include <vector>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
+#include "olap/olap_define.h"
 #include "util/blocking_queue.hpp"
 #include "util/counter_cond_variable.hpp"
 #include "util/spinlock.h"
 #include "util/thread_pool.hpp"
-#include "olap/olap_define.h"
 
 namespace doris {
 
@@ -61,7 +61,7 @@ struct FlushResult {
 // use atomic because it may be updated by multi threads
 struct FlushStatistic {
     std::atomic<std::int64_t> flush_time_ns = {0};
-    std::atomic<std::int64_t> flush_count= {0};
+    std::atomic<std::int64_t> flush_count = {0};
 };
 
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
@@ -73,13 +73,12 @@ class MemTableFlushExecutor;
 // when calling submit();
 class FlushHandler : public std::enable_shared_from_this<FlushHandler> {
 public:
-    FlushHandler(int32_t flush_queue_idx, MemTableFlushExecutor* flush_executor):
-        _flush_queue_idx(flush_queue_idx),
-        _last_flush_status(OLAP_SUCCESS),
-        _counter_cond(0),
-        _flush_executor(flush_executor),
-        _is_cancelled(false) {
-    }
+    FlushHandler(int32_t flush_queue_idx, MemTableFlushExecutor* flush_executor)
+            : _flush_queue_idx(flush_queue_idx),
+              _last_flush_status(OLAP_SUCCESS),
+              _counter_cond(0),
+              _flush_executor(flush_executor),
+              _is_cancelled(false) {}
 
     // submit a memtable to flush. return error if some previous submitted MemTable has failed
     OLAPStatus submit(std::shared_ptr<MemTable> memtable);
@@ -90,11 +89,11 @@ public:
     // called when a memtable is finished by executor.
     void on_flush_finished(const FlushResult& res);
     // called when a flush memtable execution is cancelled
-    void on_flush_cancelled() {
-        _counter_cond.dec();
-    }
+    void on_flush_cancelled() { _counter_cond.dec(); }
 
-    bool is_cancelled() { return _last_flush_status.load() != OLAP_SUCCESS || _is_cancelled.load(); }
+    bool is_cancelled() {
+        return _last_flush_status.load() != OLAP_SUCCESS || _is_cancelled.load();
+    }
 
     void cancel() { _is_cancelled.store(true); }
 
@@ -163,4 +162,4 @@ private:
     std::unordered_map<size_t, size_t> _path_map;
 };
 
-} // end namespace
+} // namespace doris

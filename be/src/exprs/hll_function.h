@@ -32,7 +32,7 @@ public:
     template <typename T>
     static void hll_update(FunctionContext*, const T& src, StringVal* dst);
 
-    static void hll_merge(FunctionContext*,const StringVal& src, StringVal* dst);
+    static void hll_merge(FunctionContext*, const StringVal& src, StringVal* dst);
 
     static BigIntVal hll_finalize(FunctionContext*, const StringVal& src);
 
@@ -44,6 +44,6 @@ public:
 
     static BigIntVal hll_cardinality(FunctionContext* ctx, const StringVal& src);
 };
-}
+} // namespace doris
 
 #endif

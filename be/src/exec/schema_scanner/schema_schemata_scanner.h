@@ -28,17 +28,17 @@ public:
     SchemaSchemataScanner();
     virtual ~SchemaSchemataScanner();
 
-    virtual Status start(RuntimeState *state);
-    virtual Status get_next_row(Tuple *tuple, MemPool *pool, bool *eos);
+    virtual Status start(RuntimeState* state);
+    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
 
 private:
-    Status fill_one_row(Tuple *tuple, MemPool *pool);
+    Status fill_one_row(Tuple* tuple, MemPool* pool);
 
     int _db_index;
     TGetDbsResult _db_result;
     static SchemaScanner::ColumnDesc _s_columns[];
 };
 
-}
+} // namespace doris
 
 #endif

@@ -18,10 +18,10 @@
 #include "olap/memtable.h"
 
 #include "common/logging.h"
+#include "olap/row.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/column_data_writer.h"
 #include "olap/rowset/rowset_writer.h"
-#include "olap/row_cursor.h"
-#include "olap/row.h"
 #include "olap/schema.h"
 #include "runtime/tuple.h"
 #include "util/debug_util.h"
@@ -31,28 +31,27 @@ namespace doris {
 MemTable::MemTable(int64_t tablet_id, Schema* schema, const TabletSchema* tablet_schema,
                    const std::vector<SlotDescriptor*>* slot_descs, TupleDescriptor* tuple_desc,
                    KeysType keys_type, RowsetWriter* rowset_writer, MemTracker* mem_tracker)
-    : _tablet_id(tablet_id),
-      _schema(schema),
-      _tablet_schema(tablet_schema),
-      _tuple_desc(tuple_desc),
-      _slot_descs(slot_descs),
-      _keys_type(keys_type),
-      _row_comparator(_schema),
-      _rowset_writer(rowset_writer) {
-
+        : _tablet_id(tablet_id),
+          _schema(schema),
+          _tablet_schema(tablet_schema),
+          _tuple_desc(tuple_desc),
+          _slot_descs(slot_descs),
+          _keys_type(keys_type),
+          _row_comparator(_schema),
+          _rowset_writer(rowset_writer) {
     _schema_size = _schema->schema_size();
     _mem_tracker.reset(new MemTracker(-1, "memtable", mem_tracker));
     _buffer_mem_pool.reset(new MemPool(_mem_tracker.get()));
     _table_mem_pool.reset(new MemPool(_mem_tracker.get()));
-    _skip_list = new Table(_row_comparator, _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
+    _skip_list =
+            new Table(_row_comparator, _table_mem_pool.get(), _keys_type == KeysType::DUP_KEYS);
 }
 
 MemTable::~MemTable() {
     delete _skip_list;
 }
 
-MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema)
-    : _schema(schema) {}
+MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
 
 int MemTable::RowCursorComparator::operator()(const char* left, const char* right) const {
     ContiguousRow lhs_row(_schema, left);
@@ -102,8 +101,8 @@ void MemTable::_tuple_to_row(const Tuple* tuple, ContiguousRow* row, MemPool* me
 
         bool is_null = tuple->is_null(slot->null_indicator_offset());
         const void* value = tuple->get_slot(slot->tuple_offset());
-        _schema->column(i)->consume(
-                &cell, (const char*)value, is_null, mem_pool, &_agg_object_pool);
+        _schema->column(i)->consume(&cell, (const char*)value, is_null, mem_pool,
+                                    &_agg_object_pool);
     }
 }
 

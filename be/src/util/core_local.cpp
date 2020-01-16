@@ -30,19 +30,17 @@ struct alignas(CACHE_LINE_SIZE) CoreDataBlock {
     char data[BLOCK_SIZE];
 
     static void* operator new(size_t nbytes) {
-        void *p = nullptr;
+        void* p = nullptr;
         if (posix_memalign(&p, alignof(CoreDataBlock), nbytes) == 0) {
             return p;
         }
         throw std::bad_alloc();
     }
 
-    static void operator delete(void* p) {
-        free(p);
-    }
+    static void operator delete(void* p) { free(p); }
 };
 
-template<size_t ELEMENT_BYTES>
+template <size_t ELEMENT_BYTES>
 class CoreDataAllocatorImpl : public CoreDataAllocator {
 public:
     virtual ~CoreDataAllocatorImpl();
@@ -59,12 +57,13 @@ public:
         size_t offset = (id % ELEMENTS_PER_BLOCK) * ELEMENT_BYTES;
         return block->at(offset);
     }
+
 private:
     static constexpr int ELEMENTS_PER_BLOCK = BLOCK_SIZE / ELEMENT_BYTES;
     std::vector<CoreDataBlock*> _blocks;
 };
 
-template<size_t ELEMENT_BYTES>
+template <size_t ELEMENT_BYTES>
 CoreDataAllocatorImpl<ELEMENT_BYTES>::~CoreDataAllocatorImpl() {
     for (auto block : _blocks) {
         delete block;
@@ -114,4 +113,4 @@ CoreDataAllocatorFactory::~CoreDataAllocatorFactory() {
     }
 }
 
-}
+} // namespace doris

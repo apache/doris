@@ -18,9 +18,9 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_URL_CODING_H
 #define DORIS_BE_SRC_COMMON_UTIL_URL_CODING_H
 
+#include <boost/cstdint.hpp>
 #include <string>
 #include <vector>
-#include <boost/cstdint.hpp>
 
 namespace doris {
 
@@ -39,8 +39,8 @@ void url_encode(const std::vector<uint8_t>& in, std::string* out);
 // certain characters like ' '.
 bool url_decode(const std::string& in, std::string* out);
 
-void base64url_encode(const std::string& in, std::string *out);
-void base64_encode(const std::string& in, std::string *out);
+void base64url_encode(const std::string& in, std::string* out);
+void base64_encode(const std::string& in, std::string* out);
 
 // Utility method to decode base64 encoded strings.  Also not extremely
 // performant.
@@ -54,6 +54,6 @@ bool base64_decode(const std::string& in, std::string* out);
 // judiciously.
 void escape_for_html(const std::string& in, std::stringstream* out);
 
-}
+} // namespace doris
 
 #endif

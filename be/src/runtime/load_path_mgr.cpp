@@ -17,27 +17,27 @@
 
 #include "runtime/load_path_mgr.h"
 
-#include <string>
-#include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
 #include <boost/algorithm/string/join.hpp>
+#include <string>
 
 #include "env/env.h"
+#include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "util/file_utils.h"
-#include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
+#include "util/file_utils.h"
 
 namespace doris {
 
 static const uint32_t MAX_SHARD_NUM = 1024;
 static const std::string SHARD_PREFIX = "__shard_";
 
-LoadPathMgr::LoadPathMgr(ExecEnv* exec_env) : _exec_env(exec_env),
-        _idx(0), _next_shard(0), _error_path_next_shard(0) { }
+LoadPathMgr::LoadPathMgr(ExecEnv* exec_env)
+        : _exec_env(exec_env), _idx(0), _next_shard(0), _error_path_next_shard(0) {}
 
 Status LoadPathMgr::init() {
     _path_vec.clear();
@@ -67,10 +67,8 @@ void* LoadPathMgr::cleaner(void* param) {
     return nullptr;
 }
 
-Status LoadPathMgr::allocate_dir(
-        const std::string& db,
-        const std::string& label,
-        std::string* prefix) {
+Status LoadPathMgr::allocate_dir(const std::string& db, const std::string& label,
+                                 std::string* prefix) {
     if (_path_vec.empty()) {
         return Status::InternalError("No load path configed.");
     }
@@ -91,7 +89,8 @@ Status LoadPathMgr::allocate_dir(
             *prefix = path;
             return Status::OK();
         } else {
-            LOG(WARNING) << "create dir failed:" << path << ", error msg:" << status.get_error_msg();
+            LOG(WARNING) << "create dir failed:" << path
+                         << ", error msg:" << status.get_error_msg();
         }
     }
 
@@ -104,7 +103,7 @@ bool LoadPathMgr::is_too_old(time_t cur_time, const std::string& label_dir, int6
         char buf[64];
         // State failed, just information
         LOG(WARNING) << "stat directory failed.path=" << label_dir
-            << ",code=" << strerror_r(errno, buf, 64);
+                     << ",code=" << strerror_r(errno, buf, 64);
         return false;
     }
 
@@ -122,11 +121,9 @@ void LoadPathMgr::get_load_data_path(std::vector<std::string>* data_paths) {
 
 const std::string ERROR_FILE_NAME = "error_log";
 
-Status LoadPathMgr::get_load_error_file_name(
-        const std::string& db,
-        const std::string&label,
-        const TUniqueId& fragment_instance_id,
-        std::string* error_path) {
+Status LoadPathMgr::get_load_error_file_name(const std::string& db, const std::string& label,
+                                             const TUniqueId& fragment_instance_id,
+                                             std::string* error_path) {
     std::stringstream ss;
     std::string shard = "";
     {
@@ -140,9 +137,8 @@ Status LoadPathMgr::get_load_error_file_name(
         LOG(WARNING) << "create error sub path failed. path=" << shard_path;
     }
     // add shard sub dir to file path
-    ss << shard << "/" << ERROR_FILE_NAME << "_" << db << "_" << label
-        << "_" << std::hex << fragment_instance_id.hi
-        << "_" << fragment_instance_id.lo;
+    ss << shard << "/" << ERROR_FILE_NAME << "_" << db << "_" << label << "_" << std::hex
+       << fragment_instance_id.hi << "_" << fragment_instance_id.lo;
     *error_path = ss.str();
     return Status::OK();
 }
@@ -254,4 +250,4 @@ void LoadPathMgr::clean_error_log() {
     }
 }
 
-}
+} // namespace doris

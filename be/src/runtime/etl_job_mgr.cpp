@@ -17,23 +17,23 @@
 
 #include "runtime/etl_job_mgr.h"
 
-#include <functional>
 #include <boost/filesystem.hpp>
+#include <functional>
 
+#include "gen_cpp/FrontendService.h"
+#include "gen_cpp/HeartbeatService_types.h"
+#include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/Status_types.h"
 #include "gen_cpp/Types_types.h"
-#include "service/backend_options.h"
-#include "util/uid_util.h"
-#include "runtime/exec_env.h"
-#include "runtime/plan_fragment_executor.h"
-#include "runtime/fragment_mgr.h"
-#include "runtime/data_spliter.h"
-#include "runtime/runtime_state.h"
 #include "runtime/client_cache.h"
+#include "runtime/data_spliter.h"
+#include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
+#include "runtime/plan_fragment_executor.h"
+#include "runtime/runtime_state.h"
+#include "service/backend_options.h"
 #include "util/file_utils.h"
-#include "gen_cpp/MasterService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/FrontendService.h"
+#include "util/uid_util.h"
 
 namespace doris {
 
@@ -43,8 +43,7 @@ std::string EtlJobMgr::to_http_path(const std::string& file_name) {
     std::stringstream url;
     url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
         << "/api/_download_load?"
-        << "token=" << _exec_env->token()
-        << "&file=" << file_name;
+        << "token=" << _exec_env->token() << "&file=" << file_name;
     return url.str();
 }
 
@@ -60,12 +59,10 @@ const std::string DPP_NORMAL_ALL = "dpp.norm.ALL";
 const std::string DPP_ABNORMAL_ALL = "dpp.abnorm.ALL";
 const std::string ERROR_FILE_PREFIX = "error_log";
 
-EtlJobMgr::EtlJobMgr(ExecEnv* exec_env) :
-        _exec_env(exec_env), _success_jobs(5000), _failed_jobs(5000) {
-}
+EtlJobMgr::EtlJobMgr(ExecEnv* exec_env)
+        : _exec_env(exec_env), _success_jobs(5000), _failed_jobs(5000) {}
 
-EtlJobMgr::~EtlJobMgr() {
-}
+EtlJobMgr::~EtlJobMgr() {}
 
 Status EtlJobMgr::init() {
     return Status::OK();
@@ -90,8 +87,7 @@ Status EtlJobMgr::start_job(const TMiniLoadEtlTaskRequest& req) {
     }
 
     RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(
-            req.params,
-            std::bind<void>(&EtlJobMgr::finalize_job, this, std::placeholders::_1)));
+            req.params, std::bind<void>(&EtlJobMgr::finalize_job, this, std::placeholders::_1)));
 
     // redo this job if failed before
     if (_failed_jobs.exists(id)) {
@@ -114,28 +110,27 @@ void EtlJobMgr::report_to_master(PlanFragmentExecutor* executor) {
         return;
     }
     const TNetworkAddress& master_address = _exec_env->master_info()->network_address;
-    FrontendServiceConnection client(
-            _exec_env->frontend_client_cache(), master_address, config::thrift_rpc_timeout_ms, &status);
+    FrontendServiceConnection client(_exec_env->frontend_client_cache(), master_address,
+                                     config::thrift_rpc_timeout_ms, &status);
     if (!status.ok()) {
         std::stringstream ss;
-        ss << "Connect master failed, with address("
-            << master_address.hostname << ":" << master_address.port << ")";
+        ss << "Connect master failed, with address(" << master_address.hostname << ":"
+           << master_address.port << ")";
         LOG(WARNING) << ss.str();
-        return ;
+        return;
     }
     TFeResult res;
     try {
         try {
             client->updateMiniEtlTaskStatus(res, request);
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "Retrying report etl jobs status to master("
-                    << master_address.hostname << ":" << master_address.port
-                    << ") because: " << e.what();
+            LOG(WARNING) << "Retrying report etl jobs status to master(" << master_address.hostname
+                         << ":" << master_address.port << ") because: " << e.what();
             status = client.reopen(config::thrift_rpc_timeout_ms);
             if (!status.ok()) {
-                LOG(WARNING) << "Client repoen failed. with address("
-                    << master_address.hostname << ":" << master_address.port << ")";
-                return ;
+                LOG(WARNING) << "Client repoen failed. with address(" << master_address.hostname
+                             << ":" << master_address.port << ")";
+                return;
             }
             client->updateMiniEtlTaskStatus(res, request);
         }
@@ -144,15 +139,13 @@ void EtlJobMgr::report_to_master(PlanFragmentExecutor* executor) {
         // reopen to disable this connection
         client.reopen(config::thrift_rpc_timeout_ms);
         std::stringstream ss;
-        ss << "Report etl task to master("
-            << master_address.hostname << ":" << master_address.port
-            << ") failed because: " << e.what();
+        ss << "Report etl task to master(" << master_address.hostname << ":" << master_address.port
+           << ") failed because: " << e.what();
         LOG(WARNING) << ss.str();
     }
     // TODO(lingbin): check status of 'res' here.
     // because there are some checks in updateMiniEtlTaskStatus, for example max_filter_ratio.
-    LOG(INFO) << "Successfully report elt job status to master.id="
-        << print_id(request.etlTaskId);
+    LOG(INFO) << "Successfully report elt job status to master.id=" << print_id(request.etlTaskId);
 }
 
 void EtlJobMgr::finalize_job(PlanFragmentExecutor* executor) {
@@ -182,7 +175,6 @@ void EtlJobMgr::finalize_job(PlanFragmentExecutor* executor) {
     report_to_master(executor);
 }
 
-
 Status EtlJobMgr::cancel_job(const TUniqueId& id) {
     std::lock_guard<std::mutex> l(_lock);
     auto it = _running_jobs.find(id);
@@ -199,8 +191,7 @@ Status EtlJobMgr::cancel_job(const TUniqueId& id) {
     return Status::OK();
 }
 
-Status EtlJobMgr::finish_job(const TUniqueId& id,
-                             const Status& finish_status,
+Status EtlJobMgr::finish_job(const TUniqueId& id, const Status& finish_status,
                              const EtlJobResult& result) {
     std::lock_guard<std::mutex> l(_lock);
 
@@ -222,13 +213,12 @@ Status EtlJobMgr::finish_job(const TUniqueId& id,
     }
 
     VLOG_ETL << "Move job(" << id << ") from running to "
-        << (finish_status.ok() ? "success jobs" : "failed jobs");
+             << (finish_status.ok() ? "success jobs" : "failed jobs");
 
     return Status::OK();
 }
 
-Status EtlJobMgr::get_job_state(const TUniqueId& id,
-                                TMiniLoadEtlStatusResult* result) {
+Status EtlJobMgr::get_job_state(const TUniqueId& id, TMiniLoadEtlStatusResult* result) {
     std::lock_guard<std::mutex> l(_lock);
     auto it = _running_jobs.find(id);
     if (it != _running_jobs.end()) {
@@ -251,8 +241,7 @@ Status EtlJobMgr::get_job_state(const TUniqueId& id,
         result->__set_counters(counter);
 
         if (!ctx.result.debug_path.empty()) {
-            result->__set_tracking_url(
-                    to_load_error_http_path(ctx.result.debug_path));
+            result->__set_tracking_url(to_load_error_http_path(ctx.result.debug_path));
         }
         return Status::OK();
     }
@@ -264,8 +253,7 @@ Status EtlJobMgr::get_job_state(const TUniqueId& id,
         result->__set_etl_state(TEtlState::CANCELLED);
 
         if (!ctx.result.debug_path.empty()) {
-            result->__set_tracking_url(
-                    to_http_path(ctx.result.debug_path));
+            result->__set_tracking_url(to_http_path(ctx.result.debug_path));
         }
         return Status::OK();
     }
@@ -312,4 +300,4 @@ void EtlJobMgr::debug(std::stringstream& ss) {
     }
 }
 
-}
+} // namespace doris

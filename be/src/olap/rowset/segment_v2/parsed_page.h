@@ -18,22 +18,20 @@
 #pragma once
 
 #include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
-#include "util/rle_encoding.h" // for RleDecoder
+#include "util/rle_encoding.h"                   // for RleDecoder
 
 namespace doris {
 namespace segment_v2 {
 
-class PageHandle;	
+class PageHandle;
 struct PagePointer;
 
 // This contains information when one page is loaded, and ready for read
 // This struct can be reused, client should call reset first before reusing
 // this object
 struct ParsedPage {
-    ParsedPage() { }
-    ~ParsedPage() {
-        delete data_decoder;
-    }
+    ParsedPage() {}
+    ~ParsedPage() { delete data_decoder; }
 
     PagePointer page_pointer;
     PageHandle page_handle;
@@ -60,5 +58,5 @@ struct ParsedPage {
     size_t remaining() const { return num_rows - offset_in_page; }
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

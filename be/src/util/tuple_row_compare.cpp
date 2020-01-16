@@ -170,11 +170,10 @@ Function* TupleRowComparator::codegen_compare(RuntimeState* state) {
     // DCHECK(_key_expr_ctxs_rhs.empty()) << "rhs exprs should be clones of lhs!";
     Function* key_fns[_key_expr_ctxs_lhs.size()];
     for (int i = 0; i < _key_expr_ctxs_lhs.size(); ++i) {
-        Status status = _key_expr_ctxs_lhs[i]->root()->get_codegend_compute_fn(
-            state, &key_fns[i]);
+        Status status = _key_expr_ctxs_lhs[i]->root()->get_codegend_compute_fn(state, &key_fns[i]);
         if (!status.ok()) {
-            VLOG_QUERY << "Could not codegen TupleRowComparator::Compare(): " 
-                << status.get_error_msg();
+            VLOG_QUERY << "Could not codegen TupleRowComparator::Compare(): "
+                       << status.get_error_msg();
             return NULL;
         }
     }
@@ -183,8 +182,8 @@ Function* TupleRowComparator::codegen_compare(RuntimeState* state) {
     // Compare() function signature):
     // int compare(ExprContext** key_expr_ctxs_lhs, ExprContext** key_expr_ctxs_rhs,
     //     TupleRow* lhs, TupleRow* rhs)
-    PointerType* expr_ctxs_type = codegen->get_ptr_type(
-        ExprContext::_s_llvm_class_name)->getPointerTo();
+    PointerType* expr_ctxs_type =
+            codegen->get_ptr_type(ExprContext::_s_llvm_class_name)->getPointerTo();
     PointerType* tuple_row_type = codegen->get_ptr_type(TupleRow::_s_llvm_class_name);
     LlvmCodeGen::FnPrototype prototype(codegen, "compare", codegen->int_type());
     prototype.add_argument("key_expr_ctxs_lhs", expr_ctxs_type);
@@ -208,41 +207,38 @@ Function* TupleRowComparator::codegen_compare(RuntimeState* state) {
 
         // Call key_fns[i](key_expr_ctxs_lhs[i], lhs_arg)
         Value* lhs_ctx = codegen->codegen_array_at(&builder, lhs_ctxs_arg, i, "");
-        Value* lhs_args[] = { lhs_ctx, lhs_arg };
+        Value* lhs_args[] = {lhs_ctx, lhs_arg};
         CodegenAnyVal lhs_value = CodegenAnyVal::create_call_wrapped(
-            codegen, &builder, _key_expr_ctxs_lhs[i]->root()->type(), 
-            key_fns[i], lhs_args, "lhs_value", NULL);
+                codegen, &builder, _key_expr_ctxs_lhs[i]->root()->type(), key_fns[i], lhs_args,
+                "lhs_value", NULL);
 
         // Call key_fns[i](key_expr_ctxs_rhs[i], rhs_arg)
         Value* rhs_ctx = codegen->codegen_array_at(&builder, rhs_ctxs_arg, i, "");
-        Value* rhs_args[] = { rhs_ctx, rhs_arg };
+        Value* rhs_args[] = {rhs_ctx, rhs_arg};
         CodegenAnyVal rhs_value = CodegenAnyVal::create_call_wrapped(
-            codegen, &builder, _key_expr_ctxs_lhs[i]->root()->type(),
-            key_fns[i], rhs_args, "rhs_value", NULL);
+                codegen, &builder, _key_expr_ctxs_lhs[i]->root()->type(), key_fns[i], rhs_args,
+                "rhs_value", NULL);
 
         // Handle NULLs if necessary
         Value* lhs_null = lhs_value.get_is_null();
         Value* rhs_null = rhs_value.get_is_null();
         // if (lhs_value == NULL && rhs_value == NULL) continue;
         Value* both_null = builder.CreateAnd(lhs_null, rhs_null, "both_null");
-        BasicBlock* non_null_block =
-            BasicBlock::Create(context, "non_null", fn, next_key_block);
+        BasicBlock* non_null_block = BasicBlock::Create(context, "non_null", fn, next_key_block);
         builder.CreateCondBr(both_null, next_key_block, non_null_block);
         // if (lhs_value == NULL && rhs_value != NULL) return _nulls_first[i];
         builder.SetInsertPoint(non_null_block);
-        BasicBlock* lhs_null_block =
-            BasicBlock::Create(context, "lhs_null", fn, next_key_block);
+        BasicBlock* lhs_null_block = BasicBlock::Create(context, "lhs_null", fn, next_key_block);
         BasicBlock* lhs_non_null_block =
-            BasicBlock::Create(context, "lhs_non_null", fn, next_key_block);
+                BasicBlock::Create(context, "lhs_non_null", fn, next_key_block);
         builder.CreateCondBr(lhs_null, lhs_null_block, lhs_non_null_block);
         builder.SetInsertPoint(lhs_null_block);
         builder.CreateRet(builder.getInt32(_nulls_first[i]));
         // if (lhs_value != NULL && rhs_value == NULL) return -_nulls_first[i];
         builder.SetInsertPoint(lhs_non_null_block);
-        BasicBlock* rhs_null_block =
-            BasicBlock::Create(context, "rhs_null", fn, next_key_block);
+        BasicBlock* rhs_null_block = BasicBlock::Create(context, "rhs_null", fn, next_key_block);
         BasicBlock* rhs_non_null_block =
-            BasicBlock::Create(context, "rhs_non_null", fn, next_key_block);
+                BasicBlock::Create(context, "rhs_non_null", fn, next_key_block);
         builder.CreateCondBr(rhs_null, rhs_null_block, rhs_non_null_block);
         builder.SetInsertPoint(rhs_null_block);
         builder.CreateRet(builder.getInt32(-_nulls_first[i]));
@@ -259,7 +255,7 @@ Function* TupleRowComparator::codegen_compare(RuntimeState* state) {
         // Otherwise, try the next Expr
         Value* result_nonzero = builder.CreateICmpNE(result, builder.getInt32(0));
         BasicBlock* result_nonzero_block =
-            BasicBlock::Create(context, "result_nonzero", fn, next_key_block);
+                BasicBlock::Create(context, "result_nonzero", fn, next_key_block);
         builder.CreateCondBr(result_nonzero, result_nonzero_block, next_key_block);
         builder.SetInsertPoint(result_nonzero_block);
         builder.CreateRet(result);
@@ -271,4 +267,4 @@ Function* TupleRowComparator::codegen_compare(RuntimeState* state) {
     return codegen->finalize_function(fn);
 }
 
-}
+} // namespace doris

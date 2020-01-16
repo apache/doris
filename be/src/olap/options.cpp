@@ -20,9 +20,8 @@
 #include <algorithm>
 
 #include "common/logging.h"
-#include "olap/utils.h"
-
 #include "gutil/strings/split.h"
+#include "olap/utils.h"
 
 namespace doris {
 
@@ -42,7 +41,8 @@ std::string to_upper(const std::string& str) {
 // /path1,1024;/path2,2048
 OLAPStatus parse_root_path(const std::string& root_path, StorePath* path) {
     try {
-        std::vector<std::string> tmp_vec = strings::Split(root_path, ",", strings::SkipWhitespace());
+        std::vector<std::string> tmp_vec =
+                strings::Split(root_path, ",", strings::SkipWhitespace());
 
         // parse root path name
         StripWhiteSpace(&tmp_vec[0]);
@@ -67,8 +67,8 @@ OLAPStatus parse_root_path(const std::string& root_path, StorePath* path) {
             // <property>:<value> or <value>
             std::string property;
             std::string value;
-            std::pair<std::string, std::string> pair = strings::Split(
-                    tmp_vec[i], strings::delimiter::Limit(":", 1));
+            std::pair<std::string, std::string> pair =
+                    strings::Split(tmp_vec[i], strings::delimiter::Limit(":", 1));
             if (!pair.second.empty()) {
                 property = to_upper(pair.first);
                 value = pair.second;
@@ -94,14 +94,12 @@ OLAPStatus parse_root_path(const std::string& root_path, StorePath* path) {
 
         path->capacity_bytes = -1;
         if (!capacity_str.empty()) {
-            if (!valid_signed_number<int64_t>(capacity_str)
-                    || strtol(capacity_str.c_str(), NULL, 10) < 0) {
-                LOG(WARNING) << "invalid capacity of store path, capacity="
-                             << capacity_str;
+            if (!valid_signed_number<int64_t>(capacity_str) ||
+                strtol(capacity_str.c_str(), NULL, 10) < 0) {
+                LOG(WARNING) << "invalid capacity of store path, capacity=" << capacity_str;
                 return OLAP_ERR_INPUT_PARAMETER_ERROR;
             }
-            path->capacity_bytes =
-                strtol(capacity_str.c_str(), NULL, 10) * GB_EXCHANGE_BYTE;
+            path->capacity_bytes = strtol(capacity_str.c_str(), NULL, 10) * GB_EXCHANGE_BYTE;
         }
 
         path->storage_medium = TStorageMedium::HDD;
@@ -123,17 +121,15 @@ OLAPStatus parse_root_path(const std::string& root_path, StorePath* path) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus parse_conf_store_paths(const std::string& config_path,
-                                  std::vector<StorePath>* paths) {
+OLAPStatus parse_conf_store_paths(const std::string& config_path, std::vector<StorePath>* paths) {
     try {
-        std::vector<std::string> path_vec = strings::Split(
-                config_path, ";", strings::SkipWhitespace());
+        std::vector<std::string> path_vec =
+                strings::Split(config_path, ";", strings::SkipWhitespace());
         for (auto& item : path_vec) {
             StorePath path;
             auto res = parse_root_path(item, &path);
             if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "get config store path failed. path="
-                             << config_path;
+                LOG(WARNING) << "get config store path failed. path=" << config_path;
                 return OLAP_ERR_INPUT_PARAMETER_ERROR;
             }
             paths->emplace_back(std::move(path));
@@ -145,4 +141,4 @@ OLAPStatus parse_conf_store_paths(const std::string& config_path,
 
     return OLAP_SUCCESS;
 }
-}
+} // namespace doris

@@ -17,9 +17,9 @@
 
 #ifdef IR_COMPILE
 
-#include "runtime/string_value.hpp"
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
+#include "runtime/string_value.hpp"
 #include "udf/udf.h"
 
 namespace doris {
@@ -55,7 +55,7 @@ bool decimal_value_eq(const DecimalVal& x, const DecimalValue& y) {
     DecimalValue tv = DecimalValue::from_decimal_val(x);
     return tv == y;
 }
-}
+} // namespace doris
 #else
 #error "This file should only be used for cross compiling to IR."
 #endif

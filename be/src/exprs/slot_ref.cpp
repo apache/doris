@@ -36,41 +36,36 @@ using llvm::Value;
 
 namespace doris {
 
-SlotRef::SlotRef(const TExprNode& node) :
-        Expr(node, true),
-    _slot_offset(-1),  // invalid
-    _null_indicator_offset(0, 0),
-    _slot_id(node.slot_ref.slot_id),
-    _tuple_id(node.slot_ref.tuple_id) {
+SlotRef::SlotRef(const TExprNode& node)
+        : Expr(node, true),
+          _slot_offset(-1), // invalid
+          _null_indicator_offset(0, 0),
+          _slot_id(node.slot_ref.slot_id),
+          _tuple_id(node.slot_ref.tuple_id) {
     // _slot/_null_indicator_offset are set in Prepare()
 }
 
-SlotRef::SlotRef(const SlotDescriptor* desc) :
-        Expr(desc->type(), true),
-    _slot_offset(-1),
-    _null_indicator_offset(0, 0),
-    _slot_id(desc->id()) {
+SlotRef::SlotRef(const SlotDescriptor* desc)
+        : Expr(desc->type(), true),
+          _slot_offset(-1),
+          _null_indicator_offset(0, 0),
+          _slot_id(desc->id()) {
     // _slot/_null_indicator_offset are set in Prepare()
 }
 
-SlotRef::SlotRef(const SlotDescriptor* desc, const TypeDescriptor& type) :
-        Expr(type, true),
-        _slot_offset(-1),
-        _null_indicator_offset(0, 0),
-        _slot_id(desc->id()) {
+SlotRef::SlotRef(const SlotDescriptor* desc, const TypeDescriptor& type)
+        : Expr(type, true), _slot_offset(-1), _null_indicator_offset(0, 0), _slot_id(desc->id()) {
     // _slot/_null_indicator_offset are set in Prepare()
 }
 
-SlotRef::SlotRef(const TypeDescriptor& type, int offset) :
-        Expr(type, true),
-        _tuple_idx(0),
-        _slot_offset(offset),
-        _null_indicator_offset(0, -1),
-        _slot_id(-1) {
-}
+SlotRef::SlotRef(const TypeDescriptor& type, int offset)
+        : Expr(type, true),
+          _tuple_idx(0),
+          _slot_offset(offset),
+          _null_indicator_offset(0, -1),
+          _slot_id(-1) {}
 
-Status SlotRef::prepare(const SlotDescriptor* slot_desc,
-                        const RowDescriptor& row_desc) {
+Status SlotRef::prepare(const SlotDescriptor* slot_desc, const RowDescriptor& row_desc) {
     if (!slot_desc->is_materialized()) {
         std::stringstream error;
         error << "reference to non-materialized slot. slot_id: " << _slot_id;
@@ -87,14 +82,13 @@ Status SlotRef::prepare(const SlotDescriptor* slot_desc,
     return Status::OK();
 }
 
-Status SlotRef::prepare(
-        RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx) {
+Status SlotRef::prepare(RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx) {
     DCHECK_EQ(_children.size(), 0);
     if (_slot_id == -1) {
         return Status::OK();
     }
 
-    const SlotDescriptor* slot_desc  = state->desc_tbl().get_slot_descriptor(_slot_id);
+    const SlotDescriptor* slot_desc = state->desc_tbl().get_slot_descriptor(_slot_id);
     if (slot_desc == NULL) {
         // TODO: create macro MAKE_ERROR() that returns a stream
         std::stringstream error;
@@ -138,10 +132,9 @@ bool SlotRef::is_bound(std::vector<TupleId>* tuple_ids) const {
 
 std::string SlotRef::debug_string() const {
     std::stringstream out;
-    out << "SlotRef(slot_id=" << _slot_id
-        << " tuple_idx=" << _tuple_idx << " slot_offset=" << _slot_offset
-        << " null_indicator=" << _null_indicator_offset
-        << " " << Expr::debug_string() << ")";
+    out << "SlotRef(slot_id=" << _slot_id << " tuple_idx=" << _tuple_idx
+        << " slot_offset=" << _slot_offset << " null_indicator=" << _null_indicator_offset << " "
+        << Expr::debug_string() << ")";
     return out.str();
 }
 
@@ -220,27 +213,25 @@ Status SlotRef::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
     Value* row_ptr = args[1];
 
     Value* tuple_offset = ConstantInt::get(codegen->int_type(), _tuple_idx);
-    Value* null_byte_offset = ConstantInt::get(
-        codegen->int_type(), _null_indicator_offset.byte_offset);
+    Value* null_byte_offset =
+            ConstantInt::get(codegen->int_type(), _null_indicator_offset.byte_offset);
     Value* slot_offset = ConstantInt::get(codegen->int_type(), _slot_offset);
-    Value* null_mask = ConstantInt::get(
-        codegen->tinyint_type(), _null_indicator_offset.bit_mask);
+    Value* null_mask = ConstantInt::get(codegen->tinyint_type(), _null_indicator_offset.bit_mask);
     Value* zero = ConstantInt::get(codegen->get_type(TYPE_TINYINT), 0);
     Value* one = ConstantInt::get(codegen->get_type(TYPE_TINYINT), 1);
 
     BasicBlock* entry_block = BasicBlock::Create(context, "entry", *fn);
     BasicBlock* check_slot_null_indicator_block = NULL;
     if (_null_indicator_offset.bit_mask != 0) {
-        check_slot_null_indicator_block = BasicBlock::Create(
-            context, "check_slot_null", *fn);
+        check_slot_null_indicator_block = BasicBlock::Create(context, "check_slot_null", *fn);
     }
     BasicBlock* get_slot_block = BasicBlock::Create(context, "get_slot", *fn);
     BasicBlock* ret_block = BasicBlock::Create(context, "ret", *fn);
 
     LlvmCodeGen::LlvmBuilder builder(entry_block);
     // Get the tuple offset addr from the row
-    Value* cast_row_ptr = builder.CreateBitCast(
-        row_ptr, PointerType::get(codegen->ptr_type(), 0), "cast_row_ptr");
+    Value* cast_row_ptr = builder.CreateBitCast(row_ptr, PointerType::get(codegen->ptr_type(), 0),
+                                                "cast_row_ptr");
     Value* tuple_addr = builder.CreateGEP(cast_row_ptr, tuple_offset, "tuple_addr");
     // Load the tuple*
     Value* tuple_ptr = builder.CreateLoad(tuple_addr, "tuple_ptr");
@@ -300,14 +291,14 @@ Status SlotRef::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
 #endif
         Function* func = codegen->get_function(IRFunction::TO_DATETIME_VAL);
         Value* val_val_ptr = codegen->create_entry_block_alloca(
-            builder, CodegenAnyVal::get_lowered_type(codegen, _type), "val_val_ptr");
+                builder, CodegenAnyVal::get_lowered_type(codegen, _type), "val_val_ptr");
         builder.CreateCall2(func, val_ptr, val_val_ptr);
         val = builder.CreateLoad(val_val_ptr, "val");
     } else if (_type.is_decimal_type()) {
         // TODO(zc): to think about it
         Function* func = codegen->get_function(IRFunction::TO_DECIMAL_VAL);
         Value* val_val_ptr = codegen->create_entry_block_alloca(
-            builder, CodegenAnyVal::get_lowered_type(codegen, _type), "val_val_ptr");
+                builder, CodegenAnyVal::get_lowered_type(codegen, _type), "val_val_ptr");
         builder.CreateCall2(func, val_ptr, val_val_ptr);
         val = builder.CreateLoad(val_val_ptr, "val");
     } else {
@@ -354,8 +345,7 @@ Status SlotRef::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
         }
         len_phi->addIncoming(len, get_slot_block);
 
-        CodegenAnyVal result = CodegenAnyVal::get_non_null_val(
-            codegen, &builder, type(), "result");
+        CodegenAnyVal result = CodegenAnyVal::get_non_null_val(codegen, &builder, type(), "result");
         result.set_is_null(is_null_phi);
         result.set_ptr(ptr_phi);
         result.set_len(len_phi);
@@ -418,8 +408,7 @@ Status SlotRef::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
         }
         val_phi->addIncoming(val, get_slot_block);
 
-        CodegenAnyVal result = CodegenAnyVal::get_non_null_val(
-            codegen, &builder, type(), "result");
+        CodegenAnyVal result = CodegenAnyVal::get_non_null_val(codegen, &builder, type(), "result");
         result.set_is_null(is_null_phi);
         result.set_val(val_phi);
         builder.CreateRet(result.value());
@@ -549,4 +538,4 @@ DecimalV2Val SlotRef::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     return DecimalV2Val(reinterpret_cast<PackedInt128*>(t->get_slot(_slot_offset))->value);
 }
 
-}
+} // namespace doris

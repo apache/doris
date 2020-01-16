@@ -16,7 +16,6 @@
 // under the License.
 
 #include "exec/partitioned_aggregation_node.h"
-
 #include "exec/partitioned_hash_table.inline.h"
 #include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/row_batch.h"
@@ -24,15 +23,15 @@
 
 namespace doris {
 
-Status PartitionedAggregationNode::process_batch_no_grouping(
-        RowBatch* batch, PartitionedHashTableCtx* ht_ctx) {
+Status PartitionedAggregationNode::process_batch_no_grouping(RowBatch* batch,
+                                                             PartitionedHashTableCtx* ht_ctx) {
     for (int i = 0; i < batch->num_rows(); ++i) {
         update_tuple(&_agg_fn_ctxs[0], _singleton_output_tuple, batch->get_row(i));
     }
     return Status::OK();
 }
 
-template<bool AGGREGATED_ROWS>
+template <bool AGGREGATED_ROWS>
 Status PartitionedAggregationNode::process_batch(RowBatch* batch, PartitionedHashTableCtx* ht_ctx) {
     DCHECK(!_hash_partitions.empty());
 
@@ -51,7 +50,7 @@ Status PartitionedAggregationNode::process_batch(RowBatch* batch, PartitionedHas
     return Status::OK();
 }
 
-template<bool AGGREGATED_ROWS>
+template <bool AGGREGATED_ROWS>
 Status PartitionedAggregationNode::process_row(TupleRow* row, PartitionedHashTableCtx* ht_ctx) {
     uint32_t hash = 0;
     if (AGGREGATED_ROWS) {
@@ -98,17 +97,15 @@ Status PartitionedAggregationNode::process_row(TupleRow* row, PartitionedHashTab
     return add_intermediate_tuple<AGGREGATED_ROWS>(dst_partition, ht_ctx, row, hash, it);
 }
 
-template<bool AGGREGATED_ROWS>
+template <bool AGGREGATED_ROWS>
 Status PartitionedAggregationNode::add_intermediate_tuple(
-        Partition* partition,
-        PartitionedHashTableCtx* ht_ctx,
-        TupleRow* row,
-        uint32_t hash,
+        Partition* partition, PartitionedHashTableCtx* ht_ctx, TupleRow* row, uint32_t hash,
         PartitionedHashTable::Iterator insert_it) {
     while (true) {
         DCHECK(partition->aggregated_row_stream->is_pinned());
-        Tuple* intermediate_tuple = construct_intermediate_tuple(partition->agg_fn_ctxs,
-                NULL, partition->aggregated_row_stream.get(), &_process_batch_status);
+        Tuple* intermediate_tuple = construct_intermediate_tuple(
+                partition->agg_fn_ctxs, NULL, partition->aggregated_row_stream.get(),
+                &_process_batch_status);
 
         if (LIKELY(intermediate_tuple != NULL)) {
             update_tuple(&partition->agg_fn_ctxs[0], intermediate_tuple, row, AGGREGATED_ROWS);
@@ -127,17 +124,17 @@ Status PartitionedAggregationNode::add_intermediate_tuple(
     }
 }
 
-template<bool AGGREGATED_ROWS>
+template <bool AGGREGATED_ROWS>
 Status PartitionedAggregationNode::append_spilled_row(Partition* partition, TupleRow* row) {
     DCHECK(partition->is_spilled());
-    BufferedTupleStream2* stream = AGGREGATED_ROWS ?
-            partition->aggregated_row_stream.get() : partition->unaggregated_row_stream.get();
+    BufferedTupleStream2* stream = AGGREGATED_ROWS ? partition->aggregated_row_stream.get()
+                                                   : partition->unaggregated_row_stream.get();
     return append_spilled_row(stream, row);
 }
 
-template Status PartitionedAggregationNode::process_batch<false>(
-    RowBatch*, PartitionedHashTableCtx*);
-template Status PartitionedAggregationNode::process_batch<true>(
-    RowBatch*, PartitionedHashTableCtx*);
+template Status PartitionedAggregationNode::process_batch<false>(RowBatch*,
+                                                                 PartitionedHashTableCtx*);
+template Status PartitionedAggregationNode::process_batch<true>(RowBatch*,
+                                                                PartitionedHashTableCtx*);
 
 } // end namespace doris

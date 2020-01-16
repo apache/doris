@@ -18,20 +18,20 @@
 #ifndef DORIS_BE_RUNTIME_FRAGMENT_MGR_H
 #define DORIS_BE_RUNTIME_FRAGMENT_MGR_H
 
-#include <mutex>
-#include <memory>
-#include <unordered_map>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "common/status.h"
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "util/thread_pool.hpp"
-#include "util/hash_util.hpp"
 #include "http/rest_monitor_iface.h"
+#include "util/hash_util.hpp"
+#include "util/thread_pool.hpp"
 
 namespace doris {
 
@@ -46,7 +46,7 @@ std::string to_load_error_http_path(const std::string& file_name);
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
 public:
-    typedef std::function<void (PlanFragmentExecutor*)> FinishCallback;
+    typedef std::function<void(PlanFragmentExecutor*)> FinishCallback;
 
     FragmentMgr(ExecEnv* exec_env);
     virtual ~FragmentMgr();
@@ -72,11 +72,12 @@ public:
     // input: TScanOpenParams fragment_instance_id
     // output: selected_columns
     // execute external query, all query info are packed in TScanOpenParams
-    Status exec_external_plan_fragment(const TScanOpenParams& params, const TUniqueId& fragment_instance_id, std::vector<TScanColumnDesc>* selected_columns);
+    Status exec_external_plan_fragment(const TScanOpenParams& params,
+                                       const TUniqueId& fragment_instance_id,
+                                       std::vector<TScanColumnDesc>* selected_columns);
 
 private:
-    void exec_actual(std::shared_ptr<FragmentExecState> exec_state,
-                     FinishCallback cb);
+    void exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
 
     // This is input params
     ExecEnv* _exec_env;
@@ -91,10 +92,8 @@ private:
     std::thread _cancel_thread;
     // every job is a pool
     ThreadPool _thread_pool;
-
 };
 
-}
+} // namespace doris
 
 #endif
-

@@ -19,8 +19,8 @@
 
 #include <string>
 
-#include "util/coding.h"
 #include "gutil/strings/substitute.h"
+#include "util/coding.h"
 
 using strings::Substitute;
 
@@ -33,8 +33,7 @@ Status ShortKeyIndexBuilder::add_item(const Slice& key) {
     return Status::OK();
 }
 
-Status ShortKeyIndexBuilder::finalize(uint32_t segment_bytes,
-                                      uint32_t num_segment_rows,
+Status ShortKeyIndexBuilder::finalize(uint32_t segment_bytes, uint32_t num_segment_rows,
                                       std::vector<Slice>* slices) {
     _footer.set_num_segment_rows(num_segment_rows);
     _footer.set_segment_bytes(segment_bytes);
@@ -62,9 +61,8 @@ Status ShortKeyIndexDecoder::parse() {
 
     // 1. parse footer, get checksum and footer length
     if (data.size < 2 * sizeof(uint32_t)) {
-        return Status::Corruption(
-            Substitute("Short key is too short, need=$0 vs real=$1",
-                       2 * sizeof(uint32_t), data.size));
+        return Status::Corruption(Substitute("Short key is too short, need=$0 vs real=$1",
+                                             2 * sizeof(uint32_t), data.size));
     }
     size_t offset = data.size - 2 * sizeof(uint32_t);
     uint32_t footer_length = decode_fixed32_le((uint8_t*)data.data + offset);
@@ -72,7 +70,7 @@ Status ShortKeyIndexDecoder::parse() {
     // TODO(zc): do checksum
     if (checksum != 0) {
         return Status::Corruption(
-            Substitute("Checksum not match, need=$0 vs read=$1", 0, checksum));
+                Substitute("Checksum not match, need=$0 vs read=$1", 0, checksum));
     }
     // move offset to parse footer
     offset -= footer_length;
@@ -83,14 +81,13 @@ Status ShortKeyIndexDecoder::parse() {
 
     // check if real data size match footer's content
     if (offset != _footer.key_bytes() + _footer.offset_bytes()) {
-        return Status::Corruption(
-            Substitute("Index size not match, need=$0, real=$1",
-                       _footer.key_bytes() + _footer.offset_bytes(), offset));
+        return Status::Corruption(Substitute("Index size not match, need=$0, real=$1",
+                                             _footer.key_bytes() + _footer.offset_bytes(), offset));
     }
 
     // set index buffer
     _key_data = Slice(_data.data, _footer.key_bytes());
-    
+
     // parse offset information
     Slice offset_slice(_data.data + _footer.key_bytes(), _footer.offset_bytes());
     // +1 for record total length
@@ -102,8 +99,8 @@ Status ShortKeyIndexDecoder::parse() {
             return Status::Corruption("Fail to get varint from index offset buffer");
         }
         DCHECK(offset <= _footer.key_bytes())
-            << "Offset is larger than total bytes, offset=" << offset
-            << ", key_bytes=" << _footer.key_bytes();
+                << "Offset is larger than total bytes, offset=" << offset
+                << ", key_bytes=" << _footer.key_bytes();
         _offsets[i] = offset;
     }
 
@@ -114,4 +111,4 @@ Status ShortKeyIndexDecoder::parse() {
     return Status::OK();
 }
 
-}
+} // namespace doris

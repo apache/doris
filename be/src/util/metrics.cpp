@@ -104,8 +104,7 @@ MetricRegistry::~MetricRegistry() {
     DCHECK(_collectors.empty()) << "_collectors not empty, size=" << _collectors.size();
 }
 
-bool MetricRegistry::register_metric(const std::string& name,
-                                     const MetricLabels& labels,
+bool MetricRegistry::register_metric(const std::string& name, const MetricLabels& labels,
                                      Metric* metric) {
     metric->hide();
     std::lock_guard<SpinLock> l(_lock);
@@ -159,4 +158,4 @@ void MetricRegistry::deregister_hook(const std::string& name) {
     _hooks.erase(name);
 }
 
-}
+} // namespace doris

@@ -29,6 +29,6 @@ class StorePath;
 // performed until after this method returns.
 void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths);
 
-}
+} // namespace doris
 
 #endif

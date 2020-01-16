@@ -22,9 +22,9 @@
 #include <iostream>
 #include <sstream>
 
-#define __IN_CONFIGBASE_CPP__ 
+#define __IN_CONFIGBASE_CPP__
 #include "common/config.h"
-#undef  __IN_CONFIGBASE_CPP__
+#undef __IN_CONFIGBASE_CPP__
 
 namespace doris {
 namespace config {
@@ -44,7 +44,7 @@ bool Properties::load(const char* filename) {
     // open the conf file
     std::ifstream input(filename);
     if (!input.is_open()) {
-        std::cerr <<  "config::load() failed to open the file:" << filename << std::endl;
+        std::cerr << "config::load() failed to open the file:" << filename << std::endl;
         return false;
     }
 
@@ -62,14 +62,14 @@ bool Properties::load(const char* filename) {
 
         // ignore comments
         if (line.empty() || line[0] == '#') {
-            continue; 
+            continue;
         }
 
         // read key and value
         splitkv(line, key, value);
         trim(key);
         trim(value);
-        
+
         // insert into propmap
         propmap[key] = value;
     }
@@ -83,9 +83,9 @@ bool Properties::load(const char* filename) {
 template <typename T>
 bool Properties::get(const char* key, const char* defstr, T& retval) const {
     std::map<std::string, std::string>::const_iterator it = propmap.find(std::string(key));
-    std::string valstr = it != propmap.end() ? it->second: std::string(defstr);
+    std::string valstr = it != propmap.end() ? it->second : std::string(defstr);
     trim(valstr);
-    if (!replaceenv(valstr)) { 
+    if (!replaceenv(valstr)) {
         return false;
     }
     return strtox(valstr, retval);
@@ -110,11 +110,14 @@ const std::map<std::string, std::string>& Properties::getmap() const {
 }
 
 // trim string
-std::string& Properties::trim(std::string& s)  {
+std::string& Properties::trim(std::string& s) {
     // rtrim
-    s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), s.end());
+    s.erase(std::find_if(s.rbegin(), s.rend(), std::not1(std::ptr_fun<int, int>(std::isspace)))
+                    .base(),
+            s.end());
     // ltrim
-    s.erase(s.begin(), std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
+    s.erase(s.begin(),
+            std::find_if(s.begin(), s.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
     return s;
 }
 
@@ -138,7 +141,7 @@ bool Properties::replaceenv(std::string& s) {
     std::size_t start = 0;
     while ((start = s.find("${", pos)) != std::string::npos) {
         std::size_t end = s.find("}", start + 2);
-        if (end == std::string::npos) { 
+        if (end == std::string::npos) {
             return false;
         }
         std::string envkey = s.substr(start + 2, end - start - 2);
@@ -164,9 +167,9 @@ bool Properties::strtox(const std::string& valstr, bool& retval) {
     return true;
 }
 
-template<typename T>
+template <typename T>
 bool Properties::strtointeger(const std::string& valstr, T& retval) {
-    if (valstr.length() == 0)  { 
+    if (valstr.length() == 0) {
         return false; // empty-string is only allowed for string type.
     }
     char* end;
@@ -174,7 +177,7 @@ bool Properties::strtointeger(const std::string& valstr, T& retval) {
     const char* valcstr = valstr.c_str();
     int64_t ret64 = strtoll(valcstr, &end, 10);
     if (errno || end != valcstr + strlen(valcstr)) {
-        return false;  // bad parse
+        return false; // bad parse
     }
     retval = static_cast<T>(ret64);
     if (retval != ret64) {
@@ -196,15 +199,15 @@ bool Properties::strtox(const std::string& valstr, int64_t& retval) {
 }
 
 bool Properties::strtox(const std::string& valstr, double& retval) {
-    if (valstr.length() == 0)  {
+    if (valstr.length() == 0) {
         return false; // empty-string is only allowed for string type.
     }
     char* end = NULL;
     errno = 0;
     const char* valcstr = valstr.c_str();
     retval = strtod(valcstr, &end);
-    if (errno || end != valcstr + strlen(valcstr))  {
-        return false;  // bad parse
+    if (errno || end != valcstr + strlen(valcstr)) {
+        return false; // bad parse
     }
     return true;
 }
@@ -214,8 +217,8 @@ bool Properties::strtox(const std::string& valstr, std::string& retval) {
     return true;
 }
 
-template<typename T>
-std::ostream& operator<< (std::ostream& out, const std::vector<T>& v) {
+template <typename T>
+std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
     size_t last = v.size() - 1;
     for (size_t i = 0; i < v.size(); ++i) {
         out << v[i];
@@ -226,24 +229,24 @@ std::ostream& operator<< (std::ostream& out, const std::vector<T>& v) {
     return out;
 }
 
-#define SET_FIELD(FIELD, TYPE, FILL_CONFMAP)\
-        if (strcmp((FIELD).type, #TYPE) == 0) {\
-            if (!props.get((FIELD).name, (FIELD).defval, *reinterpret_cast<TYPE*>((FIELD).storage))) {\
-                std::cerr << "config field error: " << (FIELD).name << std::endl;\
-                return false;\
-            }\
-            if (FILL_CONFMAP) {\
-                std::ostringstream oss;\
-                oss << (*reinterpret_cast<TYPE*>((FIELD).storage));\
-                (*confmap)[(FIELD).name] = oss.str();\
-            }\
-            continue;\
-        }
+#define SET_FIELD(FIELD, TYPE, FILL_CONFMAP)                                                       \
+    if (strcmp((FIELD).type, #TYPE) == 0) {                                                        \
+        if (!props.get((FIELD).name, (FIELD).defval, *reinterpret_cast<TYPE*>((FIELD).storage))) { \
+            std::cerr << "config field error: " << (FIELD).name << std::endl;                      \
+            return false;                                                                          \
+        }                                                                                          \
+        if (FILL_CONFMAP) {                                                                        \
+            std::ostringstream oss;                                                                \
+            oss << (*reinterpret_cast<TYPE*>((FIELD).storage));                                    \
+            (*confmap)[(FIELD).name] = oss.str();                                                  \
+        }                                                                                          \
+        continue;                                                                                  \
+    }
 
 // init conf fields
 bool init(const char* filename, bool fillconfmap) {
     // load properties file
-    if (!props.load(filename)) { 
+    if (!props.load(filename)) {
         return false;
     }
     // fill confmap ?
@@ -252,8 +255,8 @@ bool init(const char* filename, bool fillconfmap) {
     }
 
     // set conf fields
-    for (std::list<Register::Field>::iterator it = Register::_s_fieldlist->begin(); 
-        it != Register::_s_fieldlist->end(); ++it) {
+    for (std::list<Register::Field>::iterator it = Register::_s_fieldlist->begin();
+         it != Register::_s_fieldlist->end(); ++it) {
         SET_FIELD(*it, bool, fillconfmap);
         SET_FIELD(*it, int16_t, fillconfmap);
         SET_FIELD(*it, int32_t, fillconfmap);

@@ -25,14 +25,13 @@ using llvm::Function;
 
 namespace doris {
 
-TupleIsNullPredicate::TupleIsNullPredicate(const TExprNode& node) : 
-        Predicate(node),
-        _tuple_ids(node.tuple_is_null_pred.tuple_ids.begin(),
-    node.tuple_is_null_pred.tuple_ids.end()) {
-}
+TupleIsNullPredicate::TupleIsNullPredicate(const TExprNode& node)
+        : Predicate(node),
+          _tuple_ids(node.tuple_is_null_pred.tuple_ids.begin(),
+                     node.tuple_is_null_pred.tuple_ids.end()) {}
 
-Status TupleIsNullPredicate::prepare(
-        RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx) {
+Status TupleIsNullPredicate::prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                                     ExprContext* ctx) {
     RETURN_IF_ERROR(Expr::prepare(state, row_desc, ctx));
     DCHECK_EQ(0, _children.size());
 
@@ -55,8 +54,7 @@ BooleanVal TupleIsNullPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row
     return BooleanVal(!_tuple_idxs.empty() && count == _tuple_idxs.size());
 }
 
-Status TupleIsNullPredicate::get_codegend_compute_fn(
-        RuntimeState* state, llvm::Function** fn) {
+Status TupleIsNullPredicate::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
     return get_codegend_compute_fn_wrapper(state, fn);
 }
 
@@ -72,4 +70,4 @@ std::string TupleIsNullPredicate::debug_string() const {
     return out.str();
 }
 
-}
+} // namespace doris

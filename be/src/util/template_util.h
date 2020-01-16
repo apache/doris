@@ -19,8 +19,8 @@
 #define IMPALA_UTIL_TEMPLATE_UTIL_H
 
 #include <boost/type_traits/is_arithmetic.hpp>
-#include <boost/type_traits/is_integral.hpp>
 #include <boost/type_traits/is_float.hpp>
+#include <boost/type_traits/is_integral.hpp>
 #include <boost/utility/enable_if.hpp>
 
 /// The ENABLE_IF_* macros are used to 'enable' - i.e. to make available to the compiler -

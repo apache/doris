@@ -18,11 +18,11 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
 
-#include "olap/rowset/rowset_reader_context.h"
-#include "olap/rowset/rowset.h"
-
 #include <memory>
 #include <unordered_map>
+
+#include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_reader_context.h"
 
 namespace doris {
 
@@ -32,7 +32,7 @@ using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 class RowsetReader {
 public:
-    virtual ~RowsetReader() { }
+    virtual ~RowsetReader() {}
 
     // reader init
     virtual OLAPStatus init(RowsetReaderContext* read_context) = 0;

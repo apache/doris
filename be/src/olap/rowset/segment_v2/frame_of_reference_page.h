@@ -17,29 +17,25 @@
 
 #pragma once
 
+#include "olap/rowset/segment_v2/common.h"       // for rowid_t
+#include "olap/rowset/segment_v2/options.h"      // for PageBuilderOptions/PageDecoderOptions
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
-#include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions/PageDecoderOptions
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "util/frame_of_reference_coding.h"
 
 namespace doris {
 namespace segment_v2 {
 
 // Encode page use frame-of-reference coding
-template<FieldType Type>
+template <FieldType Type>
 class FrameOfReferencePageBuilder : public PageBuilder {
 public:
-    explicit FrameOfReferencePageBuilder(const PageBuilderOptions& options) :
-        _options(options),
-        _count(0),
-        _finished(false) {
+    explicit FrameOfReferencePageBuilder(const PageBuilderOptions& options)
+            : _options(options), _count(0), _finished(false) {
         _encoder.reset(new ForEncoder<CppType>(&_buf));
     }
 
-    bool is_page_full() override {
-        return _encoder->len() >= _options.data_page_size;
-    }
+    bool is_page_full() override { return _encoder->len() >= _options.data_page_size; }
 
     Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
@@ -69,13 +65,9 @@ public:
         _encoder->clear();
     }
 
-    size_t count() const override {
-        return _count;
-    }
+    size_t count() const override { return _count; }
 
-    uint64_t size() const override {
-        return _buf.size();
-    }
+    uint64_t size() const override { return _buf.size(); }
 
     Status get_first_value(void* value) const override {
         if (_count == 0) {
@@ -104,14 +96,11 @@ private:
     CppType _last_val;
 };
 
-template<FieldType Type>
+template <FieldType Type>
 class FrameOfReferencePageDecoder : public PageDecoder {
 public:
-    FrameOfReferencePageDecoder(Slice slice, const PageDecoderOptions& options) :
-        _parsed(false),
-        _data(slice),
-        _num_elements(0),
-        _cur_index(0){
+    FrameOfReferencePageDecoder(Slice slice, const PageDecoderOptions& options)
+            : _parsed(false), _data(slice), _num_elements(0), _cur_index(0) {
         _decoder.reset(new ForDecoder<CppType>((uint8_t*)_data.data, _data.size));
     }
 
@@ -129,8 +118,9 @@ public:
 
     Status seek_to_position_in_page(size_t pos) override {
         DCHECK(_parsed) << "Must call init() firstly";
-        DCHECK_LE(pos, _num_elements) << "Tried to seek to " << pos << " which is > number of elements ("
-                                      << _num_elements << ") in the block!";
+        DCHECK_LE(pos, _num_elements)
+                << "Tried to seek to " << pos << " which is > number of elements (" << _num_elements
+                << ") in the block!";
         // If the block is empty (e.g. the column is filled with nulls), there is no data to seek.
         if (PREDICT_FALSE(_num_elements == 0)) {
             return Status::OK();
@@ -167,13 +157,9 @@ public:
         return Status::OK();
     }
 
-    size_t count() const override {
-        return _num_elements;
-    }
+    size_t count() const override { return _num_elements; }
 
-    size_t current_index() const override {
-        return _cur_index;
-    }
+    size_t current_index() const override { return _cur_index; }
 
 private:
     typedef typename TypeTraits<Type>::CppType CppType;

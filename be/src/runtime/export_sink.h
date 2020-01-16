@@ -38,9 +38,7 @@ class TupleRow;
 // This class is a sinker, which put export data to external storage by broker.
 class ExportSink : public DataSink {
 public:
-    ExportSink(ObjectPool* pool,
-                   const RowDescriptor& row_desc,
-                   const std::vector<TExpr>& t_exprs);
+    ExportSink(ObjectPool* pool, const RowDescriptor& row_desc, const std::vector<TExpr>& t_exprs);
 
     virtual ~ExportSink();
 
@@ -56,9 +54,7 @@ public:
     // hosts. Further send() calls are illegal after calling close().
     virtual Status close(RuntimeState* state, Status exec_status) override;
 
-    virtual RuntimeProfile* profile() {
-        return _profile;
-    }
+    virtual RuntimeProfile* profile() { return _profile; }
 
 private:
     Status open_file_writer();

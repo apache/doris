@@ -19,22 +19,22 @@
 
 #include <cstddef>
 
-#include "common/logging.h" // for LOG
-#include "env/env.h" // for LOG
+#include "common/logging.h"           // for LOG
+#include "env/env.h"                  // for LOG
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
-#include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
-#include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions
-#include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexBuilder
-#include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
-#include "olap/rowset/segment_v2/page_compression.h"
-#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
+#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
+#include "olap/rowset/segment_v2/encoding_info.h"      // for EncodingInfo
+#include "olap/rowset/segment_v2/options.h"            // for PageBuilderOptions
+#include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexBuilder
+#include "olap/rowset/segment_v2/page_builder.h"       // for PageBuilder
+#include "olap/rowset/segment_v2/page_compression.h"
 #include "olap/types.h" // for TypeInfo
-#include "util/crc32c.h"
-#include "util/faststring.h" // for fastring
-#include "util/rle_encoding.h" // for RleEncoder
 #include "util/block_compression.h"
+#include "util/crc32c.h"
+#include "util/faststring.h"   // for fastring
+#include "util/rle_encoding.h" // for RleEncoder
 
 namespace doris {
 namespace segment_v2 {
@@ -43,44 +43,34 @@ using strings::Substitute;
 
 class NullBitmapBuilder {
 public:
-    NullBitmapBuilder() : _bitmap_buf(512), _rle_encoder(&_bitmap_buf, 1) {
-    }
+    NullBitmapBuilder() : _bitmap_buf(512), _rle_encoder(&_bitmap_buf, 1) {}
 
     explicit NullBitmapBuilder(size_t reserve_bits)
-        : _bitmap_buf(BitmapSize(reserve_bits)), _rle_encoder(&_bitmap_buf, 1) {
-    }
+            : _bitmap_buf(BitmapSize(reserve_bits)), _rle_encoder(&_bitmap_buf, 1) {}
 
-    void add_run(bool value, size_t run) {
-        _rle_encoder.Put(value, run);
-    }
+    void add_run(bool value, size_t run) { _rle_encoder.Put(value, run); }
 
     OwnedSlice finish() {
         _rle_encoder.Flush();
         return _bitmap_buf.build();
     }
 
-    void reset() {
-        _rle_encoder.Clear();
-    }
+    void reset() { _rle_encoder.Clear(); }
 
-    uint64_t size() {
-        return _bitmap_buf.size();
-    }
+    uint64_t size() { return _bitmap_buf.size(); }
+
 private:
     faststring _bitmap_buf;
     RleEncoder<bool> _rle_encoder;
 };
 
-ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
-                           std::unique_ptr<Field> field,
-                           bool is_nullable,
-                           WritableFile* output_file)
+ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
+                           bool is_nullable, WritableFile* output_file)
         : _opts(opts),
-        _is_nullable(is_nullable),
-        _output_file(output_file),
-        _field(std::move(field)),
-        _data_size(0) {
-}
+          _is_nullable(is_nullable),
+          _output_file(output_file),
+          _field(std::move(field)),
+          _data_size(0) {}
 
 ColumnWriter::~ColumnWriter() {
     // delete all pages
@@ -105,8 +95,8 @@ Status ColumnWriter::init() {
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
         return Status::NotSupported(
-            Substitute("Failed to create page builder for type $0 and encoding $1",
-                       _field->type(), _opts.encoding_type));
+                Substitute("Failed to create page builder for type $0 and encoding $1",
+                           _field->type(), _opts.encoding_type));
     }
     _page_builder.reset(page_builder);
     // create ordinal builder
@@ -122,8 +112,8 @@ Status ColumnWriter::init() {
         RETURN_IF_ERROR(BitmapIndexWriter::create(_field->type_info(), &_bitmap_index_builder));
     }
     if (_opts.need_bloom_filter) {
-        RETURN_IF_ERROR(BloomFilterIndexWriter::create(BloomFilterOptions(),
-                _field->type_info(), &_bloom_filter_index_builder));
+        RETURN_IF_ERROR(BloomFilterIndexWriter::create(BloomFilterOptions(), _field->type_info(),
+                                                       &_bloom_filter_index_builder));
     }
     return Status::OK();
 }
@@ -182,8 +172,8 @@ Status ColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     return Status::OK();
 }
 
-Status ColumnWriter::append_nullable(
-        const uint8_t* is_null_bits, const void* data, size_t num_rows) {
+Status ColumnWriter::append_nullable(const uint8_t* is_null_bits, const void* data,
+                                     size_t num_rows) {
     const uint8_t* ptr = (const uint8_t*)data;
     BitmapIterator null_iter(is_null_bits, num_rows);
     bool is_null = false;
@@ -425,5 +415,5 @@ Status ColumnWriter::_finish_current_page() {
     return Status::OK();
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

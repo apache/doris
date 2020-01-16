@@ -19,7 +19,7 @@
 
 #include <vector>
 
-// This file include 
+// This file include
 namespace doris {
 
 struct GeoCoordinate {
@@ -28,9 +28,7 @@ struct GeoCoordinate {
 };
 
 struct GeoCoordinateList {
-    void add(const GeoCoordinate& coordinate) {
-        list.push_back(coordinate);
-    }
+    void add(const GeoCoordinate& coordinate) { list.push_back(coordinate); }
     std::vector<GeoCoordinate> list;
 };
 
@@ -40,11 +38,8 @@ struct GeoCoordinateListList {
             delete item;
         }
     }
-    void add(GeoCoordinateList* coordinates) {
-        list.push_back(coordinates);
-    }
+    void add(GeoCoordinateList* coordinates) { list.push_back(coordinates); }
     std::vector<GeoCoordinateList*> list;
 };
 
-}
-
+} // namespace doris

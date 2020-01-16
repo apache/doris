@@ -741,4 +741,3 @@ class NewPartitionedAggregationNode : public ExecNode {
 }
 // clang-format on
 #endif
-

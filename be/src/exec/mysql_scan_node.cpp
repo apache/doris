@@ -21,27 +21,24 @@
 
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/runtime_state.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
-MysqlScanNode::MysqlScanNode(ObjectPool* pool, const TPlanNode& tnode,
-                             const DescriptorTbl& descs)
-    : ScanNode(pool, tnode, descs),
-      _is_init(false),
-      _table_name(tnode.mysql_scan_node.table_name),
-      _tuple_id(tnode.mysql_scan_node.tuple_id),
-      _columns(tnode.mysql_scan_node.columns),
-      _filters(tnode.mysql_scan_node.filters),
-      _tuple_desc(nullptr) {
-}
+MysqlScanNode::MysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ScanNode(pool, tnode, descs),
+          _is_init(false),
+          _table_name(tnode.mysql_scan_node.table_name),
+          _tuple_id(tnode.mysql_scan_node.tuple_id),
+          _columns(tnode.mysql_scan_node.columns),
+          _filters(tnode.mysql_scan_node.filters),
+          _tuple_desc(nullptr) {}
 
-MysqlScanNode::~MysqlScanNode() {
-}
+MysqlScanNode::~MysqlScanNode() {}
 
 Status MysqlScanNode::prepare(RuntimeState* state) {
     VLOG(1) << "MysqlScanNode::Prepare";
@@ -65,7 +62,7 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
     _slot_num = _tuple_desc->slots().size();
     // get mysql info
     const MySQLTableDescriptor* mysql_table =
-        static_cast<const MySQLTableDescriptor*>(_tuple_desc->table_desc());
+            static_cast<const MySQLTableDescriptor*>(_tuple_desc->table_desc());
 
     if (NULL == mysql_table) {
         return Status::InternalError("mysql table pointer is NULL.");
@@ -77,19 +74,19 @@ Status MysqlScanNode::prepare(RuntimeState* state) {
     _my_param.passwd = mysql_table->passwd();
     _my_param.db = mysql_table->mysql_db();
     // new one scanner
-    _mysql_scanner.reset(new(std::nothrow) MysqlScanner(_my_param));
+    _mysql_scanner.reset(new (std::nothrow) MysqlScanner(_my_param));
 
     if (_mysql_scanner.get() == NULL) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
-    _tuple_pool.reset(new(std::nothrow) MemPool(mem_tracker()));
+    _tuple_pool.reset(new (std::nothrow) MemPool(mem_tracker()));
 
     if (_tuple_pool.get() == NULL) {
         return Status::InternalError("new a mem pool failed.");
     }
 
-    _text_converter.reset(new(std::nothrow) TextConverter('\\'));
+    _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
     if (_text_converter.get() == NULL) {
         return Status::InternalError("new a text convertor failed.");
@@ -133,10 +130,10 @@ Status MysqlScanNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status MysqlScanNode::write_text_slot(char* value, int value_length,
-                                    SlotDescriptor* slot, RuntimeState* state) {
-    if (!_text_converter->write_slot(slot, _tuple, value, value_length,
-                                     true, false, _tuple_pool.get())) {
+Status MysqlScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
+                                      RuntimeState* state) {
+    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
+                                     _tuple_pool.get())) {
         std::stringstream ss;
         ss << "fail to convert mysql value '" << value << "' TO " << slot->type();
         return Status::InternalError(ss.str());
@@ -220,7 +217,7 @@ Status MysqlScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* e
                 } else {
                     std::stringstream ss;
                     ss << "nonnull column contains NULL. table=" << _table_name
-                        << ", column=" << slot_desc->col_name();
+                       << ", column=" << slot_desc->col_name();
                     return Status::InternalError(ss.str());
                 }
             } else {
@@ -273,4 +270,4 @@ Status MysqlScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_range
     return Status::OK();
 }
 
-}
+} // namespace doris

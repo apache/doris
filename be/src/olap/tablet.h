@@ -29,11 +29,11 @@
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_define.h"
-#include "olap/tuple.h"
-#include "olap/rowset_graph.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
+#include "olap/rowset_graph.h"
 #include "olap/tablet_meta.h"
+#include "olap/tuple.h"
 #include "olap/utils.h"
 #include "util/once.h"
 
@@ -47,9 +47,8 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 class Tablet : public std::enable_shared_from_this<Tablet> {
 public:
-    static TabletSharedPtr create_tablet_from_meta(
-            TabletMetaSharedPtr tablet_meta,
-            DataDir* data_dir  = nullptr);
+    static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
+                                                   DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
     ~Tablet();
@@ -74,7 +73,6 @@ public:
     OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
 
-
     TabletUid tablet_uid();
     inline int64_t table_id() const;
     inline const std::string full_name() const;
@@ -98,7 +96,7 @@ public:
     inline KeysType keys_type() const;
     inline size_t num_columns() const;
     inline size_t num_null_columns() const;
-    inline size_t num_key_columns() const ;
+    inline size_t num_key_columns() const;
     inline size_t num_short_key_columns() const;
     inline size_t num_rows_per_row_block() const;
     inline CompressKind compress_kind() const;
@@ -123,11 +121,11 @@ public:
 
     OLAPStatus add_inc_rowset(const RowsetSharedPtr& rowset);
     bool has_expired_inc_rowset();
-    void delete_inc_rowset_by_version(const Version& version,
-                                      const VersionHash& version_hash);
+    void delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);
     void delete_expired_inc_rowsets();
 
-    OLAPStatus capture_consistent_versions(const Version& spec_version, vector<Version>* version_path) const;
+    OLAPStatus capture_consistent_versions(const Version& spec_version,
+                                           vector<Version>* version_path) const;
     OLAPStatus check_version_integrity(const Version& version);
     bool check_version_exist(const Version& version) const;
     void list_versions(std::vector<Version>* versions) const;
@@ -149,8 +147,8 @@ public:
     // message for alter task
     AlterTabletTaskSharedPtr alter_task();
     OLAPStatus add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
-                        const vector<Version>& versions_to_alter,
-                        const AlterTabletType alter_type);
+                              const vector<Version>& versions_to_alter,
+                              const AlterTabletType alter_type);
     OLAPStatus delete_alter_task();
     OLAPStatus set_alter_state(AlterTabletState state);
     OLAPStatus protected_delete_alter_task();
@@ -196,11 +194,8 @@ public:
     OLAPStatus max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
 
     // operation for query
-    OLAPStatus split_range(
-            const OlapTuple& start_key_strings,
-            const OlapTuple& end_key_strings,
-            uint64_t request_block_row_count,
-            vector<OlapTuple>* ranges);
+    OLAPStatus split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
+                           uint64_t request_block_row_count, vector<OlapTuple>* ranges);
 
     // operation for recover tablet
     OLAPStatus recover_tablet_until_specfic_version(const int64_t& spec_version,
@@ -211,16 +206,24 @@ public:
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
-    void set_last_cumu_compaction_failure_time(int64_t millis) { _last_cumu_compaction_failure_millis = millis; }
+    void set_last_cumu_compaction_failure_time(int64_t millis) {
+        _last_cumu_compaction_failure_millis = millis;
+    }
 
     int64_t last_base_compaction_failure_time() { return _last_base_compaction_failure_millis; }
-    void set_last_base_compaction_failure_time(int64_t millis) { _last_base_compaction_failure_millis = millis; }
+    void set_last_base_compaction_failure_time(int64_t millis) {
+        _last_base_compaction_failure_millis = millis;
+    }
 
     int64_t last_cumu_compaction_success_time() { return _last_cumu_compaction_success_millis; }
-    void set_last_cumu_compaction_success_time(int64_t millis) { _last_cumu_compaction_success_millis = millis; }
+    void set_last_cumu_compaction_success_time(int64_t millis) {
+        _last_cumu_compaction_success_millis = millis;
+    }
 
     int64_t last_base_compaction_success_time() { return _last_base_compaction_success_millis; }
-    void set_last_base_compaction_success_time(int64_t millis) { _last_base_compaction_success_millis = millis; }
+    void set_last_base_compaction_success_time(int64_t millis) {
+        _last_base_compaction_success_millis = millis;
+    }
 
     void delete_all_files();
 
@@ -231,11 +234,12 @@ public:
 
     TabletInfo get_tablet_info();
 
-    void pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
+    void pick_candicate_rowsets_to_cumulative_compaction(
+            std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
 
     OLAPStatus calculate_cumulative_point();
-    // TODO(ygl): 
+    // TODO(ygl):
     inline bool is_primary_replica() { return false; }
 
     // TODO(ygl):
@@ -283,11 +287,15 @@ private:
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _rs_version_map;
     std::unordered_map<Version, RowsetSharedPtr, HashOfVersion> _inc_rs_version_map;
 
-    std::atomic<bool> _is_bad;   // if this tablet is broken, set to true. default is false
-    std::atomic<int64_t> _last_cumu_compaction_failure_millis; // timestamp of last cumu compaction failure
-    std::atomic<int64_t> _last_base_compaction_failure_millis; // timestamp of last base compaction failure
-    std::atomic<int64_t> _last_cumu_compaction_success_millis; // timestamp of last cumu compaction success
-    std::atomic<int64_t> _last_base_compaction_success_millis; // timestamp of last base compaction success
+    std::atomic<bool> _is_bad; // if this tablet is broken, set to true. default is false
+    std::atomic<int64_t>
+            _last_cumu_compaction_failure_millis; // timestamp of last cumu compaction failure
+    std::atomic<int64_t>
+            _last_base_compaction_failure_millis; // timestamp of last base compaction failure
+    std::atomic<int64_t>
+            _last_cumu_compaction_success_millis; // timestamp of last cumu compaction success
+    std::atomic<int64_t>
+            _last_base_compaction_success_millis; // timestamp of last base compaction success
 
     std::atomic<int64_t> _cumulative_point;
     std::atomic<int32_t> _newly_created_rowset_num;
@@ -313,9 +321,8 @@ inline int64_t Tablet::table_id() const {
 
 inline const std::string Tablet::full_name() const {
     std::stringstream ss;
-    ss << _tablet_meta->tablet_id() 
-       << "." << _tablet_meta->schema_hash() 
-       << "." << _tablet_meta->tablet_uid().to_string();
+    ss << _tablet_meta->tablet_id() << "." << _tablet_meta->schema_hash() << "."
+       << _tablet_meta->tablet_uid().to_string();
     return ss.str();
 }
 
@@ -337,7 +344,7 @@ inline int16_t Tablet::shard_id() {
 
 inline const int64_t Tablet::creation_time() const {
     return _tablet_meta->creation_time();
-}  // namespace doris
+} // namespace doris
 
 inline void Tablet::set_creation_time(int64_t creation_time) {
     _tablet_meta->set_creation_time(creation_time);
@@ -421,6 +428,6 @@ inline size_t Tablet::row_size() const {
     return _schema.row_size();
 }
 
-}
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_TABLET_H

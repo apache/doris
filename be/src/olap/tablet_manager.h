@@ -31,9 +31,9 @@
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/tablet.h"
 
 namespace doris {
 
@@ -47,17 +47,14 @@ class TabletManager {
 public:
     TabletManager();
 
-    ~TabletManager() {
-        _tablet_map.clear();
-    }
+    ~TabletManager() { _tablet_map.clear(); }
 
     bool check_tablet_id_exist(TTabletId tablet_id);
 
     void clear();
 
     // Create new tablet for StorageEngine
-    OLAPStatus create_tablet(const TCreateTabletReq& request,
-                             std::vector<DataDir*> stores);
+    OLAPStatus create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores);
 
     // Drop a tablet by description
     // If set keep_files == true, files will NOT be deleted when deconstruction.
@@ -68,15 +65,15 @@ public:
 
     OLAPStatus drop_tablets_on_error_root_path(const std::vector<TabletInfo>& tablet_info_vec);
 
-    TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type, DataDir* data_dir);
+    TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type,
+                                                   DataDir* data_dir);
 
     // Get tablet pointer
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
-                               TabletUid tablet_uid, bool include_deleted = false,
-                               std::string* err = nullptr);
+    TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid,
+                               bool include_deleted = false, std::string* err = nullptr);
 
     // Extract tablet_id and schema_hash from given path.
     //
@@ -100,11 +97,8 @@ public:
                                      TSchemaHash schema_hash, const std::string& header,
                                      bool update_meta, bool force = false);
 
-    OLAPStatus load_tablet_from_dir(DataDir* data_dir,
-                                    TTabletId tablet_id,
-                                    SchemaHash schema_hash,
-                                    const std::string& schema_hash_path,
-                                    bool force = false);
+    OLAPStatus load_tablet_from_dir(DataDir* data_dir, TTabletId tablet_id, SchemaHash schema_hash,
+                                    const std::string& schema_hash_path, bool force = false);
 
     void release_schema_change_lock(TTabletId tablet_id);
 
@@ -141,9 +135,9 @@ private:
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
-    OLAPStatus _create_inital_rowset_unlocked(TabletSharedPtr tablet, const TCreateTabletReq& request);
-    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id,
-                                              TSchemaHash schema_hash,
+    OLAPStatus _create_inital_rowset_unlocked(TabletSharedPtr tablet,
+                                              const TCreateTabletReq& request);
+    OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id, TSchemaHash schema_hash,
                                               bool keep_files = false);
 
     OLAPStatus _drop_tablet_unlocked(TTabletId tablet_id, SchemaHash schema_hash, bool keep_files);
@@ -161,8 +155,7 @@ private:
                                                          const bool is_schema_change_tablet,
                                                          const TabletSharedPtr ref_tablet,
                                                          std::vector<DataDir*> data_dirs);
-    OLAPStatus _create_tablet_meta_unlocked(const TCreateTabletReq& request,
-                                            DataDir* store,
+    OLAPStatus _create_tablet_meta_unlocked(const TCreateTabletReq& request, DataDir* store,
                                             const bool is_schema_change_tablet,
                                             const TabletSharedPtr ref_tablet,
                                             TabletMetaSharedPtr* tablet_meta);
@@ -198,6 +191,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_TABLET_MANAGER_H

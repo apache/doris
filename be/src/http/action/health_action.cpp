@@ -21,20 +21,18 @@
 #include <string>
 
 #include "http/http_channel.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
-#include "http/http_headers.h"
 #include "http/http_status.h"
 
 namespace doris {
 
 const static std::string HEADER_JSON = "application/json";
 
-HealthAction::HealthAction(ExecEnv* exec_env) :
-        _exec_env(exec_env) {
-}
+HealthAction::HealthAction(ExecEnv* exec_env) : _exec_env(exec_env) {}
 
-void HealthAction::handle(HttpRequest *req) {
+void HealthAction::handle(HttpRequest* req) {
     std::stringstream ss;
     ss << "{";
     ss << "\"status\": \"OK\",";
@@ -51,4 +49,3 @@ void HealthAction::handle(HttpRequest *req) {
 }
 
 } // end namespace doris
-

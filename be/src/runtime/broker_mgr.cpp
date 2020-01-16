@@ -22,16 +22,15 @@
 #include "common/config.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
-#include "service/backend_options.h"
-#include "runtime/exec_env.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
+#include "service/backend_options.h"
 #include "util/thrift_util.h"
 
 namespace doris {
 
-BrokerMgr::BrokerMgr(ExecEnv* exec_env) : 
-        _exec_env(exec_env), _thread_stop(false), _ping_thread(&BrokerMgr::ping_worker, this) {
-}
+BrokerMgr::BrokerMgr(ExecEnv* exec_env)
+        : _exec_env(exec_env), _thread_stop(false), _ping_thread(&BrokerMgr::ping_worker, this) {}
 
 BrokerMgr::~BrokerMgr() {
     _thread_stop = true;
@@ -60,11 +59,10 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
     try {
         Status status;
         // 500ms is enough
-        BrokerServiceConnection client(
-            _exec_env->broker_client_cache(), addr, 500, &status);
+        BrokerServiceConnection client(_exec_env->broker_client_cache(), addr, 500, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << addr
-                << ", status=" << status.get_error_msg();
+                         << ", status=" << status.get_error_msg();
             return;
         }
 
@@ -74,7 +72,7 @@ void BrokerMgr::ping(const TNetworkAddress& addr) {
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Create broker client failed. broker=" << addr
-                    << ", status=" << status.get_error_msg();
+                             << ", status=" << status.get_error_msg();
                 return;
             }
             client->ping(response, request);
@@ -100,4 +98,4 @@ void BrokerMgr::ping_worker() {
     }
 }
 
-}
+} // namespace doris
