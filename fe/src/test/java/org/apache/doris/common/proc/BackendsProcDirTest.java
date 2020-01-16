@@ -17,6 +17,8 @@
 
 package org.apache.doris.common.proc;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
@@ -24,75 +26,91 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
-import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class BackendsProcDirTest {
-    private static Backend b1;
-    private static Backend b2;
+    private Backend b1;
+    private Backend b2;
 
-    private static SystemInfoService systemInfoService;
-    private static TabletInvertedIndex tabletInvertedIndex;
+    @Mocked
+    private SystemInfoService systemInfoService;
+    @Mocked
+    private TabletInvertedIndex tabletInvertedIndex;
+    @Mocked
+    private Catalog catalog;
+    @Mocked
+    private EditLog editLog;
 
-    private static Catalog catalog;
-    private static EditLog editLog;
-
-    // construct test case
-    @BeforeClass
-    public static void setUpClass() {
-        editLog = EasyMock.createMock(EditLog.class);
-        editLog.logAddBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logDropBackend(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        editLog.logBackendStateChange(EasyMock.anyObject(Backend.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(editLog);
-
-        catalog = EasyMock.createMock(Catalog.class);
-        EasyMock.expect(catalog.getNextId()).andReturn(10000L).anyTimes();
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog).anyTimes();
-        catalog.clear();
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(catalog);
-
+    @Before
+    public void setUp() {
         b1 = new Backend(1000, "host1", 10000);
         b1.updateOnce(10001, 10003, 10005);
         b2 = new Backend(1001, "host2", 20000);
         b2.updateOnce(20001, 20003, 20005);
 
-        systemInfoService = EasyMock.createNiceMock(SystemInfoService.class);
-        EasyMock.expect(systemInfoService.getBackend(1000)).andReturn(b1).anyTimes();
-        EasyMock.expect(systemInfoService.getBackend(1001)).andReturn(b2).anyTimes();
-        EasyMock.expect(systemInfoService.getBackend(1002)).andReturn(null).anyTimes();
-        EasyMock.replay(systemInfoService);
+        new Expectations() {
+            {
+                editLog.logAddBackend((Backend) any);
+                minTimes = 0;
 
-        tabletInvertedIndex = EasyMock.createNiceMock(TabletInvertedIndex.class);
-        EasyMock.expect(tabletInvertedIndex.getTabletNumByBackendId(EasyMock.anyLong())).andReturn(2).anyTimes();
-        EasyMock.replay(tabletInvertedIndex);
+                editLog.logDropBackend((Backend) any);
+                minTimes = 0;
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
-        EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(tabletInvertedIndex).anyTimes();
-        PowerMock.replay(Catalog.class);
-    }
+                editLog.logBackendStateChange((Backend) any);
+                minTimes = 0;
 
-    @Before
-    public void setUp() {
-        // systemInfoService = EasyMock.createNiceMock(SystemInfoService.class);
+                catalog.getNextId();
+                minTimes = 0;
+                result = 10000L;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+
+                catalog.clear();
+                minTimes = 0;
+
+                systemInfoService.getBackend(1000);
+                minTimes = 0;
+                result = b1;
+
+                systemInfoService.getBackend(1001);
+                minTimes = 0;
+                result = b2;
+
+                systemInfoService.getBackend(1002);
+                minTimes = 0;
+                result = null;
+
+                tabletInvertedIndex.getTabletNumByBackendId(anyLong);
+                minTimes = 0;
+                result = 2;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+                Catalog.getInstance();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getCurrentInvertedIndex();
+                minTimes = 0;
+                result = tabletInvertedIndex;
+
+                Catalog.getCurrentSystemInfo();
+                minTimes = 0;
+                result = systemInfoService;
+            }
+        };
+
     }
 
     @After

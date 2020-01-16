@@ -18,24 +18,20 @@
 package org.apache.doris.mysql;
 
 import com.google.common.primitives.Bytes;
+import mockit.Expectations;
+import mockit.Mocked;
 import org.junit.Assert;
-import org.easymock.EasyMock;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.nio.ByteBuffer;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({MysqlPassword.class})
 public class MysqlHandshakePacketTest {
     private byte[] buf;
     private MysqlCapability capability;
+
+    @Mocked
+    MysqlPassword mysqlPassword;
 
     @Before
     public void setUp() {
@@ -43,9 +39,14 @@ public class MysqlHandshakePacketTest {
         for (int i = 0; i < 20; ++i) {
             buf[i] = (byte) ('a' + i);
         }
-        PowerMock.mockStatic(MysqlPassword.class);
-        EasyMock.expect(MysqlPassword.createRandomString(20)).andReturn(buf).anyTimes();
-        PowerMock.replay(MysqlPassword.class);
+
+        new Expectations() {
+            {
+                MysqlPassword.createRandomString(20);
+                minTimes = 0;
+                result = buf;
+            }
+        };
 
         capability = new MysqlCapability(0);
     }
