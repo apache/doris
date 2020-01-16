@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "runtime/bufferpool/buffer_allocator.h"
 
 #include <mutex>
@@ -733,3 +734,4 @@ string BufferPool::FreeBufferArena::DebugString() {
   return ss.str();
 }
 }
+// clang-format on

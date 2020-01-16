@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
 #define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_H
 
+// clang-format off
 #include <memory>
 #include <vector>
 #include <boost/cstdint.hpp>
@@ -996,6 +997,6 @@ class NewPartitionedHashTable {
 };
 
 }
-
+// clang-format on
 #endif
 
