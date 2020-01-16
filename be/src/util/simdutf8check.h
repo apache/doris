@@ -17,8 +17,6 @@
 
 #ifndef SIMDUTF8CHECK_H
 #define SIMDUTF8CHECK_H
-
-// clang-format off
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -480,4 +478,4 @@ static bool validate_utf8_fast_avx(const char *src, size_t len) {
 
 #endif // __AVX2__
 #endif
-// clang-format on
+

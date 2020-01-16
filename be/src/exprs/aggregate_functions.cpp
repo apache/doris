@@ -2419,7 +2419,6 @@ void AggregateFunctions::offset_fn_update(FunctionContext* ctx, const IntVal& sr
 // Stamp out the templates for the types we need.
 template void AggregateFunctions::init_zero<BigIntVal>(FunctionContext*, BigIntVal* dst);
 
-// clang-format off
 template void AggregateFunctions::sum_remove<BooleanVal, BigIntVal>(
     FunctionContext*, const BooleanVal& src, BigIntVal* dst);
 template void AggregateFunctions::sum_remove<TinyIntVal, BigIntVal>(
@@ -2846,5 +2845,4 @@ template void AggregateFunctions::percentile_approx_update<doris_udf::DoubleVal>
 
 template void AggregateFunctions::percentile_approx_update<doris_udf::DoubleVal>(
     FunctionContext* ctx, const doris_udf::DoubleVal&, const doris_udf::DoubleVal&, const doris_udf::DoubleVal&, doris_udf::StringVal*);
-// clang-format on
 }

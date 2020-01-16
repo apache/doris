@@ -29,7 +29,6 @@
 #include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/row_batch.h"
 
-// clang-format off
 namespace doris {
 
 class MemTracker;
@@ -702,6 +701,5 @@ class BufferedTupleStream3 {
   void CheckPageConsistency(const Page* page) const;
 };
 }
-// clang-format on
 
 #endif

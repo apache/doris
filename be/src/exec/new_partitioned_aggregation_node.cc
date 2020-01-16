@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// clang-format off
 #include "exec/new_partitioned_aggregation_node.h"
 
 #include <math.h>
@@ -2076,4 +2075,4 @@ template Status NewPartitionedAggregationNode::AppendSpilledRow<false>(
 template Status NewPartitionedAggregationNode::AppendSpilledRow<true>(Partition*, TupleRow*);
 
 }
-// clang-format on
+

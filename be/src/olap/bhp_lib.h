@@ -20,7 +20,6 @@
 
 #include <stddef.h>
 
-// clang-format off
 namespace doris {
 
 inline int memcmp_sse(const void* buf1, const  void* buf2, unsigned int count) {
@@ -770,6 +769,5 @@ inline int  baidu_crc32_qw(char const* src, int crc, unsigned int length) {
 }
 
 }  // namespace doris
-// clang-format on
 
 #endif // DORIS_BE_SRC_OLAP_BHP_LIB_H

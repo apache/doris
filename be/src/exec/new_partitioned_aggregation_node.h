@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_AGGREGATION_NODE_H
 #define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_AGGREGATION_NODE_H
 
-// clang-format off
 #include <deque>
 
 #include <boost/scoped_ptr.hpp>
@@ -739,6 +738,6 @@ class NewPartitionedAggregationNode : public ExecNode {
 };
 
 }
-// clang-format on
+
 #endif
 

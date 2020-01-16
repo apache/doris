@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_INLINE_H
 #define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_INLINE_H
 
-// clang-format off
 #include "exec/new_partitioned_hash_table.h"
 
 #include "exprs/expr.h"
@@ -404,6 +403,6 @@ inline int64_t NewPartitionedHashTable::NumInsertsBeforeResize() const {
 }
 
 }
-// clang-format on
+
 #endif
 
