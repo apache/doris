@@ -18,10 +18,10 @@
 #include "exprs/bitmap_function.h"
 
 #include "exprs/anyval_util.h"
+#include "gutil/strings/numbers.h"
+#include "gutil/strings/split.h"
 #include "util/bitmap.h"
 #include "util/string_parser.hpp"
-#include "gutil/strings/split.h"
-#include "gutil/strings/numbers.h"
 
 namespace doris {
 
@@ -33,53 +33,53 @@ const int DATETIME_TYPE_BYTE_SIZE = 4;
 const int DECIMAL_BYTE_SIZE = 16;
 
 // get_val start
-template<typename ValType, typename T>
+template <typename ValType, typename T>
 T get_val(const ValType& x) {
     DCHECK(!x.is_null);
     return x.val;
 }
 
-template<>
+template <>
 StringValue get_val(const StringVal& x) {
     DCHECK(!x.is_null);
     return StringValue::from_string_val(x);
 }
 
-template<>
+template <>
 DateTimeValue get_val(const DateTimeVal& x) {
     return DateTimeValue::from_datetime_val(x);
 }
 
-template<>
+template <>
 DecimalV2Value get_val(const DecimalV2Val& x) {
     return DecimalV2Value::from_decimal_val(x);
 }
 // get_val end
 
 // serialize_size start
-template<typename T>
+template <typename T>
 int32_t serialize_size(const T& v) {
     return sizeof(T);
 }
 
-template<>
+template <>
 int32_t serialize_size(const DateTimeValue& v) {
     return DATETIME_PACKED_TIME_BYTE_SIZE + DATETIME_TYPE_BYTE_SIZE;
 }
 
-template<>
+template <>
 int32_t serialize_size(const DecimalV2Value& v) {
     return DECIMAL_BYTE_SIZE;
 }
 
-template<>
+template <>
 int32_t serialize_size(const StringValue& v) {
     return v.len + 4;
 }
 // serialize_size end
 
 // write_to start
-template<typename T>
+template <typename T>
 char* write_to(const T& v, char* dest) {
     size_t type_size = sizeof(T);
     memcpy(dest, &v, type_size);
@@ -87,7 +87,7 @@ char* write_to(const T& v, char* dest) {
     return dest;
 }
 
-template<>
+template <>
 char* write_to(const DateTimeValue& v, char* dest) {
     DateTimeVal value;
     v.to_datetime_val(&value);
@@ -98,7 +98,7 @@ char* write_to(const DateTimeValue& v, char* dest) {
     return dest;
 }
 
-template<>
+template <>
 char* write_to(const DecimalV2Value& v, char* dest) {
     __int128 value = v.value();
     memcpy(dest, &value, DECIMAL_BYTE_SIZE);
@@ -106,7 +106,7 @@ char* write_to(const DecimalV2Value& v, char* dest) {
     return dest;
 }
 
-template<>
+template <>
 char* write_to(const StringValue& v, char* dest) {
     *(int32_t*)dest = v.len;
     dest += 4;
@@ -117,14 +117,14 @@ char* write_to(const StringValue& v, char* dest) {
 // write_to end
 
 // read_from start
-template<typename T>
+template <typename T>
 void read_from(const char** src, T* result) {
     size_t type_size = sizeof(T);
     memcpy(result, *src, type_size);
     *src += type_size;
 }
 
-template<>
+template <>
 void read_from(const char** src, DateTimeValue* result) {
     DateTimeVal value;
     value.is_null = false;
@@ -132,10 +132,11 @@ void read_from(const char** src, DateTimeValue* result) {
     *src += DATETIME_PACKED_TIME_BYTE_SIZE;
     value.type = *(int*)(*src);
     *src += DATETIME_TYPE_BYTE_SIZE;
-    *result = DateTimeValue::from_datetime_val(value);;
+    *result = DateTimeValue::from_datetime_val(value);
+    ;
 }
 
-template<>
+template <>
 void read_from(const char** src, DecimalV2Value* result) {
     __int128 v = 0;
     memcpy(&v, *src, DECIMAL_BYTE_SIZE);
@@ -143,11 +144,11 @@ void read_from(const char** src, DecimalV2Value* result) {
     *result = DecimalV2Value(v);
 }
 
-template<>
+template <>
 void read_from(const char** src, StringValue* result) {
     int32_t length = *(int32_t*)(*src);
     *src += 4;
-    *result = StringValue((char *)*src, length);
+    *result = StringValue((char*)*src, length);
     *src += length;
 }
 // read_from end
@@ -158,14 +159,12 @@ void read_from(const char** src, StringValue* result) {
 // Usage: intersect_count(bitmap_column_to_count, filter_column, filter_values ...)
 // Example: intersect_count(user_id, event, 'A', 'B', 'C'), meaning find the intersect count of user_id in all A/B/C 3 bitmaps
 // Todo(kks) Use Array type instead of variable arguments
-template<typename T>
+template <typename T>
 struct BitmapIntersect {
 public:
     BitmapIntersect() {}
 
-    explicit BitmapIntersect(const char* src) {
-        deserialize(src);
-    }
+    explicit BitmapIntersect(const char* src) { deserialize(src); }
 
     void add_key(const T key) {
         RoaringBitmap empty_bitmap;
@@ -179,7 +178,7 @@ public:
     }
 
     void merge(const BitmapIntersect& other) {
-        for (auto& kv: other._bitmaps) {
+        for (auto& kv : other._bitmaps) {
             if (_bitmaps.find(kv.first) != _bitmaps.end()) {
                 _bitmaps[kv.first].merge(kv.second);
             } else {
@@ -198,7 +197,7 @@ public:
         auto it = _bitmaps.begin();
         result.merge(it->second);
         it++;
-        for (;it != _bitmaps.end(); it++) {
+        for (; it != _bitmaps.end(); it++) {
             result.intersect(it->second);
         }
 
@@ -208,9 +207,10 @@ public:
     // the serialize size
     size_t size() {
         size_t size = 4;
-        for (auto& kv: _bitmaps) {
-            size +=  detail::serialize_size(kv.first);;
-            size +=  kv.second.size();
+        for (auto& kv : _bitmaps) {
+            size += detail::serialize_size(kv.first);
+            ;
+            size += kv.second.size();
         }
         return size;
     }
@@ -220,7 +220,7 @@ public:
         char* writer = dest;
         *(int32_t*)writer = _bitmaps.size();
         writer += 4;
-        for (auto& kv: _bitmaps) {
+        for (auto& kv : _bitmaps) {
             writer = detail::write_to(kv.first, writer);
             kv.second.serialize(writer);
             writer += kv.second.size();
@@ -244,8 +244,7 @@ private:
     std::map<T, RoaringBitmap> _bitmaps;
 };
 
-void BitmapFunctions::init() {
-}
+void BitmapFunctions::init() {}
 
 void BitmapFunctions::bitmap_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
@@ -294,20 +293,23 @@ BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& s
         auto bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
         return {bitmap->cardinality()};
     } else {
-        RoaringBitmap bitmap ((char*)src.ptr);
+        RoaringBitmap bitmap((char*)src.ptr);
         return {bitmap.cardinality()};
     }
 }
 
-StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
-    std::unique_ptr<RoaringBitmap> bitmap {new RoaringBitmap()};
+StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
+                                     const doris_udf::StringVal& src) {
+    std::unique_ptr<RoaringBitmap> bitmap{new RoaringBitmap()};
     if (!src.is_null) {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        uint32_t int_value = StringParser::string_to_unsigned_int<uint32_t>(reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
+        uint32_t int_value = StringParser::string_to_unsigned_int<uint32_t>(
+                reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
         if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
             std::stringstream error_msg;
             error_msg << "The input: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
-            << " is not valid, to_bitmap only support int value from 0 to 4294967295 currently";
+                      << " is not valid, to_bitmap only support int value from 0 to 4294967295 "
+                         "currently";
             ctx->set_error(error_msg.str().c_str());
             return StringVal::null();
         }
@@ -319,10 +321,12 @@ StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const dori
     return AnyValUtil::from_string_temp(ctx, buf);
 }
 
-StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
+StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
+                                       const doris_udf::StringVal& src) {
     RoaringBitmap bitmap;
     if (!src.is_null) {
-        uint32_t hash_value = HashUtil::murmur_hash3_32(src.ptr, src.len, HashUtil::MURMUR3_32_SEED);
+        uint32_t hash_value =
+                HashUtil::murmur_hash3_32(src.ptr, src.len, HashUtil::MURMUR3_32_SEED);
         bitmap.update(hash_value);
     }
     std::string buf;
@@ -339,7 +343,7 @@ StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVa
     return result;
 }
 
-template<typename T, typename ValType>
+template <typename T, typename ValType>
 void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(BitmapIntersect<T>);
@@ -355,25 +359,28 @@ void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst
     dst->ptr = (uint8_t*)intersect;
 }
 
-template<typename T, typename ValType>
-void BitmapFunctions::bitmap_intersect_update(FunctionContext* ctx, const StringVal& src, const ValType& key,
-                                              int num_key, const ValType* keys, const StringVal* dst) {
+template <typename T, typename ValType>
+void BitmapFunctions::bitmap_intersect_update(FunctionContext* ctx, const StringVal& src,
+                                              const ValType& key, int num_key, const ValType* keys,
+                                              const StringVal* dst) {
     auto* dst_bitmap = reinterpret_cast<BitmapIntersect<T>*>(dst->ptr);
     // zero size means the src input is a agg object
     if (src.len == 0) {
-        dst_bitmap->update(detail::get_val<ValType, T>(key), *reinterpret_cast<RoaringBitmap*>(src.ptr));
+        dst_bitmap->update(detail::get_val<ValType, T>(key),
+                           *reinterpret_cast<RoaringBitmap*>(src.ptr));
     } else {
         dst_bitmap->update(detail::get_val<ValType, T>(key), RoaringBitmap((char*)src.ptr));
     }
 }
 
-template<typename T>
-void BitmapFunctions::bitmap_intersect_merge(FunctionContext* ctx, const StringVal& src, const StringVal* dst) {
+template <typename T>
+void BitmapFunctions::bitmap_intersect_merge(FunctionContext* ctx, const StringVal& src,
+                                             const StringVal* dst) {
     auto* dst_bitmap = reinterpret_cast<BitmapIntersect<T>*>(dst->ptr);
     dst_bitmap->merge(BitmapIntersect<T>((char*)src.ptr));
 }
 
-template<typename T>
+template <typename T>
 StringVal BitmapFunctions::bitmap_intersect_serialize(FunctionContext* ctx, const StringVal& src) {
     auto* src_bitmap = reinterpret_cast<BitmapIntersect<T>*>(src.ptr);
     StringVal result(ctx, src_bitmap->size());
@@ -382,14 +389,15 @@ StringVal BitmapFunctions::bitmap_intersect_serialize(FunctionContext* ctx, cons
     return result;
 }
 
-template<typename T>
+template <typename T>
 BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const StringVal& src) {
     auto* src_bitmap = reinterpret_cast<BitmapIntersect<T>*>(src.ptr);
     BigIntVal result = BigIntVal(src_bitmap->intersect_count());
     delete src_bitmap;
     return result;
 }
-StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs,
+                                     const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
         return StringVal::null();
     }
@@ -406,11 +414,12 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs,
         bitmap.merge(RoaringBitmap((char*)rhs.ptr));
     }
 
-    StringVal result(ctx,bitmap.size());
+    StringVal result(ctx, bitmap.size());
     bitmap.serialize((char*)result.ptr);
     return result;
 }
-StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs,
+                                      const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
         return StringVal::null();
     }
@@ -421,7 +430,7 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs
         bitmap.merge(RoaringBitmap((char*)lhs.ptr));
     }
 
-    if(rhs.len == 0){
+    if (rhs.len == 0) {
         bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
     } else {
         bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
@@ -465,7 +474,8 @@ StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const String
     return result;
 }
 
-BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVal& src, const BigIntVal& input) {
+BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVal& src,
+                                            const BigIntVal& input) {
     if (src.is_null || input.is_null) {
         return BooleanVal::null();
     }
@@ -475,11 +485,12 @@ BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVa
         return {bitmap->contains(input.val)};
     }
 
-    RoaringBitmap bitmap ((char*)src.ptr);
+    RoaringBitmap bitmap((char*)src.ptr);
     return {bitmap.contains(input.val)};
 }
 
-BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs) {
+BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal& lhs,
+                                           const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
         return BooleanVal::null();
     }
@@ -500,129 +511,137 @@ BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal
     return {bitmap.cardinality() != 0};
 }
 
-template void BitmapFunctions::bitmap_update_int<TinyIntVal>(
-        FunctionContext* ctx, const TinyIntVal& src, StringVal* dst);
-template void BitmapFunctions::bitmap_update_int<SmallIntVal>(
-        FunctionContext* ctx, const SmallIntVal& src, StringVal* dst);
-template void BitmapFunctions::bitmap_update_int<IntVal>(
-        FunctionContext* ctx, const IntVal& src, StringVal* dst);
+template void BitmapFunctions::bitmap_update_int<TinyIntVal>(FunctionContext* ctx,
+                                                             const TinyIntVal& src, StringVal* dst);
+template void BitmapFunctions::bitmap_update_int<SmallIntVal>(FunctionContext* ctx,
+                                                              const SmallIntVal& src,
+                                                              StringVal* dst);
+template void BitmapFunctions::bitmap_update_int<IntVal>(FunctionContext* ctx, const IntVal& src,
+                                                         StringVal* dst);
 
-
-template void BitmapFunctions::bitmap_intersect_init<int8_t, TinyIntVal>(
-    FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<int16_t, SmallIntVal>(
-    FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<int32_t, IntVal>(
-    FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<int64_t, BigIntVal>(
-    FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<__int128, LargeIntVal>(
-    FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<float, FloatVal>(
-    FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<double, DoubleVal>(
-    FunctionContext* ctx, StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_init<int8_t, TinyIntVal>(FunctionContext* ctx,
+                                                                         StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_init<int16_t, SmallIntVal>(FunctionContext* ctx,
+                                                                           StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_init<int32_t, IntVal>(FunctionContext* ctx,
+                                                                      StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_init<int64_t, BigIntVal>(FunctionContext* ctx,
+                                                                         StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_init<__int128, LargeIntVal>(FunctionContext* ctx,
+                                                                            StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_init<float, FloatVal>(FunctionContext* ctx,
+                                                                      StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_init<double, DoubleVal>(FunctionContext* ctx,
+                                                                        StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_init<DateTimeValue, DateTimeVal>(
-    FunctionContext* ctx, StringVal* dst);
+        FunctionContext* ctx, StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_init<DecimalV2Value, DecimalV2Val>(
-    FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<StringValue, StringVal>(
-    FunctionContext* ctx, StringVal* dst);
-
+        FunctionContext* ctx, StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_init<StringValue, StringVal>(FunctionContext* ctx,
+                                                                             StringVal* dst);
 
 template void BitmapFunctions::bitmap_intersect_update<int8_t, TinyIntVal>(
-    FunctionContext* ctx, const StringVal& src, const TinyIntVal& key,
-    int num_key, const TinyIntVal* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const TinyIntVal& key, int num_key,
+        const TinyIntVal* keys, const StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_update<int16_t, SmallIntVal>(
-    FunctionContext* ctx, const StringVal& src, const SmallIntVal& key,
-    int num_key, const SmallIntVal* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const SmallIntVal& key, int num_key,
+        const SmallIntVal* keys, const StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_update<int32_t, IntVal>(
-    FunctionContext* ctx, const StringVal& src, const IntVal& key,
-    int num_key, const IntVal* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const IntVal& key, int num_key,
+        const IntVal* keys, const StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_update<int64_t, BigIntVal>(
-    FunctionContext* ctx, const StringVal& src, const BigIntVal& key,
-    int num_key, const BigIntVal* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const BigIntVal& key, int num_key,
+        const BigIntVal* keys, const StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_update<__int128, LargeIntVal>(
-    FunctionContext* ctx, const StringVal& src, const LargeIntVal& key,
-    int num_key, const LargeIntVal* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const LargeIntVal& key, int num_key,
+        const LargeIntVal* keys, const StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_update<float, FloatVal>(
-    FunctionContext* ctx, const StringVal& src, const FloatVal& key,
-    int num_key, const FloatVal* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const FloatVal& key, int num_key,
+        const FloatVal* keys, const StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_update<double, DoubleVal>(
-    FunctionContext* ctx, const StringVal& src, const DoubleVal& key,
-    int num_key, const DoubleVal* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const DoubleVal& key, int num_key,
+        const DoubleVal* keys, const StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_update<DateTimeValue, DateTimeVal>(
-    FunctionContext* ctx, const StringVal& src, const DateTimeVal& key,
-    int num_key, const DateTimeVal* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const DateTimeVal& key, int num_key,
+        const DateTimeVal* keys, const StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_update<DecimalV2Value, DecimalV2Val>(
-    FunctionContext* ctx, const StringVal& src, const DecimalV2Val& key,
-    int num_key, const DecimalV2Val* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const DecimalV2Val& key, int num_key,
+        const DecimalV2Val* keys, const StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_update<StringValue, StringVal>(
-    FunctionContext* ctx, const StringVal& src, const StringVal& key,
-    int num_key, const StringVal* keys, const StringVal* dst);
+        FunctionContext* ctx, const StringVal& src, const StringVal& key, int num_key,
+        const StringVal* keys, const StringVal* dst);
 
+template void BitmapFunctions::bitmap_intersect_merge<int8_t>(FunctionContext* ctx,
+                                                              const StringVal& src,
+                                                              const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<int16_t>(FunctionContext* ctx,
+                                                               const StringVal& src,
+                                                               const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<int32_t>(FunctionContext* ctx,
+                                                               const StringVal& src,
+                                                               const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<int64_t>(FunctionContext* ctx,
+                                                               const StringVal& src,
+                                                               const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<__int128>(FunctionContext* ctx,
+                                                                const StringVal& src,
+                                                                const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<float>(FunctionContext* ctx,
+                                                             const StringVal& src,
+                                                             const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<double>(FunctionContext* ctx,
+                                                              const StringVal& src,
+                                                              const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<DateTimeValue>(FunctionContext* ctx,
+                                                                     const StringVal& src,
+                                                                     const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<DecimalV2Value>(FunctionContext* ctx,
+                                                                      const StringVal& src,
+                                                                      const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<StringValue>(FunctionContext* ctx,
+                                                                   const StringVal& src,
+                                                                   const StringVal* dst);
 
-template void BitmapFunctions::bitmap_intersect_merge<int8_t>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<int16_t>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<int32_t>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<int64_t>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<__int128>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<float>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<double>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<DateTimeValue>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<DecimalV2Value>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<StringValue>(
-    FunctionContext* ctx, const StringVal& src, const StringVal* dst);
-
-template StringVal BitmapFunctions::bitmap_intersect_serialize<int8_t>(
-    FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::bitmap_intersect_serialize<int16_t>(
-    FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::bitmap_intersect_serialize<int32_t>(
-    FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::bitmap_intersect_serialize<int64_t>(
-    FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::bitmap_intersect_serialize<__int128>(
-    FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::bitmap_intersect_serialize<float>(
-    FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::bitmap_intersect_serialize<double>(
-    FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::bitmap_intersect_serialize<DateTimeValue>(
-    FunctionContext* ctx, const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<int8_t>(FunctionContext* ctx,
+                                                                       const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<int16_t>(FunctionContext* ctx,
+                                                                        const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<int32_t>(FunctionContext* ctx,
+                                                                        const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<int64_t>(FunctionContext* ctx,
+                                                                        const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<__int128>(FunctionContext* ctx,
+                                                                         const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<float>(FunctionContext* ctx,
+                                                                      const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<double>(FunctionContext* ctx,
+                                                                       const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<DateTimeValue>(FunctionContext* ctx,
+                                                                              const StringVal& src);
 template StringVal BitmapFunctions::bitmap_intersect_serialize<DecimalV2Value>(
-    FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::bitmap_intersect_serialize<StringValue>(
-    FunctionContext* ctx, const StringVal& src);
+        FunctionContext* ctx, const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<StringValue>(FunctionContext* ctx,
+                                                                            const StringVal& src);
 
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<int8_t>(
-    FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<int16_t>(
-    FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<int32_t>(
-    FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<int64_t>(
-    FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<__int128>(
-    FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<float>(
-    FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<double>(
-    FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<DateTimeValue>(
-    FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<DecimalV2Value>(
-    FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<StringValue>(
-    FunctionContext* ctx, const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<int8_t>(FunctionContext* ctx,
+                                                                      const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<int16_t>(FunctionContext* ctx,
+                                                                       const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<int32_t>(FunctionContext* ctx,
+                                                                       const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<int64_t>(FunctionContext* ctx,
+                                                                       const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<__int128>(FunctionContext* ctx,
+                                                                        const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<float>(FunctionContext* ctx,
+                                                                     const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<double>(FunctionContext* ctx,
+                                                                      const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<DateTimeValue>(FunctionContext* ctx,
+                                                                             const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<DecimalV2Value>(FunctionContext* ctx,
+                                                                              const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<StringValue>(FunctionContext* ctx,
+                                                                           const StringVal& src);
 
-}
+} // namespace doris

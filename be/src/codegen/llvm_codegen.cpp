@@ -17,35 +17,35 @@
 
 #include "codegen/llvm_codegen.h"
 
-#include <fstream>
-#include <mutex>
-#include <iostream>
-#include <sstream>
-#include <boost/thread/mutex.hpp>
-
-#include <llvm/IR/DataLayout.h>
-#include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/InstructionSimplify.h>
+#include <llvm/Analysis/Passes.h>
+#include <llvm/Bitcode/ReaderWriter.h>
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/JIT.h>
-#include <llvm/Bitcode/ReaderWriter.h>
+#include <llvm/IR/DataLayout.h>
+#include <llvm/IRReader/IRReader.h>
 #include <llvm/PassManager.h>
 #include <llvm/Support/DynamicLibrary.h>
-#include <llvm/IRReader/IRReader.h>
+#include <llvm/Support/InstIterator.h>
 #include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/NoFolder.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/system_error.h>
-#include <llvm/Support/InstIterator.h>
 #include <llvm/Transforms/IPO.h>
 #include <llvm/Transforms/IPO/PassManagerBuilder.h>
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils/Cloning.h>
 
-#include "common/logging.h"
-#include "codegen/subexpr_elimination.h"
+#include <boost/thread/mutex.hpp>
+#include <fstream>
+#include <iostream>
+#include <mutex>
+#include <sstream>
+
 #include "codegen/doris_ir_data.h"
+#include "codegen/subexpr_elimination.h"
+#include "common/logging.h"
 #include "doris_ir/doris_ir_names.h"
 #include "util/cpu_info.h"
 #include "util/path_builder.h"
@@ -87,17 +87,17 @@ void LlvmCodeGen::initialize_llvm(bool load_backend) {
     }
 }
 
-LlvmCodeGen::LlvmCodeGen(ObjectPool* pool, const std::string& name) :
-        _name(name),
-        _profile(pool, "CodeGen"),
-        _optimizations_enabled(false),
-        _is_corrupt(false),
-        _is_compiled(false),
-        _context(new llvm::LLVMContext()),
-        _module(NULL),
-        _execution_engine(NULL),
-        _scratch_buffer_offset(0),
-        _debug_trace_fn(NULL) {
+LlvmCodeGen::LlvmCodeGen(ObjectPool* pool, const std::string& name)
+        : _name(name),
+          _profile(pool, "CodeGen"),
+          _optimizations_enabled(false),
+          _is_corrupt(false),
+          _is_compiled(false),
+          _context(new llvm::LLVMContext()),
+          _module(NULL),
+          _execution_engine(NULL),
+          _scratch_buffer_offset(0),
+          _debug_trace_fn(NULL) {
     DCHECK(s_llvm_initialized) << "Must call LlvmCodeGen::initialize_llvm first.";
 
     _load_module_timer = ADD_TIMER(&_profile, "LoadTime");
@@ -110,10 +110,8 @@ LlvmCodeGen::LlvmCodeGen(ObjectPool* pool, const std::string& name) :
     _loaded_functions.resize(IRFunction::FN_END);
 }
 
-Status LlvmCodeGen::load_from_file(
-        ObjectPool* pool,
-        const std::string& file,
-        boost::scoped_ptr<LlvmCodeGen>* codegen) {
+Status LlvmCodeGen::load_from_file(ObjectPool* pool, const std::string& file,
+                                   boost::scoped_ptr<LlvmCodeGen>* codegen) {
     codegen->reset(new LlvmCodeGen(pool, ""));
     SCOPED_TIMER((*codegen)->_profile.total_time_counter());
     SCOPED_TIMER((*codegen)->_load_module_timer);
@@ -143,24 +141,22 @@ Status LlvmCodeGen::load_from_file(
     return (*codegen)->init();
 }
 
-Status LlvmCodeGen::load_from_memory(
-        ObjectPool* pool, llvm::MemoryBuffer* module_ir,
-        const std::string& module_name, const std::string& id, 
-        boost::scoped_ptr<LlvmCodeGen>* codegen) {
+Status LlvmCodeGen::load_from_memory(ObjectPool* pool, llvm::MemoryBuffer* module_ir,
+                                     const std::string& module_name, const std::string& id,
+                                     boost::scoped_ptr<LlvmCodeGen>* codegen) {
     codegen->reset(new LlvmCodeGen(pool, id));
     SCOPED_TIMER((*codegen)->_profile.total_time_counter());
 
     llvm::Module* loaded_module = NULL;
-    RETURN_IF_ERROR(load_module_from_memory(
-            codegen->get(), module_ir, module_name, &loaded_module));
+    RETURN_IF_ERROR(
+            load_module_from_memory(codegen->get(), module_ir, module_name, &loaded_module));
     (*codegen)->_module = loaded_module;
 
     return (*codegen)->init();
 }
 
-Status LlvmCodeGen::load_module_from_memory(
-        LlvmCodeGen* codegen, llvm::MemoryBuffer* module_ir,
-        const std::string& module_name, llvm::Module** module) {
+Status LlvmCodeGen::load_module_from_memory(LlvmCodeGen* codegen, llvm::MemoryBuffer* module_ir,
+                                            const std::string& module_name, llvm::Module** module) {
     SCOPED_TIMER(codegen->_prepare_module_timer);
     std::string error;
     *module = llvm::ParseBitcodeFile(module_ir, codegen->context(), &error);
@@ -172,10 +168,8 @@ Status LlvmCodeGen::load_module_from_memory(
     return Status::OK();
 }
 
-Status LlvmCodeGen::load_doris_ir(
-        ObjectPool* pool, 
-        const std::string& id,
-        boost::scoped_ptr<LlvmCodeGen>* codegen_ret) {
+Status LlvmCodeGen::load_doris_ir(ObjectPool* pool, const std::string& id,
+                                  boost::scoped_ptr<LlvmCodeGen>* codegen_ret) {
     // Select the appropriate IR version.  We cannot use LLVM IR with sse instructions on
     // a machine without sse support (loading the module will fail regardless of whether
     // those instructions are run or not).
@@ -183,17 +177,16 @@ Status LlvmCodeGen::load_doris_ir(
     std::string module_name;
     if (CpuInfo::is_supported(CpuInfo::SSE4_2)) {
         module_ir = llvm::StringRef(reinterpret_cast<const char*>(doris_sse_llvm_ir),
-                              doris_sse_llvm_ir_len);
+                                    doris_sse_llvm_ir_len);
         module_name = "Doris IR with SSE support";
     } else {
         module_ir = llvm::StringRef(reinterpret_cast<const char*>(doris_no_sse_llvm_ir),
-                              doris_no_sse_llvm_ir_len);
+                                    doris_no_sse_llvm_ir_len);
         module_name = "Doris IR with no SSE support";
     }
     boost::scoped_ptr<llvm::MemoryBuffer> module_ir_buf(
-        llvm::MemoryBuffer::getMemBuffer(module_ir, "", false));
-    RETURN_IF_ERROR(load_from_memory(pool, module_ir_buf.get(), module_name, id,
-                                   codegen_ret));
+            llvm::MemoryBuffer::getMemBuffer(module_ir, "", false));
+    RETURN_IF_ERROR(load_from_memory(pool, module_ir_buf.get(), module_name, id, codegen_ret));
     LlvmCodeGen* codegen = codegen_ret->get();
 
     // Parse module for cross compiled functions and types
@@ -209,7 +202,7 @@ Status LlvmCodeGen::load_doris_ir(
     // Verify size is correct
     const llvm::DataLayout* data_layout = codegen->execution_engine()->getDataLayout();
     const llvm::StructLayout* layout =
-        data_layout->getStructLayout(static_cast<llvm::StructType*>(codegen->_string_val_type));
+            data_layout->getStructLayout(static_cast<llvm::StructType*>(codegen->_string_val_type));
 
     if (layout->getSizeInBytes() != sizeof(StringValue)) {
         DCHECK_EQ(layout->getSizeInBytes(), sizeof(StringValue));
@@ -231,7 +224,8 @@ Status LlvmCodeGen::load_doris_ir(
             // undoing the mangling is no fun either.
             if (fn_name.find(FN_MAPPINGS[j].fn_name) != std::string::npos) {
                 if (codegen->_loaded_functions[FN_MAPPINGS[j].fn] != NULL) {
-                    return Status::InternalError("Duplicate definition found for function: " + fn_name);
+                    return Status::InternalError("Duplicate definition found for function: " +
+                                                 fn_name);
                 }
 
                 codegen->_loaded_functions[FN_MAPPINGS[j].fn] = functions[i];
@@ -340,7 +334,7 @@ llvm::Type* LlvmCodeGen::get_type(const PrimitiveType& type) {
     case TYPE_BIGINT:
         return llvm::Type::getInt64Ty(context());
     case TYPE_LARGEINT:
-         return llvm::Type::getIntNTy(context(), 128);
+        return llvm::Type::getIntNTy(context(), 128);
     case TYPE_FLOAT:
         return llvm::Type::getFloatTy(context());
     case TYPE_DOUBLE:
@@ -372,7 +366,6 @@ llvm::PointerType* LlvmCodeGen::get_ptr_type(const PrimitiveType& type) {
     return llvm::PointerType::get(get_type(type), 0);
 }
 
-
 llvm::Type* LlvmCodeGen::get_type(const std::string& name) {
     return _module->getTypeByName(name);
 }
@@ -386,8 +379,8 @@ llvm::PointerType* LlvmCodeGen::get_ptr_type(const std::string& name) {
 // Llvm doesn't let you create a PointerValue from a c-side ptr.  Instead
 // cast it to an int and then to 'type'.
 llvm::Value* LlvmCodeGen::cast_ptr_to_llvm_ptr(llvm::Type* type, void* ptr) {
-    llvm::Constant* const_int = llvm::ConstantInt::get(
-            llvm::Type::getInt64Ty(context()), (int64_t)ptr);
+    llvm::Constant* const_int =
+            llvm::ConstantInt::get(llvm::Type::getInt64Ty(context()), (int64_t)ptr);
     return llvm::ConstantExpr::getIntToPtr(const_int, type);
 }
 
@@ -411,23 +404,22 @@ llvm::Value* LlvmCodeGen::get_int_constant(PrimitiveType type, int64_t val) {
     }
 }
 
-llvm::AllocaInst* LlvmCodeGen::create_entry_block_alloca(
-        llvm::Function* f,
-        const NamedVariable& var) {
+llvm::AllocaInst* LlvmCodeGen::create_entry_block_alloca(llvm::Function* f,
+                                                         const NamedVariable& var) {
     llvm::IRBuilder<> tmp(&f->getEntryBlock(), f->getEntryBlock().begin());
     return tmp.CreateAlloca(var.type, 0, var.name.c_str());
 }
 
-llvm::AllocaInst* LlvmCodeGen::create_entry_block_alloca(
-        const LlvmBuilder& builder, llvm::Type* type, const char* name) {
-    return create_entry_block_alloca(
-        builder.GetInsertBlock()->getParent(), NamedVariable(name, type));
+llvm::AllocaInst* LlvmCodeGen::create_entry_block_alloca(const LlvmBuilder& builder,
+                                                         llvm::Type* type, const char* name) {
+    return create_entry_block_alloca(builder.GetInsertBlock()->getParent(),
+                                     NamedVariable(name, type));
 }
 
-void LlvmCodeGen::create_if_else_blocks(
-        llvm::Function* fn, const std::string& if_name,
-        const std::string& else_name, llvm::BasicBlock** if_block, llvm::BasicBlock** else_block,
-        llvm::BasicBlock* insert_before) {
+void LlvmCodeGen::create_if_else_blocks(llvm::Function* fn, const std::string& if_name,
+                                        const std::string& else_name, llvm::BasicBlock** if_block,
+                                        llvm::BasicBlock** else_block,
+                                        llvm::BasicBlock* insert_before) {
     *if_block = llvm::BasicBlock::Create(context(), if_name, fn, insert_before);
     *else_block = llvm::BasicBlock::Create(context(), else_name, fn, insert_before);
 }
@@ -467,8 +459,8 @@ bool LlvmCodeGen::verify_function(llvm::Function* fn) {
         llvm::CallInst* call_instr = reinterpret_cast<llvm::CallInst*>(instr);
         llvm::Function* called_fn = call_instr->getCalledFunction();
         // look for call to Expr::GetConstant()
-        if (called_fn != NULL && called_fn->getName().find(
-                    Expr::_s_get_constant_symbol_prefix) != std::string::npos) {
+        if (called_fn != NULL &&
+            called_fn->getName().find(Expr::_s_get_constant_symbol_prefix) != std::string::npos) {
             LOG(ERROR) << "Found call to Expr::GetConstant(): " << print(call_instr);
             _is_corrupt = true;
             break;
@@ -501,27 +493,27 @@ bool LlvmCodeGen::verify_function(llvm::Function* fn) {
     return true;
 }
 
-LlvmCodeGen::FnPrototype::FnPrototype(
-    LlvmCodeGen* gen, const std::string& name, llvm::Type* ret_type) :
-    _codegen(gen), _name(name), _ret_type(ret_type) {
+LlvmCodeGen::FnPrototype::FnPrototype(LlvmCodeGen* gen, const std::string& name,
+                                      llvm::Type* ret_type)
+        : _codegen(gen), _name(name), _ret_type(ret_type) {
     DCHECK(!_codegen->_is_compiled) << "Not valid to add additional functions";
 }
 
-llvm::Function* LlvmCodeGen::FnPrototype::generate_prototype(
-        LlvmBuilder* builder, llvm::Value** params) {
+llvm::Function* LlvmCodeGen::FnPrototype::generate_prototype(LlvmBuilder* builder,
+                                                             llvm::Value** params) {
     std::vector<llvm::Type*> arguments;
     for (int i = 0; i < _args.size(); ++i) {
         arguments.push_back(_args[i].type);
     }
     llvm::FunctionType* prototype = llvm::FunctionType::get(_ret_type, arguments, false);
-    llvm::Function* fn = llvm::Function::Create(
-        prototype, llvm::Function::ExternalLinkage, _name, _codegen->_module);
+    llvm::Function* fn = llvm::Function::Create(prototype, llvm::Function::ExternalLinkage, _name,
+                                                _codegen->_module);
     DCHECK(fn != NULL);
 
     // Name the arguments
     int idx = 0;
-    for (llvm::Function::arg_iterator iter = fn->arg_begin();
-            iter != fn->arg_end(); ++iter, ++idx) {
+    for (llvm::Function::arg_iterator iter = fn->arg_begin(); iter != fn->arg_end();
+         ++iter, ++idx) {
         iter->setName(_args[idx].name);
         if (params != NULL) {
             params[idx] = iter;
@@ -537,9 +529,9 @@ llvm::Function* LlvmCodeGen::FnPrototype::generate_prototype(
     return fn;
 }
 
-llvm::Function* LlvmCodeGen::replace_call_sites(
-        llvm::Function* caller, bool update_in_place,
-        llvm::Function* new_fn, const std::string& replacee_name, int* replaced) {
+llvm::Function* LlvmCodeGen::replace_call_sites(llvm::Function* caller, bool update_in_place,
+                                                llvm::Function* new_fn,
+                                                const std::string& replacee_name, int* replaced) {
     DCHECK(caller->getParent() == _module);
 
     if (!update_in_place) {
@@ -687,8 +679,8 @@ Status LlvmCodeGen::finalize_module() {
 
     // Don't waste time optimizing module if there are no functions to JIT. This can happen
     // if the codegen object is created but no functions are successfully codegen'd.
-    if (_optimizations_enabled // TODO(zc): && !FLAGS_disable_optimization_passes 
-            && !_fns_to_jit_compile.empty()) {
+    if (_optimizations_enabled // TODO(zc): && !FLAGS_disable_optimization_passes
+        && !_fns_to_jit_compile.empty()) {
         optimize_module();
     }
 
@@ -728,7 +720,7 @@ void LlvmCodeGen::optimize_module() {
     pass_builder.OptLevel = 2;
     // Don't optimize for code size (this corresponds to -O2/-O3)
     pass_builder.SizeLevel = 0;
-    pass_builder.Inliner = llvm::createFunctionInliningPass() ;
+    pass_builder.Inliner = llvm::createFunctionInliningPass();
 
     // Specifying the data layout is necessary for some optimizations (e.g. removing many
     // of the loads/stores produced by structs).
@@ -812,7 +804,6 @@ void LlvmCodeGen::add_function_to_jit(llvm::Function* fn, void** fn_ptr) {
     _fns_to_jit_compile.push_back(std::make_pair(fn, fn_ptr));
 }
 
-
 void* LlvmCodeGen::jit_function(llvm::Function* function, int* scratch_size) {
     if (_is_corrupt) {
         return NULL;
@@ -858,18 +849,17 @@ void LlvmCodeGen::codegen_debug_trace(LlvmBuilder* builder, const char* str) {
         args.push_back(_ptr_type);
         llvm::FunctionType* fn_type = llvm::FunctionType::get(_void_type, args, false);
         _debug_trace_fn = llvm::Function::Create(fn_type, llvm::GlobalValue::ExternalLinkage,
-                                           "debug_trace", _module);
+                                                 "debug_trace", _module);
 
         DCHECK(_debug_trace_fn != NULL);
         // debug_trace shouldn't already exist (llvm mangles function names if there
         // are duplicates)
-        DCHECK(_debug_trace_fn->getName() ==  "debug_trace");
+        DCHECK(_debug_trace_fn->getName() == "debug_trace");
 
         _debug_trace_fn->setCallingConv(llvm::CallingConv::C);
 
         // Add a mapping to the execution engine so it can link the debug_trace function
-        _execution_engine->addGlobalMapping(_debug_trace_fn,
-                                            reinterpret_cast<void*>(&debug_trace));
+        _execution_engine->addGlobalMapping(_debug_trace_fn, reinterpret_cast<void*>(&debug_trace));
     }
 
     // Make a copy of str into memory owned by this object.  This is no guarantee that str is
@@ -990,9 +980,9 @@ llvm::Function* LlvmCodeGen::codegen_min_max(const TypeDescriptor& type, bool mi
 Status LlvmCodeGen::load_intrinsics() {
     // Load memcpy
     {
-        llvm::Type* types[] = { ptr_type(), ptr_type(), get_type(TYPE_INT) };
-        llvm::Function* fn = llvm::Intrinsic::getDeclaration(
-                module(), llvm::Intrinsic::memcpy, types);
+        llvm::Type* types[] = {ptr_type(), ptr_type(), get_type(TYPE_INT)};
+        llvm::Function* fn =
+                llvm::Intrinsic::getDeclaration(module(), llvm::Intrinsic::memcpy, types);
 
         if (fn == NULL) {
             return Status::InternalError("Could not find memcpy intrinsic.");
@@ -1006,13 +996,13 @@ Status LlvmCodeGen::load_intrinsics() {
         llvm::Intrinsic::ID id;
         const char* error;
     } non_overloaded_intrinsics[] = {
-        { llvm::Intrinsic::x86_sse42_crc32_32_8, "sse4.2 crc32_u8" },
-        { llvm::Intrinsic::x86_sse42_crc32_32_16, "sse4.2 crc32_u16" },
-        { llvm::Intrinsic::x86_sse42_crc32_32_32, "sse4.2 crc32_u32" },
-        { llvm::Intrinsic::x86_sse42_crc32_64_64, "sse4.2 crc32_u64" },
+            {llvm::Intrinsic::x86_sse42_crc32_32_8, "sse4.2 crc32_u8"},
+            {llvm::Intrinsic::x86_sse42_crc32_32_16, "sse4.2 crc32_u16"},
+            {llvm::Intrinsic::x86_sse42_crc32_32_32, "sse4.2 crc32_u32"},
+            {llvm::Intrinsic::x86_sse42_crc32_64_64, "sse4.2 crc32_u64"},
     };
     const int num_intrinsics =
-        sizeof(non_overloaded_intrinsics) / sizeof(non_overloaded_intrinsics[0]);
+            sizeof(non_overloaded_intrinsics) / sizeof(non_overloaded_intrinsics[0]);
 
     for (int i = 0; i < num_intrinsics; ++i) {
         llvm::Intrinsic::ID id = non_overloaded_intrinsics[i].id;
@@ -1030,7 +1020,8 @@ Status LlvmCodeGen::load_intrinsics() {
     return Status::OK();
 }
 
-void LlvmCodeGen::codegen_memcpy(LlvmBuilder* builder, llvm::Value* dst, llvm::Value* src, int size) {
+void LlvmCodeGen::codegen_memcpy(LlvmBuilder* builder, llvm::Value* dst, llvm::Value* src,
+                                 int size) {
     // Cast src/dst to int8_t*.  If they already are, this will get optimized away
     DCHECK(llvm::PointerType::classof(dst->getType()));
     DCHECK(llvm::PointerType::classof(src->getType()));
@@ -1045,27 +1036,26 @@ void LlvmCodeGen::codegen_memcpy(LlvmBuilder* builder, llvm::Value* dst, llvm::V
     // must guarantee that the src and dst values are aligned to that byte boundary.
     // TODO: We should try to take advantage of this since our tuples are well aligned.
     llvm::Value* args[] = {
-        dst, src, get_int_constant(TYPE_INT, size),
-        get_int_constant(TYPE_INT, 0),
-        false_value()                       // is_volatile.
+            dst, src, get_int_constant(TYPE_INT, size), get_int_constant(TYPE_INT, 0),
+            false_value() // is_volatile.
     };
     builder->CreateCall(memcpy_fn, args);
 }
 
-Value* LlvmCodeGen::codegen_array_at(
-        LlvmBuilder* builder, Value* array, int idx, const char* name) {
+Value* LlvmCodeGen::codegen_array_at(LlvmBuilder* builder, Value* array, int idx,
+                                     const char* name) {
     DCHECK(array->getType()->isPointerTy() || array->getType()->isArrayTy())
-        << print(array->getType());
+            << print(array->getType());
     Value* ptr = builder->CreateConstGEP1_32(array, idx);
     return builder->CreateLoad(ptr, name);
 }
 
-void LlvmCodeGen::codegen_assign(LlvmBuilder* builder,
-                                llvm::Value* dst, llvm::Value* src, PrimitiveType type) {
+void LlvmCodeGen::codegen_assign(LlvmBuilder* builder, llvm::Value* dst, llvm::Value* src,
+                                 PrimitiveType type) {
     switch (type) {
     case TYPE_CHAR:
-    case TYPE_VARCHAR: 
-    case TYPE_HLL:  {
+    case TYPE_VARCHAR:
+    case TYPE_HLL: {
         codegen_memcpy(builder, dst, src, sizeof(StringValue));
         break;
     }
@@ -1147,14 +1137,14 @@ llvm::Function* LlvmCodeGen::get_hash_function(int num_bytes) {
             int i = 0;
 
             while (num_bytes >= 8) {
-                llvm::Value* index[] = { get_int_constant(TYPE_INT, i++) };
+                llvm::Value* index[] = {get_int_constant(TYPE_INT, i++)};
                 llvm::Value* d = builder.CreateLoad(builder.CreateGEP(ptr, index));
                 result_64 = builder.CreateCall2(crc64_fn, result_64, d);
                 num_bytes -= 8;
             }
 
             result = builder.CreateTrunc(result_64, get_type(TYPE_INT));
-            llvm::Value* index[] = { get_int_constant(TYPE_INT, i * 8) };
+            llvm::Value* index[] = {get_int_constant(TYPE_INT, i * 8)};
             // Update data to past the 8-byte chunks
             data = builder.CreateGEP(data, index);
         }
@@ -1164,7 +1154,7 @@ llvm::Function* LlvmCodeGen::get_hash_function(int num_bytes) {
             llvm::Value* ptr = builder.CreateBitCast(data, get_ptr_type(TYPE_INT));
             llvm::Value* d = builder.CreateLoad(ptr);
             result = builder.CreateCall2(crc32_fn, result, d);
-            llvm::Value* index[] = { get_int_constant(TYPE_INT, 4) };
+            llvm::Value* index[] = {get_int_constant(TYPE_INT, 4)};
             data = builder.CreateGEP(data, index);
             num_bytes -= 4;
         }
@@ -1174,7 +1164,7 @@ llvm::Function* LlvmCodeGen::get_hash_function(int num_bytes) {
             llvm::Value* ptr = builder.CreateBitCast(data, get_ptr_type(TYPE_SMALLINT));
             llvm::Value* d = builder.CreateLoad(ptr);
             result = builder.CreateCall2(crc16_fn, result, d);
-            llvm::Value* index[] = { get_int_constant(TYPE_INT, 2) };
+            llvm::Value* index[] = {get_int_constant(TYPE_INT, 2)};
             data = builder.CreateGEP(data, index);
             num_bytes -= 2;
         }
@@ -1210,8 +1200,8 @@ llvm::Value* LlvmCodeGen::get_ptr_to(LlvmBuilder* builder, llvm::Value* v, const
     return ptr;
 }
 
-llvm::Instruction::CastOps LlvmCodeGen::get_cast_op(
-        const TypeDescriptor& from_type, const TypeDescriptor& to_type) {
+llvm::Instruction::CastOps LlvmCodeGen::get_cast_op(const TypeDescriptor& from_type,
+                                                    const TypeDescriptor& to_type) {
     switch (from_type.type) {
     case TYPE_BOOLEAN: {
         switch (to_type.type) {
@@ -1352,4 +1342,4 @@ llvm::Instruction::CastOps LlvmCodeGen::get_cast_op(
     return llvm::Instruction::CastOpsEnd;
 }
 
-}
+} // namespace doris

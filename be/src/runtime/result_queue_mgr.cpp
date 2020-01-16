@@ -27,12 +27,11 @@
 
 namespace doris {
 
-ResultQueueMgr::ResultQueueMgr() {
-}
-ResultQueueMgr::~ResultQueueMgr() {
-}
+ResultQueueMgr::ResultQueueMgr() {}
+ResultQueueMgr::~ResultQueueMgr() {}
 
-Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::shared_ptr<arrow::RecordBatch>* result, bool *eos) {
+Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id,
+                                    std::shared_ptr<arrow::RecordBatch>* result, bool* eos) {
     BlockQueueSharedPtr queue;
     {
         std::lock_guard<std::mutex> l(_lock);
@@ -63,7 +62,8 @@ Status ResultQueueMgr::fetch_result(const TUniqueId& fragment_instance_id, std::
     return Status::OK();
 }
 
-void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id, BlockQueueSharedPtr* queue) {
+void ResultQueueMgr::create_queue(const TUniqueId& fragment_instance_id,
+                                  BlockQueueSharedPtr* queue) {
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _fragment_queue_map.find(fragment_instance_id);
     if (iter != _fragment_queue_map.end()) {
@@ -89,7 +89,8 @@ Status ResultQueueMgr::cancel(const TUniqueId& fragment_instance_id) {
     return Status::OK();
 }
 
-void ResultQueueMgr::update_queue_status(const TUniqueId& fragment_instance_id, const Status& status) {
+void ResultQueueMgr::update_queue_status(const TUniqueId& fragment_instance_id,
+                                         const Status& status) {
     if (status.ok()) {
         return;
     }
@@ -100,4 +101,4 @@ void ResultQueueMgr::update_queue_status(const TUniqueId& fragment_instance_id, 
     }
 }
 
-}
+} // namespace doris

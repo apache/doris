@@ -18,13 +18,15 @@
 #ifndef INF_DORIS_QE_SRC_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR_H
 #define INF_DORIS_QE_SRC_BE_SRC_RUNTIME_BUFFERED_BLOCK_MGR_H
 
-#include <boost/shared_ptr.hpp>
-#include <boost/scoped_ptr.hpp>
-#include <common/status.h>
 #include <common/object_pool.h>
-#include "runtime/mem_pool.h"
-#include "common/logging.h"
+#include <common/status.h>
+
+#include <boost/scoped_ptr.hpp>
+#include <boost/shared_ptr.hpp>
 #include <list>
+
+#include "common/logging.h"
+#include "runtime/mem_pool.h"
 
 namespace doris {
 
@@ -38,15 +40,12 @@ public:
     class Block { //}: public InternalQueue<Block>::Node {
     public:
         ~Block() {}
-        void add_row() {
-            ++_num_rows;
-        }
-        int num_rows() const {
-            return _num_rows;
-        }
+        void add_row() { ++_num_rows; }
+        int num_rows() const { return _num_rows; }
 
         // Allocates the specified number of bytes from this block.
-        template <typename T> T* allocate(int size) {
+        template <typename T>
+        T* allocate(int size) {
             DCHECK_GE(bytes_remaining(), size);
             uint8_t* current_location = _buffer_desc->buffer + _valid_data_len;
             _valid_data_len += size;
@@ -73,30 +72,20 @@ public:
         }
 
         // Return the number of bytes allocated in this block.
-        int64_t valid_data_len() const {
-            return _valid_data_len;
-        }
+        int64_t valid_data_len() const { return _valid_data_len; }
 
         // Returns the length of the underlying buffer. Only callable if the block is
         // pinned.
-        int64_t buffer_len() const {
-            return _buffer_desc->len;
-        }
+        int64_t buffer_len() const { return _buffer_desc->len; }
 
         // Returns true if this block is the max block size. Only callable if the block
         // is pinned.
-        bool is_max_size() const {
-            return _buffer_desc->len == _block_mgr->max_block_size();
-        }
+        bool is_max_size() const { return _buffer_desc->len == _block_mgr->max_block_size(); }
 
-        Status delete_block() {
-            return Status::OK();
-        }
+        Status delete_block() { return Status::OK(); }
 
         // Debug helper method to print the state of a block.
-        std::string debug_string() const {
-            return "";
-        }
+        std::string debug_string() const { return ""; }
 
     private:
         friend class BufferedBlockMgr;
@@ -120,20 +109,17 @@ public:
         int _num_rows;
     }; // class Block
 
-    static Status create(RuntimeState* state,
-                         int64_t block_size, boost::shared_ptr<BufferedBlockMgr>* block_mgr);
+    static Status create(RuntimeState* state, int64_t block_size,
+                         boost::shared_ptr<BufferedBlockMgr>* block_mgr);
 
-    ~BufferedBlockMgr() {};
+    ~BufferedBlockMgr(){};
 
     Status get_new_block(Block** block, int64_t len);
 
     Status get_new_block(Block** block);
-    int64_t max_block_size() const {
-        return _max_block_size;
-    }
+    int64_t max_block_size() const { return _max_block_size; }
 
 private:
-
     // Descriptor for a single memory buffer in the pool.
     struct BufferDescriptor { //}: public InternalQueue<BufferDescriptor>::Node {
         // Start of the buffer
@@ -148,9 +134,7 @@ private:
         // Iterator into all_io_buffers_ for this buffer.
         std::list<BufferDescriptor*>::iterator all_buffers_it;
 
-        BufferDescriptor(uint8_t* buf, int64_t len)
-            : buffer(buf), len(len), block(NULL) {
-        }
+        BufferDescriptor(uint8_t* buf, int64_t len) : buffer(buf), len(len), block(NULL) {}
     }; //block
 
 private:

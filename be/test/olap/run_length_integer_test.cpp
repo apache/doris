@@ -18,24 +18,22 @@
 #include <gtest/gtest.h>
 
 #include "olap/byte_buffer.h"
-#include "olap/out_stream.h"
 #include "olap/in_stream.h"
-#include "olap/rowset/run_length_integer_writer.h"
+#include "olap/out_stream.h"
 #include "olap/rowset/run_length_integer_reader.h"
-#include "olap/stream_index_writer.h"
+#include "olap/rowset/run_length_integer_writer.h"
 #include "olap/stream_index_reader.h"
+#include "olap/stream_index_writer.h"
 #include "util/logging.h"
 
 namespace doris {
 
 class TestRunLengthUnsignInteger : public testing::Test {
 public:
-    TestRunLengthUnsignInteger() {
-    }
-    
-    virtual ~TestRunLengthUnsignInteger() {
-    }
-    
+    TestRunLengthUnsignInteger() {}
+
+    virtual ~TestRunLengthUnsignInteger() {}
+
     virtual void SetUp() {
         system("mkdir -p ./ut_dir");
         system("rm -rf ./ut_dir/tmp_file");
@@ -43,9 +41,8 @@ public:
         ASSERT_TRUE(_out_stream != NULL);
         _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, false);
         ASSERT_TRUE(_writer != NULL);
+    }
 
-    }   
-    
     virtual void TearDown() {
         SAFE_DELETE(_reader);
         SAFE_DELETE(_out_stream);
@@ -55,26 +52,22 @@ public:
     }
 
     void CreateReader() {
-        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode(_file_path.c_str(), 
-                O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR));
+        ASSERT_EQ(OLAP_SUCCESS,
+                  helper.open_with_mode(_file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY,
+                                        S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&helper, 0);
         helper.close();
 
-        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode(_file_path.c_str(), 
-                O_RDONLY, S_IRUSR | S_IWUSR)); 
+        ASSERT_EQ(OLAP_SUCCESS,
+                  helper.open_with_mode(_file_path.c_str(), O_RDONLY, S_IRUSR | S_IWUSR));
 
-        _shared_buffer = StorageByteBuffer::create(
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
+        _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
+                                                   sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
 
-        _stream = new (std::nothrow) ReadOnlyFileStream(
-                &helper, 
-                &_shared_buffer,
-                0, 
-                helper.length(), 
-                NULL, 
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
-                &_stats);
+        _stream = new (std::nothrow)
+                ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), NULL,
+                                   OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) RunLengthIntegerReader(_stream, false);
@@ -92,12 +85,11 @@ public:
     std::string _file_path = "./ut_dir/tmp_file";
 };
 
-
 TEST_F(TestRunLengthUnsignInteger, ReadWriteOneInteger) {
     // write data
     ASSERT_EQ(OLAP_SUCCESS, _writer->write(100));
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -115,9 +107,9 @@ TEST_F(TestRunLengthUnsignInteger, ReadWriteMultiInteger) {
     for (int32_t i = 0; i < 4; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
-    
+
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -127,7 +119,7 @@ TEST_F(TestRunLengthUnsignInteger, ReadWriteMultiInteger) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
@@ -145,9 +137,9 @@ TEST_F(TestRunLengthUnsignInteger, seek) {
     _writer->write(108);
     _writer->write(109);
     _writer->write(110);
-    
+
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -175,9 +167,9 @@ TEST_F(TestRunLengthUnsignInteger, skip) {
     for (int32_t i = 0; i < 4; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
-    
+
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -190,14 +182,14 @@ TEST_F(TestRunLengthUnsignInteger, skip) {
     ASSERT_NE(OLAP_SUCCESS, _reader->next(&value));
 }
 
-TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding) { 
+TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding) {
     // write data
     int64_t write_data[] = {100, 100, 100, 100};
     for (int32_t i = 0; i < 4; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -207,18 +199,18 @@ TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
-TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding2) {     
+TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding2) {
     // write data
     int64_t write_data[] = {876012345678912, 876012345678912, 876012345678912, 876012345678912};
     for (int32_t i = 0; i < 4; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -228,18 +220,18 @@ TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding2) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
-TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding3) { 
+TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding3) {
     // write data
     int64_t write_data[] = {876012345678912};
     for (int32_t i = 0; i < 1; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -249,19 +241,18 @@ TEST_F(TestRunLengthUnsignInteger, ShortRepeatEncoding3) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
-
-TEST_F(TestRunLengthUnsignInteger, DirectEncoding) { 
+TEST_F(TestRunLengthUnsignInteger, DirectEncoding) {
     // write data
     int64_t write_data[] = {1703, 6054, 8760, 902};
     for (int32_t i = 0; i < 4; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -271,18 +262,18 @@ TEST_F(TestRunLengthUnsignInteger, DirectEncoding) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
-TEST_F(TestRunLengthUnsignInteger, DirectEncoding2) { 
+TEST_F(TestRunLengthUnsignInteger, DirectEncoding2) {
     // write data
-    int64_t write_data[] = {1703, 6054, 876012345678912, 902, 9292, 184932,873624, 827364, 999, 8};
+    int64_t write_data[] = {1703, 6054, 876012345678912, 902, 9292, 184932, 873624, 827364, 999, 8};
     for (int32_t i = 0; i < 10; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -292,19 +283,20 @@ TEST_F(TestRunLengthUnsignInteger, DirectEncoding2) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
-TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding1) { 
+TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding1) {
     // write data
-    int64_t write_data[] = {1703, 6054, 876012345678912, 902, 9292, 184932,873624, 827364, 999, 8,
-                            1,    3323, 432232523,       90982, 9,   223234, 5,      44,   5,   3};
+    int64_t write_data[] = {
+            1703, 6054, 876012345678912, 902,   9292, 184932, 873624, 827364, 999, 8,
+            1,    3323, 432232523,       90982, 9,    223234, 5,      44,     5,   3};
     for (int32_t i = 0; i < 20; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -314,21 +306,20 @@ TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding1) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
-    
 }
 
-
-TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding2) { 
+TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding2) {
     // write data
-    int64_t write_data[] = {1703, 6054, 902, 9292, 184932,873624, 827364, 999, 8,
-                            1,    3323, 432232523,       90982, 9,   223234, 5,    876012345678912,   44,   5,   3};
+    int64_t write_data[] = {
+            1703, 6054,      902,   9292, 184932, 873624, 827364,          999, 8, 1,
+            3323, 432232523, 90982, 9,    223234, 5,      876012345678912, 44,  5, 3};
     for (int32_t i = 0; i < 20; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -338,27 +329,25 @@ TEST_F(TestRunLengthUnsignInteger, PatchedBaseEncoding2) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
 class TestRunLengthSignInteger : public testing::Test {
 public:
-    TestRunLengthSignInteger() {
-    }
-    
-    virtual ~TestRunLengthSignInteger() {
-    }
-    
-virtual void SetUp() {
+    TestRunLengthSignInteger() {}
+
+    virtual ~TestRunLengthSignInteger() {}
+
+    virtual void SetUp() {
         system("mkdir -p ./ut_dir");
         system("rm ./ut_dir/tmp_file");
         _out_stream = new (std::nothrow) OutStream(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, NULL);
         ASSERT_TRUE(_out_stream != NULL);
         _writer = new (std::nothrow) RunLengthIntegerWriter(_out_stream, true);
         ASSERT_TRUE(_writer != NULL);
-    }   
-    
+    }
+
     virtual void TearDown() {
         SAFE_DELETE(_reader);
         SAFE_DELETE(_out_stream);
@@ -368,26 +357,22 @@ virtual void SetUp() {
     }
 
     void CreateReader() {
-        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode(_file_path.c_str(),
-                O_CREAT | O_EXCL | O_WRONLY, S_IRUSR | S_IWUSR));
+        ASSERT_EQ(OLAP_SUCCESS,
+                  helper.open_with_mode(_file_path.c_str(), O_CREAT | O_EXCL | O_WRONLY,
+                                        S_IRUSR | S_IWUSR));
         _out_stream->write_to_file(&helper, 0);
         helper.close();
 
-        ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode(_file_path.c_str(),
-                O_RDONLY, S_IRUSR | S_IWUSR)); 
+        ASSERT_EQ(OLAP_SUCCESS,
+                  helper.open_with_mode(_file_path.c_str(), O_RDONLY, S_IRUSR | S_IWUSR));
 
-        _shared_buffer = StorageByteBuffer::create(
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
+        _shared_buffer = StorageByteBuffer::create(OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE +
+                                                   sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
 
-        _stream = new (std::nothrow) ReadOnlyFileStream(
-                &helper, 
-                &_shared_buffer,
-                0, 
-                helper.length(), 
-                NULL, 
-                OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE,
-                &_stats);
+        _stream = new (std::nothrow)
+                ReadOnlyFileStream(&helper, &_shared_buffer, 0, helper.length(), NULL,
+                                   OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE, &_stats);
         ASSERT_EQ(OLAP_SUCCESS, _stream->init());
 
         _reader = new (std::nothrow) RunLengthIntegerReader(_stream, true);
@@ -404,12 +389,11 @@ virtual void SetUp() {
     std::string _file_path = "./ut_dir/tmp_file";
 };
 
-
 TEST_F(TestRunLengthSignInteger, ReadWriteOneInteger) {
     // write data
-    ASSERT_EQ(OLAP_SUCCESS,  _writer->write(100));
+    ASSERT_EQ(OLAP_SUCCESS, _writer->write(100));
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -423,9 +407,9 @@ TEST_F(TestRunLengthSignInteger, ReadWriteOneInteger) {
 
 TEST_F(TestRunLengthSignInteger, ReadWriteOneInteger2) {
     // write data
-    ASSERT_EQ(OLAP_SUCCESS,  _writer->write(1234567800));
+    ASSERT_EQ(OLAP_SUCCESS, _writer->write(1234567800));
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -443,9 +427,9 @@ TEST_F(TestRunLengthSignInteger, ReadWriteMultiInteger) {
     for (int32_t i = 0; i < 4; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
-    
+
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -455,7 +439,7 @@ TEST_F(TestRunLengthSignInteger, ReadWriteMultiInteger) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
@@ -473,9 +457,9 @@ TEST_F(TestRunLengthSignInteger, seek) {
     _writer->write(108);
     _writer->write(109);
     _writer->write(110);
-    
+
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -503,9 +487,9 @@ TEST_F(TestRunLengthSignInteger, skip) {
     for (int32_t i = 0; i < 4; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
-    
+
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -518,14 +502,14 @@ TEST_F(TestRunLengthSignInteger, skip) {
     ASSERT_NE(OLAP_SUCCESS, _reader->next(&value));
 }
 
-TEST_F(TestRunLengthSignInteger, ShortRepeatEncoding) { 
+TEST_F(TestRunLengthSignInteger, ShortRepeatEncoding) {
     // write data
     int64_t write_data[] = {-100, -100, -100, -100};
     for (int32_t i = 0; i < 4; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -535,19 +519,18 @@ TEST_F(TestRunLengthSignInteger, ShortRepeatEncoding) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
-
-TEST_F(TestRunLengthSignInteger, DirectEncoding) { 
+TEST_F(TestRunLengthSignInteger, DirectEncoding) {
     // write data
     int64_t write_data[] = {-1703, -6054, -8760, -902};
     for (int32_t i = 0; i < 4; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -557,7 +540,7 @@ TEST_F(TestRunLengthSignInteger, DirectEncoding) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
 }
 
@@ -566,9 +549,9 @@ TEST_F(TestRunLengthUnsignInteger, ReadWriteMassInteger) {
     for (int64_t i = 0; i < 100000; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(i));
     }
-    
+
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -578,18 +561,18 @@ TEST_F(TestRunLengthUnsignInteger, ReadWriteMassInteger) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, i);
     }
-
 }
 
-TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding1) { 
+TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding1) {
     // write data
-    int64_t write_data[] = {1703, 6054, -876012345678912, 902, 9292, 184932,873624, 827364, 999, 8,
-                            1,    3323, 432232523,       -90982, 9,   223234, 5,      44,   5,   3};
+    int64_t write_data[] = {
+            1703, 6054, -876012345678912, 902,    9292, 184932, 873624, 827364, 999, 8,
+            1,    3323, 432232523,        -90982, 9,    223234, 5,      44,     5,   3};
     for (int32_t i = 0; i < 20; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -599,20 +582,20 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding1) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
-    
 }
 
-TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding2) { 
+TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding2) {
     // write data
-    int64_t write_data[] = {-1703, -6054, -876012345678912, -902, -9292, -184932, -873624, -827364, -999, -8,
-                            -1,    -3323, -432232523,       -90982, -9,   -223234, -5,      -44,   -5,   -3};
+    int64_t write_data[] = {
+            -1703, -6054, -876012345678912, -902,   -9292, -184932, -873624, -827364, -999, -8,
+            -1,    -3323, -432232523,       -90982, -9,    -223234, -5,      -44,     -5,   -3};
     for (int32_t i = 0; i < 20; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -622,21 +605,21 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding2) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
-    
 }
 
 // case for T in [if ((base & mask) != 0)]
-TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding3) { 
+TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding3) {
     // write data
-    int64_t write_data[] = {1703, 6054, 876012345678912, 902, 9292, 184932,873624, 827364, 999, 888,
-                            -300,    3323, 432232523,       -90982, 450,   223234, 690,      444,   555,   333};
+    int64_t write_data[] = {
+            1703, 6054, 876012345678912, 902,    9292, 184932, 873624, 827364, 999, 888,
+            -300, 3323, 432232523,       -90982, 450,  223234, 690,    444,    555, 333};
     for (int32_t i = 0; i < 20; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -646,14 +629,14 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding3) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
-    
 }
 
 // test fo gap > 255
-TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding4) { 
+TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding4) {
     // write data
+    // clang-format off
     int64_t write_data[] = {300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
@@ -669,12 +652,13 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding4) {
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             876012345678912};
-    
+    // clang-format on
+
     for (int32_t i = 0; i < 281; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -684,14 +668,14 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding4) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
-    
 }
 
 // test for [if (max_gap == 511)]
-TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) { 
+TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) {
     // write data
+    // clang-format off
     int64_t write_data[] = {300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
@@ -718,12 +702,13 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) {
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 432232523, 90982, 450,   223234, 690, 444,   555,   333, 232,
                             300, 6054, 902, 9292, 184932,873624, 827364, 999, 888, 1703, 3323, 876012345678912};
-    
+    // clang-format on
+
     for (int32_t i = 0; i < 512; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -733,9 +718,8 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
-    
 }
 
 // this case use to test large negative number.
@@ -745,6 +729,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding5) {
 // The byte number is encoding as (8-1) = 7, in 111 binary form.
 TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding6) {
     // write data
+    // clang-format off
     int64_t write_data[] = {-17887939293638656, -15605417571528704,
                             -15605417571528704, -13322895849418752,
                             -13322895849418752, -84742859065569280,
@@ -760,6 +745,7 @@ TEST_F(TestRunLengthSignInteger, PatchedBaseEncoding6) {
                             -15605417571528704, -15605417571528704,
                             -13322895849418752, -13322895849418752,
                             -15605417571528704, -13322895849418752};
+    // clang-format on
     for (int32_t i = 0; i < 30; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
@@ -800,9 +786,9 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows1) {
     ASSERT_FALSE(_reader->has_next());
 }
 
-TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) { 
-
+TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) {
     // write data
+    // clang-format off
     int64_t write_data[388] = {-10655366027330, -8, -8, 17062988027150, 33791751739027, 11226586316144, 
     28085455533984, 3809037113342, 4519464927340, 7057442420685, 14594401530747, 51297588056932, 22756638885750, 
     33503880074496, 37462526094279, 2768357503914, 10013218679000, 9782540355504, 14191567385952, 7500449144168, 
@@ -860,13 +846,13 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) {
     1984995522276, 38210789175216, 13140877390832, 36472949862774, 11003144677000, 34026969817136, 68246909413281, 
     9480783308290, 8927412760982, 44662728145200, 4559499822921, 13378660270086, 50432177305629, 33536986417717, 
     8548419242610, 43216481118384, 37549778463076, 2, 9223372036854775807};
-
+    // clang-format on
 
     for (int32_t i = 0; i < 388; i++) {
         ASSERT_EQ(OLAP_SUCCESS, _writer->write(write_data[i]));
     }
     ASSERT_EQ(OLAP_SUCCESS, _writer->flush());
-    
+
     // read data
     CreateReader();
 
@@ -876,12 +862,11 @@ TEST_F(TestRunLengthSignInteger, DirectEncodingForDeltaOverflows2) {
         ASSERT_EQ(OLAP_SUCCESS, _reader->next(&value));
         ASSERT_EQ(value, write_data[i]);
     }
-    
+
     ASSERT_FALSE(_reader->has_next());
-   
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     int ret = doris::OLAP_SUCCESS;
@@ -890,4 +875,3 @@ int main(int argc, char** argv) {
     google::protobuf::ShutdownProtobufLibrary();
     return ret;
 }
-

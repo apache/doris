@@ -31,22 +31,17 @@ namespace doris {
 
 // Broker
 
-BrokerReader::BrokerReader(
-        ExecEnv* env,
-        const std::vector<TNetworkAddress>& broker_addresses,
-        const std::map<std::string, std::string>& properties,
-        const std::string& path,
-        int64_t start_offset,
-        int64_t file_size) :
-            _env(env),
-            _addresses(broker_addresses),
-            _properties(properties),
-            _path(path),
-            _cur_offset(start_offset),
-            _is_fd_valid(false),
-            _file_size(file_size),
-            _addr_idx(0) {
-}
+BrokerReader::BrokerReader(ExecEnv* env, const std::vector<TNetworkAddress>& broker_addresses,
+                           const std::map<std::string, std::string>& properties,
+                           const std::string& path, int64_t start_offset, int64_t file_size)
+        : _env(env),
+          _addresses(broker_addresses),
+          _properties(properties),
+          _path(path),
+          _cur_offset(start_offset),
+          _is_fd_valid(false),
+          _file_size(file_size),
+          _addr_idx(0) {}
 
 BrokerReader::~BrokerReader() {
     close();
@@ -88,7 +83,7 @@ Status BrokerReader::open() {
         BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
-                << ", status=" << status.get_error_msg();
+                         << ", status=" << status.get_error_msg();
             return status;
         }
 
@@ -108,8 +103,8 @@ Status BrokerReader::open() {
 
     if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
         std::stringstream ss;
-        ss << "Open broker reader failed, broker:" << broker_addr 
-            << " failed:" << response.opStatus.message;
+        ss << "Open broker reader failed, broker:" << broker_addr
+           << " failed:" << response.opStatus.message;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -150,7 +145,7 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
         BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
-                << ", status=" << status.get_error_msg();
+                         << ", status=" << status.get_error_msg();
             return status;
         }
 
@@ -176,7 +171,7 @@ Status BrokerReader::readat(int64_t position, int64_t nbytes, int64_t* bytes_rea
     } else if (response.opStatus.statusCode != TBrokerOperationStatusCode::OK) {
         std::stringstream ss;
         ss << "Read from broker failed, broker:" << broker_addr
-            << " failed:" << response.opStatus.message;
+           << " failed:" << response.opStatus.message;
         LOG(WARNING) << ss.str();
         return Status::InternalError(ss.str());
     }
@@ -221,7 +216,7 @@ void BrokerReader::close() {
         BrokerServiceConnection client(client_cache(_env), broker_addr, 10000, &status);
         if (!status.ok()) {
             LOG(WARNING) << "Create broker client failed. broker=" << broker_addr
-                << ", status=" << status.get_error_msg();
+                         << ", status=" << status.get_error_msg();
             return;
         }
 
@@ -232,23 +227,23 @@ void BrokerReader::close() {
             status = client.reopen();
             if (!status.ok()) {
                 LOG(WARNING) << "Close broker reader failed. broker=" << broker_addr
-                    << ", status=" << status.get_error_msg();
+                             << ", status=" << status.get_error_msg();
                 return;
             }
             client->closeReader(response, request);
         }
     } catch (apache::thrift::TException& e) {
         LOG(WARNING) << "Close broker reader failed, broker:" << broker_addr
-            << " failed:" << e.what();
+                     << " failed:" << e.what();
         return;
     }
 
     if (response.statusCode != TBrokerOperationStatusCode::OK) {
-        LOG(WARNING) << "Open broker reader failed, broker:" << broker_addr 
-            << " failed:" << response.message;
+        LOG(WARNING) << "Open broker reader failed, broker:" << broker_addr
+                     << " failed:" << response.message;
         return;
     }
     _is_fd_valid = false;
 }
 
-}
+} // namespace doris

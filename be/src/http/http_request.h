@@ -18,10 +18,9 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_HTTP_REQUEST_H
 #define DORIS_BE_SRC_COMMON_UTIL_HTTP_REQUEST_H
 
+#include <boost/algorithm/string.hpp>
 #include <map>
 #include <string>
-
-#include <boost/algorithm/string.hpp>
 
 #include "http/http_common.h"
 #include "http/http_headers.h"
@@ -37,44 +36,31 @@ class HttpHandler;
 
 class HttpRequest {
 public:
-    
     HttpRequest(evhttp_request* ev_req);
 
     ~HttpRequest();
 
     int init_from_evhttp();
 
-    HttpMethod method() const {
-        return _method;
-    }
+    HttpMethod method() const { return _method; }
 
     // path + '?' + query
-    const std::string& uri() const {
-        return _uri;
-    }
+    const std::string& uri() const { return _uri; }
 
     // return raw path without query string after '?'
-    const std::string& raw_path() const {
-        return _raw_path;
-    }
+    const std::string& raw_path() const { return _raw_path; }
 
     const std::string& header(const std::string& key) const;
 
     const std::string& param(const std::string& key) const;
 
     // return params
-    const StringCaseUnorderedMap<std::string>& headers() {
-        return _headers;
-    }
+    const StringCaseUnorderedMap<std::string>& headers() { return _headers; }
 
     // return params
-    std::map<std::string, std::string>* params() {
-        return &_params;
-    }
+    std::map<std::string, std::string>* params() { return &_params; }
 
-    const std::map<std::string, std::string>& query_params() const {
-        return _query_params;
-    }
+    const std::map<std::string, std::string>& query_params() const { return _query_params; }
 
     std::string get_request_body();
 
@@ -85,7 +71,9 @@ public:
     void set_handler(HttpHandler* handler) { _handler = handler; }
     HttpHandler* handler() const { return _handler; }
 
-    struct evhttp_request* get_evhttp_request() const { return _ev_req; }
+    struct evhttp_request* get_evhttp_request() const {
+        return _ev_req;
+    }
 
     void* handler_ctx() const { return _handler_ctx; }
     void set_handler_ctx(void* ctx) { _handler_ctx = ctx; }
@@ -101,13 +89,13 @@ private:
     std::map<std::string, std::string> _params;
     std::map<std::string, std::string> _query_params;
 
-    struct evhttp_request* _ev_req = nullptr; 
+    struct evhttp_request* _ev_req = nullptr;
     HttpHandler* _handler = nullptr;
 
     void* _handler_ctx = nullptr;
     std::string _request_body;
 };
 
-}
+} // namespace doris
 
 #endif

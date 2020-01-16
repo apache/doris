@@ -23,8 +23,8 @@ namespace doris {
 
 class Md5Test : public testing::Test {
 public:
-    Md5Test() { }
-    virtual ~Md5Test() { }
+    Md5Test() {}
+    virtual ~Md5Test() {}
 };
 
 TEST_F(Md5Test, empty) {
@@ -40,7 +40,7 @@ TEST_F(Md5Test, normal) {
     ASSERT_STREQ("7ac66c0f148de9519b8bd264312c4d64", digest.hex().c_str());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

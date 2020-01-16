@@ -108,5 +108,5 @@ private:
     // Load factor in hash table
     RuntimeProfile::Counter* _hash_table_load_factor_counter;
 };
-}
+} // namespace doris
 #endif

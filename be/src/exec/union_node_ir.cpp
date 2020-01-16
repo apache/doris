@@ -21,13 +21,14 @@
 namespace doris {
 
 void IR_ALWAYS_INLINE UnionNode::materialize_exprs(const std::vector<ExprContext*>& exprs,
-        TupleRow* row, uint8_t* tuple_buf, RowBatch* dst_batch) {
+                                                   TupleRow* row, uint8_t* tuple_buf,
+                                                   RowBatch* dst_batch) {
     DCHECK(!dst_batch->at_capacity());
     Tuple* dst_tuple = reinterpret_cast<Tuple*>(tuple_buf);
     TupleRow* dst_row = dst_batch->get_row(dst_batch->add_row());
     // dst_tuple->materialize_exprs<false, false>(row, *_tuple_desc, exprs,
-    dst_tuple->materialize_exprs<false>(row, *_tuple_desc, exprs,
-                                        dst_batch->tuple_data_pool(), nullptr, nullptr);
+    dst_tuple->materialize_exprs<false>(row, *_tuple_desc, exprs, dst_batch->tuple_data_pool(),
+                                        nullptr, nullptr);
     dst_row->set_tuple(0, dst_tuple);
     dst_batch->commit_last_row();
 }
@@ -52,4 +53,4 @@ void UnionNode::materialize_batch(RowBatch* dst_batch, uint8_t** tuple_buf) {
     *tuple_buf = cur_tuple;
 }
 
-}
+} // namespace doris

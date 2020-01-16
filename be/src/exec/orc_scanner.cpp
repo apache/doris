@@ -31,8 +31,8 @@ namespace doris {
 
 class ORCFileStream : public orc::InputStream {
 public:
-    ORCFileStream(FileReader* file, std::string filename) : _file(file), _filename(std::move(filename)) {
-    }
+    ORCFileStream(FileReader* file, std::string filename)
+            : _file(file), _filename(std::move(filename)) {}
 
     ~ORCFileStream() override {
         if (_file != nullptr) {
@@ -45,17 +45,13 @@ public:
     /**
      * Get the total length of the file in bytes.
      */
-    uint64_t getLength() const override {
-        return _file->size();
-    }
+    uint64_t getLength() const override { return _file->size(); }
 
     /**
      * Get the natural size for reads.
      * @return the number of bytes that should be read at once
      */
-    uint64_t getNaturalReadSize() const override {
-        return 128 * 1024;
-    }
+    uint64_t getNaturalReadSize() const override { return 128 * 1024; }
 
     /**
      * Read length bytes from the file starting at offset into
@@ -79,44 +75,43 @@ public:
             if (reads == 0) {
                 break;
             }
-            bytes_read += reads;// total read bytes
+            bytes_read += reads; // total read bytes
             offset += reads;
-            buf = (char*) buf + reads;
+            buf = (char*)buf + reads;
         }
         if (length != bytes_read) {
-            throw orc::ParseError("Short read of " + _filename
-                                  + ". expected :" + std::to_string(length) + ", actual : " + std::to_string(bytes_read));
+            throw orc::ParseError("Short read of " + _filename +
+                                  ". expected :" + std::to_string(length) +
+                                  ", actual : " + std::to_string(bytes_read));
         }
     }
 
     /**
      * Get the name of the stream for error messages.
      */
-    const std::string& getName() const override {
-        return _filename;
-    }
+    const std::string& getName() const override { return _filename; }
 
 private:
     FileReader* _file;
     std::string _filename;
 };
 
-ORCScanner::ORCScanner(RuntimeState* state,
-        RuntimeProfile* profile,
-        const TBrokerScanRangeParams& params,
-        const std::vector<TBrokerRangeDesc>& ranges,
-        const std::vector<TNetworkAddress>& broker_addresses,
-        ScannerCounter* counter) : BaseScanner(state, profile, params, counter),
-        _ranges(ranges),
-        _broker_addresses(broker_addresses),
-        // _splittable(params.splittable),
-        _next_range(0),
-        _cur_file_eof(true),
-        _scanner_eof(false),
-        _total_groups(0),
-        _current_group(0),
-        _rows_of_group(0),
-        _current_line_of_group(0) {}
+ORCScanner::ORCScanner(RuntimeState* state, RuntimeProfile* profile,
+                       const TBrokerScanRangeParams& params,
+                       const std::vector<TBrokerRangeDesc>& ranges,
+                       const std::vector<TNetworkAddress>& broker_addresses,
+                       ScannerCounter* counter)
+        : BaseScanner(state, profile, params, counter),
+          _ranges(ranges),
+          _broker_addresses(broker_addresses),
+          // _splittable(params.splittable),
+          _next_range(0),
+          _cur_file_eof(true),
+          _scanner_eof(false),
+          _total_groups(0),
+          _current_group(0),
+          _rows_of_group(0),
+          _current_line_of_group(0) {}
 
 ORCScanner::~ORCScanner() {
     close();
@@ -127,8 +122,9 @@ Status ORCScanner::open() {
     if (!_ranges.empty()) {
         std::list<std::string> include_cols;
         TBrokerRangeDesc range = _ranges[0];
-        _num_of_columns_from_file =
-                range.__isset.num_of_columns_from_file ? range.num_of_columns_from_file : _src_slot_descs.size();
+        _num_of_columns_from_file = range.__isset.num_of_columns_from_file
+                                            ? range.num_of_columns_from_file
+                                            : _src_slot_descs.size();
         for (int i = 0; i < _num_of_columns_from_file; i++) {
             auto slot_desc = _src_slot_descs.at(i);
             include_cols.push_back(slot_desc->col_name());
@@ -166,15 +162,17 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                 ++_current_group;
             }
 
-            const std::vector<orc::ColumnVectorBatch*> &batch_vec = ((orc::StructVectorBatch*) _batch.get())->fields;
+            const std::vector<orc::ColumnVectorBatch*>& batch_vec =
+                    ((orc::StructVectorBatch*)_batch.get())->fields;
             for (int column_ipos = 0; column_ipos < _num_of_columns_from_file; ++column_ipos) {
                 auto slot_desc = _src_slot_descs[column_ipos];
-                orc::ColumnVectorBatch *cvb = batch_vec[_position_in_orc_original[column_ipos]];
+                orc::ColumnVectorBatch* cvb = batch_vec[_position_in_orc_original[column_ipos]];
 
                 if (cvb->hasNulls && !cvb->notNull[_current_line_of_group]) {
                     if (!slot_desc->is_nullable()) {
                         std::stringstream str_error;
-                        str_error << "The field name(" << slot_desc->col_name() << ") is not nullable ";
+                        str_error << "The field name(" << slot_desc->col_name()
+                                  << ") is not nullable ";
                         LOG(WARNING) << str_error.str();
                         return Status::InternalError(str_error.str());
                     }
@@ -188,94 +186,102 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                     void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
                     StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
 
-                    switch (_row_reader->getSelectedType().getSubtype(_position_in_orc_original[column_ipos])->getKind()) {
-                        case orc::BOOLEAN: {
-                            int64_t value = ((orc::LongVectorBatch*) cvb)->data[_current_line_of_group];
-                            if (value == 0) {
-                                str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(5));
-                                memcpy(str_slot->ptr, "false", 5);
-                                str_slot->len = 5;
-                            } else {
-                                str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(4));
-                                memcpy(str_slot->ptr, "true", 4);
-                                str_slot->len = 4;
-                            }
-                            break;
+                    switch (_row_reader->getSelectedType()
+                                    .getSubtype(_position_in_orc_original[column_ipos])
+                                    ->getKind()) {
+                    case orc::BOOLEAN: {
+                        int64_t value = ((orc::LongVectorBatch*)cvb)->data[_current_line_of_group];
+                        if (value == 0) {
+                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(5));
+                            memcpy(str_slot->ptr, "false", 5);
+                            str_slot->len = 5;
+                        } else {
+                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(4));
+                            memcpy(str_slot->ptr, "true", 4);
+                            str_slot->len = 4;
                         }
-                        case orc::INT:
-                        case orc::SHORT:
-                        case orc::LONG:
-                        case orc::DATE: {
-                            int64_t value = ((orc::LongVectorBatch*) cvb)->data[_current_line_of_group];
-                            wbytes = sprintf((char*) tmp_buf, "%ld", value);
-                            str_slot->ptr = reinterpret_cast<char *>(tuple_pool->allocate(wbytes));
-                            memcpy(str_slot->ptr, tmp_buf, wbytes);
-                            str_slot->len = wbytes;
-                            break;
-                        }
-                        case orc::FLOAT:
-                        case orc::DOUBLE: {
-                            double value = ((orc::DoubleVectorBatch*) cvb)->data[_current_line_of_group];
-                            wbytes = sprintf((char*) tmp_buf, "%f", value);
-                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
-                            memcpy(str_slot->ptr, tmp_buf, wbytes);
-                            str_slot->len = wbytes;
-                            break;
-                        }
-                        case orc::BINARY:
-                        case orc::CHAR:
-                        case orc::VARCHAR:
-                        case orc::STRING: {
-                            char *value = ((orc::StringVectorBatch*) cvb)->data[_current_line_of_group];
-                            wbytes = ((orc::StringVectorBatch*) cvb)->length[_current_line_of_group];
-                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
-                            memcpy(str_slot->ptr, value, wbytes);
-                            str_slot->len = wbytes;
-                            break;
-                        }
-                        case orc::DECIMAL: {
-                            int precision = ((orc::Decimal64VectorBatch*) cvb)->precision;
-                            int scale = ((orc::Decimal64VectorBatch*) cvb)->scale;
+                        break;
+                    }
+                    case orc::INT:
+                    case orc::SHORT:
+                    case orc::LONG:
+                    case orc::DATE: {
+                        int64_t value = ((orc::LongVectorBatch*)cvb)->data[_current_line_of_group];
+                        wbytes = sprintf((char*)tmp_buf, "%ld", value);
+                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                        memcpy(str_slot->ptr, tmp_buf, wbytes);
+                        str_slot->len = wbytes;
+                        break;
+                    }
+                    case orc::FLOAT:
+                    case orc::DOUBLE: {
+                        double value = ((orc::DoubleVectorBatch*)cvb)->data[_current_line_of_group];
+                        wbytes = sprintf((char*)tmp_buf, "%f", value);
+                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                        memcpy(str_slot->ptr, tmp_buf, wbytes);
+                        str_slot->len = wbytes;
+                        break;
+                    }
+                    case orc::BINARY:
+                    case orc::CHAR:
+                    case orc::VARCHAR:
+                    case orc::STRING: {
+                        char* value = ((orc::StringVectorBatch*)cvb)->data[_current_line_of_group];
+                        wbytes = ((orc::StringVectorBatch*)cvb)->length[_current_line_of_group];
+                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                        memcpy(str_slot->ptr, value, wbytes);
+                        str_slot->len = wbytes;
+                        break;
+                    }
+                    case orc::DECIMAL: {
+                        int precision = ((orc::Decimal64VectorBatch*)cvb)->precision;
+                        int scale = ((orc::Decimal64VectorBatch*)cvb)->scale;
 
-                            //Decimal64VectorBatch handles decimal columns with precision no greater than 18. 
-                            //Decimal128VectorBatch handles the others. 
-                            std::string decimal_str;
-                            if (precision <= 18) {
-                                decimal_str = std::to_string(((orc::Decimal64VectorBatch*) cvb)->values[_current_line_of_group]);
-                            } else {
-                                decimal_str = ((orc::Decimal128VectorBatch*) cvb)->values[_current_line_of_group].toString();
-                            }
-                            //Orc api will fill in 0 at the end, so size must greater than scale
-                            std::string v = decimal_str.substr(0, decimal_str.size() - scale) + "." 
-                                + decimal_str.substr(decimal_str.size() - scale);
-                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(v.size()));
-                            memcpy(str_slot->ptr, v.c_str(), v.size());
-                            str_slot->len = v.size();
-                            break;
+                        //Decimal64VectorBatch handles decimal columns with precision no greater than 18.
+                        //Decimal128VectorBatch handles the others.
+                        std::string decimal_str;
+                        if (precision <= 18) {
+                            decimal_str = std::to_string(((orc::Decimal64VectorBatch*)cvb)
+                                                                 ->values[_current_line_of_group]);
+                        } else {
+                            decimal_str = ((orc::Decimal128VectorBatch*)cvb)
+                                                  ->values[_current_line_of_group]
+                                                  .toString();
                         }
-                        case orc::TIMESTAMP: {
-                            int64_t timestamp = ((orc::TimestampVectorBatch*) cvb)->data[_current_line_of_group];
-                            std::string timezone = _state->timezone();
-                            DateTimeValue dtv;
-                            if (!dtv.from_unixtime(timestamp, timezone)) {
-                                std::stringstream str_error;
-                                str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
-                                LOG(WARNING) << str_error.str();
-                                return Status::InternalError(str_error.str());
-                            }
-                            char* buf_end = dtv.to_string((char*) tmp_buf);
-                            wbytes = buf_end - (char*) tmp_buf -1;
-                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
-                            memcpy(str_slot->ptr, tmp_buf, wbytes);
-                            str_slot->len = wbytes;
-                            break;
-                        }
-                        default: {
+                        //Orc api will fill in 0 at the end, so size must greater than scale
+                        std::string v = decimal_str.substr(0, decimal_str.size() - scale) + "." +
+                                        decimal_str.substr(decimal_str.size() - scale);
+                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(v.size()));
+                        memcpy(str_slot->ptr, v.c_str(), v.size());
+                        str_slot->len = v.size();
+                        break;
+                    }
+                    case orc::TIMESTAMP: {
+                        int64_t timestamp =
+                                ((orc::TimestampVectorBatch*)cvb)->data[_current_line_of_group];
+                        std::string timezone = _state->timezone();
+                        DateTimeValue dtv;
+                        if (!dtv.from_unixtime(timestamp, timezone)) {
                             std::stringstream str_error;
-                            str_error << "The field name(" << slot_desc->col_name() << ") type not support. ";
+                            str_error
+                                    << "Parse timestamp (" + std::to_string(timestamp) + ") error";
                             LOG(WARNING) << str_error.str();
                             return Status::InternalError(str_error.str());
                         }
+                        char* buf_end = dtv.to_string((char*)tmp_buf);
+                        wbytes = buf_end - (char*)tmp_buf - 1;
+                        str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                        memcpy(str_slot->ptr, tmp_buf, wbytes);
+                        str_slot->len = wbytes;
+                        break;
+                    }
+                    default: {
+                        std::stringstream str_error;
+                        str_error << "The field name(" << slot_desc->col_name()
+                                  << ") type not support. ";
+                        LOG(WARNING) << str_error.str();
+                        return Status::InternalError(str_error.str());
+                    }
                     }
                 }
             }
@@ -284,13 +290,14 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
             // range of current file
             const TBrokerRangeDesc& range = _ranges.at(_next_range - 1);
             if (range.__isset.num_of_columns_from_file) {
-                fill_slots_of_columns_from_path(range.num_of_columns_from_file, range.columns_from_path);
+                fill_slots_of_columns_from_path(range.num_of_columns_from_file,
+                                                range.columns_from_path);
             }
             COUNTER_UPDATE(_rows_read_counter, 1);
             SCOPED_TIMER(_materialize_timer);
             if (fill_dest_tuple(Slice(), tuple, tuple_pool)) {
                 break; // get one line, break from while
-            } // else skip this line and continue get_next to return
+            }          // else skip this line and continue get_next to return
         }
         return Status::OK();
     } catch (orc::ParseError& e) {
@@ -315,23 +322,26 @@ Status ORCScanner::open_next_reader() {
         const TBrokerRangeDesc& range = _ranges[_next_range++];
         std::unique_ptr<FileReader> file_reader;
         switch (range.file_type) {
-            case TFileType::FILE_LOCAL: {
-                file_reader.reset(new LocalFileReader(range.path, range.start_offset));
-                break;
+        case TFileType::FILE_LOCAL: {
+            file_reader.reset(new LocalFileReader(range.path, range.start_offset));
+            break;
+        }
+        case TFileType::FILE_BROKER: {
+            int64_t file_size = 0;
+            // for compatibility
+            if (range.__isset.file_size) {
+                file_size = range.file_size;
             }
-            case TFileType::FILE_BROKER: {
-                int64_t file_size = 0;
-                // for compatibility
-                if (range.__isset.file_size) { file_size = range.file_size; }
-                file_reader.reset(new BrokerReader(_state->exec_env(), _broker_addresses, _params.properties,
-                                                   range.path, range.start_offset, file_size));
-                break;
-            }
-            default: {
-                std::stringstream ss;
-                ss << "Unknown file type, type=" << range.file_type;
-                return Status::InternalError(ss.str());
-            }
+            file_reader.reset(new BrokerReader(_state->exec_env(), _broker_addresses,
+                                               _params.properties, range.path, range.start_offset,
+                                               file_size));
+            break;
+        }
+        default: {
+            std::stringstream ss;
+            ss << "Unknown file type, type=" << range.file_type;
+            return Status::InternalError(ss.str());
+        }
         }
         RETURN_IF_ERROR(file_reader->open());
         if (file_reader->size() == 0) {
@@ -356,7 +366,8 @@ Status ORCScanner::open_next_reader() {
         auto include_cols = _row_reader_options.getIncludeNames();
         for (int i = 0; i < _row_reader->getSelectedType().getSubtypeCount(); ++i) {
             //include columns must in reader field, otherwise createRowReader will throw exception
-            auto pos = std::find(include_cols.begin(), include_cols.end(), _row_reader->getSelectedType().getFieldName(i));
+            auto pos = std::find(include_cols.begin(), include_cols.end(),
+                                 _row_reader->getSelectedType().getFieldName(i));
             _position_in_orc_original.at(std::distance(include_cols.begin(), pos)) = orc_index++;
         }
         return Status::OK();
@@ -369,4 +380,4 @@ void ORCScanner::close() {
     _row_reader.reset(nullptr);
 }
 
-}
+} // namespace doris

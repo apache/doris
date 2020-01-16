@@ -17,14 +17,14 @@
 
 #pragma once
 
+#include <s2/s2cap.h>
+#include <s2/s2point.h>
+#include <s2/s2polygon.h>
+#include <s2/s2polyline.h>
+
 #include <memory>
 #include <string>
 #include <vector>
-
-#include <s2/s2cap.h>
-#include <s2/s2point.h>
-#include <s2/s2polyline.h>
-#include <s2/s2polygon.h>
 
 #include "geo/geo_common.h"
 #include "geo/wkt_parse_type.h"
@@ -33,7 +33,7 @@ namespace doris {
 
 class GeoShape {
 public:
-    virtual ~GeoShape() { }
+    virtual ~GeoShape() {}
 
     virtual GeoShapeType type() const = 0;
 
@@ -59,8 +59,8 @@ protected:
 
 class GeoPoint : public GeoShape {
 public:
-    GeoPoint() { }
-    ~GeoPoint() override { }
+    GeoPoint() {}
+    ~GeoPoint() override {}
 
     GeoParseStatus from_coord(double x, double y);
     GeoParseStatus from_coord(const GeoCoordinate& point);
@@ -85,8 +85,8 @@ private:
 
 class GeoLine : public GeoShape {
 public:
-    GeoLine() { }
-    ~GeoLine() override { }
+    GeoLine() {}
+    ~GeoLine() override {}
 
     GeoParseStatus from_coords(const GeoCoordinateList& list);
 
@@ -94,6 +94,7 @@ public:
     const S2Polyline* polyline() const { return _polyline.get(); }
 
     std::string as_wkt() const override;
+
 protected:
     void encode(std::string* buf) override;
     bool decode(const void* data, size_t size) override;
@@ -104,8 +105,8 @@ private:
 
 class GeoPolygon : public GeoShape {
 public:
-    GeoPolygon() { }
-    ~GeoPolygon() override { }
+    GeoPolygon() {}
+    ~GeoPolygon() override {}
 
     GeoParseStatus from_coords(const GeoCoordinateListList& list);
 
@@ -125,8 +126,8 @@ private:
 
 class GeoCircle : public GeoShape {
 public:
-    GeoCircle() { }
-    ~GeoCircle() { }
+    GeoCircle() {}
+    ~GeoCircle() {}
 
     GeoParseStatus init(double lng, double lat, double radius);
 
@@ -195,5 +196,4 @@ public:
 
 #endif
 
-}
-
+} // namespace doris

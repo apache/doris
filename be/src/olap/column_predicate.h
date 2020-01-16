@@ -21,8 +21,8 @@
 #include <roaring/roaring.hh>
 
 #include "olap/column_block.h"
-#include "olap/selection_vector.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
+#include "olap/selection_vector.h"
 
 using namespace doris::segment_v2;
 
@@ -33,7 +33,7 @@ class Schema;
 
 class ColumnPredicate {
 public:
-    explicit ColumnPredicate(uint32_t column_id) : _column_id(column_id) { }
+    explicit ColumnPredicate(uint32_t column_id) : _column_id(column_id) {}
 
     virtual ~ColumnPredicate() {}
 
@@ -44,8 +44,9 @@ public:
     virtual void evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const = 0;
 
     //evaluate predicate on Bitmap
-    virtual Status evaluate(const Schema& schema, const std::vector<BitmapIndexIterator*>& iterators,
-        uint32_t num_rows, Roaring* roaring) const = 0;
+    virtual Status evaluate(const Schema& schema,
+                            const std::vector<BitmapIndexIterator*>& iterators, uint32_t num_rows,
+                            Roaring* roaring) const = 0;
 
     uint32_t column_id() const { return _column_id; }
 

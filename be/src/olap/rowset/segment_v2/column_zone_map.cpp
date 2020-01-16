@@ -35,22 +35,21 @@ ColumnZoneMapBuilder::ColumnZoneMapBuilder(Field* field) : _field(field), _pool(
     _reset_segment_zone_map();
 }
 
-Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
+Status ColumnZoneMapBuilder::add(const uint8_t* vals, size_t count) {
     if (vals != nullptr) {
         for (int i = 0; i < count; ++i) {
-            if (_field->compare(_zone_map.min_value, (char *)vals) > 0) {
-                _field->type_info()->direct_copy(_zone_map.min_value, (const char *)vals);
+            if (_field->compare(_zone_map.min_value, (char*)vals) > 0) {
+                _field->type_info()->direct_copy(_zone_map.min_value, (const char*)vals);
             }
-            if (_field->compare(_zone_map.max_value, (char *)vals) < 0) {
-                _field->type_info()->direct_copy(_zone_map.max_value, (const char *)vals);
+            if (_field->compare(_zone_map.max_value, (char*)vals) < 0) {
+                _field->type_info()->direct_copy(_zone_map.max_value, (const char*)vals);
             }
-            vals +=  _field->size();
+            vals += _field->size();
             if (!_zone_map.has_not_null) {
                 _zone_map.has_not_null = true;
             }
         }
-    }
-    else {
+    } else {
         if (!_zone_map.has_null) {
             _zone_map.has_null = true;
         }
@@ -87,7 +86,7 @@ Status ColumnZoneMapBuilder::flush() {
     }
     Slice data(serialized_zone_map.data(), serialized_zone_map.size());
     size_t num = 1;
-    RETURN_IF_ERROR(_page_builder->add((const uint8_t *)&data, &num));
+    RETURN_IF_ERROR(_page_builder->add((const uint8_t*)&data, &num));
     // reset the variables
     // we should allocate max varchar length and set to max for min value
     _reset_page_zone_map();

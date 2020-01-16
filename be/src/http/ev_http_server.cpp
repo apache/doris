@@ -17,9 +17,6 @@
 
 #include "http/ev_http_server.h"
 
-#include <memory>
-#include <sstream>
-
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 #include <event2/event.h>
@@ -27,12 +24,15 @@
 #include <event2/http_struct.h>
 #include <event2/keyvalq_struct.h>
 
+#include <memory>
+#include <sstream>
+
 #include "common/logging.h"
-#include "service/brpc.h"
-#include "http/http_request.h"
+#include "http/http_channel.h"
 #include "http/http_handler.h"
 #include "http/http_headers.h"
-#include "http/http_channel.h"
+#include "http/http_request.h"
+#include "service/brpc.h"
 #include "util/debug_util.h"
 
 namespace doris {
@@ -47,7 +47,7 @@ static void on_free(struct evhttp_request* ev_req, void* arg) {
     delete request;
 }
 
-static void on_request(struct evhttp_request *ev_req, void *arg) {
+static void on_request(struct evhttp_request* ev_req, void* arg) {
     auto request = (HttpRequest*)ev_req->on_free_cb_arg;
     if (request == nullptr) {
         // In this case, request's on_header return -1
@@ -72,14 +72,14 @@ static int on_connection(struct evhttp_request* req, void* param) {
 EvHttpServer::EvHttpServer(int port, int num_workers)
         : _host("0.0.0.0"), _port(port), _num_workers(num_workers) {
     DCHECK_GT(_num_workers, 0);
-    auto res = pthread_rwlock_init(&_rw_lock, nullptr);                
+    auto res = pthread_rwlock_init(&_rw_lock, nullptr);
     DCHECK_EQ(res, 0);
 }
 
 EvHttpServer::EvHttpServer(const std::string& host, int port, int num_workers)
         : _host(host), _port(port), _num_workers(num_workers) {
     DCHECK_GT(_num_workers, 0);
-    auto res = pthread_rwlock_init(&_rw_lock, nullptr);                
+    auto res = pthread_rwlock_init(&_rw_lock, nullptr);
     DCHECK_EQ(res, 0);
 }
 
@@ -88,23 +88,23 @@ EvHttpServer::~EvHttpServer() {
 }
 
 Status EvHttpServer::start() {
-    // bind to 
+    // bind to
     RETURN_IF_ERROR(_bind());
     for (int i = 0; i < _num_workers; ++i) {
-        auto worker = [this, i] () {
+        auto worker = [this, i]() {
             LOG(INFO) << "EvHttpServer worker start, id=" << i;
-            std::shared_ptr<event_base> base(
-                event_base_new(), [] (event_base* base) { event_base_free(base); });
+            std::shared_ptr<event_base> base(event_base_new(),
+                                             [](event_base* base) { event_base_free(base); });
             if (base == nullptr) {
                 LOG(WARNING) << "Couldn't create an event_base.";
-                return; 
+                return;
             }
             /* Create a new evhttp object to handle requests. */
-            std::shared_ptr<evhttp> http(
-                evhttp_new(base.get()), [] (evhttp* http) { evhttp_free(http); });
+            std::shared_ptr<evhttp> http(evhttp_new(base.get()),
+                                         [](evhttp* http) { evhttp_free(http); });
             if (http == nullptr) {
                 LOG(WARNING) << "Couldn't create an evhttp.";
-                return; 
+                return;
             }
             auto res = evhttp_accept_socket(http.get(), _server_fd);
             if (res < 0) {
@@ -123,11 +123,9 @@ Status EvHttpServer::start() {
     return Status::OK();
 }
 
-void EvHttpServer::stop() {
-}
+void EvHttpServer::stop() {}
 
-void EvHttpServer::join() {
-}
+void EvHttpServer::join() {}
 
 Status EvHttpServer::_bind() {
     butil::EndPoint point;
@@ -142,7 +140,7 @@ Status EvHttpServer::_bind() {
         char buf[64];
         std::stringstream ss;
         ss << "tcp listen failed, errno=" << errno
-            << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
+           << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
         return Status::InternalError(ss.str());
     }
     res = butil::make_non_blocking(_server_fd);
@@ -150,14 +148,14 @@ Status EvHttpServer::_bind() {
         char buf[64];
         std::stringstream ss;
         ss << "make socket to non_blocking failed, errno=" << errno
-            << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
+           << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
         return Status::InternalError(ss.str());
     }
     return Status::OK();
 }
 
-bool EvHttpServer::register_handler(
-        const HttpMethod& method, const std::string& path, HttpHandler* handler) {
+bool EvHttpServer::register_handler(const HttpMethod& method, const std::string& path,
+                                    HttpHandler* handler) {
     if (handler == nullptr) {
         LOG(WARNING) << "dummy handler for http method " << method << " with path " << path;
         return false;
@@ -193,7 +191,7 @@ bool EvHttpServer::register_handler(
         result = root->insert(path, handler);
     }
     pthread_rwlock_unlock(&_rw_lock);
-    
+
     return result;
 }
 
@@ -219,7 +217,7 @@ int EvHttpServer::on_header(struct evhttp_request* ev_req) {
     }
 
     // If request body would be big(greater than 1GB),
-    // it is better that request_will_be_read_progressively is set true, 
+    // it is better that request_will_be_read_progressively is set true,
     // this can make body read in chunk, not in total
     if (handler->request_will_be_read_progressively()) {
         evhttp_request_set_chunked_cb(ev_req, on_chunked);
@@ -262,4 +260,4 @@ HttpHandler* EvHttpServer::_find_handler(HttpRequest* req) {
     return handler;
 }
 
-}
+} // namespace doris

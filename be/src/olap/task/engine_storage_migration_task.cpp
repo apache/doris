@@ -24,30 +24,28 @@ namespace doris {
 
 using std::stringstream;
 
-EngineStorageMigrationTask::EngineStorageMigrationTask(TStorageMediumMigrateReq& storage_medium_migrate_req) :
-        _storage_medium_migrate_req(storage_medium_migrate_req) {
-
-}
+EngineStorageMigrationTask::EngineStorageMigrationTask(
+        TStorageMediumMigrateReq& storage_medium_migrate_req)
+        : _storage_medium_migrate_req(storage_medium_migrate_req) {}
 
 OLAPStatus EngineStorageMigrationTask::execute() {
     OLAPStatus res = OLAP_SUCCESS;
-    res = _storage_medium_migrate(
-        _storage_medium_migrate_req.tablet_id,
-        _storage_medium_migrate_req.schema_hash,
-        _storage_medium_migrate_req.storage_medium);
+    res = _storage_medium_migrate(_storage_medium_migrate_req.tablet_id,
+                                  _storage_medium_migrate_req.schema_hash,
+                                  _storage_medium_migrate_req.storage_medium);
     return res;
 }
 
 OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
-        TTabletId tablet_id, TSchemaHash schema_hash,
-        TStorageMedium::type storage_medium) {
+        TTabletId tablet_id, TSchemaHash schema_hash, TStorageMedium::type storage_medium) {
     LOG(INFO) << "begin to process storage media migrate. "
               << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
               << ", dest_storage_medium=" << storage_medium;
     DorisMetrics::storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
-    TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+    TabletSharedPtr tablet =
+            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
     if (tablet == nullptr) {
         LOG(WARNING) << "can't find tablet. tablet_id= " << tablet_id
                      << " schema_hash=" << schema_hash;
@@ -76,8 +74,9 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 
     int64_t partition_id;
     std::set<int64_t> transaction_ids;
-    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(tablet->tablet_id(), 
-        tablet->schema_hash(), tablet->tablet_uid(), &partition_id, &transaction_ids);
+    StorageEngine::instance()->txn_manager()->get_tablet_related_txns(
+            tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid(), &partition_id,
+            &transaction_ids);
     if (transaction_ids.size() > 0) {
         LOG(WARNING) << "could not migration because has unfinished txns, "
                      << " tablet=" << tablet->full_name();
@@ -135,7 +134,8 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 
         stringstream root_path_stream;
         root_path_stream << stores[0]->path() << DATA_PREFIX << "/" << shard;
-        string schema_hash_path = SnapshotManager::instance()->get_schema_hash_full_path(tablet, root_path_stream.str());
+        string schema_hash_path = SnapshotManager::instance()->get_schema_hash_full_path(
+                tablet, root_path_stream.str());
         // if dir already exist then return err, it should not happen
         // should not remove the dir directly
         if (FileUtils::check_exist(schema_hash_path)) {
@@ -145,24 +145,24 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             break;
         }
 
-        TabletMetaSharedPtr new_tablet_meta(new(std::nothrow) TabletMeta());
-        res = TabletMetaManager::get_meta(stores[0], tablet->tablet_id(), tablet->schema_hash(), new_tablet_meta);
+        TabletMetaSharedPtr new_tablet_meta(new (std::nothrow) TabletMeta());
+        res = TabletMetaManager::get_meta(stores[0], tablet->tablet_id(), tablet->schema_hash(),
+                                          new_tablet_meta);
         if (res != OLAP_ERR_META_KEY_NOT_FOUND) {
             LOG(WARNING) << "tablet_meta already exists. "
-                         << "data_dir:" << stores[0]->path()
-                         << "tablet:" << tablet->full_name();
+                         << "data_dir:" << stores[0]->path() << "tablet:" << tablet->full_name();
             res = OLAP_ERR_META_ALREADY_EXIST;
             break;
         }
-        
+
         Status st = FileUtils::create_dir(schema_hash_path);
 
         if (!st.ok()) {
             res = OLAP_ERR_CANNOT_CREATE_DIR;
-            LOG(WARNING) << "fail to create path. path=" << schema_hash_path << ", error:" << st.to_string();
+            LOG(WARNING) << "fail to create path. path=" << schema_hash_path
+                         << ", error:" << st.to_string();
             break;
         }
-
 
         // migrate all index and data files but header file
         res = _copy_index_and_data_files(schema_hash_path, tablet, consistent_rowsets);
@@ -189,29 +189,30 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "errors while set tablet uid: '" << new_meta_file;
             break;
-        } 
+        }
 
         // it will change rowset id and its create time
         // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
-        res = SnapshotManager::instance()->convert_rowset_ids(schema_hash_path, tablet_id, schema_hash);
+        res = SnapshotManager::instance()->convert_rowset_ids(schema_hash_path, tablet_id,
+                                                              schema_hash);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to convert rowset id when do storage migration"
                          << " path = " << schema_hash_path;
             break;
         }
 
-        res = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(stores[0], 
-            tablet_id, schema_hash, schema_hash_path, false);
+        res = StorageEngine::instance()->tablet_manager()->load_tablet_from_dir(
+                stores[0], tablet_id, schema_hash, schema_hash_path, false);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "failed to load tablet from new path. tablet_id=" << tablet_id
-                         << " schema_hash=" << schema_hash
-                         << " path = " << schema_hash_path;
+                         << " schema_hash=" << schema_hash << " path = " << schema_hash_path;
             break;
         }
 
         // if old tablet finished schema change, then the schema change status of the new tablet is DONE
         // else the schema change status of the new tablet is FAILED
-        TabletSharedPtr new_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
+        TabletSharedPtr new_tablet =
+                StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);
         if (new_tablet == nullptr) {
             LOG(WARNING) << "get null tablet. tablet_id=" << tablet_id
                          << " schema_hash=" << schema_hash;
@@ -235,8 +236,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 
 // TODO(ygl): lost some infomation here, such as cumulative layer point
 OLAPStatus EngineStorageMigrationTask::_generate_new_header(
-        DataDir* store, const uint64_t new_shard,
-        const TabletSharedPtr& tablet,
+        DataDir* store, const uint64_t new_shard, const TabletSharedPtr& tablet,
         const std::vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMetaSharedPtr new_tablet_meta) {
     if (store == nullptr) {
@@ -263,8 +263,7 @@ OLAPStatus EngineStorageMigrationTask::_generate_new_header(
 }
 
 OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
-        const string& schema_hash_path,
-        const TabletSharedPtr& ref_tablet,
+        const string& schema_hash_path, const TabletSharedPtr& ref_tablet,
         std::vector<RowsetSharedPtr>& consistent_rowsets) {
     OLAPStatus status = OLAP_SUCCESS;
     for (auto& rs : consistent_rowsets) {
@@ -282,4 +281,4 @@ OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
     return status;
 }
 
-} // doris
+} // namespace doris

@@ -27,9 +27,9 @@
 // The arguments are pointers to prevent Clang from lowering the struct types
 // (e.g. IntVal={bool, i32} can be coerced to i64).
 void dummy(doris_udf::FunctionContext*, doris_udf::BooleanVal*, doris_udf::TinyIntVal*,
-    doris_udf::SmallIntVal*, doris_udf::IntVal*, doris_udf::BigIntVal*,
-    doris_udf::FloatVal*, doris_udf::DoubleVal*, doris_udf::StringVal*,
-    doris_udf::DateTimeVal*, doris_udf::DecimalVal*, doris::ExprContext*) { }
+           doris_udf::SmallIntVal*, doris_udf::IntVal*, doris_udf::BigIntVal*, doris_udf::FloatVal*,
+           doris_udf::DoubleVal*, doris_udf::StringVal*, doris_udf::DateTimeVal*,
+           doris_udf::DecimalVal*, doris::ExprContext*) {}
 #endif
 
 // The following are compute functions that are cross-compiled to both native and IR
@@ -77,4 +77,4 @@ DecimalVal Expr::get_decimal_val(Expr* expr, ExprContext* context, TupleRow* row
 DecimalV2Val Expr::get_decimalv2_val(Expr* expr, ExprContext* context, TupleRow* row) {
     return expr->get_decimalv2_val(context, row);
 }
-}
+} // namespace doris

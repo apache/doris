@@ -28,12 +28,10 @@
 
 namespace doris {
 
-// map used 
+// map used
 class BrpcStubCache {
 public:
-    BrpcStubCache() {
-        _stub_map.init(239);
-    }
+    BrpcStubCache() { _stub_map.init(239); }
     ~BrpcStubCache() {
         for (auto& stub : _stub_map) {
             delete stub.second;
@@ -52,8 +50,8 @@ public:
         if (channel->Init(endpoint, &options)) {
             return nullptr;
         }
-        auto stub = new palo::PInternalService_Stub(
-            channel.release(), google::protobuf::Service::STUB_OWNS_CHANNEL);
+        auto stub = new palo::PInternalService_Stub(channel.release(),
+                                                    google::protobuf::Service::STUB_OWNS_CHANNEL);
         _stub_map.insert(endpoint, stub);
         return stub;
     }
@@ -81,4 +79,4 @@ private:
     butil::FlatMap<butil::EndPoint, palo::PInternalService_Stub*> _stub_map;
 };
 
-}
+} // namespace doris

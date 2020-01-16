@@ -16,30 +16,32 @@
 // under the License.
 
 #include "agent/agent_server.h"
+
 #include <string>
-#include "boost/filesystem.hpp"
-#include "boost/lexical_cast.hpp"
-#include "thrift/concurrency/ThreadManager.h"
-#include "thrift/concurrency/PosixThreadFactory.h"
-#include "thrift/server/TThreadPoolServer.h"
-#include "thrift/server/TThreadedServer.h"
-#include "thrift/transport/TSocket.h"
-#include "thrift/transport/TTransportUtils.h"
-#include "util/thrift_server.h"
+
 #include "agent/status.h"
 #include "agent/task_worker_pool.h"
 #include "agent/user_resource_listener.h"
-#include "common/status.h"
+#include "boost/filesystem.hpp"
+#include "boost/lexical_cast.hpp"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/Status_types.h"
 #include "gen_cpp/Types_constants.h"
-#include "olap/utils.h"
 #include "olap/snapshot_manager.h"
-#include "runtime/exec_env.h"
+#include "olap/utils.h"
 #include "runtime/etl_job_mgr.h"
+#include "runtime/exec_env.h"
+#include "thrift/concurrency/PosixThreadFactory.h"
+#include "thrift/concurrency/ThreadManager.h"
+#include "thrift/server/TThreadPoolServer.h"
+#include "thrift/server/TThreadedServer.h"
+#include "thrift/transport/TSocket.h"
+#include "thrift/transport/TTransportUtils.h"
 #include "util/debug_util.h"
+#include "util/thrift_server.h"
 
 using apache::thrift::transport::TProcessor;
 using std::deque;
@@ -53,12 +55,8 @@ using std::vector;
 
 namespace doris {
 
-AgentServer::AgentServer(ExecEnv* exec_env,
-                         const TMasterInfo& master_info) :
-        _exec_env(exec_env),
-        _master_info(master_info),
-        _topic_subscriber(new TopicSubscriber()) {
-    
+AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
+        : _exec_env(exec_env), _master_info(master_info), _topic_subscriber(new TopicSubscriber()) {
     for (auto& path : exec_env->store_paths()) {
         try {
             string dpp_download_path_str = path.path + DPP_PREFIX;
@@ -67,92 +65,51 @@ AgentServer::AgentServer(ExecEnv* exec_env,
                 boost::filesystem::remove_all(dpp_download_path);
             }
         } catch (...) {
-            LOG(WARNING) << "boost exception when remove dpp download path. path="
-                         << path.path;
+            LOG(WARNING) << "boost exception when remove dpp download path. path=" << path.path;
         }
     }
 
     // init task worker pool
-    _create_tablet_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::CREATE_TABLE,
-            _exec_env,
-            master_info);
-    _drop_tablet_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::DROP_TABLE,
-            _exec_env,
-            master_info);
-    _push_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::PUSH,
-            _exec_env,
-            master_info);
-    _publish_version_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::PUBLISH_VERSION,
-            _exec_env,
-            master_info);
+    _create_tablet_workers = new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::CREATE_TABLE,
+                                                _exec_env, master_info);
+    _drop_tablet_workers =
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::DROP_TABLE, _exec_env, master_info);
+    _push_workers =
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::PUSH, _exec_env, master_info);
+    _publish_version_workers = new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::PUBLISH_VERSION,
+                                                  _exec_env, master_info);
     _clear_transaction_task_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::CLEAR_TRANSACTION_TASK,
-            exec_env,
-            master_info);
-    _delete_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::DELETE,
-            _exec_env,
-            master_info);
-    _alter_tablet_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::ALTER_TABLE,
-            _exec_env,
-            master_info);
-    _clone_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::CLONE,
-            _exec_env,
-            master_info);
+            TaskWorkerPool::TaskWorkerType::CLEAR_TRANSACTION_TASK, exec_env, master_info);
+    _delete_workers =
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::DELETE, _exec_env, master_info);
+    _alter_tablet_workers =
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::ALTER_TABLE, _exec_env, master_info);
+    _clone_workers =
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::CLONE, _exec_env, master_info);
     _storage_medium_migrate_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::STORAGE_MEDIUM_MIGRATE,
-            _exec_env,
-            master_info);
+            TaskWorkerPool::TaskWorkerType::STORAGE_MEDIUM_MIGRATE, _exec_env, master_info);
     _check_consistency_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::CHECK_CONSISTENCY,
-            _exec_env,
-            master_info);
-    _report_task_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::REPORT_TASK,
-            _exec_env,
-            master_info);
+            TaskWorkerPool::TaskWorkerType::CHECK_CONSISTENCY, _exec_env, master_info);
+    _report_task_workers =
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::REPORT_TASK, _exec_env, master_info);
     _report_disk_state_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE,
-            _exec_env,
-            master_info);
-    _report_tablet_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::REPORT_OLAP_TABLE,
-            _exec_env,
-            master_info);
-    _upload_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::UPLOAD,
-            _exec_env,
-            master_info);
-    _download_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::DOWNLOAD,
-            _exec_env,
-            master_info);
-    _make_snapshot_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::MAKE_SNAPSHOT,
-            _exec_env,
-            master_info);
-    _release_snapshot_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::RELEASE_SNAPSHOT,
-            _exec_env,
-            master_info);
-    _move_dir_workers= new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::MOVE,
-            _exec_env,
-            master_info);
-    _recover_tablet_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::RECOVER_TABLET,
-            _exec_env,
-            master_info);
+            TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE, _exec_env, master_info);
+    _report_tablet_workers = new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::REPORT_OLAP_TABLE,
+                                                _exec_env, master_info);
+    _upload_workers =
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::UPLOAD, _exec_env, master_info);
+    _download_workers =
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::DOWNLOAD, _exec_env, master_info);
+    _make_snapshot_workers = new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::MAKE_SNAPSHOT,
+                                                _exec_env, master_info);
+    _release_snapshot_workers = new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::RELEASE_SNAPSHOT,
+                                                   _exec_env, master_info);
+    _move_dir_workers =
+            new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::MOVE, _exec_env, master_info);
+    _recover_tablet_workers = new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::RECOVER_TABLET,
+                                                 _exec_env, master_info);
     _update_tablet_meta_info_workers = new TaskWorkerPool(
-            TaskWorkerPool::TaskWorkerType::UPDATE_TABLET_META_INFO,
-            _exec_env,
-            master_info);
+            TaskWorkerPool::TaskWorkerType::UPDATE_TABLET_META_INFO, _exec_env, master_info);
 #ifndef BE_TEST
     _create_tablet_workers->start();
     _drop_tablet_workers->start();
@@ -230,7 +187,7 @@ AgentServer::~AgentServer() {
     if (_make_snapshot_workers != NULL) {
         delete _make_snapshot_workers;
     }
-    if (_move_dir_workers!= NULL) {
+    if (_move_dir_workers != NULL) {
         delete _move_dir_workers;
     }
     if (_recover_tablet_workers != NULL) {
@@ -243,22 +200,18 @@ AgentServer::~AgentServer() {
     if (_release_snapshot_workers != NULL) {
         delete _release_snapshot_workers;
     }
-    if (_topic_subscriber !=NULL) {
+    if (_topic_subscriber != NULL) {
         delete _topic_subscriber;
     }
 }
 
-void AgentServer::submit_tasks(
-        TAgentResult& return_value,
-        const vector<TAgentTaskRequest>& tasks) {
-
+void AgentServer::submit_tasks(TAgentResult& return_value, const vector<TAgentTaskRequest>& tasks) {
     // Set result to dm
     vector<string> error_msgs;
     TStatusCode::type status_code = TStatusCode::OK;
 
     // TODO check require master same to heartbeat master
-    if (_master_info.network_address.hostname == ""
-            || _master_info.network_address.port == 0) {
+    if (_master_info.network_address.hostname == "" || _master_info.network_address.port == 0) {
         error_msgs.push_back("Not get master heartbeat yet.");
         return_value.status.__set_error_msgs(error_msgs);
         return_value.status.__set_status_code(TStatusCode::CANCELLED);
@@ -272,7 +225,7 @@ void AgentServer::submit_tasks(
         switch (task_type) {
         case TTaskType::CREATE:
             if (task.__isset.create_tablet_req) {
-               _create_tablet_workers->submit_task(task);
+                _create_tablet_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
@@ -287,8 +240,8 @@ void AgentServer::submit_tasks(
         case TTaskType::REALTIME_PUSH:
         case TTaskType::PUSH:
             if (task.__isset.push_req) {
-                if (task.push_req.push_type == TPushType::LOAD
-                        || task.push_req.push_type == TPushType::LOAD_DELETE) {
+                if (task.push_req.push_type == TPushType::LOAD ||
+                    task.push_req.push_type == TPushType::LOAD_DELETE) {
                     _push_workers->submit_task(task);
                 } else if (task.push_req.push_type == TPushType::DELETE) {
                     _delete_workers->submit_task(task);
@@ -397,7 +350,8 @@ void AgentServer::submit_tasks(
 
         if (status_code == TStatusCode::ANALYSIS_ERROR) {
             OLAP_LOG_WARNING("task anaysis_error, signature: %ld", signature);
-            error_msgs.push_back("the task signature is:" + to_string(signature) + " has wrong request.");
+            error_msgs.push_back("the task signature is:" + to_string(signature) +
+                                 " has wrong request.");
         }
     }
 
@@ -406,7 +360,7 @@ void AgentServer::submit_tasks(
 }
 
 void AgentServer::make_snapshot(TAgentResult& return_value,
-        const TSnapshotRequest& snapshot_request) {
+                                const TSnapshotRequest& snapshot_request) {
     TStatus status;
     vector<string> error_msgs;
     TStatusCode::type status_code = TStatusCode::OK;
@@ -423,7 +377,8 @@ void AgentServer::make_snapshot(TAgentResult& return_value,
                              boost::lexical_cast<string>(make_snapshot_status));
     } else {
         LOG(INFO) << "make_snapshot success. tablet_id: " << snapshot_request.tablet_id
-                  << " schema_hash: " << snapshot_request.schema_hash << " snapshot_path: " << snapshot_path;
+                  << " schema_hash: " << snapshot_request.schema_hash
+                  << " snapshot_path: " << snapshot_path;
         return_value.__set_snapshot_path(snapshot_path);
     }
 
@@ -443,33 +398,34 @@ void AgentServer::release_snapshot(TAgentResult& return_value, const std::string
             SnapshotManager::instance()->release_snapshot(snapshot_path);
     if (release_snapshot_status != OLAP_SUCCESS) {
         status_code = TStatusCode::RUNTIME_ERROR;
-        LOG(WARNING) << "release_snapshot failed. snapshot_path: " << snapshot_path << ", status: " << release_snapshot_status;
+        LOG(WARNING) << "release_snapshot failed. snapshot_path: " << snapshot_path
+                     << ", status: " << release_snapshot_status;
         error_msgs.push_back("release_snapshot failed. status: " +
                              boost::lexical_cast<string>(release_snapshot_status));
     } else {
-        LOG(INFO) << "release_snapshot success. snapshot_path: " << snapshot_path << ", status: " << release_snapshot_status;
+        LOG(INFO) << "release_snapshot success. snapshot_path: " << snapshot_path
+                  << ", status: " << release_snapshot_status;
     }
 
     return_value.status.__set_error_msgs(error_msgs);
     return_value.status.__set_status_code(status_code);
 }
 
-void AgentServer::publish_cluster_state(TAgentResult& _return, const TAgentPublishRequest& request) {
+void AgentServer::publish_cluster_state(TAgentResult& _return,
+                                        const TAgentPublishRequest& request) {
     vector<string> error_msgs;
     _topic_subscriber->handle_updates(request);
     _return.status.__set_status_code(TStatusCode::OK);
 }
 
 void AgentServer::submit_etl_task(TAgentResult& return_value,
-                                 const TMiniLoadEtlTaskRequest& request) {
+                                  const TMiniLoadEtlTaskRequest& request) {
     Status status = _exec_env->etl_job_mgr()->start_job(request);
     if (status.ok()) {
-        VLOG_RPC << "start etl task successfull id="
-            << request.params.params.fragment_instance_id;
+        VLOG_RPC << "start etl task successfull id=" << request.params.params.fragment_instance_id;
     } else {
-        VLOG_RPC << "start etl task failed id="
-            << request.params.params.fragment_instance_id
-            << " and err_msg=" << status.get_error_msg();
+        VLOG_RPC << "start etl task failed id=" << request.params.params.fragment_instance_id
+                 << " and err_msg=" << status.get_error_msg();
     }
     status.to_thrift(&return_value.status);
 }
@@ -480,9 +436,9 @@ void AgentServer::get_etl_status(TMiniLoadEtlStatusResult& return_value,
     if (!status.ok()) {
         LOG(WARNING) << "get job state failed. [id=" << request.mini_load_id << "]";
     } else {
-        VLOG_RPC << "get job state successful. [id=" << request.mini_load_id << ",status="
-            << return_value.status.status_code << ",etl_state=" << return_value.etl_state
-            << ",files=";
+        VLOG_RPC << "get job state successful. [id=" << request.mini_load_id
+                 << ",status=" << return_value.status.status_code
+                 << ",etl_state=" << return_value.etl_state << ",files=";
         for (auto& item : return_value.file_map) {
             VLOG_RPC << item.first << ":" << item.second << ";";
         }
@@ -490,16 +446,15 @@ void AgentServer::get_etl_status(TMiniLoadEtlStatusResult& return_value,
     }
 }
 
-void AgentServer::delete_etl_files(TAgentResult& result,
-                                   const TDeleteEtlFilesRequest& request) {
+void AgentServer::delete_etl_files(TAgentResult& result, const TDeleteEtlFilesRequest& request) {
     Status status = _exec_env->etl_job_mgr()->erase_job(request);
     if (!status.ok()) {
         LOG(WARNING) << "delete etl files failed. because " << status.get_error_msg()
-            << " with request " << request;
+                     << " with request " << request;
     } else {
         VLOG_RPC << "delete etl files successful with param " << request;
     }
     status.to_thrift(&result.status);
 }
 
-}  // namesapce doris
+} // namespace doris

@@ -27,9 +27,9 @@
 
 #include "olap/byte_buffer.h"
 #include "olap/compress.h"
-#include "olap/stream_index_reader.h"
 #include "olap/file_helper.h"
 #include "olap/olap_common.h"
+#include "olap/stream_index_reader.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -52,23 +52,15 @@ public:
     //     length - 流的总字节长度
     //     Decompressor - 如果流被压缩过,则提供一个解压缩函数,否则为NULL
     //     compress_buffer_size - 如果使用压缩,给出压缩的块大小
-    ReadOnlyFileStream(FileHandler* handler,
-            StorageByteBuffer** shared_buffer,
-            Decompressor decompressor,
-            uint32_t compress_buffer_size,
-            OlapReaderStatistics* stats);
+    ReadOnlyFileStream(FileHandler* handler, StorageByteBuffer** shared_buffer,
+                       Decompressor decompressor, uint32_t compress_buffer_size,
+                       OlapReaderStatistics* stats);
 
-    ReadOnlyFileStream(FileHandler* handler,
-            StorageByteBuffer** shared_buffer,
-            uint64_t offset,
-            uint64_t length,
-            Decompressor decompressor,
-            uint32_t compress_buffer_size,
-            OlapReaderStatistics* stats);
+    ReadOnlyFileStream(FileHandler* handler, StorageByteBuffer** shared_buffer, uint64_t offset,
+                       uint64_t length, Decompressor decompressor, uint32_t compress_buffer_size,
+                       OlapReaderStatistics* stats);
 
-    ~ReadOnlyFileStream() {
-        SAFE_DELETE(_compressed_helper);
-    }
+    ~ReadOnlyFileStream() { SAFE_DELETE(_compressed_helper); }
 
     inline OLAPStatus init() {
         _compressed_helper = StorageByteBuffer::create(_compress_buffer_size);
@@ -81,9 +73,7 @@ public:
         return OLAP_SUCCESS;
     }
 
-    inline void reset(uint64_t offset, uint64_t length) {
-        _file_cursor.reset(offset, length);
-    }
+    inline void reset(uint64_t offset, uint64_t length) { _file_cursor.reset(offset, length); }
 
     // 从数据流中读取一个字节,内部指针后移
     // 如果数据流结束, 返回OLAP_ERR_COLUMN_STREAM_EOF
@@ -104,9 +94,7 @@ public:
     OLAPStatus skip(uint64_t skip_length);
 
     // 返回流的總長度
-    uint64_t stream_length() {
-        return _file_cursor.length();
-    }
+    uint64_t stream_length() { return _file_cursor.length(); }
 
     bool eof() {
         if (_uncompressed == NULL) {
@@ -119,9 +107,7 @@ public:
     // 返回当前块剩余可读字节数
     uint64_t available();
 
-    size_t get_buffer_size() {
-        return _compress_buffer_size;
-    }
+    size_t get_buffer_size() { return _compress_buffer_size; }
 
     inline void get_buf(char** buf, uint32_t* remaining_bytes) {
         if (UNLIKELY(_uncompressed == NULL)) {
@@ -133,13 +119,9 @@ public:
         }
     }
 
-    inline void get_position(uint32_t* position) {
-        *position = _uncompressed->position();
-    }
+    inline void get_position(uint32_t* position) { *position = _uncompressed->position(); }
 
-    inline void set_position(uint32_t pos) {
-        _uncompressed->set_position(pos);
-    }
+    inline void set_position(uint32_t pos) { _uncompressed->set_position(pos); }
 
     inline int remaining() {
         if (_uncompressed == NULL) {
@@ -152,14 +134,8 @@ private:
     // Use to read a specified range in file
     class FileCursor {
     public:
-        FileCursor(FileHandler* file_handler,
-                size_t offset,
-                size_t length) :
-                _file_handler(file_handler),
-                _offset(offset),
-                _length(length),
-                _used(0) {
-        }
+        FileCursor(FileHandler* file_handler, size_t offset, size_t length)
+                : _file_handler(file_handler), _offset(offset), _length(length), _used(0) {}
 
         ~FileCursor() {}
 
@@ -171,9 +147,7 @@ private:
 
         OLAPStatus read(char* out_buffer, size_t length) {
             if (_used + length <= _length) {
-                OLAPStatus res = _file_handler->pread(out_buffer,
-                             length,
-                             _used + _offset);
+                OLAPStatus res = _file_handler->pread(out_buffer, length, _used + _offset);
                 if (OLAP_SUCCESS != res) {
                     OLAP_LOG_WARNING("fail to read from file. [res=%d]", res);
                     return res;
@@ -187,21 +161,13 @@ private:
             return OLAP_SUCCESS;
         }
 
-        size_t position() {
-            return _used;
-        }
+        size_t position() { return _used; }
 
-        size_t remain() {
-            return _length - _used;
-        }
+        size_t remain() { return _length - _used; }
 
-        size_t length() {
-            return _length;
-        }
+        size_t length() { return _length; }
 
-        inline bool eof() {
-            return _used == _length;
-        }
+        inline bool eof() { return _used == _length; }
 
         OLAPStatus seek(size_t offset) {
             if (offset > _length) {
@@ -306,6 +272,6 @@ inline OLAPStatus ReadOnlyFileStream::read_all(char* buffer, uint64_t* buffer_si
     return res;
 }
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_COLUMN_FILE_FILE_STREAM_H

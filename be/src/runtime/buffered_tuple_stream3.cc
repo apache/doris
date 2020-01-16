@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "runtime/buffered_tuple_stream3.inline.h"
 
 #include <boost/bind.hpp>
@@ -1107,3 +1108,4 @@ void BufferedTupleStream3::UnflattenTupleRow(uint8_t** data, TupleRow* row) cons
   }
   *data = ptr;
 }
+// clang-format on

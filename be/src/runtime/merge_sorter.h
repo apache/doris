@@ -18,10 +18,10 @@
 #ifndef DORIS_BE_SRC_QUERY_RUNTIME_SORTER_H
 #define DORIS_BE_SRC_QUERY_RUNTIME_SORTER_H
 
-#include "runtime/buffered_block_mgr.h"
-#include "util/tuple_row_compare.h"
 #include "common/object_pool.h"
+#include "runtime/buffered_block_mgr.h"
 #include "util/runtime_profile.h"
+#include "util/tuple_row_compare.h"
 
 namespace doris {
 class RuntimeProfile;
@@ -90,9 +90,8 @@ public:
     // merge_batch_size_ is the size of the batches created to provide rows to the merger
     // and retrieve rows from an intermediate merger.
     MergeSorter(const TupleRowComparator& compare_less_than,
-           const std::vector<ExprContext*>& sort_tuple_slot_expr_ctxs,
-           RowDescriptor* output_row_desc,
-           RuntimeProfile* profile, RuntimeState* state);
+                const std::vector<ExprContext*>& sort_tuple_slot_expr_ctxs,
+                RowDescriptor* output_row_desc, RuntimeProfile* profile, RuntimeState* state);
 
     ~MergeSorter();
 
@@ -116,7 +115,6 @@ private:
     // Sorts _unsorted_run and appends it to the list of sorted runs. Deletes any empty
     // blocks at the end of the run. Updates the sort bytes counter if necessary.
     Status sort_run();
-
 
     // In memory sorter and less-than comparator.
     TupleRowComparator _compare_less_than;

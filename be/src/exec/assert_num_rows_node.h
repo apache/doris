@@ -21,11 +21,11 @@
 namespace doris {
 
 // Node for assert row count:
-// - 
+// -
 class AssertNumRowsNode : public ExecNode {
 public:
     AssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~AssertNumRowsNode() {};
+    virtual ~AssertNumRowsNode(){};
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual Status prepare(RuntimeState* state);
@@ -38,4 +38,4 @@ private:
     const std::string _subquery_string;
 };
 
-}
+} // namespace doris

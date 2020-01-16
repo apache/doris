@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
-#define  DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
+#ifndef DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
+#define DORIS_BE_SRC_QUERY_EXEC_SCHEMA_SCAN_NODE_H
 
 #include <boost/scoped_ptr.hpp>
 
@@ -90,8 +90,8 @@ private:
     std::vector<int> _index_map;
 };
 
-}
+} // namespace doris
 
-#endif  //__DORIS_MYSQLSCANNODE_H
+#endif //__DORIS_MYSQLSCANNODE_H
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 noet: */

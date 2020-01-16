@@ -18,8 +18,9 @@
 #include "exec/partitioned_aggregation_node.h"
 
 #include <math.h>
-#include <sstream>
 #include <thrift/protocol/TDebugProtocol.h>
+
+#include <sstream>
 
 #include "codegen/codegen_anyval.h"
 #include "codegen/llvm_codegen.h"
@@ -28,6 +29,8 @@
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
+#include "gen_cpp/Exprs_types.h"
+#include "gen_cpp/PlanNodes_types.h"
 #include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
@@ -40,9 +43,6 @@
 #include "util/runtime_profile.h"
 #include "util/stack_util.h"
 
-#include "gen_cpp/Exprs_types.h"
-#include "gen_cpp/PlanNodes_types.h"
-
 // using namespace llvm;
 using std::list;
 
@@ -51,29 +51,29 @@ namespace doris {
 const char* PartitionedAggregationNode::_s_llvm_class_name =
         "class.doris::PartitionedAggregationNode";
 
-PartitionedAggregationNode::PartitionedAggregationNode(
-        ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
-        ExecNode(pool, tnode, descs),
-        _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
-        _intermediate_tuple_desc(NULL),
-        _output_tuple_id(tnode.agg_node.output_tuple_id),
-        _output_tuple_desc(NULL),
-        _needs_finalize(tnode.agg_node.need_finalize),
-        _needs_serialize(false),
-        _block_mgr_client(NULL),
-        _output_partition(NULL),
-        _process_row_batch_fn(NULL),
-        _build_timer(NULL),
-        _ht_resize_timer(NULL),
-        _get_results_timer(NULL),
-        _num_hash_buckets(NULL),
-        _partitions_created(NULL),
-        // _max_partition_level(NULL),
-        _num_row_repartitioned(NULL),
-        _num_repartitions(NULL),
-        _singleton_output_tuple(NULL),
-        _singleton_output_tuple_returned(true),
-        _partition_pool(new ObjectPool()) {
+PartitionedAggregationNode::PartitionedAggregationNode(ObjectPool* pool, const TPlanNode& tnode,
+                                                       const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
+          _intermediate_tuple_desc(NULL),
+          _output_tuple_id(tnode.agg_node.output_tuple_id),
+          _output_tuple_desc(NULL),
+          _needs_finalize(tnode.agg_node.need_finalize),
+          _needs_serialize(false),
+          _block_mgr_client(NULL),
+          _output_partition(NULL),
+          _process_row_batch_fn(NULL),
+          _build_timer(NULL),
+          _ht_resize_timer(NULL),
+          _get_results_timer(NULL),
+          _num_hash_buckets(NULL),
+          _partitions_created(NULL),
+          // _max_partition_level(NULL),
+          _num_row_repartitioned(NULL),
+          _num_repartitions(NULL),
+          _singleton_output_tuple(NULL),
+          _singleton_output_tuple_returned(true),
+          _partition_pool(new ObjectPool()) {
     DCHECK_EQ(PARTITION_FANOUT, 1 << NUM_PARTITIONING_BITS);
 }
 
@@ -83,8 +83,8 @@ Status PartitionedAggregationNode::init(const TPlanNode& tnode, RuntimeState* st
             Expr::create_expr_trees(_pool, tnode.agg_node.grouping_exprs, &_probe_expr_ctxs));
     for (int i = 0; i < tnode.agg_node.aggregate_functions.size(); ++i) {
         AggFnEvaluator* evaluator = NULL;
-        RETURN_IF_ERROR(AggFnEvaluator::create(
-                    _pool, tnode.agg_node.aggregate_functions[i], &evaluator));
+        RETURN_IF_ERROR(
+                AggFnEvaluator::create(_pool, tnode.agg_node.aggregate_functions[i], &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
     return Status::OK();
@@ -114,16 +114,13 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     _partitions_created = ADD_COUNTER(runtime_profile(), "PartitionsCreated", TUnit::UNIT);
     // _max_partition_level = runtime_profile()->AddHighWaterMarkCounter(
     //         "MaxPartitionLevel", TUnit::UNIT);
-    _num_row_repartitioned = ADD_COUNTER(
-            runtime_profile(), "RowsRepartitioned", TUnit::UNIT);
+    _num_row_repartitioned = ADD_COUNTER(runtime_profile(), "RowsRepartitioned", TUnit::UNIT);
     _num_repartitions = ADD_COUNTER(runtime_profile(), "NumRepartitions", TUnit::UNIT);
-    _num_spilled_partitions = ADD_COUNTER(
-            runtime_profile(), "SpilledPartitions", TUnit::UNIT);
+    _num_spilled_partitions = ADD_COUNTER(runtime_profile(), "SpilledPartitions", TUnit::UNIT);
     // _largest_partition_percent = runtime_profile()->AddHighWaterMarkCounter(
     //         "LargestPartitionPercent", TUnit::UNIT);
 
-    _intermediate_tuple_desc =
-        state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
+    _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
 
@@ -136,10 +133,10 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
     for (int i = 0; i < _probe_expr_ctxs.size(); ++i) {
         SlotDescriptor* desc = _intermediate_tuple_desc->slots()[i];
         DCHECK(desc->type().type == TYPE_NULL ||
-                desc->type().type == _probe_expr_ctxs[i]->root()->type().type);
+               desc->type().type == _probe_expr_ctxs[i]->root()->type().type);
         // Hack to avoid TYPE_NULL SlotRefs.
-        Expr* expr = desc->type().type != TYPE_NULL ?
-            new SlotRef(desc) : new SlotRef(desc, TYPE_BOOLEAN);
+        Expr* expr = desc->type().type != TYPE_NULL ? new SlotRef(desc)
+                                                    : new SlotRef(desc, TYPE_BOOLEAN);
         state->obj_pool()->add(expr);
         _build_expr_ctxs.push_back(new ExprContext(expr));
         state->obj_pool()->add(_build_expr_ctxs.back());
@@ -158,8 +155,8 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
         // Skip non-materialized slots; we don't have evaluators instantiated for those.
         while (!_intermediate_tuple_desc->slots()[j]->is_materialized()) {
             DCHECK_LT(j, _intermediate_tuple_desc->slots().size() - 1)
-                << "#eval= " << _aggregate_evaluators.size()
-                << " #probe=" << _probe_expr_ctxs.size();
+                    << "#eval= " << _aggregate_evaluators.size()
+                    << " #probe=" << _probe_expr_ctxs.size();
             ++j;
         }
         // SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
@@ -167,9 +164,9 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
         FunctionContext* agg_fn_ctx = NULL;
         // RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, child(0)->row_desc(),
         //             intermediate_slot_desc, output_slot_desc, _agg_fn_pool.get(), &agg_fn_ctx));
-        RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(state, child(0)->row_desc(),
-                        _agg_fn_pool.get(), output_slot_desc, output_slot_desc,
-                        expr_mem_tracker(), &agg_fn_ctx));
+        RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
+                state, child(0)->row_desc(), _agg_fn_pool.get(), output_slot_desc, output_slot_desc,
+                expr_mem_tracker(), &agg_fn_ctx));
         _agg_fn_ctxs.push_back(agg_fn_ctx);
         state->obj_pool()->add(agg_fn_ctx);
         _needs_serialize |= _aggregate_evaluators[i]->supports_serialize();
@@ -185,18 +182,19 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
         _singleton_output_tuple_returned = false;
     } else {
         _ht_ctx.reset(new PartitionedHashTableCtx(_build_expr_ctxs, _probe_expr_ctxs, true, true,
-                state->fragment_hash_seed(), MAX_PARTITION_DEPTH, 1));
-        RETURN_IF_ERROR(_state->block_mgr2()->register_client(
-                    min_required_buffers(), mem_tracker(), state, &_block_mgr_client));
+                                                  state->fragment_hash_seed(), MAX_PARTITION_DEPTH,
+                                                  1));
+        RETURN_IF_ERROR(_state->block_mgr2()->register_client(min_required_buffers(), mem_tracker(),
+                                                              state, &_block_mgr_client));
         RETURN_IF_ERROR(create_hash_partitions(0));
     }
 
     // TODO: Is there a need to create the stream here? If memory reservations work we may
     // be able to create this stream lazily and only whenever we need to spill.
     if (_needs_serialize && _block_mgr_client != NULL) {
-        _serialize_stream.reset(new BufferedTupleStream2(state, *_intermediate_row_desc,
-                    state->block_mgr2(), _block_mgr_client, false /* use_initial_small_buffers */,
-                    false /* read_write */));
+        _serialize_stream.reset(new BufferedTupleStream2(
+                state, *_intermediate_row_desc, state->block_mgr2(), _block_mgr_client,
+                false /* use_initial_small_buffers */, false /* read_write */));
         RETURN_IF_ERROR(_serialize_stream->init(id(), runtime_profile(), false));
         DCHECK(_serialize_stream->has_write_block());
     }
@@ -232,14 +230,15 @@ Status PartitionedAggregationNode::open(RuntimeState* state) {
     bool eos = false;
     do {
         RETURN_IF_CANCELLED(state);
-        RETURN_IF_ERROR(state->check_query_state("Partitioned aggregation, while getting next from child 0."));
+        RETURN_IF_ERROR(state->check_query_state(
+                "Partitioned aggregation, while getting next from child 0."));
         RETURN_IF_ERROR(_children[0]->get_next(state, &batch, &eos));
 
         if (UNLIKELY(VLOG_ROW_IS_ON)) {
             for (int i = 0; i < batch.num_rows(); ++i) {
                 TupleRow* row = batch.get_row(i);
                 VLOG_ROW << "partition-agg-node input row: "
-                        << row->to_string(_children[0]->row_desc());
+                         << row->to_string(_children[0]->row_desc());
             }
         }
 
@@ -276,7 +275,8 @@ Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_b
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::GETNEXT));
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(state->check_query_state("Partitioned aggregation, before evaluating conjuncts."));
+    RETURN_IF_ERROR(
+            state->check_query_state("Partitioned aggregation, before evaluating conjuncts."));
 
     if (reached_limit()) {
         *eos = true;
@@ -291,8 +291,8 @@ Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_b
         if (!_singleton_output_tuple_returned) {
             int row_idx = row_batch->add_row();
             TupleRow* row = row_batch->get_row(row_idx);
-            Tuple* output_tuple = get_output_tuple(
-                    _agg_fn_ctxs, _singleton_output_tuple, row_batch->tuple_data_pool());
+            Tuple* output_tuple = get_output_tuple(_agg_fn_ctxs, _singleton_output_tuple,
+                                                   row_batch->tuple_data_pool());
             row->set_tuple(0, output_tuple);
             if (ExecNode::eval_conjuncts(ctxs, num_ctxs, row)) {
                 row_batch->commit_last_row();
@@ -333,14 +333,15 @@ Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_b
         // maintenance every N iterations.
         if ((count++ & (N - 1)) == 0) {
             RETURN_IF_CANCELLED(state);
-            RETURN_IF_ERROR(state->check_query_state("Partitioned aggregation, while evaluating conjuncts."));
+            RETURN_IF_ERROR(state->check_query_state(
+                    "Partitioned aggregation, while evaluating conjuncts."));
         }
 
         int row_idx = row_batch->add_row();
         TupleRow* row = row_batch->get_row(row_idx);
         Tuple* intermediate_tuple = _output_iterator.get_tuple();
-        Tuple* output_tuple = get_output_tuple(
-                _output_partition->agg_fn_ctxs, intermediate_tuple, row_batch->tuple_data_pool());
+        Tuple* output_tuple = get_output_tuple(_output_partition->agg_fn_ctxs, intermediate_tuple,
+                                               row_batch->tuple_data_pool());
         _output_iterator.next();
         row->set_tuple(0, output_tuple);
         if (ExecNode::eval_conjuncts(ctxs, num_ctxs, row)) {
@@ -359,8 +360,8 @@ Status PartitionedAggregationNode::get_next(RuntimeState* state, RowBatch* row_b
     return Status::OK();
 }
 
-void PartitionedAggregationNode::cleanup_hash_tbl(
-        const vector<FunctionContext*>& agg_fn_ctxs, PartitionedHashTable::Iterator it) {
+void PartitionedAggregationNode::cleanup_hash_tbl(const vector<FunctionContext*>& agg_fn_ctxs,
+                                                  PartitionedHashTable::Iterator it) {
     if (!_needs_finalize && !_needs_serialize) {
         return;
     }
@@ -390,7 +391,7 @@ Status PartitionedAggregationNode::reset(RuntimeState* state) {
     if (_probe_expr_ctxs.empty()) {
         // Re-create the single output tuple for this non-grouping agg.
         _singleton_output_tuple =
-            construct_intermediate_tuple(_agg_fn_ctxs, _mem_pool.get(), NULL, NULL);
+                construct_intermediate_tuple(_agg_fn_ctxs, _mem_pool.get(), NULL, NULL);
         // Check for failures during AggFnEvaluator::init().
         RETURN_IF_ERROR(_state->query_status());
         _singleton_output_tuple_returned = false;
@@ -459,16 +460,16 @@ Status PartitionedAggregationNode::Partition::init_streams() {
         parent->_partition_pool->add(agg_fn_ctxs[i]);
     }
 
-    aggregated_row_stream.reset(new BufferedTupleStream2(parent->_state,
-                *parent->_intermediate_row_desc, parent->_state->block_mgr2(),
-                parent->_block_mgr_client, true /* use_initial_small_buffers */,
-                false /* read_write */));
+    aggregated_row_stream.reset(
+            new BufferedTupleStream2(parent->_state, *parent->_intermediate_row_desc,
+                                     parent->_state->block_mgr2(), parent->_block_mgr_client,
+                                     true /* use_initial_small_buffers */, false /* read_write */));
     RETURN_IF_ERROR(aggregated_row_stream->init(parent->id(), parent->runtime_profile(), true));
 
-    unaggregated_row_stream.reset(new BufferedTupleStream2(parent->_state,
-                parent->child(0)->row_desc(), parent->_state->block_mgr2(),
-                parent->_block_mgr_client, true /* use_initial_small_buffers */,
-                false /* read_write */));
+    unaggregated_row_stream.reset(
+            new BufferedTupleStream2(parent->_state, parent->child(0)->row_desc(),
+                                     parent->_state->block_mgr2(), parent->_block_mgr_client,
+                                     true /* use_initial_small_buffers */, false /* read_write */));
     // This stream is only used to spill, no need to ever have this pinned.
     RETURN_IF_ERROR(unaggregated_row_stream->init(parent->id(), parent->runtime_profile(), false));
     DCHECK(unaggregated_row_stream->has_write_block());
@@ -484,8 +485,9 @@ bool PartitionedAggregationNode::Partition::init_hash_table() {
     // though. Always start with small buffers.
     // TODO: How many buckets? We currently use a default value, 1024.
     static const int64_t PAGG_DEFAULT_HASH_TABLE_SZ = 1024;
-    hash_tbl.reset(PartitionedHashTable::create(parent->_state, parent->_block_mgr_client, 1,
-                NULL, 1 << (32 - NUM_PARTITIONING_BITS), PAGG_DEFAULT_HASH_TABLE_SZ));
+    hash_tbl.reset(PartitionedHashTable::create(parent->_state, parent->_block_mgr_client, 1, NULL,
+                                                1 << (32 - NUM_PARTITIONING_BITS),
+                                                PAGG_DEFAULT_HASH_TABLE_SZ));
     return hash_tbl->init();
 }
 
@@ -532,7 +534,7 @@ Status PartitionedAggregationNode::Partition::clean_up() {
             aggregated_row_stream->close();
             RETURN_IF_ERROR(status);
             return parent->_state->block_mgr2()->mem_limit_too_low_error(parent->_block_mgr_client,
-                    parent->id());
+                                                                         parent->id());
         }
         DCHECK(status.ok());
 
@@ -542,10 +544,10 @@ Status PartitionedAggregationNode::Partition::clean_up() {
         // when we need to spill again. We need to have this available before we need
         // to spill to make sure it is available. This should be acquirable since we just
         // freed at least one buffer from this partition's (old) aggregated_row_stream.
-        parent->_serialize_stream.reset(new BufferedTupleStream2(parent->_state,
-                    *parent->_intermediate_row_desc, parent->_state->block_mgr2(),
-                    parent->_block_mgr_client, false /* use_initial_small_buffers */,
-                    false /* read_write */));
+        parent->_serialize_stream.reset(new BufferedTupleStream2(
+                parent->_state, *parent->_intermediate_row_desc, parent->_state->block_mgr2(),
+                parent->_block_mgr_client, false /* use_initial_small_buffers */,
+                false /* read_write */));
         status = parent->_serialize_stream->init(parent->id(), parent->runtime_profile(), false);
         if (!status.ok()) {
             hash_tbl->close();
@@ -593,11 +595,10 @@ Status PartitionedAggregationNode::Partition::spill() {
     }
     if (!got_buffer) {
         // We'll try again to get the buffers when the stream fills up the small buffers.
-        VLOG_QUERY << "Not enough memory to switch to IO-sized buffer for partition "
-            << this << " of agg=" << parent->_id << " agg small buffers="
-            << aggregated_row_stream->using_small_buffers()
-            << " unagg small buffers="
-            << unaggregated_row_stream->using_small_buffers();
+        VLOG_QUERY << "Not enough memory to switch to IO-sized buffer for partition " << this
+                   << " of agg=" << parent->_id
+                   << " agg small buffers=" << aggregated_row_stream->using_small_buffers()
+                   << " unagg small buffers=" << unaggregated_row_stream->using_small_buffers();
         VLOG_FILE << get_stack_trace();
     }
 
@@ -638,8 +639,8 @@ void PartitionedAggregationNode::Partition::close(bool finalize_rows) {
 }
 
 Tuple* PartitionedAggregationNode::construct_intermediate_tuple(
-        const vector<FunctionContext*>& agg_fn_ctxs, MemPool* pool,
-        BufferedTupleStream2* stream, Status* status) {
+        const vector<FunctionContext*>& agg_fn_ctxs, MemPool* pool, BufferedTupleStream2* stream,
+        Status* status) {
     Tuple* intermediate_tuple = NULL;
     uint8_t* buffer = NULL;
     if (pool != NULL) {
@@ -726,29 +727,28 @@ Tuple* PartitionedAggregationNode::construct_intermediate_tuple(
         //         (*slot_desc)->type().type != TYPE_TIMESTAMP &&
         //         (*slot_desc)->type().type != TYPE_CHAR &&
         //         (*slot_desc)->type().type != TYPE_DECIMAL) {
-        if (!(*slot_desc)->type().is_string_type()
-                && !(*slot_desc)->type().is_date_type()) {
+        if (!(*slot_desc)->type().is_string_type() && !(*slot_desc)->type().is_date_type()) {
             ExprValue default_value;
             void* default_value_ptr = NULL;
             switch (evaluator->agg_op()) {
-                case AggFnEvaluator::MIN:
-                    default_value_ptr = default_value.set_to_max((*slot_desc)->type());
-                    RawValue::write(default_value_ptr, intermediate_tuple, *slot_desc, NULL);
-                    break;
-                case AggFnEvaluator::MAX:
-                    default_value_ptr = default_value.set_to_min((*slot_desc)->type());
-                    RawValue::write(default_value_ptr, intermediate_tuple, *slot_desc, NULL);
-                    break;
-                default:
-                    break;
+            case AggFnEvaluator::MIN:
+                default_value_ptr = default_value.set_to_max((*slot_desc)->type());
+                RawValue::write(default_value_ptr, intermediate_tuple, *slot_desc, NULL);
+                break;
+            case AggFnEvaluator::MAX:
+                default_value_ptr = default_value.set_to_min((*slot_desc)->type());
+                RawValue::write(default_value_ptr, intermediate_tuple, *slot_desc, NULL);
+                break;
+            default:
+                break;
             }
         }
     }
     return intermediate_tuple;
 }
 
-void PartitionedAggregationNode::update_tuple(FunctionContext** agg_fn_ctxs,
-        Tuple* tuple, TupleRow* row, bool is_merge) {
+void PartitionedAggregationNode::update_tuple(FunctionContext** agg_fn_ctxs, Tuple* tuple,
+                                              TupleRow* row, bool is_merge) {
     DCHECK(tuple != NULL || _aggregate_evaluators.empty());
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         if (is_merge) {
@@ -759,8 +759,8 @@ void PartitionedAggregationNode::update_tuple(FunctionContext** agg_fn_ctxs,
     }
 }
 
-Tuple* PartitionedAggregationNode::get_output_tuple(
-        const vector<FunctionContext*>& agg_fn_ctxs, Tuple* tuple, MemPool* pool) {
+Tuple* PartitionedAggregationNode::get_output_tuple(const vector<FunctionContext*>& agg_fn_ctxs,
+                                                    Tuple* tuple, MemPool* pool) {
     DCHECK(tuple != NULL || _aggregate_evaluators.empty()) << tuple;
     Tuple* dst = tuple;
     // if (_needs_finalize && _intermediate_tuple_id != _output_tuple_id) {
@@ -820,11 +820,10 @@ Status PartitionedAggregationNode::append_spilled_row(BufferedTupleStream2* stre
 void PartitionedAggregationNode::debug_string(int indentation_level, stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "PartitionedAggregationNode("
-        << "intermediate_tuple_id=" << _intermediate_tuple_id
-        << " output_tuple_id=" << _output_tuple_id
-        << " needs_finalize=" << _needs_finalize
-        << " probe_exprs=" << Expr::debug_string(_probe_expr_ctxs)
-        << " agg_exprs=" << AggFnEvaluator::debug_string(_aggregate_evaluators);
+         << "intermediate_tuple_id=" << _intermediate_tuple_id
+         << " output_tuple_id=" << _output_tuple_id << " needs_finalize=" << _needs_finalize
+         << " probe_exprs=" << Expr::debug_string(_probe_expr_ctxs)
+         << " agg_exprs=" << AggFnEvaluator::debug_string(_aggregate_evaluators);
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
 }
@@ -832,12 +831,11 @@ void PartitionedAggregationNode::debug_string(int indentation_level, stringstrea
 Status PartitionedAggregationNode::create_hash_partitions(int level) {
     if (level >= MAX_PARTITION_DEPTH) {
         stringstream error_msg;
-        error_msg << "Cannot perform aggregation at hash aggregation node with id "
-                << _id << '.'
-                << " The input data was partitioned the maximum number of "
-                << MAX_PARTITION_DEPTH << " times."
-                << " This could mean there is significant skew in the data or the memory limit is"
-                << " set too low.";
+        error_msg << "Cannot perform aggregation at hash aggregation node with id " << _id << '.'
+                  << " The input data was partitioned the maximum number of " << MAX_PARTITION_DEPTH
+                  << " times."
+                  << " This could mean there is significant skew in the data or the memory limit is"
+                  << " set too low.";
         return _state->set_mem_limit_exceeded(error_msg.str());
     }
     _ht_ctx->set_level(level);
@@ -863,8 +861,8 @@ Status PartitionedAggregationNode::create_hash_partitions(int level) {
     return Status::OK();
 }
 
-Status PartitionedAggregationNode::check_and_resize_hash_partitions(int num_rows,
-        PartitionedHashTableCtx* ht_ctx) {
+Status PartitionedAggregationNode::check_and_resize_hash_partitions(
+        int num_rows, PartitionedHashTableCtx* ht_ctx) {
     for (int i = 0; i < PARTITION_FANOUT; ++i) {
         Partition* partition = _hash_partitions[i];
         while (!partition->is_spilled()) {
@@ -889,7 +887,7 @@ int64_t PartitionedAggregationNode::largest_spilled_partition() const {
             continue;
         }
         int64_t rows = partition->aggregated_row_stream->num_rows() +
-                partition->unaggregated_row_stream->num_rows();
+                       partition->unaggregated_row_stream->num_rows();
         if (rows > max_rows) {
             max_rows = rows;
         }
@@ -915,7 +913,7 @@ Status PartitionedAggregationNode::next_partition() {
         if (partition == NULL) {
             DCHECK(!_spilled_partitions.empty());
             DCHECK_EQ(_state->block_mgr2()->num_pinned_buffers(_block_mgr_client),
-                    _needs_serialize ? 1 : 0);
+                      _needs_serialize ? 1 : 0);
 
             // TODO: we can probably do better than just picking the first partition. We
             // can base this on the amount written to disk, etc.
@@ -945,12 +943,12 @@ Status PartitionedAggregationNode::next_partition() {
             // Done processing this partition. Move the new partitions into
             // _spilled_partitions/_aggregated_partitions.
             int64_t num_input_rows = partition->aggregated_row_stream->num_rows() +
-                partition->unaggregated_row_stream->num_rows();
+                                     partition->unaggregated_row_stream->num_rows();
 
             // Check if there was any reduction in the size of partitions after repartitioning.
             int64_t largest_partition = largest_spilled_partition();
             DCHECK_GE(num_input_rows, largest_partition) << "Cannot have a partition with "
-                "more rows than the input";
+                                                            "more rows than the input";
             if (num_input_rows == largest_partition) {
                 // Status status = Status::MemTrackerExceeded();
                 // status.AddDetail(Substitute("Cannot perform aggregation at node with id $0. "
@@ -960,9 +958,9 @@ Status PartitionedAggregationNode::next_partition() {
                 // _state->SetMemTrackerExceeded();
                 stringstream error_msg;
                 error_msg << "Cannot perform aggregation at node with id " << _id << ". "
-                        << "Repartitioning did not reduce the size of a spilled partition. "
-                        << "Repartitioning level " << partition->level + 1
-                        << ". Number of rows " << num_input_rows << " .";
+                          << "Repartitioning did not reduce the size of a spilled partition. "
+                          << "Repartitioning level " << partition->level + 1 << ". Number of rows "
+                          << num_input_rows << " .";
                 return Status::MemoryLimitExceeded(error_msg.str());
             }
             RETURN_IF_ERROR(move_hash_partitions(num_input_rows));
@@ -978,7 +976,7 @@ Status PartitionedAggregationNode::next_partition() {
     return Status::OK();
 }
 
-template<bool AGGREGATED_ROWS>
+template <bool AGGREGATED_ROWS>
 Status PartitionedAggregationNode::process_stream(BufferedTupleStream2* input_stream) {
     if (input_stream->num_rows() > 0) {
         while (true) {
@@ -993,7 +991,7 @@ Status PartitionedAggregationNode::process_stream(BufferedTupleStream2* input_st
 
         bool eos = false;
         RowBatch batch(AGGREGATED_ROWS ? *_intermediate_row_desc : _children[0]->row_desc(),
-                _state->batch_size(), mem_tracker());
+                       _state->batch_size(), mem_tracker());
         do {
             RETURN_IF_ERROR(input_stream->get_next(&batch, &eos));
             RETURN_IF_ERROR(process_batch<AGGREGATED_ROWS>(&batch, _ht_ctx.get()));
@@ -1039,19 +1037,18 @@ Status PartitionedAggregationNode::spill_partition() {
 Status PartitionedAggregationNode::move_hash_partitions(int64_t num_input_rows) {
     DCHECK(!_hash_partitions.empty());
     stringstream ss;
-    ss << "PA(node_id=" << id() << ") partitioned(level="
-        << _hash_partitions[0]->level << ") "
-        << num_input_rows << " rows into:" << std::endl;
+    ss << "PA(node_id=" << id() << ") partitioned(level=" << _hash_partitions[0]->level << ") "
+       << num_input_rows << " rows into:" << std::endl;
     for (int i = 0; i < _hash_partitions.size(); ++i) {
         Partition* partition = _hash_partitions[i];
         int64_t aggregated_rows = partition->aggregated_row_stream->num_rows();
         int64_t unaggregated_rows = partition->unaggregated_row_stream->num_rows();
         int64_t total_rows = aggregated_rows + unaggregated_rows;
         double percent = static_cast<double>(total_rows * 100) / num_input_rows;
-        ss << "  " << i << " "  << (partition->is_spilled() ? "spilled" : "not spilled")
-            << " (fraction=" << std::fixed << std::setprecision(2) << percent << "%)" << std::endl
-            << "    #aggregated rows:" << aggregated_rows << std::endl
-            << "    #unaggregated rows: " << unaggregated_rows << std::endl;
+        ss << "  " << i << " " << (partition->is_spilled() ? "spilled" : "not spilled")
+           << " (fraction=" << std::fixed << std::setprecision(2) << percent << "%)" << std::endl
+           << "    #aggregated rows:" << aggregated_rows << std::endl
+           << "    #unaggregated rows: " << unaggregated_rows << std::endl;
 
         // TODO: update counters to support doubles.
         // COUNTER_SET(_largest_partition_percent, static_cast<int64_t>(percent));
@@ -1075,7 +1072,6 @@ Status PartitionedAggregationNode::move_hash_partitions(int64_t num_input_rows) 
         } else {
             _aggregated_partitions.push_back(partition);
         }
-
     }
     VLOG(2) << ss.str();
     _hash_partitions.clear();
@@ -1087,11 +1083,11 @@ void PartitionedAggregationNode::close_partitions() {
         _hash_partitions[i]->close(true);
     }
     for (list<Partition*>::iterator it = _aggregated_partitions.begin();
-            it != _aggregated_partitions.end(); ++it) {
+         it != _aggregated_partitions.end(); ++it) {
         (*it)->close(true);
     }
     for (list<Partition*>::iterator it = _spilled_partitions.begin();
-            it != _spilled_partitions.end(); ++it) {
+         it != _spilled_partitions.end(); ++it) {
         (*it)->close(true);
     }
     _aggregated_partitions.clear();
@@ -1568,4 +1564,4 @@ Function* PartitionedAggregationNode::codegen_process_batch() {
 }
 #endif
 
-}
+} // namespace doris

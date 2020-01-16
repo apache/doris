@@ -24,16 +24,15 @@
 namespace doris {
 
 class PluginManager {
-
 public:
     Status load_plugin(Plugin* plugin);
-    
+
     Status unload_plugin(Plugin* plugin);
-    
+
     Status get_plugin(std::string name);
 
 private:
     std::unordered_map<std::string, Plugin*> _plugins;
 };
 
-}
+} // namespace doris

@@ -19,26 +19,24 @@
 
 #include <re2/re2.h>
 
-#include "exprs/expr.h"
 #include "exprs/anyval_util.h"
+#include "exprs/expr.h"
+#include "math_functions.h"
 #include "runtime/string_value.hpp"
 #include "runtime/tuple_row.h"
 #include "util/url_parser.h"
-#include "math_functions.h"
 
 // NOTE: be careful not to use string::append.  It is not performant.
 namespace doris {
 
-void StringFunctions::init() {
-}
+void StringFunctions::init() {}
 
 // This behaves identically to the mysql implementation, namely:
 //  - 1-indexed positions
 //  - supported negative positions (count from the end of the string)
 //  - [optional] len.  No len indicates longest substr possible
-StringVal StringFunctions::substring(
-        FunctionContext* context, const StringVal& str, 
-        const IntVal& pos, const IntVal& len) {
+StringVal StringFunctions::substring(FunctionContext* context, const StringVal& str,
+                                     const IntVal& pos, const IntVal& len) {
     if (str.is_null || pos.is_null || len.is_null) {
         return StringVal::null();
     }
@@ -55,8 +53,8 @@ StringVal StringFunctions::substring(
     }
 }
 
-StringVal StringFunctions::substring(
-        FunctionContext* context, const StringVal& str, const IntVal& pos) {
+StringVal StringFunctions::substring(FunctionContext* context, const StringVal& str,
+                                     const IntVal& pos) {
     // StringVal.len is an int => INT32_MAX
     return substring(context, str, pos, IntVal(INT32_MAX));
 }
@@ -64,23 +62,22 @@ StringVal StringFunctions::substring(
 // Implementation of Left.  The signature is
 //    string left(string input, int len)
 // This behaves identically to the mysql implementation.
-StringVal StringFunctions::left(
-        FunctionContext* context, const StringVal& str, const IntVal& len) {
+StringVal StringFunctions::left(FunctionContext* context, const StringVal& str, const IntVal& len) {
     return substring(context, str, 1, len);
 }
 
 // Implementation of Right.  The signature is
 //    string right(string input, int len)
 // This behaves identically to the mysql implementation.
-StringVal StringFunctions::right(
-        FunctionContext* context, const StringVal& str, const IntVal& len) {
+StringVal StringFunctions::right(FunctionContext* context, const StringVal& str,
+                                 const IntVal& len) {
     // Don't index past the beginning of str, otherwise we'll get an empty string back
     int32_t pos = std::max(-len.val, static_cast<int32_t>(-str.len));
     return substring(context, str, IntVal(pos), len);
 }
 
-BooleanVal StringFunctions::ends_with(
-        FunctionContext* context, const StringVal& str, const StringVal& suffix) {
+BooleanVal StringFunctions::ends_with(FunctionContext* context, const StringVal& str,
+                                      const StringVal& suffix) {
     if (str.is_null || suffix.is_null) {
         return BooleanVal::null();
     }
@@ -90,7 +87,7 @@ BooleanVal StringFunctions::ends_with(
 }
 
 StringVal StringFunctions::space(FunctionContext* context, const IntVal& len) {
-    if (len.is_null){
+    if (len.is_null) {
         return StringVal::null();
     }
     if (len.val <= 0) {
@@ -99,13 +96,12 @@ StringVal StringFunctions::space(FunctionContext* context, const IntVal& len) {
     int32_t space_size = std::min(len.val, 65535);
     // TODO pengyubing
     // StringVal result = StringVal::create_temp_string_val(context, space_size);
-    StringVal result(context, space_size);  
+    StringVal result(context, space_size);
     memset(result.ptr, ' ', space_size);
     return result;
 }
 
-StringVal StringFunctions::repeat(
-        FunctionContext* context, const StringVal& str, const IntVal& n) {
+StringVal StringFunctions::repeat(FunctionContext* context, const StringVal& str, const IntVal& n) {
     if (str.is_null || n.is_null) {
         return StringVal::null();
     }
@@ -127,9 +123,8 @@ StringVal StringFunctions::repeat(
     return result;
 }
 
-StringVal StringFunctions::lpad(
-        FunctionContext* context, const StringVal& str, 
-        const IntVal& len, const StringVal& pad) {
+StringVal StringFunctions::lpad(FunctionContext* context, const StringVal& str, const IntVal& len,
+                                const StringVal& pad) {
     if (str.is_null || len.is_null || pad.is_null || len.val < 0) {
         return StringVal::null();
     }
@@ -162,9 +157,8 @@ StringVal StringFunctions::lpad(
     return result;
 }
 
-StringVal StringFunctions::rpad(
-        FunctionContext* context, const StringVal& str,
-        const IntVal& len, const StringVal& pad) {
+StringVal StringFunctions::rpad(FunctionContext* context, const StringVal& str, const IntVal& len,
+                                const StringVal& pad) {
     if (str.is_null || len.is_null || pad.is_null || len.val < 0) {
         return StringVal::null();
     }
@@ -304,9 +298,8 @@ IntVal StringFunctions::ascii(FunctionContext* context, const StringVal& str) {
     return IntVal((str.len == 0) ? 0 : static_cast<int32_t>(str.ptr[0]));
 }
 
-IntVal StringFunctions::instr(
-        FunctionContext* context, const StringVal& str,
-        const StringVal& substr) {
+IntVal StringFunctions::instr(FunctionContext* context, const StringVal& str,
+                              const StringVal& substr) {
     if (str.is_null || substr.is_null) {
         return IntVal::null();
     }
@@ -317,14 +310,13 @@ IntVal StringFunctions::instr(
     return IntVal(search.search(&str_sv) + 1);
 }
 
-IntVal StringFunctions::locate(
-        FunctionContext* context, const StringVal& substr, const StringVal& str) {
+IntVal StringFunctions::locate(FunctionContext* context, const StringVal& substr,
+                               const StringVal& str) {
     return instr(context, str, substr);
 }
 
-IntVal StringFunctions::locate_pos(
-        FunctionContext* context, const StringVal& substr,
-        const StringVal& str, const IntVal& start_pos) {
+IntVal StringFunctions::locate_pos(FunctionContext* context, const StringVal& substr,
+                                   const StringVal& str, const IntVal& start_pos) {
     if (str.is_null || substr.is_null || start_pos.is_null) {
         return IntVal::null();
     }
@@ -337,8 +329,8 @@ IntVal StringFunctions::locate_pos(
     StringValue substr_sv = StringValue::from_string_val(substr);
     StringSearch search(&substr_sv);
     // Input start_pos.val starts from 1.
-    StringValue adjusted_str(
-        reinterpret_cast<char*>(str.ptr) + start_pos.val - 1, str.len - start_pos.val + 1);
+    StringValue adjusted_str(reinterpret_cast<char*>(str.ptr) + start_pos.val - 1,
+                             str.len - start_pos.val + 1);
     int32_t match_pos = search.search(&adjusted_str);
     if (match_pos >= 0) {
         // Hive returns the position in the original string starting from 1.
@@ -349,10 +341,8 @@ IntVal StringFunctions::locate_pos(
 }
 
 // This function sets options in the RE2 library before pattern matching.
-bool StringFunctions::set_re2_options(
-        const StringVal& match_parameter,
-        std::string* error_str, 
-        re2::RE2::Options* opts) {
+bool StringFunctions::set_re2_options(const StringVal& match_parameter, std::string* error_str,
+                                      re2::RE2::Options* opts) {
     for (int i = 0; i < match_parameter.len; i++) {
         char match = match_parameter.ptr[i];
         switch (match) {
@@ -381,10 +371,8 @@ bool StringFunctions::set_re2_options(
 }
 
 // The caller owns the returned regex. Returns NULL if the pattern could not be compiled.
-static re2::RE2* compile_regex(
-        const StringVal& pattern, 
-        std::string* error_str,
-        const StringVal& match_parameter) {
+static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
+                               const StringVal& match_parameter) {
     re2::StringPiece pattern_sp(reinterpret_cast<char*>(pattern.ptr), pattern.len);
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
@@ -392,15 +380,15 @@ static re2::RE2* compile_regex(
     // Return the leftmost longest match (rather than the first match).
     options.set_longest_match(true);
     options.set_dot_nl(true);
-    if (!match_parameter.is_null
-            && !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
+    if (!match_parameter.is_null &&
+        !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
         return NULL;
     }
     re2::RE2* re = new re2::RE2(pattern_sp, options);
     if (!re->ok()) {
         std::stringstream ss;
-        ss << "Could not compile regexp pattern: " << AnyValUtil::to_string(pattern) 
-            << std::endl << "Error: " << re->error();
+        ss << "Could not compile regexp pattern: " << AnyValUtil::to_string(pattern) << std::endl
+           << "Error: " << re->error();
         *error_str = ss.str();
         delete re;
         return NULL;
@@ -408,8 +396,8 @@ static re2::RE2* compile_regex(
     return re;
 }
 
-void StringFunctions::regexp_prepare(
-        FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+void StringFunctions::regexp_prepare(FunctionContext* context,
+                                     FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
@@ -430,8 +418,8 @@ void StringFunctions::regexp_prepare(
     context->set_function_state(scope, re);
 }
 
-void StringFunctions::regexp_close(
-        FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+void StringFunctions::regexp_close(FunctionContext* context,
+                                   FunctionContext::FunctionStateScope scope) {
     if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
@@ -439,9 +427,8 @@ void StringFunctions::regexp_close(
     delete re;
 }
 
-StringVal StringFunctions::regexp_extract(
-        FunctionContext* context, const StringVal& str,
-        const StringVal& pattern, const BigIntVal& index) {
+StringVal StringFunctions::regexp_extract(FunctionContext* context, const StringVal& str,
+                                          const StringVal& pattern, const BigIntVal& index) {
     if (str.is_null || pattern.is_null || index.is_null) {
         return StringVal::null();
     }
@@ -450,7 +437,7 @@ StringVal StringFunctions::regexp_extract(
     }
 
     re2::RE2* re = reinterpret_cast<re2::RE2*>(
-        context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     std::unique_ptr<re2::RE2> scoped_re; // destroys re if we have to locally compile it
     if (re == NULL) {
         DCHECK(!context->is_arg_constant(1));
@@ -471,8 +458,7 @@ StringVal StringFunctions::regexp_extract(
     // Use a vector because clang complains about non-POD varlen arrays
     // TODO: fix this
     std::vector<re2::StringPiece> matches(max_matches);
-    bool success =
-        re->Match(str_sp, 0, str.len, re2::RE2::UNANCHORED, &matches[0], max_matches);
+    bool success = re->Match(str_sp, 0, str.len, re2::RE2::UNANCHORED, &matches[0], max_matches);
     if (!success) {
         return StringVal();
     }
@@ -481,15 +467,14 @@ StringVal StringFunctions::regexp_extract(
     return AnyValUtil::from_buffer_temp(context, match.data(), match.size());
 }
 
-StringVal StringFunctions::regexp_replace(
-        FunctionContext* context, const StringVal& str,
-        const StringVal& pattern, const StringVal& replace) {
+StringVal StringFunctions::regexp_replace(FunctionContext* context, const StringVal& str,
+                                          const StringVal& pattern, const StringVal& replace) {
     if (str.is_null || pattern.is_null || replace.is_null) {
         return StringVal::null();
     }
 
     re2::RE2* re = reinterpret_cast<re2::RE2*>(
-        context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     std::unique_ptr<re2::RE2> scoped_re; // destroys re if state->re is NULL
     if (re == NULL) {
         DCHECK(!context->is_arg_constant(1));
@@ -503,14 +488,14 @@ StringVal StringFunctions::regexp_replace(
     }
 
     re2::StringPiece replace_str =
-        re2::StringPiece(reinterpret_cast<char*>(replace.ptr), replace.len);
+            re2::StringPiece(reinterpret_cast<char*>(replace.ptr), replace.len);
     std::string result_str = AnyValUtil::to_string(str);
     re2::RE2::GlobalReplace(&result_str, *re, replace_str);
     return AnyValUtil::from_string_temp(context, result_str);
 }
 
-StringVal StringFunctions::concat(
-        FunctionContext* context, int num_children, const StringVal* strs) {
+StringVal StringFunctions::concat(FunctionContext* context, int num_children,
+                                  const StringVal* strs) {
     DCHECK_GE(num_children, 1);
 
     // Pass through if there's only one argument
@@ -538,9 +523,8 @@ StringVal StringFunctions::concat(
     return result;
 }
 
-StringVal StringFunctions::concat_ws(
-        FunctionContext* context, const StringVal& sep, 
-        int num_children, const StringVal* strs) {
+StringVal StringFunctions::concat_ws(FunctionContext* context, const StringVal& sep,
+                                     int num_children, const StringVal* strs) {
     DCHECK_GE(num_children, 1);
     if (sep.is_null) {
         return StringVal::null();
@@ -579,8 +563,8 @@ StringVal StringFunctions::concat_ws(
     return result;
 }
 
-IntVal StringFunctions::find_in_set(
-        FunctionContext* context, const StringVal& str, const StringVal& str_set) {
+IntVal StringFunctions::find_in_set(FunctionContext* context, const StringVal& str,
+                                    const StringVal& str_set) {
     if (str.is_null || str_set.is_null) {
         return IntVal::null();
     }
@@ -613,10 +597,9 @@ IntVal StringFunctions::find_in_set(
     return IntVal(0);
 }
 
-void StringFunctions::parse_url_prepare(
-        FunctionContext* ctx, 
-        FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::FRAGMENT_LOCAL) { 
+void StringFunctions::parse_url_prepare(FunctionContext* ctx,
+                                        FunctionContext::FunctionStateScope scope) {
+    if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
     if (!ctx->is_arg_constant(1)) {
@@ -631,16 +614,16 @@ void StringFunctions::parse_url_prepare(
     if (*url_part == UrlParser::INVALID) {
         std::stringstream ss;
         ss << "Invalid URL part: " << AnyValUtil::to_string(*part) << std::endl
-            << "(Valid URL parts are 'PROTOCOL', 'HOST', 'PATH', 'REF', 'AUTHORITY', 'FILE', "
-            << "'USERINFO', and 'QUERY')";
+           << "(Valid URL parts are 'PROTOCOL', 'HOST', 'PATH', 'REF', 'AUTHORITY', 'FILE', "
+           << "'USERINFO', and 'QUERY')";
         ctx->set_error(ss.str().c_str());
         return;
     }
     ctx->set_function_state(scope, url_part);
 }
 
-StringVal StringFunctions::parse_url(
-        FunctionContext* ctx, const StringVal& url, const StringVal& part) {
+StringVal StringFunctions::parse_url(FunctionContext* ctx, const StringVal& url,
+                                     const StringVal& part) {
     if (url.is_null || part.is_null) {
         return StringVal::null();
     }
@@ -672,19 +655,18 @@ StringVal StringFunctions::parse_url(
     return result_sv;
 }
 
-void StringFunctions::parse_url_close(
-        FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::FRAGMENT_LOCAL)  {
+void StringFunctions::parse_url_close(FunctionContext* ctx,
+                                      FunctionContext::FunctionStateScope scope) {
+    if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
     UrlParser::UrlPart* url_part =
-        reinterpret_cast<UrlParser::UrlPart*>(ctx->get_function_state(scope));
+            reinterpret_cast<UrlParser::UrlPart*>(ctx->get_function_state(scope));
     delete url_part;
 }
 
-StringVal StringFunctions::parse_url_key(
-        FunctionContext* ctx, const StringVal& url,
-        const StringVal& part, const StringVal& key) {
+StringVal StringFunctions::parse_url_key(FunctionContext* ctx, const StringVal& url,
+                                         const StringVal& part, const StringVal& key) {
     if (url.is_null || part.is_null || key.is_null) {
         return StringVal::null();
     }
@@ -698,9 +680,8 @@ StringVal StringFunctions::parse_url_key(
     }
 
     StringValue result;
-    if (!UrlParser::parse_url_key(
-            StringValue::from_string_val(url), url_part,
-            StringValue::from_string_val(key), &result)) {
+    if (!UrlParser::parse_url_key(StringValue::from_string_val(url), url_part,
+                                  StringValue::from_string_val(key), &result)) {
         // url is malformed, or url_part is invalid.
         if (url_part == UrlParser::INVALID) {
             std::stringstream ss;
@@ -723,11 +704,11 @@ StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVa
         return StringVal::null();
     }
 
-    double v_cent= MathFunctions::my_double_round(v.val, 2, false, false) * 100;
+    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false) * 100;
     return do_money_format(context, std::to_string(v_cent));
 }
 
-StringVal StringFunctions::money_format(FunctionContext *context, const DecimalVal &v) {
+StringVal StringFunctions::money_format(FunctionContext* context, const DecimalVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
@@ -739,7 +720,7 @@ StringVal StringFunctions::money_format(FunctionContext *context, const DecimalV
     return do_money_format(context, result.to_string());
 }
 
-StringVal StringFunctions::money_format(FunctionContext *context, const DecimalV2Val &v) {
+StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
     if (v.is_null) {
         return StringVal::null();
     }
@@ -751,8 +732,7 @@ StringVal StringFunctions::money_format(FunctionContext *context, const DecimalV
     return do_money_format(context, result.to_string());
 }
 
-
-StringVal StringFunctions::money_format(FunctionContext *context, const BigIntVal &v) {
+StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
@@ -761,7 +741,7 @@ StringVal StringFunctions::money_format(FunctionContext *context, const BigIntVa
     return do_money_format(context, cent_money);
 }
 
-StringVal StringFunctions::money_format(FunctionContext *context, const LargeIntVal &v) {
+StringVal StringFunctions::money_format(FunctionContext* context, const LargeIntVal& v) {
     if (v.is_null) {
         return StringVal::null();
     }
@@ -772,8 +752,7 @@ StringVal StringFunctions::money_format(FunctionContext *context, const LargeInt
 }
 
 static int index_of(const uint8_t* source, int source_offset, int source_count,
-                const uint8_t* target, int target_offset, int target_count,
-                int from_index) {
+                    const uint8_t* target, int target_offset, int target_count, int from_index) {
     if (from_index >= source_count) {
         return (target_count == 0 ? source_count : -1);
     }
@@ -790,7 +769,8 @@ static int index_of(const uint8_t* source, int source_offset, int source_count,
         if (i <= max) { // Found first character, now look at the rest of v2
             int j = i + 1;
             int end = j + target_count - 1;
-            for (int k = target_offset + 1; j < end && source[j] == target[k]; j++, k++);
+            for (int k = target_offset + 1; j < end && source[j] == target[k]; j++, k++)
+                ;
             if (j == end) {
                 return i - source_offset; // Found whole string.
             }
@@ -798,7 +778,6 @@ static int index_of(const uint8_t* source, int source_offset, int source_count,
     }
     return -1;
 }
-
 
 StringVal StringFunctions::split_part(FunctionContext* context, const StringVal& content,
                                       const StringVal& delimiter, const IntVal& field) {
@@ -809,13 +788,15 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     int from = 0;
     for (int i = 1; i <= field.val; i++) { // find
         int last_index = i - 1;
-        find[last_index] = index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
+        find[last_index] =
+                index_of(content.ptr, 0, content.len, delimiter.ptr, 0, delimiter.len, from);
         from = find[last_index] + 1;
         if (find[last_index] == -1) {
             break;
         }
     }
-    if ((field.val > 1 && find[field.val - 2] == -1) || (field.val == 1 && find[field.val - 1] == -1)) {
+    if ((field.val > 1 && find[field.val - 2] == -1) ||
+        (field.val == 1 && find[field.val - 1] == -1)) {
         // field not find return null
         return StringVal::null();
     }
@@ -829,4 +810,4 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     return StringVal(content.ptr + start_pos, len);
 }
 
-}
+} // namespace doris

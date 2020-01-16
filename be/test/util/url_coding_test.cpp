@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <stdlib.h>
-#include <stdio.h>
-#include <iostream>
-#include <gtest/gtest.h>
 #include "util/url_coding.h"
+
+#include <gtest/gtest.h>
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <iostream>
+
 #include "util/logging.h"
 
 namespace doris {
@@ -106,7 +109,7 @@ TEST(HtmlEscapingTest, Basic) {
     EXPECT_EQ(after.str(), "&lt;html&gt;&lt;body&gt;&amp;amp");
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

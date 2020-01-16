@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <sstream>
-#include <fstream>
-
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
-#include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/alpha_rowset_meta.h"
+
+#include <fstream>
+#include <sstream>
+#include <string>
+
 #include "boost/filesystem.hpp"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "json2pb/json_to_pb.h"
+#include "olap/olap_meta.h"
+#include "olap/rowset/alpha_rowset_meta.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -45,7 +46,7 @@ public:
     virtual void SetUp() {
         std::string meta_path = "./meta";
         ASSERT_TRUE(boost::filesystem::create_directory(meta_path));
-        _meta = new(std::nothrow) OlapMeta(meta_path);
+        _meta = new (std::nothrow) OlapMeta(meta_path);
         ASSERT_NE(nullptr, _meta);
         OLAPStatus st = _meta->init();
         ASSERT_TRUE(st == OLAP_SUCCESS);
@@ -191,9 +192,9 @@ TEST_F(RowsetMetaTest, TestAlphaRowsetMetaClear) {
     ASSERT_EQ(0, segment_groups.size());
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

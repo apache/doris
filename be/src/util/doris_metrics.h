@@ -20,8 +20,8 @@
 
 #include <set>
 #include <string>
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 #include "util/metrics.h"
 
@@ -36,7 +36,7 @@ public:
         if (metric != metrics.end()) {
             metric->second.set_value(val);
         }
-    }   
+    }
 
     IntGauge* set_key(const std::string& key) {
         metrics.emplace(key, IntGauge());
@@ -141,7 +141,7 @@ public:
 
     // the max compaction score of all tablets.
     // Record base and cumulative scores separately, because
-    // we need to get the larger of the two. 
+    // we need to get the larger of the two.
     static IntGauge tablet_cumulative_max_compaction_score;
     static IntGauge tablet_base_max_compaction_score;
 
@@ -156,15 +156,16 @@ public:
     ~DorisMetrics();
     // call before calling metrics
     void initialize(
-        const std::string& name,
-        const std::vector<std::string>& paths = std::vector<std::string>(),
-        bool init_system_metrics = false,
-        const std::set<std::string>& disk_devices = std::set<std::string>(),
-        const std::vector<std::string>& network_interfaces = std::vector<std::string>());
+            const std::string& name,
+            const std::vector<std::string>& paths = std::vector<std::string>(),
+            bool init_system_metrics = false,
+            const std::set<std::string>& disk_devices = std::set<std::string>(),
+            const std::vector<std::string>& network_interfaces = std::vector<std::string>());
 
     static DorisMetrics* instance() { return &_s_doris_metrics; }
     static MetricRegistry* metrics() { return _s_doris_metrics._metrics; }
     static SystemMetrics* system_metrics() { return _s_doris_metrics._system_metrics; }
+
 private:
     // Don't allow constrctor
     DorisMetrics();
@@ -182,6 +183,6 @@ private:
     SystemMetrics* _system_metrics;
 };
 
-};
+}; // namespace doris
 
 #endif

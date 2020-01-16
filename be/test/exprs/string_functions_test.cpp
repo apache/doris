@@ -16,19 +16,20 @@
 // under the License.
 
 #include "exprs/string_functions.h"
-#include "util/logging.h"
-#include "exprs/anyval_util.h"
+
+#include <gtest/gtest.h>
+
 #include <iostream>
 #include <string>
 
-#include <gtest/gtest.h>
+#include "exprs/anyval_util.h"
+#include "util/logging.h"
 
 namespace doris {
 
 class StringFunctionsTest : public testing::Test {
 public:
-    StringFunctionsTest() {
-    }
+    StringFunctionsTest() {}
 };
 
 TEST_F(StringFunctionsTest, money_format_bigint) {
@@ -59,7 +60,8 @@ TEST_F(StringFunctionsTest, money_format_large_int) {
     std::cout << "value: " << value << std::endl;
 
     StringVal result = StringFunctions::money_format(context, doris_udf::LargeIntVal(value));
-    StringVal expected = AnyValUtil::from_string_temp(context, std::string("170,141,183,460,469,231,731,687,303,715,884,105,727.00"));
+    StringVal expected = AnyValUtil::from_string_temp(
+            context, std::string("170,141,183,460,469,231,731,687,303,715,884,105,727.00"));
     ASSERT_EQ(expected, result);
 }
 
@@ -126,35 +128,35 @@ TEST_F(StringFunctionsTest, money_format_decimal_v2) {
 TEST_F(StringFunctionsTest, split_part) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("hello")),
-            StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 1));
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("hello")),
+              StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 1));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("word")),
-            StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 2));
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("word")),
+              StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 2));
 
     ASSERT_EQ(StringVal::null(),
-            StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 3));
+              StringFunctions::split_part(context, StringVal("hello word"), StringVal(" "), 3));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
-            StringFunctions::split_part(context, StringVal("hello word"), StringVal("hello"), 1));
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+              StringFunctions::split_part(context, StringVal("hello word"), StringVal("hello"), 1));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string(" word")),
-            StringFunctions::split_part(context, StringVal("hello word"), StringVal("hello"), 2));
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string(" word")),
+              StringFunctions::split_part(context, StringVal("hello word"), StringVal("hello"), 2));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("2019年9")),
-            StringFunctions::split_part(context, StringVal("2019年9月8日"), StringVal("月"), 1));
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("2019年9")),
+              StringFunctions::split_part(context, StringVal("2019年9月8日"), StringVal("月"), 1));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
-            StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 1));
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+              StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 1));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("bcd")),
-            StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 2));
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("bcd")),
+              StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 2));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("bd")),
-            StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 3));
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("bd")),
+              StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 3));
 
-    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
-            StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 4));
+    ASSERT_EQ(AnyValUtil::from_string_temp(context, std::string("")),
+              StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 4));
 }
 
 TEST_F(StringFunctionsTest, ends_with) {
@@ -177,11 +179,14 @@ TEST_F(StringFunctionsTest, ends_with) {
 
     ASSERT_EQ(falseRet, StringFunctions::ends_with(context, StringVal(" "), StringVal("hello")));
 
-    ASSERT_EQ(falseRet, StringFunctions::ends_with(context, StringVal("hello doris"), StringVal("hello")));
+    ASSERT_EQ(falseRet,
+              StringFunctions::ends_with(context, StringVal("hello doris"), StringVal("hello")));
 
-    ASSERT_EQ(trueRet, StringFunctions::ends_with(context, StringVal("hello doris"), StringVal("doris")));
+    ASSERT_EQ(trueRet,
+              StringFunctions::ends_with(context, StringVal("hello doris"), StringVal("doris")));
 
-    ASSERT_EQ(trueRet, StringFunctions::ends_with(context, StringVal("hello doris"), StringVal("hello doris")));
+    ASSERT_EQ(trueRet, StringFunctions::ends_with(context, StringVal("hello doris"),
+                                                  StringVal("hello doris")));
 
     ASSERT_EQ(nullRet, StringFunctions::ends_with(context, StringVal("hello"), StringVal::null()));
 
@@ -190,7 +195,7 @@ TEST_F(StringFunctionsTest, ends_with) {
     ASSERT_EQ(nullRet, StringFunctions::ends_with(context, StringVal::null(), StringVal::null()));
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

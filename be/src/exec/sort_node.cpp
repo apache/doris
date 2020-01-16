@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exec/sort_node.h"
+
 #include "exec/sort_exec_exprs.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -24,21 +25,21 @@
 namespace doris {
 
 SortNode::SortNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-    : ExecNode(pool, tnode, descs),
-      _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
-      _num_rows_skipped(0) {
+        : ExecNode(pool, tnode, descs),
+          _offset(tnode.sort_node.__isset.offset ? tnode.sort_node.offset : 0),
+          _num_rows_skipped(0) {
     Status status = init(tnode, nullptr);
     DCHECK(status.ok()) << "SortNode c'tor:init failed: \n" << status.get_error_msg();
 }
 
-SortNode::~SortNode() {
-}
+SortNode::~SortNode() {}
 
 Status SortNode::init(const TPlanNode& tnode, RuntimeState* state) {
-    const vector<TExpr>* sort_tuple_slot_exprs =  tnode.sort_node.__isset.sort_tuple_slot_exprs ?
-            &tnode.sort_node.sort_tuple_slot_exprs : NULL;
-    RETURN_IF_ERROR(_sort_exec_exprs.init(tnode.sort_node.ordering_exprs,
-            sort_tuple_slot_exprs, _pool));
+    const vector<TExpr>* sort_tuple_slot_exprs = tnode.sort_node.__isset.sort_tuple_slot_exprs
+                                                         ? &tnode.sort_node.sort_tuple_slot_exprs
+                                                         : NULL;
+    RETURN_IF_ERROR(
+            _sort_exec_exprs.init(tnode.sort_node.ordering_exprs, sort_tuple_slot_exprs, _pool));
     _is_asc_order = tnode.sort_node.is_asc_order;
     _nulls_first = tnode.sort_node.nulls_first;
     return Status::OK();
@@ -47,8 +48,8 @@ Status SortNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status SortNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    RETURN_IF_ERROR(_sort_exec_exprs.prepare(
-            state, child(0)->row_desc(), _row_descriptor, expr_mem_tracker()));
+    RETURN_IF_ERROR(_sort_exec_exprs.prepare(state, child(0)->row_desc(), _row_descriptor,
+                                             expr_mem_tracker()));
     return Status::OK();
 }
 
@@ -59,12 +60,11 @@ Status SortNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(child(0)->open(state));
 
-    TupleRowComparator less_than(
-        _sort_exec_exprs.lhs_ordering_expr_ctxs(), _sort_exec_exprs.rhs_ordering_expr_ctxs(),
-        _is_asc_order, _nulls_first);
-    _sorter.reset(new MergeSorter(
-                      less_than, _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
-                      &_row_descriptor, runtime_profile(), state));
+    TupleRowComparator less_than(_sort_exec_exprs.lhs_ordering_expr_ctxs(),
+                                 _sort_exec_exprs.rhs_ordering_expr_ctxs(), _is_asc_order,
+                                 _nulls_first);
+    _sorter.reset(new MergeSorter(less_than, _sort_exec_exprs.sort_tuple_slot_expr_ctxs(),
+                                  &_row_descriptor, runtime_profile(), state));
 
     // The child has been opened and the sorter created. Sort the input.
     // The final merge is done on-demand as rows are requested in GetNext().
@@ -128,11 +128,10 @@ Status SortNode::close(RuntimeState* state) {
 void SortNode::debug_string(int indentation_level, stringstream* out) const {
     *out << string(indentation_level * 2, ' ');
     *out << "SortNode(";
-         // << Expr::debug_string(_sort_exec_exprs.lhs_ordering_expr_ctxs());
+    // << Expr::debug_string(_sort_exec_exprs.lhs_ordering_expr_ctxs());
     for (int i = 0; i < _is_asc_order.size(); ++i) {
-        *out << (i > 0 ? " " : "")
-             << (_is_asc_order[i] ? "asc" : "desc")
-             << " nulls " << (_nulls_first[i] ? "first" : "last");
+        *out << (i > 0 ? " " : "") << (_is_asc_order[i] ? "asc" : "desc") << " nulls "
+             << (_nulls_first[i] ? "first" : "last");
     }
     ExecNode::debug_string(indentation_level, out);
     *out << ")";
@@ -153,4 +152,4 @@ Status SortNode::sort_input(RuntimeState* state) {
     return Status::OK();
 }
 
-}
+} // namespace doris

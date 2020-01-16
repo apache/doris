@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
+#include "runtime/free_list.hpp"
+
 #include <gtest/gtest.h>
 
-#include "runtime/free_list.hpp"
+#include <string>
+
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 
@@ -148,7 +150,7 @@ TEST(FreeListTest, Basic) {
     bzero(free_list_mem, size1);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
 #if 0
@@ -162,4 +164,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

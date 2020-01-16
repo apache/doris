@@ -22,7 +22,6 @@
 
 #include "exec/exec_node.h"
 #include "runtime/mem_pool.h"
-#include <boost/scoped_ptr.hpp>
 
 namespace doris {
 
@@ -36,7 +35,7 @@ class TupleRow;
 class MergeNode : public ExecNode {
 public:
     MergeNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
-    virtual ~MergeNode() { }
+    virtual ~MergeNode() {}
 
     // Create const exprs, child exprs and conjuncts from corresponding thrift exprs.
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
@@ -88,9 +87,9 @@ private:
     // Returns true if row_batch should be returned to caller or limit has been
     // reached, false otherwise.
     bool eval_and_materialize_exprs(const std::vector<ExprContext*>& exprs, bool const_exprs,
-                                 Tuple** tuple, RowBatch* row_batch);
+                                    Tuple** tuple, RowBatch* row_batch);
 };
 
-}
+} // namespace doris
 
 #endif

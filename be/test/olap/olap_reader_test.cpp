@@ -15,25 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/olap_reader.h"
+
 #include <gtest/gtest.h>
 
 #include "exec/olap_scan_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/command_executor.h"
 #include "olap/field.h"
-#include "olap/olap_reader.h"
 #include "olap/olap_main.cpp"
 #include "runtime/descriptors.h"
-#include "runtime/primitive_type.h"
 #include "runtime/exec_env.h"
-#include "runtime/runtime_state.h"
+#include "runtime/primitive_type.h"
 #include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-#include "util/runtime_profile.h"
 #include "util/debug_util.h"
-#include "util/logging.h"
 #include "util/file_utils.h"
+#include "util/logging.h"
+#include "util/runtime_profile.h"
 
 using namespace testing;
 using namespace doris;
@@ -45,7 +46,7 @@ void set_up() {
     config::storage_root_path = "./test_run/data_test";
     system("rm -rf ./test_run && mkdir -p ./test_run");
     FileUtils::create_dir(config::storage_root_path);
-    touch_all_singleton();    
+    touch_all_singleton();
 }
 
 void tear_down() {
@@ -116,13 +117,13 @@ void set_default_create_tablet_request(TCreateTabletReq* request) {
 
 // SQL for generate data(./be/test/olap/test_data/all_types_1000):
 //
-// create tablet delete_test_row (k1 tinyint, k2 int, k3 varchar(64), 
-// k4 date, k5 datetime, k6 decimal(6,3), k7 smallint default "0", 
-// k8 char(16) default "char", v bigint sum) engine=olap distributed by 
+// create tablet delete_test_row (k1 tinyint, k2 int, k3 varchar(64),
+// k4 date, k5 datetime, k6 decimal(6,3), k7 smallint default "0",
+// k8 char(16) default "char", v bigint sum) engine=olap distributed by
 // random buckets 1 properties ("storage_type" = "row");
 //
-// load label label1 (data infile 
-// ("hdfs://host:port/dir") 
+// load label label1 (data infile
+// ("hdfs://host:port/dir")
 // into tablet `delete_test_row` (k1,k2,v,k3,k4,k5,k6));
 void set_default_push_request(TPushReq* request) {
     request->tablet_id = 10003;
@@ -136,19 +137,17 @@ void set_default_push_request(TPushReq* request) {
 
 class TestOLAPReaderRow : public testing::Test {
 public:
-    TestOLAPReaderRow() : _runtime_stat("test") { 
+    TestOLAPReaderRow() : _runtime_stat("test") {
         _profile = _obj_pool.add(new RuntimeProfile(&_obj_pool, "OlapScanner"));
         OLAPReader::init_profile(_profile);
     }
-    
-    void SetUp() {
-        init_olap();
-    }
+
+    void SetUp() { init_olap(); }
 
     void TearDown() {
         // Remove all dir.
-        StorageEngine::get_instance()->drop_tablet(
-                _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
+        StorageEngine::get_instance()->drop_tablet(_create_tablet.tablet_id,
+                                                   _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
@@ -237,7 +236,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int32_t);
         }
-        ++i;       
+        ++i;
         // k3
         {
             TSlotDescriptor t_slot_desc;
@@ -253,7 +252,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
-        ++i;       
+        ++i;
         // k4
         {
             TSlotDescriptor t_slot_desc;
@@ -317,7 +316,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int16_t);
         }
-        ++i;       
+        ++i;
         // k8
         {
             TSlotDescriptor t_slot_desc;
@@ -333,7 +332,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
-        ++i;      
+        ++i;
         // v
         {
             TSlotDescriptor t_slot_desc;
@@ -403,7 +402,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int8_t);
         }
-        ++i;    
+        ++i;
         // v
         {
             TSlotDescriptor t_slot_desc;
@@ -448,7 +447,7 @@ private:
 
 TEST_F(TestOLAPReaderRow, next_tuple_with_key_range) {
     init_scan_node();
-    
+
     TFetchRequest fetch_reques;
 
     fetch_reques.__set_aggregation(false);
@@ -479,56 +478,56 @@ TEST_F(TestOLAPReaderRow, next_tuple_with_key_range) {
     field_vec.push_back("v");
     fetch_reques.__set_field(field_vec);
 
-    TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
+    TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     OLAPReader olap_reader(*tuple_desc);
     ASSERT_TRUE(olap_reader.init(fetch_reques, NULL, _profile).ok());
 
-    char tuple_buf[1024]; 
+    char tuple_buf[1024];
     bzero(tuple_buf, 1024);
-    Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
     bool eof;
     int64_t raw_rows_read = 0;
     ASSERT_TRUE(olap_reader.next_tuple(tuple, &raw_rows_read, &eof).ok());
 
-    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>
-            (tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
-    ASSERT_EQ(0, *reinterpret_cast<const int32_t*>
-            (tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>(
+                         tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int32_t*>(
+                         tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
     {
-        StringValue *slot = reinterpret_cast<StringValue *>(
-                tuple->get_slot(tuple_desc->slots()[2]->tuple_offset()));   
-        ASSERT_STREQ("26a91490-1851-4001-a9ad-6ef0cf2c3aa4", 
-                std::string(slot->ptr, slot->len).c_str());
+        StringValue* slot = reinterpret_cast<StringValue*>(
+                tuple->get_slot(tuple_desc->slots()[2]->tuple_offset()));
+        ASSERT_STREQ("26a91490-1851-4001-a9ad-6ef0cf2c3aa4",
+                     std::string(slot->ptr, slot->len).c_str());
     }
     {
-        DateTimeValue *slot = reinterpret_cast<DateTimeValue *>(
-                tuple->get_slot(tuple_desc->slots()[3]->tuple_offset())); 
+        DateTimeValue* slot = reinterpret_cast<DateTimeValue*>(
+                tuple->get_slot(tuple_desc->slots()[3]->tuple_offset()));
         ASSERT_STREQ("2014-04-27", slot->debug_string().c_str());
     }
     {
-        DateTimeValue *slot = reinterpret_cast<DateTimeValue *>(
-                tuple->get_slot(tuple_desc->slots()[4]->tuple_offset())); 
+        DateTimeValue* slot = reinterpret_cast<DateTimeValue*>(
+                tuple->get_slot(tuple_desc->slots()[4]->tuple_offset()));
         ASSERT_STREQ("2014-04-27 22:23:20", slot->debug_string().c_str());
     }
     {
-        DecimalValue *slot = reinterpret_cast<DecimalValue *>(
-                tuple->get_slot(tuple_desc->slots()[5]->tuple_offset())); 
+        DecimalValue* slot = reinterpret_cast<DecimalValue*>(
+                tuple->get_slot(tuple_desc->slots()[5]->tuple_offset()));
         ASSERT_STREQ("978.371", slot->to_string().c_str());
     }
-    ASSERT_EQ(0, *reinterpret_cast<const int16_t*>
-            (tuple->get_slot(tuple_desc->slots()[6]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int16_t*>(
+                         tuple->get_slot(tuple_desc->slots()[6]->tuple_offset())));
     {
-        StringValue *slot = reinterpret_cast<StringValue *>(
-                tuple->get_slot(tuple_desc->slots()[7]->tuple_offset()));   
+        StringValue* slot = reinterpret_cast<StringValue*>(
+                tuple->get_slot(tuple_desc->slots()[7]->tuple_offset()));
         ASSERT_STREQ("char", std::string(slot->ptr, slot->len).c_str());
     }
-    ASSERT_EQ(0, *reinterpret_cast<const int64_t*>
-            (tuple->get_slot(tuple_desc->slots()[8]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int64_t*>(
+                         tuple->get_slot(tuple_desc->slots()[8]->tuple_offset())));
 }
 
 TEST_F(TestOLAPReaderRow, next_tuple_with_where_condition) {
     init_scan_node();
-    
+
     TFetchRequest fetch_reques;
 
     fetch_reques.__set_aggregation(false);
@@ -565,23 +564,22 @@ TEST_F(TestOLAPReaderRow, next_tuple_with_where_condition) {
     field_vec.push_back("v");
     fetch_reques.__set_field(field_vec);
 
-    TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
+    TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     OLAPReader olap_reader(*tuple_desc);
     ASSERT_TRUE(olap_reader.init(fetch_reques, NULL, _profile).ok());
 
-    char tuple_buf[1024]; 
+    char tuple_buf[1024];
     bzero(tuple_buf, 1024);
-    Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
     bool eof;
     int64_t raw_rows_read = 0;
     ASSERT_TRUE(olap_reader.next_tuple(tuple, &raw_rows_read, &eof).ok());
     ASSERT_TRUE(eof);
 }
 
-
 TEST_F(TestOLAPReaderRow, next_tuple_without_aggregation) {
     init_scan_node_k1_v();
-    
+
     TFetchRequest fetch_reques;
 
     fetch_reques.__set_aggregation(false);
@@ -605,26 +603,26 @@ TEST_F(TestOLAPReaderRow, next_tuple_without_aggregation) {
     field_vec.push_back("v");
     fetch_reques.__set_field(field_vec);
 
-    TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
+    TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     OLAPReader olap_reader(*tuple_desc);
     ASSERT_TRUE(olap_reader.init(fetch_reques, NULL, _profile).ok());
 
-    char tuple_buf[1024]; 
+    char tuple_buf[1024];
     bzero(tuple_buf, 1024);
-    Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
     bool eof;
     int64_t raw_rows_read = 0;
     ASSERT_TRUE(olap_reader.next_tuple(tuple, &raw_rows_read, &eof).ok());
 
-    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>
-            (tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
-    ASSERT_EQ(0, *reinterpret_cast<const int64_t*>
-            (tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>(
+                         tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int64_t*>(
+                         tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
 }
 
 TEST_F(TestOLAPReaderRow, next_tuple_with_aggregation) {
     init_scan_node_k1_v();
-    
+
     TFetchRequest fetch_reques;
 
     fetch_reques.__set_aggregation(true);
@@ -648,39 +646,36 @@ TEST_F(TestOLAPReaderRow, next_tuple_with_aggregation) {
     field_vec.push_back("v");
     fetch_reques.__set_field(field_vec);
 
-    TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
+    TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     OLAPReader olap_reader(*tuple_desc);
     ASSERT_TRUE(olap_reader.init(fetch_reques, NULL, _profile).ok());
 
-    char tuple_buf[1024]; 
+    char tuple_buf[1024];
     bzero(tuple_buf, 1024);
-    Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
     bool eof;
     int64_t raw_rows_read = 0;
     ASSERT_TRUE(olap_reader.next_tuple(tuple, &raw_rows_read, &eof).ok());
 
-    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>
-            (tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
-    ASSERT_EQ(153600, *reinterpret_cast<const int64_t*>
-            (tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>(
+                         tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
+    ASSERT_EQ(153600, *reinterpret_cast<const int64_t*>(
+                              tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
 }
 
 class TestOLAPReaderColumn : public testing::Test {
 public:
-    TestOLAPReaderColumn() : _runtime_stat("test") { 
+    TestOLAPReaderColumn() : _runtime_stat("test") {
         _profile = _obj_pool.add(new RuntimeProfile(&_obj_pool, "OlapScanner"));
         OLAPReader::init_profile(_profile);
+    }
 
-    }
-    
-    void SetUp() {
-        init_olap();
-    }
+    void SetUp() { init_olap(); }
 
     void TearDown() {
         // Remove all dir.
-        StorageEngine::get_instance()->drop_tablet(
-                _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
+        StorageEngine::get_instance()->drop_tablet(_create_tablet.tablet_id,
+                                                   _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
@@ -770,7 +765,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int32_t);
         }
-        ++i;       
+        ++i;
         // k3
         {
             TSlotDescriptor t_slot_desc;
@@ -786,7 +781,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
-        ++i;       
+        ++i;
         // k4
         {
             TSlotDescriptor t_slot_desc;
@@ -850,7 +845,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int16_t);
         }
-        ++i;       
+        ++i;
         // k8
         {
             TSlotDescriptor t_slot_desc;
@@ -866,7 +861,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
-        ++i;      
+        ++i;
         // v
         {
             TSlotDescriptor t_slot_desc;
@@ -896,7 +891,6 @@ public:
         DescriptorTbl::create(&_obj_pool, t_desc_tablet, &_desc_tbl);
     }
 
-    
     void init_scan_node_k1_v() {
         TUniqueId fragment_id;
         TQueryOptions query_options;
@@ -937,7 +931,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int8_t);
         }
-        ++i;    
+        ++i;
         // v
         {
             TSlotDescriptor t_slot_desc;
@@ -980,7 +974,6 @@ private:
     RuntimeProfile* _profile;
 };
 
-
 TEST_F(TestOLAPReaderColumn, next_tuple) {
     init_scan_node();
 
@@ -1013,56 +1006,56 @@ TEST_F(TestOLAPReaderColumn, next_tuple) {
     field_vec.push_back("v");
     fetch_reques.__set_field(field_vec);
 
-    TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
+    TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     OLAPReader olap_reader(*tuple_desc);
     ASSERT_TRUE(olap_reader.init(fetch_reques, NULL, _profile).ok());
 
-    char tuple_buf[1024]; 
+    char tuple_buf[1024];
     bzero(tuple_buf, 1024);
-    Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
     bool eof;
     int64_t raw_rows_read = 0;
     ASSERT_TRUE(olap_reader.next_tuple(tuple, &raw_rows_read, &eof).ok());
 
-    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>
-            (tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
-    ASSERT_EQ(0, *reinterpret_cast<const int32_t*>
-            (tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>(
+                         tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int32_t*>(
+                         tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
     {
-        StringValue *slot = reinterpret_cast<StringValue *>(
-                tuple->get_slot(tuple_desc->slots()[2]->tuple_offset()));   
-        ASSERT_STREQ("26a91490-1851-4001-a9ad-6ef0cf2c3aa4", 
-                std::string(slot->ptr, slot->len).c_str());
+        StringValue* slot = reinterpret_cast<StringValue*>(
+                tuple->get_slot(tuple_desc->slots()[2]->tuple_offset()));
+        ASSERT_STREQ("26a91490-1851-4001-a9ad-6ef0cf2c3aa4",
+                     std::string(slot->ptr, slot->len).c_str());
     }
     {
-        DateTimeValue *slot = reinterpret_cast<DateTimeValue *>(
-                tuple->get_slot(tuple_desc->slots()[3]->tuple_offset())); 
+        DateTimeValue* slot = reinterpret_cast<DateTimeValue*>(
+                tuple->get_slot(tuple_desc->slots()[3]->tuple_offset()));
         ASSERT_STREQ("2014-04-27", slot->debug_string().c_str());
     }
     {
-        DateTimeValue *slot = reinterpret_cast<DateTimeValue *>(
-                tuple->get_slot(tuple_desc->slots()[4]->tuple_offset())); 
+        DateTimeValue* slot = reinterpret_cast<DateTimeValue*>(
+                tuple->get_slot(tuple_desc->slots()[4]->tuple_offset()));
         ASSERT_STREQ("2014-04-27 22:23:20", slot->debug_string().c_str());
     }
     {
-        DecimalValue *slot = reinterpret_cast<DecimalValue *>(
-                tuple->get_slot(tuple_desc->slots()[5]->tuple_offset())); 
+        DecimalValue* slot = reinterpret_cast<DecimalValue*>(
+                tuple->get_slot(tuple_desc->slots()[5]->tuple_offset()));
         ASSERT_STREQ("978.371", slot->to_string().c_str());
     }
-    ASSERT_EQ(0, *reinterpret_cast<const int16_t*>
-            (tuple->get_slot(tuple_desc->slots()[6]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int16_t*>(
+                         tuple->get_slot(tuple_desc->slots()[6]->tuple_offset())));
     {
-        StringValue *slot = reinterpret_cast<StringValue *>(
-                tuple->get_slot(tuple_desc->slots()[7]->tuple_offset()));   
+        StringValue* slot = reinterpret_cast<StringValue*>(
+                tuple->get_slot(tuple_desc->slots()[7]->tuple_offset()));
         ASSERT_STREQ("char", std::string(slot->ptr, slot->len).c_str());
     }
-    ASSERT_EQ(0, *reinterpret_cast<const int64_t*>
-            (tuple->get_slot(tuple_desc->slots()[8]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int64_t*>(
+                         tuple->get_slot(tuple_desc->slots()[8]->tuple_offset())));
 }
 
 TEST_F(TestOLAPReaderColumn, next_tuple_without_aggregation) {
     init_scan_node_k1_v();
-    
+
     TFetchRequest fetch_reques;
 
     fetch_reques.__set_aggregation(false);
@@ -1080,32 +1073,32 @@ TEST_F(TestOLAPReaderColumn, next_tuple_without_aggregation) {
     end_key.__set_key(std::vector<std::string>(1, "100"));
     fetch_reques.__set_end_key(std::vector<TFetchEndKey>(1, end_key));
     fetch_reques.__set_end_range("le");
-    
+
     std::vector<std::string> field_vec;
     field_vec.push_back("k1");
     field_vec.push_back("v");
     fetch_reques.__set_field(field_vec);
 
-    TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
+    TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     OLAPReader olap_reader(*tuple_desc);
     ASSERT_TRUE(olap_reader.init(fetch_reques, NULL, _profile).ok());
 
-    char tuple_buf[1024]; 
+    char tuple_buf[1024];
     bzero(tuple_buf, 1024);
-    Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
     bool eof;
     int64_t raw_rows_read = 0;
     ASSERT_TRUE(olap_reader.next_tuple(tuple, &raw_rows_read, &eof).ok());
 
-    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>
-            (tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
-    ASSERT_EQ(0, *reinterpret_cast<const int64_t*>
-            (tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>(
+                         tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int64_t*>(
+                         tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
 }
 
 TEST_F(TestOLAPReaderColumn, next_tuple_with_aggregation) {
     init_scan_node_k1_v();
-    
+
     TFetchRequest fetch_reques;
 
     fetch_reques.__set_aggregation(true);
@@ -1129,21 +1122,21 @@ TEST_F(TestOLAPReaderColumn, next_tuple_with_aggregation) {
     field_vec.push_back("v");
     fetch_reques.__set_field(field_vec);
 
-    TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
+    TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     OLAPReader olap_reader(*tuple_desc);
     ASSERT_TRUE(olap_reader.init(fetch_reques, NULL, _profile).ok());
 
-    char tuple_buf[1024]; 
+    char tuple_buf[1024];
     bzero(tuple_buf, 1024);
-    Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
     bool eof;
     int64_t raw_rows_read = 0;
     ASSERT_TRUE(olap_reader.next_tuple(tuple, &raw_rows_read, &eof).ok());
 
-    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>
-            (tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
-    ASSERT_EQ(153600, *reinterpret_cast<const int64_t*>
-            (tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>(
+                         tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
+    ASSERT_EQ(153600, *reinterpret_cast<const int64_t*>(
+                              tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
 }
 
 class TestOLAPReaderColumnDeleteCondition : public testing::Test {
@@ -1152,7 +1145,7 @@ public:
         _profile = _obj_pool.add(new RuntimeProfile(&_obj_pool, "OlapScanner"));
         OLAPReader::init_profile(_profile);
     }
-    
+
     void SetUp() {
         init_olap();
         init_scan_node();
@@ -1160,8 +1153,8 @@ public:
 
     void TearDown() {
         // Remove all dir.
-        StorageEngine::get_instance()->drop_tablet(
-                _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
+        StorageEngine::get_instance()->drop_tablet(_create_tablet.tablet_id,
+                                                   _create_tablet.tablet_schema.schema_hash);
         while (0 == access(_tablet_path.c_str(), F_OK)) {
             sleep(1);
         }
@@ -1192,7 +1185,7 @@ public:
         res = command_executor.push(_push_req, &tablets_info);
         ASSERT_EQ(OLAP_SUCCESS, res);
         ASSERT_EQ(1, tablets_info.size());
-        
+
         // delete data
         set_default_push_request(&_delete_req);
         _delete_req.version = 3;
@@ -1267,7 +1260,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int32_t);
         }
-        ++i;       
+        ++i;
         // k3
         {
             TSlotDescriptor t_slot_desc;
@@ -1283,7 +1276,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
-        ++i;       
+        ++i;
         // k4
         {
             TSlotDescriptor t_slot_desc;
@@ -1347,7 +1340,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int16_t);
         }
-        ++i;       
+        ++i;
         // k8
         {
             TSlotDescriptor t_slot_desc;
@@ -1363,7 +1356,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(StringValue);
         }
-        ++i;      
+        ++i;
         // v
         {
             TSlotDescriptor t_slot_desc;
@@ -1393,7 +1386,6 @@ public:
         DescriptorTbl::create(&_obj_pool, t_desc_tablet, &_desc_tbl);
     }
 
-    
     void init_scan_node_k1_v() {
         TUniqueId fragment_id;
         TQueryOptions query_options;
@@ -1434,7 +1426,7 @@ public:
             t_desc_tablet.slotDescriptors.push_back(t_slot_desc);
             offset += sizeof(int8_t);
         }
-        ++i;    
+        ++i;
         // v
         {
             TSlotDescriptor t_slot_desc;
@@ -1510,55 +1502,54 @@ TEST_F(TestOLAPReaderColumnDeleteCondition, next_tuple) {
     field_vec.push_back("v");
     fetch_reques.__set_field(field_vec);
 
-    TupleDescriptor *tuple_desc = _desc_tbl->get_tuple_descriptor(0);
+    TupleDescriptor* tuple_desc = _desc_tbl->get_tuple_descriptor(0);
     OLAPReader olap_reader(*tuple_desc);
     ASSERT_TRUE(olap_reader.init(fetch_reques, NULL, _profile).ok());
 
-    char tuple_buf[1024]; 
+    char tuple_buf[1024];
     bzero(tuple_buf, 1024);
-    Tuple *tuple = reinterpret_cast<Tuple*>(tuple_buf);
+    Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buf);
     bool eof;
     int64_t raw_rows_read = 0;
     ASSERT_TRUE(olap_reader.next_tuple(tuple, &raw_rows_read, &eof).ok());
 
-    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>
-            (tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
-    ASSERT_EQ(128, *reinterpret_cast<const int32_t*>
-            (tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int8_t*>(
+                         tuple->get_slot(tuple_desc->slots()[0]->tuple_offset())));
+    ASSERT_EQ(128, *reinterpret_cast<const int32_t*>(
+                           tuple->get_slot(tuple_desc->slots()[1]->tuple_offset())));
     {
-        StringValue *slot = reinterpret_cast<StringValue *>(
-                tuple->get_slot(tuple_desc->slots()[2]->tuple_offset()));   
-        ASSERT_STREQ("a1d033e6-2944-4b4e-b432-ea804c89dcd7", 
-                std::string(slot->ptr, slot->len).c_str());
+        StringValue* slot = reinterpret_cast<StringValue*>(
+                tuple->get_slot(tuple_desc->slots()[2]->tuple_offset()));
+        ASSERT_STREQ("a1d033e6-2944-4b4e-b432-ea804c89dcd7",
+                     std::string(slot->ptr, slot->len).c_str());
     }
     {
-        DateTimeValue *slot = reinterpret_cast<DateTimeValue *>(
-                tuple->get_slot(tuple_desc->slots()[3]->tuple_offset())); 
+        DateTimeValue* slot = reinterpret_cast<DateTimeValue*>(
+                tuple->get_slot(tuple_desc->slots()[3]->tuple_offset()));
         ASSERT_STREQ("2014-03-23", slot->debug_string().c_str());
     }
     {
-        DateTimeValue *slot = reinterpret_cast<DateTimeValue *>(
-                tuple->get_slot(tuple_desc->slots()[4]->tuple_offset())); 
+        DateTimeValue* slot = reinterpret_cast<DateTimeValue*>(
+                tuple->get_slot(tuple_desc->slots()[4]->tuple_offset()));
         ASSERT_STREQ("2014-03-23 05:39:17", slot->debug_string().c_str());
     }
     {
-        DecimalValue *slot = reinterpret_cast<DecimalValue *>(
-                tuple->get_slot(tuple_desc->slots()[5]->tuple_offset())); 
+        DecimalValue* slot = reinterpret_cast<DecimalValue*>(
+                tuple->get_slot(tuple_desc->slots()[5]->tuple_offset()));
         ASSERT_STREQ("-484.89", slot->to_string().c_str());
     }
-    ASSERT_EQ(0, *reinterpret_cast<const int16_t*>
-            (tuple->get_slot(tuple_desc->slots()[6]->tuple_offset())));
+    ASSERT_EQ(0, *reinterpret_cast<const int16_t*>(
+                         tuple->get_slot(tuple_desc->slots()[6]->tuple_offset())));
     {
-        StringValue *slot = reinterpret_cast<StringValue *>(
-                tuple->get_slot(tuple_desc->slots()[7]->tuple_offset()));   
+        StringValue* slot = reinterpret_cast<StringValue*>(
+                tuple->get_slot(tuple_desc->slots()[7]->tuple_offset()));
         ASSERT_STREQ("char", std::string(slot->ptr, slot->len).c_str());
     }
-    ASSERT_EQ(12800, *reinterpret_cast<const int64_t*>
-            (tuple->get_slot(tuple_desc->slots()[8]->tuple_offset())));
-   
+    ASSERT_EQ(12800, *reinterpret_cast<const int64_t*>(
+                             tuple->get_slot(tuple_desc->slots()[8]->tuple_offset())));
 }
 
-}  // namespace doris
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

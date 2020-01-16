@@ -16,20 +16,21 @@
 // under the License.
 
 #include "agent/heartbeat_server.h"
-#include <ctime>
-#include <fstream>
+
+#include <thrift/TProcessor.h>
 
 #include <boost/filesystem.hpp>
-#include <thrift/TProcessor.h>
+#include <ctime>
+#include <fstream>
 
 #include "common/status.h"
 #include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/storage_engine.h"
 #include "olap/utils.h"
+#include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
 #include "util/thrift_server.h"
-#include "runtime/heartbeat_flags.h"
 
 using std::fstream;
 using std::nothrow;
@@ -39,9 +40,7 @@ using apache::thrift::transport::TProcessor;
 
 namespace doris {
 
-HeartbeatServer::HeartbeatServer(TMasterInfo* master_info) :
-        _master_info(master_info),
-        _epoch(0) {
+HeartbeatServer::HeartbeatServer(TMasterInfo* master_info) : _master_info(master_info), _epoch(0) {
     _olap_engine = StorageEngine::instance();
 }
 
@@ -49,16 +48,14 @@ void HeartbeatServer::init_cluster_id() {
     _master_info->cluster_id = _olap_engine->effective_cluster_id();
 }
 
-void HeartbeatServer::heartbeat(
-        THeartbeatResult& heartbeat_result,
-        const TMasterInfo& master_info) {
-
+void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
+                                const TMasterInfo& master_info) {
     //print heartbeat in every minute
     LOG_EVERY_N(INFO, 12) << "get heartbeat from FE."
-        << "host:" << master_info.network_address.hostname
-        << ", port:" << master_info.network_address.port
-        << ", cluster id:" << master_info.cluster_id
-        << ", counter:" << google::COUNTER;
+                          << "host:" << master_info.network_address.hostname
+                          << ", port:" << master_info.network_address.port
+                          << ", cluster id:" << master_info.cluster_id
+                          << ", counter:" << google::COUNTER;
 
     // do heartbeat
     Status st = _heartbeat(master_info);
@@ -72,15 +69,13 @@ void HeartbeatServer::heartbeat(
     }
 }
 
-Status HeartbeatServer::_heartbeat(
-        const TMasterInfo& master_info) {
-    
+Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     std::lock_guard<std::mutex> lk(_hb_mtx);
 
     if (master_info.__isset.backend_ip) {
         if (master_info.backend_ip != BackendOptions::get_localhost()) {
             LOG(WARNING) << "backend ip saved in master does not equal to backend local ip"
-                    << master_info.backend_ip << " vs. " << BackendOptions::get_localhost();
+                         << master_info.backend_ip << " vs. " << BackendOptions::get_localhost();
             std::stringstream ss;
             ss << "actual backend local ip: " << BackendOptions::get_localhost();
             return Status::InternalError(ss.str());
@@ -98,7 +93,8 @@ Status HeartbeatServer::_heartbeat(
         } else {
             _master_info->cluster_id = master_info.cluster_id;
             LOG(INFO) << "record cluster id. host: " << master_info.network_address.hostname
-                      << ". port: " << master_info.network_address.port << ". cluster id: " << master_info.cluster_id;
+                      << ". port: " << master_info.network_address.port
+                      << ". cluster id: " << master_info.cluster_id;
         }
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
@@ -108,19 +104,20 @@ Status HeartbeatServer::_heartbeat(
     }
 
     bool need_report = false;
-    if (_master_info->network_address.hostname != master_info.network_address.hostname
-            || _master_info->network_address.port != master_info.network_address.port) {
+    if (_master_info->network_address.hostname != master_info.network_address.hostname ||
+        _master_info->network_address.port != master_info.network_address.port) {
         if (master_info.epoch > _epoch) {
             _master_info->network_address.hostname = master_info.network_address.hostname;
             _master_info->network_address.port = master_info.network_address.port;
             _epoch = master_info.epoch;
             need_report = true;
-            LOG(INFO) << "master change. new master host: " << _master_info->network_address.hostname
+            LOG(INFO) << "master change. new master host: "
+                      << _master_info->network_address.hostname
                       << ". port: " << _master_info->network_address.port << ". epoch: " << _epoch;
         } else {
             LOG(WARNING) << "epoch is not greater than local. ignore heartbeat. host: "
                          << _master_info->network_address.hostname
-                         << " port: " <<  _master_info->network_address.port
+                         << " port: " << _master_info->network_address.port
                          << " local epoch: " << _epoch << " received epoch: " << master_info.epoch;
             return Status::InternalError("epoch is not greater than local. ignore heartbeat.");
         }
@@ -161,12 +158,9 @@ Status HeartbeatServer::_heartbeat(
     return Status::OK();
 }
 
-AgentStatus create_heartbeat_server(
-        ExecEnv* exec_env,
-        uint32_t server_port,
-        ThriftServer** thrift_server,
-        uint32_t worker_thread_num,
-        TMasterInfo* local_master_info) {
+AgentStatus create_heartbeat_server(ExecEnv* exec_env, uint32_t server_port,
+                                    ThriftServer** thrift_server, uint32_t worker_thread_num,
+                                    TMasterInfo* local_master_info) {
     HeartbeatServer* heartbeat_server = new (nothrow) HeartbeatServer(local_master_info);
     if (heartbeat_server == NULL) {
         return DORIS_ERROR;
@@ -177,12 +171,8 @@ AgentStatus create_heartbeat_server(
     boost::shared_ptr<HeartbeatServer> handler(heartbeat_server);
     boost::shared_ptr<TProcessor> server_processor(new HeartbeatServiceProcessor(handler));
     string server_name("heartbeat");
-    *thrift_server = new ThriftServer(
-            server_name,
-            server_processor,
-            server_port,
-            exec_env->metrics(),
-            worker_thread_num);
+    *thrift_server = new ThriftServer(server_name, server_processor, server_port,
+                                      exec_env->metrics(), worker_thread_num);
     return DORIS_SUCCESS;
 }
-}  // namesapce doris
+} // namespace doris

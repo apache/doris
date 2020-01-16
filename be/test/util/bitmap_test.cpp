@@ -18,19 +18,19 @@
 #include "util/bitmap.h"
 
 #include <gtest/gtest.h>
+
 #include <iostream>
 
 #include "common/logging.h"
-#include "testutil/function_utils.h"
 #include "exprs/bitmap_function.h"
+#include "testutil/function_utils.h"
 
 namespace doris {
 
 class BitMapTest : public testing::Test {
 public:
-    BitMapTest() { }
-    virtual ~BitMapTest() {
-    }
+    BitMapTest() {}
+    virtual ~BitMapTest() {}
 };
 
 TEST_F(BitMapTest, normal) {
@@ -76,7 +76,6 @@ TEST_F(BitMapTest, normal) {
     found = BitmapFindFirstZero(bitmap, 300, 1024 * 8, &idx);
     ASSERT_TRUE(found);
     ASSERT_EQ(300, idx);
-
 }
 
 TEST_F(BitMapTest, iterator) {
@@ -114,13 +113,13 @@ TEST_F(BitMapTest, iterator) {
     // 3000,8*1024 -- false
     run = iter.Next(&value);
     ASSERT_FALSE(value);
-    ASSERT_EQ(8*1024 - 3000, run);
+    ASSERT_EQ(8 * 1024 - 3000, run);
     ASSERT_TRUE(iter.done());
     // seek to 8000
     iter.SeekTo(8000);
     run = iter.Next(&value);
     ASSERT_FALSE(value);
-    ASSERT_EQ(8*1024 - 8000, run);
+    ASSERT_EQ(8 * 1024 - 8000, run);
     ASSERT_TRUE(iter.done());
 
     // with max_run
@@ -289,7 +288,6 @@ TEST_F(BitMapTest, bitmap_from_string) {
         bitmap.contains(0);
         bitmap.contains(1);
         bitmap.contains(2);
-
     }
     {
         StringVal val = StringVal("a,b,1,2");
@@ -303,10 +301,9 @@ TEST_F(BitMapTest, bitmap_from_string) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

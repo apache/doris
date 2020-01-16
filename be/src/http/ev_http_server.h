@@ -22,8 +22,8 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/path_trie.hpp"
 #include "http/http_method.h"
+#include "util/path_trie.hpp"
 
 namespace doris {
 
@@ -37,13 +37,12 @@ public:
     ~EvHttpServer();
 
     // register handler for an a path-method pair
-    bool register_handler(
-        const HttpMethod& method, const std::string& path, HttpHandler* handler);
+    bool register_handler(const HttpMethod& method, const std::string& path, HttpHandler* handler);
     Status start();
     void stop();
     void join();
 
-    // callback 
+    // callback
     int on_header(struct evhttp_request* ev_req);
 
 private:
@@ -69,4 +68,4 @@ private:
     PathTrie<HttpHandler*> _options_handlers;
 };
 
-}
+} // namespace doris

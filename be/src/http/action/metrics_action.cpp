@@ -19,10 +19,10 @@
 
 #include <string>
 
-#include "http/http_request.h"
-#include "http/http_response.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
+#include "http/http_request.h"
+#include "http/http_response.h"
 #include "runtime/exec_env.h"
 #include "util/metrics.h"
 
@@ -34,9 +34,11 @@ public:
     void visit(const std::string& prefix, const std::string& name,
                MetricCollector* collector) override;
     std::string to_string() const { return _ss.str(); }
+
 private:
-    void _visit_simple_metric(
-        const std::string& name, const MetricLabels& labels, SimpleMetric* metric);
+    void _visit_simple_metric(const std::string& name, const MetricLabels& labels,
+                              SimpleMetric* metric);
+
 private:
     std::stringstream _ss;
 };
@@ -64,14 +66,17 @@ private:
 
 const std::string SimpleCoreMetricsVisitor::PROCESS_FD_NUM_USED = "process_fd_num_used";
 const std::string SimpleCoreMetricsVisitor::PROCESS_THREAD_NUM = "process_thread_num";
-const std::string SimpleCoreMetricsVisitor::PUSH_REQUEST_WRITE_BYTES_PER_SECOND = "push_request_write_bytes_per_second";
-const std::string SimpleCoreMetricsVisitor::QUERY_SCAN_BYTES_PER_SECOND = "query_scan_bytes_per_second";
+const std::string SimpleCoreMetricsVisitor::PUSH_REQUEST_WRITE_BYTES_PER_SECOND =
+        "push_request_write_bytes_per_second";
+const std::string SimpleCoreMetricsVisitor::QUERY_SCAN_BYTES_PER_SECOND =
+        "query_scan_bytes_per_second";
 const std::string SimpleCoreMetricsVisitor::MAX_DISK_IO_UTIL_PERCENT = "max_disk_io_util_percent";
-const std::string SimpleCoreMetricsVisitor::MAX_NETWORK_SEND_BYTES_RATE= "max_network_send_bytes_rate";
-const std::string SimpleCoreMetricsVisitor::MAX_NETWORK_RECEIVE_BYTES_RATE= "max_network_receive_bytes_rate";
+const std::string SimpleCoreMetricsVisitor::MAX_NETWORK_SEND_BYTES_RATE =
+        "max_network_send_bytes_rate";
+const std::string SimpleCoreMetricsVisitor::MAX_NETWORK_RECEIVE_BYTES_RATE =
+        "max_network_receive_bytes_rate";
 
-void PrometheusMetricsVisitor::visit(const std::string& prefix,
-                                     const std::string& name,
+void PrometheusMetricsVisitor::visit(const std::string& prefix, const std::string& name,
                                      MetricCollector* collector) {
     if (collector->empty() || name.empty()) {
         return;
@@ -88,7 +93,7 @@ void PrometheusMetricsVisitor::visit(const std::string& prefix,
     case MetricType::COUNTER:
     case MetricType::GAUGE:
         for (auto& it : collector->metrics()) {
-            _visit_simple_metric(metric_name, it.first, (SimpleMetric*) it.second);
+            _visit_simple_metric(metric_name, it.first, (SimpleMetric*)it.second);
         }
         break;
     default:
@@ -96,8 +101,9 @@ void PrometheusMetricsVisitor::visit(const std::string& prefix,
     }
 }
 
-void PrometheusMetricsVisitor::_visit_simple_metric(
-        const std::string& name, const MetricLabels& labels, SimpleMetric* metric) {
+void PrometheusMetricsVisitor::_visit_simple_metric(const std::string& name,
+                                                    const MetricLabels& labels,
+                                                    SimpleMetric* metric) {
     _ss << name;
     // labels
     if (!labels.empty()) {
@@ -114,19 +120,16 @@ void PrometheusMetricsVisitor::_visit_simple_metric(
     _ss << " " << metric->to_string() << "\n";
 }
 
-void SimpleCoreMetricsVisitor::visit(const std::string& prefix,
-                                     const std::string& name,
+void SimpleCoreMetricsVisitor::visit(const std::string& prefix, const std::string& name,
                                      MetricCollector* collector) {
     if (collector->empty() || name.empty()) {
         return;
     }
 
-    if (name != PROCESS_FD_NUM_USED && name != PROCESS_THREAD_NUM
-        && name != PUSH_REQUEST_WRITE_BYTES_PER_SECOND
-        && name != QUERY_SCAN_BYTES_PER_SECOND
-        && name != MAX_DISK_IO_UTIL_PERCENT
-        && name != MAX_NETWORK_SEND_BYTES_RATE
-        && name != MAX_NETWORK_RECEIVE_BYTES_RATE) {
+    if (name != PROCESS_FD_NUM_USED && name != PROCESS_THREAD_NUM &&
+        name != PUSH_REQUEST_WRITE_BYTES_PER_SECOND && name != QUERY_SCAN_BYTES_PER_SECOND &&
+        name != MAX_DISK_IO_UTIL_PERCENT && name != MAX_NETWORK_SEND_BYTES_RATE &&
+        name != MAX_NETWORK_RECEIVE_BYTES_RATE) {
         return;
     }
 
@@ -138,8 +141,7 @@ void SimpleCoreMetricsVisitor::visit(const std::string& prefix,
     }
 
     for (auto& it : collector->metrics()) {
-        _ss << metric_name << " LONG " << ((SimpleMetric*) it.second)->to_string()
-            << "\n";
+        _ss << metric_name << " LONG " << ((SimpleMetric*)it.second)->to_string() << "\n";
     }
 }
 
@@ -160,4 +162,4 @@ void MetricsAction::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, str);
 }
 
-}
+} // namespace doris

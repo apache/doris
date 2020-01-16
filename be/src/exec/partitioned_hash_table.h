@@ -18,23 +18,22 @@
 #ifndef DORIS_BE_SRC_EXEC_PARTITIONED_HASH_TABLE_H
 #define DORIS_BE_SRC_EXEC_PARTITIONED_HASH_TABLE_H
 
-#include <vector>
 #include <boost/cstdint.hpp>
 #include <boost/scoped_ptr.hpp>
+#include <vector>
 
 #include "codegen/doris_ir.h"
-#include "util/logging.h"
 #include "runtime/buffered_block_mgr2.h"
 #include "runtime/buffered_tuple_stream2.h"
 #include "runtime/buffered_tuple_stream2.inline.h"
 #include "runtime/mem_tracker.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/tuple_row.h"
-#include "util/hash_util.hpp"
 #include "util/bit_util.h"
+#include "util/hash_util.hpp"
+#include "util/logging.h"
 
 namespace llvm {
-    class Function;
+class Function;
 }
 
 namespace doris {
@@ -119,9 +118,9 @@ public:
     //    level 0. Other levels have their seeds derived from this seed.
     //  - The max levels we will hash with.
     PartitionedHashTableCtx(const std::vector<ExprContext*>& build_expr_ctxs,
-            const std::vector<ExprContext*>& probe_expr_ctxs, bool stores_nulls,
-            bool finds_nulls, int32_t initial_seed, int max_levels,
-            int num_build_tuples);
+                            const std::vector<ExprContext*>& probe_expr_ctxs, bool stores_nulls,
+                            bool finds_nulls, int32_t initial_seed, int max_levels,
+                            int num_build_tuples);
 
     // Call to cleanup any resources.
     void close();
@@ -142,9 +141,7 @@ public:
     }
 
     // Returns if the expr at 'expr_idx' evaluated to NULL for the last row.
-    bool last_expr_value_null(int expr_idx) const {
-        return _expr_value_null_bits[expr_idx];
-    }
+    bool last_expr_value_null(int expr_idx) const { return _expr_value_null_bits[expr_idx]; }
 
     // Evaluate and hash the build/probe row, returning in *hash. Returns false if this
     // row should be rejected (doesn't need to be processed further) because it
@@ -210,15 +207,11 @@ private:
     // compiled because we need to be able to differentiate between EvalBuildRow and
     // EvalProbeRow by name and the build/probe exprs are baked into the codegen'd
     // function.
-    bool IR_NO_INLINE EvalBuildRow(TupleRow* row) {
-        return eval_row(row, _build_expr_ctxs);
-    }
+    bool IR_NO_INLINE EvalBuildRow(TupleRow* row) { return eval_row(row, _build_expr_ctxs); }
 
     // Evaluate 'row' over probe exprs caching the results in '_expr_values_buffer'
     // This will be replaced by codegen.
-    bool IR_NO_INLINE EvalProbeRow(TupleRow* row) {
-        return eval_row(row, _probe_expr_ctxs);
-    }
+    bool IR_NO_INLINE EvalProbeRow(TupleRow* row) { return eval_row(row, _probe_expr_ctxs); }
 
     // Compute the hash of the values in _expr_values_buffer for rows with variable length
     // fields (e.g. strings).
@@ -290,7 +283,6 @@ private:
 // data allocated by the hash table comes from the BufferedBlockMgr2.
 class PartitionedHashTable {
 private:
-
     // Either the row in the tuple stream or a pointer to the single tuple of this row.
     union HtData {
         BufferedTupleStream2::RowIdx idx;
@@ -352,8 +344,8 @@ public:
     //  - initial_num_buckets: number of buckets that the hash table should be initialized
     //    with.
     static PartitionedHashTable* create(RuntimeState* state, BufferedBlockMgr2::Client* client,
-            int num_build_tuples, BufferedTupleStream2* tuple_stream, int64_t max_num_buckets,
-            int64_t initial_num_buckets);
+                                        int num_build_tuples, BufferedTupleStream2* tuple_stream,
+                                        int64_t max_num_buckets, int64_t initial_num_buckets);
 
     // Allocates the initial bucket structure. Returns false if OOM.
     bool init();
@@ -372,7 +364,8 @@ public:
     // the insert fails and this function returns false.
     // Used during the build phase of hash joins.
     bool IR_ALWAYS_INLINE insert(PartitionedHashTableCtx* ht_ctx,
-            const BufferedTupleStream2::RowIdx& idx, TupleRow* row, uint32_t hash);
+                                 const BufferedTupleStream2::RowIdx& idx, TupleRow* row,
+                                 uint32_t hash);
 
     // Same as insert() but for inserting a single Tuple. The 'tuple' is not copied by
     // the hash table and the caller must guarantee it stays in memory.
@@ -391,7 +384,7 @@ public:
     // be inserted. Returns End() if the table is full. The caller can set the data in
     // the bucket using a Set*() method on the iterator.
     Iterator IR_ALWAYS_INLINE find_bucket(PartitionedHashTableCtx* ht_ctx, uint32_t hash,
-            bool* found);
+                                          bool* found);
 
     // Returns number of elements inserted in the hash table
     int64_t size() const {
@@ -405,9 +398,7 @@ public:
     int64_t num_buckets() const { return _num_buckets; }
 
     // Returns the load factor (the number of non-empty buckets)
-    double load_factor() const {
-        return static_cast<double>(_num_filled_buckets) / _num_buckets;
-    }
+    double load_factor() const { return static_cast<double>(_num_filled_buckets) / _num_buckets; }
 
     // Returns an estimate of the number of bytes needed to build the hash table
     // structure for 'num_rows'. To do that, it estimates the number of buckets,
@@ -454,8 +445,7 @@ public:
     // skipped.  If 'show_match', it also prints the matched flag of each node. If
     // 'build_desc' is non-null, the build rows will be printed. Otherwise, only the
     // the addresses of the build rows will be printed.
-    std::string debug_string(bool skip_empty, bool show_match,
-            const RowDescriptor* build_desc);
+    std::string debug_string(bool skip_empty, bool show_match, const RowDescriptor* build_desc);
 
     // Print the content of a bucket or node.
     void debug_string_tuple(std::stringstream& ss, HtData& htdata, const RowDescriptor* desc);
@@ -470,8 +460,7 @@ public:
         static const int64_t BUCKET_NOT_FOUND = -1;
 
     public:
-
-        Iterator() : _table(NULL), _row(NULL), _bucket_idx(BUCKET_NOT_FOUND), _node(NULL) { }
+        Iterator() : _table(NULL), _row(NULL), _bucket_idx(BUCKET_NOT_FOUND), _node(NULL) {}
 
         // Iterates to the next element. It should be called only if !AtEnd().
         void IR_ALWAYS_INLINE next();
@@ -517,11 +506,7 @@ public:
         friend class PartitionedHashTable;
 
         Iterator(PartitionedHashTable* table, TupleRow* row, int bucket_idx, DuplicateNode* node)
-            : _table(table),
-            _row(row),
-            _bucket_idx(bucket_idx),
-            _node(node) {
-            }
+                : _table(table), _row(row), _bucket_idx(bucket_idx), _node(node) {}
 
         PartitionedHashTable* _table;
         TupleRow* _row;
@@ -542,9 +527,10 @@ private:
     // of calling this constructor directly.
     //  - quadratic_probing: set to true when the probing algorithm is quadratic, as
     //    opposed to linear.
-    PartitionedHashTable(bool quadratic_probing, RuntimeState* state, BufferedBlockMgr2::Client* client,
-            int num_build_tuples, BufferedTupleStream2* tuple_stream,
-            int64_t max_num_buckets, int64_t initial_num_buckets);
+    PartitionedHashTable(bool quadratic_probing, RuntimeState* state,
+                         BufferedBlockMgr2::Client* client, int num_build_tuples,
+                         BufferedTupleStream2* tuple_stream, int64_t max_num_buckets,
+                         int64_t initial_num_buckets);
 
     // Performs the probing operation according to the probing algorithm (linear or
     // quadratic. Returns one of the following:
@@ -563,7 +549,7 @@ private:
     //
     // There are wrappers of this function that perform the find and insert logic.
     int64_t IR_ALWAYS_INLINE probe(Bucket* buckets, int64_t num_buckets,
-            PartitionedHashTableCtx* ht_ctx, uint32_t hash,  bool* found);
+                                   PartitionedHashTableCtx* ht_ctx, uint32_t hash, bool* found);
 
     // Performs the insert logic. Returns the HtData* of the bucket or duplicate node
     // where the data should be inserted. Returns NULL if the insert was not successful.

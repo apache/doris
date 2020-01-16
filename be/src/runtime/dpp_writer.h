@@ -32,9 +32,7 @@ class RowBatch;
 // this is used for don't change code in storage.
 class DppWriter {
 public:
-    DppWriter(int32_t schema_hash, 
-              const std::vector<ExprContext*>& output_expr, 
-              FileHandler* fp);
+    DppWriter(int32_t schema_hash, const std::vector<ExprContext*>& output_expr, FileHandler* fp);
 
     ~DppWriter();
 
@@ -73,6 +71,6 @@ private:
     FileHeader<OLAPRawDeltaHeaderMessage, int32_t, FileHandler> _header;
 };
 
-}
+} // namespace doris
 
 #endif

@@ -19,13 +19,13 @@
 
 #include <memory> // for unique_ptr
 
-#include "common/status.h" // for Status
-#include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
+#include "common/status.h"                          // for Status
+#include "gen_cpp/segment_v2.pb.h"                  // for EncodingTypePB
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMapBuilder
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
-#include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
-#include "util/bitmap.h" // for BitmapChange
-#include "util/slice.h" // for OwnedSlice
+#include "olap/rowset/segment_v2/common.h"          // for rowid_t
+#include "olap/rowset/segment_v2/page_pointer.h"    // for PagePointer
+#include "util/bitmap.h"                            // for BitmapChange
+#include "util/slice.h"                             // for OwnedSlice
 
 namespace doris {
 
@@ -60,15 +60,13 @@ class BloomFilterIndexWriter;
 // to file
 class ColumnWriter {
 public:
-    ColumnWriter(const ColumnWriterOptions& opts,
-                 std::unique_ptr<Field> field,
-                 bool is_nullable,
+    ColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field, bool is_nullable,
                  WritableFile* output_file);
     ~ColumnWriter();
 
     Status init();
 
-    template<typename CellType>
+    template <typename CellType>
     Status append(const CellType& cell) {
         if (_is_nullable) {
             uint8_t nullmap = 0;
@@ -176,6 +174,5 @@ private:
     uint64_t _written_size = 0;
 };
 
-
-}
-}
+} // namespace segment_v2
+} // namespace doris

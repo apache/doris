@@ -15,13 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <boost/thread.hpp>
-#include <boost/thread/mutex.hpp>
+#include "util/thread_pool.hpp"
+
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
-#include "util/thread_pool.hpp"
+#include <boost/thread.hpp>
+#include <boost/thread/mutex.hpp>
+
 #include "util/logging.h"
 
 namespace doris {
@@ -68,7 +70,7 @@ TEST(ThreadPoolTest, BasicTest) {
     EXPECT_EQ(expected_count, count);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

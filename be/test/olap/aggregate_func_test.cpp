@@ -29,12 +29,11 @@ namespace doris {
 
 class AggregateFuncTest : public testing::Test {
 public:
-    AggregateFuncTest() { }
-    virtual ~AggregateFuncTest() {
-    }
+    AggregateFuncTest() {}
+    virtual ~AggregateFuncTest() {}
 };
 
-template<FieldType field_type>
+template <FieldType field_type>
 void test_min() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
     char buf[64];
@@ -108,7 +107,7 @@ TEST_F(AggregateFuncTest, min) {
     test_min<OLAP_FIELD_TYPE_LARGEINT>();
 }
 
-template<FieldType field_type>
+template <FieldType field_type>
 void test_max() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
@@ -182,7 +181,7 @@ TEST_F(AggregateFuncTest, max) {
     test_max<OLAP_FIELD_TYPE_LARGEINT>();
 }
 
-template<FieldType field_type>
+template <FieldType field_type>
 void test_sum() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
@@ -256,7 +255,7 @@ TEST_F(AggregateFuncTest, sum) {
     test_sum<OLAP_FIELD_TYPE_LARGEINT>();
 }
 
-template<FieldType field_type>
+template <FieldType field_type>
 void test_replace() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
 
@@ -311,7 +310,7 @@ void test_replace() {
     ASSERT_EQ(50, val);
 }
 
-template<FieldType field_type>
+template <FieldType field_type>
 void test_replace_string() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
     constexpr size_t string_field_size = sizeof(bool) + sizeof(Slice);
@@ -386,9 +385,9 @@ TEST_F(AggregateFuncTest, replace) {
     test_replace_string<OLAP_FIELD_TYPE_VARCHAR>();
 }
 
-}
+} // namespace doris
 
-int main(int argc, char **argv) {
-    testing::InitGoogleTest(&argc, argv); 
+int main(int argc, char** argv) {
+    testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

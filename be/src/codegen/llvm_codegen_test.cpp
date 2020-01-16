@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
 #include <gtest/gtest.h>
+
 #include <boost/thread/thread.hpp>
+#include <string>
 
 #include "codegen/llvm-codegen.h"
 #include "runtime/raw-value.h"
@@ -57,7 +58,7 @@ private:
 
     // Wrapper to call private test-only methods on LlvmCodeGen object
     static Status load_from_file(ObjectPool* pool, const string& filename,
-                               scoped_ptr<LlvmCodeGen>* codegen) {
+                                 scoped_ptr<LlvmCodeGen>* codegen) {
         return LlvmCodeGen::load_from_file(pool, filename, codegen);
     }
 
@@ -75,9 +76,7 @@ private:
         return codegen;
     }
 
-    static void clear_hash_fns(LlvmCodeGen* codegen) {
-        codegen->clear_hash_fns();
-    }
+    static void clear_hash_fns(LlvmCodeGen* codegen) { codegen->clear_hash_fns(); }
 };
 
 // Simple test to just make and destroy llvmcodegen objects.  LLVM
@@ -129,8 +128,8 @@ Function* CodegenInnerLoop(LlvmCodeGen* codegen, int64_t* jitted_counter, int de
 
     // Store &jitted_counter as a constant.
     Value* const_delta = ConstantInt::get(context, APInt(64, delta));
-    Value* counter_ptr = codegen->cast_ptr_to_llvm_ptr(codegen->get_ptr_type(TYPE_BIGINT),
-                         jitted_counter);
+    Value* counter_ptr =
+            codegen->cast_ptr_to_llvm_ptr(codegen->get_ptr_type(TYPE_BIGINT), jitted_counter);
     Value* loaded_counter = builder.CreateLoad(counter_ptr);
     Value* incremented_value = builder.CreateAdd(loaded_counter, const_delta);
     builder.CreateStore(incremented_value, counter_ptr);
@@ -201,8 +200,8 @@ TEST_F(LlvmCodeGenTest, ReplaceFnCall) {
     // Part 3: Replace the call instruction to the normal function with a call to the
     // jitted one
     int num_replaced;
-    Function* jitted_loop = codegen->replace_call_sites(
-                                loop, false, jitted_loop_call, loop_call_name, &num_replaced);
+    Function* jitted_loop = codegen->replace_call_sites(loop, false, jitted_loop_call,
+                                                        loop_call_name, &num_replaced);
     EXPECT_EQ(num_replaced, 1);
     EXPECT_TRUE(codegen->verify_function(jitted_loop));
 
@@ -221,7 +220,7 @@ TEST_F(LlvmCodeGenTest, ReplaceFnCall) {
     // Part5: Generate a new inner loop function and a new loop function in place
     Function* jitted_loop_call2 = CodegenInnerLoop(codegen.get(), &jitted_counter, -2);
     Function* jitted_loop2 = codegen->replace_call_sites(loop, true, jitted_loop_call2,
-                             loop_call_name, &num_replaced);
+                                                         loop_call_name, &num_replaced);
     EXPECT_EQ(num_replaced, 1);
     EXPECT_TRUE(codegen->verify_function(jitted_loop2));
 
@@ -268,7 +267,7 @@ Function* CodegenStringTest(LlvmCodeGen* codegen) {
     // strval->ptr[0] = 'A'
     Value* str_ptr = builder.CreateStructGEP(str, 0, "str_ptr");
     Value* ptr = builder.CreateLoad(str_ptr, "ptr");
-    Value* first_char_offset[] = { codegen->get_int_constant(TYPE_INT, 0) };
+    Value* first_char_offset[] = {codegen->get_int_constant(TYPE_INT, 0)};
     Value* first_char_ptr = builder.CreateGEP(ptr, first_char_offset, "first_char_ptr");
     builder.CreateStore(codegen->get_int_constant(TYPE_TINYINT, 'A'), first_char_ptr);
 
@@ -321,8 +320,8 @@ TEST_F(LlvmCodeGenTest, StringValue) {
 
     // Validate padding bytes are unchanged
     int32_t* bytes = reinterpret_cast<int32_t*>(&str_val);
-    EXPECT_EQ(1, bytes[2]);   // str_val.len
-    EXPECT_EQ(0, bytes[3]);   // padding
+    EXPECT_EQ(1, bytes[2]); // str_val.len
+    EXPECT_EQ(0, bytes[3]); // padding
 }
 
 // Test calling memcpy intrinsic
@@ -378,10 +377,10 @@ TEST_F(LlvmCodeGenTest, HashTest) {
 
     bool restore_sse_support = false;
 
-    Value* llvm_data1 = codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(),
-                        const_cast<char*>(data1));
-    Value* llvm_data2 = codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(),
-                        const_cast<char*>(data2));
+    Value* llvm_data1 =
+            codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(), const_cast<char*>(data1));
+    Value* llvm_data2 =
+            codegen->cast_ptr_to_llvm_ptr(codegen->ptr_type(), const_cast<char*>(data2));
     Value* llvm_len1 = codegen->get_int_constant(TYPE_INT, strlen(data1));
     Value* llvm_len2 = codegen->get_int_constant(TYPE_INT, strlen(data2));
 
@@ -394,8 +393,7 @@ TEST_F(LlvmCodeGenTest, HashTest) {
 
         // Create a codegen'd function that hashes all the types and returns the results.
         // The tuple/values to hash are baked into the codegen for simplicity.
-        LlvmCodeGen::FnPrototype prototype(codegen.get(), "HashTest",
-                                           codegen->get_type(TYPE_INT));
+        LlvmCodeGen::FnPrototype prototype(codegen.get(), "HashTest", codegen->get_type(TYPE_INT));
         LlvmCodeGen::LlvmBuilder builder(codegen->context());
 
         // Test both byte-size specific hash functions and the generic loop hash function
@@ -442,7 +440,7 @@ TEST_F(LlvmCodeGenTest, HashTest) {
     CpuInfo::EnableFeature(CpuInfo::SSE4_2, restore_sse_support);
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     doris::CpuInfo::Init();
@@ -452,4 +450,3 @@ int main(int argc, char** argv) {
     doris::LlvmCodeGen::initialize_llvm();
     return RUN_ALL_TESTS();
 }
-

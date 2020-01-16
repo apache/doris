@@ -15,10 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/partitioned_hash_table.inline.h"
-
 #include "codegen/codegen_anyval.h"
 #include "codegen/llvm_codegen.h"
+#include "exec/partitioned_hash_table.inline.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/slot_ref.h"
@@ -54,60 +53,43 @@ const char* PartitionedHashTableCtx::_s_llvm_class_name = "class.doris::Partitio
 
 // Random primes to multiply the seed with.
 static uint32_t SEED_PRIMES[] = {
-    1, // First seed must be 1, level 0 is used by other operators in the fragment.
-    1431655781,
-    1183186591,
-    622729787,
-    472882027,
-    338294347,
-    275604541,
-    41161739,
-    29999999,
-    27475109,
-    611603,
-    16313357,
-    11380003,
-    21261403,
-    33393119,
-    101,
-    71043403
-};
+        1, // First seed must be 1, level 0 is used by other operators in the fragment.
+        1431655781, 1183186591, 622729787, 472882027, 338294347, 275604541, 41161739, 29999999,
+        27475109,   611603,     16313357,  11380003,  21261403,  33393119,  101,      71043403};
 
 // Put a non-zero constant in the result location for NULL.
 // We don't want(NULL, 1) to hash to the same as (0, 1).
 // This needs to be as big as the biggest primitive type since the bytes
 // get copied directly.
 // TODO find a better approach, since primitives like CHAR(N) can be up to 128 bytes
-static int64_t NULL_VALUE[] = { HashUtil::FNV_SEED, HashUtil::FNV_SEED,
-                                HashUtil::FNV_SEED, HashUtil::FNV_SEED,
-                                HashUtil::FNV_SEED, HashUtil::FNV_SEED,
-                                HashUtil::FNV_SEED, HashUtil::FNV_SEED,
-                                HashUtil::FNV_SEED, HashUtil::FNV_SEED,
-                                HashUtil::FNV_SEED, HashUtil::FNV_SEED,
-                                HashUtil::FNV_SEED, HashUtil::FNV_SEED,
-                                HashUtil::FNV_SEED, HashUtil::FNV_SEED };
+static int64_t NULL_VALUE[] = {
+        HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED,
+        HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED,
+        HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED,
+        HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED};
 
 // The first NUM_SMALL_BLOCKS of _nodes are made of blocks less than the IO size (of 8MB)
 // to reduce the memory footprint of small queries. In particular, we always first use a
 // 64KB and a 512KB block before starting using IO-sized blocks.
-static const int64_t INITIAL_DATA_PAGE_SIZES[] = { 64 * 1024, 512 * 1024 };
+static const int64_t INITIAL_DATA_PAGE_SIZES[] = {64 * 1024, 512 * 1024};
 static const int NUM_SMALL_DATA_PAGES = sizeof(INITIAL_DATA_PAGE_SIZES) / sizeof(int64_t);
 
-PartitionedHashTableCtx::PartitionedHashTableCtx(
-        const vector<ExprContext*>& build_expr_ctxs, const vector<ExprContext*>& probe_expr_ctxs,
-        bool stores_nulls, bool finds_nulls,
-        int32_t initial_seed, int max_levels, int num_build_tuples) :
-            _build_expr_ctxs(build_expr_ctxs),
-            _probe_expr_ctxs(probe_expr_ctxs),
-            _stores_nulls(stores_nulls),
-            _finds_nulls(finds_nulls),
-            _level(0),
-            _row(reinterpret_cast<TupleRow*>(malloc(sizeof(Tuple*) * num_build_tuples))) {
+PartitionedHashTableCtx::PartitionedHashTableCtx(const vector<ExprContext*>& build_expr_ctxs,
+                                                 const vector<ExprContext*>& probe_expr_ctxs,
+                                                 bool stores_nulls, bool finds_nulls,
+                                                 int32_t initial_seed, int max_levels,
+                                                 int num_build_tuples)
+        : _build_expr_ctxs(build_expr_ctxs),
+          _probe_expr_ctxs(probe_expr_ctxs),
+          _stores_nulls(stores_nulls),
+          _finds_nulls(finds_nulls),
+          _level(0),
+          _row(reinterpret_cast<TupleRow*>(malloc(sizeof(Tuple*) * num_build_tuples))) {
     // Compute the layout and buffer size to store the evaluated expr results
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
     DCHECK(!_build_expr_ctxs.empty());
-    _results_buffer_size = Expr::compute_results_layout(_build_expr_ctxs,
-            &_expr_values_buffer_offsets, &_var_result_begin);
+    _results_buffer_size = Expr::compute_results_layout(
+            _build_expr_ctxs, &_expr_values_buffer_offsets, &_var_result_begin);
     _expr_values_buffer = new uint8_t[_results_buffer_size];
     memset(_expr_values_buffer, 0, sizeof(uint8_t) * _results_buffer_size);
     _expr_value_null_bits = new uint8_t[build_expr_ctxs.size()];
@@ -152,8 +134,7 @@ bool PartitionedHashTableCtx::eval_row(TupleRow* row, const vector<ExprContext*>
         } else {
             _expr_value_null_bits[i] = false;
         }
-        DCHECK_LE(_build_expr_ctxs[i]->root()->type().get_slot_size(),
-                sizeof(NULL_VALUE));
+        DCHECK_LE(_build_expr_ctxs[i]->root()->type().get_slot_size(), sizeof(NULL_VALUE));
         RawValue::write(val, loc, _build_expr_ctxs[i]->root()->type(), NULL);
     }
     return has_null;
@@ -214,41 +195,42 @@ bool PartitionedHashTableCtx::equals(TupleRow* build_row) {
 
 const double PartitionedHashTable::MAX_FILL_FACTOR = 0.75f;
 
-PartitionedHashTable* PartitionedHashTable::create(RuntimeState* state,
-        BufferedBlockMgr2::Client* client, int num_build_tuples,
-        BufferedTupleStream2* tuple_stream, int64_t max_num_buckets,
-        int64_t initial_num_buckets) {
+PartitionedHashTable* PartitionedHashTable::create(
+        RuntimeState* state, BufferedBlockMgr2::Client* client, int num_build_tuples,
+        BufferedTupleStream2* tuple_stream, int64_t max_num_buckets, int64_t initial_num_buckets) {
     // return new PartitionedHashTable(FLAGS_enable_quadratic_probing, state, client,
     //         num_build_tuples, tuple_stream, max_num_buckets, initial_num_buckets);
     return new PartitionedHashTable(config::enable_quadratic_probing, state, client,
-            num_build_tuples, tuple_stream, max_num_buckets, initial_num_buckets);
+                                    num_build_tuples, tuple_stream, max_num_buckets,
+                                    initial_num_buckets);
 }
 
 PartitionedHashTable::PartitionedHashTable(bool quadratic_probing, RuntimeState* state,
-        BufferedBlockMgr2::Client* client, int num_build_tuples, BufferedTupleStream2* stream,
-        int64_t max_num_buckets, int64_t num_buckets) :
-            _state(state),
-            _block_mgr_client(client),
-            _tuple_stream(stream),
-            _stores_tuples(num_build_tuples == 1),
-            _quadratic_probing(quadratic_probing),
-            _total_data_page_size(0),
-            _next_node(NULL),
-            _node_remaining_current_page(0),
-            _num_duplicate_nodes(0),
-            _max_num_buckets(max_num_buckets),
-            _buckets(NULL),
-            _num_buckets(num_buckets),
-            _num_filled_buckets(0),
-            _num_buckets_with_duplicates(0),
-            _num_build_tuples(num_build_tuples),
-            _has_matches(false),
-            _num_probes(0),
-            _num_failed_probes(0),
-            _travel_length(0),
-            _num_hash_collisions(0),
-            _num_resizes(0) {
-    DCHECK_EQ((num_buckets & (num_buckets-1)), 0) << "num_buckets must be a power of 2";
+                                           BufferedBlockMgr2::Client* client, int num_build_tuples,
+                                           BufferedTupleStream2* stream, int64_t max_num_buckets,
+                                           int64_t num_buckets)
+        : _state(state),
+          _block_mgr_client(client),
+          _tuple_stream(stream),
+          _stores_tuples(num_build_tuples == 1),
+          _quadratic_probing(quadratic_probing),
+          _total_data_page_size(0),
+          _next_node(NULL),
+          _node_remaining_current_page(0),
+          _num_duplicate_nodes(0),
+          _max_num_buckets(max_num_buckets),
+          _buckets(NULL),
+          _num_buckets(num_buckets),
+          _num_filled_buckets(0),
+          _num_buckets_with_duplicates(0),
+          _num_build_tuples(num_build_tuples),
+          _has_matches(false),
+          _num_probes(0),
+          _num_failed_probes(0),
+          _travel_length(0),
+          _num_hash_collisions(0),
+          _num_resizes(0) {
+    DCHECK_EQ((num_buckets & (num_buckets - 1)), 0) << "num_buckets must be a power of 2";
     DCHECK_GT(num_buckets, 0) << "num_buckets must be larger than 0";
     DCHECK(_stores_tuples || stream != NULL);
     DCHECK(client != NULL);
@@ -293,11 +275,10 @@ int64_t PartitionedHashTable::current_mem_size() const {
     return _num_buckets * sizeof(Bucket) + _num_duplicate_nodes * sizeof(DuplicateNode);
 }
 
-bool PartitionedHashTable::check_and_resize(
-        uint64_t buckets_to_fill, PartitionedHashTableCtx* ht_ctx) {
+bool PartitionedHashTable::check_and_resize(uint64_t buckets_to_fill,
+                                            PartitionedHashTableCtx* ht_ctx) {
     uint64_t shift = 0;
-    while (_num_filled_buckets + buckets_to_fill >
-            (_num_buckets << shift) * MAX_FILL_FACTOR) {
+    while (_num_filled_buckets + buckets_to_fill > (_num_buckets << shift) * MAX_FILL_FACTOR) {
         // TODO: next prime instead of double?
         ++shift;
     }
@@ -308,12 +289,12 @@ bool PartitionedHashTable::check_and_resize(
 }
 
 bool PartitionedHashTable::resize_buckets(int64_t num_buckets, PartitionedHashTableCtx* ht_ctx) {
-    DCHECK_EQ((num_buckets & (num_buckets-1)), 0)
-        << "num_buckets=" << num_buckets << " must be a power of 2";
-    DCHECK_GT(num_buckets, _num_filled_buckets) << "Cannot shrink the hash table to "
-        "smaller number of buckets than the number of filled buckets.";
-    VLOG(2) << "Resizing hash table from "
-        << _num_buckets << " to " << num_buckets << " buckets.";
+    DCHECK_EQ((num_buckets & (num_buckets - 1)), 0)
+            << "num_buckets=" << num_buckets << " must be a power of 2";
+    DCHECK_GT(num_buckets, _num_filled_buckets)
+            << "Cannot shrink the hash table to "
+               "smaller number of buckets than the number of filled buckets.";
+    VLOG(2) << "Resizing hash table from " << _num_buckets << " to " << num_buckets << " buckets.";
     if (_max_num_buckets != -1 && num_buckets > _max_num_buckets) {
         return false;
     }
@@ -337,13 +318,15 @@ bool PartitionedHashTable::resize_buckets(int64_t num_buckets, PartitionedHashTa
     // We do not have to do anything with the duplicate nodes. This operation is expected
     // to succeed.
     for (PartitionedHashTable::Iterator iter = begin(ht_ctx); !iter.at_end();
-            next_filled_bucket(&iter._bucket_idx, &iter._node)) {
+         next_filled_bucket(&iter._bucket_idx, &iter._node)) {
         Bucket* bucket_to_copy = &_buckets[iter._bucket_idx];
         bool found = false;
         int64_t bucket_idx = probe(new_buckets, num_buckets, NULL, bucket_to_copy->hash, &found);
         DCHECK(!found);
-        DCHECK_NE(bucket_idx, Iterator::BUCKET_NOT_FOUND) << " Probe failed even though "
-            " there are free buckets. " << num_buckets << " " << _num_filled_buckets;
+        DCHECK_NE(bucket_idx, Iterator::BUCKET_NOT_FOUND)
+                << " Probe failed even though "
+                   " there are free buckets. "
+                << num_buckets << " " << _num_filled_buckets;
         Bucket* dst_bucket = &new_buckets[bucket_idx];
         *dst_bucket = *bucket_to_copy;
     }
@@ -362,8 +345,7 @@ bool PartitionedHashTable::grow_node_array() {
         page_size = std::min(page_size, INITIAL_DATA_PAGE_SIZES[_data_pages.size()]);
     }
     BufferedBlockMgr2::Block* block = NULL;
-    Status status = _state->block_mgr2()->get_new_block(
-            _block_mgr_client, NULL, &block, page_size);
+    Status status = _state->block_mgr2()->get_new_block(_block_mgr_client, NULL, &block, page_size);
     DCHECK(status.ok() || block == NULL);
     if (block == NULL) {
         return false;
@@ -380,13 +362,13 @@ bool PartitionedHashTable::grow_node_array() {
     return true;
 }
 
-void PartitionedHashTable::debug_string_tuple(
-        stringstream& ss, HtData& htdata, const RowDescriptor* desc) {
+void PartitionedHashTable::debug_string_tuple(stringstream& ss, HtData& htdata,
+                                              const RowDescriptor* desc) {
     if (_stores_tuples) {
         ss << "(" << htdata.tuple << ")";
     } else {
-        ss << "(" << htdata.idx.block() << ", " << htdata.idx.idx()
-            << ", " << htdata.idx.offset() << ")";
+        ss << "(" << htdata.idx.block() << ", " << htdata.idx.idx() << ", " << htdata.idx.offset()
+           << ")";
     }
     if (desc != NULL) {
         Tuple* row[_num_build_tuples];
@@ -394,8 +376,8 @@ void PartitionedHashTable::debug_string_tuple(
     }
 }
 
-string PartitionedHashTable::debug_string(
-        bool skip_empty, bool show_match, const RowDescriptor* desc) {
+string PartitionedHashTable::debug_string(bool skip_empty, bool show_match,
+                                          const RowDescriptor* desc) {
     stringstream ss;
     ss << endl;
     for (int i = 0; i < _num_buckets; ++i) {
@@ -440,10 +422,10 @@ string PartitionedHashTable::print_stats() const {
     double avg_travel = (double)_travel_length / (double)_num_probes;
     double avg_collisions = (double)_num_hash_collisions / (double)_num_filled_buckets;
     stringstream ss;
-    ss << "Buckets: " << _num_buckets << " " << _num_filled_buckets << " "
-        << curr_fill_factor << endl;
-    ss << "Duplicates: " << _num_buckets_with_duplicates << " buckets "
-        << _num_duplicate_nodes << " nodes" << endl;
+    ss << "Buckets: " << _num_buckets << " " << _num_filled_buckets << " " << curr_fill_factor
+       << endl;
+    ss << "Duplicates: " << _num_buckets_with_duplicates << " buckets " << _num_duplicate_nodes
+       << " nodes" << endl;
     ss << "Probes: " << _num_probes << endl;
     ss << "FailedProbes: " << _num_failed_probes << endl;
     ss << "Travel: " << _travel_length << " " << avg_travel << endl;
@@ -942,4 +924,3 @@ Function* PartitionedHashTableCtx::codegen_equals(RuntimeState* state) {
 #endif
 
 } // namespace doris
-

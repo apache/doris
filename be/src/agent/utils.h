@@ -19,26 +19,28 @@
 #define DORIS_BE_SRC_AGENT_UTILS_H
 
 #include <pthread.h>
+
 #include <memory>
-#include "thrift/transport/TSocket.h"
-#include "thrift/transport/TTransportUtils.h"
+
 #include "agent/status.h"
+#include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
-#include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Status_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_define.h"
 #include "runtime/client_cache.h"
+#include "thrift/transport/TSocket.h"
+#include "thrift/transport/TTransportUtils.h"
 
 namespace doris {
 
 class MasterServerClient {
 public:
     MasterServerClient(const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
-    virtual ~MasterServerClient() {};
-    
+    virtual ~MasterServerClient(){};
+
     // Reprot finished task to the master server
     //
     // Input parameters:
@@ -47,7 +49,7 @@ public:
     // Output parameters:
     // * result: The result of report task
     virtual AgentStatus finish_task(const TFinishTaskRequest& request, TMasterResult* result);
-    
+
     // Report tasks/olap tablet/disk state to the master server
     //
     // Input parameters:
@@ -62,12 +64,12 @@ private:
 
     FrontendServiceClientCache* _client_cache;
     DISALLOW_COPY_AND_ASSIGN(MasterServerClient);
-};  // class MasterServerClient
+}; // class MasterServerClient
 
 class AgentUtils {
 public:
-    AgentUtils() {};
-    virtual ~AgentUtils() {};
+    AgentUtils(){};
+    virtual ~AgentUtils(){};
 
     // Use rsync synchronize folder from remote agent to local folder
     //
@@ -78,13 +80,12 @@ public:
     // * exclude_file_patterns: the patterns of the exclude file
     // * transport_speed_limit_kbps: speed limit of transport(kb/s)
     // * timeout_second: timeout of synchronize
-    virtual AgentStatus rsync_from_remote(
-            const std::string& remote_host,
-            const std::string& remote_file_path,
-            const std::string& local_file_path,
-            const std::vector<std::string>& exclude_file_patterns,
-            const uint32_t transport_speed_limit_kbps,
-            const uint32_t timeout_second);
+    virtual AgentStatus rsync_from_remote(const std::string& remote_host,
+                                          const std::string& remote_file_path,
+                                          const std::string& local_file_path,
+                                          const std::vector<std::string>& exclude_file_patterns,
+                                          const uint32_t transport_speed_limit_kbps,
+                                          const uint32_t timeout_second);
 
     // Print AgentStatus as string
     virtual std::string print_agent_status(AgentStatus status);
@@ -93,13 +94,12 @@ public:
     virtual bool exec_cmd(const std::string& command, std::string* errmsg);
 
     // Write a map to file by json format
-    virtual bool write_json_to_file(
-            const std::map<std::string, std::string>& info,
-            const std::string& path);
+    virtual bool write_json_to_file(const std::map<std::string, std::string>& info,
+                                    const std::string& path);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(AgentUtils);
-};  // class AgentUtils
+}; // class AgentUtils
 
-}  // namespace doris
-#endif  // DORIS_BE_SRC_AGENT_UTILS_H
+} // namespace doris
+#endif // DORIS_BE_SRC_AGENT_UTILS_H

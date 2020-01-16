@@ -22,22 +22,17 @@
 
 namespace doris {
 
-InStream::InStream(
-        std::vector<StorageByteBuffer*>* inputs,
-        const std::vector<uint64_t>& offsets,
-        uint64_t length,
-        Decompressor decompressor,
-        uint32_t compress_buffer_size) : 
-        _inputs(*inputs),
-        _offsets(offsets),
-        _length(length),
-        _decompressor(decompressor),
-        _compress_buffer_size(compress_buffer_size),
-        _current_offset(0),
-        _current_range(0),
-        _compressed(NULL),
-        _uncompressed(NULL) {
-}
+InStream::InStream(std::vector<StorageByteBuffer*>* inputs, const std::vector<uint64_t>& offsets,
+                   uint64_t length, Decompressor decompressor, uint32_t compress_buffer_size)
+        : _inputs(*inputs),
+          _offsets(offsets),
+          _length(length),
+          _decompressor(decompressor),
+          _compress_buffer_size(compress_buffer_size),
+          _current_offset(0),
+          _current_range(0),
+          _compressed(NULL),
+          _uncompressed(NULL) {}
 
 InStream::~InStream() {
     SAFE_DELETE(_compressed);
@@ -51,9 +46,7 @@ OLAPStatus InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) 
 
     //如果buffer够读，拿出一个chunksize，并设置position
     if (OLAP_LIKELY(_compressed->remaining() >= len)) {
-        slice = StorageByteBuffer::reference_buffer(_compressed,
-                _compressed->position(),
-                len);
+        slice = StorageByteBuffer::reference_buffer(_compressed, _compressed->position(), len);
 
         if (OLAP_UNLIKELY(NULL == slice)) {
             return OLAP_ERR_MALLOC_ERROR;
@@ -81,8 +74,7 @@ OLAPStatus InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) 
     _current_offset += _compressed->remaining();
     len -= _compressed->remaining();
     // 先拿一部分出来
-    slice->put(&(_compressed->array()[_compressed->position()]),
-            _compressed->remaining());
+    slice->put(&(_compressed->array()[_compressed->position()]), _compressed->remaining());
 
     // 向后边的buffer移动
     ++_current_range;
@@ -91,8 +83,8 @@ OLAPStatus InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) 
         SAFE_DELETE(_compressed);
         // 再取一部分压缩过的buffer
         _compressed = StorageByteBuffer::reference_buffer(_inputs[_current_range],
-                      _inputs[_current_range]->position(),
-                      _inputs[_current_range]->remaining());
+                                                          _inputs[_current_range]->position(),
+                                                          _inputs[_current_range]->remaining());
 
         if (OLAP_UNLIKELY(NULL == _compressed)) {
             SAFE_DELETE(slice);
@@ -111,8 +103,7 @@ OLAPStatus InStream::_slice(uint64_t chunk_size, StorageByteBuffer** out_slice) 
         } else {
             _current_offset += _compressed->remaining();
             len -= _compressed->remaining();
-            slice->put(&(_compressed->array()[_compressed->position()]),
-                    _compressed->remaining());
+            slice->put(&(_compressed->array()[_compressed->position()]), _compressed->remaining());
         }
 
         ++_current_range;
@@ -131,7 +122,7 @@ OLAPStatus InStream::_assure_data() {
     if (OLAP_LIKELY(_uncompressed != NULL && _uncompressed->remaining() > 0)) {
         return OLAP_SUCCESS;
     } else if (OLAP_UNLIKELY((_uncompressed == NULL || _uncompressed->remaining() == 0) &&
-               (_current_offset == _length))) {
+                             (_current_offset == _length))) {
         return OLAP_ERR_COLUMN_STREAM_EOF;
     }
 
@@ -156,7 +147,7 @@ OLAPStatus InStream::_assure_data() {
 
         if (head.length > _compress_buffer_size) {
             OLAP_LOG_WARNING("chunk size is larger than buffer size. [chunk=%u buffer_size=%u]",
-                    head.length, _compress_buffer_size);
+                             head.length, _compress_buffer_size);
             return OLAP_ERR_COLUMN_READ_STREAM;
         }
 
@@ -188,7 +179,8 @@ OLAPStatus InStream::_assure_data() {
             SAFE_DELETE(slice);
         }
     } else {
-        OLAP_LOG_WARNING("compressed remaining size less than stream head size. "
+        OLAP_LOG_WARNING(
+                "compressed remaining size less than stream head size. "
                 "[compressed_remaining_size=%lu stream_head_size=%lu]",
                 _compressed->remaining(), sizeof(StreamHead));
         return OLAP_ERR_COLUMN_READ_STREAM;
@@ -216,8 +208,8 @@ OLAPStatus InStream::_seek(uint64_t position) {
             if (!(_current_range == i && NULL != _compressed)) {
                 _current_range = i;
                 SAFE_DELETE(_compressed);
-                _compressed = StorageByteBuffer::reference_buffer(_inputs[i], 0,
-                              _inputs[i]->remaining());
+                _compressed =
+                        StorageByteBuffer::reference_buffer(_inputs[i], 0, _inputs[i]->remaining());
             }
 
             uint64_t pos = _inputs[i]->position() + position - _offsets[i];
@@ -232,7 +224,7 @@ OLAPStatus InStream::_seek(uint64_t position) {
     if (!_inputs.empty() && position == _offsets.back() + _inputs.back()->remaining()) {
         _current_range = _inputs.size() - 1;
         _compressed = StorageByteBuffer::reference_buffer(_inputs[_current_range], 0,
-                      _inputs[_current_range]->limit());
+                                                          _inputs[_current_range]->limit());
         _current_offset = position;
         return OLAP_SUCCESS;
     }
@@ -265,9 +257,8 @@ OLAPStatus InStream::seek(PositionProvider* position) {
         res = _uncompressed->set_position(uncompressed_bytes);
 
         if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to set position.[res=%d, position=%lu]",
-                    res,
-                    _uncompressed->position() + uncompressed_bytes);
+            OLAP_LOG_WARNING("fail to set position.[res=%d, position=%lu]", res,
+                             _uncompressed->position() + uncompressed_bytes);
             return res;
         }
     } else if (_uncompressed != NULL) {
@@ -275,9 +266,8 @@ OLAPStatus InStream::seek(PositionProvider* position) {
         res = _uncompressed->set_position(_uncompressed->limit());
 
         if (OLAP_SUCCESS != res) {
-            OLAP_LOG_WARNING("fail to set position.[res=%d, position=%lu]",
-                    res,
-                    _uncompressed->limit());
+            OLAP_LOG_WARNING("fail to set position.[res=%d, position=%lu]", res,
+                             _uncompressed->limit());
             return res;
         }
     }
@@ -312,4 +302,4 @@ OLAPStatus InStream::skip(uint64_t skip_length) {
     return res;
 }
 
-}  // namespace doris
+} // namespace doris

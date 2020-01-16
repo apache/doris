@@ -17,11 +17,12 @@
 
 #include "runtime/large_int_value.h"
 
+#include <gtest/gtest.h>
+
 #include <boost/lexical_cast.hpp>
 #include <iostream>
-#include <string>
 #include <sstream>
-#include <gtest/gtest.h>
+#include <string>
 
 #include "common/logging.h"
 
@@ -29,14 +30,11 @@ namespace doris {
 
 class LargeIntValueTest : public testing::Test {
 public:
-    LargeIntValueTest() {
-    }
+    LargeIntValueTest() {}
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
 };
 
 TEST_F(LargeIntValueTest, string_to_largeint) {

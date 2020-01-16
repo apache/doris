@@ -17,28 +17,27 @@
 
 #include "http/download_action.h"
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 
-#include <string>
-#include <sstream>
-
-#include "boost/lexical_cast.hpp"
 #include <boost/filesystem.hpp>
+#include <sstream>
+#include <string>
 
 #include "agent/cgroups_mgr.h"
+#include "boost/lexical_cast.hpp"
 #include "env/env.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/http_status.h"
+#include "runtime/exec_env.h"
 #include "util/defer_op.h"
 #include "util/file_utils.h"
 #include "util/filesystem_util.h"
-#include "runtime/exec_env.h"
 
 using boost::filesystem::canonical;
 
@@ -49,9 +48,8 @@ const std::string DB_PARAMETER = "db";
 const std::string LABEL_PARAMETER = "label";
 const std::string TOKEN_PARAMETER = "token";
 
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs) :
-    _exec_env(exec_env),
-    _download_type(NORMAL) {
+DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs)
+        : _exec_env(exec_env), _download_type(NORMAL) {
     for (auto& dir : allow_dirs) {
         std::string p;
         WARN_IF_ERROR(FileUtils::canonicalize(dir, &p), "canonicalize path " + dir + " failed");
@@ -59,16 +57,13 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
     }
 }
 
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir) :
-    _exec_env(exec_env),
-    _download_type(ERROR_LOG) {
+DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
+        : _exec_env(exec_env), _download_type(ERROR_LOG) {
     WARN_IF_ERROR(FileUtils::canonicalize(error_log_root_dir, &_error_log_root_dir),
                   "canonicalize path " + error_log_root_dir + " failed");
 }
 
-void DownloadAction::handle_normal(
-        HttpRequest *req,
-        const std::string& file_param) {
+void DownloadAction::handle_normal(HttpRequest* req, const std::string& file_param) {
     // check token
     Status status;
     if (config::enable_token_check) {
@@ -94,9 +89,7 @@ void DownloadAction::handle_normal(
     }
 }
 
-void DownloadAction::handle_error_log(
-        HttpRequest *req,
-        const std::string& file_param) {
+void DownloadAction::handle_error_log(HttpRequest* req, const std::string& file_param) {
     const std::string absolute_path = _error_log_root_dir + "/" + file_param;
 
     Status status = check_log_path_is_allowed(absolute_path);
@@ -115,7 +108,7 @@ void DownloadAction::handle_error_log(
     do_file_response(absolute_path, req);
 }
 
-void DownloadAction::handle(HttpRequest *req) {
+void DownloadAction::handle(HttpRequest* req) {
     LOG(INFO) << "accept one download request " << req->debug_string();
 
     // add tid to cgroup in order to limit read bandwidth
@@ -124,8 +117,8 @@ void DownloadAction::handle(HttpRequest *req) {
     // Get 'file' parameter, then assembly file absolute path
     const std::string& file_path = req->param(FILE_PARAMETER);
     if (file_path.empty()) {
-        std::string error_msg = std::string(
-                "parameter " + FILE_PARAMETER + " not specified in url.");
+        std::string error_msg =
+                std::string("parameter " + FILE_PARAMETER + " not specified in url.");
         HttpChannel::send_reply(req, error_msg);
         return;
     }
@@ -139,8 +132,7 @@ void DownloadAction::handle(HttpRequest *req) {
     LOG(INFO) << "deal with download requesst finished! ";
 }
 
-void DownloadAction::do_dir_response(
-        const std::string& dir_path, HttpRequest *req) {
+void DownloadAction::do_dir_response(const std::string& dir_path, HttpRequest* req) {
     std::vector<std::string> files;
     Status status = FileUtils::list_files(Env::Default(), dir_path, &files);
     if (!status.ok()) {
@@ -160,7 +152,7 @@ void DownloadAction::do_dir_response(
     return;
 }
 
-void DownloadAction::do_file_response(const std::string& file_path, HttpRequest *req) {
+void DownloadAction::do_file_response(const std::string& file_path, HttpRequest* req) {
     // read file content and send response
     int fd = open(file_path.c_str(), O_RDONLY);
     if (fd < 0) {
@@ -209,7 +201,7 @@ std::string DownloadAction::get_file_extension(const std::string& file_name) {
         if (file_name[i] == '/') {
             break;
         }
-        if (file_name[i] == '.' && file_name[i-1] != '.') {
+        if (file_name[i] == '.' && file_name[i - 1] != '.') {
             return std::string(file_name, i);
         }
     }
@@ -220,8 +212,7 @@ std::string DownloadAction::get_file_extension(const std::string& file_name) {
 std::string DownloadAction::get_content_type(const std::string& file_name) {
     std::string file_ext = get_file_extension(file_name);
     LOG(INFO) << "file_name: " << file_name << "; file extension: [" << file_ext << "]";
-    if (file_ext == std::string(".html")
-            || file_ext == std::string(".htm")) {
+    if (file_ext == std::string(".html") || file_ext == std::string(".htm")) {
         return std::string("text/html; charset=utf-8");
     } else if (file_ext == std::string(".js")) {
         return std::string("application/javascript; charset=utf-8");
@@ -235,7 +226,7 @@ std::string DownloadAction::get_content_type(const std::string& file_name) {
     return std::string();
 }
 
-Status DownloadAction::check_token(HttpRequest *req) {
+Status DownloadAction::check_token(HttpRequest* req) {
     const std::string& token_str = req->param(TOKEN_PARAMETER);
     if (token_str.empty()) {
         return Status::InternalError("token is not specified.");
@@ -250,12 +241,12 @@ Status DownloadAction::check_token(HttpRequest *req) {
 
 Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
     DCHECK_EQ(_download_type, NORMAL);
-    
+
     std::string canonical_file_path;
     RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(file_path, &canonical_file_path),
                               Status::InternalError("file path is invalid: " + file_path),
                               "file path is invalid: " + file_path);
-    
+
     for (auto& allow_path : _allow_paths) {
         if (FileSystemUtil::contain_path(allow_path, canonical_file_path)) {
             return Status::OK();
@@ -272,7 +263,7 @@ Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
     RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(file_path, &canonical_file_path),
                               Status::InternalError("file path is invalid: " + file_path),
                               "file path is invalid: " + file_path);
-    
+
     if (FileSystemUtil::contain_path(_error_log_root_dir, canonical_file_path)) {
         return Status::OK();
     }
@@ -281,4 +272,3 @@ Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
 }
 
 } // end namespace doris
-

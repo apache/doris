@@ -18,9 +18,10 @@
 #ifndef INF_DORIS_QE_SRC_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
 #define INF_DORIS_QE_SRC_BE_RUNTIME_BUFFERED_TUPLE_STREAM_H
 
+#include <boost/scoped_ptr.hpp>
+
 #include "common/status.h"
 #include "runtime/buffered_block_mgr.h"
-#include <boost/scoped_ptr.hpp>
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -125,24 +126,18 @@ public:
     //  - The idx of the row in the block. We need this for retrieving the null indicators.
     //    We use 24 bits for this index as well.
     struct RowIdx {
-        static const uint64_t BLOCK_MASK  = 0xFFFF;
+        static const uint64_t BLOCK_MASK = 0xFFFF;
         static const uint64_t BLOCK_SHIFT = 0;
-        static const uint64_t OFFSET_MASK  = 0xFFFFFF0000;
+        static const uint64_t OFFSET_MASK = 0xFFFFFF0000;
         static const uint64_t OFFSET_SHIFT = 16;
-        static const uint64_t IDX_MASK  = 0xFFFFFF0000000000;
+        static const uint64_t IDX_MASK = 0xFFFFFF0000000000;
         static const uint64_t IDX_SHIFT = 40;
 
-        uint64_t block() const {
-            return (data & BLOCK_MASK);
-        };
+        uint64_t block() const { return (data & BLOCK_MASK); };
 
-        uint64_t offset() const {
-            return (data & OFFSET_MASK) >> OFFSET_SHIFT;
-        };
+        uint64_t offset() const { return (data & OFFSET_MASK) >> OFFSET_SHIFT; };
 
-        uint64_t idx() const {
-            return (data & IDX_MASK) >> IDX_SHIFT;
-        }
+        uint64_t idx() const { return (data & IDX_MASK) >> IDX_SHIFT; }
 
         uint64_t set(uint64_t block, uint64_t offset, uint64_t idx) {
             DCHECK_LE(block, BLOCK_MASK)
@@ -176,18 +171,14 @@ public:
     // If pinned, the tuple stream starts of pinned, otherwise it is unpinned.
     // If profile is non-NULL, counters are created.
     Status init(RuntimeProfile* profile);
-    Status init() {
-        return init(NULL);
-    }
+    Status init() { return init(NULL); }
 
     // Adds a single row to the stream. Returns false if an error occurred.
     // BufferedTupleStream will do a deep copy of the memory in the row.
     // *dst is the ptr to the memory (in the underlying block) that this row
     // was copied to.
     bool add_row(TupleRow* row, uint8_t** dst);
-    bool add_row(TupleRow* row) {
-        return add_row(row, NULL);
-    }
+    bool add_row(TupleRow* row) { return add_row(row, NULL); }
 
     // Allocates space to store a row of size 'size'. Returns NULL if there is
     // not enough memory. The returned memory is guaranteed to fit on one block.
@@ -204,9 +195,7 @@ public:
     // is available. If got_buffer is non-null, this function will not fail on OOM and
     // *got_buffer is true if a buffer was pinned.
     Status prepare_for_read(bool* got_buffer);
-    Status prepare_for_read() {
-        return prepare_for_read(NULL);
-    }
+    Status prepare_for_read() { return prepare_for_read(NULL); }
 
     // Pins all blocks in this stream and switches to pinned mode.
     // If there is not enough memory, *pinned is set to false and the stream is unmodified.
@@ -223,9 +212,7 @@ public:
     // If 'indices' is non-NULL, that is also populated for each returned row with the
     // index for that row.
     Status get_next(RowBatch* batch, bool* eos, std::vector<RowIdx>* indices);
-    Status get_next(RowBatch* batch, bool* eos) {
-        return get_next(batch, eos, NULL);
-    }
+    Status get_next(RowBatch* batch, bool* eos) { return get_next(batch, eos, NULL); }
 
     // Returns all the rows in the stream in batch. This pins the entire stream
     // in the process.
@@ -237,24 +224,16 @@ public:
 
     // Returns the status of the stream. We don't want to return a more costly Status
     // object on add_row() which is way that API returns a bool.
-    Status status() const {
-        return _status;
-    }
+    Status status() const { return _status; }
 
     // Number of rows in the stream.
-    int64_t num_rows() const {
-        return _num_rows;
-    }
+    int64_t num_rows() const { return _num_rows; }
 
     // Number of rows returned via get_next().
-    int64_t rows_returned() const {
-        return _rows_returned;
-    }
+    int64_t rows_returned() const { return _rows_returned; }
 
     // Returns the byte size necessary to store the entire stream in memory.
-    int64_t byte_size() const {
-        return _total_byte_size;
-    }
+    int64_t byte_size() const { return _total_byte_size; }
 
     // Returns the byte size of the stream that is currently pinned in memory.
     // If ignore_current is true, the _write_block memory is not included.
@@ -263,15 +242,9 @@ public:
     // bool is_pinned() const { return pinned_; }
     //int blocks_pinned() const { return num_pinned_; }
     //int blocks_unpinned() const { return _blocks.size() - num_pinned_ - _num_small_blocks; }
-    bool has_read_block() const {
-        return _read_block != _blocks.end();
-    }
-    bool has_write_block() const {
-        return _write_block != NULL;
-    }
-    bool using_small_buffers() const {
-        return _use_small_buffers;
-    }
+    bool has_read_block() const { return _read_block != _blocks.end(); }
+    bool has_write_block() const { return _write_block != NULL; }
+    bool using_small_buffers() const { return _use_small_buffers; }
 
     std::string debug_string() const;
 
@@ -426,6 +399,6 @@ inline bool BufferedTupleStream::add_row(TupleRow* row, uint8_t** dst) {
     return deep_copy(row, dst);
 }
 
-}
+} // namespace doris
 
 #endif

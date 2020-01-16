@@ -34,4 +34,4 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth);
 
-}
+} // namespace doris

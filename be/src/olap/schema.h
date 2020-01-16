@@ -21,14 +21,12 @@
 
 #include "olap/aggregate_func.h"
 #include "olap/field.h"
+#include "olap/row_cursor_cell.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
-#include "olap/field.h"
-#include "olap/row_cursor_cell.h"
 #include "runtime/descriptors.h"
 
 namespace doris {
-
 
 class RowBlockRow;
 
@@ -61,7 +59,7 @@ public:
 
     Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
         size_t num_key_columns = 0;
-        for (const auto& i: columns) {
+        for (const auto& i : columns) {
             if (i.is_key()) {
                 num_key_columns++;
             }
@@ -101,21 +99,13 @@ public:
     const std::vector<Field*>& columns() const { return _cols; }
     const Field* column(ColumnId cid) const { return _cols[cid]; }
 
-    size_t num_key_columns() const {
-        return _num_key_columns;
-    }
+    size_t num_key_columns() const { return _num_key_columns; }
 
-    size_t column_offset(ColumnId cid) const {
-        return _col_offsets[cid];
-    }
+    size_t column_offset(ColumnId cid) const { return _col_offsets[cid]; }
 
-    size_t column_size(ColumnId cid) const {
-        return _cols[cid]->size();
-    }
+    size_t column_size(ColumnId cid) const { return _cols[cid]->size(); }
 
-    size_t index_size(ColumnId cid) const {
-        return _cols[cid]->index_size();
-    }
+    size_t index_size(ColumnId cid) const { return _cols[cid]->index_size(); }
 
     bool is_null(const char* row, int index) const {
         return *reinterpret_cast<const bool*>(row + _col_offsets[index]);
@@ -125,13 +115,12 @@ public:
         *reinterpret_cast<bool*>((char*)row + _col_offsets[cid]) = is_null;
     }
 
-    size_t schema_size() const {
-        return _schema_size;
-    }
+    size_t schema_size() const { return _schema_size; }
 
     size_t num_columns() const { return _cols.size(); }
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
+
 private:
     // all valid ColumnIds in this schema
     std::vector<ColumnId> _col_ids;
@@ -143,16 +132,13 @@ private:
     size_t _schema_size;
 
     // init _cols member variable, must call before init method
-    void init_field(const std::vector<TabletColumn>& columns,
-                     const std::vector<ColumnId>& col_ids);
+    void init_field(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids);
 
     // init _cols member variable, must call before init method
-    void init_field(const std::vector<const Field*>& cols,
-                     const std::vector<ColumnId>& col_ids);
+    void init_field(const std::vector<const Field*>& cols, const std::vector<ColumnId>& col_ids);
 
     // init all member variables except _cols
-    void init(const std::vector<ColumnId>& col_ids,
-               size_t num_key_columns);
+    void init(const std::vector<ColumnId>& col_ids, size_t num_key_columns);
 };
 
 } // namespace doris

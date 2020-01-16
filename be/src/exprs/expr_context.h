@@ -51,8 +51,7 @@ public:
 
     /// Prepare expr tree for evaluation.
     /// Allocations from this context will be counted against 'tracker'.
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   MemTracker* tracker);
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc, MemTracker* tracker);
 
     /// Must be called after calling Prepare(). Does not need to be called on clones.
     /// Idempotent (this allows exprs to be opened multiple times in subplans without
@@ -106,10 +105,9 @@ public:
     /// retrieve the created context. Exprs that need a FunctionContext should call this in
     /// Prepare() and save the returned index. 'varargs_buffer_size', if specified, is the
     /// size of the varargs buffer in the created FunctionContext (see udf-internal.h).
-    int register_func(RuntimeState* state, 
-                 const FunctionContext::TypeDesc& return_type,
-                 const std::vector<FunctionContext::TypeDesc>& arg_types,
-                 int varargs_buffer_size);
+    int register_func(RuntimeState* state, const FunctionContext::TypeDesc& return_type,
+                      const std::vector<FunctionContext::TypeDesc>& arg_types,
+                      int varargs_buffer_size);
 
     /// Retrieves a registered FunctionContext. 'i' is the index returned by the call to
     /// register_func(). This should only be called by Exprs.
@@ -119,13 +117,9 @@ public:
         return _fn_contexts[i];
     }
 
-    Expr* root() { 
-        return _root; 
-    }
+    Expr* root() { return _root; }
 
-    bool closed() { 
-        return _closed; 
-    }
+    bool closed() { return _closed; }
 
     bool is_nullable();
 
@@ -138,7 +132,7 @@ public:
     FloatVal get_float_val(TupleRow* row);
     DoubleVal get_double_val(TupleRow* row);
     StringVal get_string_val(TupleRow* row);
-    // TODO(zc): 
+    // TODO(zc):
     // ArrayVal GetArrayVal(TupleRow* row);
     DateTimeVal get_datetime_val(TupleRow* row);
     DecimalVal get_decimal_val(TupleRow* row);
@@ -152,9 +146,7 @@ public:
 
     static const char* _s_llvm_class_name;
 
-    bool opened() {
-       return _opened; 
-    }
+    bool opened() { return _opened; }
 
     /// If 'expr' is constant, evaluates it with no input row argument and returns the
     /// result in 'const_val'. Sets 'const_val' to NULL if the argument is not constant.
@@ -174,6 +166,7 @@ public:
 
     // when you reused this expr context, you maybe need clear the error status and message.
     void clear_error_msg();
+
 private:
     friend class Expr;
     friend class ScalarFnCall;
@@ -214,6 +207,6 @@ private:
     void* get_value(Expr* e, TupleRow* row);
 };
 
-}
+} // namespace doris
 
 #endif

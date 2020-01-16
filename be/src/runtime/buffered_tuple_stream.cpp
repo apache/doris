@@ -20,21 +20,20 @@
 #include <boost/bind.hpp>
 //#include <gutil/strings/substitute.h>
 
+#include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "util/bit_util.h"
 #include "util/debug_util.h"
 #include "util/pretty_printer.h"
-#include "common/status.h"
 
 namespace doris {
 //using namespace strings;
 
 // The first NUM_SMALL_BLOCKS of the tuple stream are made of blocks less than the
 // io size. These blocks never spill.
-static const int64_t INITIAL_BLOCK_SIZES[] =
-{ 64 * 1024, 512 * 1024 };
+static const int64_t INITIAL_BLOCK_SIZES[] = {64 * 1024, 512 * 1024};
 static const int NUM_SMALL_BLOCKS = sizeof(INITIAL_BLOCK_SIZES) / sizeof(int64_t);
 
 std::string BufferedTupleStream::RowIdx::debug_string() const {
@@ -43,30 +42,30 @@ std::string BufferedTupleStream::RowIdx::debug_string() const {
     return ss.str();
 }
 
-BufferedTupleStream::BufferedTupleStream(RuntimeState* state,
-        const RowDescriptor& row_desc, BufferedBlockMgr* block_mgr)
-    : _use_small_buffers(false),
-      _delete_on_read(false),
-      _read_write(true),
-      _state(state),
-      _desc(row_desc),
-      _nullable_tuple(row_desc.is_any_tuple_nullable()),
-      _block_mgr(block_mgr),
-      // block_mgr_client_(client),
-      _total_byte_size(0),
-      _read_ptr(NULL),
-      _read_tuple_idx(0),
-      _read_bytes(0),
-      _rows_returned(0),
-      _read_block_idx(-1),
-      _write_block(NULL),
-      _num_small_blocks(0),
-      _closed(false),
-      _num_rows(0),
-      // pinned_(true),
-      _pin_timer(NULL),
-      _unpin_timer(NULL),
-      _get_new_block_timer(NULL) {
+BufferedTupleStream::BufferedTupleStream(RuntimeState* state, const RowDescriptor& row_desc,
+                                         BufferedBlockMgr* block_mgr)
+        : _use_small_buffers(false),
+          _delete_on_read(false),
+          _read_write(true),
+          _state(state),
+          _desc(row_desc),
+          _nullable_tuple(row_desc.is_any_tuple_nullable()),
+          _block_mgr(block_mgr),
+          // block_mgr_client_(client),
+          _total_byte_size(0),
+          _read_ptr(NULL),
+          _read_tuple_idx(0),
+          _read_bytes(0),
+          _rows_returned(0),
+          _read_block_idx(-1),
+          _write_block(NULL),
+          _num_small_blocks(0),
+          _closed(false),
+          _num_rows(0),
+          // pinned_(true),
+          _pin_timer(NULL),
+          _unpin_timer(NULL),
+          _get_new_block_timer(NULL) {
     _null_indicators_read_block = _null_indicators_write_block = -1;
     _read_block = _blocks.end();
     _fixed_tuple_row_size = 0;
@@ -86,10 +85,10 @@ BufferedTupleStream::BufferedTupleStream(RuntimeState* state,
 
 std::string BufferedTupleStream::debug_string() const {
     std::stringstream ss;
-    ss << "BufferedTupleStream num_rows=" << _num_rows << " rows_returned="
-       << _rows_returned << " delete_on_read=" << (_delete_on_read ? "true" : "false")
-       << " closed=" << (_closed ? "true" : "false")
-       << " write_block=" << _write_block << " _read_block=";
+    ss << "BufferedTupleStream num_rows=" << _num_rows << " rows_returned=" << _rows_returned
+       << " delete_on_read=" << (_delete_on_read ? "true" : "false")
+       << " closed=" << (_closed ? "true" : "false") << " write_block=" << _write_block
+       << " _read_block=";
 
     if (_read_block == _blocks.end()) {
         ss << "<end>";
@@ -100,7 +99,7 @@ std::string BufferedTupleStream::debug_string() const {
     ss << " blocks=[\n";
 
     for (std::list<BufferedBlockMgr::Block*>::const_iterator it = _blocks.begin();
-            it != _blocks.end(); ++it) {
+         it != _blocks.end(); ++it) {
         ss << "{" << (*it)->debug_string() << "}";
 
         if (*it != _blocks.back()) {
@@ -138,8 +137,8 @@ Status BufferedTupleStream::init(RuntimeProfile* profile) {
 }
 
 void BufferedTupleStream::close() {
-    for (std::list<BufferedBlockMgr::Block*>::iterator it = _blocks.begin();
-            it != _blocks.end(); ++it) {
+    for (std::list<BufferedBlockMgr::Block*>::iterator it = _blocks.begin(); it != _blocks.end();
+         ++it) {
         (*it)->delete_block();
     }
 
@@ -152,7 +151,7 @@ Status BufferedTupleStream::new_block_for_write(int min_size, bool* got_block) {
 
     if (min_size > _block_mgr->max_block_size()) {
         std::stringstream err_msg;
-        err_msg <<  "Cannot process row that is bigger than the IO size "
+        err_msg << "Cannot process row that is bigger than the IO size "
                 << "(row_size=" << PrettyPrinter::print(min_size, TUnit::BYTES)
                 << ". To run this query, increase the io size";
         return Status::InternalError(err_msg.str());
@@ -193,7 +192,7 @@ Status BufferedTupleStream::next_block_for_read() {
 
     if (_read_block != _blocks.end()) {
         _null_indicators_read_block =
-            compute_num_null_indicator_bytes((*_read_block)->buffer_len());
+                compute_num_null_indicator_bytes((*_read_block)->buffer_len());
         _read_ptr = (*_read_block)->buffer() + _null_indicators_read_block;
     }
 
@@ -209,8 +208,7 @@ Status BufferedTupleStream::prepare_for_read(bool* got_buffer) {
 
     _read_block = _blocks.begin();
     DCHECK(_read_block != _blocks.end());
-    _null_indicators_read_block =
-        compute_num_null_indicator_bytes((*_read_block)->buffer_len());
+    _null_indicators_read_block = compute_num_null_indicator_bytes((*_read_block)->buffer_len());
     _read_ptr = (*_read_block)->buffer() + _null_indicators_read_block;
     _read_tuple_idx = 0;
     _read_bytes = 0;
@@ -232,16 +230,14 @@ int BufferedTupleStream::compute_num_null_indicator_bytes(int block_size) const 
         const uint32_t min_row_size_in_bits = 8 * _fixed_tuple_row_size + tuples_per_row;
         const uint32_t block_size_in_bits = 8 * block_size;
         const uint32_t max_num_rows = block_size_in_bits / min_row_size_in_bits;
-        return
-            BitUtil::round_up_numi64(max_num_rows * tuples_per_row) * 8;
+        return BitUtil::round_up_numi64(max_num_rows * tuples_per_row) * 8;
     } else {
         // If there are no nullable tuples then no need to waste space for null indicators.
         return 0;
     }
 }
 
-Status BufferedTupleStream::get_next(RowBatch* batch, bool* eos,
-        std::vector<RowIdx>* indices) {
+Status BufferedTupleStream::get_next(RowBatch* batch, bool* eos, std::vector<RowIdx>* indices) {
     if (_nullable_tuple) {
         return get_next_internal<true>(batch, eos, indices);
     } else {
@@ -251,7 +247,7 @@ Status BufferedTupleStream::get_next(RowBatch* batch, bool* eos,
 
 template <bool HasNullableTuple>
 Status BufferedTupleStream::get_next_internal(RowBatch* batch, bool* eos,
-        std::vector<RowIdx>* indices) {
+                                              std::vector<RowIdx>* indices) {
     DCHECK(!_closed);
     DCHECK(batch->row_desc().equals(_desc));
     *eos = (_rows_returned == _num_rows);
@@ -286,12 +282,11 @@ Status BufferedTupleStream::get_next_internal(RowBatch* batch, bool* eos,
     DCHECK(_read_ptr != NULL);
 
     int64_t rows_left = _num_rows - _rows_returned;
-    int rows_to_fill = std::min(
-                           static_cast<int64_t>(batch->capacity() - batch->num_rows()), rows_left);
+    int rows_to_fill =
+            std::min(static_cast<int64_t>(batch->capacity() - batch->num_rows()), rows_left);
     DCHECK_GE(rows_to_fill, 1);
     batch->add_rows(rows_to_fill);
     uint8_t* tuple_row_mem = reinterpret_cast<uint8_t*>(batch->get_row(batch->num_rows()));
-
 
     // Produce tuple rows from the current block and the corresponding position on the
     // null tuple indicator.
@@ -340,13 +335,12 @@ Status BufferedTupleStream::get_next_internal(RowBatch* batch, bool* eos,
                 // Copy tuple and advance _read_ptr. If it it is a NULL tuple, it calls SetTuple
                 // with Tuple* being 0x0. To do that we multiply the current _read_ptr with
                 // false (0x0).
-                row->set_tuple(j, reinterpret_cast<Tuple*>(
-                                  reinterpret_cast<uint64_t>(_read_ptr) * is_not_null));
+                row->set_tuple(j, reinterpret_cast<Tuple*>(reinterpret_cast<uint64_t>(_read_ptr) *
+                                                           is_not_null));
                 _read_ptr += _desc.tuple_descriptors()[j]->byte_size() * is_not_null;
             }
 
-            const uint64_t row_read_bytes =
-                reinterpret_cast<uint64_t>(_read_ptr) - last_read_ptr;
+            const uint64_t row_read_bytes = reinterpret_cast<uint64_t>(_read_ptr) - last_read_ptr;
             DCHECK_GE(_fixed_tuple_row_size, row_read_bytes);
             _read_bytes += row_read_bytes;
             last_read_ptr = reinterpret_cast<uint64_t>(_read_ptr);
@@ -476,8 +470,8 @@ inline void BufferedTupleStream::get_tuple_row(const RowIdx& idx, TupleRow* row)
             const uint8_t* null_word = _block_start_idx[idx.block()] + (tuple_idx >> 3);
             const uint32_t null_pos = tuple_idx & 7;
             const bool is_not_null = ((*null_word & (1 << (7 - null_pos))) == 0);
-            row->set_tuple(i, reinterpret_cast<Tuple*>(
-                              reinterpret_cast<uint64_t>(data) * is_not_null));
+            row->set_tuple(
+                    i, reinterpret_cast<Tuple*>(reinterpret_cast<uint64_t>(data) * is_not_null));
             data += _desc.tuple_descriptors()[i]->byte_size() * is_not_null;
             ++tuple_idx;
         }
@@ -489,4 +483,4 @@ inline void BufferedTupleStream::get_tuple_row(const RowIdx& idx, TupleRow* row)
     }
 }
 
-}
+} // namespace doris

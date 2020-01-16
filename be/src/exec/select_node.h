@@ -55,6 +55,6 @@ private:
     bool copy_rows(RowBatch* output_batch);
 };
 
-}
+} // namespace doris
 
 #endif

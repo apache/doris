@@ -15,27 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/broker_scan_node.h"
-
-#include <string>
-#include <map>
-#include <vector>
+#include "exec/orc_scanner.h"
 
 #include <gtest/gtest.h>
-#include <time.h>
 #include <runtime/descriptor_helper.h>
+#include <time.h>
+
+#include <map>
+#include <string>
+#include <vector>
+
 #include "common/object_pool.h"
-#include "runtime/tuple.h"
+#include "exec/broker_scan_node.h"
 #include "exec/local_file_reader.h"
-#include "exec/orc_scanner.h"
 #include "exprs/cast_functions.h"
 #include "exprs/decimal_operators.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/user_function_cache.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
+#include "runtime/user_function_cache.h"
 
 namespace doris {
 
@@ -47,23 +48,22 @@ public:
     }
 
     static void SetUpTestCase() {
-        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
+        UserFunctionCache::instance()->init(
+                "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
         DecimalOperators::init();
     }
 
 protected:
-    virtual void SetUp() {
-    }
+    virtual void SetUp() {}
 
-    virtual void TearDown() {
-    }
+    virtual void TearDown() {}
 
 private:
     RuntimeState _runtime_state;
-    RuntimeProfile *_profile;
+    RuntimeProfile* _profile;
     ObjectPool _obj_pool;
-    DescriptorTbl *_desc_tbl;
+    DescriptorTbl* _desc_tbl;
     std::vector<TNetworkAddress> _addresses;
     ScannerCounter _counter;
 };
@@ -350,45 +350,89 @@ TEST_F(OrcScannerTest, normal) {
 
     TDescriptorTableBuilder dtb;
     TTupleDescriptorBuilder src_tuple_builder;
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col1").column_pos(1).build());
-    src_tuple_builder.add_slot(
-           TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col2").column_pos(2).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col3").column_pos(3).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col4").column_pos(4).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col5").column_pos(5).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col6").column_pos(6).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col7").column_pos(7).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col8").column_pos(8).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col9").column_pos(9).build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col1")
+                                       .column_pos(1)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col2")
+                                       .column_pos(2)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col3")
+                                       .column_pos(3)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col4")
+                                       .column_pos(4)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col5")
+                                       .column_pos(5)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col6")
+                                       .column_pos(6)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col7")
+                                       .column_pos(7)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col8")
+                                       .column_pos(8)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col9")
+                                       .column_pos(9)
+                                       .build());
     src_tuple_builder.build(&dtb);
 
     TTupleDescriptorBuilder dest_tuple_builder;
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("col1").column_pos(1).build());
+            TSlotDescriptorBuilder().type(TYPE_BIGINT).column_name("col1").column_pos(1).build());
+    dest_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                        .string_type(65535)
+                                        .nullable(true)
+                                        .column_name("col2")
+                                        .column_pos(2)
+                                        .build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col2").column_pos(2).build());
+            TSlotDescriptorBuilder().string_type(65535).column_name("col3").column_pos(3).build());
+    dest_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                        .type(TYPE_DATE)
+                                        .nullable(true)
+                                        .column_name("col4")
+                                        .column_pos(4)
+                                        .build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).column_name("col3").column_pos(3).build());
+            TSlotDescriptorBuilder().type(TYPE_DOUBLE).column_name("col5").column_pos(5).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_DATE).nullable(true).column_name("col4").column_pos(4).build());
+            TSlotDescriptorBuilder().type(TYPE_FLOAT).column_name("col6").column_pos(6).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_DOUBLE).column_name("col5").column_pos(5).build());
+            TSlotDescriptorBuilder().type(TYPE_INT).column_name("col7").column_pos(7).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_FLOAT).column_name("col6").column_pos(6).build());
+            TSlotDescriptorBuilder().type(TYPE_INT).column_name("col8").column_pos(8).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_INT).column_name("col7").column_pos(7).build());
-    dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_INT).column_name("col8").column_pos(8).build());
-    dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).column_name("col9").column_pos(9).build());
+            TSlotDescriptorBuilder().string_type(65535).column_name("col9").column_pos(9).build());
     dest_tuple_builder.build(&dtb);
     t_desc_table = dtb.desc_tbl();
 
@@ -411,13 +455,15 @@ TEST_F(OrcScannerTest, normal) {
     MemTracker tracker;
     MemPool tuple_pool(&tracker);
 
-    Tuple *tuple = (Tuple *) tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
+    Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     bool eof = false;
 
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
-    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(0 null doris      null 1.567 1.567000031471252 12345 1 doris)");
+    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
+              "(0 null doris      null 1.567 1.567000031471252 12345 1 doris)");
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
-    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(1 true doris      2019-11-11 1.567 1.567000031471252 12345 1 doris)");
+    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
+              "(1 true doris      2019-11-11 1.567 1.567000031471252 12345 1 doris)");
     ASSERT_FALSE(eof);
     for (int i = 2; i < 10; i++) {
         ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
@@ -483,16 +529,31 @@ TEST_F(OrcScannerTest, normal2) {
 
     TDescriptorTableBuilder dtb;
     TTupleDescriptorBuilder src_tuple_builder;
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col1").column_pos(1).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col2").column_pos(2).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col3").column_pos(3).build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col1")
+                                       .column_pos(1)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col2")
+                                       .column_pos(2)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col3")
+                                       .column_pos(3)
+                                       .build());
     src_tuple_builder.build(&dtb);
     TTupleDescriptorBuilder dest_tuple_builder;
-    dest_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).column_name("value_from_col2").column_pos(1).build());
+    dest_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                        .string_type(65535)
+                                        .column_name("value_from_col2")
+                                        .column_pos(1)
+                                        .build());
 
     dest_tuple_builder.build(&dtb);
     t_desc_table = dtb.desc_tbl();
@@ -516,7 +577,7 @@ TEST_F(OrcScannerTest, normal2) {
     MemTracker tracker;
     MemPool tuple_pool(&tracker);
 
-    Tuple *tuple = (Tuple *) tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
+    Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     bool eof = false;
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(null)");
@@ -591,7 +652,7 @@ TEST_F(OrcScannerTest, normal3) {
             params.expr_of_dest_slot.emplace(6 + i, expr);
             params.src_slot_ids.push_back(i);
         }
-        
+
         {
             TExprNode cast_expr;
             cast_expr.node_type = TExprNodeType::CAST_EXPR;
@@ -624,7 +685,6 @@ TEST_F(OrcScannerTest, normal3) {
             params.expr_of_dest_slot.emplace(11, expr);
             params.src_slot_ids.push_back(5);
         }
-
     }
     params.__set_src_tuple_id(0);
     params.__set_dest_tuple_id(1);
@@ -644,33 +704,57 @@ TEST_F(OrcScannerTest, normal3) {
 
     TDescriptorTableBuilder dtb;
     TTupleDescriptorBuilder src_tuple_builder;
-    src_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col1").column_pos(1).build());
-    src_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col2").column_pos(2).build());
-    src_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col3").column_pos(3).build());
-    src_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col4").column_pos(4).build());
-    src_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col5").column_pos(5).build());
-    src_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col6").column_pos(6).build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col1")
+                                       .column_pos(1)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col2")
+                                       .column_pos(2)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col3")
+                                       .column_pos(3)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col4")
+                                       .column_pos(4)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col5")
+                                       .column_pos(5)
+                                       .build());
+    src_tuple_builder.add_slot(TSlotDescriptorBuilder()
+                                       .string_type(65535)
+                                       .nullable(true)
+                                       .column_name("col6")
+                                       .column_pos(6)
+                                       .build());
     src_tuple_builder.build(&dtb);
 
     TTupleDescriptorBuilder dest_tuple_builder;
     dest_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().decimal_type(10,9).column_name("col1").column_pos(1).build());
+            TSlotDescriptorBuilder().decimal_type(10, 9).column_name("col1").column_pos(1).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().decimal_type(7,5).column_name("col2").column_pos(2).build());
+            TSlotDescriptorBuilder().decimal_type(7, 5).column_name("col2").column_pos(2).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().decimal_type(10,9).column_name("col3").column_pos(3).build());
+            TSlotDescriptorBuilder().decimal_type(10, 9).column_name("col3").column_pos(3).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().decimal_type(10,5).column_name("col4").column_pos(4).build());
+            TSlotDescriptorBuilder().decimal_type(10, 5).column_name("col4").column_pos(4).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().decimal_type(10,5).column_name("col5").column_pos(5).build());
+            TSlotDescriptorBuilder().decimal_type(10, 5).column_name("col5").column_pos(5).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("col5").column_pos(6).build());
+            TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("col5").column_pos(6).build());
 
     dest_tuple_builder.build(&dtb);
     t_desc_table = dtb.desc_tbl();
@@ -694,11 +778,11 @@ TEST_F(OrcScannerTest, normal3) {
     MemTracker tracker;
     MemPool tuple_pool(&tracker);
 
-    Tuple *tuple = (Tuple *) tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
+    Tuple* tuple = (Tuple*)tuple_pool.allocate(_desc_tbl->get_tuple_descriptor(1)->byte_size());
     bool eof = false;
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
-                "(1.123456789 1.12 1.1234500000 1.12345 1.12345 2020-01-14 22:12:19)");
+              "(1.123456789 1.12 1.1234500000 1.12345 1.12345 2020-01-14 22:12:19)");
     scanner.close();
 }
 

@@ -16,35 +16,33 @@
 // under the License.
 
 #include "olap/rowset/alpha_rowset.h"
+
+#include "olap/row.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/rowset/rowset_meta_manager.h"
-#include "olap/row.h"
 #include "util/hash_util.hpp"
 
 namespace doris {
 
-AlphaRowset::AlphaRowset(const TabletSchema* schema,
-                         std::string rowset_path,
+AlphaRowset::AlphaRowset(const TabletSchema* schema, std::string rowset_path,
                          RowsetMetaSharedPtr rowset_meta)
-    : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {
-}
+        : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {}
 
 OLAPStatus AlphaRowset::do_load(bool use_cache) {
-    for (auto& segment_group: _segment_groups) {
+    for (auto& segment_group : _segment_groups) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to validate segment_group. [version="<< start_version()
-                    << "-" << end_version() << " version_hash=" << version_hash();
-                // if load segment group failed, rowset init failed
+            LOG(WARNING) << "fail to validate segment_group. [version=" << start_version() << "-"
+                         << end_version() << " version_hash=" << version_hash();
+            // if load segment group failed, rowset init failed
             return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
         }
         OLAPStatus res = segment_group->load(use_cache);
         if (res != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to load segment_group. res=" << res << ", "
-                    << "version=" << start_version() << "-"
-                    << end_version() << ", "
-                    << "version_hash=" << version_hash();
+                         << "version=" << start_version() << "-" << end_version() << ", "
+                         << "version_hash=" << version_hash();
             return res;
         }
     }
@@ -52,15 +50,15 @@ OLAPStatus AlphaRowset::do_load(bool use_cache) {
 }
 
 OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
-    result->reset(new AlphaRowsetReader(
-        _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
+    result->reset(new AlphaRowsetReader(_schema->num_rows_per_row_block(),
+                                        std::static_pointer_cast<AlphaRowset>(shared_from_this())));
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::remove() {
     LOG(INFO) << "begin to remove files in rowset " << unique_id()
-            << ", version:" << start_version() << "-" << end_version()
-            << ", tabletid:" << _rowset_meta->tablet_id();
+              << ", version:" << start_version() << "-" << end_version()
+              << ", tabletid:" << _rowset_meta->tablet_id();
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
@@ -73,7 +71,7 @@ OLAPStatus AlphaRowset::remove() {
     return OLAP_SUCCESS;
 }
 
-void AlphaRowset::make_visible_extra(Version version,  VersionHash version_hash) {
+void AlphaRowset::make_visible_extra(Version version, VersionHash version_hash) {
     AlphaRowsetMetaSharedPtr alpha_rowset_meta =
             std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     vector<SegmentGroupPB> published_segment_groups;
@@ -103,7 +101,7 @@ OLAPStatus AlphaRowset::link_files_to(const std::string& dir, RowsetId new_rowse
     }
     return OLAP_SUCCESS;
 }
-                                    
+
 OLAPStatus AlphaRowset::copy_files_to(const std::string& dir) {
     for (auto& segment_group : _segment_groups) {
         OLAPStatus status = segment_group->copy_files_to(dir);
@@ -118,7 +116,7 @@ OLAPStatus AlphaRowset::copy_files_to(const std::string& dir) {
 }
 
 OLAPStatus AlphaRowset::convert_from_old_files(const std::string& snapshot_path,
-                                      std::vector<std::string>* success_files) {
+                                               std::vector<std::string>* success_files) {
     for (auto& segment_group : _segment_groups) {
         OLAPStatus status = segment_group->convert_from_old_files(snapshot_path, success_files);
         if (status != OLAP_SUCCESS) {
@@ -130,8 +128,8 @@ OLAPStatus AlphaRowset::convert_from_old_files(const std::string& snapshot_path,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::convert_to_old_files(const std::string& snapshot_path, 
-                                std::vector<std::string>* success_files) {
+OLAPStatus AlphaRowset::convert_to_old_files(const std::string& snapshot_path,
+                                             std::vector<std::string>* success_files) {
     for (auto& segment_group : _segment_groups) {
         OLAPStatus status = segment_group->convert_to_old_files(snapshot_path, success_files);
         if (status != OLAP_SUCCESS) {
@@ -155,11 +153,8 @@ OLAPStatus AlphaRowset::remove_old_files(std::vector<std::string>* files_to_remo
     return OLAP_SUCCESS;
 }
 
-OLAPStatus AlphaRowset::split_range(
-            const RowCursor& start_key,
-            const RowCursor& end_key,
-            uint64_t request_block_row_count,
-            vector<OlapTuple>* ranges) {
+OLAPStatus AlphaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
+                                    uint64_t request_block_row_count, vector<OlapTuple>* ranges) {
     EntrySlice entry;
     RowBlockPosition start_pos;
     RowBlockPosition end_pos;
@@ -171,8 +166,8 @@ OLAPStatus AlphaRowset::split_range(
         ranges->emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;
     }
-    uint64_t expected_rows = request_block_row_count
-            / largest_segment_group->current_num_rows_per_row_block();
+    uint64_t expected_rows =
+            request_block_row_count / largest_segment_group->current_num_rows_per_row_block();
     if (expected_rows == 0) {
         LOG(WARNING) << "expected_rows less than 1. [request_block_row_count = "
                      << request_block_row_count << "]";
@@ -185,7 +180,8 @@ OLAPStatus AlphaRowset::split_range(
         LOG(WARNING) << "fail to parse strings to key with RowCursor type.";
         return OLAP_ERR_INVALID_SCHEMA;
     }
-    if (largest_segment_group->find_short_key(start_key, &helper_cursor, false, &start_pos) != OLAP_SUCCESS) {
+    if (largest_segment_group->find_short_key(start_key, &helper_cursor, false, &start_pos) !=
+        OLAP_SUCCESS) {
         if (largest_segment_group->find_first_row_block(&start_pos) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail to get first block pos";
             return OLAP_ERR_TABLE_INDEX_FIND_ERROR;
@@ -196,7 +192,8 @@ OLAPStatus AlphaRowset::split_range(
     VLOG(3) << "start_pos=" << start_pos.segment << ", " << start_pos.index_offset;
 
     //find last row_block is end_key is given, or using last_row_block
-    if (largest_segment_group->find_short_key(end_key, &helper_cursor, false, &end_pos) != OLAP_SUCCESS) {
+    if (largest_segment_group->find_short_key(end_key, &helper_cursor, false, &end_pos) !=
+        OLAP_SUCCESS) {
         if (largest_segment_group->find_last_row_block(&end_pos) != OLAP_SUCCESS) {
             LOG(WARNING) << "fail find last row block.";
             return OLAP_ERR_TABLE_INDEX_FIND_ERROR;
@@ -210,8 +207,8 @@ OLAPStatus AlphaRowset::split_range(
     RowCursor cur_start_key;
     RowCursor last_start_key;
 
-    if (cur_start_key.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS
-            || last_start_key.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS) {
+    if (cur_start_key.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS ||
+        last_start_key.init(*_schema, _schema->num_short_key_columns()) != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to init cursor";
         return OLAP_ERR_INIT_FAILED;
     }
@@ -273,23 +270,25 @@ bool AlphaRowset::check_path(const std::string& path) {
 
 OLAPStatus AlphaRowset::init() {
     std::vector<SegmentGroupPB> segment_group_metas;
-    AlphaRowsetMetaSharedPtr _alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
+    AlphaRowsetMetaSharedPtr _alpha_rowset_meta =
+            std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     _alpha_rowset_meta->get_segment_groups(&segment_group_metas);
     for (auto& segment_group_meta : segment_group_metas) {
         std::shared_ptr<SegmentGroup> segment_group;
         if (_is_pending) {
-            segment_group.reset(new SegmentGroup(_rowset_meta->tablet_id(),
-                    _rowset_meta->rowset_id(), _schema, _rowset_path, false, segment_group_meta.segment_group_id(),
-                    segment_group_meta.num_segments(), true, 
-                    _rowset_meta->partition_id(), _rowset_meta->txn_id()));
+            segment_group.reset(new SegmentGroup(
+                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema, _rowset_path,
+                    false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments(),
+                    true, _rowset_meta->partition_id(), _rowset_meta->txn_id()));
         } else {
-            segment_group.reset(new SegmentGroup(_rowset_meta->tablet_id(),
-                _rowset_meta->rowset_id(), _schema, _rowset_path, 
-                _rowset_meta->version(), _rowset_meta->version_hash(),
-                false, segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
+            segment_group.reset(new SegmentGroup(
+                    _rowset_meta->tablet_id(), _rowset_meta->rowset_id(), _schema, _rowset_path,
+                    _rowset_meta->version(), _rowset_meta->version_hash(), false,
+                    segment_group_meta.segment_group_id(), segment_group_meta.num_segments()));
         }
         if (segment_group == nullptr) {
-            LOG(WARNING) << "fail to create olap segment_group. rowset_id='" << _rowset_meta->rowset_id();
+            LOG(WARNING) << "fail to create olap segment_group. rowset_id='"
+                         << _rowset_meta->rowset_id();
             return OLAP_ERR_CREATE_FILE_ERROR;
         }
         if (segment_group_meta.has_empty()) {
@@ -301,8 +300,8 @@ OLAPStatus AlphaRowset::init() {
             size_t num_key_columns = _schema->num_key_columns();
             if (num_key_columns != zone_maps_size) {
                 LOG(ERROR) << "column pruning size is error."
-                        << "zone_maps_size=" << zone_maps_size << ", "
-                        << "num_key_columns=" << _schema->num_key_columns();
+                           << "zone_maps_size=" << zone_maps_size << ", "
+                           << "num_key_columns=" << _schema->num_key_columns();
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
             std::vector<std::pair<std::string, std::string>> zone_map_strings(num_key_columns);
@@ -327,7 +326,7 @@ OLAPStatus AlphaRowset::init() {
     }
     if (_is_cumulative && _segment_groups.size() > 1) {
         LOG(WARNING) << "invalid segment group meta for cumulative rowset. segment group size:"
-                << _segment_groups.size();
+                     << _segment_groups.size();
         return OLAP_ERR_ENGINE_LOAD_INDEX_TABLE_ERROR;
     }
     return OLAP_SUCCESS;
@@ -352,7 +351,8 @@ std::shared_ptr<SegmentGroup> AlphaRowset::_segment_group_with_largest_size() {
 OLAPStatus AlphaRowset::reset_sizeinfo() {
     RETURN_NOT_OK(load());
     std::vector<SegmentGroupPB> segment_group_metas;
-    AlphaRowsetMetaSharedPtr alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
+    AlphaRowsetMetaSharedPtr alpha_rowset_meta =
+            std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     alpha_rowset_meta->get_segment_groups(&segment_group_metas);
     int32_t segment_group_idx = 0;
     int64_t data_disk_size = 0;
@@ -378,4 +378,4 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
     return OLAP_SUCCESS;
 }
 
-}  // namespace doris
+} // namespace doris

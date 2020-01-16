@@ -26,7 +26,7 @@ namespace doris {
 
 class TestHll : public testing::Test {
 public:
-    virtual ~TestHll() { }
+    virtual ~TestHll() {}
 };
 
 static uint64_t hash(uint64_t value) {
@@ -204,7 +204,7 @@ TEST_F(TestHll, InvalidPtr) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

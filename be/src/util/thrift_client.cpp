@@ -17,9 +17,8 @@
 
 #include <util/thrift_client.h>
 
-#include <ostream>
-
 #include <boost/assign.hpp>
+#include <ostream>
 
 namespace doris {
 
@@ -30,8 +29,8 @@ Status ThriftClientImpl::open() {
         }
     } catch (apache::thrift::transport::TTransportException& e) {
         std::stringstream msg;
-        msg << "Couldn't open transport for " << ipaddress() << ":" << port()
-            << "(" << e.what() << ")";
+        msg << "Couldn't open transport for " << ipaddress() << ":" << port() << "(" << e.what()
+            << ")";
         return Status::ThriftRpcError(msg.str());
     }
 
@@ -73,4 +72,4 @@ Status ThriftClientImpl::close() {
     return Status::OK();
 }
 
-}
+} // namespace doris

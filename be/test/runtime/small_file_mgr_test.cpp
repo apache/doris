@@ -28,7 +28,6 @@
 #include "http/http_handler.h"
 #include "http/http_request.h"
 
-
 int main(int argc, char* argv[]);
 
 namespace doris {
@@ -37,8 +36,8 @@ std::string g_download_path = "./be/test/runtime/test_data/small_file/downloaded
 std::string g_src_path = "./be/test/runtime/test_data/small_file/source/";
 std::string g_md5_12345 = "5dd39cab1c53c2c77cd352983f9641e1";
 std::string g_md5_67890 = "a06e26ae5511b0acea8273cf180ca7bf";
-int64_t g_file_12345 = 12345L;  // ready to be downloaded file
-int64_t g_file_67890 = 67890L;  // already exist file
+int64_t g_file_12345 = 12345L; // ready to be downloaded file
+int64_t g_file_67890 = 67890L; // already exist file
 std::string src_file = "small_file.txt";
 
 class SmallFileMgrTestHandler : public HttpHandler {
@@ -77,10 +76,10 @@ public:
 static SmallFileMgrTestHandler s_test_handler = SmallFileMgrTestHandler();
 static EvHttpServer* s_server = nullptr;
 
-class SmallFileMgrTest: public testing::Test {
+class SmallFileMgrTest : public testing::Test {
 public:
-    SmallFileMgrTest() { }
-    virtual ~SmallFileMgrTest() { }
+    SmallFileMgrTest() {}
+    virtual ~SmallFileMgrTest() {}
 
     static void SetUpTestCase() {
         s_server = new EvHttpServer(29997);
@@ -95,8 +94,7 @@ public:
         remove(ss.str().c_str());
     }
 
-    void SetUp() override {
-    }
+    void SetUp() override {}
 };
 
 TEST_F(SmallFileMgrTest, test_get_file) {
@@ -126,7 +124,7 @@ TEST_F(SmallFileMgrTest, test_get_file) {
     ASSERT_TRUE(!st.ok());
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

@@ -21,12 +21,12 @@
 #include <string>
 #include <vector>
 
-#include "gen_cpp/Types_types.h"  // for TPrimitiveType
-#include "gen_cpp/types.pb.h" // for PTypeDesc
+#include "common/config.h"
+#include "gen_cpp/Types_types.h" // for TPrimitiveType
+#include "gen_cpp/types.pb.h"    // for PTypeDesc
+#include "olap/hll.h"
 #include "runtime/primitive_type.h"
 #include "thrift/protocol/TDebugProtocol.h"
-#include "common/config.h"
-#include "olap/hll.h"
 
 namespace llvm {
 class ConstantStruct;
@@ -66,13 +66,10 @@ struct TypeDescriptor {
     /// Only set if type == TYPE_STRUCT. The field name of each child.
     std::vector<std::string> field_names;
 
-    TypeDescriptor() :
-            type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {
-    }
+    TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
     // explicit TypeDescriptor(PrimitiveType type) :
-    TypeDescriptor(PrimitiveType type) :
-            type(type), len(-1), precision(-1), scale(-1) {
+    TypeDescriptor(PrimitiveType type) : type(type), len(-1), precision(-1), scale(-1) {
 #if 0
         DCHECK_NE(type, TYPE_CHAR);
         DCHECK_NE(type, TYPE_VARCHAR);
@@ -162,9 +159,7 @@ struct TypeDescriptor {
         return true;
     }
 
-    bool operator!=(const TypeDescriptor& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const TypeDescriptor& other) const { return !(*this == other); }
 
     TTypeDesc to_thrift() const {
         TTypeDesc thrift_type;
@@ -178,13 +173,9 @@ struct TypeDescriptor {
         return type == TYPE_VARCHAR || type == TYPE_CHAR || type == TYPE_HLL || type == TYPE_OBJECT;
     }
 
-    inline bool is_date_type() const {
-        return type == TYPE_DATE || type == TYPE_DATETIME;
-    }
+    inline bool is_date_type() const { return type == TYPE_DATE || type == TYPE_DATETIME; }
 
-    inline bool is_decimal_type() const {
-        return (type == TYPE_DECIMAL || type == TYPE_DECIMALV2);
-    }
+    inline bool is_decimal_type() const { return (type == TYPE_DECIMAL || type == TYPE_DECIMALV2); }
 
     inline bool is_var_len_string_type() const {
         return type == TYPE_VARCHAR || type == TYPE_HLL || type == TYPE_CHAR || type == TYPE_OBJECT;
@@ -194,9 +185,7 @@ struct TypeDescriptor {
         return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
     }
 
-    inline bool is_collection_type() const {
-        return type == TYPE_ARRAY || type == TYPE_MAP;
-    }
+    inline bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
 
     /// Returns the byte size of this type.  Returns 0 for variable length types.
     inline int get_byte_size() const {
@@ -323,6 +312,6 @@ private:
 
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type);
 
-}
+} // namespace doris
 
 #endif

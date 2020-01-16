@@ -24,11 +24,11 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
-#include "common/status.h"
 
 namespace doris {
 
@@ -76,12 +76,12 @@ public:
     /// C'tor for tracker for which consumption counter is created as part of a profile.
     /// The counter is created with name COUNTER_NAME.
     MemTracker(RuntimeProfile* profile, int64_t byte_limit,
-            const std::string& label = std::string(), MemTracker* parent = NULL);
+               const std::string& label = std::string(), MemTracker* parent = NULL);
 
     /// C'tor for tracker that uses consumption_metric as the consumption value.
     /// Consume()/Release() can still be called. This is used for the process tracker.
     MemTracker(UIntGauge* consumption_metric, int64_t byte_limit = -1,
-      const std::string& label = std::string());
+               const std::string& label = std::string());
 
     ~MemTracker();
 
@@ -109,8 +109,8 @@ public:
     /// 'pool_name', which is created if needed. The returned MemTracker is owned by
     /// 'obj_pool'.
     static MemTracker* CreateQueryMemTracker(const TUniqueId& id,
-            const TQueryOptions& query_options, const std::string& pool_name,
-            ObjectPool* obj_pool);
+                                             const TQueryOptions& query_options,
+                                             const std::string& pool_name, ObjectPool* obj_pool);
 
     // Returns a MemTracker object for query 'id'.  Calling this with the same id will
     // return the same MemTracker object.  An example of how this is used is to pass it
@@ -121,7 +121,8 @@ public:
     // byte_limit and parent must be the same for all GetMemTracker() calls with the
     // same id.
     static std::shared_ptr<MemTracker> get_query_mem_tracker(const TUniqueId& id,
-            int64_t byte_limit, MemTracker* parent);
+                                                             int64_t byte_limit,
+                                                             MemTracker* parent);
 
     void consume(int64_t bytes) {
         if (bytes <= 0) {
@@ -184,8 +185,8 @@ public:
                     if (LIKELY(tracker->_consumption->try_add(bytes, limit))) break;
 
                     VLOG_RPC << "TryConsume failed, bytes=" << bytes
-                        << " consumption=" << tracker->_consumption->current_value()
-                        << " limit=" << limit << " attempting to GC";
+                             << " consumption=" << tracker->_consumption->current_value()
+                             << " limit=" << limit << " attempting to GC";
                     if (UNLIKELY(tracker->GcMemory(limit - bytes))) {
                         DCHECK_GE(i, 0);
                         // Failed for this mem tracker. Roll back the ones that succeeded.
@@ -195,8 +196,8 @@ public:
                         return false;
                     }
                     VLOG_RPC << "GC succeeded, TryConsume bytes=" << bytes
-                        << " consumption=" << tracker->_consumption->current_value()
-                        << " limit=" << limit;
+                             << " consumption=" << tracker->_consumption->current_value()
+                             << " limit=" << limit;
                 }
             }
         }
@@ -226,8 +227,8 @@ public:
             /// trackers since we can enforce that the reported memory usage is internally
             /// consistent.)
             if ((*tracker)->_consumption_metric == NULL) {
-                DCHECK_GE((*tracker)->_consumption->current_value(), 0)
-                    << std::endl << (*tracker)->LogUsage();
+                DCHECK_GE((*tracker)->_consumption->current_value(), 0) << std::endl
+                                                                        << (*tracker)->LogUsage();
             }
         }
 
@@ -237,7 +238,7 @@ public:
     // Returns true if a valid limit of this tracker or one of its ancestors is exceeded.
     bool any_limit_exceeded() {
         for (std::vector<MemTracker*>::iterator tracker = _limit_trackers.begin();
-                tracker != _limit_trackers.end(); ++tracker) {
+             tracker != _limit_trackers.end(); ++tracker) {
             if ((*tracker)->limit_exceeded()) {
                 return true;
             }
@@ -248,7 +249,7 @@ public:
     // Return limit exceeded tracker or null
     MemTracker* find_limit_exceeded_tracker() {
         for (std::vector<MemTracker*>::iterator tracker = _limit_trackers.begin();
-                tracker != _limit_trackers.end(); ++tracker) {
+             tracker != _limit_trackers.end(); ++tracker) {
             if ((*tracker)->limit_exceeded()) {
                 return *tracker;
             }
@@ -262,7 +263,7 @@ public:
     int64_t spare_capacity() const {
         int64_t result = std::numeric_limits<int64_t>::max();
         for (std::vector<MemTracker*>::const_iterator tracker = _limit_trackers.begin();
-                tracker != _limit_trackers.end(); ++tracker) {
+             tracker != _limit_trackers.end(); ++tracker) {
             int64_t mem_left = (*tracker)->limit() - (*tracker)->consumption();
             result = std::min(result, mem_left);
         }
@@ -277,22 +278,13 @@ public:
         _consumption->set(_consumption_metric->value());
     }
 
+    bool limit_exceeded() const { return _limit >= 0 && _limit < consumption(); }
 
-    bool limit_exceeded() const{
-        return _limit >= 0 && _limit < consumption();
-    }
+    int64_t limit() const { return _limit; }
 
-    int64_t limit() const {
-        return _limit;
-    }
+    bool has_limit() const { return _limit >= 0; }
 
-    bool has_limit() const {
-        return _limit >= 0;
-    }
-
-    const std::string& label() const {
-        return _label;
-    }
+    const std::string& label() const { return _label; }
 
     /// Returns the lowest limit for this tracker and its ancestors. Returns
     /// -1 if there is no limit.
@@ -313,18 +305,16 @@ public:
     int64_t GetPoolMemReserved() const;
 
     int64_t consumption() const {
-        return _consumption->current_value();;
+        return _consumption->current_value();
+        ;
     }
-
 
     /// Note that if _consumption is based on _consumption_metric, this will the max value
     /// we've recorded in consumption(), not necessarily the highest value
     /// _consumption_metric has ever reached.
     int64_t peak_consumption() const { return _consumption->value(); }
 
-    MemTracker* parent() const {
-        return _parent;
-    }
+    MemTracker* parent() const { return _parent; }
 
     /// Signature for function that can be called to free some memory after limit is
     /// reached. The function should try to free at least 'bytes_to_free' bytes of
@@ -346,15 +336,15 @@ public:
     /// If 'logged_consumption' is non-NULL, sets the consumption value logged.
     /// TODO: once all memory is accounted in ReservationTracker hierarchy, move
     /// reporting there.
-    std::string LogUsage(
-            const std::string& prefix = "", int64_t* logged_consumption = nullptr) const;
+    std::string LogUsage(const std::string& prefix = "",
+                         int64_t* logged_consumption = nullptr) const;
 
     /// Log the memory usage when memory limit is exceeded and return a status object with
     /// details of the allocation which caused the limit to be exceeded.
     /// If 'failed_allocation_size' is greater than zero, logs the allocation size. If
     /// 'failed_allocation_size' is zero, nothing about the allocation size is logged.
     Status MemLimitExceeded(RuntimeState* state, const std::string& details,
-            int64_t failed_allocation = 0);
+                            int64_t failed_allocation = 0);
 
     static const int UNLIMITED_DEPTH = INT_MAX;
 
@@ -367,12 +357,11 @@ public:
     }
 
     static bool limit_exceeded(const std::vector<MemTracker*>& limits) {
-        for (std::vector<MemTracker*>::const_iterator i = limits.begin(); i != limits.end();
-                ++i) {
+        for (std::vector<MemTracker*>::const_iterator i = limits.begin(); i != limits.end(); ++i) {
             if ((*i)->limit_exceeded()) {
                 // TODO: remove logging
-                LOG(WARNING) << "exceeded limit: limit=" << (*i)->limit() << " consumption="
-                             << (*i)->consumption();
+                LOG(WARNING) << "exceeded limit: limit=" << (*i)->limit()
+                             << " consumption=" << (*i)->consumption();
                 return true;
             }
         }
@@ -391,10 +380,8 @@ public:
         return msg.str();
     }
 
-    bool is_consumption_metric_null() {
-        return _consumption_metric == nullptr;
-    }
-    
+    bool is_consumption_metric_null() { return _consumption_metric == nullptr; }
+
 private:
     friend class PoolMemTrackerRegistry;
 
@@ -414,8 +401,8 @@ private:
 
     /// Log consumption of all the trackers provided. Returns the sum of consumption in
     /// 'logged_consumption'.
-    static std::string LogUsage(const std::string& prefix,
-            const std::list<MemTracker*>& trackers, int64_t* logged_consumption);
+    static std::string LogUsage(const std::string& prefix, const std::list<MemTracker*>& trackers,
+                                int64_t* logged_consumption);
 
     /// Lock to protect GcMemory(). This prevents many GCs from occurring at once.
     std::mutex _gc_lock;
@@ -427,7 +414,7 @@ private:
     // contains only weak ptrs.  MemTrackers that are handed out via get_query_mem_tracker()
     // are shared ptrs.  When all the shared ptrs are no longer referenced, the MemTracker
     // d'tor will be called at which point the weak ptr will be removed from the map.
-    typedef std::unordered_map<TUniqueId, std::weak_ptr<MemTracker> > RequestTrackersMap;
+    typedef std::unordered_map<TUniqueId, std::weak_ptr<MemTracker>> RequestTrackersMap;
     static RequestTrackersMap _s_request_to_mem_trackers;
 
     // Only valid for MemTrackers returned from get_query_mem_tracker()
@@ -437,7 +424,7 @@ private:
     /// Only valid for MemTrackers returned from GetRequestPoolMemTracker()
     std::string _pool_name;
 
-    int64_t _limit;  // in bytes
+    int64_t _limit; // in bytes
     //int64_t _consumption;  // in bytes
 
     std::string _label;
@@ -459,8 +446,8 @@ private:
     /// are owned by the fragment's RuntimeProfile.
     AtomicPtr<ReservationTrackerCounters> _reservation_counters;
 
-    std::vector<MemTracker*> _all_trackers;  // this tracker plus all of its ancestors
-    std::vector<MemTracker*> _limit_trackers;  // _all_trackers with valid limits
+    std::vector<MemTracker*> _all_trackers;   // this tracker plus all of its ancestors
+    std::vector<MemTracker*> _limit_trackers; // _all_trackers with valid limits
 
     // All the child trackers of this tracker. Used for error reporting only.
     // i.e., Updating a parent tracker does not update the children.
@@ -502,28 +489,27 @@ private:
 
 /// Global registry for query and pool MemTrackers. Owned by ExecEnv.
 class PoolMemTrackerRegistry {
- public:
-  /// Returns a MemTracker object for request pool 'pool_name'. Calling this with the same
-  /// 'pool_name' will return the same MemTracker object. This is used to track the local
-  /// memory usage of all requests executing in this pool. If 'create_if_not_present' is
-  /// true, the first time this is called for a pool, a new MemTracker object is created
-  /// with the process tracker as its parent. There is no explicit per-pool byte_limit
-  /// set at any particular impalad, so newly created trackers will always have a limit
-  /// of -1.
-  MemTracker* GetRequestPoolMemTracker(
-      const std::string& pool_name, bool create_if_not_present);
+public:
+    /// Returns a MemTracker object for request pool 'pool_name'. Calling this with the same
+    /// 'pool_name' will return the same MemTracker object. This is used to track the local
+    /// memory usage of all requests executing in this pool. If 'create_if_not_present' is
+    /// true, the first time this is called for a pool, a new MemTracker object is created
+    /// with the process tracker as its parent. There is no explicit per-pool byte_limit
+    /// set at any particular impalad, so newly created trackers will always have a limit
+    /// of -1.
+    MemTracker* GetRequestPoolMemTracker(const std::string& pool_name, bool create_if_not_present);
 
- private:
-  /// All per-request pool MemTracker objects. It is assumed that request pools will live
-  /// for the entire duration of the process lifetime so MemTrackers are never removed
-  /// from this map. Protected by '_pool_to_mem_trackers_lock'
-  typedef std::unordered_map<std::string, std::unique_ptr<MemTracker>> PoolTrackersMap;
-  PoolTrackersMap _pool_to_mem_trackers;
-  /// IMPALA-3068: Use SpinLock instead of std::mutex so that the lock won't
-  /// automatically destroy itself as part of process teardown, which could cause races.
-  SpinLock _pool_to_mem_trackers_lock;
+private:
+    /// All per-request pool MemTracker objects. It is assumed that request pools will live
+    /// for the entire duration of the process lifetime so MemTrackers are never removed
+    /// from this map. Protected by '_pool_to_mem_trackers_lock'
+    typedef std::unordered_map<std::string, std::unique_ptr<MemTracker>> PoolTrackersMap;
+    PoolTrackersMap _pool_to_mem_trackers;
+    /// IMPALA-3068: Use SpinLock instead of std::mutex so that the lock won't
+    /// automatically destroy itself as part of process teardown, which could cause races.
+    SpinLock _pool_to_mem_trackers_lock;
 };
 
-}
+} // namespace doris
 
 #endif

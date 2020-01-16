@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include "udf/udf.h"
-
 #include "geo/geo_common.h"
+#include "udf/udf.h"
 
 namespace doris {
 
@@ -28,9 +27,9 @@ public:
     static void init();
 
     // compute distance between two points in earth sphere
-    static DoubleVal st_distance_sphere(FunctionContext* ctx,
-                                        const DoubleVal& x_lng, const DoubleVal& x_lat,
-                                        const DoubleVal& y_lng, const DoubleVal& y_lat);
+    static DoubleVal st_distance_sphere(FunctionContext* ctx, const DoubleVal& x_lng,
+                                        const DoubleVal& x_lat, const DoubleVal& y_lng,
+                                        const DoubleVal& y_lat);
 
     // point
     static doris_udf::StringVal st_point(doris_udf::FunctionContext* ctx,
@@ -52,48 +51,46 @@ public:
     static void st_from_wkt_close(doris_udf::FunctionContext*,
                                   doris_udf::FunctionContext::FunctionStateScope);
     static doris_udf::StringVal st_from_wkt_common(doris_udf::FunctionContext* ctx,
-                                            const doris_udf::StringVal& wkt,
-                                            GeoShapeType shape_type);
+                                                   const doris_udf::StringVal& wkt,
+                                                   GeoShapeType shape_type);
 
     static void st_from_wkt_prepare(doris_udf::FunctionContext* ctx,
-                                    doris_udf::FunctionContext::FunctionStateScope scope) __attribute__ ((used)) {
+                                    doris_udf::FunctionContext::FunctionStateScope scope)
+            __attribute__((used)) {
         st_from_wkt_prepare_common(ctx, scope, GEO_SHAPE_ANY);
     }
-    static doris_udf::StringVal st_from_wkt(
-            doris_udf::FunctionContext* ctx,
-            const doris_udf::StringVal& wkt) __attribute__ ((used)) {
+    static doris_udf::StringVal st_from_wkt(doris_udf::FunctionContext* ctx,
+                                            const doris_udf::StringVal& wkt) __attribute__((used)) {
         return st_from_wkt_common(ctx, wkt, GEO_SHAPE_ANY);
     }
 
     // for line
-    static void st_line_prepare(
-            doris_udf::FunctionContext* ctx,
-            doris_udf::FunctionContext::FunctionStateScope scope) __attribute__ ((used)) {
+    static void st_line_prepare(doris_udf::FunctionContext* ctx,
+                                doris_udf::FunctionContext::FunctionStateScope scope)
+            __attribute__((used)) {
         st_from_wkt_prepare_common(ctx, scope, GEO_SHAPE_LINE_STRING);
     }
-    static doris_udf::StringVal st_line(
-            doris_udf::FunctionContext* ctx,
-            const doris_udf::StringVal& wkt) __attribute__ ((used)) {
+    static doris_udf::StringVal st_line(doris_udf::FunctionContext* ctx,
+                                        const doris_udf::StringVal& wkt) __attribute__((used)) {
         return st_from_wkt_common(ctx, wkt, GEO_SHAPE_LINE_STRING);
     }
-    
+
     // for polygon
-    static void st_polygon_prepare(
-            doris_udf::FunctionContext* ctx,
-            doris_udf::FunctionContext::FunctionStateScope scope) __attribute__ ((used)) {
+    static void st_polygon_prepare(doris_udf::FunctionContext* ctx,
+                                   doris_udf::FunctionContext::FunctionStateScope scope)
+            __attribute__((used)) {
         st_from_wkt_prepare_common(ctx, scope, GEO_SHAPE_POLYGON);
     }
-    static doris_udf::StringVal st_polygon(
-            doris_udf::FunctionContext* ctx,
-            const doris_udf::StringVal& wkt) __attribute__ ((used)) {
+    static doris_udf::StringVal st_polygon(doris_udf::FunctionContext* ctx,
+                                           const doris_udf::StringVal& wkt) __attribute__((used)) {
         return st_from_wkt_common(ctx, wkt, GEO_SHAPE_POLYGON);
     }
 
     // for circle
     static doris_udf::StringVal st_circle(doris_udf::FunctionContext* ctx,
-                                      const doris_udf::DoubleVal& center_lng,
-                                      const doris_udf::DoubleVal& center_lat,
-                                      const doris_udf::DoubleVal& radius_meter);
+                                          const doris_udf::DoubleVal& center_lng,
+                                          const doris_udf::DoubleVal& center_lat,
+                                          const doris_udf::DoubleVal& radius_meter);
     static void st_circle_prepare(doris_udf::FunctionContext*,
                                   doris_udf::FunctionContext::FunctionStateScope);
 
@@ -110,4 +107,4 @@ public:
                                   doris_udf::FunctionContext::FunctionStateScope);
 };
 
-}
+} // namespace doris

@@ -32,4 +32,4 @@ public:
     static GeoParseStatus parse_wkt(const char* str, size_t len, GeoShape** shape);
 };
 
-}
+} // namespace doris

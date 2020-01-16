@@ -28,30 +28,30 @@ namespace doris {
 
 /// Provides information about the OS we're running on.
 class OsInfo {
- public:
-  /// Initialize OsInfo.
-  static void Init();
+public:
+    /// Initialize OsInfo.
+    static void Init();
 
-  static const std::string os_version() {
-    DCHECK(initialized_);
-    return os_version_;
-  }
+    static const std::string os_version() {
+        DCHECK(initialized_);
+        return os_version_;
+    }
 
-  /// Return CLOCK_MONOTONIC if it's fast. Otherwise CLOCK_MONOTONIC_COARSE, which will be
-  /// fast but lower resolution.
-  static clockid_t fast_clock() {
-    DCHECK(initialized_);
-    return fast_clock_;
-  }
+    /// Return CLOCK_MONOTONIC if it's fast. Otherwise CLOCK_MONOTONIC_COARSE, which will be
+    /// fast but lower resolution.
+    static clockid_t fast_clock() {
+        DCHECK(initialized_);
+        return fast_clock_;
+    }
 
-  static std::string DebugString();
+    static std::string DebugString();
 
- private:
-  static bool initialized_;
-  static std::string os_version_;
-  static clockid_t fast_clock_;
-  static std::string clock_name_;
+private:
+    static bool initialized_;
+    static std::string os_version_;
+    static clockid_t fast_clock_;
+    static std::string clock_name_;
 };
 
-}
+} // namespace doris
 #endif

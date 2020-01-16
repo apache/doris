@@ -19,10 +19,10 @@
 #define DORIS_BE_SRC_QUERY_RUNTIME_TMP_FILE_MGR_H
 
 #include "common/status.h"
-#include "gen_cpp/Types_types.h"  // for TUniqueId
+#include "gen_cpp/Types_types.h" // for TUniqueId
 // #include "util/collection_metrics.h"
-#include "util/spinlock.h"
 #include "util/metrics.h"
+#include "util/spinlock.h"
 
 namespace doris {
 
@@ -47,7 +47,7 @@ public:
     // Creation of the file is deferred until the first call to AllocateSpace().
     class File {
     public:
-        ~File(){
+        ~File() {
             // do nothing
         }
 
@@ -69,15 +69,9 @@ public:
         // It is not valid to read or write to a file after calling Remove().
         Status remove();
 
-        const std::string& path() const {
-            return _path;
-        }
-        int disk_id() const {
-            return _disk_id;
-        }
-        bool is_blacklisted() const {
-            return _blacklisted;
-        }
+        const std::string& path() const { return _path; }
+        int disk_id() const { return _disk_id; }
+        bool is_blacklisted() const { return _blacklisted; }
 
     private:
         friend class TmpFileMgr;
@@ -115,9 +109,9 @@ public:
     };
 
     TmpFileMgr(ExecEnv* exec_env);
-    TmpFileMgr() { }
+    TmpFileMgr() {}
 
-    ~TmpFileMgr(){
+    ~TmpFileMgr() {
         // do nothing.
     }
 
@@ -128,10 +122,8 @@ public:
     // Custom initialization - initializes with the provided list of directories.
     // If one_dir_per_device is true, only use one temporary directory per device.
     // This interface is intended for testing purposes.
-    Status init_custom(
-            const std::vector<std::string>& tmp_dirs,
-            bool one_dir_per_device,
-            MetricRegistry* metrics);
+    Status init_custom(const std::vector<std::string>& tmp_dirs, bool one_dir_per_device,
+                       MetricRegistry* metrics);
 
     // Return a new File handle with a unique path for a query instance. The file path
     // is within the (single) tmp directory on the specified device id. The caller owns
@@ -154,9 +146,7 @@ private:
     // Dir stores information about a temporary directory.
     class Dir {
     public:
-        const std::string& path() const {
-            return _path;
-        }
+        const std::string& path() const { return _path; }
 
         // Return true if it was newly added to blacklist.
         bool blacklist() {
@@ -164,16 +154,13 @@ private:
             _blacklisted = true;
             return !was_blacklisted;
         }
-        bool is_blacklisted() const {
-            return _blacklisted;
-        }
+        bool is_blacklisted() const { return _blacklisted; }
 
     private:
         friend class TmpFileMgr;
 
         // path should be a absolute path to a writable scratch directory.
-        Dir(const std::string& path, bool blacklisted) :
-                _path(path), _blacklisted(blacklisted) {}
+        Dir(const std::string& path, bool blacklisted) : _path(path), _blacklisted(blacklisted) {}
 
         std::string _path;
 

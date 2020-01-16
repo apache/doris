@@ -19,10 +19,10 @@
 
 #include <sstream>
 
-#include "codegen/llvm_codegen.h"
 #include "codegen/codegen_anyval.h"
-#include "util/debug_util.h"
+#include "codegen/llvm_codegen.h"
 #include "runtime/runtime_state.h"
+#include "util/debug_util.h"
 
 using llvm::BasicBlock;
 using llvm::Function;
@@ -32,9 +32,7 @@ using llvm::LLVMContext;
 
 namespace doris {
 
-CompoundPredicate::CompoundPredicate(const TExprNode& node) :
-        Predicate(node) {
-}
+CompoundPredicate::CompoundPredicate(const TExprNode& node) : Predicate(node) {}
 #if 0
 Status CompoundPredicate::prepare(RuntimeState* state, const RowDescriptor& desc) {
     DCHECK_LE(_children.size(), 2);
@@ -42,8 +40,7 @@ Status CompoundPredicate::prepare(RuntimeState* state, const RowDescriptor& desc
 }
 #endif
 
-void CompoundPredicate::init() {
-}
+void CompoundPredicate::init() {}
 
 BooleanVal CompoundPredicate::compound_not(FunctionContext* context, const BooleanVal& v) {
     if (v.is_null) {
@@ -98,8 +95,8 @@ std::string CompoundPredicate::debug_string() const {
     return out.str();
 }
 
-// IR codegen for compound and/or predicates.  Compound predicate has non trivial 
-// null handling as well as many branches so this is pretty complicated.  The IR 
+// IR codegen for compound and/or predicates.  Compound predicate has non trivial
+// null handling as well as many branches so this is pretty complicated.  The IR
 // for x && y is:
 //
 // define i16 @CompoundPredicate(%"class.impala::ExprContext"* %context,
@@ -119,30 +116,30 @@ std::string CompoundPredicate::debug_string() const {
 //   %val2 = trunc i8 %3 to i1
 //   %tmp_and = and i1 %val, %val2
 //   br i1 %is_null, label %lhs_null, label %lhs_not_null
-// 
+//
 // lhs_null:                                         ; preds = %entry
 //   br i1 %is_null1, label %null_block, label %lhs_null_rhs_not_null
-// 
+//
 // lhs_not_null:                                     ; preds = %entry
 //   br i1 %is_null1, label %lhs_not_null_rhs_null, label %not_null_block
-// 
+//
 // lhs_null_rhs_not_null:                            ; preds = %lhs_null
 //   br i1 %val2, label %null_block, label %not_null_block
-// 
+//
 // lhs_not_null_rhs_null:                            ; preds = %lhs_not_null
 //   br i1 %val, label %null_block, label %not_null_block
-// 
+//
 // null_block:                                       ; preds = %lhs_null_rhs_not_null,
 //                                                     %lhs_not_null_rhs_null, %lhs_null
 //   br label %ret
-// 
+//
 // not_null_block:                                   ; preds = %lhs_null_rhs_not_null,
 //                                                   %lhs_not_null_rhs_null, %lhs_not_null
 //   %4 = phi i1 [ false, %lhs_null_rhs_not_null ],
 //               [ false, %lhs_not_null_rhs_null ],
 //               [ %tmp_and, %lhs_not_null ]
 //   br label %ret
-// 
+//
 // ret:                                              ; preds = %not_null_block, %null_block
 //   %ret3 = phi i1 [ false, %null_block ], [ %4, %not_null_block ]
 //   %5 = zext i1 %ret3 to i16
@@ -150,8 +147,7 @@ std::string CompoundPredicate::debug_string() const {
 //   %7 = or i16 0, %6
 //   ret i16 %7
 // }
-Status CompoundPredicate::codegen_compute_fn(
-        bool and_fn, RuntimeState* state, Function** fn) {
+Status CompoundPredicate::codegen_compute_fn(bool and_fn, RuntimeState* state, Function** fn) {
     if (_ir_compute_fn != NULL) {
         *fn = _ir_compute_fn;
         return Status::OK();
@@ -176,22 +172,21 @@ Status CompoundPredicate::codegen_compute_fn(
 
     // Control blocks for aggregating results
     BasicBlock* lhs_null_block = BasicBlock::Create(context, "lhs_null", function);
-    BasicBlock* lhs_not_null_block = 
-        BasicBlock::Create(context, "lhs_not_null", function);
-    BasicBlock* lhs_null_rhs_not_null_block = 
-        BasicBlock::Create(context, "lhs_null_rhs_not_null", function);
-    BasicBlock* lhs_not_null_rhs_null_block = 
-        BasicBlock::Create(context, "lhs_not_null_rhs_null", function);
+    BasicBlock* lhs_not_null_block = BasicBlock::Create(context, "lhs_not_null", function);
+    BasicBlock* lhs_null_rhs_not_null_block =
+            BasicBlock::Create(context, "lhs_null_rhs_not_null", function);
+    BasicBlock* lhs_not_null_rhs_null_block =
+            BasicBlock::Create(context, "lhs_not_null_rhs_null", function);
     BasicBlock* null_block = BasicBlock::Create(context, "null_block", function);
     BasicBlock* not_null_block = BasicBlock::Create(context, "not_null_block", function);
     BasicBlock* ret_block = BasicBlock::Create(context, "ret", function);
 
     // Call lhs
     CodegenAnyVal lhs_result = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, TypeDescriptor(TYPE_BOOLEAN), lhs_function, args, "lhs_call");
+            codegen, &builder, TypeDescriptor(TYPE_BOOLEAN), lhs_function, args, "lhs_call");
     // Call rhs
     CodegenAnyVal rhs_result = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, TypeDescriptor(TYPE_BOOLEAN), rhs_function, args, "rhs_call");
+            codegen, &builder, TypeDescriptor(TYPE_BOOLEAN), rhs_function, args, "rhs_call");
 
     Value* lhs_is_null = lhs_result.get_is_null();
     Value* rhs_is_null = rhs_result.get_is_null();
@@ -276,4 +271,4 @@ Status CompoundPredicate::codegen_compute_fn(
     return Status::OK();
 }
 
-}
+} // namespace doris

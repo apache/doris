@@ -30,15 +30,14 @@ namespace doris {
 // we will not be able to replace the funcitons with codegen'd versions.
 // TODO: explicitly set the calling convention?
 // TODO: investigate using fastcc for all codegen internal functions?
-bool IR_NO_INLINE eval_other_join_conjuncts(
-        ExprContext* const* ctxs, int num_ctxs, TupleRow* row) {
+bool IR_NO_INLINE eval_other_join_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* row) {
     return ExecNode::eval_conjuncts(ctxs, num_ctxs, row);
 }
 
 // CreateOutputRow, EvalOtherJoinConjuncts, and EvalConjuncts are replaced by
 // codegen.
 int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch,
-                                    int max_added_rows) {
+                                      int max_added_rows) {
     // This path does not handle full outer or right outer joins
     DCHECK(!_match_all_build);
 
@@ -63,8 +62,7 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
             _hash_tbl_iterator.next<true>();
             create_output_row(out_row, _current_probe_row, matched_build_row);
 
-            if (!eval_other_join_conjuncts(
-                    other_conjunct_ctxs, num_other_conjunct_ctxs, out_row)) {
+            if (!eval_other_join_conjuncts(other_conjunct_ctxs, num_other_conjunct_ctxs, out_row)) {
                 continue;
             }
 
@@ -72,7 +70,7 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
 
             // left_anti_join: equal match won't return
             if (_join_op == TJoinOp::LEFT_ANTI_JOIN) {
-                _hash_tbl_iterator= _hash_tbl->end();
+                _hash_tbl_iterator = _hash_tbl->end();
                 break;
             }
 
@@ -95,10 +93,10 @@ int HashJoinNode::process_probe_batch(RowBatch* out_batch, RowBatch* probe_batch
                 break;
             }
         }
-        
+
         // Handle left outer-join and left semi-join
-        if ((!_matched_probe && _match_all_probe) || 
-                ((!_matched_probe && _join_op == TJoinOp::LEFT_ANTI_JOIN))) {
+        if ((!_matched_probe && _match_all_probe) ||
+            ((!_matched_probe && _join_op == TJoinOp::LEFT_ANTI_JOIN))) {
             create_output_row(out_row, _current_probe_row, NULL);
             _matched_probe = true;
 
@@ -143,5 +141,4 @@ void HashJoinNode::process_build_batch(RowBatch* build_batch) {
         _hash_tbl->insert(build_batch->get_row(i));
     }
 }
-}
-
+} // namespace doris

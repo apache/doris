@@ -16,32 +16,33 @@
 // under the License.
 
 #include "agent/utils.h"
+
 #include <arpa/inet.h>
-#include <cstdio>
 #include <errno.h>
-#include <fstream>
-#include <iostream>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <sstream>
-#include <sys/socket.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-#include <boost/filesystem.hpp>
-#include <thrift/Thrift.h>
-#include <thrift/transport/TSocket.h>
-#include <thrift/transport/TTransportException.h>
-#include <thrift/transport/TTransportUtils.h>
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <thrift/Thrift.h>
+#include <thrift/transport/TSocket.h>
+#include <thrift/transport/TTransportException.h>
+#include <thrift/transport/TTransportUtils.h>
+#include <unistd.h>
+
+#include <boost/filesystem.hpp>
+#include <cstdio>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/FrontendService.h"
+#include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
@@ -59,26 +60,20 @@ using apache::thrift::transport::TTransportException;
 
 namespace doris {
 
-MasterServerClient::MasterServerClient(
-        const TMasterInfo& master_info,
-        FrontendServiceClientCache* client_cache) :
-        _master_info(master_info),
-        _client_cache(client_cache) {
-}
+MasterServerClient::MasterServerClient(const TMasterInfo& master_info,
+                                       FrontendServiceClientCache* client_cache)
+        : _master_info(master_info), _client_cache(client_cache) {}
 
-AgentStatus MasterServerClient::finish_task(
-        const TFinishTaskRequest& request,
-        TMasterResult* result) {
+AgentStatus MasterServerClient::finish_task(const TFinishTaskRequest& request,
+                                            TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(
-            _client_cache,
-            _master_info.network_address,
-            config::thrift_rpc_timeout_ms,
-            &client_status);
+    FrontendServiceConnection client(_client_cache, _master_info.network_address,
+                                     config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
         LOG(WARNING) << "master client. get client from cache failed. host: "
-                     << _master_info.network_address.hostname << ". port: " << _master_info.network_address.port
+                     << _master_info.network_address.hostname
+                     << ". port: " << _master_info.network_address.port
                      << ". code: " << client_status.code();
         return DORIS_ERROR;
     }
@@ -91,11 +86,11 @@ AgentStatus MasterServerClient::finish_task(
             client_status = client.reopen(config::thrift_rpc_timeout_ms);
 
             if (!client_status.ok()) {
-                OLAP_LOG_WARNING("master client, get client from cache failed."
-                                 "host: %s, port: %d, code: %d",
-                                 _master_info.network_address.hostname.c_str(),
-                                 _master_info.network_address.port,
-                                 client_status.code());
+                OLAP_LOG_WARNING(
+                        "master client, get client from cache failed."
+                        "host: %s, port: %d, code: %d",
+                        _master_info.network_address.hostname.c_str(),
+                        _master_info.network_address.port, client_status.code());
                 return DORIS_ERROR;
             }
 
@@ -103,11 +98,11 @@ AgentStatus MasterServerClient::finish_task(
         }
     } catch (TException& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
-        OLAP_LOG_WARNING("master client, finishTask execute failed."
-                         "host: %s, port: %d, error: %s",
-                         _master_info.network_address.hostname.c_str(),
-                         _master_info.network_address.port,
-                         e.what());
+        OLAP_LOG_WARNING(
+                "master client, finishTask execute failed."
+                "host: %s, port: %d, error: %s",
+                _master_info.network_address.hostname.c_str(), _master_info.network_address.port,
+                e.what());
         return DORIS_ERROR;
     }
 
@@ -116,18 +111,15 @@ AgentStatus MasterServerClient::finish_task(
 
 AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterResult* result) {
     Status client_status;
-    FrontendServiceConnection client(
-            _client_cache,
-            _master_info.network_address,
-            config::thrift_rpc_timeout_ms,
-            &client_status);
+    FrontendServiceConnection client(_client_cache, _master_info.network_address,
+                                     config::thrift_rpc_timeout_ms, &client_status);
 
     if (!client_status.ok()) {
-        OLAP_LOG_WARNING("master client, get client from cache failed."
-                         "host: %s, port: %d, code: %d",
-                         _master_info.network_address.hostname.c_str(),
-                         _master_info.network_address.port,
-                         client_status.code());
+        OLAP_LOG_WARNING(
+                "master client, get client from cache failed."
+                "host: %s, port: %d, code: %d",
+                _master_info.network_address.hostname.c_str(), _master_info.network_address.port,
+                client_status.code());
         return DORIS_ERROR;
     }
 
@@ -142,13 +134,13 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
 
                 client_status = client.reopen(config::thrift_rpc_timeout_ms);
                 if (!client_status.ok()) {
-                    OLAP_LOG_WARNING("master client, get client from cache failed."
-                                     "host: %s, port: %d, code: %d",
-                                     _master_info.network_address.hostname.c_str(),
-                                     _master_info.network_address.port,
-                                     client_status.code());
+                    OLAP_LOG_WARNING(
+                            "master client, get client from cache failed."
+                            "host: %s, port: %d, code: %d",
+                            _master_info.network_address.hostname.c_str(),
+                            _master_info.network_address.port, client_status.code());
                     return DORIS_ERROR;
-                }   
+                }
 
                 client->report(*result, request);
             } else {
@@ -156,25 +148,25 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
                 // actually we don't care what FE returns.
                 OLAP_LOG_WARNING("master client, report failed: %s", e.what());
                 return DORIS_ERROR;
-            }   
-        }   
+            }
+        }
     } catch (TException& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
-        LOG(WARNING) << "master client. finish report failed. host: " << _master_info.network_address.hostname
-                    << ". port: " << _master_info.network_address.port << ". code: " << client_status.code();
+        LOG(WARNING) << "master client. finish report failed. host: "
+                     << _master_info.network_address.hostname
+                     << ". port: " << _master_info.network_address.port
+                     << ". code: " << client_status.code();
         return DORIS_ERROR;
     }
 
     return DORIS_SUCCESS;
 }
 
-AgentStatus AgentUtils::rsync_from_remote(
-        const string& remote_host,
-        const string& remote_file_path,
-        const string& local_file_path,
-        const vector<string>& exclude_file_patterns,
-        uint32_t transport_speed_limit_kbps,
-        uint32_t timeout_second) {
+AgentStatus AgentUtils::rsync_from_remote(const string& remote_host, const string& remote_file_path,
+                                          const string& local_file_path,
+                                          const vector<string>& exclude_file_patterns,
+                                          uint32_t transport_speed_limit_kbps,
+                                          uint32_t timeout_second) {
     int ret_code = 0;
     stringstream cmd_stream;
     cmd_stream << "rsync -r -q -e \"ssh -o StrictHostKeyChecking=no\"";
@@ -260,7 +252,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg) {
     string cmd = command + " 2>&1";
 
     // Execute command.
-    FILE *fp = popen(cmd.c_str(), "r");
+    FILE* fp = popen(cmd.c_str(), "r");
     if (fp == NULL) {
         stringstream err_stream;
         err_stream << "popen failed. " << strerror(errno) << ", with errno: " << errno << ".\n";
@@ -277,12 +269,12 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg) {
     // Waits for the associated process to terminate and returns.
     rc = pclose(fp);
     if (rc == -1) {
-        if (errno==ECHILD) {
+        if (errno == ECHILD) {
             *errmsg += "pclose cannot obtain the child status.\n";
         } else {
             stringstream err_stream;
-            err_stream << "Close popen failed. " << strerror(errno) << ", with errno: "
-                       << errno << "\n";
+            err_stream << "Close popen failed. " << strerror(errno) << ", with errno: " << errno
+                       << "\n";
             *errmsg += err_stream.str();
         }
         return false;
@@ -291,7 +283,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg) {
     // Get return code of command.
     int32_t status_child = WEXITSTATUS(rc);
     if (status_child == 0) {
-       return true;
+        return true;
     } else {
         return false;
     }
@@ -299,11 +291,10 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg) {
 
 bool AgentUtils::write_json_to_file(const map<string, string>& info, const string& path) {
     rapidjson::Document json_info(rapidjson::kObjectType);
-    for (auto &it : info) {
-        json_info.AddMember(
-            rapidjson::Value(it.first.c_str(), json_info.GetAllocator()).Move(),
-            rapidjson::Value(it.second.c_str(), json_info.GetAllocator()).Move(), 
-            json_info.GetAllocator());
+    for (auto& it : info) {
+        json_info.AddMember(rapidjson::Value(it.first.c_str(), json_info.GetAllocator()).Move(),
+                            rapidjson::Value(it.second.c_str(), json_info.GetAllocator()).Move(),
+                            json_info.GetAllocator());
     }
     rapidjson::StringBuffer json_info_str;
     rapidjson::Writer<rapidjson::StringBuffer> writer(json_info_str);
@@ -314,8 +305,8 @@ bool AgentUtils::write_json_to_file(const map<string, string>& info, const strin
     }
     fp << json_info_str.GetString() << std::endl;
     fp.close();
-    
-    return true; 
-} 
 
-}  // namespace doris
+    return true;
+}
+
+} // namespace doris

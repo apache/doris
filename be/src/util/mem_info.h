@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_COMMON_UTIL_MEM_INFO_H
 #define DORIS_BE_SRC_COMMON_UTIL_MEM_INFO_H
 
-#include <string>
 #include <boost/cstdint.hpp>
+#include <string>
 
 #include "common/logging.h"
 
@@ -46,5 +46,5 @@ private:
     static int64_t _s_physical_mem;
 };
 
-}
+} // namespace doris
 #endif

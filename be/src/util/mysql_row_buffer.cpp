@@ -55,11 +55,8 @@ static char* pack_vlen(char* packet, uint64_t length) {
     int8store(packet, length);
     return packet + 8;
 }
-MysqlRowBuffer::MysqlRowBuffer():
-    _pos(_default_buf),
-    _buf(_default_buf),
-    _buf_size(sizeof(_default_buf)) {
-}
+MysqlRowBuffer::MysqlRowBuffer()
+        : _pos(_default_buf), _buf(_default_buf), _buf_size(sizeof(_default_buf)) {}
 
 MysqlRowBuffer::~MysqlRowBuffer() {
     if (_buf != _default_buf) {
@@ -80,7 +77,7 @@ int MysqlRowBuffer::reserve(int size) {
     }
 
     int alloc_size = std::max(need_size, _buf_size * 2);
-    char* new_buf = new(std::nothrow) char[alloc_size];
+    char* new_buf = new (std::nothrow) char[alloc_size];
 
     if (NULL == new_buf) {
         LOG(ERROR) << "alloc memory failed. size = " << alloc_size;
@@ -261,7 +258,7 @@ int MysqlRowBuffer::push_string(const char* str, int length) {
         return ret;
     }
 
-    _pos =  pack_vlen(_pos, length);
+    _pos = pack_vlen(_pos, length);
     memcpy(_pos, str, length);
     _pos += length;
     return 0;
@@ -294,6 +291,6 @@ char* MysqlRowBuffer::reserved(int size) {
     return old_buf;
 }
 
-}
+} // namespace doris
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 */

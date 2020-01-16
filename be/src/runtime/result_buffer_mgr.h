@@ -18,13 +18,14 @@
 #ifndef DORIS_BE_RUNTIME_RESULT_BUFFER_MGR_H
 #define DORIS_BE_RUNTIME_RESULT_BUFFER_MGR_H
 
-#include <map>
-#include <vector>
-#include <boost/shared_ptr.hpp>
 #include <boost/scoped_ptr.hpp>
-#include <boost/unordered_map.hpp>
+#include <boost/shared_ptr.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/thread.hpp>
+#include <boost/unordered_map.hpp>
+#include <map>
+#include <vector>
+
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "util/uid_util.h"
@@ -47,7 +48,7 @@ public:
     // the returned sender do not need release
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
-                        boost::shared_ptr<BufferControlBlock>* sender);
+                         boost::shared_ptr<BufferControlBlock>* sender);
     // fetch data, used by RPC
     Status fetch_data(const TUniqueId& fragment_id, TFetchDataResult* result);
 
@@ -61,7 +62,7 @@ public:
 
 private:
     typedef boost::unordered_map<TUniqueId, boost::shared_ptr<BufferControlBlock>> BufferMap;
-    typedef std::map<time_t, std::vector<TUniqueId> > TimeoutMap;
+    typedef std::map<time_t, std::vector<TUniqueId>> TimeoutMap;
 
     boost::shared_ptr<BufferControlBlock> find_control_block(const TUniqueId& query_id);
 
@@ -87,6 +88,6 @@ private:
 
 // TUniqueId hash function used for boost::unordered_map
 std::size_t hash_value(const TUniqueId& fragment_id);
-}
+} // namespace doris
 
 #endif

@@ -21,19 +21,19 @@
 #include "exec/schema_scanner.h"
 #include "gen_cpp/FrontendService_types.h"
 
-namespace doris
-{
+namespace doris {
 
 class SchemaDummyScanner : public SchemaScanner {
 public:
     SchemaDummyScanner();
     virtual ~SchemaDummyScanner();
     virtual Status start();
-    virtual Status get_next_row(Tuple *tuple, MemPool *pool, bool *eos);
+    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+
 private:
     static SchemaScanner::ColumnDesc _s_dummy_columns[];
 };
 
-}
+} // namespace doris
 
 #endif

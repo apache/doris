@@ -24,10 +24,8 @@ namespace doris {
 class TestRowBlockV2 : public testing::Test {
 public:
     TestRowBlockV2() {}
-    void SetUp() {
-    }
-    void TearDown() {
-    }
+    void SetUp() {}
+    void TearDown() {}
 };
 
 void init_tablet_schema(TabletSchema* tablet_schema, bool is_nullable) {
@@ -119,7 +117,7 @@ TEST_F(TestRowBlockV2, test_convert) {
         (*(Slice*)cell3) = str2;
 
         // column_4
-         row.set_is_null(3, false);
+        row.set_is_null(3, false);
         uint8_t* cell4 = row.mutable_cell_ptr(3);
         (*(uint32_t*)cell4) = 10 * i;
     }
@@ -167,11 +165,10 @@ TEST_F(TestRowBlockV2, test_convert) {
     }
 }
 
-}
+} // namespace doris
 
 // @brief Test Stub
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS(); 
+    return RUN_ALL_TESTS();
 }
-

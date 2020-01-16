@@ -17,13 +17,14 @@
 
 #include "runtime/load_channel.h"
 
+#include "olap/lru_cache.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/tablets_channel.h"
-#include "olap/lru_cache.h"
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker* mem_tracker, int64_t timeout_s)
+LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker* mem_tracker,
+                         int64_t timeout_s)
         : _load_id(load_id), _timeout_s(timeout_s) {
     _mem_tracker.reset(new MemTracker(mem_limit, _load_id.to_string(), mem_tracker));
     // _last_updated_time should be set before being inserted to
@@ -34,8 +35,7 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker*
 
 LoadChannel::~LoadChannel() {
     LOG(INFO) << "load channel mem peak usage: " << _mem_tracker->peak_consumption()
-        << ", info: " << _mem_tracker->debug_string()
-        << ", load id: " << _load_id;
+              << ", info: " << _mem_tracker->debug_string() << ", load id: " << _load_id;
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -61,10 +61,8 @@ Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
     return Status::OK();
 }
 
-Status LoadChannel::add_batch(
-        const PTabletWriterAddBatchRequest& request,
-        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
-
+Status LoadChannel::add_batch(const PTabletWriterAddBatchRequest& request,
+                              google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     int64_t index_id = request.index_id();
     // 1. get tablets channel
     std::shared_ptr<TabletsChannel> channel;
@@ -95,7 +93,8 @@ Status LoadChannel::add_batch(
     Status st;
     if (request.has_eos() && request.eos()) {
         bool finished = false;
-        RETURN_IF_ERROR(channel->close(request.sender_id(), &finished, request.partition_ids(), tablet_vec));
+        RETURN_IF_ERROR(channel->close(request.sender_id(), &finished, request.partition_ids(),
+                                       tablet_vec));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);
@@ -114,9 +113,8 @@ void LoadChannel::handle_mem_exceed_limit(bool force) {
     }
 
     if (!force) {
-        LOG(INFO) << "reducing memory of " << *this
-                  << " because its mem consumption " << _mem_tracker->consumption()
-                  << " has exceeded limit " << _mem_tracker->limit();
+        LOG(INFO) << "reducing memory of " << *this << " because its mem consumption "
+                  << _mem_tracker->consumption() << " has exceeded limit " << _mem_tracker->limit();
     }
 
     std::shared_ptr<TabletsChannel> channel;
@@ -124,15 +122,18 @@ void LoadChannel::handle_mem_exceed_limit(bool force) {
         channel->reduce_mem_usage();
     } else {
         // should not happen, add log to observe
-        LOG(WARNING) << "failed to find suitable tablets channel when mem limit execeed: " << _load_id;
+        LOG(WARNING) << "failed to find suitable tablets channel when mem limit execeed: "
+                     << _load_id;
     }
 }
 
 // lock should be held when calling this method
-bool LoadChannel::_find_largest_max_consumption_tablets_channel(std::shared_ptr<TabletsChannel>* channel) {
-    bool find = false;;
+bool LoadChannel::_find_largest_max_consumption_tablets_channel(
+        std::shared_ptr<TabletsChannel>* channel) {
+    bool find = false;
+    ;
     int64_t max_consume = 0;
-    for (auto& it : _tablets_channels) { 
+    for (auto& it : _tablets_channels) {
         if (it.second->mem_consumption() > max_consume) {
             max_consume = it.second->mem_consumption();
             *channel = it.second;
@@ -152,10 +153,10 @@ bool LoadChannel::is_finished() {
 
 Status LoadChannel::cancel() {
     std::lock_guard<std::mutex> l(_lock);
-    for (auto& it : _tablets_channels) { 
+    for (auto& it : _tablets_channels) {
         it.second->cancel();
     }
     return Status::OK();
 }
 
-}
+} // namespace doris

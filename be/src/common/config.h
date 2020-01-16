@@ -20,6 +20,7 @@
 
 #include "configbase.h"
 
+// clang-format off
 namespace doris {
 namespace config {
     // cluster id
@@ -506,7 +507,7 @@ namespace config {
     CONF_Int64(max_runnings_transactions, "2000");
 
 } // namespace config
-
 } // namespace doris
+// clang-format on
 
 #endif // DORIS_BE_SRC_COMMON_CONFIG_H

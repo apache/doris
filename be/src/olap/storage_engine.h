@@ -18,18 +18,18 @@
 #ifndef DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
 #define DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H
 
+#include <pthread.h>
+#include <rapidjson/document.h>
+
+#include <condition_variable>
 #include <ctime>
 #include <list>
 #include <map>
 #include <mutex>
-#include <condition_variable>
 #include <set>
 #include <string>
-#include <vector>
 #include <thread>
-
-#include <rapidjson/document.h>
-#include <pthread.h>
+#include <vector>
 
 #include "agent/status.h"
 #include "common/status.h"
@@ -38,14 +38,14 @@
 #include "gen_cpp/MasterService_types.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/tablet.h"
 #include "olap/olap_meta.h"
 #include "olap/options.h"
+#include "olap/rowset/rowset_id_generator.h"
+#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_sync_service.h"
-#include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
-#include "olap/rowset/rowset_id_generator.h"
+#include "olap/txn_manager.h"
 #include "runtime/heartbeat_flags.h"
 
 namespace doris {
@@ -61,15 +61,13 @@ class Tablet;
 // allocation/deallocation must be done outside.
 class StorageEngine {
 public:
-    StorageEngine() { }
+    StorageEngine() {}
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
     static Status open(const EngineOptions& options, StorageEngine** engine_ptr);
 
-    static StorageEngine* instance() {
-        return _s_instance;
-    }
+    static StorageEngine* instance() { return _s_instance; }
 
     OLAPStatus create_tablet(const TCreateTabletReq& request);
 
@@ -95,14 +93,12 @@ public:
     // 是允许的，但re-load全新的path是不允许的，因为此处没有彻底更新ce调度器信息
     void load_data_dirs(const std::vector<DataDir*>& stores);
 
-    Cache* index_stream_lru_cache() {
-        return _index_stream_lru_cache;
-    }
+    Cache* index_stream_lru_cache() { return _index_stream_lru_cache; }
 
     // 清理trash和snapshot文件，返回清理后的磁盘使用量
-    OLAPStatus start_trash_sweep(double *usage);
+    OLAPStatus start_trash_sweep(double* usage);
 
-    template<bool include_unused = false>
+    template <bool include_unused = false>
     std::vector<DataDir*> get_stores();
     Status set_cluster_id(int32_t cluster_id);
 
@@ -120,54 +116,43 @@ public:
 
     // get root path for creating tablet. The returned vector of root path should be random,
     // for avoiding that all the tablet would be deployed one disk.
-    std::vector<DataDir*> get_stores_for_create_tablet(
-        TStorageMedium::type storage_medium);
+    std::vector<DataDir*> get_stores_for_create_tablet(TStorageMedium::type storage_medium);
     DataDir* get_store(const std::string& path);
 
-    uint32_t available_storage_medium_type_count() {
-        return _available_storage_medium_type_count;
-    }
+    uint32_t available_storage_medium_type_count() { return _available_storage_medium_type_count; }
 
-    int32_t effective_cluster_id() const {
-        return _effective_cluster_id;
-    }
+    int32_t effective_cluster_id() const { return _effective_cluster_id; }
 
     void start_delete_unused_rowset();
 
     void add_unused_rowset(RowsetSharedPtr rowset);
 
-    OLAPStatus recover_tablet_until_specfic_version(
-        const TRecoverTabletReq& recover_tablet_req);
+    OLAPStatus recover_tablet_until_specfic_version(const TRecoverTabletReq& recover_tablet_req);
 
     // Obtain shard path for new tablet.
     //
     // @param [out] shard_path choose an available root_path to clone new tablet
     // @return error code
-    OLAPStatus obtain_shard_path(
-            TStorageMedium::type storage_medium,
-            std::string* shared_path,
-            DataDir** store);
+    OLAPStatus obtain_shard_path(TStorageMedium::type storage_medium, std::string* shared_path,
+                                 DataDir** store);
 
     // Load new tablet to make it effective.
     //
     // @param [in] root_path specify root path of new tablet
     // @param [in] request specify new tablet info
     // @return OLAP_SUCCESS if load tablet success
-    OLAPStatus load_header(
-        const std::string& shard_path, const TCloneReq& request);
+    OLAPStatus load_header(const std::string& shard_path, const TCloneReq& request);
 
     // call this if you want to trigger a disk and tablet report
-    void report_notify(bool is_all) {
-        is_all ? _report_cv.notify_all() : _report_cv.notify_one();
-    }
+    void report_notify(bool is_all) { is_all ? _report_cv.notify_all() : _report_cv.notify_one(); }
 
     // call this to wait a report notification until timeout
     void wait_for_report_notify(int64_t timeout_sec, bool is_tablet_report) {
         std::unique_lock<std::mutex> lk(_report_mtx);
         auto cv_status = _report_cv.wait_for(lk, std::chrono::seconds(timeout_sec));
         if (cv_status == std::cv_status::no_timeout) {
-            is_tablet_report ? _is_report_tablet_already = true :
-                    _is_report_disk_state_already = true;
+            is_tablet_report ? _is_report_tablet_already = true
+                             : _is_report_disk_state_already = true;
         }
     }
 
@@ -183,9 +168,13 @@ public:
 
     RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); };
 
-    bool rowset_id_in_use(const RowsetId& rowset_id) { return _rowset_id_generator->id_in_use(rowset_id); };
+    bool rowset_id_in_use(const RowsetId& rowset_id) {
+        return _rowset_id_generator->id_in_use(rowset_id);
+    };
 
-    void release_rowset_id(const RowsetId& rowset_id) { return _rowset_id_generator->release_id(rowset_id); };
+    void release_rowset_id(const RowsetId& rowset_id) {
+        return _rowset_id_generator->release_id(rowset_id);
+    };
 
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor; }
 
@@ -208,16 +197,14 @@ public:
     }
 
 private:
-
     OLAPStatus _check_file_descriptor_number();
 
     OLAPStatus _check_all_root_path_cluster_id();
 
     bool _used_disk_not_enough(uint32_t unused_num, uint32_t total_num);
 
-    OLAPStatus _config_root_path_unused_flag_file(
-            const std::string& root_path,
-            std::string* unused_flag_file);
+    OLAPStatus _config_root_path_unused_flag_file(const std::string& root_path,
+                                                  std::string* unused_flag_file);
 
     void _delete_tablets_on_unused_root_path();
 
@@ -231,8 +218,8 @@ private:
 
     void _clean_unused_rowset_metas();
 
-    OLAPStatus _do_sweep(
-            const std::string& scan_root, const time_t& local_tm_now, const int32_t expire);
+    OLAPStatus _do_sweep(const std::string& scan_root, const time_t& local_tm_now,
+                         const int32_t expire);
 
     // Thread functions
     // unused rowset monitor thread
@@ -264,10 +251,9 @@ private:
     void _parse_default_rowset_type();
 
 private:
-
     struct CompactionCandidate {
-        CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_) :
-                nice(nicumulative_compaction_), tablet_id(tablet_id_), disk_index(index_) {}
+        CompactionCandidate(uint32_t nicumulative_compaction_, int64_t tablet_id_, uint32_t index_)
+                : nice(nicumulative_compaction_), tablet_id(tablet_id_), disk_index(index_) {}
         uint32_t nice; // 优先度
         int64_t tablet_id;
         uint32_t disk_index = -1;
@@ -280,12 +266,12 @@ private:
     };
 
     struct CompactionDiskStat {
-        CompactionDiskStat(std::string path, uint32_t index, bool used) :
-                storage_path(path),
-                disk_index(index),
-                task_running(0),
-                task_remaining(0),
-                is_used(used){}
+        CompactionDiskStat(std::string path, uint32_t index, bool used)
+                : storage_path(path),
+                  disk_index(index),
+                  task_running(0),
+                  task_remaining(0),
+                  is_used(used) {}
         const std::string storage_path;
         const uint32_t disk_index;
         uint32_t task_running;
@@ -369,6 +355,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_STORAGE_ENGINE_H

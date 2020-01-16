@@ -17,9 +17,9 @@
 
 #include "util/error_util.h"
 
-#include <boost/foreach.hpp>
-
 #include <errno.h>
+
+#include <boost/foreach.hpp>
 #include <cstring>
 #include <sstream>
 
@@ -201,4 +201,4 @@ size_t error_count(const ErrorLogMap& errors) {
 
 #endif // end '#if 0': comment these code
 
-}
+} // namespace doris

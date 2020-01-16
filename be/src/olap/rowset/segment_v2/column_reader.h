@@ -17,21 +17,21 @@
 
 #pragma once
 
-#include <cstdint> // for uint32_t
 #include <cstddef> // for size_t
-#include <memory> // for unique_ptr
+#include <cstdint> // for uint32_t
+#include <memory>  // for unique_ptr
 
-#include "common/status.h" // for Status
-#include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "olap/olap_cond.h" // for CondColumn
-#include "olap/tablet_schema.h"
+#include "common/status.h"                              // for Status
+#include "gen_cpp/segment_v2.pb.h"                      // for ColumnMetaPB
+#include "olap/olap_cond.h"                             // for CondColumn
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
-#include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
-#include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
-#include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
-#include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
-#include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
+#include "olap/rowset/segment_v2/column_zone_map.h"     // for ColumnZoneMap
+#include "olap/rowset/segment_v2/common.h"              // for rowid_t
+#include "olap/rowset/segment_v2/ordinal_page_index.h"  // for OrdinalPageIndexIterator
+#include "olap/rowset/segment_v2/page_handle.h"         // for PageHandle
+#include "olap/rowset/segment_v2/parsed_page.h"         // for ParsedPage
+#include "olap/rowset/segment_v2/row_ranges.h"          // for RowRanges
+#include "olap/tablet_schema.h"
 #include "util/once.h"
 
 namespace doris {
@@ -67,10 +67,8 @@ class ColumnReader {
 public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
-    static Status create(const ColumnReaderOptions& opts,
-                         const ColumnMetaPB& meta,
-                         uint64_t num_rows,
-                         RandomAccessFile* file,
+    static Status create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                         uint64_t num_rows, RandomAccessFile* file,
                          std::unique_ptr<ColumnReader>* reader);
 
     ~ColumnReader();
@@ -95,13 +93,9 @@ public:
 
     bool has_zone_map() const { return _meta.has_zone_map_page(); }
 
-    bool has_bitmap_index() {
-        return _meta.has_bitmap_index();
-    }
+    bool has_bitmap_index() { return _meta.has_bitmap_index(); }
 
-    bool has_bloom_filter_index() {
-        return _meta.has_bloom_filter_index();
-    }
+    bool has_bloom_filter_index() { return _meta.has_bloom_filter_index(); }
 
     // get row ranges with zone map
     // - cond_column is user's query predicate
@@ -117,9 +111,7 @@ public:
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
 private:
-    ColumnReader(const ColumnReaderOptions& opts,
-                 const ColumnMetaPB& meta,
-                 uint64_t num_rows,
+    ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
                  RandomAccessFile* file);
     Status init();
 
@@ -168,8 +160,8 @@ private:
 // Base iterator to read one column data
 class ColumnIterator {
 public:
-    ColumnIterator() { }
-    virtual ~ColumnIterator() { }
+    ColumnIterator() {}
+    virtual ~ColumnIterator() {}
 
     virtual Status init(const ColumnIteratorOptions& opts) {
         _opts = opts;
@@ -193,8 +185,10 @@ public:
     virtual rowid_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column,
-                                                const std::vector<CondColumn*>& delete_conditions,
-                                                RowRanges* row_ranges) { return Status::OK(); }
+                                              const std::vector<CondColumn*>& delete_conditions,
+                                              RowRanges* row_ranges) {
+        return Status::OK();
+    }
 
     virtual Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
         return Status::OK();
@@ -280,14 +274,15 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-            bool is_nullable, FieldType type, size_t schema_length) : _has_default_value(has_default_value),
-                                                _default_value(default_value),
-                                                _is_nullable(is_nullable),
-                                                _type(type),
-                                                _schema_length(schema_length),
-                                                _is_default_value_null(false),
-                                                _type_size(0),
-                                                _pool(new MemPool(&_tracker)){ }
+                               bool is_nullable, FieldType type, size_t schema_length)
+            : _has_default_value(has_default_value),
+              _default_value(default_value),
+              _is_nullable(is_nullable),
+              _type(type),
+              _schema_length(schema_length),
+              _is_default_value_null(false),
+              _type_size(0),
+              _pool(new MemPool(&_tracker)) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -321,5 +316,5 @@ private:
     rowid_t _current_rowid = 0;
 };
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

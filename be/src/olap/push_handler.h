@@ -27,11 +27,10 @@
 #include "olap/file_helper.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
 #include "olap/row_cursor.h"
+#include "olap/rowset/rowset.h"
 
 namespace doris {
-
 
 class BinaryFile;
 class BinaryReader;
@@ -51,39 +50,30 @@ public:
     ~PushHandler() {}
 
     // Load local data file into specified tablet.
-    OLAPStatus process_streaming_ingestion(
-            TabletSharedPtr tablet,
-            const TPushReq& request,
-            PushType push_type,
-            std::vector<TTabletInfo>* tablet_info_vec);
+    OLAPStatus process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
+                                           PushType push_type,
+                                           std::vector<TTabletInfo>* tablet_info_vec);
 
     int64_t write_bytes() const { return _write_bytes; }
     int64_t write_rows() const { return _write_rows; }
+
 private:
     // Convert local data file to internal formatted delta,
     // return new delta's SegmentGroup
-    OLAPStatus _convert(
-            TabletSharedPtr cur_tablet,
-            TabletSharedPtr new_tablet_vec,
-            RowsetSharedPtr* cur_rowset,
-            RowsetSharedPtr* new_rowset);
+    OLAPStatus _convert(TabletSharedPtr cur_tablet, TabletSharedPtr new_tablet_vec,
+                        RowsetSharedPtr* cur_rowset, RowsetSharedPtr* new_rowset);
 
     // Only for debug
     std::string _debug_version_list(const Versions& versions) const;
 
-    void _get_tablet_infos(
-            const std::vector<TabletVars>& tablet_infos,
-            std::vector<TTabletInfo>* tablet_info_vec);
+    void _get_tablet_infos(const std::vector<TabletVars>& tablet_infos,
+                           std::vector<TTabletInfo>* tablet_info_vec);
 
-    OLAPStatus _do_streaming_ingestion(
-            TabletSharedPtr tablet,
-            const TPushReq& request,
-            PushType push_type,
-            vector<TabletVars>* tablet_vars,
-            std::vector<TTabletInfo>* tablet_info_vec);
+    OLAPStatus _do_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
+                                       PushType push_type, vector<TabletVars>* tablet_vars,
+                                       std::vector<TTabletInfo>* tablet_info_vec);
 
 private:
-
     // mainly tablet_id, version and delta file path
     TPushReq _request;
 
@@ -96,24 +86,14 @@ private:
 class BinaryFile : public FileHandlerWithBuf {
 public:
     BinaryFile() {}
-    virtual ~BinaryFile() {
-        close();
-    }
+    virtual ~BinaryFile() { close(); }
 
     OLAPStatus init(const char* path);
 
-    size_t header_size() const {
-        return _header.size();
-    }
-    size_t file_length() const {
-        return _header.file_length();
-    }
-    uint32_t checksum() const {
-        return _header.checksum();
-    }
-    SchemaHash schema_hash() const {
-        return _header.message().schema_hash();
-    }
+    size_t header_size() const { return _header.size(); }
+    size_t file_length() const { return _header.file_length(); }
+    uint32_t checksum() const { return _header.checksum(); }
+    SchemaHash schema_hash() const { return _header.message().schema_hash(); }
 
 private:
     FileHeader<OLAPRawDeltaHeaderMessage, int32_t, FileHandlerWithBuf> _header;
@@ -134,18 +114,15 @@ public:
     virtual bool eof() = 0;
 
     // call this function after finalize()
-    bool validate_checksum() {
-        return _adler_checksum == _file->checksum();
-    }
+    bool validate_checksum() { return _adler_checksum == _file->checksum(); }
 
 protected:
     IBinaryReader()
-        : _file(NULL),
-          _content_len(0),
-          _curr(0),
-          _adler_checksum(ADLER32_INIT),
-          _ready(false) {
-    }
+            : _file(NULL),
+              _content_len(0),
+              _curr(0),
+              _adler_checksum(ADLER32_INIT),
+              _ready(false) {}
 
     BinaryFile* _file;
     TabletSharedPtr _tablet;
@@ -156,42 +133,34 @@ protected:
 };
 
 // input file reader for Protobuffer format
-class BinaryReader: public IBinaryReader {
+class BinaryReader : public IBinaryReader {
 public:
     explicit BinaryReader();
-    virtual ~BinaryReader() {
-        finalize();
-    }
+    virtual ~BinaryReader() { finalize(); }
 
     virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file);
     virtual OLAPStatus finalize();
 
     virtual OLAPStatus next(RowCursor* row);
 
-    virtual bool eof() {
-        return _curr >= _content_len;
-    }
+    virtual bool eof() { return _curr >= _content_len; }
 
 private:
     char* _row_buf;
     size_t _row_buf_size;
 };
 
-class LzoBinaryReader: public IBinaryReader {
+class LzoBinaryReader : public IBinaryReader {
 public:
     explicit LzoBinaryReader();
-    virtual ~LzoBinaryReader() {
-        finalize();
-    }
+    virtual ~LzoBinaryReader() { finalize(); }
 
     virtual OLAPStatus init(TabletSharedPtr tablet, BinaryFile* file);
     virtual OLAPStatus finalize();
 
     virtual OLAPStatus next(RowCursor* row);
 
-    virtual bool eof() {
-        return _curr >= _content_len && _row_num == 0;
-    }
+    virtual bool eof() { return _curr >= _content_len && _row_num == 0; }
 
 private:
     OLAPStatus _next_block();
@@ -209,6 +178,6 @@ private:
     size_t _next_row_start;
 };
 
-}  // namespace doris
+} // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_PUSH_HANDLER_H

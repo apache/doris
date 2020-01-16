@@ -17,17 +17,17 @@
 
 #include "http/http_channel.h"
 
-#include <sstream>
-#include <string>
-
 #include <event2/buffer.h>
 #include <event2/http.h>
 
+#include <sstream>
+#include <string>
+
+#include "common/logging.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
-#include "http/http_headers.h"
 #include "http/http_status.h"
-#include "common/logging.h"
 
 namespace doris {
 
@@ -45,12 +45,11 @@ void HttpChannel::send_error(HttpRequest* request, HttpStatus status) {
 }
 
 void HttpChannel::send_reply(HttpRequest* request, HttpStatus status) {
-    evhttp_send_reply(request->get_evhttp_request(), status,
-                      defalut_reason(status).c_str(), nullptr);
+    evhttp_send_reply(request->get_evhttp_request(), status, defalut_reason(status).c_str(),
+                      nullptr);
 }
 
-void HttpChannel::send_reply(
-        HttpRequest* request, HttpStatus status, const std::string& content) {
+void HttpChannel::send_reply(HttpRequest* request, HttpStatus status, const std::string& content) {
     auto evb = evbuffer_new();
     evbuffer_add(evb, content.c_str(), content.size());
     evhttp_send_reply(request->get_evhttp_request(), status, defalut_reason(status).c_str(), evb);
@@ -60,10 +59,9 @@ void HttpChannel::send_reply(
 void HttpChannel::send_file(HttpRequest* request, int fd, size_t off, size_t size) {
     auto evb = evbuffer_new();
     evbuffer_add_file(evb, fd, off, size);
-    evhttp_send_reply(request->get_evhttp_request(),
-                      HttpStatus::OK,
+    evhttp_send_reply(request->get_evhttp_request(), HttpStatus::OK,
                       defalut_reason(HttpStatus::OK).c_str(), evb);
     evbuffer_free(evb);
 }
 
-}
+} // namespace doris

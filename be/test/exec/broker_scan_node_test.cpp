@@ -17,22 +17,22 @@
 
 #include "exec/broker_scan_node.h"
 
-#include <string>
-#include <map>
-#include <vector>
-
 #include <gtest/gtest.h>
 
+#include <map>
+#include <string>
+#include <vector>
+
 #include "common/object_pool.h"
-#include "runtime/tuple.h"
 #include "exec/local_file_reader.h"
 #include "exprs/cast_functions.h"
-#include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/user_function_cache.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/tuple.h"
+#include "runtime/user_function_cache.h"
 
 namespace doris {
 
@@ -44,15 +44,15 @@ public:
     }
     void init();
     static void SetUpTestCase() {
-        UserFunctionCache::instance()->init("./be/test/runtime/test_data/user_function_cache/normal");
+        UserFunctionCache::instance()->init(
+                "./be/test/runtime/test_data/user_function_cache/normal");
         CastFunctions::init();
     }
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
     void init_desc_table();
     RuntimeState _runtime_state;
@@ -484,7 +484,7 @@ TEST_F(BrokerScanNodeTest, normal) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -496,4 +496,3 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

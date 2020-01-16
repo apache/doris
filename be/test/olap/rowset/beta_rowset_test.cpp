@@ -19,22 +19,22 @@
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gtest/gtest.h"
+#include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
 #include "olap/row_block.h"
+#include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
-#include "olap/row_cursor.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
-#include "olap/comparison_predicate.h"
-#include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
-#include "util/slice.h"
+#include "runtime/mem_tracker.h"
 #include "util/file_utils.h"
+#include "util/slice.h"
 
 using std::string;
 
@@ -79,7 +79,8 @@ protected:
         ColumnPB* column_2 = tablet_schema_pb.add_column();
         column_2->set_unique_id(2);
         column_2->set_name("k2");
-        column_2->set_type("INT"); // TODO change to varchar(20) when dict encoding for string is supported
+        column_2->set_type(
+                "INT"); // TODO change to varchar(20) when dict encoding for string is supported
         column_2->set_length(4);
         column_2->set_index_length(4);
         column_2->set_is_nullable(true);
@@ -116,7 +117,8 @@ protected:
         rowset_writer_context->version.second = 10;
     }
 
-    void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context, RowsetReaderSharedPtr* result) {
+    void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context,
+                                       RowsetReaderSharedPtr* result) {
         auto s = rowset->create_reader(result);
         ASSERT_EQ(OLAP_SUCCESS, s);
         ASSERT_TRUE(*result != nullptr);
@@ -134,7 +136,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
     RowsetSharedPtr rowset;
     const int num_segments = 3;
     const uint32_t rows_per_segment = 4096;
-    {   // write `num_segments * rows_per_segment` rows to rowset
+    { // write `num_segments * rows_per_segment` rows to rowset
         RowsetWriterContext writer_context;
         create_rowset_writer_context(&tablet_schema, &writer_context);
 
@@ -172,7 +174,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         ASSERT_EQ(num_segments * rows_per_segment, rowset->rowset_meta()->num_rows());
     }
 
-    {   // test return ordered results and return k1 and k2
+    { // test return ordered results and return k1 and k2
         RowsetReaderContext reader_context;
         reader_context.tablet_schema = &tablet_schema;
         reader_context.need_ordered_result = true;
@@ -252,7 +254,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
         }
     }
 
-    {   // test return unordered data and only k3
+    { // test return unordered data and only k3
         RowsetReaderContext reader_context;
         reader_context.tablet_schema = &tablet_schema;
         reader_context.need_ordered_result = false;
@@ -326,8 +328,7 @@ TEST_F(BetaRowsetTest, BasicFunctionTest) {
 
 } // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
-

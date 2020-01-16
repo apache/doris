@@ -18,47 +18,41 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 
 #include "common/logging.h"
-#include "env/env.h" // for RandomAccessFile
+#include "env/env.h"                  // for RandomAccessFile
 #include "gutil/strings/substitute.h" // for Substitute
-#include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
-#include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
-#include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
-#include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
-#include "olap/rowset/segment_v2/page_compression.h"
-#include "olap/rowset/segment_v2/options.h" // for PageDecoderOptions
-#include "olap/types.h" // for TypeInfo
-#include "olap/column_block.h" // for ColumnBlockView
+#include "olap/column_block.h"        // for ColumnBlockView
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
+#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
+#include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
+#include "olap/rowset/segment_v2/options.h"       // for PageDecoderOptions
+#include "olap/rowset/segment_v2/page_compression.h"
+#include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
+#include "olap/rowset/segment_v2/page_handle.h"  // for PageHandle
+#include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
+#include "olap/types.h"                          // for TypeInfo
+#include "util/block_compression.h"
 #include "util/coding.h" // for get_varint32
 #include "util/crc32c.h"
 #include "util/rle_encoding.h" // for RleDecoder
-#include "util/block_compression.h"
-#include "olap/rowset/segment_v2/binary_dict_page.h" // for BinaryDictPageDecoder
-#include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
 
 namespace doris {
 namespace segment_v2 {
 
 using strings::Substitute;
 
-Status ColumnReader::create(const ColumnReaderOptions& opts,
-                            const ColumnMetaPB& meta,
-                            uint64_t num_rows,
-                            RandomAccessFile* file,
+Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                            uint64_t num_rows, RandomAccessFile* file,
                             std::unique_ptr<ColumnReader>* reader) {
-    std::unique_ptr<ColumnReader> reader_local(
-        new ColumnReader(opts, meta, num_rows, file));
+    std::unique_ptr<ColumnReader> reader_local(new ColumnReader(opts, meta, num_rows, file));
     RETURN_IF_ERROR(reader_local->init());
     *reader = std::move(reader_local);
     return Status::OK();
 }
 
-ColumnReader::ColumnReader(const ColumnReaderOptions& opts,
-                           const ColumnMetaPB& meta,
-                           uint64_t num_rows,
-                           RandomAccessFile* file)
-        : _opts(opts), _meta(meta), _num_rows(num_rows), _file(file) {
-}
+ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
+                           uint64_t num_rows, RandomAccessFile* file)
+        : _opts(opts), _meta(meta), _num_rows(num_rows), _file(file) {}
 
 ColumnReader::~ColumnReader() = default;
 
@@ -83,7 +77,8 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle) {
+Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stats,
+                               PageHandle* handle) {
     stats->total_pages_num++;
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
@@ -97,7 +92,8 @@ Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stat
     // Now we read this from file.
     size_t page_size = pp.size;
     if (page_size < sizeof(uint32_t)) {
-        return Status::Corruption(Substitute("Bad page, page size is too small, size=$0", page_size));
+        return Status::Corruption(
+                Substitute("Bad page, page size is too small, size=$0", page_size));
     }
 
     // Now we use this buffer to store page from storage, if this page is compressed
@@ -116,7 +112,7 @@ Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stat
         uint32_t actual = crc32c::Value(page_slice.data, page_slice.size - 4);
         if (expect != actual) {
             return Status::Corruption(
-                Substitute("Page checksum mismatch, actual=$0 vs expect=$1", actual, expect));
+                    Substitute("Page checksum mismatch, actual=$0 vs expect=$1", actual, expect));
         }
     }
 
@@ -148,14 +144,14 @@ Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stat
     return Status::OK();
 }
 
-Status ColumnReader::get_row_ranges_by_zone_map(CondColumn* cond_column,
-                                                const std::vector<CondColumn*>& delete_conditions,
-                                                std::vector<uint32_t>* delete_partial_filtered_pages,
-                                                RowRanges* row_ranges) {
+Status ColumnReader::get_row_ranges_by_zone_map(
+        CondColumn* cond_column, const std::vector<CondColumn*>& delete_conditions,
+        std::vector<uint32_t>* delete_partial_filtered_pages, RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
 
     std::vector<uint32_t> page_indexes;
-    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions, delete_partial_filtered_pages, &page_indexes));
+    RETURN_IF_ERROR(_get_filtered_pages(cond_column, delete_conditions,
+                                        delete_partial_filtered_pages, &page_indexes));
     RETURN_IF_ERROR(_calculate_row_ranges(page_indexes, row_ranges));
     return Status::OK();
 }
@@ -204,7 +200,8 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
     return Status::OK();
 }
 
-Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges) {
+Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_indexes,
+                                           RowRanges* row_ranges) {
     row_ranges->clear();
     for (auto i : page_indexes) {
         rowid_t page_first_id = _ordinal_index->get_first_row_id(i);
@@ -215,7 +212,8 @@ Status ColumnReader::_calculate_row_ranges(const std::vector<uint32_t>& page_ind
     return Status::OK();
 }
 
-Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
+Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
+                                                    RowRanges* row_ranges) {
     RETURN_IF_ERROR(_ensure_index_loaded());
     RowRanges bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
@@ -239,7 +237,7 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(CondColumn* cond_column, Row
         RETURN_IF_ERROR(bf_iter->read_bloom_filter(pid, &bf));
         if (cond_column->eval(bf.get())) {
             bf_row_ranges.add(RowRange(_ordinal_index->get_first_row_id(pid),
-                    _ordinal_index->get_last_row_id(pid) + 1));
+                                       _ordinal_index->get_last_row_id(pid) + 1));
         }
     }
     RowRanges::ranges_intersection(*row_ranges, bf_row_ranges, row_ranges);
@@ -286,7 +284,8 @@ Status ColumnReader::_load_bitmap_index() {
 Status ColumnReader::_load_bloom_filter_index() {
     if (_meta.has_bloom_filter_index()) {
         const BloomFilterIndexPB& bloom_filter_index_meta = _meta.bloom_filter_index();
-        _bloom_filter_index_reader.reset(new BloomFilterIndexReader(_file, bloom_filter_index_meta));
+        _bloom_filter_index_reader.reset(
+                new BloomFilterIndexReader(_file, bloom_filter_index_meta));
         RETURN_IF_ERROR(_bloom_filter_index_reader->load());
     } else {
         _bloom_filter_index_reader.reset(nullptr);
@@ -312,8 +311,7 @@ Status ColumnReader::seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* 
     return Status::OK();
 }
 
-FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {
-}
+FileColumnIterator::FileColumnIterator(ColumnReader* reader) : _reader(reader) {}
 
 FileColumnIterator::~FileColumnIterator() = default;
 
@@ -358,7 +356,8 @@ void FileColumnIterator::_seek_to_pos_in_page(ParsedPage* page, uint32_t offset_
             offset_in_data = page->data_decoder->current_index();
         } else {
             // rewind null bitmap, and
-            page->null_decoder = RleDecoder<bool>((const uint8_t*)page->null_bitmap.data, page->null_bitmap.size, 1);
+            page->null_decoder = RleDecoder<bool>((const uint8_t*)page->null_bitmap.data,
+                                                  page->null_bitmap.size, 1);
         }
 
         auto skip_nulls = page->null_decoder.Skip(skips);
@@ -381,7 +380,7 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
         }
 
         auto iter = std::find(_delete_partial_statisfied_pages.begin(),
-                _delete_partial_statisfied_pages.end(), _page->page_index);
+                              _delete_partial_statisfied_pages.end(), _page->page_index);
         bool is_partial = iter != _delete_partial_statisfied_pages.end();
         if (is_partial) {
             dst->column_block()->set_delete_state(DEL_PARTIAL_SATISFIED);
@@ -472,8 +471,8 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
             return Status::Corruption("Bad page, failed to decode null bitmap size");
         }
         if (null_bitmap_size > data.size) {
-            return Status::Corruption(
-                Substitute("Bad page, null bitmap too large $0 vs $1", null_bitmap_size, data.size));
+            return Status::Corruption(Substitute("Bad page, null bitmap too large $0 vs $1",
+                                                 null_bitmap_size, data.size));
         }
         page->null_decoder = RleDecoder<bool>((uint8_t*)data.data, null_bitmap_size, 1);
         page->null_bitmap = Slice(data.data, null_bitmap_size);
@@ -484,7 +483,8 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
 
     // create page data decoder
     PageDecoderOptions options;
-    RETURN_IF_ERROR(_reader->encoding_info()->create_page_decoder(data, options, &page->data_decoder));
+    RETURN_IF_ERROR(
+            _reader->encoding_info()->create_page_decoder(data, options, &page->data_decoder));
     RETURN_IF_ERROR(page->data_decoder->init());
 
     // lazy init dict_encoding'dict for three reasons
@@ -492,7 +492,8 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     // 2. ColumnReader which is owned by Segment and Rowset can being alive even when there is no query,it should retain memory as small as possible.
     // 3. Iterators of the same column won't repeat load the dict page because of page cache.
     if (_reader->encoding_info()->encoding() == DICT_ENCODING) {
-        BinaryDictPageDecoder* binary_dict_page_decoder = (BinaryDictPageDecoder*)page->data_decoder;
+        BinaryDictPageDecoder* binary_dict_page_decoder =
+                (BinaryDictPageDecoder*)page->data_decoder;
         if (binary_dict_page_decoder->is_dict_encoding()) {
             if (_dict_decoder == nullptr) {
                 PagePointer pp = _reader->get_dict_page_pointer();
@@ -510,19 +511,20 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
     return Status::OK();
 }
 
-Status FileColumnIterator::get_row_ranges_by_zone_map(CondColumn* cond_column,
-                                      const std::vector<CondColumn*>& delete_conditions,
-                                      RowRanges* row_ranges) {
+Status FileColumnIterator::get_row_ranges_by_zone_map(
+        CondColumn* cond_column, const std::vector<CondColumn*>& delete_conditions,
+        RowRanges* row_ranges) {
     if (_reader->has_zone_map()) {
-        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(cond_column, delete_conditions,
-                &_delete_partial_statisfied_pages, row_ranges));
+        RETURN_IF_ERROR(_reader->get_row_ranges_by_zone_map(
+                cond_column, delete_conditions, &_delete_partial_statisfied_pages, row_ranges));
     }
     return Status::OK();
 }
 
-Status FileColumnIterator::get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) {
-    if (cond_column != nullptr &&
-            cond_column->can_do_bloom_filter() && _reader->has_bloom_filter_index()) {
+Status FileColumnIterator::get_row_ranges_by_bloom_filter(CondColumn* cond_column,
+                                                          RowRanges* row_ranges) {
+    if (cond_column != nullptr && cond_column->can_do_bloom_filter() &&
+        _reader->has_bloom_filter_index()) {
         RETURN_IF_ERROR(_reader->get_row_ranges_by_bloom_filter(cond_column, row_ranges));
     }
     return Status::OK();
@@ -549,9 +551,8 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 memory_copy(string_buffer, _default_value.c_str(), _default_value.length());
                 ((Slice*)_mem_value)->size = length;
                 ((Slice*)_mem_value)->data = string_buffer;
-            } else if ( _type == OLAP_FIELD_TYPE_VARCHAR ||
-                _type == OLAP_FIELD_TYPE_HLL ||
-                _type == OLAP_FIELD_TYPE_OBJECT ) {
+            } else if (_type == OLAP_FIELD_TYPE_VARCHAR || _type == OLAP_FIELD_TYPE_HLL ||
+                       _type == OLAP_FIELD_TYPE_OBJECT) {
                 int32_t length = _default_value.length();
                 char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
                 memory_copy(string_buffer, _default_value.c_str(), length);
@@ -561,15 +562,16 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 s = type_info->from_string(_mem_value, _default_value);
             }
             if (s != OLAP_SUCCESS) {
-                return Status::InternalError(
-                        strings::Substitute("get value of type from default value failed. status:$0", s));
+                return Status::InternalError(strings::Substitute(
+                        "get value of type from default value failed. status:$0", s));
             }
         }
     } else if (_is_nullable) {
         // if _has_default_value is false but _is_nullable is true, we should return null as default value.
         _is_default_value_null = true;
     } else {
-        return Status::InternalError("invalid default value column for no default value and not nullable");
+        return Status::InternalError(
+                "invalid default value column for no default value and not nullable");
     }
     return Status::OK();
 }
@@ -590,5 +592,5 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     return Status::OK();
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

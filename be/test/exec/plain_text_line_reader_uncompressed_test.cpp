@@ -15,26 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/plain_text_line_reader.h"
-
 #include <gtest/gtest.h>
 
-#include "exec/local_file_reader.h"
 #include "exec/decompressor.h"
+#include "exec/local_file_reader.h"
+#include "exec/plain_text_line_reader.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
 class PlainTextLineReaderTest : public testing::Test {
 public:
-    PlainTextLineReaderTest() : _profile(&_obj_pool, "TestProfile") {
-    }
+    PlainTextLineReaderTest() : _profile(&_obj_pool, "TestProfile") {}
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
     ObjectPool _obj_pool;
     RuntimeProfile _profile;
@@ -92,7 +89,8 @@ TEST_F(PlainTextLineReaderTest, uncompressed_normal_use) {
 }
 
 TEST_F(PlainTextLineReaderTest, uncompressed_no_newline) {
-    LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/no_newline.csv", 0);
+    LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/no_newline.csv",
+                                0);
     auto st = file_reader.open();
     ASSERT_TRUE(st.ok());
 

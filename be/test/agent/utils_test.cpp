@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <algorithm>
-#include "gtest/gtest.h"
-#include "gmock/gmock.h"
 #include "agent/utils.h"
+
+#include <algorithm>
+
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "service/backend_options.h"
 #include "util/logging.h"
 
@@ -35,15 +37,15 @@ TEST(AgentUtilsTest, Test) {
     EXPECT_EQ(3, cnt);
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    
+
     doris::init_glog("be-test");
     doris::BackendOptions::init();
     ::testing::InitGoogleTest(&argc, argv);

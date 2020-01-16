@@ -17,30 +17,29 @@
 
 #include "exec/es/es_predicate.h"
 
+#include <gutil/strings/substitute.h>
 #include <stdint.h>
+
+#include <boost/algorithm/string.hpp>
 #include <map>
 #include <sstream>
-#include <boost/algorithm/string.hpp>
-#include <gutil/strings/substitute.h>
 
-#include "common/status.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "exec/es/es_query_builder.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
-
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/olap_common.h"
 #include "olap/utils.h"
 #include "runtime/client_cache.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
 #include "runtime/datetime_value.h"
 #include "runtime/large_int_value.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
-
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
@@ -52,53 +51,52 @@ using namespace std;
 std::string ExtLiteral::value_to_string() {
     std::stringstream ss;
     switch (_type) {
-        case TYPE_TINYINT:
-            ss << std::to_string(get_byte());
-            break;
-        case TYPE_SMALLINT:
-            ss << std::to_string(get_short());
-            break;
-        case TYPE_INT:
-            ss << std::to_string(get_int());
-            break;
-        case TYPE_BIGINT:
-            ss << std::to_string(get_long());
-            break;
-        case TYPE_FLOAT:
-            ss << std::to_string(get_float());
-            break;
-        case TYPE_DOUBLE:
-            ss << std::to_string(get_double());
-            break;
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-            ss << get_string();
-            break;
-        case TYPE_DATE:
-        case TYPE_DATETIME:
-            ss << get_date_string();
-            break;
-        case TYPE_BOOLEAN:
-            ss << std::to_string(get_bool());
-            break;
-        case TYPE_DECIMAL:
-            ss << get_decimal_string();
-            break;
-        case TYPE_DECIMALV2:
-            ss << get_decimalv2_string();
-            break;
-        case TYPE_LARGEINT:
-            ss << get_largeint_string();
-            break;
-        default:
-            DCHECK(false);
-            break;
+    case TYPE_TINYINT:
+        ss << std::to_string(get_byte());
+        break;
+    case TYPE_SMALLINT:
+        ss << std::to_string(get_short());
+        break;
+    case TYPE_INT:
+        ss << std::to_string(get_int());
+        break;
+    case TYPE_BIGINT:
+        ss << std::to_string(get_long());
+        break;
+    case TYPE_FLOAT:
+        ss << std::to_string(get_float());
+        break;
+    case TYPE_DOUBLE:
+        ss << std::to_string(get_double());
+        break;
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+        ss << get_string();
+        break;
+    case TYPE_DATE:
+    case TYPE_DATETIME:
+        ss << get_date_string();
+        break;
+    case TYPE_BOOLEAN:
+        ss << std::to_string(get_bool());
+        break;
+    case TYPE_DECIMAL:
+        ss << get_decimal_string();
+        break;
+    case TYPE_DECIMALV2:
+        ss << get_decimalv2_string();
+        break;
+    case TYPE_LARGEINT:
+        ss << get_largeint_string();
+        break;
+    default:
+        DCHECK(false);
+        break;
     }
     return ss.str();
 }
 
-ExtLiteral::~ExtLiteral(){
-}
+ExtLiteral::~ExtLiteral() {}
 
 int8_t ExtLiteral::get_byte() {
     DCHECK(_type == TYPE_TINYINT);
@@ -144,7 +142,7 @@ std::string ExtLiteral::get_date_string() {
 
     char str[MAX_DTVALUE_STR_LEN];
     date_value.to_string(str);
-    return std::string(str, strlen(str)); 
+    return std::string(str, strlen(str));
 }
 
 bool ExtLiteral::get_bool() {
@@ -167,16 +165,14 @@ std::string ExtLiteral::get_largeint_string() {
     return LargeIntValue::to_string(*reinterpret_cast<__int128*>(_value));
 }
 
-EsPredicate::EsPredicate(ExprContext* context,
-            const TupleDescriptor* tuple_desc) :
-    _context(context),
-    _disjuncts_num(0),
-    _tuple_desc(tuple_desc),
-    _es_query_status(Status::OK()) {
-}
+EsPredicate::EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc)
+        : _context(context),
+          _disjuncts_num(0),
+          _tuple_desc(tuple_desc),
+          _es_query_status(Status::OK()) {}
 
 EsPredicate::~EsPredicate() {
-    for(int i=0; i < _disjuncts.size(); i++) {
+    for (int i = 0; i < _disjuncts.size(); i++) {
         delete _disjuncts[i];
     }
     _disjuncts.clear();
@@ -187,7 +183,7 @@ Status EsPredicate::build_disjuncts_list() {
 }
 
 // make sure to build by build_disjuncts_list
-const vector<ExtPredicate*>& EsPredicate::get_predicate_list(){
+const vector<ExtPredicate*>& EsPredicate::get_predicate_list() {
     return _disjuncts;
 }
 
@@ -203,16 +199,16 @@ static bool ignore_cast(const SlotDescriptor* slot, const Expr* expr) {
 
 static bool is_literal_node(const Expr* expr) {
     switch (expr->node_type()) {
-        case TExprNodeType::BOOL_LITERAL:
-        case TExprNodeType::INT_LITERAL:
-        case TExprNodeType::LARGE_INT_LITERAL:
-        case TExprNodeType::FLOAT_LITERAL:
-        case TExprNodeType::DECIMAL_LITERAL:
-        case TExprNodeType::STRING_LITERAL:
-        case TExprNodeType::DATE_LITERAL:
-            return true;
-        default:
-            return false;
+    case TExprNodeType::BOOL_LITERAL:
+    case TExprNodeType::INT_LITERAL:
+    case TExprNodeType::LARGE_INT_LITERAL:
+    case TExprNodeType::FLOAT_LITERAL:
+    case TExprNodeType::DECIMAL_LITERAL:
+    case TExprNodeType::STRING_LITERAL:
+    case TExprNodeType::DATE_LITERAL:
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -248,30 +244,23 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
 
         ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
         ExtPredicate* predicate = new ExtBinaryPredicate(
-                    TExprNodeType::BINARY_PRED,
-                    slot_desc->col_name(),
-                    slot_desc->type(),
-                    op,
-                    literal);
+                TExprNodeType::BINARY_PRED, slot_desc->col_name(), slot_desc->type(), op, literal);
 
         _disjuncts.push_back(predicate);
         return Status::OK();
     }
-    
+
     if (is_match_func(conjunct)) {
         Expr* expr = conjunct->get_child(1);
         ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
         vector<ExtLiteral> query_conditions;
         query_conditions.emplace_back(literal);
         vector<ExtColumnDesc> cols; //TODO
-        ExtPredicate* predicate = new ExtFunction(
-                        TExprNodeType::FUNCTION_CALL,
-                        conjunct->fn().name.function_name,
-                        cols,
-                        query_conditions);
+        ExtPredicate* predicate =
+                new ExtFunction(TExprNodeType::FUNCTION_CALL, conjunct->fn().name.function_name,
+                                cols, query_conditions);
         if (_es_query_status.ok()) {
-            _es_query_status 
-                = BooleanQueryBuilder::check_es_query(*(ExtFunction *)predicate); 
+            _es_query_status = BooleanQueryBuilder::check_es_query(*(ExtFunction*)predicate);
             if (!_es_query_status.ok()) {
                 delete predicate;
                 return _es_query_status;
@@ -282,8 +271,9 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         return Status::OK();
     }
 
-    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
-        && (conjunct->fn().name.function_name == "is_null_pred" || conjunct->fn().name.function_name == "is_not_null_pred")) {
+    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type() &&
+        (conjunct->fn().name.function_name == "is_null_pred" ||
+         conjunct->fn().name.function_name == "is_not_null_pred")) {
         SlotRef* slot_ref = (SlotRef*)(conjunct->get_child(0));
         const SlotDescriptor* slot_desc = get_slot_desc(slot_ref);
         bool is_not_null;
@@ -293,7 +283,8 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             is_not_null = true;
         }
         // use TExprNodeType::IS_NULL_PRED for BooleanQueryBuilder translate
-        ExtIsNullPredicate* predicate = new ExtIsNullPredicate(TExprNodeType::IS_NULL_PRED, slot_desc->col_name(), slot_desc->type(), is_not_null);
+        ExtIsNullPredicate* predicate = new ExtIsNullPredicate(
+                TExprNodeType::IS_NULL_PRED, slot_desc->col_name(), slot_desc->type(), is_not_null);
         _disjuncts.push_back(predicate);
         return Status::OK();
     }
@@ -328,22 +319,20 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
 
         ExtLiteral literal(type, _context->get_value(expr, NULL));
         ExtPredicate* predicate = new ExtLikePredicate(
-                    TExprNodeType::LIKE_PRED,
-                    slot_desc->col_name(),
-                    slot_desc->type(),
-                    literal);
+                TExprNodeType::LIKE_PRED, slot_desc->col_name(), slot_desc->type(), literal);
 
         _disjuncts.push_back(predicate);
         return Status::OK();
     }
-      
+
     if (TExprNodeType::IN_PRED == conjunct->node_type()) {
         // the op code maybe FILTER_NEW_IN, it means there is function in list
         // like col_a in (abs(1))
-        if (TExprOpcode::FILTER_IN != conjunct->op() 
-            && TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
-            return Status::InternalError("build disjuncts failed: "
-                        "opcode in IN_PRED is neither FILTER_IN nor FILTER_NOT_IN");
+        if (TExprOpcode::FILTER_IN != conjunct->op() &&
+            TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
+            return Status::InternalError(
+                    "build disjuncts failed: "
+                    "opcode in IN_PRED is neither FILTER_IN nor FILTER_NOT_IN");
         }
 
         vector<ExtLiteral> in_pred_values;
@@ -353,7 +342,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             return Status::InternalError("build disjuncts failed: node type is not slot ref");
         }
 
-        const SlotDescriptor* slot_desc = get_slot_desc((const SlotRef *)expr);
+        const SlotDescriptor* slot_desc = get_slot_desc((const SlotRef*)expr);
         if (slot_desc == nullptr) {
             return Status::InternalError("build disjuncts failed: slot_desc is null");
         }
@@ -370,22 +359,19 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
                 return Status::InternalError("build disjuncts failed: hybird set has a null value");
             }
 
-            ExtLiteral literal(slot_desc->type().type, const_cast<void *>(iter->get_value()));
+            ExtLiteral literal(slot_desc->type().type, const_cast<void*>(iter->get_value()));
             in_pred_values.emplace_back(literal);
             iter->next();
         }
 
-        ExtPredicate* predicate = new ExtInPredicate(
-                    TExprNodeType::IN_PRED,
-                    pred->is_not_in(),
-                    slot_desc->col_name(),
-                    slot_desc->type(),
-                    in_pred_values);
+        ExtPredicate* predicate =
+                new ExtInPredicate(TExprNodeType::IN_PRED, pred->is_not_in(), slot_desc->col_name(),
+                                   slot_desc->type(), in_pred_values);
         _disjuncts.push_back(predicate);
 
         return Status::OK();
-    } 
-    
+    }
+
     if (TExprNodeType::COMPOUND_PRED == conjunct->node_type()) {
         if (TExprOpcode::COMPOUND_OR != conjunct->op()) {
             return Status::InternalError("build disjuncts failed: op is not COMPOUND_OR");
@@ -409,9 +395,9 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
 }
 
 bool EsPredicate::is_match_func(const Expr* conjunct) {
-    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
-        && conjunct->fn().name.function_name == "esquery") {
-            return true;
+    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type() &&
+        conjunct->fn().name.function_name == "esquery") {
+        return true;
     }
     return false;
 }
@@ -427,4 +413,4 @@ const SlotDescriptor* EsPredicate::get_slot_desc(const SlotRef* slotRef) {
     return slot_desc;
 }
 
-}
+} // namespace doris

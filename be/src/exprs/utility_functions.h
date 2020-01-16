@@ -30,15 +30,13 @@ class UtilityFunctions {
 public:
     static void init();
     // Implementation of the version() function. Returns the version string.
-    static doris_udf::StringVal version(
-        doris_udf::FunctionContext* ctx);
+    static doris_udf::StringVal version(doris_udf::FunctionContext* ctx);
 
     // Testing function that sleeps for the specified number of milliseconds. Returns true.
-    static doris_udf::BooleanVal sleep(
-        doris_udf::FunctionContext* ctx, const doris_udf::IntVal& milliseconds);
-
+    static doris_udf::BooleanVal sleep(doris_udf::FunctionContext* ctx,
+                                       const doris_udf::IntVal& milliseconds);
 };
 
-}
+} // namespace doris
 
 #endif

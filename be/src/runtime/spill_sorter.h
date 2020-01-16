@@ -93,9 +93,9 @@ public:
     // _merge_batch_size is the size of the batches created to provide rows to the merger
     // and retrieve rows from an intermediate merger.
     SpillSorter(const TupleRowComparator& compare_less_than,
-            const std::vector<ExprContext*>& sort_tuple_slot_expr_ctxs,
-            RowDescriptor* output_row_desc, MemTracker* mem_tracker,
-            RuntimeProfile* profile, RuntimeState* state);
+                const std::vector<ExprContext*>& sort_tuple_slot_expr_ctxs,
+                RowDescriptor* output_row_desc, MemTracker* mem_tracker, RuntimeProfile* profile,
+                RuntimeState* state);
 
     ~SpillSorter();
 
@@ -127,7 +127,7 @@ public:
     // to hold tuple rows from the input runs, and the merger itself deep-copies
     // sort-merged rows into its output batch.
     static uint64_t estimate_merge_mem(uint64_t available_blocks, RowDescriptor* row_desc,
-            int merge_batch_size);
+                                       int merge_batch_size);
 
 private:
     class Run;

@@ -19,14 +19,15 @@
 #define DORIS_BE_EXPRS_TIMEZONE_DB_H
 
 #include <stdint.h>
-#include <iostream>
-#include <cstddef>
-#include <sstream>
-#include <boost/date_time/posix_time/posix_time.hpp>
+
 #include <boost/date_time/gregorian/gregorian.hpp>
-#include <boost/date_time/time_zone_base.hpp>
 #include <boost/date_time/local_time/local_time.hpp>
+#include <boost/date_time/posix_time/posix_time.hpp>
+#include <boost/date_time/time_zone_base.hpp>
 #include <boost/thread/thread.hpp>
+#include <cstddef>
+#include <iostream>
+#include <sstream>
 
 #include "common/logging.h"
 
@@ -35,11 +36,12 @@ namespace doris {
 class TimezoneDatabase {
 public:
     static void init();
-    static boost::local_time::time_zone_ptr find_timezone(const std::string &tz);
+    static boost::local_time::time_zone_ptr find_timezone(const std::string& tz);
     static const std::string default_time_zone;
+
 private:
-    static const char *_s_timezone_database_str;
+    static const char* _s_timezone_database_str;
     static boost::local_time::tz_database _s_tz_database;
 };
-}
+} // namespace doris
 #endif

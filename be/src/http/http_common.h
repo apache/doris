@@ -38,4 +38,4 @@ static const std::string HTTP_EXEC_MEM_LIMIT = "exec_mem_limit";
 
 static const std::string HTTP_100_CONTINUE = "100-continue";
 
-}
+} // namespace doris

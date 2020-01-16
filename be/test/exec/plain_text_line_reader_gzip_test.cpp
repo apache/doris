@@ -15,37 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/plain_text_line_reader.h"
-
 #include <gtest/gtest.h>
 
-#include "exec/local_file_reader.h"
 #include "exec/decompressor.h"
+#include "exec/local_file_reader.h"
+#include "exec/plain_text_line_reader.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
 
 class PlainTextLineReaderTest : public testing::Test {
 public:
-    PlainTextLineReaderTest() : _profile(&_obj_pool, "TestProfile") {
-    }
+    PlainTextLineReaderTest() : _profile(&_obj_pool, "TestProfile") {}
 
 protected:
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual void SetUp() {}
+    virtual void TearDown() {}
+
 private:
     ObjectPool _obj_pool;
     RuntimeProfile _profile;
 };
 
 TEST_F(PlainTextLineReaderTest, gzip_normal_use) {
-    LocalFileReader file_reader(
-            "./be/test/exec/test_data/plain_text_line_reader/test_file.csv.gz", 0);
+    LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/test_file.csv.gz",
+                                0);
     auto st = file_reader.open();
     ASSERT_TRUE(st.ok());
-    
+
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
     ASSERT_TRUE(st.ok());
@@ -92,10 +89,11 @@ TEST_F(PlainTextLineReaderTest, gzip_normal_use) {
 }
 
 TEST_F(PlainTextLineReaderTest, uncompressed_no_newline) {
-    LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/no_newline.csv.gz", 0);
+    LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/no_newline.csv.gz",
+                                0);
     auto st = file_reader.open();
     ASSERT_TRUE(st.ok());
-    
+
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
     ASSERT_TRUE(st.ok());
@@ -129,7 +127,7 @@ TEST_F(PlainTextLineReaderTest, gzip_test_limit) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
     ASSERT_TRUE(st.ok());
-    
+
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
     ASSERT_TRUE(st.ok());
@@ -164,7 +162,7 @@ TEST_F(PlainTextLineReaderTest, gzip_test_limit2) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
     ASSERT_TRUE(st.ok());
-    
+
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
     ASSERT_TRUE(st.ok());
@@ -188,7 +186,7 @@ TEST_F(PlainTextLineReaderTest, gzip_test_limit3) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
     ASSERT_TRUE(st.ok());
-    
+
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
     ASSERT_TRUE(st.ok());
@@ -217,7 +215,7 @@ TEST_F(PlainTextLineReaderTest, gzip_test_limit4) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
     ASSERT_TRUE(st.ok());
-    
+
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
     ASSERT_TRUE(st.ok());
@@ -246,7 +244,7 @@ TEST_F(PlainTextLineReaderTest, gzip_test_limit5) {
     LocalFileReader file_reader("./be/test/exec/test_data/plain_text_line_reader/limit.csv.gz", 0);
     auto st = file_reader.open();
     ASSERT_TRUE(st.ok());
-    
+
     Decompressor* decompressor;
     st = Decompressor::create_decompressor(CompressType::GZIP, &decompressor);
     ASSERT_TRUE(st.ok());

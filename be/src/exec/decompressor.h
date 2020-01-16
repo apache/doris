@@ -17,27 +17,20 @@
 
 #pragma once
 
-#include <zlib.h>
 #include <bzlib.h>
 #include <lz4/lz4frame.h>
+#include <zlib.h>
 
 #ifdef DORIS_WITH_LZO
-#include <lzo/lzoconf.h>
 #include <lzo/lzo1x.h>
+#include <lzo/lzoconf.h>
 #endif
 
 #include "common/status.h"
 
 namespace doris {
 
-enum CompressType {
-    UNCOMPRESSED,
-    GZIP,
-    DEFLATE,
-    BZIP2,
-    LZ4FRAME,
-    LZOP
-};
+enum CompressType { UNCOMPRESSED, GZIP, DEFLATE, BZIP2, LZ4FRAME, LZOP };
 
 class Decompressor {
 public:
@@ -55,16 +48,14 @@ public:
     // more_input_bytes(out):   decompressor need more bytes to consume
     // more_output_bytes(out):  decompressor need more space to save decompressed data
     //
-    // input and output buf should be allocated and released outside 
-    virtual Status decompress(
-            uint8_t* input, size_t input_len, size_t* input_bytes_read,
-            uint8_t* output, size_t output_max_len,
-            size_t* decompressed_len, bool* stream_end,
-            size_t* more_input_bytes, size_t* more_output_bytes) = 0;
+    // input and output buf should be allocated and released outside
+    virtual Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                              uint8_t* output, size_t output_max_len, size_t* decompressed_len,
+                              bool* stream_end, size_t* more_input_bytes,
+                              size_t* more_output_bytes) = 0;
 
 public:
-    static Status create_decompressor(CompressType type,
-                                      Decompressor** decompressor);
+    static Status create_decompressor(CompressType type, Decompressor** decompressor);
 
     virtual std::string debug_info();
 
@@ -73,7 +64,7 @@ public:
 protected:
     virtual Status init() = 0;
 
-    Decompressor(CompressType ctype):_ctype(ctype) {}
+    Decompressor(CompressType ctype) : _ctype(ctype) {}
 
     CompressType _ctype;
 };
@@ -82,11 +73,10 @@ class GzipDecompressor : public Decompressor {
 public:
     virtual ~GzipDecompressor();
 
-    virtual Status decompress(
-            uint8_t* input, size_t input_len, size_t* input_bytes_read,
-            uint8_t* output, size_t output_max_len,
-            size_t* decompressed_len, bool* stream_end,
-            size_t* more_input_bytes, size_t* more_output_bytes) override;
+    virtual Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                              uint8_t* output, size_t output_max_len, size_t* decompressed_len,
+                              bool* stream_end, size_t* more_input_bytes,
+                              size_t* more_output_bytes) override;
 
     virtual std::string debug_info() override;
 
@@ -100,20 +90,19 @@ private:
 
     z_stream _z_strm;
 
-    // These are magic numbers from zlib.h.  Not clear why they are not defined there. 
-    const static int WINDOW_BITS = 15;    // Maximum window size 
-    const static int DETECT_CODEC = 32;   // Determine if this is libz or gzip from header. 
+    // These are magic numbers from zlib.h.  Not clear why they are not defined there.
+    const static int WINDOW_BITS = 15;  // Maximum window size
+    const static int DETECT_CODEC = 32; // Determine if this is libz or gzip from header.
 };
 
 class Bzip2Decompressor : public Decompressor {
 public:
     virtual ~Bzip2Decompressor();
 
-    virtual Status decompress(
-            uint8_t* input, size_t input_len, size_t* input_bytes_read,
-            uint8_t* output, size_t output_max_len,
-            size_t* decompressed_len, bool* stream_end,
-            size_t* more_input_bytes, size_t* more_output_bytes) override;
+    virtual Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                              uint8_t* output, size_t output_max_len, size_t* decompressed_len,
+                              bool* stream_end, size_t* more_input_bytes,
+                              size_t* more_output_bytes) override;
 
     virtual std::string debug_info() override;
 
@@ -130,11 +119,10 @@ class Lz4FrameDecompressor : public Decompressor {
 public:
     virtual ~Lz4FrameDecompressor();
 
-    virtual Status decompress(
-            uint8_t* input, size_t input_len, size_t* input_bytes_read,
-            uint8_t* output, size_t output_max_len,
-            size_t* decompressed_len, bool* stream_end,
-            size_t* more_input_bytes, size_t* more_output_bytes) override;
+    virtual Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                              uint8_t* output, size_t output_max_len, size_t* decompressed_len,
+                              bool* stream_end, size_t* more_input_bytes,
+                              size_t* more_output_bytes) override;
 
     virtual std::string debug_info() override;
 
@@ -156,28 +144,21 @@ class LzopDecompressor : public Decompressor {
 public:
     virtual ~LzopDecompressor();
 
-    virtual Status decompress(
-            uint8_t* input, size_t input_len, size_t* input_bytes_read,
-            uint8_t* output, size_t output_max_len,
-            size_t* decompressed_len, bool* stream_end,
-            size_t* more_input_bytes, size_t* more_output_bytes) override;
+    virtual Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read,
+                              uint8_t* output, size_t output_max_len, size_t* decompressed_len,
+                              bool* stream_end, size_t* more_input_bytes,
+                              size_t* more_output_bytes) override;
 
     virtual std::string debug_info() override;
 
 private:
     friend class Decompressor;
-    LzopDecompressor() :
-        Decompressor(CompressType::LZOP),
-        _header_info({0}),
-        _is_header_loaded(false) {}
+    LzopDecompressor()
+            : Decompressor(CompressType::LZOP), _header_info({0}), _is_header_loaded(false) {}
     virtual Status init() override;
 
 private:
-    enum LzoChecksum {
-        CHECK_NONE,
-        CHECK_CRC32,
-        CHECK_ADLER
-    };
+    enum LzoChecksum { CHECK_NONE, CHECK_CRC32, CHECK_ADLER };
 
 private:
     inline uint8_t* get_uint8(uint8_t* ptr, uint8_t* value) {
@@ -200,22 +181,18 @@ private:
     }
 
     inline LzoChecksum input_type(int flags) {
-        return (flags & F_CRC32_C) ? CHECK_CRC32 :
-                (flags & F_ADLER32_C) ? CHECK_ADLER : CHECK_NONE;
+        return (flags & F_CRC32_C) ? CHECK_CRC32 : (flags & F_ADLER32_C) ? CHECK_ADLER : CHECK_NONE;
     }
 
     inline LzoChecksum output_type(int flags) {
-        return (flags & F_CRC32_D) ? CHECK_CRC32 :
-                (flags & F_ADLER32_D) ? CHECK_ADLER : CHECK_NONE;
+        return (flags & F_CRC32_D) ? CHECK_CRC32 : (flags & F_ADLER32_D) ? CHECK_ADLER : CHECK_NONE;
     }
 
-    Status parse_header_info(uint8_t* input, size_t input_len,
-                             size_t* input_bytes_read,
+    Status parse_header_info(uint8_t* input, size_t input_len, size_t* input_bytes_read,
                              size_t* more_bytes_needed);
 
-    Status checksum(LzoChecksum type, const std::string& source,
-                    uint32_t expected,
-                    uint8_t* ptr, size_t len);
+    Status checksum(LzoChecksum type, const std::string& source, uint32_t expected, uint8_t* ptr,
+                    size_t len);
 
 private:
     // lzop header info
@@ -259,6 +236,6 @@ private:
     const static uint64_t F_CRC32_D;
     const static uint64_t F_ADLER32_D;
 };
-#endif // DORIS_WITH_LZO 
+#endif // DORIS_WITH_LZO
 
-} // namespace
+} // namespace doris

@@ -58,8 +58,9 @@ class SmallFileMgr;
 class BackendServiceClient;
 class FrontendServiceClient;
 class TPaloBrokerServiceClient;
-class TExtDataSourceServiceClient; 
-template<class T> class ClientCache;
+class TExtDataSourceServiceClient;
+template <class T>
+class ClientCache;
 class HeartbeatFlags;
 
 // Execution environment for queries/plan fragments.
@@ -88,19 +89,23 @@ public:
     ~ExecEnv();
 
     const std::string& token() const;
-    ExternalScanContextMgr* external_scan_context_mgr() {return _external_scan_context_mgr;}
+    ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     MetricRegistry* metrics() const { return _metrics; }
     DataStreamMgr* stream_mgr() { return _stream_mgr; }
     ResultBufferMgr* result_mgr() { return _result_mgr; }
-    ResultQueueMgr* result_queue_mgr() {return _result_queue_mgr;}
+    ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
-    ClientCache<TExtDataSourceServiceClient>* extdatasource_client_cache() { return _extdatasource_client_cache; }
+    ClientCache<TExtDataSourceServiceClient>* extdatasource_client_cache() {
+        return _extdatasource_client_cache;
+    }
 
     // using template to simplify client cache management
-    template<typename T>
-    ClientCache<T>* get_client_cache() { return nullptr; }
+    template <typename T>
+    ClientCache<T>* get_client_cache() {
+        return nullptr;
+    }
 
     MemTracker* process_mem_tracker() { return _mem_tracker; }
     PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
@@ -138,8 +143,7 @@ private:
 
     Status _init_mem_tracker();
     /// Initialise 'buffer_pool_' and 'buffer_reservation_' with given capacity.
-    void _init_buffer_pool(int64_t min_page_len,
-                           int64_t capacity, int64_t clean_pages_limit);
+    void _init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
 
 private:
     std::vector<StorePath> _store_paths;
@@ -183,16 +187,25 @@ private:
     HeartbeatFlags* _heartbeat_flags = nullptr;
 };
 
-
 template <>
-inline ClientCache<BackendServiceClient>* ExecEnv::get_client_cache<BackendServiceClient>() { return _backend_client_cache; }
-template <>
-inline ClientCache<FrontendServiceClient>* ExecEnv::get_client_cache<FrontendServiceClient>() { return _frontend_client_cache; }
-template <>
-inline ClientCache<TPaloBrokerServiceClient>* ExecEnv::get_client_cache<TPaloBrokerServiceClient>() { return _broker_client_cache; }
-template <>
-inline ClientCache<TExtDataSourceServiceClient>* ExecEnv::get_client_cache<TExtDataSourceServiceClient>() { return _extdatasource_client_cache; }
-
+inline ClientCache<BackendServiceClient>* ExecEnv::get_client_cache<BackendServiceClient>() {
+    return _backend_client_cache;
 }
+template <>
+inline ClientCache<FrontendServiceClient>* ExecEnv::get_client_cache<FrontendServiceClient>() {
+    return _frontend_client_cache;
+}
+template <>
+inline ClientCache<TPaloBrokerServiceClient>*
+ExecEnv::get_client_cache<TPaloBrokerServiceClient>() {
+    return _broker_client_cache;
+}
+template <>
+inline ClientCache<TExtDataSourceServiceClient>*
+ExecEnv::get_client_cache<TExtDataSourceServiceClient>() {
+    return _extdatasource_client_cache;
+}
+
+} // namespace doris
 
 #endif

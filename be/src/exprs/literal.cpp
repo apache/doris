@@ -19,11 +19,11 @@
 
 #include <string>
 
-#include "codegen/llvm_codegen.h"
 #include "codegen/codegen_anyval.h"
+#include "codegen/llvm_codegen.h"
 #include "gen_cpp/Exprs_types.h"
-#include "util/string_parser.hpp"
 #include "runtime/runtime_state.h"
+#include "util/string_parser.hpp"
 
 using llvm::BasicBlock;
 using llvm::Function;
@@ -32,8 +32,7 @@ using llvm::Value;
 
 namespace doris {
 
-Literal::Literal(const TExprNode& node) : 
-        Expr(node) {
+Literal::Literal(const TExprNode& node) : Expr(node) {
     switch (_type.type) {
     case TYPE_BOOLEAN:
         DCHECK_EQ(node.node_type, TExprNodeType::BOOL_LITERAL);
@@ -63,12 +62,11 @@ Literal::Literal(const TExprNode& node) :
     case TYPE_LARGEINT: {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
         DCHECK_EQ(node.node_type, TExprNodeType::LARGE_INT_LITERAL);
-        _value.large_int_val = 
-            StringParser::string_to_int<__int128>(node.large_int_literal.value.c_str(),
-                                                  node.large_int_literal.value.size(),
-                                                  &parse_result);
+        _value.large_int_val = StringParser::string_to_int<__int128>(
+                node.large_int_literal.value.c_str(), node.large_int_literal.value.size(),
+                &parse_result);
         if (parse_result != StringParser::PARSE_SUCCESS) {
-            _value.large_int_val = MAX_INT128; 
+            _value.large_int_val = MAX_INT128;
         }
         break;
     }
@@ -85,8 +83,8 @@ Literal::Literal(const TExprNode& node) :
         break;
     case TYPE_DATE:
     case TYPE_DATETIME:
-        _value.datetime_val.from_date_str(
-            node.date_literal.value.c_str(), node.date_literal.value.size());
+        _value.datetime_val.from_date_str(node.date_literal.value.c_str(),
+                                          node.date_literal.value.size());
         break;
     case TYPE_CHAR:
     case TYPE_VARCHAR:
@@ -106,14 +104,13 @@ Literal::Literal(const TExprNode& node) :
         _value.decimalv2_val = DecimalV2Value(node.decimal_literal.value);
         break;
     }
-    default: 
+    default:
         break;
         // DCHECK(false) << "Invalid type: " << TypeToString(_type.type);
     }
 }
 
-Literal::~Literal() {
-}
+Literal::~Literal() {}
 
 BooleanVal Literal::get_boolean_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_BOOLEAN) << _type;
@@ -259,4 +256,4 @@ Status Literal::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn
     return Status::OK();
 }
 
-}
+} // namespace doris

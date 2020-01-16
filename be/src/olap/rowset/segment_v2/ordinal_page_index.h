@@ -32,7 +32,7 @@ namespace segment_v2 {
 // this class encode ordinal page index
 // the binary format is like that
 // Header | Content
-// Header: 
+// Header:
 //      number of pages (4 Bytes)
 // Content:
 //      array of index_pair
@@ -58,9 +58,7 @@ public:
         _num_pages++;
     }
 
-    uint64_t size() {
-        return _buffer.size();
-    }
+    uint64_t size() { return _buffer.size(); }
 
     Slice finish() {
         // encoded number of pages
@@ -76,9 +74,10 @@ private:
 class OrdinalPageIndex;
 class OrdinalPageIndexIterator {
 public:
-    OrdinalPageIndexIterator() : _index(nullptr), _cur_idx(-1) { }
-    OrdinalPageIndexIterator(OrdinalPageIndex* index) : _index(index), _cur_idx(0) { }
-    OrdinalPageIndexIterator(OrdinalPageIndex* index, int cur_idx) : _index(index), _cur_idx(cur_idx) { }
+    OrdinalPageIndexIterator() : _index(nullptr), _cur_idx(-1) {}
+    OrdinalPageIndexIterator(OrdinalPageIndex* index) : _index(index), _cur_idx(0) {}
+    OrdinalPageIndexIterator(OrdinalPageIndex* index, int cur_idx)
+            : _index(index), _cur_idx(cur_idx) {}
     inline bool valid() const;
     inline void next();
     inline rowid_t rowid() const;
@@ -86,31 +85,25 @@ public:
     inline const PagePointer& page() const;
     inline rowid_t cur_page_first_row_id() const;
     inline rowid_t cur_page_last_row_id() const;
+
 private:
     OrdinalPageIndex* _index;
     int32_t _cur_idx;
 };
 
-// Page index 
+// Page index
 class OrdinalPageIndex {
 public:
     OrdinalPageIndex(const Slice& data, uint64_t num_rows)
-        : _data(data), _num_rows(num_rows), _num_pages(0), _rowids(nullptr), _pages(nullptr) {
-    }
+            : _data(data), _num_rows(num_rows), _num_pages(0), _rowids(nullptr), _pages(nullptr) {}
     ~OrdinalPageIndex();
-    
+
     Status load();
 
     OrdinalPageIndexIterator seek_at_or_before(rowid_t rid);
-    OrdinalPageIndexIterator begin() {
-        return OrdinalPageIndexIterator(this);
-    }
-    OrdinalPageIndexIterator end() {
-        return OrdinalPageIndexIterator(this, _num_pages);
-    }
-    rowid_t get_first_row_id(int page_index) const {
-        return _rowids[page_index];
-    }
+    OrdinalPageIndexIterator begin() { return OrdinalPageIndexIterator(this); }
+    OrdinalPageIndexIterator end() { return OrdinalPageIndexIterator(this, _num_pages); }
+    rowid_t get_first_row_id(int page_index) const { return _rowids[page_index]; }
 
     rowid_t get_last_row_id(int page_index) const {
         // because add additional number of rows as the last rowid
@@ -119,9 +112,7 @@ public:
         return get_first_row_id(next_page_index) - 1;
     }
 
-    int32_t num_pages() const {
-        return _num_pages;
-    }
+    int32_t num_pages() const { return _num_pages; }
 
 private:
     uint32_t _header_size() const { return ORDINAL_PAGE_INDEX_HEADER_SIZE; }
@@ -168,5 +159,5 @@ rowid_t OrdinalPageIndexIterator::cur_page_last_row_id() const {
     return _index->get_last_row_id(_cur_idx);
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris

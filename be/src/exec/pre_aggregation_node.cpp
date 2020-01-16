@@ -17,14 +17,15 @@
 
 #include "exec/pre_aggregation_node.h"
 
-#include <boost/functional/hash.hpp>
 #include <math.h>
-#include <sstream>
 #include <x86intrin.h>
 
+#include <boost/functional/hash.hpp>
+#include <sstream>
+
 #include "exec/hash_table.hpp"
-#include "exprs/expr.h"
 #include "exprs/agg_expr.h"
+#include "exprs/expr.h"
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/descriptors.h"
@@ -46,25 +47,25 @@ namespace doris {
 // that does initialization outside of c'tor, so we can indicate errors
 PreAggregationNode::PreAggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
-    : ExecNode(pool, tnode, descs),
-      _construct_fail(false),
-      _is_init(false),
-      _use_aggregate(true),
-      _child_eos(false),
-      _input_record_num(0),
-      _input_record_num_sum(0),
-      _agg_record_num(0),
-      _agg_record_num_sum(0),
-      _bad_agg_num(0),
-      _bad_agg_latch(3),
-      _agg_record_latch(5000),
-      _agg_rate_latch(150),
-      _singleton_agg_row(NULL),
-      _tuple_pool(NULL),
-      _build_timer(NULL),
-      _get_results_timer(NULL),
-      _hash_table_buckets_counter(NULL),
-      _hash_table_load_factor_counter(NULL) {
+        : ExecNode(pool, tnode, descs),
+          _construct_fail(false),
+          _is_init(false),
+          _use_aggregate(true),
+          _child_eos(false),
+          _input_record_num(0),
+          _input_record_num_sum(0),
+          _agg_record_num(0),
+          _agg_record_num_sum(0),
+          _bad_agg_num(0),
+          _bad_agg_latch(3),
+          _agg_record_latch(5000),
+          _agg_rate_latch(150),
+          _singleton_agg_row(NULL),
+          _tuple_pool(NULL),
+          _build_timer(NULL),
+          _get_results_timer(NULL),
+          _hash_table_buckets_counter(NULL),
+          _hash_table_load_factor_counter(NULL) {
     if (NULL == pool) {
         _construct_fail = true;
         LOG(WARNING) << "input pool is NULL";
@@ -102,8 +103,7 @@ PreAggregationNode::PreAggregationNode(ObjectPool* pool, const TPlanNode& tnode,
     }
 }
 
-PreAggregationNode::~PreAggregationNode() {
-}
+PreAggregationNode::~PreAggregationNode() {}
 
 Status PreAggregationNode::prepare(RuntimeState* state) {
     if (_construct_fail) {
@@ -122,13 +122,12 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
 
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
-    _hash_table_buckets_counter =
-        ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
+    _hash_table_buckets_counter = ADD_COUNTER(runtime_profile(), "BuildBuckets", TUnit::UNIT);
     _hash_table_load_factor_counter =
-        ADD_COUNTER(runtime_profile(), "LoadFactor", TUnit::DOUBLE_VALUE);
+            ADD_COUNTER(runtime_profile(), "LoadFactor", TUnit::DOUBLE_VALUE);
 
-    if (NULL == _build_timer || NULL == _get_results_timer
-            || NULL == _hash_table_buckets_counter || NULL == _hash_table_load_factor_counter) {
+    if (NULL == _build_timer || NULL == _get_results_timer || NULL == _hash_table_buckets_counter ||
+        NULL == _hash_table_load_factor_counter) {
         return Status::InternalError("construct timer and counter failed.");
     }
 
@@ -142,8 +141,8 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
     // TODO: how many buckets?
     // new one hash table
     _build_tuple_size = child(0)->row_desc().tuple_descriptors().size();
-    _hash_tbl.reset(new(std::nothrow) HashTable(_build_exprs, _probe_exprs, _build_tuple_size,
-                     true, id(), *state->mem_trackers(), 16384));
+    _hash_tbl.reset(new (std::nothrow) HashTable(_build_exprs, _probe_exprs, _build_tuple_size,
+                                                 true, id(), *state->mem_trackers(), 16384));
 
     if (NULL == _hash_tbl.get()) {
         return Status::InternalError("new one hash table failed.");
@@ -151,7 +150,7 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
 
     // Determine the number of string slots in the output
     for (std::vector<Expr*>::const_iterator expr = _aggregate_exprs.begin();
-            expr != _aggregate_exprs.end(); ++expr) {
+         expr != _aggregate_exprs.end(); ++expr) {
         AggregateExpr* agg_expr = static_cast<AggregateExpr*>(*expr);
 
         // only support sum
@@ -161,10 +160,8 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
         }
 
         // when there is String Type or is Count star, this node do nothing.
-        if (agg_expr->type() == TYPE_STRING ||
-                agg_expr->type() == TYPE_CHAR ||
-                agg_expr->type() == TYPE_VARCHAR ||
-                agg_expr->is_star()) {
+        if (agg_expr->type() == TYPE_STRING || agg_expr->type() == TYPE_CHAR ||
+            agg_expr->type() == TYPE_VARCHAR || agg_expr->is_star()) {
             _use_aggregate = false;
             break;
         }
@@ -176,8 +173,8 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
     }
 
     for (int i = 0; i < child(0)->get_tuple_ids().size(); ++i) {
-        TupleDescriptor* child_tuple
-            = state->desc_tbl().get_tuple_descriptor(child(0)->get_tuple_ids()[i]);
+        TupleDescriptor* child_tuple =
+                state->desc_tbl().get_tuple_descriptor(child(0)->get_tuple_ids()[i]);
         _children_tuple.push_back(_row_descriptor.get_tuple_idx(child_tuple->id()));
     }
 
@@ -188,7 +185,7 @@ Status PreAggregationNode::prepare(RuntimeState* state) {
     _tuple_row_size = _row_descriptor.tuple_descriptors().size() * sizeof(Tuple*);
 
     // new before construct single row.
-    _tuple_pool.reset(new(std::nothrow) MemPool());
+    _tuple_pool.reset(new (std::nothrow) MemPool());
 
     if (NULL == _tuple_pool.get()) {
         return Status::InternalError("no memory for Mempool.");
@@ -323,8 +320,8 @@ read_from_hash:
 
     // if no data, clear hash table
     if (!_output_iterator.has_next()) {
-        _hash_tbl.reset(new HashTable(_build_exprs, _probe_exprs, _build_tuple_size, true,
-                                       id(), *state->mem_trackers(), 16384));
+        _hash_tbl.reset(new HashTable(_build_exprs, _probe_exprs, _build_tuple_size, true, id(),
+                                      *state->mem_trackers(), 16384));
         row_batch->tuple_data_pool()->acquire_data(_tuple_pool.get(), false);
     }
 
@@ -341,15 +338,14 @@ Status PreAggregationNode::close(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
 
     if (memory_used_counter() != NULL && _hash_tbl.get() != NULL &&
-            _hash_table_buckets_counter != NULL) {
+        _hash_table_buckets_counter != NULL) {
         COUNTER_SET(memory_used_counter(),
                     _tuple_pool->peak_allocated_bytes() + _hash_tbl->byte_size());
         COUNTER_SET(_hash_table_buckets_counter, _hash_tbl->num_buckets());
     }
 
     LOG(INFO) << "_input_record_num is " << _input_record_num_sum
-              << " aggregate:" << _agg_record_num_sum
-              << " bad_agg_num:" <<  _bad_agg_num;
+              << " aggregate:" << _agg_record_num_sum << " bad_agg_num:" << _bad_agg_num;
     return ExecNode::close(state);
 }
 
@@ -363,8 +359,8 @@ Status PreAggregationNode::construct_single_row() {
     }
 
     for (int i = 0; i < _row_descriptor.tuple_descriptors().size(); ++i) {
-        Tuple* tuple = reinterpret_cast<Tuple*>(_tuple_pool->allocate(
-                _row_descriptor.tuple_descriptors()[i]->byte_size()));
+        Tuple* tuple = reinterpret_cast<Tuple*>(
+                _tuple_pool->allocate(_row_descriptor.tuple_descriptors()[i]->byte_size()));
 
         if (NULL == tuple) {
             return Status::InternalError("new one tuple failed.");
@@ -487,7 +483,7 @@ Status PreAggregationNode::update_agg_row(TupleRow* agg_row, TupleRow* probe_row
 
     // compute all aggregate expr
     for (std::vector<Expr*>::const_iterator expr = _aggregate_exprs.begin();
-            expr != _aggregate_exprs.end(); ++expr) {
+         expr != _aggregate_exprs.end(); ++expr) {
         AggregateExpr* agg_expr = static_cast<AggregateExpr*>(*expr);
 
         // determine value of aggregate's child expr
@@ -652,5 +648,4 @@ void PreAggregationNode::debug_string(int indentation_level, stringstream* out) 
     *out << ")";
 }
 
-}
-
+} // namespace doris

@@ -22,11 +22,9 @@
 
 namespace doris {
 
-VectorizedRowBatch::VectorizedRowBatch(
-        const TabletSchema* schema,
-        const std::vector<uint32_t>& cols,
-        int capacity)
-            : _schema(schema), _cols(cols), _capacity(capacity), _limit(capacity) {
+VectorizedRowBatch::VectorizedRowBatch(const TabletSchema* schema,
+                                       const std::vector<uint32_t>& cols, int capacity)
+        : _schema(schema), _cols(cols), _capacity(capacity), _limit(capacity) {
     _selected_in_use = false;
     _size = 0;
 
@@ -51,21 +49,18 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
             char* vec_field_ptr = (char*)col_vec->col_data();
             // pointer of this field in row block
             char* row_field_ptr =
-                row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
+                    row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
             const TabletColumn& column = _schema->column(column_id);
             size_t field_size = 0;
-            if (column.type() == OLAP_FIELD_TYPE_CHAR ||
-                column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-                column.type() == OLAP_FIELD_TYPE_HLL ||
-                column.type() == OLAP_FIELD_TYPE_OBJECT) {
+            if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+                column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT) {
                 field_size = sizeof(Slice);
             } else {
                 field_size = column.length();
             }
             if (no_nulls) {
                 for (int row = 0; row < _size; ++row) {
-                    char* vec_field =
-                        vec_field_ptr + _selected[row] * field_size;
+                    char* vec_field = vec_field_ptr + _selected[row] * field_size;
                     // Set not null
                     *row_field_ptr = 0;
                     memory_copy(row_field_ptr + 1, vec_field, field_size);
@@ -79,8 +74,7 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
                     if (is_null[_selected[row]]) {
                         *row_field_ptr = 1;
                     } else {
-                        char* vec_field =
-                            vec_field_ptr + _selected[row] * field_size;
+                        char* vec_field = vec_field_ptr + _selected[row] * field_size;
                         // Set not null
                         *row_field_ptr = 0;
                         memory_copy(row_field_ptr + 1, vec_field, field_size);
@@ -97,14 +91,12 @@ void VectorizedRowBatch::dump_to_row_block(RowBlock* row_block) {
 
             char* vec_field_ptr = (char*)col_vec->col_data();
             char* row_field_ptr =
-                row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
+                    row_block->_mem_buf + row_block->_field_offset_in_memory[column_id];
 
             const TabletColumn& column = _schema->column(column_id);
             size_t field_size = 0;
-            if (column.type() == OLAP_FIELD_TYPE_CHAR ||
-                column.type() == OLAP_FIELD_TYPE_VARCHAR ||
-                column.type() == OLAP_FIELD_TYPE_HLL ||
-                column.type() == OLAP_FIELD_TYPE_OBJECT) {
+            if (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+                column.type() == OLAP_FIELD_TYPE_HLL || column.type() == OLAP_FIELD_TYPE_OBJECT) {
                 field_size = sizeof(Slice);
             } else {
                 field_size = column.length();

@@ -59,4 +59,4 @@ void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     }
 }
 
-}
+} // namespace doris_udf

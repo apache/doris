@@ -41,7 +41,8 @@ inline bool PartitionedHashTableCtx::eval_and_hash_probe(TupleRow* row, uint32_t
 }
 
 inline int64_t PartitionedHashTable::probe(Bucket* buckets, int64_t num_buckets,
-        PartitionedHashTableCtx* ht_ctx, uint32_t hash, bool* found) {
+                                           PartitionedHashTableCtx* ht_ctx, uint32_t hash,
+                                           bool* found) {
     DCHECK(buckets != NULL);
     DCHECK_GT(num_buckets, 0);
     *found = false;
@@ -78,7 +79,7 @@ inline int64_t PartitionedHashTable::probe(Bucket* buckets, int64_t num_buckets,
         }
     } while (LIKELY(step < num_buckets));
     DCHECK_EQ(_num_filled_buckets, num_buckets) << "Probing of a non-full table "
-        << "failed: " << _quadratic_probing << " " << hash;
+                                                << "failed: " << _quadratic_probing << " " << hash;
     return Iterator::BUCKET_NOT_FOUND;
 }
 
@@ -102,7 +103,8 @@ inline PartitionedHashTable::HtData* PartitionedHashTable::insert_internal(
 }
 
 inline bool PartitionedHashTable::insert(PartitionedHashTableCtx* ht_ctx,
-        const BufferedTupleStream2::RowIdx& idx, TupleRow* row, uint32_t hash) {
+                                         const BufferedTupleStream2::RowIdx& idx, TupleRow* row,
+                                         uint32_t hash) {
     if (_stores_tuples) {
         return insert(ht_ctx, row->get_tuple(0), hash);
     }
@@ -115,8 +117,8 @@ inline bool PartitionedHashTable::insert(PartitionedHashTableCtx* ht_ctx,
     return false;
 }
 
-inline bool PartitionedHashTable::insert(
-        PartitionedHashTableCtx* ht_ctx, Tuple* tuple, uint32_t hash) {
+inline bool PartitionedHashTable::insert(PartitionedHashTableCtx* ht_ctx, Tuple* tuple,
+                                         uint32_t hash) {
     DCHECK(_stores_tuples);
     HtData* htdata = insert_internal(ht_ctx, hash);
     // If successful insert, update the contents of the newly inserted entry with 'tuple'.
@@ -127,25 +129,25 @@ inline bool PartitionedHashTable::insert(
     return false;
 }
 
-inline PartitionedHashTable::Iterator PartitionedHashTable::find(
-        PartitionedHashTableCtx* ht_ctx, uint32_t hash) {
+inline PartitionedHashTable::Iterator PartitionedHashTable::find(PartitionedHashTableCtx* ht_ctx,
+                                                                 uint32_t hash) {
     ++_num_probes;
     bool found = false;
     int64_t bucket_idx = probe(_buckets, _num_buckets, ht_ctx, hash, &found);
     if (found) {
         return Iterator(this, ht_ctx->row(), bucket_idx,
-                _buckets[bucket_idx].bucketData.duplicates);
+                        _buckets[bucket_idx].bucketData.duplicates);
     }
     return End();
 }
 
 inline PartitionedHashTable::Iterator PartitionedHashTable::find_bucket(
-        PartitionedHashTableCtx* ht_ctx, uint32_t hash,
-        bool* found) {
+        PartitionedHashTableCtx* ht_ctx, uint32_t hash, bool* found) {
     ++_num_probes;
     int64_t bucket_idx = probe(_buckets, _num_buckets, ht_ctx, hash, found);
-    DuplicateNode* duplicates = LIKELY(bucket_idx != Iterator::BUCKET_NOT_FOUND) ?
-        _buckets[bucket_idx].bucketData.duplicates : NULL;
+    DuplicateNode* duplicates = LIKELY(bucket_idx != Iterator::BUCKET_NOT_FOUND)
+                                        ? _buckets[bucket_idx].bucketData.duplicates
+                                        : NULL;
     return Iterator(this, ht_ctx->row(), bucket_idx, duplicates);
 }
 
@@ -165,8 +167,7 @@ inline PartitionedHashTable::Iterator PartitionedHashTable::first_unmatched(
     // Check whether the bucket, or its first duplicate node, is matched. If it is not
     // matched, then return. Otherwise, move to the first unmatched entry (node or bucket).
     Bucket* bucket = &_buckets[bucket_idx];
-    if ((!bucket->hasDuplicates && bucket->matched) ||
-            (bucket->hasDuplicates && node->matched)) {
+    if ((!bucket->hasDuplicates && bucket->matched) || (bucket->hasDuplicates && node->matched)) {
         it.next_unmatched();
     }
     return it;
@@ -197,8 +198,7 @@ inline void PartitionedHashTable::prepare_bucket_for_insert(int64_t bucket_idx, 
     bucket->hash = hash;
 }
 
-inline PartitionedHashTable::DuplicateNode* PartitionedHashTable::append_next_node(
-        Bucket* bucket) {
+inline PartitionedHashTable::DuplicateNode* PartitionedHashTable::append_next_node(Bucket* bucket) {
     DCHECK_GT(_node_remaining_current_page, 0);
     bucket->bucketData.duplicates = _next_node;
     ++_num_duplicate_nodes;

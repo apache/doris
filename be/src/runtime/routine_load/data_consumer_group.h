@@ -28,23 +28,15 @@ namespace doris {
 // This class is not thread safe.
 class DataConsumerGroup {
 public:
-    typedef std::function<void (const Status&)> ConsumeFinishCallback;
+    typedef std::function<void(const Status&)> ConsumeFinishCallback;
 
-    DataConsumerGroup():
-        _grp_id(UniqueId::gen_uid()),
-        _thread_pool(3, 10),
-        _counter(0){
-    }
+    DataConsumerGroup() : _grp_id(UniqueId::gen_uid()), _thread_pool(3, 10), _counter(0) {}
 
-    virtual ~DataConsumerGroup() {
-        _consumers.clear();
-    }
+    virtual ~DataConsumerGroup() { _consumers.clear(); }
 
     const UniqueId& grp_id() { return _grp_id; }
 
-    const std::vector<std::shared_ptr<DataConsumer>>& consumers() {
-        return _consumers;
-    }
+    const std::vector<std::shared_ptr<DataConsumer>>& consumers() { return _consumers; }
 
     void add_consumer(std::shared_ptr<DataConsumer> consumer) {
         consumer->set_grp(_grp_id);
@@ -71,9 +63,7 @@ protected:
 // for kafka
 class KafkaDataConsumerGroup : public DataConsumerGroup {
 public:
-    KafkaDataConsumerGroup():
-        DataConsumerGroup(),
-        _queue(500) {}
+    KafkaDataConsumerGroup() : DataConsumerGroup(), _queue(500) {}
 
     virtual ~KafkaDataConsumerGroup();
 
@@ -83,15 +73,13 @@ public:
 
 private:
     // start a single consumer
-    void actual_consume(
-            std::shared_ptr<DataConsumer> consumer,
-            BlockingQueue<RdKafka::Message*>* queue,
-            int64_t max_running_time_ms,
-            ConsumeFinishCallback cb);
+    void actual_consume(std::shared_ptr<DataConsumer> consumer,
+                        BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms,
+                        ConsumeFinishCallback cb);
 
 private:
     // blocking queue to receive msgs from all consumers
-    BlockingQueue<RdKafka::Message*> _queue; 
+    BlockingQueue<RdKafka::Message*> _queue;
 };
 
 } // end namespace doris

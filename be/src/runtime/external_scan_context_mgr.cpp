@@ -27,11 +27,13 @@
 
 namespace doris {
 
-ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _exec_env(exec_env), _is_stop(false), _scan_context_gc_interval_min(doris::config::scan_context_gc_interval_min) {
+ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env)
+        : _exec_env(exec_env),
+          _is_stop(false),
+          _scan_context_gc_interval_min(doris::config::scan_context_gc_interval_min) {
     // start the reaper thread for gc the expired context
-    _keep_alive_reaper.reset(
-            new std::thread(
-                    std::bind<void>(std::mem_fn(&ExternalScanContextMgr::gc_expired_context), this)));
+    _keep_alive_reaper.reset(new std::thread(
+            std::bind<void>(std::mem_fn(&ExternalScanContextMgr::gc_expired_context), this)));
 }
 
 Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<ScanContext>* p_context) {
@@ -39,24 +41,25 @@ Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<ScanContext>*
     std::shared_ptr<ScanContext> context(new ScanContext(context_id));
     // context->last_access_time  = time(NULL);
     {
-        std::lock_guard<std::mutex> l(_lock);        
+        std::lock_guard<std::mutex> l(_lock);
         _active_contexts.insert(std::make_pair(context_id, context));
     }
     *p_context = context;
     return Status::OK();
 }
 
-Status ExternalScanContextMgr::get_scan_context(const std::string& context_id, std::shared_ptr<ScanContext>* p_context) {
+Status ExternalScanContextMgr::get_scan_context(const std::string& context_id,
+                                                std::shared_ptr<ScanContext>* p_context) {
     {
-        std::lock_guard<std::mutex> l(_lock);        
+        std::lock_guard<std::mutex> l(_lock);
         auto iter = _active_contexts.find(context_id);
         if (iter != _active_contexts.end()) {
             *p_context = iter->second;
         } else {
             LOG(WARNING) << "get_scan_context error: context id [ " << context_id << " ] not found";
             std::stringstream msg;
-            msg << "context_id: " << context_id << " not found"; 
-            return  Status::NotFound(msg.str());
+            msg << "context_id: " << context_id << " not found";
+            return Status::NotFound(msg.str());
         }
     }
     return Status::OK();
@@ -93,7 +96,7 @@ void ExternalScanContextMgr::gc_expired_context() {
         std::vector<std::shared_ptr<ScanContext>> expired_contexts;
         {
             std::lock_guard<std::mutex> l(_lock);
-            for(auto iter = _active_contexts.begin(); iter != _active_contexts.end(); ) {
+            for (auto iter = _active_contexts.begin(); iter != _active_contexts.end();) {
                 auto context = iter->second;
                 if (context == nullptr) {
                     iter = _active_contexts.erase(iter);
@@ -106,7 +109,8 @@ void ExternalScanContextMgr::gc_expired_context() {
                 }
                 // free context if context is idle for context->keep_alive_min
                 if (current_time - context->last_access_time > context->keep_alive_min * 60) {
-                    LOG(INFO) << "gc expired scan context: context id [ " << context->context_id << " ]";
+                    LOG(INFO) << "gc expired scan context: context id [ " << context->context_id
+                              << " ]";
                     expired_contexts.push_back(context);
                     iter = _active_contexts.erase(iter);
                 } else {
@@ -121,4 +125,4 @@ void ExternalScanContextMgr::gc_expired_context() {
         }
     }
 }
-}
+} // namespace doris

@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/rowset/segment_v2/column_zone_map.h"
+
 #include <gtest/gtest.h>
+
 #include <memory>
 
-#include "olap/rowset/segment_v2/column_zone_map.h"
 #include "olap/tablet_schema_helper.h"
 
 namespace doris {
@@ -124,8 +126,8 @@ TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
     test_string(field);
 }
 
-}
-}
+} // namespace segment_v2
+} // namespace doris
 
 int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);

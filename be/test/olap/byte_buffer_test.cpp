@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/byte_buffer.h"
+
 #include <gtest/gtest.h>
 #include <sys/mman.h>
 
-#include "olap/byte_buffer.h"
 #include "olap/file_helper.h"
 #include "util/logging.h"
 
@@ -26,17 +27,14 @@ namespace doris {
 
 class TestByteBuffer : public testing::Test {
 public:
-    virtual ~TestByteBuffer() {
-    }
-    virtual void SetUp() {
-    }
-    virtual void TearDown() {
-    }
+    virtual ~TestByteBuffer() {}
+    virtual void SetUp() {}
+    virtual void TearDown() {}
 };
 
 // 测试基本的读写功能
 TEST_F(TestByteBuffer, TestReadWrite) {
-    StorageByteBuffer *buf1 = NULL;
+    StorageByteBuffer* buf1 = NULL;
 
     buf1 = StorageByteBuffer::create(100);
     ASSERT_TRUE(buf1 != NULL);
@@ -80,7 +78,7 @@ TEST_F(TestByteBuffer, TestReadWrite) {
     ASSERT_EQ(0u, buf1->remaining());
     ASSERT_EQ(100u, buf1->position());
 
-    for (int i = 0; i < 50; i++){
+    for (int i = 0; i < 50; i++) {
         ASSERT_EQ(i, buf[i]);
     }
     char byte;
@@ -106,7 +104,7 @@ TEST_F(TestByteBuffer, TestReadWrite) {
 // 测试ByteBuffer对内存的引用, 尤其是智能指针的引用传递
 // 使用valgrind进行内存泄露检查
 TEST_F(TestByteBuffer, TestRef) {
-    StorageByteBuffer *buf1 = NULL;
+    StorageByteBuffer* buf1 = NULL;
 
     buf1 = StorageByteBuffer::create(1000);
     ASSERT_TRUE(buf1 != NULL);
@@ -119,7 +117,7 @@ TEST_F(TestByteBuffer, TestRef) {
     StorageByteBuffer buf4(*buf1);
     ASSERT_EQ(buf2.array(), buf1->array());
 
-    StorageByteBuffer *buf3 = NULL;
+    StorageByteBuffer* buf3 = NULL;
     buf3 = StorageByteBuffer::reference_buffer(buf1, 10, 90);
 
     ASSERT_EQ(90u, buf3->capacity());
@@ -142,7 +140,7 @@ TEST_F(TestByteBuffer, TestRef) {
 TEST_F(TestByteBuffer, TestMmap) {
     FileHandler file_handle;
     std::string file_name = ".test_byte_buffer";
-    OLAPStatus res = file_handle.open_with_mode(file_name, O_CREAT | O_WRONLY ,S_IRUSR | S_IWUSR);
+    OLAPStatus res = file_handle.open_with_mode(file_name, O_CREAT | O_WRONLY, S_IRUSR | S_IWUSR);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
     char buf[100];
@@ -154,8 +152,8 @@ TEST_F(TestByteBuffer, TestMmap) {
 
     res = file_handle.open(file_name, O_RDWR);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    StorageByteBuffer * buf1 = StorageByteBuffer::mmap(NULL, 80, PROT_READ | PROT_WRITE, MAP_SHARED,
-                                         file_handle.fd(), 0);
+    StorageByteBuffer* buf1 = StorageByteBuffer::mmap(NULL, 80, PROT_READ | PROT_WRITE, MAP_SHARED,
+                                                      file_handle.fd(), 0);
     // mmap完成后就可以关闭原fd
     file_handle.close();
     ASSERT_TRUE(buf1 != NULL);
@@ -182,7 +180,7 @@ TEST_F(TestByteBuffer, TestMmap) {
     }
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";

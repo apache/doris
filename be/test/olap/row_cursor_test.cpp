@@ -15,14 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/row_cursor.h"
+
 #include <gtest/gtest.h>
 
 #include "common/object_pool.h"
-#include "olap/row_cursor.h"
-#include "olap/tablet_schema.h"
 #include "olap/row.h"
-#include "runtime/mem_tracker.h"
+#include "olap/tablet_schema.h"
 #include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "util/logging.h"
 
 namespace doris {
@@ -321,7 +322,7 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
 
     OlapTuple tuple2 = row.to_tuple();
     ASSERT_TRUE(strncmp(tuple2.get_value(0).c_str(), "0&char_exceed_length", 20));
-    ASSERT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23)); 
+    ASSERT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23));
 }
 
 TEST_F(TestRowCursor, EqualAndCompare) {

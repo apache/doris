@@ -17,17 +17,17 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <cstdint>
+#include <mutex>
 #include <set>
 #include <string>
-#include <mutex>
-#include <condition_variable>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/olap_common.h"
-#include "olap/storage_engine.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
@@ -35,11 +35,9 @@ namespace doris {
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {
 public:
-    DataDir(const std::string& path,
-            int64_t capacity_bytes = -1,
+    DataDir(const std::string& path, int64_t capacity_bytes = -1,
             TStorageMedium::type storage_medium = TStorageMedium::HDD,
-            TabletManager* tablet_manager = nullptr,
-            TxnManager* txn_manager = nullptr);
+            TabletManager* tablet_manager = nullptr, TxnManager* txn_manager = nullptr);
     ~DataDir();
 
     Status init();
@@ -69,12 +67,9 @@ public:
 
     OLAPStatus get_shard(uint64_t* shard);
 
-
     OlapMeta* get_meta() { return _meta; }
 
-    bool is_ssd_disk() const {
-        return _storage_medium == TStorageMedium::SSD;
-    }
+    bool is_ssd_disk() const { return _storage_medium == TStorageMedium::SSD; }
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
@@ -92,7 +87,8 @@ public:
 
     void find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths);
 
-    static std::string get_root_path_from_schema_hash_path_in_trash(const std::string& schema_hash_dir_in_trash);
+    static std::string get_root_path_from_schema_hash_path_in_trash(
+            const std::string& schema_hash_dir_in_trash);
 
     // load data from meta and data files
     OLAPStatus load();

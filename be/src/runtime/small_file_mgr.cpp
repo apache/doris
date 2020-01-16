@@ -19,33 +19,26 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include <sstream>
 
-#include <boost/algorithm/string/predicate.hpp> // boost::algorithm::starts_with
 #include <boost/algorithm/string/classification.hpp> // boost::is_any_of
-
-#include "gutil/strings/split.h"
+#include <boost/algorithm/string/predicate.hpp>      // boost::algorithm::starts_with
+#include <sstream>
 
 #include "common/status.h"
 #include "env/env.h"
 #include "gen_cpp/HeartbeatService.h"
+#include "gutil/strings/split.h"
 #include "http/http_client.h"
 #include "runtime/exec_env.h"
 #include "util/file_utils.h"
 #include "util/md5.h"
 
-
 namespace doris {
 
-SmallFileMgr::SmallFileMgr(
-        ExecEnv* env,
-        const std::string& local_path) :
-    _exec_env(env),
-    _local_path(local_path) {
-}
+SmallFileMgr::SmallFileMgr(ExecEnv* env, const std::string& local_path)
+        : _exec_env(env), _local_path(local_path) {}
 
-SmallFileMgr::~SmallFileMgr() {
-}
+SmallFileMgr::~SmallFileMgr() {}
 
 Status SmallFileMgr::init() {
     RETURN_IF_ERROR(_load_local_files());
@@ -55,7 +48,7 @@ Status SmallFileMgr::init() {
 Status SmallFileMgr::_load_local_files() {
     RETURN_IF_ERROR(FileUtils::create_dir(_local_path));
 
-    auto scan_cb = [this] (const char* file) {
+    auto scan_cb = [this](const char* file) {
         if (is_dot_or_dotdot(file)) {
             return true;
         }
@@ -70,9 +63,7 @@ Status SmallFileMgr::_load_local_files() {
     return Status::OK();
 }
 
-Status SmallFileMgr::_load_single_file(
-        const std::string& path,
-        const std::string& file_name) {
+Status SmallFileMgr::_load_single_file(const std::string& path, const std::string& file_name) {
     // file name format should be like:
     // file_id.md5
     std::vector<std::string> parts = strings::Split(file_name, ".");
@@ -100,11 +91,7 @@ Status SmallFileMgr::_load_single_file(
     return Status::OK();
 }
 
-Status SmallFileMgr::get_file(
-        int64_t file_id,
-        const std::string& md5,
-        std::string* file_path) {
-
+Status SmallFileMgr::get_file(int64_t file_id, const std::string& md5, std::string* file_path) {
     std::unique_lock<std::mutex> l(_lock);
     // find in cache
     auto it = _file_cache.find(file_id);
@@ -116,7 +103,7 @@ Status SmallFileMgr::get_file(
             // check file failed, we should remove this cache and download it from FE again
             if (remove(entry.path.c_str()) != 0) {
                 std::stringstream ss;
-                ss << "failed to remove file: " << file_id << ", err: "<< std::strerror(errno);
+                ss << "failed to remove file: " << file_id << ", err: " << std::strerror(errno);
                 return Status::InternalError(ss.str());
             }
             _file_cache.erase(it);
@@ -143,16 +130,13 @@ Status SmallFileMgr::_check_file(const CacheEntry& entry, const std::string& md5
     return Status::OK();
 }
 
-Status SmallFileMgr::_download_file(
-        int64_t file_id,
-        const std::string& md5,
-        std::string* file_path) {
-
+Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
+                                    std::string* file_path) {
     std::stringstream ss;
     ss << _local_path << "/" << file_id << ".tmp";
     std::string tmp_file = ss.str();
     bool should_delete = true;
-    auto fp_closer = [&tmp_file, &should_delete] (FILE* fp) {
+    auto fp_closer = [&tmp_file, &should_delete](FILE* fp) {
         fclose(fp);
         if (should_delete) remove(tmp_file.c_str());
     };
@@ -168,8 +152,9 @@ Status SmallFileMgr::_download_file(
     std::stringstream url_ss;
 #ifndef BE_TEST
     TMasterInfo* master_info = _exec_env->master_info();
-    url_ss << master_info->network_address.hostname << ":" << master_info->http_port << "/api/get_small_file?"
-        << "file_id=" << file_id << "&token=" << master_info->token;
+    url_ss << master_info->network_address.hostname << ":" << master_info->http_port
+           << "/api/get_small_file?"
+           << "file_id=" << file_id << "&token=" << master_info->token;
 #else
     url_ss << "127.0.0.1:29997/api/get_small_file?file_id=" << file_id;
 #endif
@@ -181,12 +166,12 @@ Status SmallFileMgr::_download_file(
     RETURN_IF_ERROR(client.init(url));
     Status status;
     Md5Digest digest;
-    auto download_cb = [&status, &tmp_file, &fp, &digest] (const void* data, size_t length) {
+    auto download_cb = [&status, &tmp_file, &fp, &digest](const void* data, size_t length) {
         digest.update(data, length);
         auto res = fwrite(data, length, 1, fp.get());
         if (res != 1) {
             LOG(WARNING) << "fail to write data to file, file=" << tmp_file
-                << ", error=" << ferror(fp.get());
+                         << ", error=" << ferror(fp.get());
             status = Status::InternalError("fail to write data when download");
             return false;
         }
@@ -198,7 +183,7 @@ Status SmallFileMgr::_download_file(
 
     if (!boost::iequals(digest.hex(), md5)) {
         LOG(WARNING) << "file's checksum is not equal, download: " << digest.hex()
-            << ", expected: " << md5 << ", file: " << file_id;
+                     << ", expected: " << md5 << ", file: " << file_id;
         return Status::InternalError("download with invalid md5");
     }
 
@@ -214,7 +199,7 @@ Status SmallFileMgr::_download_file(
     if (ret != 0) {
         char buf[64];
         LOG(WARNING) << "fail to rename file from=" << tmp_file << ", to=" << real_file_path
-            << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
+                     << ", errno=" << errno << ", errmsg=" << strerror_r(errno, buf, 64);
         remove(tmp_file.c_str());
         remove(real_file_path.c_str());
         return Status::InternalError("fail to rename file");
