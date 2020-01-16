@@ -20,11 +20,11 @@
 
 #include <memory>
 #include <vector>
+#include <mutex>
 
 #include "gen_cpp/olap_file.pb.h"
 #include "gutil/macros.h"
 #include "olap/rowset/rowset_meta.h"
-#include "util/once.h"
 
 namespace doris {
 
@@ -36,6 +36,73 @@ using RowsetSharedPtr = std::shared_ptr<Rowset>;
 class RowsetFactory;
 class RowsetReader;
 class TabletSchema;
+
+// the rowset state transfer graph:
+//    ROWSET_UNLOADED    <--|
+//          ↓               |
+//    ROWSET_LOADED         |
+//          ↓               |
+//    ROWSET_UNLOADING   -->| 
+enum RowsetState {
+    // state for new created rowset
+    ROWSET_UNLOADED,
+    // state after load() called
+    ROWSET_LOADED,
+    // state for closed() called but owned by some readers
+    ROWSET_UNLOADING
+};
+
+class RowsetStateMachine {
+public:
+    RowsetStateMachine() : _rowset_state(ROWSET_UNLOADED) { }
+
+    OLAPStatus on_load() {
+        switch (_rowset_state) {
+            case ROWSET_UNLOADED:
+                _rowset_state = ROWSET_LOADED;
+                break;
+
+            default:
+                return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+        }
+        return OLAP_SUCCESS;
+    }
+
+    OLAPStatus on_close(uint64_t refs_by_reader) {
+        switch (_rowset_state) {
+            case ROWSET_LOADED:
+                if (refs_by_reader == 0) {
+                    _rowset_state = ROWSET_UNLOADED;
+                } else {
+                    _rowset_state = ROWSET_UNLOADING;
+                }
+                break;
+
+            default:
+                return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+        }
+        return OLAP_SUCCESS;
+    }
+
+    OLAPStatus on_release() {
+        switch (_rowset_state) {
+            case ROWSET_UNLOADING:
+                _rowset_state = ROWSET_UNLOADED;
+                break;
+
+            default:
+                return OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION;
+        }
+        return OLAP_SUCCESS;
+    }
+
+    RowsetState rowset_state() {
+        return _rowset_state;
+    }
+
+private:
+    RowsetState _rowset_state;
+};
 
 class Rowset : public std::enable_shared_from_this<Rowset> {
 public:
@@ -95,6 +162,37 @@ public:
     // TODO should we rename the method to remove_files() to be more specific?
     virtual OLAPStatus remove() = 0;
 
+    // close to clear the resource owned by rowset
+    // including: open files, indexes and so on
+    // NOTICE: can not call this function in multithreads
+    void close() {
+        RowsetState old_state = _rowset_state_machine.rowset_state();
+        if (old_state != ROWSET_LOADED) {
+            return;
+        }
+        OLAPStatus st = OLAP_SUCCESS;
+        {
+            std::lock_guard<std::mutex> close_lock(_lock);
+            uint64_t current_refs = _refs_by_reader;
+            old_state = _rowset_state_machine.rowset_state();
+            if (old_state != ROWSET_LOADED) {
+                return;
+            }
+            if (current_refs == 0) {
+                do_close();
+            }
+            st = _rowset_state_machine.on_close(current_refs);
+        }
+        if (st != OLAP_SUCCESS) {
+            LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
+            return;
+        }
+        LOG(INFO) << "rowset is close. rowset state from:" << old_state
+                  << " to " << _rowset_state_machine.rowset_state()
+                  << ", version:" << start_version() << "-" << end_version()
+                  << ", tabletid:" << _rowset_meta->tablet_id();
+    }
+
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
     virtual OLAPStatus link_files_to(const std::string& dir, RowsetId new_rowset_id) = 0;
 
@@ -127,6 +225,32 @@ public:
         return left->end_version() < right->end_version();
     }
 
+    // this function is called by reader to increase reference of rowset
+    void aquire() {
+        ++_refs_by_reader;
+    }
+
+    void release() {
+        // if the refs by reader is 0 and the rowset is closed, should release the resouce
+        uint64_t current_refs = --_refs_by_reader;
+        if (current_refs == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
+            {
+                std::lock_guard<std::mutex> release_lock(_lock);
+                // rejudge _refs_by_reader because we do not add lock in create reader
+                if (_refs_by_reader == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
+                    // first do close, then change state
+                    do_close();
+                    _rowset_state_machine.on_release();
+                }
+            }
+            if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
+                LOG(INFO) << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+                          << ", version:" << start_version() << "-" << end_version()
+                          << ", tabletid:" << _rowset_meta->tablet_id();
+            }
+        }
+    }
+
 protected:
     friend class RowsetFactory;
 
@@ -140,7 +264,10 @@ protected:
     virtual OLAPStatus init() = 0;
 
     // The actual implementation of load(). Guaranteed by to called exactly once.
-    virtual OLAPStatus do_load_once(bool use_cache) = 0;
+    virtual OLAPStatus do_load(bool use_cache) = 0;
+
+    // release resources in this api
+    virtual void do_close() = 0;
 
     // allow subclass to add custom logic when rowset is being published
     virtual void make_visible_extra(Version version, VersionHash version_hash) {}
@@ -152,8 +279,13 @@ protected:
     bool _is_pending;    // rowset is pending iff it's not in visible state
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
-    DorisCallOnce<OLAPStatus> _load_once;
+    // mutex lock for load/close api because it is costly
+    std::mutex _lock;
     bool _need_delete_file = false;
+    // variable to indicate how many rowset readers owned this rowset
+    std::atomic<uint64_t> _refs_by_reader;
+    // rowset state machine
+    RowsetStateMachine _rowset_state_machine;
 };
 
 } // namespace doris

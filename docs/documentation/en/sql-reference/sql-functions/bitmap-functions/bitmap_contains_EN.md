@@ -17,24 +17,32 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# COUNT_DISTINCT
-## Description
+# bitmap_contains
+## description
 ### Syntax
 
-`COUNT_DISTINCT(expr)`
+`B00LEAN BITMAP_CONTAINS(BITMAP bitmap, BIGINT input)`
 
-
-The number of rows used to return the required number, or the number of non-NULL rows
+Calculates whether the input value is in the Bitmap column and returns a Boolean value.
 
 ## example
 
 ```
-MySQL > select count_distinct(query_id) from log_statis group by datetime;
-+----------------------------+
-| count_distinct(`query_id`) |
-+----------------------------+
-|                        577 |
-+----------------------------+
+mysql> select bitmap_contains(to_bitmap(1),2) cnt;
++------+
+| cnt  |
++------+
+|    0 |
++------+
+
+mysql> select bitmap_contains(to_bitmap(1),1) cnt;
++------+
+| cnt  |
++------+
+|    1 |
++------+
 ```
-##keyword
-COUNT_DISTINCT,COUNT,DISTINCT
+
+## keyword
+
+    BITMAP_CONTAINS,BITMAP

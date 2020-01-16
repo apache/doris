@@ -21,6 +21,7 @@ namespace java org.apache.doris.thrift
 include "Status.thrift"
 include "Types.thrift"
 include "PaloInternalService.thrift"
+include "Descriptors.thrift"
 
 struct TColumn {
     1: required string column_name
@@ -39,6 +40,7 @@ struct TTabletSchema {
     4: required Types.TStorageType storage_type
     5: required list<TColumn> columns
     6: optional double bloom_filter_fpp
+    7: optional list<Descriptors.TOlapTableIndex> indexes
 }
 
 // this enum stands for different storage format in src_backends
@@ -176,7 +178,7 @@ struct TSnapshotRequest {
     7: optional bool list_files
     // if all nodes has been upgraded, it can be removed.
     8: optional bool allow_incremental_clone
-    9: optional i32 preferred_snapshot_version = 1  // request preferred snapshot version, default value is 1 for old version be
+    9: optional i32 preferred_snapshot_version = Types.TPREFER_SNAPSHOT_REQ_VERSION
 }
 
 struct TReleaseSnapshotRequest {
@@ -251,6 +253,7 @@ struct TAgentTaskRequest {
     8: optional TCloneReq clone_req
     9: optional TPushReq push_req
     10: optional TCancelDeleteDataReq cancel_delete_data_req //deprecated
+    // Deprecated
     11: optional Types.TResourceInfo resource_info
     12: optional TStorageMediumMigrateReq storage_medium_migrate_req
     13: optional TCheckConsistencyReq check_consistency_req

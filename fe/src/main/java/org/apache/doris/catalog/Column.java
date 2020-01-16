@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,22 +41,30 @@ import java.io.IOException;
  */
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
+    @SerializedName(value = "name")
     private String name;
+    @SerializedName(value = "type")
     private Type type;
     // column is key: aggregate type is null
     // column is not key and has no aggregate type: aggregate type is none
     // column is not key and has aggregate type: aggregate type is name of aggregate function.
+    @SerializedName(value = "aggregationType")
     private AggregateType aggregationType;
 
     // if isAggregationTypeImplicit is true, the actual aggregation type will not be shown in show create table
     // the key type of table is duplicate or unique: the isAggregationTypeImplicit of value columns are true
     // other cases: the isAggregationTypeImplicit is false
+    @SerializedName(value = "isAggregationTypeImplicit")
     private boolean isAggregationTypeImplicit;
+    @SerializedName(value = "isKey")
     private boolean isKey;
+    @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    @SerializedName(value = "defaultValue")
     private String defaultValue;
+    @SerializedName(value = "comment")
     private String comment;
-
+    @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
 
     public Column() {

@@ -30,7 +30,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 
 // clause which is used to add one column to
-public class AddColumnClause extends AlterClause {
+public class AddColumnClause extends AlterTableClause {
     private static final Logger LOG = LogManager.getLogger(AddColumnClause.class);
     private ColumnDef columnDef;
     // Column position

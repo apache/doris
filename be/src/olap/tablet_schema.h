@@ -40,6 +40,7 @@ public:
     inline bool is_key() const { return _is_key; }
     inline bool is_nullable() const { return _is_nullable; }
     inline bool is_bf_column() const { return _is_bf_column; }
+    inline bool has_bitmap_index() const {return _has_bitmap_index; }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     bool has_reference_column() const { return _has_referenced_column; }
@@ -80,6 +81,8 @@ private:
     bool _has_referenced_column;
     int32_t _referenced_column_id;
     std::string _referenced_column;
+
+    bool _has_bitmap_index = false;
 };
 
 class TabletSchema {

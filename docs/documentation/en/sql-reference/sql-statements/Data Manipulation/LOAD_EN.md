@@ -92,7 +92,7 @@ For example, the separator X01 of the hive file is specified as "\ x01"
 
 File type:
 
-Used to specify the type of imported file, such as parquet, csv. The default value is determined by the file suffix name.
+Used to specify the type of imported file, such as parquet, orc, csv. The default value is determined by the file suffix name.
 
 column_list：
 

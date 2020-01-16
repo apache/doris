@@ -217,7 +217,8 @@ public class SessionVariable implements Serializable, Writable {
 
     // the default rowset type flag which will be passed to Backends througth heartbeat
     @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
-    public static String defaultRowsetType = "alpha";
+    private String defaultRowsetType = "alpha";
+
     @VariableMgr.VarAttr(name = USE_V2_ROLLUP)
     private boolean useV2Rollup = false;
 

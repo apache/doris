@@ -35,11 +35,13 @@ import org.apache.doris.analysis.ShowCreateTableStmt;
 import org.apache.doris.analysis.ShowDataStmt;
 import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
+import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
+import org.apache.doris.analysis.ShowIndexStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
@@ -58,6 +60,7 @@ import org.apache.doris.analysis.ShowStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
+import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowUserPropertyStmt;
 import org.apache.doris.analysis.ShowVariablesStmt;
 import org.apache.doris.backup.AbstractJob;
@@ -68,7 +71,9 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MetadataViewer;
@@ -81,6 +86,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
+import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.BaseParam;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -91,13 +97,13 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
-import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.BackendsProcDir;
-import org.apache.doris.common.proc.LoadProcDir;
-import org.apache.doris.common.proc.SchemaChangeProcNode;
-import org.apache.doris.common.proc.PartitionsProcDir;
-import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
+import org.apache.doris.common.proc.LoadProcDir;
+import org.apache.doris.common.proc.PartitionsProcDir;
+import org.apache.doris.common.proc.ProcNodeInterface;
+import org.apache.doris.common.proc.SchemaChangeProcNode;
+import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -113,6 +119,7 @@ import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -131,7 +138,6 @@ import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -237,6 +243,12 @@ public class ShowExecutor {
             handleAdminShowConfig();
         } else if (stmt instanceof ShowSmallFilesStmt) {
             handleShowSmallFiles();
+        } else if (stmt instanceof ShowDynamicPartitionStmt) {
+            handleShowDynamicPartition();
+        } else if (stmt instanceof ShowIndexStmt) {
+            handleShowIndex();
+        } else if (stmt instanceof ShowTransactionStmt) {
+            handleShowTransaction();
         } else {
             handleEmtpy();
         }
@@ -635,6 +647,34 @@ public class ShowExecutor {
             }
         } else {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getDb() + "." + showStmt.getTable());
+        }
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+    }
+
+    // Show index statement.
+    private void handleShowIndex() throws AnalysisException {
+        ShowIndexStmt showStmt = (ShowIndexStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        Database db = ctx.getCatalog().getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR, showStmt.getTableName().toString());
+        }
+        db.readLock();
+        try {
+            Table table = db.getTable(showStmt.getTableName().getTbl());
+            if (table != null && table instanceof OlapTable) {
+                List<Index> indexes = ((OlapTable) table).getIndexes();
+                for (Index index : indexes) {
+                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), index.getIndexName(),
+                            index.getColumns().stream().collect(Collectors.joining(",")),
+                            index.getIndexType().name(), index.getComment()));
+                }
+            } else {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR,
+                        db.getFullName() + "." + showStmt.getTableName().toString());
+            }
+        } finally {
+            db.readUnlock();
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
@@ -1054,26 +1094,10 @@ public class ShowExecutor {
 
     private void handleShowPartitions() throws AnalysisException {
         ShowPartitionsStmt showStmt = (ShowPartitionsStmt) stmt;
-
         ProcNodeInterface procNodeI = showStmt.getNode();
         Preconditions.checkNotNull(procNodeI);
-        List<List<String>> rows = procNodeI.fetchResult().getRows();
-
-        if (showStmt.getPartitionName() != null) {
-            // filter by partition name
-            List<List<String>> oneRow = Lists.newArrayList();
-            String partitionName = showStmt.getPartitionName();
-            Iterator<List<String>> iter = rows.iterator();
-            while (iter.hasNext()) {
-                List<String> row = iter.next();
-                if (row.get(PartitionsProcDir.PARTITION_NAME_INDEX).equalsIgnoreCase(partitionName)) {
-                    oneRow.add(row);
-                    break;
-                }
-            }
-            rows = oneRow;
-        }
-
+        List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+            showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
@@ -1423,6 +1447,63 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
     }
 
+    private void handleShowDynamicPartition() {
+        ShowDynamicPartitionStmt showDynamicPartitionStmt = (ShowDynamicPartitionStmt) stmt;
+        List<List<String>> rows = Lists.newArrayList();
+        Database db = ctx.getCatalog().getDb(showDynamicPartitionStmt.getDb());
+        if (db != null) {
+            db.readLock();
+            try {
+                for (Table tbl : db.getTables()) {
+                    if (!(tbl instanceof OlapTable)) {
+                        continue;
+                    }
+
+                    DynamicPartitionScheduler dynamicPartitionScheduler = Catalog.getCurrentCatalog().getDynamicPartitionScheduler();
+                    OlapTable olapTable = (OlapTable) tbl;
+                    if (!olapTable.dynamicPartitionExists()) {
+                        dynamicPartitionScheduler.removeRuntimeInfo(olapTable.getName());
+                        continue;
+                    }
+                    // check tbl privs
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),
+                            db.getFullName(), olapTable.getName(),
+                            PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                    DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
+                    String tableName = olapTable.getName();
+                    rows.add(Lists.newArrayList(
+                            tableName,
+                            String.valueOf(dynamicPartitionProperty.getEnable()),
+                            dynamicPartitionProperty.getTimeUnit().toUpperCase(),
+                            String.valueOf(dynamicPartitionProperty.getEnd()),
+                            dynamicPartitionProperty.getPrefix(),
+                            String.valueOf(dynamicPartitionProperty.getBuckets()),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.MSG)));
+                }
+            } finally {
+                db.readUnlock();
+            }
+            resultSet = new ShowResultSet(showDynamicPartitionStmt.getMetaData(), rows);
+        }
+    }
+
+    // Show transaction statement.
+    private void handleShowTransaction() throws AnalysisException {
+        ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
+        Database db = ctx.getCatalog().getDb(showStmt.getDbName());
+        if (db == null) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName().toString());
+        }
+
+        long txnId = showStmt.getTxnId();
+        GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
+        resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
+    }
 }
 
 

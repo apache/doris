@@ -19,20 +19,13 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDisk;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -44,9 +37,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest({ Catalog.class, MetricRepo.class })
 public class BackendTest {
     private Backend backend;
     private long backendId = 9999;
@@ -58,26 +48,22 @@ public class BackendTest {
 
     private Catalog catalog;
 
-    private SystemInfoService systemInfoService;
+    private FakeCatalog fakeCatalog;
+    private FakeEditLog fakeEditLog;
 
     @Before
     public void setUp() {
-        systemInfoService = new SystemInfoService();
-
         catalog = AccessTestUtil.fetchAdminCatalog();
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
-        PowerMock.replay(Catalog.class);
+
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
+
+        FakeCatalog.setCatalog(catalog);
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        FakeCatalog.setSystemInfo(AccessTestUtil.fetchSystemInfoService());
 
         backend = new Backend(backendId, host, heartbeatPort);
         backend.updateOnce(bePort, httpPort, beRpcPort);
-
-        PowerMock.mockStatic(MetricRepo.class);
-        MetricRepo.generateBackendsTabletMetrics();
-        EasyMock.expectLastCall().anyTimes();
-        PowerMock.replay(MetricRepo.class);
     }
 
     @Test
@@ -124,7 +110,7 @@ public class BackendTest {
 
     @Test
     public void testSerialization() throws Exception {
-        // Write 100 objects to file 
+        // Write 100 objects to file
         File file = new File("./backendTest");
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));

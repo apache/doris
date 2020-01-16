@@ -201,7 +201,7 @@ Status NodeChannel::_wait_in_flight_packet() {
         return Status::OK();
     }
 
-    SCOPED_RAW_TIMER(_parent->mutable_wait_in_flight_packet_ns()); 
+    SCOPED_RAW_TIMER(_parent->mutable_wait_in_flight_packet_ns());
     _add_batch_closure->join();
     _has_in_flight_packet = false;
     if (_add_batch_closure->cntl.Failed()) {
@@ -226,7 +226,7 @@ Status NodeChannel::_send_cur_batch(bool eos) {
     _add_batch_request.set_eos(eos);
     _add_batch_request.set_packet_seq(_next_packet_seq);
     if (_batch->num_rows() > 0) {
-        SCOPED_RAW_TIMER(_parent->mutable_serialize_batch_ns()); 
+        SCOPED_RAW_TIMER(_parent->mutable_serialize_batch_ns());
         _batch->serialize(_add_batch_request.mutable_row_batch());
     }
 
@@ -438,7 +438,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
-    
+
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile(_pool, "OlapTableSink"));
     _mem_tracker = _pool->add(
@@ -474,7 +474,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
             }
         }
     }
-    
+
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
     _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size(), _mem_tracker));
 
@@ -665,7 +665,7 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
         auto src_row = input_batch->get_row(i);
         Tuple* dst_tuple = (Tuple*)output_batch->tuple_data_pool()->allocate(
             _output_tuple_desc->byte_size());
-        bool exist_null_value_for_not_null_col = false;
+        bool ignore_this_row = false;
         for (int j = 0; j < _output_expr_ctxs.size(); ++j) {
             auto src_val = _output_expr_ctxs[j]->get_value(src_row);
             auto slot_desc = _output_tuple_desc->slots()[j];
@@ -677,6 +677,7 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
                 if (!expr_error.empty()) {
                     state->append_error_msg_to_file(slot_desc->col_name(), expr_error);
                     _number_filtered_rows++;
+                    ignore_this_row = true;
                     // The ctx is reused, so must clear the error state and message.
                     _output_expr_ctxs[j]->clear_error_msg();
                     break;
@@ -689,8 +690,8 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
 #else
                     state->append_error_msg_to_file("", ss.str());
 #endif
-                    exist_null_value_for_not_null_col = true;
                     _number_filtered_rows++;
+                    ignore_this_row = true;
                     break;
                 }
                 dst_tuple->set_null(slot_desc->null_indicator_offset());
@@ -703,7 +704,7 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
             RawValue::write(src_val, slot, slot_desc->type(), _output_batch->tuple_data_pool());
         }
 
-        if (!exist_null_value_for_not_null_col) {
+        if (!ignore_this_row) {
             output_batch->get_row(commit_rows)->set_tuple(0, dst_tuple);
             commit_rows++;
         }

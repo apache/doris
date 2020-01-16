@@ -17,24 +17,29 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# COUNT_DISTINCT
+# to_bitmap
 ## description
 ### Syntax
 
-`COUNT_DISTINCT(expr)`
+`BITMAP TO_BITMAP(expr)`
 
+Convert an unsigned int (ranging from 0 to 4294967295) to a bitmap containing that value. Mainly be used to load interger value into bitmap column, e.g.,
 
-用于返回满足要求的行的数目，或者非NULL行的数目
+```
+cat data | curl --location-trusted -u user:passwd -T - -H "columns: dt,page,user_id, user_id=to_bitmap(user_id)"   http://host:8410/api/test/testDb/_stream_load
+```
 
 ## example
 
 ```
-MySQL > select count_distinct(query_id) from log_statis group by datetime;
-+----------------------------+
-| count_distinct(`query_id`) |
-+----------------------------+
-|                        577 |
-+----------------------------+
+mysql> select bitmap_count(to_bitmap(10));
++-----------------------------+
+| bitmap_count(to_bitmap(10)) |
++-----------------------------+
+|                           1 |
++-----------------------------+
 ```
-##keyword
-COUNT_DISTINCT,COUNT,DISTINCT
+
+## keyword
+
+    TO_BITMAP,BITMAP

@@ -20,8 +20,16 @@ package org.apache.doris.common.proc;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Range;
+import com.google.common.collect.Lists;
 
+
+import com.google.common.collect.Range;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LimitElement;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
@@ -34,14 +42,23 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table.TableType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
 
 /*
  * SHOW PROC /dbs/dbId/tableId/partitions
@@ -55,6 +72,8 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("LastConsistencyCheckTime").add("DataSize")
             .build();
 
+    private static final Logger LOG = LogManager.getLogger(PartitionsProcDir.class);
+
     public static final int PARTITION_NAME_INDEX = 1;
 
     private Database db;
@@ -65,8 +84,124 @@ public class PartitionsProcDir implements ProcDirInterface {
         this.olapTable = olapTable;
     }
 
-    @Override
-    public ProcResult fetchResult() throws AnalysisException {
+    public boolean filter(String columnName, Comparable element, Map<String, Expr> filterMap) throws AnalysisException {
+        if (filterMap == null) {
+            return true;
+        }
+        Expr subExpr = filterMap.get(columnName.toLowerCase());
+        if (subExpr == null) {
+            return true;
+        }
+        if (subExpr instanceof BinaryPredicate) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) subExpr;
+            if (subExpr.getChild(1) instanceof StringLiteral && binaryPredicate.getOp() == BinaryPredicate.Operator.EQ) {
+                return ((StringLiteral) subExpr.getChild(1)).getValue().equals(element);
+            }
+            long leftVal;
+            long rightVal;
+            if (subExpr.getChild(1) instanceof DateLiteral) {
+                leftVal = (new DateLiteral((String) element, Type.DATETIME)).getLongValue();
+                rightVal = ((DateLiteral) subExpr.getChild(1)).getLongValue();
+            } else {
+                leftVal = Long.parseLong(element.toString());
+                rightVal = ((IntLiteral)subExpr.getChild(1)).getLongValue();
+            }
+            switch (binaryPredicate.getOp()) {
+                case EQ:
+                case EQ_FOR_NULL:
+                    return leftVal == rightVal;
+                case GE:
+                    return leftVal >= rightVal;
+                case GT:
+                    return leftVal > rightVal;
+                case LE:
+                    return leftVal <= rightVal;
+                case LT:
+                    return leftVal < rightVal;
+                case NE:
+                    return leftVal != rightVal;
+                default:
+                    Preconditions.checkState(false, "No defined binary operator.");
+            }
+        } else {
+            return like((String)element, ((StringLiteral) subExpr.getChild(1)).getValue());
+        }
+        return true;
+    }
+
+    public boolean like(String str, String expr) {
+        expr = expr.toLowerCase();
+        expr = expr.replace(".", "\\.");
+        expr = expr.replace("?", ".");
+        expr = expr.replace("%", ".*");
+        str = str.toLowerCase();
+        return str.matches(expr);
+    }
+
+    public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs, LimitElement limitElement) throws AnalysisException {
+        List<List<Comparable>> partitionInfos = getPartitionInfos();
+        List<List<Comparable>> filterPartitionInfos = null;
+        //where
+        if (filterMap == null || filterMap.isEmpty()) {
+            filterPartitionInfos = partitionInfos;
+        } else {
+            filterPartitionInfos = Lists.newArrayList();
+            for (List<Comparable> partitionInfo : partitionInfos) {
+                if (partitionInfo.size() != TITLE_NAMES.size()) {
+                    throw new AnalysisException("ParttitionInfos.size() " + partitionInfos.size()
+                        + " not equal TITLE_NAMES.size() " + TITLE_NAMES.size());
+                }
+                boolean isNeed = true;
+                for (int i = 0; i < partitionInfo.size(); i++) {
+                    isNeed = filter(TITLE_NAMES.get(i), partitionInfo.get(i), filterMap);
+                    if (!isNeed) {
+                        break;
+                    }
+                }
+
+                if (isNeed) {
+                    filterPartitionInfos.add(partitionInfo);
+                }
+            }
+        }
+
+        // order by
+        if (orderByPairs != null) {
+            ListComparator<List<Comparable>> comparator = null;
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+            Collections.sort(filterPartitionInfos, comparator);
+        }
+
+        //limit
+        if (limitElement != null && limitElement.hasLimit()) {
+            int beginIndex = (int) limitElement.getOffset();
+            int endIndex = (int) (beginIndex + limitElement.getLimit());
+            if (endIndex > filterPartitionInfos.size()) {
+                endIndex = filterPartitionInfos.size();
+            }
+            filterPartitionInfos = filterPartitionInfos.subList(beginIndex,endIndex);
+        }
+
+        return getBasicProcResult(filterPartitionInfos);
+    }
+
+    public BaseProcResult getBasicProcResult(List<List<Comparable>> partitionInfos) {
+        // set result
+        BaseProcResult result = new BaseProcResult();
+        result.setNames(TITLE_NAMES);
+        for (List<Comparable> info : partitionInfos) {
+            List<String> row = new ArrayList<String>(info.size());
+            for (Comparable comparable : info) {
+                row.add(comparable.toString());
+            }
+            result.addRow(row);
+        }
+
+        return result;
+    }
+
+    public  List<List<Comparable>> getPartitionInfos() {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(olapTable);
         Preconditions.checkState(olapTable.getType() == TableType.OLAP);
@@ -119,10 +254,10 @@ public class PartitionsProcDir implements ProcDirInterface {
                     }
 
                     partitionInfo.add(distributionInfo.getBucketNum());
-                    
+
                     short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
                     partitionInfo.add(String.valueOf(replicationNum));
-                    
+
                     DataProperty dataProperty = rangePartitionInfo.getDataProperty(partitionId);
                     partitionInfo.add(dataProperty.getStorageMedium().name());
                     partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
@@ -132,7 +267,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     long dataSize = partition.getDataSize();
                     Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
-                            + sizePair.second;
+                        + sizePair.second;
                     partitionInfo.add(readableSize);
 
                     partitionInfos.add(partitionInfo);
@@ -183,7 +318,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     long dataSize = partition.getDataSize();
                     Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
-                            + sizePair.second;
+                        + sizePair.second;
                     partitionInfo.add(readableSize);
 
                     partitionInfos.add(partitionInfo);
@@ -192,19 +327,13 @@ public class PartitionsProcDir implements ProcDirInterface {
         } finally {
             db.readUnlock();
         }
+        return partitionInfos;
+    }
 
-        // set result
-        BaseProcResult result = new BaseProcResult();
-        result.setNames(TITLE_NAMES);
-        for (List<Comparable> info : partitionInfos) {
-            List<String> row = new ArrayList<String>(info.size());
-            for (Comparable comparable : info) {
-                row.add(comparable.toString());
-            }
-            result.addRow(row);
-        }
-
-        return result;
+    @Override
+    public ProcResult fetchResult() throws AnalysisException {
+        List<List<Comparable>> partitionInfos = getPartitionInfos();
+        return getBasicProcResult(partitionInfos);
     }
 
     @Override
@@ -234,4 +363,13 @@ public class PartitionsProcDir implements ProcDirInterface {
         }
     }
 
+    public static int analyzeColumn(String columnName) throws AnalysisException {
+        for (int i = 0; i < TITLE_NAMES.size(); ++i) {
+            if (TITLE_NAMES.get(i).equalsIgnoreCase(columnName)) {
+                return i;
+            }
+        }
+        ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME, columnName);
+        return -1;
+    }
 }

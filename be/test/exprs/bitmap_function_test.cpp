@@ -29,18 +29,16 @@
 namespace doris {
 
 StringVal convert_bitmap_to_string(FunctionContext* ctx, RoaringBitmap& bitmap) {
-    std::string buf;
-    buf.resize(bitmap.size());
-    bitmap.serialize((char*)buf.c_str());
-    return AnyValUtil::from_string_temp(ctx, buf);
+    StringVal result(ctx, bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
 }
 
 template<typename T>
 StringVal convert_bitmap_intersect_to_string(FunctionContext* ctx, BitmapIntersect<T>& intersect) {
-    std::string buf;
-    buf.resize(intersect.size());
-    intersect.serialize((char*)buf.c_str());
-    return AnyValUtil::from_string_temp(ctx, buf);
+    StringVal result(ctx,intersect.size());
+    intersect.serialize((char*)result.ptr);
+    return result;
 }
 
 class BitmapFunctionsTest : public testing::Test {
@@ -98,7 +96,7 @@ TEST_F(BitmapFunctionsTest, to_bitmap_invalid_argument) {
     ASSERT_EQ(expected, result);
     ASSERT_TRUE(ctx->has_error());
 
-    std::string error_msg("The to_bitmap function argument: xxxxxx type isn't integer family or exceed unsigned integer max value 4294967295");
+    std::string error_msg("The input: xxxxxx is not valid, to_bitmap only support int value from 0 to 4294967295 currently");
     ASSERT_EQ(error_msg, ctx->error_msg());
 }
 
@@ -111,7 +109,7 @@ TEST_F(BitmapFunctionsTest, to_bitmap_out_of_range) {
 
     ASSERT_TRUE(ctx->has_error());
 
-    std::string error_msg("The to_bitmap function argument: 4294967296 type isn't integer family or exceed unsigned integer max value 4294967295");
+    std::string error_msg("The input: 4294967296 is not valid, to_bitmap only support int value from 0 to 4294967295 currently");
     ASSERT_EQ(error_msg, ctx->error_msg());
 }
 
@@ -246,7 +244,74 @@ TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
     test_bitmap_intersect<StringVal, StringValue>(
         ctx, StringVal("20191211"), StringVal("20191212"));
 }
+TEST_F(BitmapFunctionsTest,bitmap_or) {
+    RoaringBitmap bitmap1(1024);
+    bitmap1.update(1);
+    bitmap1.update(2019);
 
+    RoaringBitmap bitmap2(33);
+    bitmap2.update(44);
+    bitmap2.update(55);
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    StringVal bitmap_str = BitmapFunctions::bitmap_or(ctx,bitmap_src,bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx,bitmap_str);
+
+    BigIntVal expected(6);
+    ASSERT_EQ(expected, result);
+}
+TEST_F(BitmapFunctionsTest,bitmap_and) {
+    RoaringBitmap bitmap1(1024);
+    bitmap1.update(1);
+    bitmap1.update(2019);
+
+    RoaringBitmap bitmap2(33);
+    bitmap2.update(44);
+    bitmap2.update(2019);
+
+    StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
+    StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
+
+    StringVal bitmap_str = BitmapFunctions::bitmap_and(ctx,bitmap_src,bitmap_dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx,bitmap_str);
+
+    BigIntVal expected(1);
+    ASSERT_EQ(expected, result);
+}
+TEST_F(BitmapFunctionsTest,bitmap_contains) {
+    RoaringBitmap bitmap(4);
+    bitmap.update(5);
+    StringVal bitmap_str = convert_bitmap_to_string(ctx,bitmap);
+    BooleanVal result = BitmapFunctions::bitmap_contains(ctx,bitmap_str,5);
+    BooleanVal expected(true);
+    ASSERT_EQ(expected,result);
+
+    BooleanVal result2 = BitmapFunctions::bitmap_contains(ctx,bitmap_str,10);
+    BooleanVal expected2(false);
+    ASSERT_EQ(expected2,result2);
+}
+
+TEST_F(BitmapFunctionsTest,bitmap_has_any) {
+    RoaringBitmap bitmap1(4);
+    bitmap1.update(5);
+
+    RoaringBitmap bitmap2(4);
+    bitmap2.update(5);
+
+    StringVal lhs = convert_bitmap_to_string(ctx,bitmap1);
+    StringVal rhs = convert_bitmap_to_string(ctx,bitmap2);
+    BooleanVal result = BitmapFunctions::bitmap_has_any(ctx,lhs,rhs);
+    BooleanVal expected(true);
+    ASSERT_EQ(expected,result);
+
+    RoaringBitmap bitmap3(10);
+    StringVal r3 = convert_bitmap_to_string(ctx,bitmap3);
+    BooleanVal result1 = BitmapFunctions::bitmap_has_any(ctx,lhs,r3);
+    BooleanVal expected2(false);
+    ASSERT_EQ(expected2,result1);
+}
 
 }
 

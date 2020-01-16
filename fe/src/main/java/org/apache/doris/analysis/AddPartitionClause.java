@@ -22,7 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import java.util.Map;
 
 // clause which is used to add partition
-public class AddPartitionClause extends AlterClause {
+public class AddPartitionClause extends AlterTableClause {
 
     private SingleRangePartitionDesc partitionDesc;
     private DistributionDesc distributionDesc;
@@ -42,6 +42,7 @@ public class AddPartitionClause extends AlterClause {
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
+        this.needTableStable = false;
     }
 
     @Override

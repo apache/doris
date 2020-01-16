@@ -943,9 +943,15 @@ public abstract class Type {
     }
 
     public static Type getCmpType(Type t1, Type t2) {
+        if (t1.getPrimitiveType() == PrimitiveType.NULL_TYPE) {
+            return t2;
+        }
+        if (t2.getPrimitiveType() == PrimitiveType.NULL_TYPE) {
+            return t1;
+        }
+
         PrimitiveType t1ResultType = t1.getResultType().getPrimitiveType();
         PrimitiveType t2ResultType = t2.getResultType().getPrimitiveType();
-
         // Following logical is compatible with MySQL.
         if ((t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR)) {
             return Type.VARCHAR; 

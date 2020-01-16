@@ -140,6 +140,9 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     _rowset_meta->set_empty(_num_rows_written == 0);
     _rowset_meta->set_creation_time(time(nullptr));
     _rowset_meta->set_num_segments(_num_segment);
+    if (_num_segment <= 1) {
+        _rowset_meta->set_segments_overlap(NONOVERLAPPING);
+    }
     if (_is_pending) {
         _rowset_meta->set_rowset_state(COMMITTED);
     } else {

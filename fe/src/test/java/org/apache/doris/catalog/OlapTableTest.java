@@ -20,10 +20,14 @@ package org.apache.doris.catalog;
 import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
+
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
+
+import com.google.common.collect.Lists;
 
 import org.junit.Test;
 
@@ -52,6 +56,8 @@ public class OlapTableTest {
                 continue;
             }
             OlapTable tbl = (OlapTable) table;
+            tbl.setIndexes(Lists.newArrayList(new Index("index", Lists.newArrayList("col"), IndexDef.IndexType.BITMAP
+                    , "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();

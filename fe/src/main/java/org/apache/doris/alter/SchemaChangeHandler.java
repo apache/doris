@@ -25,7 +25,9 @@ import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.ColumnPosition;
+import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropColumnClause;
+import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
@@ -36,6 +38,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -58,6 +61,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -66,8 +70,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.ClearAlterTask;
-import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -81,6 +85,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -739,11 +744,11 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void createJob(long dbId, OlapTable olapTable, Map<Long, LinkedList<Column>> indexSchemaMap,
-            Map<String, String> propertyMap) throws UserException {
+                           Map<String, String> propertyMap, List<Index> indexes) throws UserException {
         if (olapTable.getState() == OlapTableState.ROLLUP) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ROLLUP job");
         }
-        
+
         if (this.hasUnfinishedAlterJob(olapTable.getId())) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s is doing ALTER job");
         }
@@ -778,6 +783,14 @@ public class SchemaChangeHandler extends AlterHandler {
                     indexIdToProperties.put(olapTable.getIndexIdByName(keyArray[0]), prop);
                 }
             } // end for property keys
+        }
+
+        // for bitmapIndex
+        boolean hasIndexChange = false;
+        Set<Index> newSet = new HashSet<>(indexes);
+        Set<Index> oriSet = new HashSet<>(olapTable.getIndexes());
+        if (!newSet.equals(oriSet)) {
+            hasIndexChange = true;
         }
 
         // property 2. bloom filter
@@ -849,6 +862,7 @@ public class SchemaChangeHandler extends AlterHandler {
         long jobId = catalog.getNextId();
         SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(jobId, dbId, olapTable.getId(), olapTable.getName(), timeoutSecond * 1000);
         schemaChangeJob.setBloomFilterInfo(hasBfChange, bfColumns, bfFpp);
+        schemaChangeJob.setAlterIndexInfo(hasIndexChange, indexes);
 
         // If StorageFormat is set to TStorageFormat.V2
         // which will create tablet with preferred_rowset_type set to BETA
@@ -911,6 +925,8 @@ public class SchemaChangeHandler extends AlterHandler {
                         break;
                     }
                 }
+            } else if (hasIndexChange) {
+                needAlter = true;
             } else if (storageFormat == TStorageFormat.V2) {
                 needAlter = true;
             }
@@ -1020,7 +1036,7 @@ public class SchemaChangeHandler extends AlterHandler {
             LOG.debug("schema change[{}-{}-{}] check pass.", dbId, tableId, alterIndexId);
         } // end for indices
 
-        if (changedIndexIdToSchema.isEmpty()) {
+        if (changedIndexIdToSchema.isEmpty() && !hasIndexChange) {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
@@ -1299,7 +1315,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
             indexSchemaMap.put(entry.getKey(), new LinkedList<Column>(entry.getValue()));
         }
-
+        List<Index> newIndexes = olapTable.getCopiedIndexes();
         Map<String, String> propertyMap = new HashMap<String, String>();
         for (AlterClause alterClause : alterClauses) {
             // get properties
@@ -1327,6 +1343,9 @@ public class SchemaChangeHandler extends AlterHandler {
                      */
                     sendClearAlterTask(db, olapTable);
                     return;
+                } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
+                    Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
+                    return;
                 }
             }
 
@@ -1348,12 +1367,16 @@ public class SchemaChangeHandler extends AlterHandler {
             } else if (alterClause instanceof ModifyTablePropertiesClause) {
                 // modify table properties
                 // do nothing, properties are already in propertyMap
+            } else if (alterClause instanceof CreateIndexClause) {
+                processAddIndex((CreateIndexClause) alterClause, newIndexes);
+            } else if (alterClause instanceof DropIndexClause) {
+                processDropIndex((DropIndexClause) alterClause, newIndexes);
             } else {
                 Preconditions.checkState(false);
             }
         } // end for alter clauses
 
-        createJob(db.getId(), olapTable, indexSchemaMap, propertyMap);
+        createJob(db.getId(), olapTable, indexSchemaMap, propertyMap, newIndexes);
     }
 
     private void sendClearAlterTask(Database db, OlapTable olapTable) {
@@ -1438,6 +1461,23 @@ public class SchemaChangeHandler extends AlterHandler {
         // handle old alter job
         if (schemaChangeJob != null && schemaChangeJob.getState() == JobState.CANCELLED) {
             jobDone(schemaChangeJob);
+        }
+    }
+
+    private void processAddIndex(CreateIndexClause alterClause, List<Index> indexes) {
+        if (alterClause.getIndex() != null) {
+            indexes.add(alterClause.getIndex());
+        }
+    }
+
+    private void processDropIndex(DropIndexClause alterClause, List<Index> indexes) {
+        Iterator<Index> itr = indexes.iterator();
+        while (itr.hasNext()) {
+            Index idx  = itr.next();
+            if (idx.getIndexName().equalsIgnoreCase(alterClause.getIndexName())) {
+                itr.remove();
+                break;
+            }
         }
     }
 }

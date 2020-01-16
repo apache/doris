@@ -151,4 +151,37 @@ std::string BitmapToString(const uint8_t *bitmap, size_t num_bits) {
   return s;
 }
 
+std::string RoaringBitmap::to_string() const {
+    std::stringstream ss;
+    switch (_type) {
+    case EMPTY:
+        break;
+    case SINGLE:
+        ss << _int_value;
+        break;
+    case BITMAP: {
+        struct IterCtx {
+            std::stringstream* ss = nullptr;
+            bool first = true;
+        } iter_ctx;
+        iter_ctx.ss = &ss;
+        _roaring.iterate(
+            [] (uint32_t value, void *inner_iter_data) -> bool {
+                IterCtx* ctx = (IterCtx*)inner_iter_data;
+                if (ctx->first) {
+                    ctx->first = false;
+                } else {
+                    (*ctx->ss) << ",";
+                }
+                (*ctx->ss) << value;
+                return true;
+            }, &iter_ctx);
+        break;
+    }
+    default:
+        break;
+    }
+    return ss.str();
+}
+
 }

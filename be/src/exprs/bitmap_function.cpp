@@ -20,6 +20,8 @@
 #include "exprs/anyval_util.h"
 #include "util/bitmap.h"
 #include "util/string_parser.hpp"
+#include "gutil/strings/split.h"
+#include "gutil/strings/numbers.h"
 
 namespace doris {
 
@@ -304,8 +306,8 @@ StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const dori
         uint32_t int_value = StringParser::string_to_unsigned_int<uint32_t>(reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
         if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
             std::stringstream error_msg;
-            error_msg << "The to_bitmap function argument: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
-            << " type isn't integer family or exceed unsigned integer max value 4294967295";
+            error_msg << "The input: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
+            << " is not valid, to_bitmap only support int value from 0 to 4294967295 currently";
             ctx->set_error(error_msg.str().c_str());
             return StringVal::null();
         }
@@ -387,7 +389,116 @@ BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const
     delete src_bitmap;
     return result;
 }
+StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+    if (lhs.is_null || rhs.is_null) {
+        return StringVal::null();
+    }
+    RoaringBitmap bitmap;
+    if (lhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
+    }
 
+    if (rhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)rhs.ptr));
+    }
+
+    StringVal result(ctx,bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
+}
+StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+    if (lhs.is_null || rhs.is_null) {
+        return StringVal::null();
+    }
+    RoaringBitmap bitmap;
+    if (lhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
+    }
+
+    if(rhs.len == 0){
+        bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+    } else {
+        bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
+    }
+
+    StringVal result(ctx, bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
+}
+
+StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
+    if (input.is_null) {
+        return StringVal::null();
+    }
+    RoaringBitmap bitmap_obj;
+    RoaringBitmap* bitmap = &bitmap_obj;
+    if (input.len == 0) {
+        bitmap = (RoaringBitmap*)input.ptr;
+    } else {
+        bitmap_obj.deserialize((const char*)input.ptr);
+    }
+
+    std::string str = bitmap->to_string();
+    return AnyValUtil::from_string_temp(ctx, str);
+}
+
+StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const StringVal& input) {
+    if (input.is_null) {
+        return StringVal::null();
+    }
+
+    std::vector<uint32_t> bits;
+    if (!SplitStringAndParse({(const char*)input.ptr, input.len}, ",", &safe_strtou32, &bits)) {
+        return StringVal::null();
+    }
+
+    RoaringBitmap bitmap(bits);
+
+    StringVal result(ctx, bitmap.size());
+    bitmap.serialize((char*)result.ptr);
+    return result;
+}
+
+BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVal& src, const BigIntVal& input) {
+    if (src.is_null || input.is_null) {
+        return BooleanVal::null();
+    }
+
+    if (src.len == 0) {
+        auto bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
+        return {bitmap->contains(input.val)};
+    }
+
+    RoaringBitmap bitmap ((char*)src.ptr);
+    return {bitmap.contains(input.val)};
+}
+
+BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs) {
+    if (lhs.is_null || rhs.is_null) {
+        return BooleanVal::null();
+    }
+
+    RoaringBitmap bitmap;
+    if (lhs.len == 0) {
+        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+    } else {
+        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
+    }
+
+    if (rhs.len == 0) {
+        bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+    } else {
+        bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
+    }
+
+    return {bitmap.cardinality() != 0};
+}
 
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(
         FunctionContext* ctx, const TinyIntVal& src, StringVal* dst);

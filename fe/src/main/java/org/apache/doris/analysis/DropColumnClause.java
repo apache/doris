@@ -26,7 +26,7 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // Drop one column
-public class DropColumnClause extends AlterClause {
+public class DropColumnClause extends AlterTableClause {
     private String colName;
     private String rollupName;
 

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -227,7 +228,14 @@ public class BrokerScanNode extends LoadScanNode {
         context.slotDescByName = Maps.newHashMap();
         context.exprMap = Maps.newHashMap();
 
-        Load.initColumns(targetTable, context.fileGroup.getColumnExprList(),
+        // for load job, column exprs is got from file group
+        // for query, there is no column exprs, they will be got from table's schema in "Load.initColumns"
+        List<ImportColumnDesc> columnExprs = Lists.newArrayList();
+        if (isLoad()) {
+            columnExprs = context.fileGroup.getColumnExprList();
+        }
+
+        Load.initColumns(targetTable, columnExprs,
                 context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
                 context.tupleDescriptor, context.slotDescByName, context.params);
     }
@@ -400,8 +408,12 @@ public class BrokerScanNode extends LoadScanNode {
     }
 
     private TFileFormatType formatType(String fileFormat, String path) {
-        if (fileFormat != null && fileFormat.toLowerCase().equals("parquet")) {
-            return TFileFormatType.FORMAT_PARQUET;
+        if (fileFormat != null) {
+            if (fileFormat.toLowerCase().equals("parquet")) {
+                return TFileFormatType.FORMAT_PARQUET;
+            } else if (fileFormat.toLowerCase().equals("orc")) {
+                return TFileFormatType.FORMAT_ORC;
+            }
         }
 
         String lowerCasePath = path.toLowerCase();

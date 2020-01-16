@@ -17,7 +17,6 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-
 # Data Model, ROLLUP and Prefix Index
 
 This document describes Doris's data model, ROLLUP and prefix index concepts at the logical level to help users better use Doris to cope with different business scenarios.
@@ -31,7 +30,7 @@ Columns can be divided into two categories: Key and Value. From a business persp
 
 Doris's data model is divided into three main categories:
 
-*Aggregate
+* Aggregate
 * Uniq
 * Duplicate
 
@@ -45,7 +44,7 @@ We illustrate what aggregation model is and how to use it correctly with practic
 
 Assume that the business has the following data table schema:
 
-Columns
+|ColumnName|Type|AggregationType|Comment|
 |---|---|---|---|
 | userid | LARGEINT | | user id|
 | date | DATE | | date of data filling|
@@ -62,27 +61,27 @@ If converted into a table-building statement, the following is done (omitting th
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "用户id",
-"Date `date not null how `index `Fufu 8;'Back
-` City `VARCHAR (20) COMMENT `User City',
-"Age" SMALLINT COMMENT "29992;" 25143;"24180;" 40836 ",
-`sex` TINYINT COMMENT "用户性别",
-"last visit date" DATETIME REPLACE DEFAULT "1970 -01 -01 00:00" COMMENT "25143;" 27425;"35775;" 3838382",
-`cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
-Best Answer: Best Answer
-How about "99999" as time goes by???????????????????????????????????????????????????????????????????????????????????????????
+    `user_id` LARGEINT NOT NULL COMMENT "user id",
+    `date` DATE NOT NULL COMMENT "data import time",
+    `city` VARCHAR(20) COMMENT "city",
+    `age` SMALLINT COMMENT "age",
+    `sex` TINYINT COMMENT "gender",
+    `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "last visit date time",
+    `cost` BIGINT SUM DEFAULT "0" COMMENT "user total cost",
+    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "user max dwell time",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "user min dwell time",
 )
 AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
-... /* 省略 Partition 和 Distribution 信息 */
+... /* ignore Partition and Distribution */
 ;
 ```
 
 As you can see, this is a typical fact table of user information and access behavior.
 In general star model, user information and access behavior are stored in dimension table and fact table respectively. Here, in order to explain Doris's data model more conveniently, we store the two parts of information in a single table.
 
-The columns in the table are divided into Key (dimension column) and Value (indicator column) according to whether `AggregationType'is set or not. No `AggregationType', such as `user_id', `date', `age', etc., is set as ** Key **, while `AggregationType'is set as ** Value **.
+The columns in the table are divided into Key (dimension column) and Value (indicator column) according to whether `AggregationType`is set or not. No `AggregationType`, such as `user_id`, `date`, `age`, etc., is set as **Key**, while AggregationType'is set as **Value**.
 
-When we import data, the same rows and aggregates into one row for the Key column, while the Value column aggregates according to the set `AggregationType'. ` AggregationType `currently has the following four ways of aggregation:
+When we import data, the same rows and aggregates into one row for the Key column, while the Value column aggregates according to the set `AggregationType`. `AggregationType`currently has the following four ways of aggregation:
 
 1. SUM: Sum, multi-line Value accumulation.
 2. REPLACE: Instead, Values in the next batch of data will replace Values in rows previously imported.
@@ -130,12 +129,12 @@ As you can see, there is only one line of aggregated data left for 10,000 users.
 
 The first five columns remain unchanged, starting with column 6 `last_visit_date':
 
-*` 2017-10-01 07:00 `: Because the `last_visit_date'column is aggregated by REPLACE, the `2017-10-01 07:00 ` column has been replaced by `2017-10-01 06:00'.
+*`2017-10-01 07:00`: Because the `last_visit_date`column is aggregated by REPLACE, the `2017-10-01 07:00` column has been replaced by `2017-10-01 06:00'.
 > Note: For data in the same import batch, the order of replacement is not guaranteed for the aggregation of REPLACE. For example, in this case, it may be `2017-10-01 06:00'. For data from different imported batches, it can be guaranteed that the data from the latter batch will replace the former batch.
 
-*` 35 `: Because the aggregation type of the `cost'column is SUM, 35 is accumulated from 20 + 15.
-*` 10 `: Because the aggregation type of the `max_dwell_time'column is MAX, 10 and 2 take the maximum and get 10.
-*` 2 `: Because the aggregation type of `min_dwell_time'column is MIN, 10 and 2 take the minimum value and get 2.
+*`35`: Because the aggregation type of the `cost'column is SUM, 35 is accumulated from 20 + 15.
+*`10`: Because the aggregation type of the`max_dwell_time'column is MAX, 10 and 2 take the maximum and get 10.
+*`2`: Because the aggregation type of `min_dwell_time'column is MIN, 10 and 2 take the minimum value and get 2.
 
 After aggregation, Doris ultimately only stores aggregated data. In other words, detailed data will be lost and users can no longer query the detailed data before aggregation.
 
@@ -143,7 +142,7 @@ After aggregation, Doris ultimately only stores aggregated data. In other words,
 
 Following example 1, we modify the table structure as follows:
 
-Columns
+|ColumnName|Type|AggregationType|Comment|
 |---|---|---|---|
 | userid | LARGEINT | | user id|
 | date | DATE | | date of data filling|
@@ -182,7 +181,7 @@ Then when this batch of data is imported into Doris correctly, the final storage
 | 10004 | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
 | 10004 | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
 
-We can see that the stored data, just like the imported data, does not aggregate at all. This is because, in this batch of data, because the `timestamp'column is added, the Keys of all rows are ** not exactly the same **. That is, as long as the keys of each row are not identical in the imported data, Doris can save the complete detailed data even in the aggregation model.
+We can see that the stored data, just like the imported data, does not aggregate at all. This is because, in this batch of data, because the `timestamp'column is added, the Keys of all rows are **not exactly the same**. That is, as long as the keys of each row are not identical in the imported data, Doris can save the complete detailed data even in the aggregation model.
 
 ### Example 3: Importing data and aggregating existing data
 
@@ -224,13 +223,13 @@ Data aggregation occurs in Doris in the following three stages:
 2. The stage in which the underlying BE performs data Compaction. At this stage, BE aggregates data from different batches that have been imported.
 3. Data query stage. In data query, the data involved in the query will be aggregated accordingly.
 
-Data may be aggregated to varying degrees at different times. For example, when a batch of data is just imported, it may not be aggregated with the existing data. But for users, user** can only query aggregated data. That is, different degrees of aggregation are transparent to user queries. Users should always assume that data exists in terms of the degree of aggregation that ** ultimately completes, and ** should not assume that some aggregation has not yet occurred **. (See the section ** Limitations of the aggregation model ** for more details.)
+Data may be aggregated to varying degrees at different times. For example, when a batch of data is just imported, it may not be aggregated with the existing data. But for users, user**can only query aggregated data**. That is, different degrees of aggregation are transparent to user queries. Users should always assume that data exists in terms of the degree of aggregation that **ultimately completes**, and **should not assume that some aggregation has not yet occurred**. (See the section **Limitations of the aggregation model** for more details.)
 
 ## Uniq Model
 
 In some multi-dimensional analysis scenarios, users are more concerned with how to ensure the uniqueness of Key, that is, how to obtain the Primary Key uniqueness constraint. Therefore, we introduce Uniq's data model. This model is essentially a special case of aggregation model and a simplified representation of table structure. Let's give an example.
 
-Columns
+|ColumnName|Type|IsKey|Comment|
 |---|---|---|---|
 | user_id | BIGINT | Yes | user id|
 | username | VARCHAR (50) | Yes | User nickname|
@@ -262,7 +261,7 @@ Unique Key ("User", "User", "Name")
 
 This table structure is exactly the same as the following table structure described by the aggregation model:
 
-Columns
+|ColumnName|Type|AggregationType|Comment|
 |---|---|---|---|
 | user_id | BIGINT | | user id|
 | username | VARCHAR (50) | | User nickname|
@@ -298,17 +297,16 @@ That is to say, Uniq model can be completely replaced by REPLACE in aggregation 
 
 In some multidimensional analysis scenarios, data has neither primary keys nor aggregation requirements. Therefore, we introduce Duplicate data model to meet this kind of demand. Examples are given.
 
-+ 124; Columname = 124; type = 124; sortkey = 124; comment = 124;
+|ColumnName|Type|SortKey|Comment|
 |---|---|---|---|
 | Timstamp | DATETIME | Yes | Logging Time|
 | Type | INT | Yes | Log Type|
-|error_code|INT|Yes|错误码|
+|error_code|INT|Yes|error code|
 | Error_msg | VARCHAR (1024) | No | Error Details|
-1.2.2.2.;2.2.2.1.;2.2.2.2.2.2.2.2.2.2.
-| op_time | DATETIME | No | Processing time|
+|op_id|BIGINT|No|operator id|
+|op_time|DATETIME|No|operation time|
 
 The TABLE statement is as follows:
-
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
@@ -337,7 +335,7 @@ ROLLUP in multidimensional analysis means "scroll up", which means that data is 
 
 In Doris, we make the table created by the user through the table building statement a Base table. Base table holds the basic data stored in the way specified by the user's table-building statement.
 
-On top of the Base table, we can create any number of ROLLUP tables. These ROLLUP data are generated based on the Base table and physically ** stored independently **.
+On top of the Base table, we can create any number of ROLLUP tables. These ROLLUP data are generated based on the Base table and physically **stored independently**.
 
 The basic function of ROLLUP tables is to obtain coarser aggregated data on the basis of Base tables.
 
@@ -349,9 +347,9 @@ Because Uniq is only a special case of the Aggregate model, we do not distinguis
 
 Example 1: Get the total consumption per user
 
-Following ** Example 2 ** in the ** Aggregate Model ** section, the Base table structure is as follows:
+Following **Example 2** in the **Aggregate Model** section, the Base table structure is as follows:
 
-Columns
+|ColumnName|Type|AggregationType|Comment|
 |---|---|---|---|
 | user_id | LARGEINT | | user id|
 | date | DATE | | date of data filling|
@@ -378,7 +376,7 @@ The data stored are as follows:
 
 On this basis, we create a ROLLUP:
 
-1240; Colonname 12412;
+|ColumnName|
 |---|
 |user_id|
 |cost|
@@ -403,7 +401,7 @@ Doris automatically hits the ROLLUP table, thus completing the aggregated query 
 
 Follow example 1. Based on the Base table, we create a ROLLUP:
 
-Columns
+|ColumnName|Type|AggregationType|Comment|
 |---|---|---|---|
 | City | VARCHAR (20) | | User City|
 | age | SMALLINT | | User age|
@@ -448,23 +446,23 @@ We use the prefix index of ** 36 bytes ** of a row of data as the prefix index o
 
 1. The prefix index of the following table structure is user_id (8Byte) + age (8Bytes) + message (prefix 20 Bytes).
 
-+ 124; Columname = 124; type = 124;
+|ColumnName|Type|
 |---|---|
 |user_id|BIGINT|
 |age|INT|
-Message
-124max \\u dwell u team 124DATE
-124m;min \\u dwell u team 124DATE
+|message|VARCHAR(100)|
+|max\_dwell\_time|DATETIME|
+|min\_dwell\_time|DATETIME|
 
 2. The prefix index of the following table structure is user_name (20 Bytes). Even if it does not reach 36 bytes, because it encounters VARCHAR, it truncates directly and no longer continues.
 
-+ 124; Columname = 124; type = 124;
+|ColumnName|Type|
 |---|---|
-User name
+|user_name|VARCHAR(20)|
 |age|INT|
-Message
-124max \\u dwell u team 124DATE
-124m;min \\u dwell u team 124DATE
+|message|VARCHAR(100)|
+|max\_dwell\_time|DATETIME|
+|min\_dwell\_time|DATETIME|
 
 When our query condition is the prefix of ** prefix index **, it can greatly speed up the query speed. For example, in the first example, we execute the following queries:
 
@@ -482,23 +480,23 @@ Because column order is specified when a table is built, there is only one prefi
 
 The structure of the Base table is as follows:
 
-+ 124; Columname = 124; type = 124;
+|ColumnName|Type|
 |---|---|
 |user\_id|BIGINT|
 |age|INT|
-Message
-124max \\u dwell u team 124DATE
-124m;min \\u dwell u team 124DATE
+|message|VARCHAR(100)|
+|max\_dwell\_time|DATETIME|
+|min\_dwell\_time|DATETIME|
 
 On this basis, we can create a ROLLUP table:
 
-+ 124; Columname = 124; type = 124;
+|ColumnName|Type|
 |---|---|
 |age|INT|
 |user\_id|BIGINT|
-Message
-124max \\u dwell u team 124DATE
-124m;min \\u dwell u team 124DATE
+|message|VARCHAR(100)|
+|max\_dwell\_time|DATETIME|
+|min\_dwell\_time|DATETIME|
 
 As you can see, the columns of ROLLUP and Base tables are exactly the same, just changing the order of user_id and age. So when we do the following query:
 
@@ -514,9 +512,9 @@ The ROLLUP table is preferred because the prefix index of ROLLUP matches better.
 * Data updates for ROLLUP are fully synchronized with Base representations. Users need not care about this problem.
 * Columns in ROLLUP are aggregated in exactly the same way as Base tables. There is no need to specify or modify ROLLUP when creating it.
 * A necessary (inadequate) condition for a query to hit ROLLUP is that all columns ** (including the query condition columns in select list and where) involved in the query exist in the column of the ROLLUP. Otherwise, the query can only hit the Base table.
-* Certain types of queries (such as count (*)) cannot hit ROLLUP under any conditions. See the next section ** Limitations of the aggregation model **.
+* Certain types of queries (such as count (*)) cannot hit ROLLUP under any conditions. See the next section **Limitations of the aggregation model**.
 * The query execution plan can be obtained by `EXPLAIN your_sql;` command, and in the execution plan, whether ROLLUP has been hit or not can be checked.
-* Base tables and all created ROLLUPs can be displayed by `DESC tbl_name ALL'; `statement.
+* Base tables and all created ROLLUPs can be displayed by `DESC tbl_name ALL;` statement.
 
 In this document, you can see [Query how to hit Rollup] (hit-the-rollup)
 
@@ -528,7 +526,7 @@ In the aggregation model, what the model presents is the aggregated data. That i
 
 The hypothesis table is structured as follows:
 
-Columns
+|ColumnName|Type|AggregationType|Comment|
 |---|---|---|---|
 | userid | LARGEINT | | user id|
 | date | DATE | | date of data filling|
@@ -602,22 +600,22 @@ Because the final aggregation result is:
 |10002|2017-11-21|39|
 |10003|2017-11-22|22|
 
-So `select count (*) from table; `The correct result should be ** 4 **. But if we only scan the `user_id'column and add query aggregation, the final result is ** 3 ** (10001, 10002, 10003). If aggregated without queries, the result is ** 5 ** (a total of five rows in two batches). It can be seen that both results are wrong.
+So `select count (*) from table;` The correct result should be **4**. But if we only scan the `user_id'column and add query aggregation, the final result is **3** (10001, 10002, 10003). If aggregated without queries, the result is **5** (a total of five rows in two batches). It can be seen that both results are wrong.
 
-In order to get the correct result, we must read the data of `user_id'and `date', and ** together with aggregate ** when querying, to return the correct result of ** 4 **. That is to say, in the count (*) query, Doris must scan all AGGREGATE KEY columns (here are `user_id` and `date') and aggregate them to get the semantically correct results. When aggregated columns are large, count (*) queries need to scan a large amount of data.
+In order to get the correct result, we must read the data of `user_id` and `date`, and **together with aggregate** when querying, to return the correct result of **4**. That is to say, in the count (*) query, Doris must scan all AGGREGATE KEY columns (here are `user_id` and `date`) and aggregate them to get the semantically correct results. When aggregated columns are large, count (*) queries need to scan a large amount of data.
 
-Therefore, when there are frequent count (*) queries in the business, we recommend that users simulate count (*)**) by adding a column with a ** value of 1 and aggregation type of SUM. As the table structure in the previous example, we modify it as follows:
+Therefore, when there are frequent count (*) queries in the business, we recommend that users simulate count (*) by adding a column with a value of 1 and aggregation type of SUM. As the table structure in the previous example, we modify it as follows:
 
-Columns
+|ColumnName|Type|AggregationType|Comment|
 |---|---|---|---|
 | user ID | BIGINT | | user id|
 | date | DATE | | date of data filling|
 | Cost | BIGINT | SUM | Total User Consumption|
 | count | BIGINT | SUM | for counting|
 
-Add a count column and import the data with the column value ** equal to 1 **. The result of `select count (*) from table; `is equivalent to `select sum (count) from table; ` The query efficiency of the latter is much higher than that of the former. However, this method also has limitations, that is, users need to guarantee that they will not import rows with the same AGGREGATE KEY column repeatedly. Otherwise, `select sum (count) from table; `can only express the number of rows originally imported, not the semantics of `select count (*) from table; `
+Add a count column and import the data with the column value **equal to 1**. The result of `select count (*) from table;`is equivalent to `select sum (count) from table;` The query efficiency of the latter is much higher than that of the former. However, this method also has limitations, that is, users need to guarantee that they will not import rows with the same AGGREGATE KEY column repeatedly. Otherwise, `select sum (count) from table;`can only express the number of rows originally imported, not the semantics of `select count (*) from table;`
 
-Another way is to ** change the aggregation type of the `count'column above to REPLACE, and still weigh 1 **. Then `select sum (count) from table; `and `select count (*) from table; `the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
+Another way is to **change the aggregation type of the count'column above to REPLACE, and still weigh 1**. Then`select sum (count) from table;` and `select count (*) from table;` the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
 
 ### Duplicate Model
 
@@ -625,7 +623,7 @@ Duplicate model has no limitation of aggregation model. Because the model does n
 
 ## Suggestions for Choosing Data Model
 
-Because the data model was established when the table was built, and ** could not be modified **. Therefore, it is very important to select an appropriate data model **.
+Because the data model was established when the table was built, and **could not be modified **. Therefore, it is very important to select an appropriate data model**.
 
 1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count (*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
 2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP can not be exploited (because the essence is REPLACE, there is no such aggregation as SUM).

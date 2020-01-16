@@ -416,26 +416,32 @@ void TxnManager::get_tablet_related_txns(TTabletId tablet_id, SchemaHash schema_
 void TxnManager::force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid) {
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     WriteLock txn_wrlock(&_txn_map_lock);
-    for (auto& it : _txn_tablet_map) {
-        auto load_itr = it.second.find(tablet_info);
-        if (load_itr != it.second.end()) {
+    for (auto it = _txn_tablet_map.begin(); it != _txn_tablet_map.end();) {
+        auto load_itr = it->second.find(tablet_info);
+        if (load_itr != it->second.end()) {
             TabletTxnInfo& load_info = load_itr->second;
             if (load_info.rowset != nullptr && meta != nullptr) {
                 LOG(INFO) << " delete transaction from engine "
                           << ", tablet: " << tablet_info.to_string()
                           << ", rowset id: " << load_info.rowset->rowset_id();
-                RowsetMetaManager::remove(meta, tablet_uid, load_info.rowset->rowset_id());
+                RowsetMetaManager::remove(meta, tablet_uid,
+                                          load_info.rowset->rowset_id());
             }
             LOG(INFO) << "remove tablet related txn."
-                      << " partition_id: " << it.first.first
-                      << ", transaction_id: " << it.first.second
-                      << ", tablet: " << tablet_info.to_string()
-                      << ", rowset: " << (load_info.rowset != nullptr ?  load_info.rowset->rowset_id().to_string() : "0");
-            it.second.erase(tablet_info);
+                      << " partition_id: " << it->first.first
+                      << ", transaction_id: " << it->first.second
+                      << ", tablet: " << tablet_info.to_string() << ", rowset: "
+                      << (load_info.rowset != nullptr
+                              ? load_info.rowset->rowset_id().to_string()
+                              : "0");
+            it->second.erase(tablet_info);
         }
-        if (it.second.empty()) {
-            _clear_txn_partition_map_unlocked(it.first.second, it.first.first);
-            _txn_tablet_map.erase(it.first);
+        if (it->second.empty()) {
+            _clear_txn_partition_map_unlocked(it->first.second,
+                                              it->first.first);
+            it = _txn_tablet_map.erase(it);
+        } else {
+            ++it;
         }
     }
 }

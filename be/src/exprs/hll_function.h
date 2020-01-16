@@ -36,6 +36,10 @@ public:
 
     static BigIntVal hll_finalize(FunctionContext*, const StringVal& src);
 
+    // Get the hll cardinality, the difference from hll_finalize method is
+    // hll_get_value method doesn't free memory
+    static BigIntVal hll_get_value(FunctionContext*, const StringVal& src);
+
     static StringVal hll_serialize(FunctionContext* ctx, const StringVal& src);
 
     static BigIntVal hll_cardinality(FunctionContext* ctx, const StringVal& src);

@@ -87,7 +87,6 @@ Doris instances communicate directly over the network. The following table shows
 | Instance Name | Port Name | Default Port | Communication Direction | Description|
 | ---|---|---|---|---|
 | BE | be_port | 9060 | FE - > BE | BE for receiving requests from FE|
-| BE | be\_rpc_port | 9070 | BE < - > BE | port used by RPC between BE | BE|
 | BE | webserver\_port | 8040 | BE <--> BE | BE|
 | BE | heartbeat\_service_port | 9050 | FE - > BE | the heart beat service port (thrift) on BE, used to receive heartbeat from FE|
 | BE | brpc\_port* | 8060 | FE < - > BE, BE < - > BE | BE for communication between BEs|
@@ -101,7 +100,6 @@ Doris instances communicate directly over the network. The following table shows
 > 
 > 1. When deploying multiple FE instances, make sure that the http port configuration of FE is the same.
 > 2. Make sure that each port has access in its proper direction before deployment.
-> 3. brpc port replaced be rpc_port after version 0.8.2
 
 #### IP binding
 
@@ -140,7 +138,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 * Configure FE
 
 	1. The configuration file is conf/fe.conf. Note: `meta_dir`: Metadata storage location. The default is fe/palo-meta/. The directory needs to be **created manually** by.
-	2. JAVA_OPTS in fe.conf defaults to a maximum heap memory of 2GB for java, and it is recommended that the production environment be adjusted to more than 8G.
+	2. JAVA_OPTS in fe.conf defaults to a maximum heap memory of 4GB for java, and it is recommended that the production environment be adjusted to more than 8G.
 
 * Start FE
 

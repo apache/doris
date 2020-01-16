@@ -24,6 +24,7 @@
 #include "runtime/string_value.h"
 #include "util/string_parser.hpp"
 #include "string_functions.h"
+#include "util/mysql_global.h"
 
 namespace doris {
 
@@ -161,13 +162,26 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const LargeInt
     return AnyValUtil::from_buffer_temp(ctx, d, len);
 }
 
+template<typename T>
+int float_to_string(T value, char* buf);
+
+template<>
+int float_to_string<float>(float value, char* buf) {
+    return FloatToBuffer(value, MAX_FLOAT_STR_LENGTH + 2, buf);
+}
+
+template<>
+int float_to_string<double>(double value, char* buf) {
+    return DoubleToBuffer(value, MAX_DOUBLE_STR_LENGTH + 2, buf);
+}
+
 #define CAST_FLOAT_TO_STRING(float_type, format) \
   StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const float_type& val) { \
     if (val.is_null) return StringVal::null(); \
     /* val.val could be -nan, return "nan" instead */ \
     if (std::isnan(val.val)) return StringVal("nan"); \
     /* Add 1 to MAX_FLOAT_CHARS since snprintf adds a trailing '\0' */ \
-    StringVal sv(ctx, MAX_FLOAT_CHARS + 1); \
+    StringVal sv(ctx, MAX_DOUBLE_STR_LENGTH + 2); \
     if (UNLIKELY(sv.is_null)) { \
       return sv; \
     } \
@@ -178,11 +192,9 @@ StringVal CastFunctions::cast_to_string_val(FunctionContext* ctx, const LargeInt
         DCHECK_LE(sv.len, MAX_FLOAT_CHARS); \
         AnyValUtil::TruncateIfNecessary(returnType, &sv); \
     } else if (returnType.len == -1) { \
-        std::stringstream ss; \
-        ss << val.val; \
-        std::string str = ss.str(); \
-        sv.len = str.length(); \
-        memcpy(sv.ptr, str.c_str(), str.length()); \
+        char buf[MAX_DOUBLE_STR_LENGTH + 2]; \
+        sv.len = float_to_string(val.val, buf); \
+        memcpy(sv.ptr, buf, sv.len); \
     } else { \
         DCHECK(false); \
     } \

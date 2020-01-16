@@ -32,6 +32,8 @@
 
 #include "env/env.h"
 
+#include "gen_cpp/Types_constants.h"
+
 using std::set;
 using std::stringstream;
 using strings::Substitute;
@@ -400,8 +402,7 @@ Status EngineCloneTask::_make_snapshot(
     TSnapshotRequest request;
     request.__set_tablet_id(tablet_id);
     request.__set_schema_hash(schema_hash);
-    // This is a new version be, should set preferred version to 2
-    request.__set_preferred_snapshot_version(PREFERRED_SNAPSHOT_VERSION);
+    request.__set_preferred_snapshot_version(g_Types_constants.TPREFER_SNAPSHOT_REQ_VERSION);
     if (missed_versions != nullptr) {
         // TODO: missing version composed of singleton delta.
         // if not, this place should be rewrote.
@@ -518,6 +519,9 @@ Status EngineCloneTask::_download_files(
         }
 
         std::string local_file_path = local_path + file_name;
+
+        LOG(INFO) << "clone begin to download file from: " << remote_file_url << " to: "
+            << local_file_path << ". size(B): " << file_size << ", timeout(s): " << estimate_timeout;
 
         auto download_cb = [&remote_file_url,
              estimate_timeout,

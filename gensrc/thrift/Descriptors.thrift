@@ -99,6 +99,10 @@ enum THdfsCompression {
   SNAPPY_BLOCKED // Used by sequence and rc files but not stored in the metadata.
 }
 
+enum TIndexType {
+  BITMAP
+}
+
 // Mapping from names defined by Avro to the enum.
 // We permit gzip and bzip2 in addition.
 const map<string, THdfsCompression> COMPRESSION_MAP = {
@@ -164,6 +168,13 @@ struct TOlapTableSchemaParam {
     4: required list<TSlotDescriptor> slot_descs
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
+}
+
+struct TOlapTableIndex {
+  1: optional string index_name
+  2: optional list<string> columns
+  3: optional TIndexType index_type
+  4: optional string comment
 }
 
 struct TTabletLocation {

@@ -295,6 +295,11 @@ OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
     } else {
         _is_bf_column = false;
     }
+    if (column.has_has_bitmap_index()) {
+        _has_bitmap_index = column.has_bitmap_index();
+    } else {
+        _has_bitmap_index = false;
+    }
     _has_referenced_column = column.has_referenced_column_id();
     if (_has_referenced_column) {
         _referenced_column_id = column.referenced_column_id();
@@ -326,6 +331,9 @@ OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
     column->set_aggregation(get_string_by_aggregation_type(_aggregation));
     if (_has_referenced_column) {
         column->set_referenced_column_id(_referenced_column_id);
+    }
+    if (_has_bitmap_index) {
+        column->set_has_bitmap_index(_has_bitmap_index);
     }
     return OLAP_SUCCESS;
 }

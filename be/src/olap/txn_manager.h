@@ -38,7 +38,6 @@
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/MasterService_types.h"
-#include "olap/atomic.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"

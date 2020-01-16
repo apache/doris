@@ -31,7 +31,7 @@ message ColumnSchemaPB {
     optional uint32 frac = 10 [default = 9];
     optional bool is_nullable = 11 [default=false];
     optional bool is_bf_column = 15 [default=false]; // is bloom filter indexed column
-    optional bool is_bitmap_column = 16 [default=false];
+    optional bool has_bitmap_index = 16 [default=false];
 }
 
 // page position info

@@ -17,26 +17,38 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.common.AnalysisException;
 
 import org.junit.Assert;
-import org.easymock.EasyMock;
 import org.junit.Before;
 import org.junit.Test;
 
 public class LabelNameTest {
+    @Mocked
     private Analyzer analyzer;
 
     @Before
     public void setUp() {
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+            }
+        };
     }
 
     @Test
     public void testNormal() throws AnalysisException {
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("testDb").anyTimes();
-        EasyMock.replay(analyzer);
+        new Expectations() {
+            {
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "testDb";
+            }
+        };
 
         LabelName label = new LabelName("testDb", "testLabel");
         label.analyze(analyzer);
@@ -51,8 +63,13 @@ public class LabelNameTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoDb() throws AnalysisException {
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn(null).anyTimes();
-        EasyMock.replay(analyzer);
+        new Expectations() {
+            {
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = null;
+            }
+        };
 
         LabelName label = new LabelName("", "testLabel");
         label.analyze(analyzer);
@@ -61,8 +78,13 @@ public class LabelNameTest {
 
     @Test(expected = AnalysisException.class)
     public void testNoLabel() throws AnalysisException {
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("testDb").anyTimes();
-        EasyMock.replay(analyzer);
+        new Expectations() {
+            {
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "testDb";
+            }
+        };
 
         LabelName label = new LabelName("", "");
         label.analyze(analyzer);

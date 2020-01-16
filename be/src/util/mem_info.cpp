@@ -28,6 +28,7 @@
 
 #include "util/pretty_printer.h"
 #include "util/string_parser.hpp"
+#include "util/cgroup_util.h"
 
 namespace doris {
 
@@ -64,6 +65,12 @@ void MemInfo::init() {
         break;
     }
 
+    int64_t cgroup_mem_limit = 0;
+    Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
+    if (status.ok() && cgroup_mem_limit > 0) {
+        _s_physical_mem = min(_s_physical_mem, cgroup_mem_limit);
+    }
+
     if (meminfo.is_open()) {
         meminfo.close();
     }
@@ -80,9 +87,11 @@ void MemInfo::init() {
 
 std::string MemInfo::debug_string() {
     DCHECK(_s_initialized);
+    CGroupUtil util;
     std::stringstream stream;
     stream << "Mem Info: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
            << std::endl;
+    stream << "CGroup Info: " << util.debug_string() << std::endl;
     return stream.str();
 }
 

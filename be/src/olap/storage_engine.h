@@ -36,8 +36,6 @@
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/BackendService_types.h"
 #include "gen_cpp/MasterService_types.h"
-#include "olap/atomic.h"
-#include "olap/lru_cache.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet.h"
@@ -343,8 +341,6 @@ private:
 
     // thread to run tablet checkpoint
     std::vector<std::thread> _tablet_checkpoint_threads;
-
-    static atomic_t _s_request_number;
 
     // for tablet and disk report
     std::mutex _report_mtx;

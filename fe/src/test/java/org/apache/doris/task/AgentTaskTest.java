@@ -112,7 +112,7 @@ public class AgentTaskTest {
                                                   indexId1, tabletId1, shortKeyNum, schemaHash1,
                                                   version, versionHash, KeysType.AGG_KEYS,
                                                   storageType, TStorageMedium.SSD,
-                                                  columns, null, 0, latch);
+                                                  columns, null, 0, latch, null);
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, schemaHash1);

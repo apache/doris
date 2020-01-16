@@ -17,6 +17,7 @@
 
 #include "olap/cumulative_compaction.h"
 #include "util/doris_metrics.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -129,13 +130,10 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         // the cumulative point after waiting for a long time, to ensure that the base compaction can continue.
 
         // check both last success time of base and cumulative compaction
-        int64_t last_cumu_compaction_success_time = _tablet->last_cumu_compaction_success_time();
-        int64_t last_base_compaction_success_time = _tablet->last_base_compaction_success_time();
-        
-        int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation;
-        int64_t now = time(NULL);
-        int64_t cumu_interval = now - last_cumu_compaction_success_time;
-        int64_t base_interval = now - last_base_compaction_success_time;
+        int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation * 1000;
+        int64_t now = UnixMillis();
+        int64_t cumu_interval = now - _tablet->last_cumu_compaction_success_time();
+        int64_t base_interval = now - _tablet->last_base_compaction_success_time();
         if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
             // before increasing cumulative point, we should make sure all rowsets are non-overlapping.
             // if at least one rowset is overlapping, we should compact them first.

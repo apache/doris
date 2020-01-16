@@ -349,16 +349,16 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
     }
 
     {
+        tablet_schema = create_schema({ create_int_key(1, true, false, true), create_int_value(2) });
         shared_ptr<Segment> segment;
         SegmentWriterOptions write_opts;
-        write_opts.need_bitmap_index = true; // c2 with bitmap index
         build_segment(write_opts, tablet_schema, tablet_schema, 100, data_gen, &segment);
-        ASSERT_TRUE(segment->footer().columns(1).has_bitmap_index());
+        ASSERT_TRUE(segment->footer().columns(0).has_bitmap_index());
         {
             // lazy disabled when all predicates are removed by bitmap index:
             // select c1, c2 where c2 = 30;
             Schema read_schema(tablet_schema);
-            unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(1, 200));
+            unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 20));
             const vector<ColumnPredicate*> predicates = { predicate.get() };
 
             OlapReaderStatistics stats;
@@ -964,23 +964,24 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
 TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
     TabletSchema tablet_schema = create_schema({
-        create_int_key(1), create_int_key(2), create_int_value(3), create_int_value(4)});
+        create_int_key(1, true, false, true),
+        create_int_key(2, true, false, true),
+        create_int_value(3),
+        create_int_value(4)});
 
     SegmentWriterOptions opts;
-    opts.need_bitmap_index = true; // produce bitmap index for value columns 2 and 3
-
     shared_ptr<Segment> segment;
     build_segment(opts, tablet_schema, tablet_schema, 4096, DefaultIntGenerator, &segment);
-    ASSERT_TRUE(segment->footer().columns(2).has_bitmap_index());
-    ASSERT_TRUE(segment->footer().columns(3).has_bitmap_index());
+    ASSERT_TRUE(segment->footer().columns(0).has_bitmap_index());
+    ASSERT_TRUE(segment->footer().columns(1).has_bitmap_index());
 
     {
         Schema schema(tablet_schema);
 
-        // test where v1=12
+        // test where v1=10
         {
             std::vector<ColumnPredicate*> column_predicates;
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(2, 12));
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;
@@ -997,11 +998,11 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             ASSERT_EQ(read_opts.stats->raw_rows_read, 1);
         }
 
-        // test where v1=12 and v2=13
+        // test where v1=10 and v2=11
         {
             std::vector<ColumnPredicate*> column_predicates;
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(2, 12));
-            std::unique_ptr<ColumnPredicate> predicate2(new EqualPredicate<int32_t>(3, 13));
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
+            std::unique_ptr<ColumnPredicate> predicate2(new EqualPredicate<int32_t>(1, 11));
             column_predicates.emplace_back(predicate.get());
             column_predicates.emplace_back(predicate2.get());
 
@@ -1019,11 +1020,11 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             ASSERT_EQ(read_opts.stats->raw_rows_read, 1);
         }
 
-        // test where v1=12 and v2=15
+        // test where v1=10 and v2=15
         {
             std::vector<ColumnPredicate*> column_predicates;
-            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(2, 12));
-            std::unique_ptr<ColumnPredicate> predicate2(new EqualPredicate<int32_t>(3, 15));
+            std::unique_ptr<ColumnPredicate> predicate(new EqualPredicate<int32_t>(0, 10));
+            std::unique_ptr<ColumnPredicate> predicate2(new EqualPredicate<int32_t>(1, 15));
             column_predicates.emplace_back(predicate.get());
             column_predicates.emplace_back(predicate2.get());
 
@@ -1040,14 +1041,14 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             ASSERT_EQ(read_opts.stats->raw_rows_read, 0);
         }
 
-        // test where v1 in (12,22,1)
+        // test where v1 in (10,20,1)
         {
             std::vector<ColumnPredicate*> column_predicates;
             std::set<int32_t> values;
-            values.insert(12);
-            values.insert(22);
+            values.insert(10);
+            values.insert(20);
             values.insert(1);
-            std::unique_ptr<ColumnPredicate> predicate(new InListPredicate<int32_t>(2, std::move(values)));
+            std::unique_ptr<ColumnPredicate> predicate(new InListPredicate<int32_t>(0, std::move(values)));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;
@@ -1063,13 +1064,13 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
             ASSERT_EQ(read_opts.stats->raw_rows_read, 2);
         }
 
-        // test where v1 not in (12,22)
+        // test where v1 not in (10,20)
         {
             std::vector<ColumnPredicate*> column_predicates;
             std::set<int32_t> values;
-            values.insert(12);
-            values.insert(22);
-            std::unique_ptr<ColumnPredicate> predicate(new NotInListPredicate<int32_t>(2, std::move(values)));
+            values.insert(10);
+            values.insert(20);
+            std::unique_ptr<ColumnPredicate> predicate(new NotInListPredicate<int32_t>(0, std::move(values)));
             column_predicates.emplace_back(predicate.get());
 
             StorageReadOptions read_opts;

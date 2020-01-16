@@ -39,6 +39,7 @@ add_library(Exprs
   decimalv2_operators.cpp
   time_operators.cpp
   es_functions.cpp
+  hash_functions.cpp
   literal.cpp
   expr.cpp
   expr_ir.cpp

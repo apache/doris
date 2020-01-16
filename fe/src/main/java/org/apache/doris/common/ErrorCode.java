@@ -214,7 +214,25 @@ public enum ErrorCode {
             "Colocate tables distribution columns must have the same data type: %s should be %s"), 
     ERR_COLOCATE_NOT_COLOCATE_TABLE(5064, new byte[] { '4', '2', '0', '0', '0' },
             "Table %s is not a colocated table"),
-    ERR_INVALID_OPERATION(5065, new byte[] { '4', '2', '0', '0', '0' }, "Operation %s is invalid");
+    ERR_INVALID_OPERATION(5065, new byte[] { '4', '2', '0', '0', '0' }, "Operation %s is invalid"),
+    ERROR_DYNAMIC_PARTITION_TIME_UNIT(5065, new byte[] {'4', '2', '0', '0', '0'},
+            "Unsupported time unit %s. Expect DAY WEEK MONTH."),
+    ERROR_DYNAMIC_PARTITION_END_ZERO(5066, new byte[] {'4', '2', '0', '0', '0'},
+            "Dynamic partition end must greater than 0"),
+    ERROR_DYNAMIC_PARTITION_END_FORMAT(5066, new byte[] {'4', '2', '0', '0', '0'},
+            "Invalid dynamic partition end %s"),
+    ERROR_DYNAMIC_PARTITION_END_EMPTY(5066, new byte[] {'4', '2', '0', '0', '0'},
+            "Dynamic partition end is empty"),
+    ERROR_DYNAMIC_PARTITION_BUCKETS_ZERO(5067, new byte[] {'4', '2', '0', '0', '0'},
+            "Dynamic partition buckets must greater than 0"),
+    ERROR_DYNAMIC_PARTITION_BUCKETS_FORMAT(5067, new byte[] {'4', '2', '0', '0', '0'},
+            "Invalid dynamic partition buckets %s"),
+    ERROR_DYNAMIC_PARTITION_BUCKETS_EMPTY(5066, new byte[] {'4', '2', '0', '0', '0'},
+            "Dynamic partition buckets is empty"),
+    ERROR_DYNAMIC_PARTITION_ENABLE(5068, new byte[] {'4', '2', '0', '0', '0'},
+            "Invalid dynamic partition enable: %s. Expected true or false"),
+    ERROR_DYNAMIC_PARTITION_PREFIX(5069, new byte[] {'4', '2', '0', '0', '0'},
+            "Invalid dynamic partition prefix: %s.");
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
         this.code = code;

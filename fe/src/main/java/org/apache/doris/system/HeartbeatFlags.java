@@ -17,6 +17,7 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.SessionVariable;
@@ -39,7 +40,7 @@ public class HeartbeatFlags {
     public long getHeartbeatFlags () {
         long heartbeatFlags = 0;
         try {
-            String defaultRowsetType = VariableMgr.getValue(null, new SysVariableDesc(SessionVariable.DEFAULT_ROWSET_TYPE));
+            String defaultRowsetType = VariableMgr.getValue(null, new SysVariableDesc(SessionVariable.DEFAULT_ROWSET_TYPE, SetType.GLOBAL));
             if (defaultRowsetType.equalsIgnoreCase("beta")) {
                 heartbeatFlags |= HeartbeatServiceConstants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
             }

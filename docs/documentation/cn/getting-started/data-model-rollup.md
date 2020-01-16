@@ -61,15 +61,15 @@ Doris 的数据模型主要分为3类:
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-	`user_id` LARGEINT NOT NULL COMMENT "用户id",
-	`date` DATE NOT NULL COMMENT "数据灌入日期时间",
-	`city` VARCHAR(20) COMMENT "用户所在城市",
-	`age` SMALLINT COMMENT "用户年龄",
-	`sex` TINYINT COMMENT "用户性别",
-	`last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
-	`cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
-	`max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间",
-	`min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间",
+    `user_id` LARGEINT NOT NULL COMMENT "用户id",
+    `date` DATE NOT NULL COMMENT "数据灌入日期时间",
+    `city` VARCHAR(20) COMMENT "用户所在城市",
+    `age` SMALLINT COMMENT "用户年龄",
+    `sex` TINYINT COMMENT "用户性别",
+    `last_visit_date` DATETIME REPLACE DEFAULT "1970-01-01 00:00:00" COMMENT "用户最后一次访问时间",
+    `cost` BIGINT SUM DEFAULT "0" COMMENT "用户总消费",
+    `max_dwell_time` INT MAX DEFAULT "0" COMMENT "用户最大停留时间",
+    `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间",
 )
 AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
 ... /* 省略 Partition 和 Distribution 信息 */
@@ -130,7 +130,7 @@ AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
 前5列没有变化，从第6列 `last_visit_date` 开始：
 
 * `2017-10-01 07:00:00`：因为 `last_visit_date` 列的聚合方式为 REPLACE，所以 `2017-10-01 07:00:00` 替换了 `2017-10-01 06:00:00` 保存了下来。
-	> 注：在同一个导入批次中的数据，对于 REPLACE 这种聚合方式，替换顺序不做保证。如在这个例子中，最终保存下来的，也有可能是 `2017-10-01 06:00:00`。而对于不同导入批次中的数据，可以保证，后一批次的数据会替换前一批次。
+    > 注：在同一个导入批次中的数据，对于 REPLACE 这种聚合方式，替换顺序不做保证。如在这个例子中，最终保存下来的，也有可能是 `2017-10-01 06:00:00`。而对于不同导入批次中的数据，可以保证，后一批次的数据会替换前一批次。
 
 * `35`：因为 `cost` 列的聚合类型为 SUM，所以由 20 + 15 累加获得 35。
 * `10`：因为 `max_dwell_time` 列的聚合类型为 MAX，所以 10 和 2 取最大值，获得 10。
@@ -245,14 +245,14 @@ AGGREGATE KEY(`user_id`, `date`, `timestamp`, `city`, `age`, `sex`)
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-	`user_id` LARGEINT NOT NULL COMMENT "用户id",
-	`username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
-	`city` VARCHAR(20) COMMENT "用户所在城市",
-	`age` SMALLINT COMMENT "用户年龄",
-	`sex` TINYINT COMMENT "用户性别",
-	`phone` LARGEINT COMMENT "用户电话",
-	`address` VARCHAR(500) COMMENT "用户地址",
-	`register_time` DATETIME COMMENT "用户注册时间"
+    `user_id` LARGEINT NOT NULL COMMENT "用户id",
+    `username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
+    `city` VARCHAR(20) COMMENT "用户所在城市",
+    `age` SMALLINT COMMENT "用户年龄",
+    `sex` TINYINT COMMENT "用户性别",
+    `phone` LARGEINT COMMENT "用户电话",
+    `address` VARCHAR(500) COMMENT "用户地址",
+    `register_time` DATETIME COMMENT "用户注册时间"
 )
 UNIQUE KEY(`user_id`, `user_name`)
 ... /* 省略 Partition 和 Distribution 信息 */
@@ -277,14 +277,14 @@ UNIQUE KEY(`user_id`, `user_name`)
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-	`user_id` LARGEINT NOT NULL COMMENT "用户id",
-	`username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
-	`city` VARCHAR(20) REPLACE COMMENT "用户所在城市",
-	`age` SMALLINT REPLACE COMMENT "用户年龄",
-	`sex` TINYINT REPLACE COMMENT "用户性别",
-	`phone` LARGEINT REPLACE COMMENT "用户电话",
-	`address` VARCHAR(500) REPLACE COMMENT "用户地址",
-	`register_time` DATETIME REPLACE COMMENT "用户注册时间"
+    `user_id` LARGEINT NOT NULL COMMENT "用户id",
+    `username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
+    `city` VARCHAR(20) REPLACE COMMENT "用户所在城市",
+    `age` SMALLINT REPLACE COMMENT "用户年龄",
+    `sex` TINYINT REPLACE COMMENT "用户性别",
+    `phone` LARGEINT REPLACE COMMENT "用户电话",
+    `address` VARCHAR(500) REPLACE COMMENT "用户地址",
+    `register_time` DATETIME REPLACE COMMENT "用户注册时间"
 )
 AGGREGATE KEY(`user_id`, `user_name`)
 ... /* 省略 Partition 和 Distribution 信息 */
@@ -311,12 +311,12 @@ AGGREGATE KEY(`user_id`, `user_name`)
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-	`timestamp` DATETIME NOT NULL COMMENT "日志时间",
-	`type` INT NOT NULL COMMENT "日志类型",
-	`error_code` INT COMMENT "错误码",
-	`error_msg` VARCHAR(1024) COMMENT "错误详细信息",
-	`op_id` BIGINT COMMENT "负责人id",
-	`op_time` DATETIME COMMENT "处理时间"
+    `timestamp` DATETIME NOT NULL COMMENT "日志时间",
+    `type` INT NOT NULL COMMENT "日志类型",
+    `error_code` INT COMMENT "错误码",
+    `error_msg` VARCHAR(1024) COMMENT "错误详细信息",
+    `op_id` BIGINT COMMENT "负责人id",
+    `op_time` DATETIME COMMENT "处理时间"
 )
 DUPLICATE KEY(`timestamp`, `type`)
 ... /* 省略 Partition 和 Distribution 信息 */

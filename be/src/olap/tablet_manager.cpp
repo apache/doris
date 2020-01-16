@@ -679,10 +679,10 @@ void TabletManager::get_tablet_stat(TTabletStatResult& result) {
 
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(
             CompactionType compaction_type, DataDir* data_dir) {
+    int64_t now = UnixMillis();
     ReadLock tablet_map_rdlock(&_tablet_map_lock);
     uint32_t highest_score = 0;
     TabletSharedPtr best_tablet;
-    int64_t now = UnixMillis();
     for (tablet_map_t::value_type& table_ins : _tablet_map){
         for (TabletSharedPtr& table_ptr : table_ins.second.table_arr) {
             AlterTabletTaskSharedPtr cur_alter_task = table_ptr->alter_task();
@@ -1198,7 +1198,17 @@ OLAPStatus TabletManager::_create_inital_rowset_unlocked(
             context.tablet_id = tablet->tablet_id();
             context.partition_id = tablet->partition_id();
             context.tablet_schema_hash = tablet->schema_hash();
-            context.rowset_type = StorageEngine::instance()->default_rowset_type();
+            if (!request.__isset.storage_format || request.storage_format == TStorageFormat::DEFAULT) {
+                context.rowset_type = StorageEngine::instance()->default_rowset_type();
+            } else if (request.storage_format == TStorageFormat::V1){
+                context.rowset_type = RowsetTypePB::ALPHA_ROWSET;
+            } else if (request.storage_format == TStorageFormat::V2) {
+                context.rowset_type = RowsetTypePB::BETA_ROWSET;
+            } else {
+                LOG(ERROR) << "invalid TStorageFormat: " << request.storage_format;
+                DCHECK(false);
+                context.rowset_type = StorageEngine::instance()->default_rowset_type();
+            }
             context.rowset_path_prefix = tablet->tablet_path();
             context.tablet_schema = &(tablet->tablet_schema());
             context.rowset_state = VISIBLE;

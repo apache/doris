@@ -96,13 +96,6 @@ public class TabletScheduler extends MasterDaemon {
 
     public static final int BALANCE_SLOT_NUM_FOR_PATH = 2;
 
-    // if the number of scheduled tablets in TabletScheduler exceed this threshold,
-    // skip checking.
-    public static final int MAX_SCHEDULING_TABLETS = 2000;
-    // if the number of balancing tablets in TabletScheduler exceed this threshold,
-    // no more balance check
-    public static final int MAX_BALANCING_TABLETS = 100;
-
     /*
      * Tablet is added to pendingTablets as well it's id in allTabletIds.
      * TabletScheduler will take tablet from pendingTablets but will not remove it's id from allTabletIds when
@@ -220,7 +213,8 @@ public class TabletScheduler extends MasterDaemon {
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
         if (tablet.getType() != TabletSchedCtx.Type.BALANCE && !force
-                && (pendingTablets.size() > MAX_SCHEDULING_TABLETS || runningTablets.size() > MAX_SCHEDULING_TABLETS)) {
+                && (pendingTablets.size() > Config.max_scheduling_tablets
+                || runningTablets.size() > Config.max_scheduling_tablets)) {
             return AddResult.LIMIT_EXCEED;
         }
 
@@ -234,9 +228,9 @@ public class TabletScheduler extends MasterDaemon {
     }
 
     /*
-     * Iterate current tablets, change their priority if necessary.
+     * Iterate current tablets, change their priority to VERY_HIGH if necessary.
      */
-    public synchronized void changePriorityOfTablets(long dbId, long tblId, List<Long> partitionIds) {
+    public synchronized void changeTabletsPriorityToVeryHigh(long dbId, long tblId, List<Long> partitionIds) {
         PriorityQueue<TabletSchedCtx> newPendingTablets = new PriorityQueue<>();
         for (TabletSchedCtx tabletCtx : pendingTablets) {
             if (tabletCtx.getDbId() == dbId && tabletCtx.getTblId() == tblId
@@ -558,6 +552,7 @@ public class TabletScheduler extends MasterDaemon {
                 handleReplicaMissing(tabletCtx, batchTask);
                 break;
             case VERSION_INCOMPLETE:
+            case NEED_FURTHER_REPAIR: // same as version incomplete, it prefer to the dest replica which need further repair
                 handleReplicaVersionIncomplete(tabletCtx, batchTask);
                 break;
             case REPLICA_RELOCATING:
@@ -577,10 +572,6 @@ public class TabletScheduler extends MasterDaemon {
                 break;
             case COLOCATE_REDUNDANT:
                 handleColocateRedundant(tabletCtx);
-                break;
-            case NEED_FURTHER_REPAIR:
-                // same as version incomplete, it prefer to the dest replica which need further repair
-                handleReplicaVersionIncomplete(tabletCtx, batchTask);
                 break;
             default:
                 break;
@@ -879,6 +870,8 @@ public class TabletScheduler extends MasterDaemon {
             long nextTxnId = Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId();
             replica.setWatermarkTxnId(nextTxnId);
             replica.setState(ReplicaState.DECOMMISSION);
+            // set priority to normal because it may wait for a long time. Remain it as VERY_HIGH may block other task.
+            tabletCtx.setOrigPriority(Priority.NORMAL);
             throw new SchedException(Status.SCHEDULE_FAILED, "set watermark txn " + nextTxnId);
         } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();
@@ -974,9 +967,9 @@ public class TabletScheduler extends MasterDaemon {
         }
         
         long numOfBalancingTablets = getBalanceTabletsNumber();
-        if (numOfBalancingTablets > MAX_BALANCING_TABLETS) {
+        if (numOfBalancingTablets > Config.max_balancing_tablets) {
             LOG.info("number of balancing tablets {} exceed limit: {}, skip selecting tablets for balance",
-                    numOfBalancingTablets, MAX_BALANCING_TABLETS);
+                    numOfBalancingTablets, Config.max_balancing_tablets);
             return;
         }
 
@@ -1228,9 +1221,7 @@ public class TabletScheduler extends MasterDaemon {
         // 1. remove the tablet ctx if timeout
         List<TabletSchedCtx> timeoutTablets = Lists.newArrayList();
         synchronized (this) {
-            runningTablets.values().stream().filter(t -> t.isTimeout()).forEach(t -> {
-                timeoutTablets.add(t);
-            });
+            runningTablets.values().stream().filter(TabletSchedCtx::isTimeout).forEach(timeoutTablets::add);
 
             for (TabletSchedCtx tabletSchedCtx : timeoutTablets) {
                 removeTabletCtx(tabletSchedCtx, "timeout");

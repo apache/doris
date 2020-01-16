@@ -30,7 +30,7 @@ AlphaRowset::AlphaRowset(const TabletSchema* schema,
     : Rowset(schema, std::move(rowset_path), std::move(rowset_meta)) {
 }
 
-OLAPStatus AlphaRowset::do_load_once(bool use_cache) {
+OLAPStatus AlphaRowset::do_load(bool use_cache) {
     for (auto& segment_group: _segment_groups) {
         // validate segment group
         if (segment_group->validate() != OLAP_SUCCESS) {
@@ -52,14 +52,15 @@ OLAPStatus AlphaRowset::do_load_once(bool use_cache) {
 }
 
 OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
-    RETURN_NOT_OK(load());
     result->reset(new AlphaRowsetReader(
         _schema->num_rows_per_row_block(), std::static_pointer_cast<AlphaRowset>(shared_from_this())));
     return OLAP_SUCCESS;
 }
 
 OLAPStatus AlphaRowset::remove() {
-    LOG(INFO) << "begin to remove files in rowset " << unique_id();
+    LOG(INFO) << "begin to remove files in rowset " << unique_id()
+            << ", version:" << start_version() << "-" << end_version()
+            << ", tabletid:" << _rowset_meta->tablet_id();
     for (auto segment_group : _segment_groups) {
         bool ret = segment_group->delete_all_files();
         if (!ret) {
@@ -354,18 +355,23 @@ OLAPStatus AlphaRowset::reset_sizeinfo() {
     AlphaRowsetMetaSharedPtr alpha_rowset_meta = std::dynamic_pointer_cast<AlphaRowsetMeta>(_rowset_meta);
     alpha_rowset_meta->get_segment_groups(&segment_group_metas);
     int32_t segment_group_idx = 0;
+    int64_t data_disk_size = 0;
+    int64_t index_disk_size = 0;
+    int64_t num_rows = 0;
     for (auto segment_group : _segment_groups) {
-        alpha_rowset_meta->set_data_disk_size(alpha_rowset_meta->data_disk_size() + segment_group->data_size());
-        alpha_rowset_meta->set_index_disk_size(alpha_rowset_meta->index_disk_size() + segment_group->index_size());
-        alpha_rowset_meta->set_total_disk_size(alpha_rowset_meta->total_disk_size()
-                + segment_group->index_size() + segment_group->data_size());
-        alpha_rowset_meta->set_num_rows(alpha_rowset_meta->num_rows() + segment_group->num_rows());
-        segment_group_metas.at(segment_group_idx).set_index_size(segment_group->index_size());
         segment_group_metas.at(segment_group_idx).set_data_size(segment_group->data_size());
+        segment_group_metas.at(segment_group_idx).set_index_size(segment_group->index_size());
         segment_group_metas.at(segment_group_idx).set_num_rows(segment_group->num_rows());
+        data_disk_size += segment_group->data_size();
+        index_disk_size += segment_group->index_size();
+        num_rows += segment_group->num_rows();
         ++segment_group_idx;
     }
     alpha_rowset_meta->clear_segment_group();
+    alpha_rowset_meta->set_num_rows(num_rows);
+    alpha_rowset_meta->set_data_disk_size(data_disk_size);
+    alpha_rowset_meta->set_index_disk_size(index_disk_size);
+    alpha_rowset_meta->set_total_disk_size(data_disk_size + index_disk_size);
     for (auto& segment_group_meta : segment_group_metas) {
         alpha_rowset_meta->add_segment_group(segment_group_meta);
     }

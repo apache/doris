@@ -28,9 +28,11 @@ namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
     : _rowset(std::move(rowset)), _stats(&_owned_stats) {
+    _rowset->aquire();
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
+    RETURN_NOT_OK(_rowset->load());
     _context = read_context;
     if (_context->stats != nullptr) {
         // schema change/compaction should use owned_stats
@@ -78,9 +80,8 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
 
     // merge or union segment iterator
-    bool is_singleton_rowset = _rowset->start_version() && _rowset->end_version();
     RowwiseIterator* final_iterator;
-    if (read_context->need_ordered_result && is_singleton_rowset && iterators.size() > 1) {
+    if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
         final_iterator = new_merge_iterator(iterators);
     } else {
         final_iterator = new_union_iterator(iterators);

@@ -22,6 +22,19 @@
 
 namespace doris {
 
+/*
+ * How to add a bitmap related function:
+ * 1. Implement the function in BitmapFunctions
+ *    Note: we have done a improve for bitmap query, So the RoaringBitmap input
+ *    of bitmap functions maybe char array or point, you should handle it.
+ *    You could refer to bitmap_union or bitmap_count function.
+ * 2. Add a UT in BitmapFunctionsTest
+ * 3. Add the function signature in gensrc/script/doris_builtins_functions.py
+ *    Note: if the result is bitmap serialize data, the function return type should be BITMAP
+ *    you could use `nm $DORIS_HOME/output/be/lib/palo_be | grep bitmap` to get the function signature
+ * 4. Update the doc  docs/documentation/cn/sql-reference/sql-functions/aggregate-functions/bitmap.md
+ *    and docs/documentation/en/sql-reference/sql-functions/aggregate-functions/bitmap_EN.md
+ */
 class BitmapFunctions {
 public:
     static void init();
@@ -40,7 +53,17 @@ public:
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
     static StringVal to_bitmap(FunctionContext* ctx, const StringVal& src);
     static StringVal bitmap_hash(FunctionContext* ctx, const StringVal& src);
-
+    static StringVal bitmap_or(FunctionContext* ctx, const StringVal& src,const StringVal& dst);
+    static StringVal bitmap_and(FunctionContext* ctx, const StringVal& src,const StringVal& dst);
+    static StringVal bitmap_to_string(FunctionContext* ctx, const StringVal& input);
+    // Convert a comma separated string to a Bitmap
+    // Example:
+    //      "" will be converted to an empty Bitmap
+    //      "1,2,3" will be converted to Bitmap with its Bit 1, 2, 3 set.
+    //      "-1, 1" will get NULL, because -1 is not a valid bit for Bitmap
+    static StringVal bitmap_from_string(FunctionContext* ctx, const StringVal& input);
+    static BooleanVal bitmap_contains(FunctionContext* ctx, const StringVal& src, const BigIntVal& input);
+    static BooleanVal bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs);
 
     // bitmap_intersect
     template<typename T, typename ValType>

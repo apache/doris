@@ -1560,7 +1560,7 @@ OLAPStatus SchemaChangeHandler::_get_versions_to_be_changed(
     }
 
     vector<Version> span_versions;
-    base_tablet->capture_consistent_versions(Version(0, rowset->version().second), &span_versions);
+    RETURN_NOT_OK(base_tablet->capture_consistent_versions(Version(0, rowset->version().second), &span_versions));
     for (uint32_t i = 0; i < span_versions.size(); i++) {
         versions_to_be_changed->push_back(span_versions[i]);
     }
@@ -1929,6 +1929,10 @@ OLAPStatus SchemaChangeHandler::_parse_request(TabletSharedPtr base_tablet,
 
             } else if (new_tablet_schema.column(i).is_bf_column()
                        != ref_tablet_schema.column(column_mapping->ref_column).is_bf_column()) {
+                *sc_directly = true;
+                return OLAP_SUCCESS;
+            }  else if (new_tablet_schema.column(i).has_bitmap_index()
+                        != ref_tablet_schema.column(column_mapping->ref_column).has_bitmap_index()) {
                 *sc_directly = true;
                 return OLAP_SUCCESS;
             }

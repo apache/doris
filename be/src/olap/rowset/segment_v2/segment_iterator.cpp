@@ -520,6 +520,7 @@ Status SegmentIterator::next_batch(RowBlockV2* block) {
             column_predicate->evaluate(&column_block, block->selection_vector(), &selected_size);
         }
         block->set_selected_size(selected_size);
+        block->set_num_rows(selected_size);
         _opts.stats->rows_vec_cond_filtered += original_size - selected_size;
     }
 
