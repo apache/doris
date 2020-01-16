@@ -26,9 +26,12 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <chrono>
+#include <functional>
 
 #include "env/env.h"
 #include "util/once.h"
+#include "gutil/strings/substitute.h"
 
 namespace doris {
 
@@ -63,9 +66,13 @@ public:
     // open file.
     OpenedFileHandle<FileType> insert_into_cache(void* file_ptr) const {
         // TODO(hkp)
-        return OpenedFileHandle<FileType>(
-            this, cache()->Insert(std::move(pending),
-                                  file_cache_->eviction_cb_.get()));
+        auto deleter = [](const doris::CacheKey& key, void* value) {
+            delete (FileType*)value;
+        };
+        FileType* file = reinterpret_cast<FileType*>(file_ptr);
+        CacheKey key(file->file_name());
+        auto lru_handle = cache()->insert(key, file_ptr, sizeof(file_ptr), deleter);
+        return OpenedFileHandle<FileType>(this, lru_handle);
     }
 
     // Retrieves a pointer to an open file object from the file cache with the
@@ -75,8 +82,8 @@ public:
     // contain an open file, depending on whether the cache hit or missed.
     OpenedFileHandle<FileType> lookup_from_cache() const {
         // TODO(hkp): use lru_cache to replace
-        return OpenedFileHandle<FileType>(
-            this, cache()->Lookup(filename(), Cache::EXPECT_IN_CACHE));
+        CacheKey key(filename());
+        return OpenedFileHandle<FileType>(this, cache()->lookup(key));
     }
 
     // Mark this descriptor as to-be-deleted later.
@@ -102,7 +109,7 @@ public:
 
     Env* env() const { return _file_cache->_env; }
 
-    const string& filename() const { return _file_name; }
+    const std::string& filename() const { return _file_name; }
 
     bool deleted() const { return _flags.load() & FILE_DELETED; }
     bool invalidated() const { return _flags.load() & INVALIDATED; }
@@ -125,12 +132,32 @@ class OpenedFileHandle {
 public:
     // A not-yet-but-soon-to-be opened descriptor.
     explicit OpenedFileHandle(const BaseDescriptor<FileType>* desc)
-        : _desc(desc), _handle(nullptr) {}
+        : _desc(desc), _handle(nullptr) { }
 
     // An opened descriptor. Its handle may or may not contain an open file.
     OpenedFileHandle(const BaseDescriptor<FileType>* desc,
-                     Cache::Handle* handle)
-        : _desc(desc), _handle(std::move(handle)) {}
+                     Cache::Handle* handle) : _desc(desc), _handle(handle) { }
+
+    ~OpenedFileHandle() {
+        if (_handle != nullptr) {
+            _desc->cache()->release(_handle);
+        }
+    }
+
+    OpenedFileHandle(OpenedFileHandle&& other) noexcept {
+        std::swap(_desc, other._desc);
+        std::swap(_handle, other._handle);
+    }
+
+    OpenedFileHandle& operator=(OpenedFileHandle&& other) noexcept {
+        std::swap(_desc, other._desc);
+        std::swap(_handle, other._handle);
+        return *this;
+    }
+
+    bool opened() {
+        return _handle != nullptr;
+    }
 
     FileType* file() const {
         DCHECK(_handle != nullptr);
@@ -156,42 +183,43 @@ class Descriptor : public FileType {
 template <>
 class Descriptor<RandomAccessFile> : public RandomAccessFile {
    public:
-    Descriptor(FileCache<RandomAccessFile>* file_cache, const string& filename)
+    Descriptor(FileCache<RandomAccessFile>* file_cache, const std::string& filename)
         : _base(file_cache, filename) {}
 
     ~Descriptor() = default;
 
+    /*
     Status file_instance(std::unique_ptr<OpenedFileHandle<RandomAccessFile>>* file) {
         file->reset(new OpenedFileHandle<RandomAccessFile>(&_base));
-        RETURN_NOT_OK(reopen_if_necessary(file->get()));
+        RETURN_IF_ERROR(reopen_if_necessary(file->get()));
         return Status::OK();
-    }
+    }*/
 
-    Status read(uint64_t offset, Slice result) const override {
+    Status read_at(uint64_t offset, const Slice& result) const override {
         OpenedFileHandle<RandomAccessFile> opened(&_base);
-        RETURN_NOT_OK(reopen_if_necessary(&opened));
+        RETURN_IF_ERROR(reopen_if_necessary(&opened));
         return opened.file()->read_at(offset, result);
     }
 
-    Status readv(uint64_t offset, ArrayView<Slice> results) const override {
+    Status readv_at(uint64_t offset, const Slice* results, size_t res_cnt) const override {
         OpenedFileHandle<RandomAccessFile> opened(&_base);
-        RETURN_NOT_OK(reopen_if_necessary(&opened));
-        return opened.file()->readv_at(offset, results);
+        RETURN_IF_ERROR(reopen_if_necessary(&opened));
+        return opened.file()->readv_at(offset, results, res_cnt);
     }
 
     Status size(uint64_t* size) const override {
         OpenedFileHandle<RandomAccessFile> opened(&_base);
-        RETURN_NOT_OK(reopen_if_necessary(&opened));
+        RETURN_IF_ERROR(reopen_if_necessary(&opened));
         return opened.file()->size(size);
     }
 
-    const string& filename() const override { return _base.filename(); }
+    const std::string& file_name() const override { return _base.filename(); }
 
 private:
     friend class FileCache<RandomAccessFile>;
 
     Status init() {
-        return _once.init(&Descriptor<RandomAccessFile>::init_once, this);
+        return _once.call([this] { return init_once(); });
     }
 
     Status init_once() { return reopen_if_necessary(nullptr); }
@@ -208,8 +236,8 @@ private:
         }
 
         // The file was evicted, reopen it.
-        unique_ptr<RandomAccessFile> f;
-        RETURN_NOT_OK(_base.env()->new_random_access_file(_base.filename(), &f));
+        std::unique_ptr<RandomAccessFile> f;
+        RETURN_IF_ERROR(_base.env()->new_random_access_file(_base.filename(), &f));
 
         // The cache will take ownership of the newly opened file.
         OpenedFileHandle<RandomAccessFile> opened(_base.insert_into_cache(f.release()));
@@ -229,7 +257,7 @@ private:
 } // namespace internal
 
 template <class FileType>
-FileCache<FileType>::FileCache(const string& cache_name, Env* env,
+FileCache<FileType>::FileCache(const std::string& cache_name, Env* env,
                                int max_open_files)
     : _env(env),
       _cache_name(cache_name),
@@ -240,41 +268,50 @@ FileCache<FileType>::FileCache(const string& cache_name, Env* env,
 
 template <class FileType>
 FileCache<FileType>::~FileCache() {
+    _expire_cond.notify_all();
+    if (_expire_thread != nullptr) {
+        _expire_thread->join();
+    }
 }
 
 template <class FileType>
-Status FileCache<FileType>::init() { }
+Status FileCache<FileType>::init() {
+    _expire_thread.reset(new std::thread(
+                    std::bind<void>(std::mem_fn(&FileCache<FileType>::run_descriptor_expiry),
+                    this)));
+    return Status::OK();
+}
 
 template <class FileType>
-Status FileCache<FileType>::open_file(const string& file_name, shared_ptr<FileType>* file) {
-    shared_ptr<internal::Descriptor<FileType>> desc;
+Status FileCache<FileType>::open_file(const std::string& file_name, std::shared_ptr<FileType>* file) {
+    std::shared_ptr<internal::Descriptor<FileType>> desc;
     {
         // Find an existing descriptor, or create one if none exists.
         std::lock_guard<SpinLock> l(_lock);
-        RETURN_NOT_OK(find_descriptor_unlocked(file_name, &desc));
+        RETURN_IF_ERROR(find_descriptor_unlocked(file_name, &desc));
         if (desc) {
-            VLOG(2) << "Found existing descriptor: " << desc->filename();
+            VLOG(2) << "Found existing descriptor: " << desc->file_name();
         } else {
             desc = std::make_shared<internal::Descriptor<FileType>>(this,
                                                                     file_name);
             _descriptors.insert({file_name, desc});
-            VLOG(2) << "Created new descriptor: " << desc->filename();
+            VLOG(2) << "Created new descriptor: " << desc->file_name();
         }
     }
 
     // Check that the underlying file can be opened (no-op for found
     // descriptors). Done outside the lock.
-    RETURN_NOT_OK(desc->init());
+    RETURN_IF_ERROR(desc->init());
     *file = std::move(desc);
     return Status::OK();
 }
 
 template <class FileType>
-Status FileCache<FileType>::delete_file(const string& file_name) {
+Status FileCache<FileType>::delete_file(const std::string& file_name) {
     {
         std::lock_guard<SpinLock> l(_lock);
-        shared_ptr<internal::Descriptor<FileType>> desc;
-        RETURN_NOT_OK(find_descriptor_unlocked(file_name, &desc));
+        std::shared_ptr<internal::Descriptor<FileType>> desc;
+        RETURN_IF_ERROR(find_descriptor_unlocked(file_name, &desc));
 
         if (desc) {
             VLOG(2) << "Marking file for deletion: " << file_name;
@@ -292,13 +329,13 @@ Status FileCache<FileType>::delete_file(const string& file_name) {
 }
 
 template <class FileType>
-void FileCache<FileType>::invalidate(const string& file_name) {
+void FileCache<FileType>::invalidate(const std::string& file_name) {
     // Ensure that there is an invalidated descriptor in the map for this
     // filename.
     //
     // This ensures that any concurrent OpenExistingFile() during this method
     // wil see the invalidation and issue a CHECK failure.
-    shared_ptr<internal::Descriptor<FileType>> desc;
+    std::shared_ptr<internal::Descriptor<FileType>> desc;
     {
         // Find an existing descriptor, or create one if none exists.
         std::lock_guard<SpinLock> l(_lock);
@@ -330,18 +367,32 @@ void FileCache<FileType>::invalidate(const string& file_name) {
 }
 
 template <class FileType>
+void FileCache<FileType>::run_descriptor_expiry() {
+    std::unique_lock<std::mutex> lock(_expire_lock);
+    while (_expire_cond.wait_for(lock, std::chrono::milliseconds(config::file_cache_expiry_period_ms)) == std::cv_status::timeout) {
+        std::lock_guard<SpinLock> l(_lock);
+        for (auto it = _descriptors.begin(); it != _descriptors.end();) {
+            if (it->second.expired()) {
+                it = _descriptors.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+}
+
+template <class FileType>
 Status FileCache<FileType>::find_descriptor_unlocked(
-    const string& file_name, shared_ptr<internal::Descriptor<FileType>>* file) {
-    DCHECK(_lock.is_locked());
+    const std::string& file_name, std::shared_ptr<internal::Descriptor<FileType>>* file) {
 
     auto it = _descriptors.find(file_name);
     if (it != _descriptors.end()) {
         // Found the descriptor. Has it expired?
-        shared_ptr<internal::Descriptor<FileType>> desc = it->second.lock();
+        std::shared_ptr<internal::Descriptor<FileType>> desc = it->second.lock();
         if (desc) {
             CHECK(!desc->_base.invalidated());
             if (desc->_base.deleted()) {
-                return Status::NotFound("File already marked for deletion", file_name);
+                return Status::NotFound(strings::Substitute("File already marked for deletion:$0", file_name));
             }
 
             // Descriptor is still valid, return it.

@@ -221,6 +221,7 @@ namespace config {
     CONF_Bool(row_nums_check, "true")
     //file descriptors cache, by default, cache 32768 descriptors
     CONF_Int32(file_descriptor_cache_capacity, "32768");
+    CONF_Int32(file_cache_expiry_period_ms, "60000");
     // minimum file descriptor number
     // modify them upon necessity
     CONF_Int32(min_file_descriptor_number, "60000");

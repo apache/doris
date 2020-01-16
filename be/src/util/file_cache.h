@@ -20,6 +20,9 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 
 #include "common/status.h"
 #include "env/env.h"
@@ -137,8 +140,8 @@ public:
     // from multiple threads.
     void invalidate(const std::string& file_name);
 
-    // Dumps the contents of the file cache. Intended for debugging.
-    std::string debug_string() const;
+    // periodically removes expired descriptors from _descriptors
+    void run_descriptor_expiry();
 
 private:
     friend class internal::BaseDescriptor<FileType>;
@@ -146,7 +149,7 @@ private:
     // Looks up a descriptor by file name.
     //
     // Must be called with 'lock_' held.
-    Status find_descriptor_unlock(
+    Status find_descriptor_unlocked(
         const std::string& file_name,
         std::shared_ptr<internal::Descriptor<FileType>>* file);
 
@@ -161,6 +164,13 @@ private:
 
     // Protects the descriptor map.
     SpinLock _lock;
+
+    // to collect expired descriptors
+    std::mutex _expire_lock;
+    std::condition_variable _expire_cond;
+    // thread to collect expired descriptors
+    std::unique_ptr<std::thread> _expire_thread;
+
 
     // Maps filenames to descriptors.
     std::unordered_map<std::string, std::weak_ptr<internal::Descriptor<FileType>>> _descriptors;

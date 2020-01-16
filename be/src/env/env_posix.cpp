@@ -25,6 +25,7 @@
 #include "gutil/strings/substitute.h"
 #include "util/errno.h"
 #include "util/slice.h"
+#include "util/file_cache.h"
 
 namespace doris {
 
@@ -484,7 +485,7 @@ private:
 
 class PosixEnv : public Env {
 public:
-    PosixEnv() : _file_cache("posix_random_file_cache", this, config.file_descriptor_cache_capacity) { }
+    PosixEnv() : _file_cache("posix_random_file_cache", this, config::file_descriptor_cache_capacity) { }
     ~PosixEnv() override { }
 
     Status new_sequential_file(
