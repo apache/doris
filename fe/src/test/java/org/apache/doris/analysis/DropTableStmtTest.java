@@ -17,13 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,6 +34,7 @@ public class DropTableStmtTest {
     private TableName tbl;
     private TableName noDbTbl;
     private Analyzer analyzer;
+    @Mocked
     private Analyzer noDbAnalyzer;
 
     @Mocked
@@ -47,10 +48,17 @@ public class DropTableStmtTest {
         noDbTbl = new TableName("", "table1");
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
 
-        noDbAnalyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(noDbAnalyzer.getDefaultDb()).andReturn("").anyTimes();
-        EasyMock.expect(noDbAnalyzer.getClusterName()).andReturn("testCluster").anyTimes();
-        EasyMock.replay(noDbAnalyzer);
+        new Expectations() {
+            {
+                noDbAnalyzer.getDefaultDb();
+                minTimes = 0;
+                result = "";
+
+                noDbAnalyzer.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+            }
+        };
 
         MockedAuth.mockedAuth(auth);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
