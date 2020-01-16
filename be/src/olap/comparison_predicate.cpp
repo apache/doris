@@ -236,6 +236,7 @@ COMPARISON_PRED_BITMAP_EVALUATE(GreaterEqualPredicate, >=)
     template CLASS<StringValue>::CLASS(uint32_t column_id, const StringValue& value); \
     template CLASS<uint24_t>::CLASS(uint32_t column_id, const uint24_t& value); \
     template CLASS<uint64_t>::CLASS(uint32_t column_id, const uint64_t& value); \
+    template CLASS<bool>::CLASS(uint32_t column_id, const bool& value); \
 
 COMPARISON_PRED_CONSTRUCTOR_DECLARATION(EqualPredicate)
 COMPARISON_PRED_CONSTRUCTOR_DECLARATION(NotEqualPredicate)
@@ -256,6 +257,7 @@ COMPARISON_PRED_CONSTRUCTOR_DECLARATION(GreaterEqualPredicate)
     template void CLASS<StringValue>::evaluate(VectorizedRowBatch* batch) const; \
     template void CLASS<uint24_t>::evaluate(VectorizedRowBatch* batch) const; \
     template void CLASS<uint64_t>::evaluate(VectorizedRowBatch* batch) const; \
+    template void CLASS<bool>::evaluate(VectorizedRowBatch* batch) const; \
 
 COMPARISON_PRED_EVALUATE_DECLARATION(EqualPredicate)
 COMPARISON_PRED_EVALUATE_DECLARATION(NotEqualPredicate)
@@ -276,6 +278,7 @@ COMPARISON_PRED_EVALUATE_DECLARATION(GreaterEqualPredicate)
     template void CLASS<StringValue>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
     template void CLASS<uint24_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
     template void CLASS<uint64_t>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
+    template void CLASS<bool>::evaluate(ColumnBlock* block, uint16_t* sel, uint16_t* size) const; \
 
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(EqualPredicate)
 COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(NotEqualPredicate)
@@ -296,6 +299,7 @@ COMPARISON_PRED_COLUMN_BLOCK_EVALUATE_DECLARATION(GreaterEqualPredicate)
     template Status CLASS<StringValue>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
     template Status CLASS<uint24_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
     template Status CLASS<uint64_t>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
+    template Status CLASS<bool>::evaluate(const Schema& schema, const vector<BitmapIndexIterator*>& iterators, uint32_t num_rows, Roaring* bitmap) const; \
 
 COMPARISON_PRED_BITMAP_EVALUATE_DECLARATION(EqualPredicate)
 COMPARISON_PRED_BITMAP_EVALUATE_DECLARATION(NotEqualPredicate)
