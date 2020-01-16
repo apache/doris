@@ -1,0 +1,19 @@
+name: Check C++ Style
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cpp.yml'
+      - '.clang-format'
+      - 'be/**'
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v1
+    - name: clang-format check
+      uses: DoozyX/clang-format-lint-action@v0.5
+      with:
+        source: be/src
+        exclude: be/src/gutil
+        extensions: h,hpp,cc,cpp
+        clangFormatVersion: 9
