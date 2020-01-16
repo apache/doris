@@ -146,7 +146,7 @@ under the License.
             1) All columns in index must be written
             2) value is listed after the key column
             
-    6. Modify the properties of the table, currently supports modifying the bloom filter column and the colocate_with attribute.
+    6. Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute.
         grammar:
             PROPERTIES ("key"="value")
         note:
@@ -286,6 +286,14 @@ under the License.
     13. Change the bucketing mode of the table from Random Distribution to Hash Distribution
 
         ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
+    
+    14. Modify the dynamic partition properties of the table (support adding dynamic partition properties to tables without dynamic partition properties)
+    
+        ALTER TABLE example_db.my_table set ("dynamic_partition_enable" = "false");
+    
+        If you need to add dynamic partition attributes to a table without dynamic partition attributes, you need to specify all dynamic partition attributes
+    
+        ALTER TABLE example_db.my_table set ("dynamic_partition. Enable "= "true", dynamic_partition. Time_unit" = "DAY", "dynamic_partition. End "= "3", "dynamic_partition. Prefix" = "p", "Dynamic_partition. Buckets" = "32");
         
     [rename]
     1. Modify the table named table1 to table2
