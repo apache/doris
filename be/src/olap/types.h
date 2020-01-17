@@ -786,7 +786,11 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
             || src_type->type() == OLAP_FIELD_TYPE_FLOAT
             || src_type->type() == OLAP_FIELD_TYPE_DOUBLE
             || src_type->type() == OLAP_FIELD_TYPE_DECIMAL) {
-            *reinterpret_cast<CppType*>(dest) = src_type->to_string(src);
+	    auto result = src_type->to_string(src);
+	    auto slice = reinterpret_cast<Slice*>(dest);
+	    slice->data = reinterpret_cast<char*>(mem_pool->allocate(result.size()));
+	    memcpy(slice->data, result.c_str(), result.size());
+	    slice->size = result.size();
             return OLAP_SUCCESS;
         }
         return OLAP_ERR_INVALID_SCHEMA;
