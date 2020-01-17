@@ -74,6 +74,11 @@ under the License.
             </activation>
 
             <repositories>
+                <repository>
+                    <id>central</id>
+                    <name>central maven repo https</name>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                </repository>
                 <!-- for java-cup -->
                 <repository>
                     <id>cloudera-thirdparty</id>
@@ -90,7 +95,7 @@ under the License.
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>spring-plugins</id>
-                    <url>http://repo.spring.io/plugins-release/</url>
+                    <url>https://repo.spring.io/plugins-release/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
