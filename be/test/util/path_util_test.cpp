@@ -74,6 +74,7 @@ TEST(TestPathUtil, SplitPathTest) {
     ASSERT_EQ(Vec({"/"}), path_util::split_path("/"));
     ASSERT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a/b"));
     ASSERT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a/b/"));
+    ASSERT_EQ(Vec({"/", "a", "b"}), path_util::split_path("/a//b/"));
     ASSERT_EQ(Vec({"a", "b"}), path_util::split_path("a/b"));
     ASSERT_EQ(Vec({"."}), path_util::split_path("."));
     ASSERT_EQ(Vec(), path_util::split_path(""));
