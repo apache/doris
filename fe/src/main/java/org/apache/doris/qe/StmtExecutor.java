@@ -418,7 +418,6 @@ public class StmtExecutor {
                         StmtRewriter.rewrite(analyzer, parsedStmt);
                         reAnalyze = true;
                     }
-
                     if (reAnalyze) {
                         // The rewrites should have no user-visible effect. Remember the original result
                         // types and column labels to restore them after the rewritten stmt has been

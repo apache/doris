@@ -17,6 +17,18 @@
 
 package org.apache.doris.analysis;
 
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -41,6 +53,8 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -50,23 +64,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.IdentityHashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-//import org.apache.doris.catalog.InlineView;
 
 /**
  * Repository of analysis state for single select block.
@@ -585,6 +582,28 @@ public class Analyzer {
         } else {
             result.setIsNullable(false);
         }
+        slotRefMap.put(key, result);
+        return result;
+    }
+
+    /**
+     * Register a virtual column, and it is not a real column exist in table,
+     * so it does not need to resolve.
+     */
+    public SlotDescriptor registerVirtualColumnRef(String colName, Type type, TupleDescriptor tupleDescriptor)
+            throws AnalysisException {
+        // Make column name case insensitive
+        String key = colName;
+        SlotDescriptor result = slotRefMap.get(key);
+        if (result != null) {
+            result.setMultiRef(true);
+            return result;
+        }
+
+        result = addSlotDescriptor(tupleDescriptor);
+        Column col = new Column(colName, type);
+        result.setColumn(col);
+        result.setIsNullable(true);
         slotRefMap.put(key, result);
         return result;
     }
