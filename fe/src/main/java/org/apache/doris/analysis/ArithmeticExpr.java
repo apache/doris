@@ -17,6 +17,9 @@
 
 package org.apache.doris.analysis;
 
+import java.util.List;
+import java.util.Objects;
+
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -26,17 +29,15 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 public class ArithmeticExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(ArithmeticExpr.class);
-    
+
     enum OperatorPosition {
         BINARY_INFIX,
         UNARY_PREFIX,
@@ -196,7 +197,7 @@ public class ArithmeticExpr extends Expr {
     private Type findCommonType(Type t1, Type t2) {
         PrimitiveType pt1 = t1.getPrimitiveType();
         PrimitiveType pt2 = t2.getPrimitiveType();
-        
+
         if (pt1 == PrimitiveType.DOUBLE || pt2 == PrimitiveType.DOUBLE) {
             return Type.DOUBLE;
         } else if (pt1 == PrimitiveType.DECIMALV2 || pt2 == PrimitiveType.DECIMALV2) {
@@ -272,5 +273,10 @@ public class ArithmeticExpr extends Expr {
             Preconditions.checkState(false, String.format(
                     "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
         }
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }
