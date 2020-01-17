@@ -71,8 +71,16 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
       DORIS_REQUEST_QUERY_TIMEOUT_S_DEFAULT
     }
 
+    val execMemLimit = Try {
+      settings.getProperty(DORIS_EXEC_MEM_LIMIT, DORIS_EXEC_MEM_LIMIT_DEFAULT.toString).toLong
+    } getOrElse {
+      logger.warn(ErrorMessages.PARSE_NUMBER_FAILED_MESSAGE, DORIS_EXEC_MEM_LIMIT, settings.getProperty(DORIS_EXEC_MEM_LIMIT))
+      DORIS_EXEC_MEM_LIMIT_DEFAULT
+    }
+
     params.setBatch_size(batchSize)
     params.setQuery_timeout(queryDorisTimeout)
+    params.setMem_limit(execMemLimit)
     params.setUser(settings.getProperty(DORIS_REQUEST_AUTH_USER, ""))
     params.setPasswd(settings.getProperty(DORIS_REQUEST_AUTH_PASSWORD, ""))
 
@@ -83,6 +91,7 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         s"tabletId: ${params.getTablet_ids}, " +
         s"batch size: $batchSize, " +
         s"query timeout: $queryDorisTimeout, " +
+        s"execution memory limit: $execMemLimit, " +
         s"user: ${params.getUser}, " +
         s"query plan: ${params.opaqued_query_plan}")
 
