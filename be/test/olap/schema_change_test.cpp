@@ -212,7 +212,7 @@ public:
         ASSERT_EQ(_column_writer->create_row_index_entry(), OLAP_SUCCESS);
     }
 
-    void test_convert_to_varchar(std::string type_name, int type_size, const std::string& value, OLAPStatus expected_st) {
+    void test_convert_to_varchar(std::string& type_name, int type_size, const std::string& value, OLAPStatus expected_st) {
         TabletSchema src_tablet_schema;
         SetTabletSchema("ConvertColumn", type_name, "REPLACE", type_size, false, false, &src_tablet_schema);
         CreateColumnReader(src_tablet_schema);

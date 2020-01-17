@@ -479,7 +479,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_FLOAT> : public BaseFieldtypeTraits<OLAP_
     }
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%.10f", *reinterpret_cast<const CppType*>(src));
+        int length = FloatToBuffer(*reinterpret_cast<const CppType *>(src), MAX_FLOAT_STR_LENGTH, buf);
+        DCHECK(length >= 0) << "gcvt float failed, float value=" << *reinterpret_cast<const CppType *>(src);
         return std::string(buf);
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
@@ -502,7 +503,8 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DOUBLE> : public BaseFieldtypeTraits<OLAP
     }
     static std::string to_string(const void* src) {
         char buf[1024] = {'\0'};
-        snprintf(buf, sizeof(buf), "%.10f", *reinterpret_cast<const CppType*>(src));
+        int length = DoubleToBuffer(*reinterpret_cast<const CppType *>(src), MAX_DOUBLE_STR_LENGTH, buf);
+        DCHECK(length >= 0) << "gcvt float failed, float value=" << *reinterpret_cast<const CppType *>(src);
         return std::string(buf);
     }
     static OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) {
