@@ -57,6 +57,7 @@ struct TScanOpenParams {
 
   12: optional i32 query_timeout
 
+  // memory limit for a single query
   13: optional i64 mem_limit
 }
 
