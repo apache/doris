@@ -52,6 +52,7 @@
 #include "exprs/utility_functions.h"
 #include "exprs/json_functions.h"
 #include "exprs/hll_hash_function.h"
+#include "exprs/grouping_sets_functions.h"
 #include "exprs/timezone_db.h"
 #include "exprs/bitmap_function.h"
 #include "exprs/hll_function.h"
@@ -273,6 +274,7 @@ void init_daemon(int argc, char** argv, const std::vector<StorePath>& paths) {
     HllHashFunctions::init();
     ESFunctions::init();
     GeoFunctions::init();
+    GroupingSetsFunctions::init();
     TimezoneDatabase::init();
     BitmapFunctions::init();
     HllFunctions::init();

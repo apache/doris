@@ -383,4 +383,138 @@ public class AccessTestUtil {
         };
         return analyzer;
     }
+
+    public static Analyzer fetchTableAnalyzer() {
+        Column column1 = new Column("k1", PrimitiveType.VARCHAR);
+        Column column2 = new Column("k2", PrimitiveType.VARCHAR);
+        Column column3 = new Column("k3", PrimitiveType.VARCHAR);
+        Column column4 = new Column("k4", PrimitiveType.BIGINT);
+
+        MaterializedIndex index = new MaterializedIndex();
+        new Expectations(index) {
+            {
+                index.getId();
+                minTimes = 0;
+                result = 30000L;
+            }
+        };
+
+        Partition partition = Deencapsulation.newInstance(Partition.class);
+        new Expectations(partition) {
+            {
+                partition.getBaseIndex();
+                minTimes = 0;
+                result = index;
+
+                partition.getIndex(30000L);
+                minTimes = 0;
+                result = index;
+            }
+        };
+
+        OlapTable table = new OlapTable();
+        new Expectations(table) {
+            {
+                table.getBaseSchema();
+                minTimes = 0;
+                result = Lists.newArrayList(column1, column2, column3, column4);
+
+                table.getPartition(40000L);
+                minTimes = 0;
+                result = partition;
+
+                table.getColumn("k1");
+                minTimes = 0;
+                result = column1;
+
+                table.getColumn("k2");
+                minTimes = 0;
+                result = column2;
+
+                table.getColumn("k3");
+                minTimes = 0;
+                result = column3;
+
+                table.getColumn("k4");
+                minTimes = 0;
+                result = column4;
+            }
+        };
+
+        Database db = new Database();
+
+        new Expectations(db) {
+            {
+                db.getTable("t");
+                minTimes = 0;
+                result = table;
+
+                db.getTable("emptyTable");
+                minTimes = 0;
+                result = null;
+
+                db.getTableNamesWithLock();
+                minTimes = 0;
+                result = Sets.newHashSet("t");
+
+                db.getTables();
+                minTimes = 0;
+                result = Lists.newArrayList(table);
+
+                db.readLock();
+                minTimes = 0;
+
+                db.readUnlock();
+                minTimes = 0;
+
+                db.getFullName();
+                minTimes = 0;
+                result = "testDb";
+            }
+        };
+        Catalog catalog = fetchBlockCatalog();
+        Analyzer analyzer = new Analyzer(catalog, new ConnectContext(null));
+        new Expectations(analyzer) {
+            {
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "testDb";
+
+                analyzer.getTable((TableName) any);
+                minTimes = 0;
+                result = table;
+
+                analyzer.getQualifiedUser();
+                minTimes = 0;
+                result = "testUser";
+
+                analyzer.getCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                analyzer.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+
+                analyzer.incrementCallDepth();
+                minTimes = 0;
+                result = 1;
+
+                analyzer.decrementCallDepth();
+                minTimes = 0;
+                result = 0;
+
+                analyzer.getCallDepth();
+                minTimes = 0;
+                result = 1;
+
+                analyzer.getContext();
+                minTimes = 0;
+                result = new ConnectContext(null);
+
+            }
+        };
+        return analyzer;
+    }
 }
+

@@ -46,6 +46,7 @@ enum TPlanNodeType {
   UNION_NODE,
   ES_SCAN_NODE,
   ES_HTTP_SCAN_NODE,
+  REPEAT_NODE
   ASSERT_NUM_ROWS_NODE
 }
 
@@ -386,6 +387,17 @@ struct TAggregationNode {
   6: optional bool use_streaming_preaggregation
 }
 
+struct TRepeatNode {
+ // Tulple id used for output, it has new slots.
+  1: required Types.TTupleId output_tuple_id
+  // Slot id set used to indicate those slots need to set to null.
+  2: required list<set<Types.TSlotId>> slot_id_set_list
+  // An integer bitmap list, it indicates the bit position of the exprs not null.
+  3: required list<i64> repeat_id_list
+  // A list of integer list, it indicates the position of the grouping virtual slot.
+  4: required list<list<i64>> grouping_list
+}
+
 struct TPreAggregationNode {
   1: required list<Exprs.TExpr> group_exprs
   2: required list<Exprs.TExpr> aggregate_exprs
@@ -613,7 +625,8 @@ struct TPlanNode {
   28: optional TUnionNode union_node
   29: optional TBackendResourceProfile resource_profile
   30: optional TEsScanNode es_scan_node
-  31: optional TAssertNumRowsNode assert_num_rows_node
+  31: optional TRepeatNode repeat_node
+  32: optional TAssertNumRowsNode assert_num_rows_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first
