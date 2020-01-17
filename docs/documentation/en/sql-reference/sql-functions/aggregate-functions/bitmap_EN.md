@@ -42,7 +42,7 @@ ALTER TABLE pv_bitmap ADD ROLLUP pv (page, user_id);
 
 ## Data Load
 
-`TO_BITMAP (expr)`: Convert 0 ~ 4294967295 unsigned int to bitmap
+`TO_BITMAP (expr)`: Convert 0 ~ 18446744073709551615 unsigned bigint to bitmap
 
 `BITMAP_EMPTY ()`: Generate empty bitmap columns, used for insert or import to fill the default value
 

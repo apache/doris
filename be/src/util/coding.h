@@ -99,6 +99,16 @@ inline void put_fixed64_le(T* dst, uint64_t val) {
     dst->append((char*)buf, sizeof(buf));
 }
 
+// Returns the length of the varint32 or varint64 encoding of "v"
+inline int varint_length(uint64_t v) {
+    int len = 1;
+    while (v >= 128) {
+        v >>= 7;
+        len++;
+    }
+    return len;
+}
+
 extern uint8_t* encode_varint32(uint8_t* dst, uint32_t value);
 extern uint8_t* encode_varint64(uint8_t* dst, uint64_t value);
 

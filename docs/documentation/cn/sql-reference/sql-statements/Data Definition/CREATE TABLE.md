@@ -78,7 +78,7 @@ under the License.
             hll列类型，不需要指定长度和默认值、长度根据数据的聚合
             程度系统内控制，并且HLL列只能通过配套的hll_union_agg、Hll_cardinality、hll_hash进行查询或使用
         BITMAP
-            bitmap列类型，不需要指定长度和默认值
+            bitmap列类型，不需要指定长度和默认值。表示整型的集合，元素最大支持到2^64 - 1
     ```
 
     agg_type：聚合类型，如果不指定，则该列为 key 列。否则，该列为 value 列
@@ -91,7 +91,7 @@ under the License.
     是否允许为NULL: 默认不允许为 NULL。NULL 值在导入数据中用 \N 来表示
 
     注意：
-        BITMAP_UNION聚合类型列在导入时的原始数据类型必须是TINYINT,SMALLINT,INT。
+        BITMAP_UNION聚合类型列在导入时的原始数据类型必须是TINYINT,SMALLINT,INT,BIGINT。
 
 2. index_definition
     语法：

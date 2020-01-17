@@ -19,18 +19,20 @@
 #include "exprs/anyval_util.h"
 #include "exprs/bitmap_function.cpp"
 #include <iostream>
+#include <limits>
 #include <string>
+#include <vector>
 #include "testutil/function_utils.h"
-#include <util/bitmap.h>
+#include "util/bitmap_value.h"
 #include "util/logging.h"
 
 #include <gtest/gtest.h>
 
 namespace doris {
 
-StringVal convert_bitmap_to_string(FunctionContext* ctx, RoaringBitmap& bitmap) {
-    StringVal result(ctx, bitmap.size());
-    bitmap.serialize((char*)result.ptr);
+StringVal convert_bitmap_to_string(FunctionContext* ctx, BitmapValue& bitmap) {
+    StringVal result(ctx, bitmap.getSizeInBytes());
+    bitmap.write((char*)result.ptr);
     return result;
 }
 
@@ -61,56 +63,47 @@ private:
 TEST_F(BitmapFunctionsTest, bitmap_empty) {
     StringVal result = BitmapFunctions::bitmap_empty(ctx);
 
-    RoaringBitmap bitmap;
+    BitmapValue bitmap;
     StringVal expected = convert_bitmap_to_string(ctx, bitmap);
 
     ASSERT_EQ(expected, result);
 }
 
 TEST_F(BitmapFunctionsTest, to_bitmap) {
-    StringVal input = AnyValUtil::from_string_temp(ctx, std::string("1024"));
-    StringVal result = BitmapFunctions::to_bitmap(ctx, input);
+    std::vector<uint64_t> values = { 0, 65535, 4294967295, std::numeric_limits<uint64_t>::max() };
+    for (auto val : values) {
+        StringVal input = AnyValUtil::from_string_temp(ctx, std::to_string(val));
+        StringVal result = BitmapFunctions::to_bitmap(ctx, input);
 
-    RoaringBitmap bitmap(1024);
-    StringVal expected = convert_bitmap_to_string(ctx, bitmap);
+        BitmapValue bitmap(val);
+        StringVal expected = convert_bitmap_to_string(ctx, bitmap);
 
-    ASSERT_EQ(expected, result);
+        ASSERT_EQ(expected, result);
+    }
 }
 
 TEST_F(BitmapFunctionsTest, to_bitmap_null) {
     StringVal input = StringVal::null();
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
 
-    RoaringBitmap bitmap;
+    BitmapValue bitmap;
     StringVal expected = convert_bitmap_to_string(ctx, bitmap);
 
     ASSERT_EQ(expected, result);
 }
 
 TEST_F(BitmapFunctionsTest, to_bitmap_invalid_argument) {
-    StringVal input = AnyValUtil::from_string_temp(ctx, std::string("xxxxxx"));
+    StringVal input = AnyValUtil::from_string_temp(ctx, std::string("-1"));
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
-
-    StringVal expected = StringVal::null();
-
-    ASSERT_EQ(expected, result);
+    ASSERT_EQ(StringVal::null(), result);
     ASSERT_TRUE(ctx->has_error());
-
-    std::string error_msg("The input: xxxxxx is not valid, to_bitmap only support int value from 0 to 4294967295 currently");
-    ASSERT_EQ(error_msg, ctx->error_msg());
 }
 
 TEST_F(BitmapFunctionsTest, to_bitmap_out_of_range) {
-    StringVal input = AnyValUtil::from_string_temp(ctx, std::string("4294967296"));
+    StringVal input = AnyValUtil::from_string_temp(ctx, std::string("18446744073709551616"));
     StringVal result = BitmapFunctions::to_bitmap(ctx, input);
-
-    StringVal expected = StringVal::null();
-    ASSERT_EQ(expected, result);
-
+    ASSERT_EQ(StringVal::null(), result);
     ASSERT_TRUE(ctx->has_error());
-
-    std::string error_msg("The input: 4294967296 is not valid, to_bitmap only support int value from 0 to 4294967295 currently");
-    ASSERT_EQ(error_msg, ctx->error_msg());
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_union_int) {
@@ -130,11 +123,11 @@ TEST_F(BitmapFunctionsTest, bitmap_union) {
     StringVal dst;
     BitmapFunctions::bitmap_init(ctx, &dst);
 
-    RoaringBitmap bitmap1(1024);
+    BitmapValue bitmap1(1024);
     StringVal src1 = convert_bitmap_to_string(ctx, bitmap1);
     BitmapFunctions::bitmap_union(ctx, src1, &dst);
 
-    RoaringBitmap bitmap2;
+    BitmapValue bitmap2;
     StringVal src2 = convert_bitmap_to_string(ctx, bitmap1);
     BitmapFunctions::bitmap_union(ctx, src2, &dst);
 
@@ -146,9 +139,9 @@ TEST_F(BitmapFunctionsTest, bitmap_union) {
 }
 
 TEST_F(BitmapFunctionsTest, bitmap_count) {
-    RoaringBitmap bitmap(1024);
-    bitmap.update(1);
-    bitmap.update(2019);
+    BitmapValue bitmap(1024);
+    bitmap.add(1);
+    bitmap.add(2019);
     StringVal bitmap_str = convert_bitmap_to_string(ctx, bitmap);
 
     BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
@@ -170,16 +163,12 @@ void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
     StringVal dst;
     BitmapFunctions::bitmap_intersect_init<ValueType, ValType>(ctx, &dst);
 
-    RoaringBitmap bitmap1(1024);
-    bitmap1.update(1025);
-    bitmap1.update(1026);
+    BitmapValue bitmap1({1024, 1025, 1026});
     StringVal src1 = convert_bitmap_to_string(ctx, bitmap1);
     BitmapFunctions::bitmap_intersect_update<ValueType, ValType>(
         ctx, src1, key1, 1, nullptr, &dst);
 
-    RoaringBitmap bitmap2(1024);
-    bitmap2.update(1023);
-    bitmap2.update(1022);
+    BitmapValue bitmap2({1024, 1023, 1022});
     StringVal src2 = convert_bitmap_to_string(ctx, bitmap2);
     BitmapFunctions::bitmap_intersect_update<ValueType, ValType>(
         ctx, src2, key2, 2, nullptr, &dst);
@@ -244,14 +233,10 @@ TEST_F(BitmapFunctionsTest, test_bitmap_intersect) {
     test_bitmap_intersect<StringVal, StringValue>(
         ctx, StringVal("20191211"), StringVal("20191212"));
 }
-TEST_F(BitmapFunctionsTest,bitmap_or) {
-    RoaringBitmap bitmap1(1024);
-    bitmap1.update(1);
-    bitmap1.update(2019);
 
-    RoaringBitmap bitmap2(33);
-    bitmap2.update(44);
-    bitmap2.update(55);
+TEST_F(BitmapFunctionsTest,bitmap_or) {
+    BitmapValue bitmap1({1024, 1, 2019});
+    BitmapValue bitmap2({33, 44, 55});
 
     StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
     StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
@@ -262,14 +247,10 @@ TEST_F(BitmapFunctionsTest,bitmap_or) {
     BigIntVal expected(6);
     ASSERT_EQ(expected, result);
 }
-TEST_F(BitmapFunctionsTest,bitmap_and) {
-    RoaringBitmap bitmap1(1024);
-    bitmap1.update(1);
-    bitmap1.update(2019);
 
-    RoaringBitmap bitmap2(33);
-    bitmap2.update(44);
-    bitmap2.update(2019);
+TEST_F(BitmapFunctionsTest,bitmap_and) {
+    BitmapValue bitmap1({1024, 1, 2019});
+    BitmapValue bitmap2({33, 44, 2019});
 
     StringVal bitmap_src = convert_bitmap_to_string(ctx, bitmap1);
     StringVal bitmap_dst = convert_bitmap_to_string(ctx, bitmap2);
@@ -281,8 +262,7 @@ TEST_F(BitmapFunctionsTest,bitmap_and) {
     ASSERT_EQ(expected, result);
 }
 TEST_F(BitmapFunctionsTest,bitmap_contains) {
-    RoaringBitmap bitmap(4);
-    bitmap.update(5);
+    BitmapValue bitmap({4, 5});
     StringVal bitmap_str = convert_bitmap_to_string(ctx,bitmap);
     BooleanVal result = BitmapFunctions::bitmap_contains(ctx,bitmap_str,5);
     BooleanVal expected(true);
@@ -294,11 +274,8 @@ TEST_F(BitmapFunctionsTest,bitmap_contains) {
 }
 
 TEST_F(BitmapFunctionsTest,bitmap_has_any) {
-    RoaringBitmap bitmap1(4);
-    bitmap1.update(5);
-
-    RoaringBitmap bitmap2(4);
-    bitmap2.update(5);
+    BitmapValue bitmap1({4, 5});
+    BitmapValue bitmap2({4, 5});
 
     StringVal lhs = convert_bitmap_to_string(ctx,bitmap1);
     StringVal rhs = convert_bitmap_to_string(ctx,bitmap2);
@@ -306,11 +283,35 @@ TEST_F(BitmapFunctionsTest,bitmap_has_any) {
     BooleanVal expected(true);
     ASSERT_EQ(expected,result);
 
-    RoaringBitmap bitmap3(10);
+    BitmapValue bitmap3(10);
     StringVal r3 = convert_bitmap_to_string(ctx,bitmap3);
     BooleanVal result1 = BitmapFunctions::bitmap_has_any(ctx,lhs,r3);
     BooleanVal expected2(false);
     ASSERT_EQ(expected2,result1);
+}
+
+TEST_F(BitmapFunctionsTest, bitmap_from_string) {
+    FunctionUtils utils;
+    {
+        StringVal val = StringVal("0,1,2");
+        auto bitmap_str = BitmapFunctions::bitmap_from_string(utils.get_fn_ctx(), val);
+        ASSERT_FALSE(bitmap_str.is_null);
+        BitmapValue bitmap((const char*)bitmap_str.ptr);
+        ASSERT_TRUE(bitmap.contains(0));
+        ASSERT_TRUE(bitmap.contains(1));
+        ASSERT_TRUE(bitmap.contains(2));
+
+    }
+    {
+        StringVal val = StringVal("a,b,1,2");
+        auto bitmap_str = BitmapFunctions::bitmap_from_string(utils.get_fn_ctx(), val);
+        ASSERT_TRUE(bitmap_str.is_null);
+    }
+    {
+        StringVal val = StringVal("-1,1,2");
+        auto bitmap_str = BitmapFunctions::bitmap_from_string(utils.get_fn_ctx(), val);
+        ASSERT_TRUE(bitmap_str.is_null);
+    }
 }
 
 }
