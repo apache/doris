@@ -5103,7 +5103,7 @@ public class Catalog {
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
                 table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getTableProperty().getProperties());
+        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
         editLog.logDynamicPartition(info);
     }
 
@@ -5136,7 +5136,7 @@ public class Catalog {
             tableProperty.modifyTableProperties(properties);
         }
         tableProperty.buildReplicationNum();
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getTableProperty().getProperties());
+        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
         editLog.logModifyReplicationNum(info);
     }
 
