@@ -212,6 +212,7 @@ TEST(BitmapValueTest, bitmap_serde) {
 
 // Forked from CRoaring's UT of Roaring64Map
 TEST(BitmapValueTest, Roaring64Map) {
+    using doris::detail::Roaring64Map;
     // create a new empty bitmap
     Roaring64Map r1;
     uint64_t r1_sum = 0;

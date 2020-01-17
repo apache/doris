@@ -35,8 +35,6 @@
 
 namespace doris {
 
-class Roaring64MapSetBitForwardIterator;
-
 // serialized bitmap := TypeCode(1), Payload
 // The format of payload depends on value of TypeCode which is defined below
 struct BitmapTypeCode {
@@ -72,6 +70,10 @@ struct BitmapTypeCode {
         BITMAP64 = 4
     };
 };
+
+namespace detail {
+
+class Roaring64MapSetBitForwardIterator;
 
 // Forked from https://github.com/RoaringBitmap/CRoaring/blob/v0.2.60/cpp/roaring64map.hh
 // What we change includes
@@ -949,6 +951,8 @@ inline Roaring64MapSetBitForwardIterator Roaring64Map::end() const {
     return Roaring64MapSetBitForwardIterator(*this, true);
 }
 
+} // namespace detail
+
 // Represent the in-memory and on-disk structure of Doris's BITMAP data type.
 // Optimize for the case where the bitmap contains 0 or 1 element which is common
 // for streaming load scenario.
@@ -1171,7 +1175,7 @@ public:
             case BitmapTypeCode::BITMAP32:
             case BitmapTypeCode::BITMAP64:
                 _type = BITMAP;
-                _bitmap = Roaring64Map::read(src);
+                _bitmap = detail::Roaring64Map::read(src);
                 break;
             default:
                 return false;
@@ -1234,7 +1238,7 @@ private:
         BITMAP = 2 // more than one elements
     };
     uint64_t _sv = 0; // store the single value when _type == SINGLE
-    Roaring64Map _bitmap; // used when _type == BITMAP
+    detail::Roaring64Map _bitmap; // used when _type == BITMAP
     BitmapDataType _type;
 };
 

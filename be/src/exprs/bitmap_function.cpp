@@ -154,9 +154,9 @@ void read_from(const char** src, StringValue* result) {
 
 } // namespace detail
 
-static StringVal serialize(FunctionContext* ctx, BitmapValue& value) {
-    StringVal result(ctx, value.getSizeInBytes());
-    value.write((char*) result.ptr);
+static StringVal serialize(FunctionContext* ctx, BitmapValue* value) {
+    StringVal result(ctx, value->getSizeInBytes());
+    value->write((char*) result.ptr);
     return result;
 }
 
@@ -261,7 +261,7 @@ void BitmapFunctions::bitmap_init(FunctionContext* ctx, StringVal* dst) {
 
 StringVal BitmapFunctions::bitmap_empty(FunctionContext* ctx) {
     BitmapValue bitmap;
-    return serialize(ctx, bitmap);
+    return serialize(ctx, &bitmap);
 }
 
 template <typename T>
@@ -316,7 +316,7 @@ StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const dori
         }
         bitmap.add(int_value);
     }
-    return serialize(ctx, bitmap);
+    return serialize(ctx, &bitmap);
 }
 
 StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
@@ -325,12 +325,12 @@ StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx, const do
         uint32_t hash_value = HashUtil::murmur_hash3_32(src.ptr, src.len, HashUtil::MURMUR3_32_SEED);
         bitmap.add(hash_value);
     }
-    return serialize(ctx, bitmap);
+    return serialize(ctx, &bitmap);
 }
 
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
     auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
-    StringVal result = serialize(ctx, *src_bitmap);
+    StringVal result = serialize(ctx, src_bitmap);
     delete src_bitmap;
     return result;
 }
@@ -402,7 +402,7 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs,
     } else {
         bitmap |= BitmapValue((char*)rhs.ptr);
     }
-    return serialize(ctx, bitmap);
+    return serialize(ctx, &bitmap);
 }
 
 StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
@@ -421,7 +421,7 @@ StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs
     } else {
         bitmap &= BitmapValue((char*)rhs.ptr);
     }
-    return serialize(ctx, bitmap);
+    return serialize(ctx, &bitmap);
 }
 
 StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
@@ -449,7 +449,7 @@ StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const String
     }
 
     BitmapValue bitmap(bits);
-    return serialize(ctx, bitmap);
+    return serialize(ctx, &bitmap);
 }
 
 BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVal& src, const BigIntVal& input) {
