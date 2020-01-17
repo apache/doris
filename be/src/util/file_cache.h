@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "env/env.h"
 #include "util/spinlock.h"
+#include "util/once.h"
 #include "olap/lru_cache.h"
 
 namespace doris {
@@ -153,6 +154,9 @@ private:
         const std::string& file_name,
         std::shared_ptr<internal::Descriptor<FileType>>* file);
 
+    Status _init_once();
+
+private:
     // Interface to the underlying filesystem.
     Env* _env;
 
@@ -164,6 +168,8 @@ private:
 
     // Protects the descriptor map.
     SpinLock _lock;
+
+    DorisCallOnce<Status> _once;
 
     // to collect expired descriptors
     std::mutex _expire_lock;

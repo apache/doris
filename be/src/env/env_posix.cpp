@@ -501,6 +501,7 @@ public:
 
     Status new_random_access_file(const std::string& fname,
                                std::shared_ptr<RandomAccessFile>* result) override {
+        RETURN_IF_ERROR(_file_cache.init());
         return _file_cache.open_file(fname, result);
     }
 

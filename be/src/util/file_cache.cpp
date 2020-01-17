@@ -30,7 +30,6 @@
 #include <functional>
 
 #include "env/env.h"
-#include "util/once.h"
 #include "gutil/strings/substitute.h"
 
 namespace doris {
@@ -262,8 +261,7 @@ FileCache<FileType>::FileCache(const std::string& cache_name, Env* env,
     : _env(env),
       _cache_name(cache_name),
       _cache(new_lru_cache(max_open_files)) {
-    LOG(INFO) << strings::Substitute("Constructed file cache $0 with capacity $1",
-                            cache_name, max_open_files);
+    LOG(INFO) << strings::Substitute("Constructed file cache $0 with capacity $1", cache_name, max_open_files);
 }
 
 template <class FileType>
@@ -276,9 +274,13 @@ FileCache<FileType>::~FileCache() {
 
 template <class FileType>
 Status FileCache<FileType>::init() {
-    _expire_thread.reset(new std::thread(
-                    std::bind<void>(std::mem_fn(&FileCache<FileType>::run_descriptor_expiry),
-                    this)));
+    return _once.call([this]{ return _init_once(); });
+}
+
+template <class FileType>
+Status FileCache<FileType>::_init_once() {
+    _expire_thread.reset(new std::thread(std::bind<void>(
+        std::mem_fn(&FileCache<FileType>::run_descriptor_expiry), this)));
     return Status::OK();
 }
 
@@ -369,7 +371,8 @@ void FileCache<FileType>::invalidate(const std::string& file_name) {
 template <class FileType>
 void FileCache<FileType>::run_descriptor_expiry() {
     std::unique_lock<std::mutex> lock(_expire_lock);
-    while (_expire_cond.wait_for(lock, std::chrono::milliseconds(config::file_cache_expiry_period_ms)) == std::cv_status::timeout) {
+    while (_expire_cond.wait_for(lock,
+            std::chrono::milliseconds(config::file_cache_expiry_period_ms)) == std::cv_status::timeout) {
         std::lock_guard<SpinLock> l(_lock);
         for (auto it = _descriptors.begin(); it != _descriptors.end();) {
             if (it->second.expired()) {
