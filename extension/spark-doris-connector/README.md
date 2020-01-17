@@ -101,6 +101,7 @@ dorisSparkRDD.collect()
 | doris.request.query.timeout.s    | 3600              | 查询doris的超时时间，默认值为1小时，-1表示无超时限制             |
 | doris.request.tablet.size        | Integer.MAX_VALUE | 一个RDD Partition对应的Doris Tablet个数。<br />此数值设置越小，则会生成越多的Partition。<br />从而提升Spark侧的并行度，但同时会对Doris造成更大的压力。 |
 | doris.batch.size                 | 1024              | 一次从BE读取数据的最大行数。<br />增大此数值可减少Spark与Doris之间建立连接的次数。<br />从而减轻网络延迟所带来的的额外时间开销。 |
+| doris.exec.mem.limit             | 2147483648        | 单个查询的内存限制。默认为 2GB，单位为字节                      |
 
 ### SQL and Dataframe Only
 
