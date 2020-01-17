@@ -76,6 +76,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
         } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+           //  do nothing, replication_num property will be analyzed in SchemaChangeHandler.process
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
