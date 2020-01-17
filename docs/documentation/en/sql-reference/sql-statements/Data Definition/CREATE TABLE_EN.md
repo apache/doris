@@ -77,7 +77,7 @@ Syntax:
             HLL tpye, No need to specify length.
             This type can only be queried by hll_union_agg, hll_cardinality, hll_hash functions.
         BITMAP
-            BITMAP type, No need to specify length.
+            BITMAP type, No need to specify length. Represent a set of unsigned bigint numbers, the largest element could be 2^64 - 1
     ```
     agg_type: Aggregation type. If not specified, the column is key column. Otherwise, the column   is value column.
        * SUM、MAX、MIN、REPLACE
@@ -86,7 +86,7 @@ Syntax:
        * BITMAP_UNION: Only for BITMAP type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
     Notice:  
-        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT.
+        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
 2. index_definition
     Syntax:
         `INDEX index_name (col_name[, col_name, ...]) [USING BITMAP] COMMENT 'xxxxxx'`

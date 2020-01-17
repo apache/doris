@@ -26,7 +26,7 @@
 #include "runtime/string_value.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/bitmap.h"
+#include "util/bitmap_value.h"
 
 namespace doris {
 
@@ -503,11 +503,11 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
 
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
-        auto* bitmap = new RoaringBitmap(src_slice->data);
+        auto bitmap = new BitmapValue(src_slice->data);
 
         dst_slice->data = (char*) bitmap;
 
-        mem_pool->mem_tracker()->consume(sizeof(RoaringBitmap));
+        mem_pool->mem_tracker()->consume(sizeof(BitmapValue));
 
         agg_pool->add(bitmap);
     }
@@ -517,29 +517,27 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
 
         auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
         DCHECK_EQ(dst_slice->size, 0);
-        auto dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst_slice->data);
+        auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst_slice->data);
         auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
 
         // fixme(kks): trick here, need improve
         if (mem_pool == nullptr) { // for query
-            RoaringBitmap src_bitmap = RoaringBitmap(src_slice->data);
-            dst_bitmap->merge(src_bitmap);
+            (*dst_bitmap) |= BitmapValue(src_slice->data);
         } else {   // for stream load
             DCHECK_EQ(src_slice->size, 0);
-            auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src_slice->data);
-            dst_bitmap->merge(*src_bitmap);
+            (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(src_slice->data);
         }
     }
 
-    // The RoaringBitmap object memory will be released by ObjectPool
+    // The BitmapValue object memory will be released by ObjectPool
     static void finalize(RowCursorCell* src, MemPool* mem_pool) {
         auto slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
         DCHECK_EQ(slice->size, 0);
-        auto bitmap = reinterpret_cast<RoaringBitmap*>(slice->data);
+        auto bitmap = reinterpret_cast<BitmapValue*>(slice->data);
 
-        slice->size = bitmap->size();
+        slice->size = bitmap->getSizeInBytes();
         slice->data = (char*)mem_pool->allocate(slice->size);
-        bitmap->serialize(slice->data);
+        bitmap->write(slice->data);
     }
 };
 
