@@ -173,8 +173,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
 
-    protected String pauseReason;
-    protected String cancelReason;
+    protected String pauseReason = "";
+    protected String cancelReason = "";
 
     protected long createTimestamp = System.currentTimeMillis();
     protected long pauseTimestamp = -1;
@@ -956,7 +956,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private void executePause(String reason) {
         // remove all of task in jobs and change job state to paused
-        pauseReason = reason;
+        pauseReason = Strings.nullToEmpty(reason);
         state = JobState.PAUSED;
         pauseTimestamp = System.currentTimeMillis();
         routineLoadTaskInfoList.clear();
@@ -975,7 +975,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     private void executeCancel(String reason) {
-        cancelReason = reason;
+        cancelReason = Strings.nullToEmpty(reason);
         state = JobState.CANCELLED;
         routineLoadTaskInfoList.clear();
         endTimestamp = System.currentTimeMillis();
