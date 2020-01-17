@@ -30,6 +30,7 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 
@@ -67,6 +68,10 @@ public class PaloFe {
 
         if (Strings.isNullOrEmpty(pidDir)) {
             System.err.println("env PID_DIR is not set.");
+            return;
+        }
+
+        if (!checkJavaVersion()) {
             return;
         }
 
@@ -116,7 +121,54 @@ public class PaloFe {
             }
         } catch (Throwable e) {
             e.printStackTrace();
-            System.exit(-1);
+            return;
+        }
+    }
+
+    /*
+     * Doris will check if the compiled and running versions of Java are compatible.
+     * The principle the java version at runtime should higher than or equal to the java version at compile time
+     */
+    @VisibleForTesting
+    public static boolean checkJavaVersion() {
+        if (!Config.check_java_version) {
+            return true;
+        }
+
+        String javaCompileVersionStr = getJavaVersionFromFullVersion(Version.DORIS_JAVA_COMPILE_VERSION);
+        String javaRuntimeVersionStr = System.getProperty("java.version");
+
+        int compileVersion = getJavaVersionAsInteger(javaCompileVersionStr);
+        int runtimeVersion = getJavaVersionAsInteger(javaRuntimeVersionStr);
+
+        if (runtimeVersion < compileVersion) {
+            System.out.println("The runtime java version " + javaRuntimeVersionStr + " is less than "
+                    + "compile version " + javaCompileVersionStr);
+            return false;
+        }
+
+        return true;
+    }
+
+    /*
+     * Input: openjdk full 'version "13.0.1+9"', 'java full version "1.8.0_131-b11"'
+     * Output: '13.0.1+9', '1.8.0_131-b11'
+     */
+    public static String getJavaVersionFromFullVersion(String fullVersionStr) {
+        int begin = fullVersionStr.indexOf("\"");
+        int end = fullVersionStr.lastIndexOf("\"");
+        String versionStr = fullVersionStr.substring(begin + 1, end);
+        return versionStr;
+    }
+
+    // Input: '13.0.1+9', '1.8.0_131-b11'
+    // Output: 13, 8
+    public static int getJavaVersionAsInteger(String javaVersionStr) {
+        String[] parts = javaVersionStr.split("\\.");
+        if (parts[0].equals("1")) {
+            return Integer.valueOf(parts[1]);
+        } else {
+            return Integer.valueOf(parts[0]);
         }
     }
 
@@ -233,10 +285,11 @@ public class PaloFe {
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
         if (cmdLineOpts.isVersion()) {
-            System.out.println("Build version: " + Version.PALO_BUILD_VERSION);
-            System.out.println("Build time: " + Version.PALO_BUILD_TIME);
-            System.out.println("Build info: " + Version.PALO_BUILD_INFO);
-            System.out.println("Build hash: " + Version.PALO_BUILD_HASH);
+            System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
+            System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
+            System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
+            System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
+            System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
             BDBTool bdbTool = new BDBTool(Catalog.getCurrentCatalog().getBdbDir(), cmdLineOpts.getBdbToolOpts());
@@ -275,3 +328,4 @@ public class PaloFe {
         }
     }
 }
+

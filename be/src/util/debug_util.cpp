@@ -91,17 +91,17 @@ std::string print_plan_node_type(const TPlanNodeType::type& type) {
 
 std::string get_build_version(bool compact) {
     std::stringstream ss;
-    ss << PALO_BUILD_VERSION
+    ss << DORIS_BUILD_VERSION
 #ifdef NDEBUG
        << " RELEASE"
 #else
        << " DEBUG"
 #endif
-       << " (build " << PALO_BUILD_HASH
+       << " (build " << DORIS_BUILD_HASH
        << ")";
 
     if (!compact) {
-        ss << std::endl << "Built on " << PALO_BUILD_TIME << " by " << PALO_BUILD_INFO;
+        ss << std::endl << "Built on " << DORIS_BUILD_TIME << " by " << DORIS_BUILD_INFO;
     }
 
     return ss.str();
