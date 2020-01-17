@@ -50,6 +50,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -183,7 +184,7 @@ public class CreateTableStmt extends DdlStmt {
         this.comment = Strings.nullToEmpty(comment);
 
         this.tableSignature = -1;
-        this.ops = ops;
+        this.ops = ops == null ? new ArrayList<>() : ops;
     }
 
     public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }

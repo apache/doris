@@ -64,7 +64,6 @@ import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -76,6 +75,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /*
  * MaterializedViewHandler is responsible for ADD/DROP materialized view.
@@ -1171,12 +1171,19 @@ public class MaterializedViewHandler extends AlterHandler {
             return alterClauseList;
         }
 
+        Set<String> currentBatchRollupNameSet = alterClauseList
+                .stream()
+                .map(AddRollupClause.class::cast)
+                .map(AddRollupClause::getRollupName)
+                .collect(Collectors.toSet());
+
         // find root node and map between parent rollup index and son rollup index
         HashMultimap<String, AlterClause> parentSonRollupMap = HashMultimap.create();
         List<List<AlterClause>> parentList = new ArrayList<>();
         for (AlterClause alterClause : alterClauseList) {
             AddRollupClause addRollupClause = (AddRollupClause)alterClause;
-            if (StringUtils.isEmpty(addRollupClause.getBaseRollupName())) {
+            // rollup's parent not in current batch means the rollup is root rollup in current batch
+            if (!currentBatchRollupNameSet.contains(addRollupClause.getBaseRollupName())) {
                 List<AlterClause> oneTree = new ArrayList<>();
                 oneTree.add(alterClause);
                 parentList.add(oneTree);
@@ -1202,6 +1209,7 @@ public class MaterializedViewHandler extends AlterHandler {
             retAlterClauseList.addAll(parentList.get(i));
         }
 
+        Preconditions.checkState(retAlterClauseList.size() == alterClauseList.size());
         return retAlterClauseList;
     }
 
