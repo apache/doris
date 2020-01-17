@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.alter.SchemaChangeJob;
@@ -49,7 +50,14 @@ public class CatalogTest {
 
     @Before
     public void setUp() {
-
+        MetaContext metaContext = new MetaContext();
+        new Expectations(metaContext) {
+            {
+                MetaContext.get();
+                minTimes = 0;
+                result = metaContext;
+            }
+        };
     }
 
     public void mkdir(String dirString) {
