@@ -18,7 +18,7 @@
 #include "exprs/bitmap_function.h"
 
 #include "exprs/anyval_util.h"
-#include "util/bitmap.h"
+#include "util/bitmap_value.h"
 #include "util/string_parser.hpp"
 #include "gutil/strings/split.h"
 #include "gutil/strings/numbers.h"
@@ -154,6 +154,12 @@ void read_from(const char** src, StringValue* result) {
 
 } // namespace detail
 
+static StringVal serialize(FunctionContext* ctx, BitmapValue* value) {
+    StringVal result(ctx, value->getSizeInBytes());
+    value->write((char*) result.ptr);
+    return result;
+}
+
 // Calculate the intersection of two or more bitmaps
 // Usage: intersect_count(bitmap_column_to_count, filter_column, filter_values ...)
 // Example: intersect_count(user_id, event, 'A', 'B', 'C'), meaning find the intersect count of user_id in all A/B/C 3 bitmaps
@@ -168,20 +174,20 @@ public:
     }
 
     void add_key(const T key) {
-        RoaringBitmap empty_bitmap;
+        BitmapValue empty_bitmap;
         _bitmaps[key] = empty_bitmap;
     }
 
-    void update(const T& key, const RoaringBitmap& bitmap) {
+    void update(const T& key, const BitmapValue& bitmap) {
         if (_bitmaps.find(key) != _bitmaps.end()) {
-            _bitmaps[key].merge(bitmap);
+            _bitmaps[key] |= bitmap;
         }
     }
 
     void merge(const BitmapIntersect& other) {
         for (auto& kv: other._bitmaps) {
             if (_bitmaps.find(kv.first) != _bitmaps.end()) {
-                _bitmaps[kv.first].merge(kv.second);
+                _bitmaps[kv.first] |= kv.second;
             } else {
                 _bitmaps[kv.first] = kv.second;
             }
@@ -194,12 +200,12 @@ public:
             return 0;
         }
 
-        RoaringBitmap result;
+        BitmapValue result;
         auto it = _bitmaps.begin();
-        result.merge(it->second);
+        result |= it->second;
         it++;
         for (;it != _bitmaps.end(); it++) {
-            result.intersect(it->second);
+            result &= it->second;
         }
 
         return result.cardinality();
@@ -210,7 +216,7 @@ public:
         size_t size = 4;
         for (auto& kv: _bitmaps) {
             size +=  detail::serialize_size(kv.first);;
-            size +=  kv.second.size();
+            size +=  kv.second.getSizeInBytes();
         }
         return size;
     }
@@ -222,8 +228,8 @@ public:
         writer += 4;
         for (auto& kv: _bitmaps) {
             writer = detail::write_to(kv.first, writer);
-            kv.second.serialize(writer);
-            writer += kv.second.size();
+            kv.second.write(writer);
+            writer += kv.second.getSizeInBytes();
         }
     }
 
@@ -234,14 +240,14 @@ public:
         for (int32_t i = 0; i < bitmaps_size; i++) {
             T key;
             detail::read_from(&reader, &key);
-            RoaringBitmap bitmap(reader);
-            reader += bitmap.size();
+            BitmapValue bitmap(reader);
+            reader += bitmap.getSizeInBytes();
             _bitmaps[key] = bitmap;
         }
     }
 
 private:
-    std::map<T, RoaringBitmap> _bitmaps;
+    std::map<T, BitmapValue> _bitmaps;
 };
 
 void BitmapFunctions::init() {
@@ -249,16 +255,13 @@ void BitmapFunctions::init() {
 
 void BitmapFunctions::bitmap_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
-    dst->len = sizeof(RoaringBitmap);
-    dst->ptr = (uint8_t*)new RoaringBitmap();
+    dst->len = sizeof(BitmapValue);
+    dst->ptr = (uint8_t*)new BitmapValue();
 }
 
 StringVal BitmapFunctions::bitmap_empty(FunctionContext* ctx) {
-    RoaringBitmap bitmap;
-    std::string buf;
-    buf.resize(bitmap.size());
-    bitmap.serialize((char*)buf.c_str());
-    return AnyValUtil::from_string_temp(ctx, buf);
+    BitmapValue bitmap;
+    return serialize(ctx, &bitmap);
 }
 
 template <typename T>
@@ -267,74 +270,67 @@ void BitmapFunctions::bitmap_update_int(FunctionContext* ctx, const T& src, Stri
         return;
     }
 
-    auto* dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst->ptr);
-    dst_bitmap->update(src.val);
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    dst_bitmap->add(src.val);
 }
 
 BigIntVal BitmapFunctions::bitmap_finalize(FunctionContext* ctx, const StringVal& src) {
-    auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
+    auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
     BigIntVal result(src_bitmap->cardinality());
     delete src_bitmap;
     return result;
 }
 
 void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
-    auto* dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst->ptr);
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
     // zero size means the src input is a agg object
     if (src.len == 0) {
-        dst_bitmap->merge(*reinterpret_cast<RoaringBitmap*>(src.ptr));
+        (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(src.ptr);
     } else {
-        dst_bitmap->merge(RoaringBitmap((char*)src.ptr));
+        (*dst_bitmap) |= BitmapValue((char*) src.ptr);
     }
 }
 
 BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& src) {
     // zero size means the src input is a agg object
     if (src.len == 0) {
-        auto bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
-        return {bitmap->cardinality()};
+        auto bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+        return { bitmap->cardinality() };
     } else {
-        RoaringBitmap bitmap ((char*)src.ptr);
-        return {bitmap.cardinality()};
+        BitmapValue bitmap((char*)src.ptr);
+        return { bitmap.cardinality() };
     }
 }
 
 StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
-    std::unique_ptr<RoaringBitmap> bitmap {new RoaringBitmap()};
+    BitmapValue bitmap;
     if (!src.is_null) {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        uint32_t int_value = StringParser::string_to_unsigned_int<uint32_t>(reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
+        uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
         if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
             std::stringstream error_msg;
             error_msg << "The input: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
-            << " is not valid, to_bitmap only support int value from 0 to 4294967295 currently";
+            << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
             ctx->set_error(error_msg.str().c_str());
             return StringVal::null();
         }
-        bitmap->update(int_value);
+        bitmap.add(int_value);
     }
-    std::string buf;
-    buf.resize(bitmap->size());
-    bitmap->serialize((char*)buf.c_str());
-    return AnyValUtil::from_string_temp(ctx, buf);
+    return serialize(ctx, &bitmap);
 }
 
 StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
-    RoaringBitmap bitmap;
+    BitmapValue bitmap;
     if (!src.is_null) {
         uint32_t hash_value = HashUtil::murmur_hash3_32(src.ptr, src.len, HashUtil::MURMUR3_32_SEED);
-        bitmap.update(hash_value);
+        bitmap.add(hash_value);
     }
-    std::string buf;
-    buf.resize(bitmap.size());
-    bitmap.serialize((char*)buf.c_str());
-    return AnyValUtil::from_string_temp(ctx, buf);
+    return serialize(ctx, &bitmap);
 }
 
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
-    auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
-    StringVal result(ctx, src_bitmap->size());
-    src_bitmap->serialize((char*)result.ptr);
+    auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+    StringVal result = serialize(ctx, src_bitmap);
     delete src_bitmap;
     return result;
 }
@@ -361,9 +357,9 @@ void BitmapFunctions::bitmap_intersect_update(FunctionContext* ctx, const String
     auto* dst_bitmap = reinterpret_cast<BitmapIntersect<T>*>(dst->ptr);
     // zero size means the src input is a agg object
     if (src.len == 0) {
-        dst_bitmap->update(detail::get_val<ValType, T>(key), *reinterpret_cast<RoaringBitmap*>(src.ptr));
+        dst_bitmap->update(detail::get_val<ValType, T>(key), *reinterpret_cast<BitmapValue*>(src.ptr));
     } else {
-        dst_bitmap->update(detail::get_val<ValType, T>(key), RoaringBitmap((char*)src.ptr));
+        dst_bitmap->update(detail::get_val<ValType, T>(key), BitmapValue((char*)src.ptr));
     }
 }
 
@@ -389,62 +385,56 @@ BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const
     delete src_bitmap;
     return result;
 }
+
 StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
     if (lhs.is_null || rhs.is_null) {
         return StringVal::null();
     }
-    RoaringBitmap bitmap;
+    BitmapValue bitmap;
     if (lhs.len == 0) {
-        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
     } else {
-        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
+        bitmap |= BitmapValue((char*)lhs.ptr);
     }
 
     if (rhs.len == 0) {
-        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+        bitmap |= *reinterpret_cast<BitmapValue*>(rhs.ptr);
     } else {
-        bitmap.merge(RoaringBitmap((char*)rhs.ptr));
+        bitmap |= BitmapValue((char*)rhs.ptr);
     }
-
-    StringVal result(ctx,bitmap.size());
-    bitmap.serialize((char*)result.ptr);
-    return result;
+    return serialize(ctx, &bitmap);
 }
+
 StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
     if (lhs.is_null || rhs.is_null) {
         return StringVal::null();
     }
-    RoaringBitmap bitmap;
+    BitmapValue bitmap;
     if (lhs.len == 0) {
-        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
     } else {
-        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
+        bitmap |= BitmapValue((char*)lhs.ptr);
     }
 
-    if(rhs.len == 0){
-        bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+    if (rhs.len == 0) {
+        bitmap &= *reinterpret_cast<BitmapValue*>(rhs.ptr);
     } else {
-        bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
+        bitmap &= BitmapValue((char*)rhs.ptr);
     }
-
-    StringVal result(ctx, bitmap.size());
-    bitmap.serialize((char*)result.ptr);
-    return result;
+    return serialize(ctx, &bitmap);
 }
 
 StringVal BitmapFunctions::bitmap_to_string(FunctionContext* ctx, const StringVal& input) {
     if (input.is_null) {
         return StringVal::null();
     }
-    RoaringBitmap bitmap_obj;
-    RoaringBitmap* bitmap = &bitmap_obj;
+    std::string str;
     if (input.len == 0) {
-        bitmap = (RoaringBitmap*)input.ptr;
+        str = reinterpret_cast<BitmapValue*>(input.ptr)->to_string();
     } else {
-        bitmap_obj.deserialize((const char*)input.ptr);
+        BitmapValue bitmap((char*)input.ptr);
+        str = bitmap.to_string();
     }
-
-    std::string str = bitmap->to_string();
     return AnyValUtil::from_string_temp(ctx, str);
 }
 
@@ -453,16 +443,13 @@ StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const String
         return StringVal::null();
     }
 
-    std::vector<uint32_t> bits;
-    if (!SplitStringAndParse({(const char*)input.ptr, input.len}, ",", &safe_strtou32, &bits)) {
+    std::vector<uint64_t> bits;
+    if (!SplitStringAndParse({(const char*)input.ptr, input.len}, ",", &safe_strtou64, &bits)) {
         return StringVal::null();
     }
 
-    RoaringBitmap bitmap(bits);
-
-    StringVal result(ctx, bitmap.size());
-    bitmap.serialize((char*)result.ptr);
-    return result;
+    BitmapValue bitmap(bits);
+    return serialize(ctx, &bitmap);
 }
 
 BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVal& src, const BigIntVal& input) {
@@ -471,12 +458,12 @@ BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVa
     }
 
     if (src.len == 0) {
-        auto bitmap = reinterpret_cast<RoaringBitmap*>(src.ptr);
-        return {bitmap->contains(input.val)};
+        auto bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+        return { bitmap->contains(input.val) };
     }
 
-    RoaringBitmap bitmap ((char*)src.ptr);
-    return {bitmap.contains(input.val)};
+    BitmapValue bitmap((char*)src.ptr);
+    return { bitmap.contains(input.val) };
 }
 
 BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs) {
@@ -484,20 +471,20 @@ BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal
         return BooleanVal::null();
     }
 
-    RoaringBitmap bitmap;
+    BitmapValue bitmap;
     if (lhs.len == 0) {
-        bitmap.merge(*reinterpret_cast<RoaringBitmap*>(lhs.ptr));
+        bitmap |= *reinterpret_cast<BitmapValue*>(lhs.ptr);
     } else {
-        bitmap.merge(RoaringBitmap((char*)lhs.ptr));
+        bitmap |= BitmapValue((char*)lhs.ptr);
     }
 
     if (rhs.len == 0) {
-        bitmap.intersect(*reinterpret_cast<RoaringBitmap*>(rhs.ptr));
+        bitmap &= *reinterpret_cast<BitmapValue*>(rhs.ptr);
     } else {
-        bitmap.intersect(RoaringBitmap((char*)rhs.ptr));
+        bitmap &= BitmapValue((char*)rhs.ptr);
     }
 
-    return {bitmap.cardinality() != 0};
+    return { bitmap.cardinality() != 0 };
 }
 
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(
@@ -506,7 +493,8 @@ template void BitmapFunctions::bitmap_update_int<SmallIntVal>(
         FunctionContext* ctx, const SmallIntVal& src, StringVal* dst);
 template void BitmapFunctions::bitmap_update_int<IntVal>(
         FunctionContext* ctx, const IntVal& src, StringVal* dst);
-
+template void BitmapFunctions::bitmap_update_int<BigIntVal>(
+        FunctionContext* ctx, const BigIntVal& src, StringVal* dst);
 
 template void BitmapFunctions::bitmap_intersect_init<int8_t, TinyIntVal>(
     FunctionContext* ctx, StringVal* dst);

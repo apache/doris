@@ -17,6 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Date;
+import java.util.Objects;
+import java.util.TimeZone;
+import java.util.regex.Pattern;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
@@ -26,9 +35,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-
-import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTime;
@@ -37,13 +43,7 @@ import org.joda.time.LocalDateTime;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.Date;
-import java.util.TimeZone;
-import java.util.regex.Pattern;
+import com.google.common.base.Preconditions;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
@@ -616,4 +616,10 @@ public class DateLiteral extends LiteralExpr {
     private long minute;
     private long second;
     private long microsecond;
+
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(unixTimestamp(TimeZone.getDefault()));
+    }
 }

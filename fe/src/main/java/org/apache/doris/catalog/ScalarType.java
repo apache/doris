@@ -17,18 +17,19 @@
 
 package org.apache.doris.catalog;
 
+import java.util.Objects;
+
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TScalarType;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
 import org.apache.doris.thrift.TTypeNodeType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * Describes a scalar type. For most types this class just wraps a PrimitiveType enum,
@@ -274,7 +275,7 @@ public class ScalarType extends Type {
     public static ScalarType createVarcharType() {
         return DEFAULT_VARCHAR;
     }
- 
+
     public static ScalarType createHllType() {
         ScalarType type = new ScalarType(PrimitiveType.HLL);
         type.len = MAX_HLL_LENGTH;
@@ -361,7 +362,7 @@ public class ScalarType extends Type {
         container.types.add(node);
         switch(type) {
             case VARCHAR:
-            case CHAR: 
+            case CHAR:
             case HLL: {
                 node.setType(TTypeNodeType.SCALAR);
                 TScalarType scalarType = new TScalarType();
@@ -659,12 +660,12 @@ public class ScalarType extends Type {
 
         if ((t1.isDecimal() || t1.isDecimalV2()) && t2.isDate()
                 || t1.isDate() && (t2.isDecimal() || t2.isDecimalV2())) {
-            return INVALID;    
+            return INVALID;
         }
 
         if (t1.isDecimalV2() || t2.isDecimalV2()) {
             return DECIMALV2;
-        } 
+        }
 
         if (t1.isDecimal() || t2.isDecimal()) {
             return DECIMAL;
@@ -776,5 +777,14 @@ public class ScalarType extends Type {
             thrift.setScale(scale);
         }
         return thrift;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = 0;
+        result = 31 * result + Objects.hashCode(type);
+        result = 31 * result + precision;
+        result = 31 * result + scale;
+        return result;
     }
 }

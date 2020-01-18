@@ -134,6 +134,7 @@ cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
 # Running Util Unittest
 ${DORIS_TEST_BINARY_DIR}/util/bit_util_test
 ${DORIS_TEST_BINARY_DIR}/util/bitmap_test
+${DORIS_TEST_BINARY_DIR}/util/bitmap_value_test
 ${DORIS_TEST_BINARY_DIR}/util/path_trie_test
 ${DORIS_TEST_BINARY_DIR}/util/count_down_latch_test
 ${DORIS_TEST_BINARY_DIR}/util/crc32c_test
@@ -166,6 +167,7 @@ ${DORIS_TEST_BINARY_DIR}/util/frame_of_reference_coding_test
 ${DORIS_TEST_BINARY_DIR}/util/zip_util_test
 ${DORIS_TEST_BINARY_DIR}/util/utf8_check_test
 ${DORIS_TEST_BINARY_DIR}/util/cgroup_util_test
+${DORIS_TEST_BINARY_DIR}/util/path_util_test
 
 # Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test

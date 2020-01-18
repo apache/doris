@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.UserException;
@@ -32,6 +33,7 @@ import org.apache.logging.log4j.LogManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * PlanFragments form a tree structure via their ExchangeNodes. A tree of fragments
@@ -213,10 +215,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         StringBuilder str = new StringBuilder();
         Preconditions.checkState(dataPartition != null);
         str.append(" OUTPUT EXPRS:");
-        if (outputExprs != null) {
-            for (Expr e : outputExprs) {
-                str.append(e.toSql() + " | ");
-            }
+        if (CollectionUtils.isNotEmpty(outputExprs)) {
+            str.append(outputExprs.stream().map(Expr::toSql)
+                    .collect(Collectors.joining(" | ")));
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
