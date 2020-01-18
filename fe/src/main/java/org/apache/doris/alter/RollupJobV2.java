@@ -174,7 +174,7 @@ public class RollupJobV2 extends AlterJobV2 {
                     db.getClusterName());
             if (!isStable) {
                 errMsg = "table is unstable";
-                LOG.warn("doing rollup job: " + jobId + "while table is not stable.");
+                LOG.warn("doing rollup job: " + jobId + " while table is not stable.");
                 return;
             }
 
