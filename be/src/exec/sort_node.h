@@ -20,8 +20,8 @@
 
 #include "exec/exec_node.h"
 #include "exec/sort_exec_exprs.h"
-#include "runtime/merge_sorter.h"
 #include "runtime/buffered_block_mgr.h"
+#include "runtime/merge_sorter.h"
 
 namespace doris {
 
@@ -71,6 +71,6 @@ private:
     boost::scoped_ptr<MemPool> _tuple_pool;
 };
 
-}
+} // namespace doris
 
 #endif

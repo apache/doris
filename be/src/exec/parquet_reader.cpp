@@ -15,27 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 #include "exec/parquet_reader.h"
-#include <time.h>
-#include <arrow/status.h>
+
 #include <arrow/array.h>
-#include "exec/file_reader.h"
+#include <arrow/status.h>
+#include <time.h>
+
 #include "common/logging.h"
+#include "exec/file_reader.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/client_cache.h"
-#include "runtime/exec_env.h"
-#include "util/thrift_util.h"
-#include "runtime/tuple.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
+#include "runtime/tuple.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
 // Broker
 
-ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, int32_t num_of_columns_from_file) :
-           _num_of_columns_from_file(num_of_columns_from_file), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
+ParquetReaderWrap::ParquetReaderWrap(FileReader* file_reader, int32_t num_of_columns_from_file)
+        : _num_of_columns_from_file(num_of_columns_from_file),
+          _total_groups(0),
+          _current_group(0),
+          _rows_of_group(0),
+          _current_line_of_group(0) {
     _parquet = std::shared_ptr<ParquetFile>(new ParquetFile(file_reader));
     _properties = parquet::ReaderProperties();
     _properties.enable_buffered_stream();
@@ -46,12 +52,13 @@ ParquetReaderWrap::~ParquetReaderWrap() {
     close();
 }
 
-Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
+Status ParquetReaderWrap::init_parquet_reader(
+        const std::vector<SlotDescriptor*>& tuple_slot_descs) {
     try {
         // new file reader for parquet file
-        auto st = parquet::arrow::FileReader::Make(arrow::default_memory_pool(),
-                                                   parquet::ParquetFileReader::Open(_parquet, _properties),
-                                                   &_reader);
+        auto st = parquet::arrow::FileReader::Make(
+                arrow::default_memory_pool(),
+                parquet::ParquetFileReader::Open(_parquet, _properties), &_reader);
         if (!st.ok()) {
             LOG(WARNING) << "failed to create parquet file reader, errmsg=" << st.ToString();
             return Status::InternalError("Failed to create file reader");
@@ -66,16 +73,17 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
         _rows_of_group = _file_metadata->RowGroup(0)->num_rows();
 
         // map
-        auto *schemaDescriptor = _file_metadata->schema();
+        auto* schemaDescriptor = _file_metadata->schema();
         for (int i = 0; i < _file_metadata->num_columns(); ++i) {
             // Get the Column Reader for the boolean column
             _map_column.emplace(schemaDescriptor->Column(i)->name(), i);
         }
 
-        if (_current_line_of_group == 0) {// the first read
+        if (_current_line_of_group == 0) { // the first read
             RETURN_IF_ERROR(column_indices(tuple_slot_descs));
             // read batch
-            arrow::Status status = _reader->GetRecordBatchReader({_current_group}, _parquet_column_ids, &_rb_batch);
+            arrow::Status status = _reader->GetRecordBatchReader({_current_group},
+                                                                 _parquet_column_ids, &_rb_batch);
             if (!status.ok()) {
                 LOG(WARNING) << "Get RecordBatch Failed. " << status.ToString();
                 return Status::InternalError(status.ToString());
@@ -88,7 +96,7 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
             //save column type
             std::shared_ptr<arrow::Schema> field_schema = _batch->schema();
             for (int i = 0; i < _parquet_column_ids.size(); i++) {
-                std::shared_ptr<arrow::Field>  field = field_schema->field(i);
+                std::shared_ptr<arrow::Field> field = field_schema->field(i);
                 if (!field) {
                     LOG(WARNING) << "Get filed schema failed. Column order:" << i;
                     return Status::InternalError(status.ToString());
@@ -114,7 +122,8 @@ Status ParquetReaderWrap::size(int64_t* size) {
     return Status::OK();
 }
 
-inline void ParquetReaderWrap::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value, int32_t len) {
+inline void ParquetReaderWrap::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
+                                         const uint8_t* value, int32_t len) {
     tuple->set_not_null(slot_desc->null_indicator_offset());
     void* slot = tuple->get_slot(slot_desc->tuple_offset());
     StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
@@ -124,8 +133,7 @@ inline void ParquetReaderWrap::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc
     return;
 }
 
-Status ParquetReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs)
-{
+Status ParquetReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
     _parquet_column_ids.clear();
     for (int i = 0; i < _num_of_columns_from_file; i++) {
         auto slot_desc = tuple_slot_descs.at(i);
@@ -146,7 +154,8 @@ Status ParquetReaderWrap::column_indices(const std::vector<SlotDescriptor*>& tup
 inline Status ParquetReaderWrap::set_field_null(Tuple* tuple, const SlotDescriptor* slot_desc) {
     if (!slot_desc->is_nullable()) {
         std::stringstream str_error;
-        str_error << "The field name("<< slot_desc->col_name() <<") is not allowed null, but Parquet field is NULL.";
+        str_error << "The field name(" << slot_desc->col_name()
+                  << ") is not allowed null, but Parquet field is NULL.";
         LOG(WARNING) << str_error.str();
         return Status::RuntimeError(str_error.str());
     }
@@ -154,18 +163,21 @@ inline Status ParquetReaderWrap::set_field_null(Tuple* tuple, const SlotDescript
     return Status::OK();
 }
 
-Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& tuple_slot_descs, bool* eof) {
-    if (_current_line_of_group >= _rows_of_group) {// read next row group
+Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                                            bool* eof) {
+    if (_current_line_of_group >= _rows_of_group) { // read next row group
         _current_group++;
-        if (_current_group >= _total_groups) {// read completed.
+        if (_current_group >= _total_groups) { // read completed.
             _parquet_column_ids.clear();
             *eof = true;
             return Status::OK();
         }
         _current_line_of_group = 0;
-        _rows_of_group = _file_metadata->RowGroup(_current_group)->num_rows(); //get rows of the current row group
+        _rows_of_group = _file_metadata->RowGroup(_current_group)
+                                 ->num_rows(); //get rows of the current row group
         // read batch
-        arrow::Status status = _reader->GetRecordBatchReader({_current_group}, _parquet_column_ids, &_rb_batch);
+        arrow::Status status =
+                _reader->GetRecordBatchReader({_current_group}, _parquet_column_ids, &_rb_batch);
         if (!status.ok()) {
             return Status::InternalError("Get RecordBatchReader Failed.");
         }
@@ -177,10 +189,12 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
     return Status::OK();
 }
 
-Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t *buf, int32_t *wbytes) {
+Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array,
+                                           uint8_t* buf, int32_t* wbytes) {
     const auto type = std::dynamic_pointer_cast<arrow::TimestampType>(ts_array->type());
     // Doris only supports seconds
     time_t timestamp = 0;
+    // clang-format off
     switch (type->unit()) {
         case arrow::TimeUnit::type::NANO: {// INT96
             timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) / 1000000000); // convert to Second
@@ -201,22 +215,25 @@ Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::Timestam
         default:
             return Status::InternalError("Invalid Time Type.");
     }
+    // clang-format on
     struct tm local;
     localtime_r(&timestamp, &local);
     *wbytes = (uint32_t)strftime((char*)buf, 64, "%Y-%m-%d %H:%M:%S", &local);
     return Status::OK();
 }
 
-Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs, MemPool* mem_pool, bool* eof) {
+Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs,
+                               MemPool* mem_pool, bool* eof) {
     uint8_t tmp_buf[128] = {0};
     int32_t wbytes = 0;
-    const uint8_t *value = nullptr;
+    const uint8_t* value = nullptr;
     int column_index = 0;
     try {
         size_t slots = _parquet_column_ids.size();
         for (size_t i = 0; i < slots; ++i) {
             auto slot_desc = tuple_slot_descs[i];
-            column_index = i;// column index in batch record
+            column_index = i; // column index in batch record
+            // clang-format off
             switch (_parquet_column_type[i]) {
                 case arrow::Type::type::STRING: {
                     auto str_array = std::dynamic_pointer_cast<arrow::StringArray>(_batch->column(column_index));
@@ -442,11 +459,12 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                     return Status::InternalError(str_error.str());
                 }
             }
+            // clang-format on
         }
     } catch (parquet::ParquetException& e) {
         std::stringstream str_error;
-        str_error << e.what() << " RowGroup:" << _current_group << ", Row:" << _current_line_of_group
-                            << ", ColumnIndex " << column_index;
+        str_error << e.what() << " RowGroup:" << _current_group
+                  << ", Row:" << _current_line_of_group << ", ColumnIndex " << column_index;
         LOG(WARNING) << str_error.str();
         return Status::InternalError(str_error.str());
     }
@@ -456,9 +474,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
     return read_record_batch(tuple_slot_descs, eof);
 }
 
-ParquetFile::ParquetFile(FileReader *file): _file(file) {
-
-}
+ParquetFile::ParquetFile(FileReader* file) : _file(file) {}
 
 ParquetFile::~ParquetFile() {
     Close();
@@ -485,7 +501,8 @@ arrow::Status ParquetFile::Read(int64_t nbytes, int64_t* bytes_read, void* buffe
     return ReadAt(_pos, nbytes, bytes_read, buffer);
 }
 
-arrow::Status ParquetFile::ReadAt(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
+arrow::Status ParquetFile::ReadAt(int64_t position, int64_t nbytes, int64_t* bytes_read,
+                                  void* out) {
     int64_t reads = 0;
     _pos = position;
     while (nbytes > 0) {
@@ -497,8 +514,8 @@ arrow::Status ParquetFile::ReadAt(int64_t position, int64_t nbytes, int64_t* byt
         if (reads == 0) {
             break;
         }
-        *bytes_read += reads;// total read bytes
-        nbytes -= reads; // remained bytes
+        *bytes_read += reads; // total read bytes
+        nbytes -= reads;      // remained bytes
         _pos += reads;
         out = (char*)out + reads;
     }
@@ -515,7 +532,6 @@ arrow::Status ParquetFile::Seek(int64_t position) {
     // NOTE: Only readat operation is used, so _file seek is not called here.
     return arrow::Status::OK();
 }
-
 
 arrow::Status ParquetFile::Tell(int64_t* position) const {
     *position = _pos;
@@ -536,4 +552,4 @@ arrow::Status ParquetFile::Read(int64_t nbytes, std::shared_ptr<arrow::Buffer>* 
     return arrow::Status::OK();
 }
 
-}
+} // namespace doris

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "exec/new_partitioned_hash_table.inline.h"
 
 #include <functional>
@@ -1261,4 +1262,4 @@ Status NewPartitionedHashTableCtx::ReplaceHashTableConstants(LlvmCodeGen* codege
 }
 
 #endif
-
+// clang-format on

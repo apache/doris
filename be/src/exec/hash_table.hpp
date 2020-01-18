@@ -103,8 +103,8 @@ inline void HashTable::add_to_bucket(Bucket* bucket, int64_t node_idx, Node* nod
     bucket->_node_idx = node_idx;
 }
 
-inline void HashTable::move_node(Bucket* from_bucket, Bucket* to_bucket,
-                                int64_t node_idx, Node* node, Node* previous_node) {
+inline void HashTable::move_node(Bucket* from_bucket, Bucket* to_bucket, int64_t node_idx,
+                                 Node* node, Node* previous_node) {
     int64_t next_idx = node->_next_idx;
 
     if (previous_node != NULL) {
@@ -121,7 +121,7 @@ inline void HashTable::move_node(Bucket* from_bucket, Bucket* to_bucket,
     add_to_bucket(to_bucket, node_idx, node);
 }
 
-template<bool check_match>
+template <bool check_match>
 inline void HashTable::Iterator::next() {
     if (_bucket_idx == -1) {
         return;
@@ -168,6 +168,6 @@ inline void HashTable::Iterator::next() {
     }
 }
 
-}
+} // namespace doris
 
 #endif

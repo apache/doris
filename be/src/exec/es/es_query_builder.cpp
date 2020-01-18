@@ -18,16 +18,15 @@
 #include "exec/es/es_query_builder.h"
 
 #include <boost/algorithm/string/replace.hpp>
+
+#include "common/logging.h"
 #include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
-#include "common/logging.h"
 
 namespace doris {
 
-ESQueryBuilder::ESQueryBuilder(const std::string& es_query_str) : _es_query_str(es_query_str) {
-
-}
+ESQueryBuilder::ESQueryBuilder(const std::string& es_query_str) : _es_query_str(es_query_str) {}
 ESQueryBuilder::ESQueryBuilder(const ExtFunction& es_query) {
     auto first = es_query.values.front();
     _es_query_str = first.to_string();
@@ -46,17 +45,15 @@ void ESQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* qu
     query_key.CopyFrom(first->name, allocator);
     // if we found one key, then end loop as QueryDSL only support one `query` root
     query_value.CopyFrom(first->value, allocator);
-    // Move Semantics, reference http://rapidjson.org/md_doc_tutorial.html#MoveSemantics 
+    // Move Semantics, reference http://rapidjson.org/md_doc_tutorial.html#MoveSemantics
     query->AddMember(query_key, query_value, allocator);
 }
 
-TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& term) : _field(field), _term(term) {
+TermQueryBuilder::TermQueryBuilder(const std::string& field, const std::string& term)
+        : _field(field), _term(term) {}
 
-}
-
-TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate) : _field(binary_predicate.col.name), _term(binary_predicate.value.to_string()) {
-
-}
+TermQueryBuilder::TermQueryBuilder(const ExtBinaryPredicate& binary_predicate)
+        : _field(binary_predicate.col.name), _term(binary_predicate.value.to_string()) {}
 
 void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
     rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
@@ -68,8 +65,10 @@ void TermQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* 
     query->AddMember("term", term_node, allocator);
 }
 
-RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate) : _field(range_predicate.col.name), _value(range_predicate.value.to_string()), _op(range_predicate.op) {
-}
+RangeQueryBuilder::RangeQueryBuilder(const ExtBinaryPredicate& range_predicate)
+        : _field(range_predicate.col.name),
+          _value(range_predicate.value.to_string()),
+          _op(range_predicate.op) {}
 
 void RangeQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
     rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
@@ -78,20 +77,20 @@ void RangeQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value*
     rapidjson::Value op_node(rapidjson::kObjectType);
     op_node.SetObject();
     switch (_op) {
-        case TExprOpcode::LT:
-            op_node.AddMember("lt", value, allocator);
-            break;
-        case TExprOpcode::LE:
-            op_node.AddMember("le", value, allocator);
-            break;
-        case TExprOpcode::GT:
-            op_node.AddMember("gt", value, allocator);
-            break;
-        case TExprOpcode::GE:
-            op_node.AddMember("ge", value, allocator);
-            break;
-        default:
-            break;
+    case TExprOpcode::LT:
+        op_node.AddMember("lt", value, allocator);
+        break;
+    case TExprOpcode::LE:
+        op_node.AddMember("le", value, allocator);
+        break;
+    case TExprOpcode::GT:
+        op_node.AddMember("gt", value, allocator);
+        break;
+    case TExprOpcode::GE:
+        op_node.AddMember("ge", value, allocator);
+        break;
+    default:
+        break;
     }
     rapidjson::Value field_node(rapidjson::kObjectType);
     field_node.SetObject();
@@ -108,7 +107,8 @@ void WildCardQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
     term_node.AddMember(field_value, term_value, allocator);
     query->AddMember("wildcard", term_node, allocator);
 }
-WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate) : _field(like_predicate.col.name) {
+WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate)
+        : _field(like_predicate.col.name) {
     _like_value = like_predicate.value.to_string();
     std::replace(_like_value.begin(), _like_value.end(), '_', '?');
     std::replace(_like_value.begin(), _like_value.end(), '%', '*');
@@ -127,7 +127,8 @@ void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::V
     query->AddMember("terms", terms_node, allocator);
 }
 
-TermsInSetQueryBuilder::TermsInSetQueryBuilder(const ExtInPredicate& in_predicate)  : _field(in_predicate.col.name) {
+TermsInSetQueryBuilder::TermsInSetQueryBuilder(const ExtInPredicate& in_predicate)
+        : _field(in_predicate.col.name) {
     for (auto& value : in_predicate.values) {
         _values.push_back(value.to_string());
     }
@@ -140,9 +141,8 @@ void MatchAllQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
     query->AddMember("match_all", match_all_node, allocator);
 }
 
-ExistsQueryBuilder::ExistsQueryBuilder(const ExtIsNullPredicate& is_null_predicate) : _field(is_null_predicate.col.name) {
-
-}
+ExistsQueryBuilder::ExistsQueryBuilder(const ExtIsNullPredicate& is_null_predicate)
+        : _field(is_null_predicate.col.name) {}
 
 void ExistsQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
     rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
@@ -153,9 +153,7 @@ void ExistsQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value
     query->AddMember("exists", term_node, allocator);
 }
 
-BooleanQueryBuilder::BooleanQueryBuilder() {
-
-}
+BooleanQueryBuilder::BooleanQueryBuilder() {}
 BooleanQueryBuilder::~BooleanQueryBuilder() {
     for (auto clause : _must_clauses) {
         delete clause;
@@ -177,6 +175,7 @@ BooleanQueryBuilder::~BooleanQueryBuilder() {
 
 BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predicates) {
     for (auto predicate : predicates) {
+        // clang-format off
         switch (predicate->node_type) {
             case TExprNodeType::BINARY_PRED: {
                 ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
@@ -249,11 +248,12 @@ BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predi
             default:
                 break;
         }
+        // clang-format on
     }
 }
 
 void BooleanQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {
-    rapidjson::Document::AllocatorType &allocator = document->GetAllocator();
+    rapidjson::Document::AllocatorType& allocator = document->GetAllocator();
     rapidjson::Value root_node_object(rapidjson::kObjectType);
     if (_filter_clauses.size() > 0) {
         rapidjson::Value filter_node(rapidjson::kArrayType);
@@ -331,12 +331,14 @@ Status BooleanQueryBuilder::check_es_query(const ExtFunction& extFunction) {
     return Status::OK();
 }
 
-void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates, std::vector<bool>* result) {
+void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates,
+                                   std::vector<bool>* result) {
     int conjunct_size = espredicates.size();
     result->reserve(conjunct_size);
     for (auto espredicate : espredicates) {
         bool flag = true;
         for (auto predicate : espredicate->get_predicate_list()) {
+            // clang-format off
             switch (predicate->node_type) {
                 case TExprNodeType::BINARY_PRED: {
                     ExtBinaryPredicate* binary_predicate = (ExtBinaryPredicate*)predicate;
@@ -370,6 +372,7 @@ void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates
                     break;
                 }
             }
+            // clang-format on
             if (!flag) {
                 break;
             }
@@ -378,7 +381,8 @@ void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates
     }
 }
 
-void BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates, rapidjson::Document* root, rapidjson::Value* query) {
+void BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates,
+                                   rapidjson::Document* root, rapidjson::Value* query) {
     if (predicates.size() == 0) {
         MatchAllQueryBuilder match_all_query;
         match_all_query.to_json(root, query);
@@ -391,5 +395,6 @@ void BooleanQueryBuilder::to_query(const std::vector<EsPredicate*>& predicates, 
         BooleanQueryBuilder* inner_bool_query = new BooleanQueryBuilder(or_predicates);
         bool_query.must(inner_bool_query);
     }
-    bool_query.to_json(root, query);}
+    bool_query.to_json(root, query);
 }
+} // namespace doris

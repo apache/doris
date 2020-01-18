@@ -17,50 +17,47 @@
 
 #include "es_scan_node.h"
 
-#include <string>
-#include <boost/algorithm/string.hpp>
 #include <gutil/strings/substitute.h>
 
-#include "gen_cpp/PlanNodes_types.h"
-#include "gen_cpp/Exprs_types.h"
-#include "runtime/runtime_state.h"
-#include "runtime/row_batch.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
-#include "runtime/client_cache.h"
-#include "util/runtime_profile.h"
-#include "util/debug_util.h"
-#include "service/backend_options.h"
-#include "olap/olap_common.h"
-#include "olap/utils.h"
-#include "exprs/expr_context.h"
+#include <boost/algorithm/string.hpp>
+#include <string>
+
 #include "exprs/expr.h"
+#include "exprs/expr_context.h"
 #include "exprs/in_predicate.h"
 #include "exprs/slot_ref.h"
+#include "gen_cpp/Exprs_types.h"
+#include "gen_cpp/PlanNodes_types.h"
+#include "olap/olap_common.h"
+#include "olap/utils.h"
+#include "runtime/client_cache.h"
+#include "runtime/row_batch.h"
+#include "runtime/runtime_state.h"
+#include "runtime/string_value.h"
+#include "runtime/tuple_row.h"
+#include "service/backend_options.h"
+#include "util/debug_util.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
 // $0 = column type (e.g. INT)
-const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
-    "Expected value of type $0 based on column metadata. This likely indicates a "
-    "problem with the data source library.";
-const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
-    "$1 bytes for $2.";
+const string ERROR_INVALID_COL_DATA =
+        "Data source returned inconsistent column data. "
+        "Expected value of type $0 based on column metadata. This likely indicates a "
+        "problem with the data source library.";
+const string ERROR_MEM_LIMIT_EXCEEDED =
+        "DataSourceScanNode::$0() failed to allocate "
+        "$1 bytes for $2.";
 
-EsScanNode::EsScanNode(
-        ObjectPool* pool,
-        const TPlanNode& tnode,
-        const DescriptorTbl& descs) :
-            ScanNode(pool, tnode, descs),
-            _tuple_id(tnode.es_scan_node.tuple_id),
-            _scan_range_idx(0) {
+EsScanNode::EsScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
+        : ScanNode(pool, tnode, descs), _tuple_id(tnode.es_scan_node.tuple_id), _scan_range_idx(0) {
     if (tnode.es_scan_node.__isset.properties) {
         _properties = tnode.es_scan_node.properties;
     }
 }
 
-EsScanNode::~EsScanNode() {
-}
+EsScanNode::~EsScanNode() {}
 
 Status EsScanNode::prepare(RuntimeState* state) {
     VLOG(1) << "EsScanNode::Prepare";
@@ -111,7 +108,7 @@ Status EsScanNode::open(RuntimeState* state) {
     }
 
     // open every scan range
-    vector<int> conjunct_accepted_times(_conjunct_ctxs.size(), 0); 
+    vector<int> conjunct_accepted_times(_conjunct_ctxs.size(), 0);
     for (int i = 0; i < _scan_ranges.size(); ++i) {
         TEsScanRange& es_scan_range = _scan_ranges[i];
 
@@ -121,7 +118,6 @@ Status EsScanNode::open(RuntimeState* state) {
             LOG(WARNING) << ss.str();
             return Status::InternalError(ss.str());
         }
-
 
         // TExtOpenParams
         TExtOpenParams params;
@@ -142,32 +138,31 @@ Status EsScanNode::open(RuntimeState* state) {
         bool is_success = false;
         for (int j = 0; j < 2; ++j) {
             for (auto& es_host : es_scan_range.es_hosts) {
-                if ((j == 0 && es_host.hostname != localhost)
-                    || (j == 1 && es_host.hostname == localhost)) {
+                if ((j == 0 && es_host.hostname != localhost) ||
+                    (j == 1 && es_host.hostname == localhost)) {
                     continue;
                 }
                 Status status = open_es(es_host, result, params);
                 if (status.ok()) {
-                   is_success = true;
-                   _addresses.push_back(es_host);
-                   _scan_handles.push_back(result.scan_handle);
-                   if (result.__isset.accepted_conjuncts) {
-                       for (int index : result.accepted_conjuncts) {
-                           conjunct_accepted_times[predicate_to_conjunct[index]]++;
-                       }
-                   }
-                   break;
+                    is_success = true;
+                    _addresses.push_back(es_host);
+                    _scan_handles.push_back(result.scan_handle);
+                    if (result.__isset.accepted_conjuncts) {
+                        for (int index : result.accepted_conjuncts) {
+                            conjunct_accepted_times[predicate_to_conjunct[index]]++;
+                        }
+                    }
+                    break;
                 } else if (status.code() == TStatusCode::ES_SHARD_NOT_FOUND) {
                     // if shard not found, try other nodes
                     LOG(WARNING) << "shard not found on es node: "
-                                 << ", address=" << es_host
-                                 << ", scan_range_idx=" << i << ", try other nodes";
+                                 << ", address=" << es_host << ", scan_range_idx=" << i
+                                 << ", try other nodes";
                 } else {
-                    LOG(WARNING) << "es open error: scan_range_idx=" << i
-                                 << ", address=" << es_host
+                    LOG(WARNING) << "es open error: scan_range_idx=" << i << ", address=" << es_host
                                  << ", msg=" << status.get_error_msg();
                     return status;
-                } 
+                }
             }
             if (is_success) {
                 break;
@@ -176,8 +171,7 @@ Status EsScanNode::open(RuntimeState* state) {
 
         if (!is_success) {
             std::stringstream ss;
-            ss << "es open error: scan_range_idx=" << i
-               << ", can't find shard on any node";
+            ss << "es open error: scan_range_idx=" << i << ", can't find shard on any node";
             return Status::InternalError(ss.str());
         }
     }
@@ -193,7 +187,8 @@ Status EsScanNode::open(RuntimeState* state) {
 
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         if (!check_left_conjuncts(_conjunct_ctxs[i]->root())) {
-            return Status::InternalError("esquery could only be executed on es, but could not push down to es");
+            return Status::InternalError(
+                    "esquery could only be executed on es, but could not push down to es");
         }
     }
 
@@ -212,9 +207,10 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     MemPool* tuple_pool = row_batch->tuple_data_pool();
     int64_t tuple_buffer_size;
     uint8_t* tuple_buffer = nullptr;
-    RETURN_IF_ERROR(row_batch->resize_and_allocate_tuple_buffer(state, &tuple_buffer_size, &tuple_buffer));
+    RETURN_IF_ERROR(
+            row_batch->resize_and_allocate_tuple_buffer(state, &tuple_buffer_size, &tuple_buffer));
     Tuple* tuple = reinterpret_cast<Tuple*>(tuple_buffer);
-    
+
     // get batch
     TExtGetNextResult result;
     RETURN_IF_ERROR(get_next_from_es(result));
@@ -224,7 +220,7 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
     VLOG(1) << "begin to convert: scan_range_idx=" << _scan_range_idx
             << ", num_rows=" << result.rows.num_rows;
     vector<TExtColumnData>& cols = result.rows.cols;
-    // indexes of the next non-null value in the row batch, per column. 
+    // indexes of the next non-null value in the row batch, per column.
     vector<int> cols_next_val_idx(_tuple_desc->slots().size(), 0);
     for (int row_idx = 0; row_idx < result.rows.num_rows; row_idx++) {
         if (reached_limit()) {
@@ -236,8 +232,8 @@ Status EsScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos)
         tuple_row->set_tuple(0, tuple);
         if (ExecNode::eval_conjuncts(_conjunct_ctxs.data(), _conjunct_ctxs.size(), tuple_row)) {
             row_batch->commit_last_row();
-            tuple = reinterpret_cast<Tuple*>(
-                reinterpret_cast<uint8_t*>(tuple) + _tuple_desc->byte_size());
+            tuple = reinterpret_cast<Tuple*>(reinterpret_cast<uint8_t*>(tuple) +
+                                             _tuple_desc->byte_size());
             ++_num_rows_returned;
         }
     }
@@ -275,8 +271,7 @@ Status EsScanNode::close(RuntimeState* state) {
             ExtDataSourceServiceConnection client(client_cache, address, 10000, &status);
             if (!status.ok()) {
                 LOG(WARNING) << "es create client error: scan_range_idx=" << i
-                             << ", address=" << address
-                             << ", msg=" << status.get_error_msg();
+                             << ", address=" << address << ", msg=" << status.get_error_msg();
                 return status;
             }
 
@@ -288,10 +283,9 @@ Status EsScanNode::close(RuntimeState* state) {
                 RETURN_IF_ERROR(client.reopen());
                 client->close(result, params);
             }
-        } catch (apache::thrift::TException &e) {
+        } catch (apache::thrift::TException& e) {
             std::stringstream ss;
-            ss << "es close error: scan_range_idx=" << i
-               << ", msg=" << e.what();
+            ss << "es close error: scan_range_idx=" << i << ", msg=" << e.what();
             LOG(WARNING) << ss.str();
             return Status::ThriftRpcError(ss.str());
         }
@@ -334,8 +328,8 @@ Status EsScanNode::set_scan_ranges(const vector<TScanRangeParams>& scan_ranges) 
     return Status::OK();
 }
 
-Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TExtOpenParams& params) {
-
+Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result,
+                           TExtOpenParams& params) {
     VLOG(1) << "es open param=" << apache::thrift::ThriftDebugString(params);
 #ifndef BE_TEST
     try {
@@ -358,7 +352,7 @@ Status EsScanNode::open_es(TNetworkAddress& address, TExtOpenResult& result, TEx
         }
         VLOG(1) << "es open result=" << apache::thrift::ThriftDebugString(result);
         return Status(result.status);
-    } catch (apache::thrift::TException &e) {
+    } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "es open error: address=" << address << ", msg=" << e.what();
         return Status::InternalError(ss.str());
@@ -427,8 +421,7 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
 
         TExtLiteral literal;
         if (!to_ext_literal(context, expr, &literal)) {
-            VLOG(1) << "get disjuncts fail: can't get literal, node_type="
-                    << expr->node_type();
+            VLOG(1) << "get disjuncts fail: can't get literal, node_type=" << expr->node_type();
             return false;
         }
 
@@ -445,12 +438,11 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
         disjuncts.push_back(std::move(predicate));
         return true;
     } else if (is_match_func(conjunct)) {
-        // if this is a function call expr and function name is match, then push 
+        // if this is a function call expr and function name is match, then push
         // down it to es
         TExtFunction match_function;
         match_function.__set_func_name(conjunct->fn().name.function_name);
         vector<TExtLiteral> query_conditions;
-
 
         TExtLiteral literal;
         if (!to_ext_literal(context, conjunct->get_child(1), &literal)) {
@@ -469,8 +461,8 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
     } else if (TExprNodeType::IN_PRED == conjunct->node_type()) {
         // the op code maybe FILTER_NEW_IN, it means there is function in list
         // like col_a in (abs(1))
-        if (TExprOpcode::FILTER_IN != conjunct->op() 
-            && TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
+        if (TExprOpcode::FILTER_IN != conjunct->op() &&
+            TExprOpcode::FILTER_NOT_IN != conjunct->op()) {
             return false;
         }
         TExtInPredicate ext_in_predicate;
@@ -503,7 +495,8 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
                 return false;
             }
             TExtLiteral literal;
-            if (!to_ext_literal(slot_desc->type().type, const_cast<void *>(iter->get_value()), &literal)) {
+            if (!to_ext_literal(slot_desc->type().type, const_cast<void*>(iter->get_value()),
+                                &literal)) {
                 VLOG(1) << "get disjuncts fail: can't get literal, node_type="
                         << slot_desc->type().type;
                 return false;
@@ -537,9 +530,9 @@ bool EsScanNode::get_disjuncts(ExprContext* context, Expr* conjunct,
 }
 
 bool EsScanNode::is_match_func(Expr* conjunct) {
-    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type()
-        && conjunct->fn().name.function_name == "esquery") {
-            return true;
+    if (TExprNodeType::FUNCTION_CALL == conjunct->node_type() &&
+        conjunct->fn().name.function_name == "esquery") {
+        return true;
     }
     return false;
 }
@@ -682,11 +675,11 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
     params.__set_offset(_offsets[_scan_range_idx]);
 
     // getNext
-    const TNetworkAddress &address = _addresses[_scan_range_idx];
+    const TNetworkAddress& address = _addresses[_scan_range_idx];
 #ifndef BE_TEST
     try {
         Status create_client_status;
-        ExtDataSourceServiceClientCache *client_cache = _env->extdatasource_client_cache();
+        ExtDataSourceServiceClientCache* client_cache = _env->extdatasource_client_cache();
         ExtDataSourceServiceConnection client(client_cache, address, 10000, &create_client_status);
         if (!create_client_status.ok()) {
             LOG(WARNING) << "es create client error: scan_range_idx=" << _scan_range_idx
@@ -700,16 +693,14 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
             client->getNext(result, params);
         } catch (apache::thrift::transport::TTransportException& e) {
             std::stringstream ss;
-            ss << "es get_next error: scan_range_idx=" << _scan_range_idx
-               << ", msg=" << e.what();
+            ss << "es get_next error: scan_range_idx=" << _scan_range_idx << ", msg=" << e.what();
             LOG(WARNING) << ss.str();
             RETURN_IF_ERROR(client.reopen());
             return Status::ThriftRpcError(ss.str());
         }
-    } catch (apache::thrift::TException &e) {
+    } catch (apache::thrift::TException& e) {
         std::stringstream ss;
-        ss << "es get_next error: scan_range_idx=" << _scan_range_idx
-           << ", msg=" << e.what();
+        ss << "es get_next error: scan_range_idx=" << _scan_range_idx << ", msg=" << e.what();
         LOG(WARNING) << ss.str();
         return Status::ThriftRpcError(ss.str());
     }
@@ -739,8 +730,7 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
     Status get_next_status(result.status);
     if (!get_next_status.ok()) {
         LOG(WARNING) << "es get_next error: scan_range_idx=" << _scan_range_idx
-                     << ", address=" << address
-                     << ", msg=" << get_next_status.get_error_msg();
+                     << ", address=" << address << ", msg=" << get_next_status.get_error_msg();
         return get_next_status;
     }
     if (!result.__isset.rows || !result.rows.__isset.num_rows) {
@@ -757,6 +747,7 @@ Status EsScanNode::get_next_from_es(TExtGetNextResult& result) {
 Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
                                    const vector<TExtColumnData>& cols, int row_idx,
                                    vector<int>& cols_next_val_idx) {
+    // clang-format off
   tuple->init(_tuple_desc->byte_size());
 
   for (int i = 0; i < _tuple_desc->slots().size(); ++i) {
@@ -872,6 +863,7 @@ Status EsScanNode::materialize_row(MemPool* tuple_pool, Tuple* tuple,
     }
   }
   return Status::OK();
+    // clang-format on
 }
 
-}
+} // namespace doris

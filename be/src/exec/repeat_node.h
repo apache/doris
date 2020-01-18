@@ -58,4 +58,4 @@ private:
     RuntimeState* _runtime_state;
 };
 
-}
+} // namespace doris

@@ -40,7 +40,7 @@ bool KuduIsAvailable();
 /// Creates a new KuduClient using the specified master adresses. If any error occurs,
 /// 'client' is not set and an error status is returned.
 Status CreateKuduClient(const std::vector<std::string>& master_addrs,
-    kudu::client::sp::shared_ptr<kudu::client::KuduClient>* client);
+                        kudu::client::sp::shared_ptr<kudu::client::KuduClient>* client);
 
 /// Returns a debug string for the KuduSchema.
 std::string KuduSchemaDebugString(const kudu::client::KuduSchema& schema);
@@ -52,20 +52,19 @@ void InitKuduLogging();
 // This is the callback mentioned above. When the Kudu client logs a message it gets
 // redirected here and forwarded to Impala's glog.
 // This method is not supposed to be used directly.
-void LogKuduMessage(kudu::client::KuduLogSeverity severity, const char* filename,
-    int line_number, const struct ::tm* time, const char* message, size_t message_len);
+void LogKuduMessage(kudu::client::KuduLogSeverity severity, const char* filename, int line_number,
+                    const struct ::tm* time, const char* message, size_t message_len);
 
 /// Takes a Kudu status and returns an impala one, if it's not OK.
-#define KUDU_RETURN_IF_ERROR(expr, prepend) \
-  do { \
-    kudu::Status _s = (expr); \
-    if (UNLIKELY(!_s.ok())) {                                      \
-      return Status::InternalError(_s.ToString()); \
-    } \
-  } while (0)
+#define KUDU_RETURN_IF_ERROR(expr, prepend)              \
+    do {                                                 \
+        kudu::Status _s = (expr);                        \
+        if (UNLIKELY(!_s.ok())) {                        \
+            return Status::InternalError(_s.ToString()); \
+        }                                                \
+    } while (0)
 
+// 63: return Status::InternalError("strings::Substitute("$0: $1", prepend, _s.ToString()));
 
- // 63: return Status::InternalError("strings::Substitute("$0: $1", prepend, _s.ToString()));
-
-} /// namespace impala
+} // namespace doris
 #endif

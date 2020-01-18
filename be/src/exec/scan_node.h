@@ -19,9 +19,10 @@
 #define DORIS_BE_SRC_QUERY_EXEC_SCAN_NODE_H
 
 #include <string>
+
 #include "exec/exec_node.h"
-#include "util/runtime_profile.h"
 #include "gen_cpp/PaloInternalService_types.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -81,8 +82,8 @@ class TScanRange;
 class ScanNode : public ExecNode {
 public:
     ScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs) {}
-    virtual ~ScanNode() { }
+            : ExecNode(pool, tnode, descs) {}
+    virtual ~ScanNode() {}
 
     // Set up counters
     virtual Status prepare(RuntimeState* state);
@@ -91,28 +92,16 @@ public:
     // called after prepare()
     virtual Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
-    virtual bool is_scan_node() const {
-        return true;
-    }
+    virtual bool is_scan_node() const { return true; }
 
-    RuntimeProfile::Counter* bytes_read_counter() const {
-        return _bytes_read_counter;
-    }
-    RuntimeProfile::Counter* rows_read_counter() const {
-        return _rows_read_counter;
-    }
-    RuntimeProfile::Counter* read_timer() const {
-        return _read_timer;
-    }
-    RuntimeProfile::Counter* total_throughput_counter() const {
-        return _total_throughput_counter;
-    }
+    RuntimeProfile::Counter* bytes_read_counter() const { return _bytes_read_counter; }
+    RuntimeProfile::Counter* rows_read_counter() const { return _rows_read_counter; }
+    RuntimeProfile::Counter* read_timer() const { return _read_timer; }
+    RuntimeProfile::Counter* total_throughput_counter() const { return _total_throughput_counter; }
     RuntimeProfile::Counter* per_read_thread_throughput_counter() const {
         return _per_read_thread_throughput_counter;
     }
-    RuntimeProfile::Counter* materialize_tuple_timer() const {
-        return _materialize_tuple_timer;
-    }
+    RuntimeProfile::Counter* materialize_tuple_timer() const { return _materialize_tuple_timer; }
     RuntimeProfile::Counter* scan_ranges_complete_counter() const {
         return _scan_ranges_complete_counter;
     }
@@ -144,13 +133,13 @@ protected:
     // Per thread read throughput [bytes/sec]
     RuntimeProfile::Counter* _per_read_thread_throughput_counter;
     RuntimeProfile::Counter* _num_disks_accessed_counter;
-    RuntimeProfile::Counter* _materialize_tuple_timer;  // time writing tuple slots
+    RuntimeProfile::Counter* _materialize_tuple_timer; // time writing tuple slots
     RuntimeProfile::Counter* _scan_ranges_complete_counter;
     // Aggregated scanner thread counters
     RuntimeProfile::ThreadCounters* _scanner_thread_counters;
     RuntimeProfile::Counter* _num_scanner_threads_started_counter;
 };
 
-}
+} // namespace doris
 
 #endif

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #ifndef IMPALA_EXEC_KUDU_SCAN_NODE_H_
 #define IMPALA_EXEC_KUDU_SCAN_NODE_H_
 
@@ -152,3 +153,4 @@ class KuduScanNode : public ScanNode {
 }
 
 #endif
+// clang-format on

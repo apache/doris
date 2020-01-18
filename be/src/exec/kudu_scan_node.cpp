@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "exec/kudu_scan_node.h"
 
 #include <boost/algorithm/string.hpp>
@@ -341,4 +342,5 @@ void KuduScanNode::run_scanner(const string& name, const string* initial_token) 
   // runtime_state_->resource_pool()->release_thread_token(false);
 }
 
-}  // namespace impala
+}  // namespace doris
+// clang-format on

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "exec/kudu_scanner.h"
 
 #include <kudu/client/row_result.h>
@@ -225,4 +226,5 @@ Status KuduScanner::get_next_scanner_batch() {
   return Status::OK();
 }
 
-}  // namespace impala
+}  // namespace doris
+// clang-format on

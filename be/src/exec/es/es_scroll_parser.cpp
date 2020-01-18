@@ -17,21 +17,20 @@
 
 #include "exec/es/es_scroll_parser.h"
 
-#include <boost/algorithm/string.hpp>
 #include <gutil/strings/substitute.h>
+
+#include <boost/algorithm/string.hpp>
 #include <string>
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "runtime/mem_pool.h"
-#include "runtime/mem_tracker.h"
-#include "rapidjson/rapidjson.h"
 #include "rapidjson/document.h"
+#include "rapidjson/rapidjson.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 #include "util/string_parser.hpp"
-
-
 
 namespace doris {
 
@@ -41,25 +40,24 @@ static const char* FIELD_INNER_HITS = "hits";
 static const char* FIELD_SOURCE = "_source";
 static const char* FIELD_TOTAL = "total";
 
-
 // get the original json data type
 std::string json_type_to_string(rapidjson::Type type) {
     switch (type) {
-        case rapidjson::kNumberType:
-            return "Number";
-        case rapidjson::kStringType:
-            return "Varchar/Char";
-        case rapidjson::kArrayType:
-            return "Array";
-        case rapidjson::kObjectType:
-            return "Object";
-        case rapidjson::kNullType:
-            return "Null Type";
-        case rapidjson::kFalseType:
-        case rapidjson::kTrueType:
-            return "True/False";
-        default:
-            return "Unknown Type";
+    case rapidjson::kNumberType:
+        return "Number";
+    case rapidjson::kStringType:
+        return "Varchar/Char";
+    case rapidjson::kArrayType:
+        return "Array";
+    case rapidjson::kObjectType:
+        return "Object";
+    case rapidjson::kNullType:
+        return "Null Type";
+    case rapidjson::kFalseType:
+    case rapidjson::kTrueType:
+        return "True/False";
+    default:
+        return "Unknown Type";
     }
 }
 
@@ -71,14 +69,18 @@ std::string json_value_to_string(const rapidjson::Value& value) {
     return scratch_buffer.GetString();
 }
 
-static const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
-    "Expected value of type $0 based on column metadata. This likely indicates a "
-    "problem with the data source library.";
-static const string ERROR_MEM_LIMIT_EXCEEDED = "DataSourceScanNode::$0() failed to allocate "
-    "$1 bytes for $2.";
-static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for the type $0"
-    "based on column metadata.";
+static const string ERROR_INVALID_COL_DATA =
+        "Data source returned inconsistent column data. "
+        "Expected value of type $0 based on column metadata. This likely indicates a "
+        "problem with the data source library.";
+static const string ERROR_MEM_LIMIT_EXCEEDED =
+        "DataSourceScanNode::$0() failed to allocate "
+        "$1 bytes for $2.";
+static const string ERROR_COL_DATA_IS_ARRAY =
+        "Data source returned an array for the type $0"
+        "based on column metadata.";
 
+// clang-format off
 #define RETURN_ERROR_IF_COL_IS_ARRAY(col, type) \
     do { \
         if (col.IsArray()) { \
@@ -126,11 +128,11 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
             << "; Docuemnt slice is : " << json_value_to_string(col); \
         return Status::RuntimeError(ss.str()); \
     } while (false)
+// clang-format on
 
 template <typename T>
-static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, void* slot, bool pure_doc_value) {
-
-
+static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
+                            bool pure_doc_value) {
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
         return Status::OK();
@@ -141,10 +143,8 @@ static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, voi
         return Status::OK();
     }
 
-
     RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
 
     StringParser::ParseResult result;
     const std::string& val = col.GetString();
@@ -163,7 +163,8 @@ static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, voi
 }
 
 template <typename T>
-static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, void* slot, bool pure_doc_value) {
+static Status get_float_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
+                              bool pure_doc_value) {
     DCHECK(sizeof(T) == 4 || sizeof(T) == 8);
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
@@ -188,15 +189,9 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
     return Status::OK();
 }
 
-ScrollParser::ScrollParser() :
-    _scroll_id(""),
-    _total(0),
-    _size(0),
-    _line_index(0) {
-}
+ScrollParser::ScrollParser() : _scroll_id(""), _total(0), _size(0), _line_index(0) {}
 
-ScrollParser::~ScrollParser() {
-}
+ScrollParser::~ScrollParser() {}
 
 Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) {
     _document_node.Parse(scroll_result.c_str());
@@ -212,21 +207,21 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     }
 
     if (!exactly_once) {
-        const rapidjson::Value &scroll_node = _document_node[FIELD_SCROLL_ID];
+        const rapidjson::Value& scroll_node = _document_node[FIELD_SCROLL_ID];
         _scroll_id = scroll_node.GetString();
     }
     // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
-    const rapidjson::Value &outer_hits_node = _document_node[FIELD_HITS];
-    const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
+    const rapidjson::Value& outer_hits_node = _document_node[FIELD_HITS];
+    const rapidjson::Value& field_total = outer_hits_node[FIELD_TOTAL];
     // after es 7.x "total": { "value": 1, "relation": "eq" }
     if (field_total.IsObject()) {
-        const rapidjson::Value &field_relation_value = field_total["relation"];
+        const rapidjson::Value& field_relation_value = field_total["relation"];
         std::string relation = field_relation_value.GetString();
         // maybe not happend on scoll sort mode, for logically rigorous
         if ("eq" != relation) {
             return Status::InternalError("Could not identify exact hit count for search response");
         }
-        const rapidjson::Value &field_total_value = field_total["value"];
+        const rapidjson::Value& field_total_value = field_total["value"];
         _total = field_total_value.GetInt();
     } else {
         _total = field_total.GetInt();
@@ -237,7 +232,7 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     }
 
     VLOG(1) << "es_scan_reader parse scroll result: " << scroll_result;
-    const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
+    const rapidjson::Value& inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     if (!inner_hits_node.IsArray()) {
         LOG(WARNING) << "exception maybe happend on es cluster, reponse:" << scroll_result;
         return Status::InternalError("inner hits node is not an array");
@@ -262,8 +257,9 @@ int ScrollParser::get_total() {
     return _total;
 }
 
-Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, 
-            Tuple* tuple, MemPool* tuple_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context) {
+Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
+                                MemPool* tuple_pool, bool* line_eof,
+                                const std::map<std::string, std::string>& docvalue_context) {
     *line_eof = true;
     if (_size <= 0 || _line_index >= _size) {
         return Status::OK();
@@ -287,7 +283,8 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         // if pure_doc_value enabled, docvalue_context must contains the key
         // todo: need move all `pure_docvalue` for every tuple outside fill_tuple
         //  should check pure_docvalue for one table scan not every tuple
-        const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str() : slot_desc->col_name().c_str();
+        const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str()
+                                              : slot_desc->col_name().c_str();
 
         rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
         if (itr == line.MemberEnd()) {
@@ -296,10 +293,11 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         }
 
         tuple->set_not_null(slot_desc->null_indicator_offset());
-        const rapidjson::Value &col = line[col_name];
+        const rapidjson::Value& col = line[col_name];
 
         void* slot = tuple->get_slot(slot_desc->tuple_offset());
         PrimitiveType type = slot_desc->type().type;
+        // clang-format off
         switch (type) {
             case TYPE_CHAR:
             case TYPE_VARCHAR: {
@@ -472,9 +470,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 break;
             }
         }
+        // clang-format on
     }
 
     *line_eof = false;
     return Status::OK();
 }
-}
+} // namespace doris

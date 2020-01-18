@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_INLINE_H
 #define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_INLINE_H
 
@@ -405,4 +406,4 @@ inline int64_t NewPartitionedHashTable::NumInsertsBeforeResize() const {
 }
 
 #endif
-
+// clang-format on
