@@ -168,8 +168,17 @@ public class RollupJobV2 extends AlterJobV2 {
             if (tbl == null) {
                 throw new AlterCancelException("Table " + tableId + " does not exist");
             }
-            Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
 
+            boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
+                    Catalog.getCurrentCatalog().getTabletScheduler(),
+                    db.getClusterName());
+            if (!isStable) {
+                errMsg = "table is unstable";
+                LOG.warn("doing rollup job: " + jobId + " while table is not stable.");
+                return;
+            }
+
+            Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);

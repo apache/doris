@@ -207,6 +207,88 @@ public class SchemaChangeJobV2Test {
     }
 
     @Test
+    public void testSchemaChangeWhileTabletNotStable() throws Exception {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
+        FakeCatalog.setCatalog(masterCatalog);
+        SchemaChangeHandler schemaChangeHandler = Catalog.getInstance().getSchemaChangeHandler();
+
+        // add a schema change job
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(addColumnClause);
+        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        schemaChangeHandler.process(alterClauses, "default_cluster", db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = schemaChangeHandler.getAlterJobsV2();
+        Assert.assertEquals(1, alterJobsV2.size());
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) alterJobsV2.values().stream().findAny().get();
+
+        MaterializedIndex baseIndex = testPartition.getBaseIndex();
+        assertEquals(IndexState.NORMAL, baseIndex.getState());
+        assertEquals(PartitionState.NORMAL, testPartition.getState());
+        assertEquals(OlapTableState.SCHEMA_CHANGE, olapTable.getState());
+
+        Tablet baseTablet = baseIndex.getTablets().get(0);
+        List<Replica> replicas = baseTablet.getReplicas();
+        Replica replica1 = replicas.get(0);
+        Replica replica2 = replicas.get(1);
+        Replica replica3 = replicas.get(2);
+
+        assertEquals(CatalogTestUtil.testStartVersion, replica1.getVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, replica2.getVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, replica3.getVersion());
+        assertEquals(-1, replica1.getLastFailedVersion());
+        assertEquals(-1, replica2.getLastFailedVersion());
+        assertEquals(-1, replica3.getLastFailedVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, replica1.getLastSuccessVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, replica2.getLastSuccessVersion());
+        assertEquals(CatalogTestUtil.testStartVersion, replica3.getLastSuccessVersion());
+
+        // runPendingJob
+        replica1.setState(Replica.ReplicaState.DECOMMISSION);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.PENDING, schemaChangeJob.getJobState());
+
+        // table is stable runPendingJob again
+        replica1.setState(Replica.ReplicaState.NORMAL);
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, schemaChangeJob.getJobState());
+        Assert.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
+        Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.VISIBLE).size());
+        Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
+
+        // runWaitingTxnJob
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+
+        // runWaitingTxnJob, task not finished
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+
+        // runRunningJob
+        schemaChangeHandler.runAfterCatalogReady();
+        // task not finished, still running
+        Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+
+        // finish alter tasks
+        List<AgentTask> tasks = AgentTaskQueue.getTask(TTaskType.ALTER);
+        Assert.assertEquals(3, tasks.size());
+        for (AgentTask agentTask : tasks) {
+            agentTask.setFinished(true);
+        }
+        MaterializedIndex shadowIndex = testPartition.getMaterializedIndices(IndexExtState.SHADOW).get(0);
+        for (Tablet shadowTablet : shadowIndex.getTablets()) {
+            for (Replica shadowReplica : shadowTablet.getReplicas()) {
+                shadowReplica.updateVersionInfo(testPartition.getVisibleVersion(), testPartition.getVisibleVersionHash(), shadowReplica.getDataSize(), shadowReplica.getRowCount());
+            }
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.FINISHED, schemaChangeJob.getJobState());
+    }
+
+    @Test
     public void testModifyDynamicPartitionNormal() throws UserException {
         fakeCatalog = new FakeCatalog();
         fakeEditLog = new FakeEditLog();
