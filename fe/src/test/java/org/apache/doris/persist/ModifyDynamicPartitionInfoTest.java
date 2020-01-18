@@ -31,7 +31,7 @@ import java.io.IOException;
 import java.util.HashMap;
 
 public class ModifyDynamicPartitionInfoTest {
-    private String fileName = "./ModifyDynamicPartitionInfoTest";
+    private String fileName = "./ModifyTablePropertyOperationLogTest";
 
     @After
     public void tearDown() {
@@ -52,14 +52,14 @@ public class ModifyDynamicPartitionInfoTest {
         properties.put(DynamicPartitionProperty.END, "3");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
-        ModifyDynamicPartitionInfo modifyDynamicPartitionInfo = new ModifyDynamicPartitionInfo(100L, 200L, properties);
+        ModifyTablePropertyOperationLog modifyDynamicPartitionInfo = new ModifyTablePropertyOperationLog(100L, 200L, properties);
         modifyDynamicPartitionInfo.write(out);
         out.flush();
         out.close();
 
         // 2. Read objects from file
         DataInputStream in = new DataInputStream(new FileInputStream(file));
-        ModifyDynamicPartitionInfo readModifyDynamicPartitionInfo = ModifyDynamicPartitionInfo.read(in);
+        ModifyTablePropertyOperationLog readModifyDynamicPartitionInfo = ModifyTablePropertyOperationLog.read(in);
         Assert.assertEquals(readModifyDynamicPartitionInfo.getDbId(), 100L);
         Assert.assertEquals(readModifyDynamicPartitionInfo.getTableId(), 200L);
         Assert.assertEquals(readModifyDynamicPartitionInfo.getProperties(), properties);
