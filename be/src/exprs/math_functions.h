@@ -19,8 +19,10 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_MATH_FUNCTIONS_H
 
 #include <stdint.h>
+
 #include "util/string_parser.hpp"
 
+// clang-format off
 namespace doris {
 
 class Expr;
@@ -205,6 +207,7 @@ private:
 
 };
 
-}
+} // namespace doris
+// clang-format on
 
 #endif

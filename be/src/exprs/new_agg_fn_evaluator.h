@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #ifndef IMPALA_EXPRS_AGG_FN_EVALUATOR_H
 #define IMPALA_EXPRS_AGG_FN_EVALUATOR_H
 
@@ -340,3 +341,4 @@ inline void NewAggFnEvaluator::Finalize(const std::vector<NewAggFnEvaluator*>& e
 }
 
 #endif
+// clang-format on

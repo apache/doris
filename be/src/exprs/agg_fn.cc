@@ -18,16 +18,16 @@
 #include "exprs/agg_fn.h"
 
 #include "codegen/llvm_codegen.h"
+#include "common/names.h"
 #include "exprs/anyval_util.h"
 #include "runtime/descriptors.h"
-#include "runtime/user_function_cache.h"
 #include "runtime/runtime_state.h"
-
-#include "common/names.h"
+#include "runtime/user_function_cache.h"
 
 using namespace doris_udf;
 using namespace llvm;
 
+// clang-format off
 namespace doris {
 
 AggFn::AggFn(const TExprNode& tnode, const SlotDescriptor& intermediate_slot_desc,
@@ -221,4 +221,6 @@ string AggFn::DebugString(const vector<AggFn*>& agg_fns) {
   return out.str();
 }
 
-}
+} // namespace doris
+// clang-format on
+be / src / exprs / agg_fn.cc

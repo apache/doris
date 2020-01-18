@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_BINARY_PREDICATE_H
 #define DORIS_BE_SRC_QUERY_EXPRS_BINARY_PREDICATE_H
 
@@ -111,3 +112,4 @@ BIN_PRED_FOR_NULL_CLASSES_DEFINE(DecimalVal)
 BIN_PRED_FOR_NULL_CLASSES_DEFINE(DecimalV2Val)
 }
 #endif
+// clang-format on

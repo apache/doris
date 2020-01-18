@@ -18,10 +18,10 @@
 #include "exprs/bitmap_function.h"
 
 #include "exprs/anyval_util.h"
+#include "gutil/strings/numbers.h"
+#include "gutil/strings/split.h"
 #include "util/bitmap_value.h"
 #include "util/string_parser.hpp"
-#include "gutil/strings/split.h"
-#include "gutil/strings/numbers.h"
 
 namespace doris {
 
@@ -33,53 +33,53 @@ const int DATETIME_TYPE_BYTE_SIZE = 4;
 const int DECIMAL_BYTE_SIZE = 16;
 
 // get_val start
-template<typename ValType, typename T>
+template <typename ValType, typename T>
 T get_val(const ValType& x) {
     DCHECK(!x.is_null);
     return x.val;
 }
 
-template<>
+template <>
 StringValue get_val(const StringVal& x) {
     DCHECK(!x.is_null);
     return StringValue::from_string_val(x);
 }
 
-template<>
+template <>
 DateTimeValue get_val(const DateTimeVal& x) {
     return DateTimeValue::from_datetime_val(x);
 }
 
-template<>
+template <>
 DecimalV2Value get_val(const DecimalV2Val& x) {
     return DecimalV2Value::from_decimal_val(x);
 }
 // get_val end
 
 // serialize_size start
-template<typename T>
+template <typename T>
 int32_t serialize_size(const T& v) {
     return sizeof(T);
 }
 
-template<>
+template <>
 int32_t serialize_size(const DateTimeValue& v) {
     return DATETIME_PACKED_TIME_BYTE_SIZE + DATETIME_TYPE_BYTE_SIZE;
 }
 
-template<>
+template <>
 int32_t serialize_size(const DecimalV2Value& v) {
     return DECIMAL_BYTE_SIZE;
 }
 
-template<>
+template <>
 int32_t serialize_size(const StringValue& v) {
     return v.len + 4;
 }
 // serialize_size end
 
 // write_to start
-template<typename T>
+template <typename T>
 char* write_to(const T& v, char* dest) {
     size_t type_size = sizeof(T);
     memcpy(dest, &v, type_size);
@@ -87,7 +87,7 @@ char* write_to(const T& v, char* dest) {
     return dest;
 }
 
-template<>
+template <>
 char* write_to(const DateTimeValue& v, char* dest) {
     DateTimeVal value;
     v.to_datetime_val(&value);
@@ -98,7 +98,7 @@ char* write_to(const DateTimeValue& v, char* dest) {
     return dest;
 }
 
-template<>
+template <>
 char* write_to(const DecimalV2Value& v, char* dest) {
     __int128 value = v.value();
     memcpy(dest, &value, DECIMAL_BYTE_SIZE);
@@ -106,7 +106,7 @@ char* write_to(const DecimalV2Value& v, char* dest) {
     return dest;
 }
 
-template<>
+template <>
 char* write_to(const StringValue& v, char* dest) {
     *(int32_t*)dest = v.len;
     dest += 4;
@@ -117,14 +117,14 @@ char* write_to(const StringValue& v, char* dest) {
 // write_to end
 
 // read_from start
-template<typename T>
+template <typename T>
 void read_from(const char** src, T* result) {
     size_t type_size = sizeof(T);
     memcpy(result, *src, type_size);
     *src += type_size;
 }
 
-template<>
+template <>
 void read_from(const char** src, DateTimeValue* result) {
     DateTimeVal value;
     value.is_null = false;
@@ -132,10 +132,11 @@ void read_from(const char** src, DateTimeValue* result) {
     *src += DATETIME_PACKED_TIME_BYTE_SIZE;
     value.type = *(int*)(*src);
     *src += DATETIME_TYPE_BYTE_SIZE;
-    *result = DateTimeValue::from_datetime_val(value);;
+    *result = DateTimeValue::from_datetime_val(value);
+    ;
 }
 
-template<>
+template <>
 void read_from(const char** src, DecimalV2Value* result) {
     __int128 v = 0;
     memcpy(&v, *src, DECIMAL_BYTE_SIZE);
@@ -143,11 +144,11 @@ void read_from(const char** src, DecimalV2Value* result) {
     *result = DecimalV2Value(v);
 }
 
-template<>
+template <>
 void read_from(const char** src, StringValue* result) {
     int32_t length = *(int32_t*)(*src);
     *src += 4;
-    *result = StringValue((char *)*src, length);
+    *result = StringValue((char*)*src, length);
     *src += length;
 }
 // read_from end
@@ -156,7 +157,7 @@ void read_from(const char** src, StringValue* result) {
 
 static StringVal serialize(FunctionContext* ctx, BitmapValue* value) {
     StringVal result(ctx, value->getSizeInBytes());
-    value->write((char*) result.ptr);
+    value->write((char*)result.ptr);
     return result;
 }
 
@@ -164,14 +165,12 @@ static StringVal serialize(FunctionContext* ctx, BitmapValue* value) {
 // Usage: intersect_count(bitmap_column_to_count, filter_column, filter_values ...)
 // Example: intersect_count(user_id, event, 'A', 'B', 'C'), meaning find the intersect count of user_id in all A/B/C 3 bitmaps
 // Todo(kks) Use Array type instead of variable arguments
-template<typename T>
+template <typename T>
 struct BitmapIntersect {
 public:
     BitmapIntersect() {}
 
-    explicit BitmapIntersect(const char* src) {
-        deserialize(src);
-    }
+    explicit BitmapIntersect(const char* src) { deserialize(src); }
 
     void add_key(const T key) {
         BitmapValue empty_bitmap;
@@ -185,7 +184,7 @@ public:
     }
 
     void merge(const BitmapIntersect& other) {
-        for (auto& kv: other._bitmaps) {
+        for (auto& kv : other._bitmaps) {
             if (_bitmaps.find(kv.first) != _bitmaps.end()) {
                 _bitmaps[kv.first] |= kv.second;
             } else {
@@ -204,7 +203,7 @@ public:
         auto it = _bitmaps.begin();
         result |= it->second;
         it++;
-        for (;it != _bitmaps.end(); it++) {
+        for (; it != _bitmaps.end(); it++) {
             result &= it->second;
         }
 
@@ -214,9 +213,10 @@ public:
     // the serialize size
     size_t size() {
         size_t size = 4;
-        for (auto& kv: _bitmaps) {
-            size +=  detail::serialize_size(kv.first);;
-            size +=  kv.second.getSizeInBytes();
+        for (auto& kv : _bitmaps) {
+            size += detail::serialize_size(kv.first);
+            ;
+            size += kv.second.getSizeInBytes();
         }
         return size;
     }
@@ -226,7 +226,7 @@ public:
         char* writer = dest;
         *(int32_t*)writer = _bitmaps.size();
         writer += 4;
-        for (auto& kv: _bitmaps) {
+        for (auto& kv : _bitmaps) {
             writer = detail::write_to(kv.first, writer);
             kv.second.write(writer);
             writer += kv.second.getSizeInBytes();
@@ -250,8 +250,7 @@ private:
     std::map<T, BitmapValue> _bitmaps;
 };
 
-void BitmapFunctions::init() {
-}
+void BitmapFunctions::init() {}
 
 void BitmapFunctions::bitmap_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
@@ -287,7 +286,7 @@ void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, S
     if (src.len == 0) {
         (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(src.ptr);
     } else {
-        (*dst_bitmap) |= BitmapValue((char*) src.ptr);
+        (*dst_bitmap) |= BitmapValue((char*)src.ptr);
     }
 }
 
@@ -295,22 +294,25 @@ BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& s
     // zero size means the src input is a agg object
     if (src.len == 0) {
         auto bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
-        return { bitmap->cardinality() };
+        return {bitmap->cardinality()};
     } else {
         BitmapValue bitmap((char*)src.ptr);
-        return { bitmap.cardinality() };
+        return {bitmap.cardinality()};
     }
 }
 
-StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
+StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx,
+                                     const doris_udf::StringVal& src) {
     BitmapValue bitmap;
     if (!src.is_null) {
         StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-        uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
+        uint64_t int_value = StringParser::string_to_unsigned_int<uint64_t>(
+                reinterpret_cast<char*>(src.ptr), src.len, &parse_result);
         if (UNLIKELY(parse_result != StringParser::PARSE_SUCCESS)) {
             std::stringstream error_msg;
             error_msg << "The input: " << std::string(reinterpret_cast<char*>(src.ptr), src.len)
-            << " is not valid, to_bitmap only support bigint value from 0 to 18446744073709551615 currently";
+                      << " is not valid, to_bitmap only support bigint value from 0 to "
+                         "18446744073709551615 currently";
             ctx->set_error(error_msg.str().c_str());
             return StringVal::null();
         }
@@ -319,10 +321,12 @@ StringVal BitmapFunctions::to_bitmap(doris_udf::FunctionContext* ctx, const dori
     return serialize(ctx, &bitmap);
 }
 
-StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx, const doris_udf::StringVal& src) {
+StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx,
+                                       const doris_udf::StringVal& src) {
     BitmapValue bitmap;
     if (!src.is_null) {
-        uint32_t hash_value = HashUtil::murmur_hash3_32(src.ptr, src.len, HashUtil::MURMUR3_32_SEED);
+        uint32_t hash_value =
+                HashUtil::murmur_hash3_32(src.ptr, src.len, HashUtil::MURMUR3_32_SEED);
         bitmap.add(hash_value);
     }
     return serialize(ctx, &bitmap);
@@ -335,7 +339,7 @@ StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVa
     return result;
 }
 
-template<typename T, typename ValType>
+template <typename T, typename ValType>
 void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(BitmapIntersect<T>);
@@ -351,25 +355,28 @@ void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst
     dst->ptr = (uint8_t*)intersect;
 }
 
-template<typename T, typename ValType>
-void BitmapFunctions::bitmap_intersect_update(FunctionContext* ctx, const StringVal& src, const ValType& key,
-                                              int num_key, const ValType* keys, const StringVal* dst) {
+template <typename T, typename ValType>
+void BitmapFunctions::bitmap_intersect_update(FunctionContext* ctx, const StringVal& src,
+                                              const ValType& key, int num_key, const ValType* keys,
+                                              const StringVal* dst) {
     auto* dst_bitmap = reinterpret_cast<BitmapIntersect<T>*>(dst->ptr);
     // zero size means the src input is a agg object
     if (src.len == 0) {
-        dst_bitmap->update(detail::get_val<ValType, T>(key), *reinterpret_cast<BitmapValue*>(src.ptr));
+        dst_bitmap->update(detail::get_val<ValType, T>(key),
+                           *reinterpret_cast<BitmapValue*>(src.ptr));
     } else {
         dst_bitmap->update(detail::get_val<ValType, T>(key), BitmapValue((char*)src.ptr));
     }
 }
 
-template<typename T>
-void BitmapFunctions::bitmap_intersect_merge(FunctionContext* ctx, const StringVal& src, const StringVal* dst) {
+template <typename T>
+void BitmapFunctions::bitmap_intersect_merge(FunctionContext* ctx, const StringVal& src,
+                                             const StringVal* dst) {
     auto* dst_bitmap = reinterpret_cast<BitmapIntersect<T>*>(dst->ptr);
     dst_bitmap->merge(BitmapIntersect<T>((char*)src.ptr));
 }
 
-template<typename T>
+template <typename T>
 StringVal BitmapFunctions::bitmap_intersect_serialize(FunctionContext* ctx, const StringVal& src) {
     auto* src_bitmap = reinterpret_cast<BitmapIntersect<T>*>(src.ptr);
     StringVal result(ctx, src_bitmap->size());
@@ -378,7 +385,7 @@ StringVal BitmapFunctions::bitmap_intersect_serialize(FunctionContext* ctx, cons
     return result;
 }
 
-template<typename T>
+template <typename T>
 BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const StringVal& src) {
     auto* src_bitmap = reinterpret_cast<BitmapIntersect<T>*>(src.ptr);
     BigIntVal result = BigIntVal(src_bitmap->intersect_count());
@@ -386,7 +393,8 @@ BigIntVal BitmapFunctions::bitmap_intersect_finalize(FunctionContext* ctx, const
     return result;
 }
 
-StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs,
+                                     const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
         return StringVal::null();
     }
@@ -405,7 +413,8 @@ StringVal BitmapFunctions::bitmap_or(FunctionContext* ctx, const StringVal& lhs,
     return serialize(ctx, &bitmap);
 }
 
-StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs){
+StringVal BitmapFunctions::bitmap_and(FunctionContext* ctx, const StringVal& lhs,
+                                      const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
         return StringVal::null();
     }
@@ -452,21 +461,23 @@ StringVal BitmapFunctions::bitmap_from_string(FunctionContext* ctx, const String
     return serialize(ctx, &bitmap);
 }
 
-BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVal& src, const BigIntVal& input) {
+BooleanVal BitmapFunctions::bitmap_contains(FunctionContext* ctx, const StringVal& src,
+                                            const BigIntVal& input) {
     if (src.is_null || input.is_null) {
         return BooleanVal::null();
     }
 
     if (src.len == 0) {
         auto bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
-        return { bitmap->contains(input.val) };
+        return {bitmap->contains(input.val)};
     }
 
     BitmapValue bitmap((char*)src.ptr);
-    return { bitmap.contains(input.val) };
+    return {bitmap.contains(input.val)};
 }
 
-BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs) {
+BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal& lhs,
+                                           const StringVal& rhs) {
     if (lhs.is_null || rhs.is_null) {
         return BooleanVal::null();
     }
@@ -484,9 +495,10 @@ BooleanVal BitmapFunctions::bitmap_has_any(FunctionContext* ctx, const StringVal
         bitmap &= BitmapValue((char*)rhs.ptr);
     }
 
-    return { bitmap.cardinality() != 0 };
+    return {bitmap.cardinality() != 0};
 }
 
+// clang-format off
 template void BitmapFunctions::bitmap_update_int<TinyIntVal>(
         FunctionContext* ctx, const TinyIntVal& src, StringVal* dst);
 template void BitmapFunctions::bitmap_update_int<SmallIntVal>(
@@ -612,5 +624,6 @@ template BigIntVal BitmapFunctions::bitmap_intersect_finalize<DecimalV2Value>(
     FunctionContext* ctx, const StringVal& src);
 template BigIntVal BitmapFunctions::bitmap_intersect_finalize<StringValue>(
     FunctionContext* ctx, const StringVal& src);
+// clang-format on
 
-}
+} // namespace doris

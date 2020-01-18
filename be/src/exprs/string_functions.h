@@ -20,12 +20,13 @@
 
 #include <re2/re2.h>
 
-#include "runtime/string_value.h"
-#include "runtime/string_search.hpp"
-#include "anyval_util.h"
+#include <iomanip>
 #include <locale>
 #include <sstream>
-#include <iomanip>
+
+#include "anyval_util.h"
+#include "runtime/string_search.hpp"
+#include "runtime/string_value.h"
 
 namespace doris {
 
@@ -37,6 +38,7 @@ class StringFunctions {
 public:
     static void init();
 
+    // clang-format off
     static doris_udf::StringVal substring(
         doris_udf::FunctionContext* context, const doris_udf::StringVal& str, 
         const doris_udf::IntVal& pos, const doris_udf::IntVal& len);
@@ -160,6 +162,7 @@ public:
 
     static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
                                                  const doris_udf::LargeIntVal& v);
+    // clang-format on
 
     struct CommaMoneypunct : std::moneypunct<char> {
         pattern do_pos_format() const override { return {{none, sign, none, value}}; }
@@ -170,8 +173,8 @@ public:
         string_type do_negative_sign() const override { return "-"; }
     };
 
-    static StringVal do_money_format(FunctionContext *context, const std::string& v) {
-        std::locale comma_locale(std::locale(), new CommaMoneypunct ());
+    static StringVal do_money_format(FunctionContext* context, const std::string& v) {
+        std::locale comma_locale(std::locale(), new CommaMoneypunct());
         std::stringstream ss;
         ss.imbue(comma_locale);
         ss << std::put_money(v);
@@ -179,8 +182,8 @@ public:
     };
 
     static StringVal split_part(FunctionContext* context, const StringVal& content,
-                             const StringVal& delimiter, const IntVal& field);
+                                const StringVal& delimiter, const IntVal& field);
 };
-}
+} // namespace doris
 
 #endif

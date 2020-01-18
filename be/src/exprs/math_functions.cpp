@@ -17,22 +17,24 @@
 
 #include "exprs/math_functions.h"
 
+#include <math.h>
+
 #include <iomanip>
 #include <sstream>
-#include <math.h>
 
 #include "common/compiler_util.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
-#include "runtime/tuple_row.h"
 #include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
+#include "runtime/tuple_row.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
 
 const char* MathFunctions::_s_alphanumeric_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+// clang-format off
 const double log_10[] = {
     1e000, 1e001, 1e002, 1e003, 1e004, 1e005, 1e006, 1e007, 1e008, 1e009,
     1e010, 1e011, 1e012, 1e013, 1e014, 1e015, 1e016, 1e017, 1e018, 1e019,
@@ -66,8 +68,9 @@ const double log_10[] = {
     1e290, 1e291, 1e292, 1e293, 1e294, 1e295, 1e296, 1e297, 1e298, 1e299,
     1e300, 1e301, 1e302, 1e303, 1e304, 1e305, 1e306, 1e307, 1e308
 };
+// clang-format on
 
-#define ARRAY_ELEMENTS(A) ((uint64_t) (sizeof(A)/sizeof(A[0])))
+#define ARRAY_ELEMENTS(A) ((uint64_t)(sizeof(A) / sizeof(A[0])))
 
 double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsigned, bool truncate) {
     bool dec_negative = (dec < 0) && !dec_unsigned;
@@ -79,8 +82,8 @@ double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsign
        */
     volatile double tmp2 = 0.0;
 
-    double tmp = (abs_dec < ARRAY_ELEMENTS(log_10) ?
-         log_10[abs_dec] : std::pow(10.0, (double)abs_dec));
+    double tmp =
+            (abs_dec < ARRAY_ELEMENTS(log_10) ? log_10[abs_dec] : std::pow(10.0, (double)abs_dec));
 
     // Pre-compute these, to avoid optimizing away e.g. 'floor(v/tmp) * tmp'.
     volatile double value_div_tmp = value / tmp;
@@ -103,8 +106,7 @@ double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsign
     return tmp2;
 }
 
-void MathFunctions::init() {
-}
+void MathFunctions::init() {}
 
 DoubleVal MathFunctions::pi(FunctionContext* ctx) {
     return DoubleVal(M_PI);
@@ -115,10 +117,10 @@ DoubleVal MathFunctions::e(FunctionContext* ctx) {
 }
 
 // Generates a UDF that always calls FN() on the input val and returns it.
-#define ONE_ARG_MATH_FN(NAME, RET_TYPE, INPUT_TYPE, FN) \
+#define ONE_ARG_MATH_FN(NAME, RET_TYPE, INPUT_TYPE, FN)                       \
     RET_TYPE MathFunctions::NAME(FunctionContext* ctx, const INPUT_TYPE& v) { \
-        if (v.is_null) return RET_TYPE::null(); \
-        return RET_TYPE(FN(v.val)); \
+        if (v.is_null) return RET_TYPE::null();                               \
+        return RET_TYPE(FN(v.val));                                           \
     }
 
 ONE_ARG_MATH_FN(abs, DoubleVal, DoubleVal, std::fabs);
@@ -135,56 +137,50 @@ ONE_ARG_MATH_FN(ln, DoubleVal, DoubleVal, std::log);
 ONE_ARG_MATH_FN(log10, DoubleVal, DoubleVal, std::log10);
 ONE_ARG_MATH_FN(exp, DoubleVal, DoubleVal, std::exp);
 
-FloatVal MathFunctions::sign(
-        FunctionContext* ctx, const DoubleVal& v) {
+FloatVal MathFunctions::sign(FunctionContext* ctx, const DoubleVal& v) {
     if (v.is_null) {
         return FloatVal::null();
     }
     return FloatVal((v.val > 0) ? 1.0f : ((v.val < 0) ? -1.0f : 0.0f));
 }
 
-DoubleVal MathFunctions::radians(
-        FunctionContext* ctx, const DoubleVal& v) {
+DoubleVal MathFunctions::radians(FunctionContext* ctx, const DoubleVal& v) {
     if (v.is_null) {
         return v;
     }
     return DoubleVal(v.val * M_PI / 180.0);
 }
 
-DoubleVal MathFunctions::degrees(
-        FunctionContext* ctx, const DoubleVal& v) {
+DoubleVal MathFunctions::degrees(FunctionContext* ctx, const DoubleVal& v) {
     if (v.is_null) {
         return v;
     }
     return DoubleVal(v.val * 180.0 / M_PI);
 }
 
-BigIntVal MathFunctions::round(
-        FunctionContext* ctx, const DoubleVal& v) {
+BigIntVal MathFunctions::round(FunctionContext* ctx, const DoubleVal& v) {
     if (v.is_null) {
         return BigIntVal::null();
     }
     return BigIntVal(static_cast<int64_t>(v.val + ((v.val < 0) ? -0.5 : 0.5)));
 }
 
-DoubleVal MathFunctions::round_up_to(
-        FunctionContext* ctx, const DoubleVal& v, const IntVal& scale) {
+DoubleVal MathFunctions::round_up_to(FunctionContext* ctx, const DoubleVal& v,
+                                     const IntVal& scale) {
     if (v.is_null || scale.is_null) {
         return DoubleVal::null();
     }
     return DoubleVal(my_double_round(v.val, scale.val, false, false));
 }
 
-DoubleVal MathFunctions::truncate(
-        FunctionContext* ctx, const DoubleVal& v, const IntVal& scale) {
+DoubleVal MathFunctions::truncate(FunctionContext* ctx, const DoubleVal& v, const IntVal& scale) {
     if (v.is_null || scale.is_null) {
         return DoubleVal::null();
     }
     return DoubleVal(my_double_round(v.val, scale.val, false, true));
 }
 
-DoubleVal MathFunctions::log2(
-        FunctionContext* ctx, const DoubleVal& v) {
+DoubleVal MathFunctions::log2(FunctionContext* ctx, const DoubleVal& v) {
     if (v.is_null) {
         return DoubleVal::null();
     }
@@ -192,28 +188,25 @@ DoubleVal MathFunctions::log2(
 }
 
 const double EPSILON = 1e-9;
-DoubleVal MathFunctions::log(
-        FunctionContext* ctx, const DoubleVal& base, const DoubleVal& v) {
+DoubleVal MathFunctions::log(FunctionContext* ctx, const DoubleVal& base, const DoubleVal& v) {
     if (base.is_null || v.is_null) {
         return DoubleVal::null();
     }
-    if (base.val <= 0 || std::fabs(base.val - 1.0) < EPSILON  || v.val <= 0.0) {
+    if (base.val <= 0 || std::fabs(base.val - 1.0) < EPSILON || v.val <= 0.0) {
         return DoubleVal::null();
     }
 
     return DoubleVal(std::log(v.val) / std::log(base.val));
 }
 
-DoubleVal MathFunctions::pow(
-        FunctionContext* ctx, const DoubleVal& base, const DoubleVal& exp) {
+DoubleVal MathFunctions::pow(FunctionContext* ctx, const DoubleVal& base, const DoubleVal& exp) {
     if (base.is_null || exp.is_null) {
         return DoubleVal::null();
     }
     return DoubleVal(std::pow(base.val, exp.val));
 }
 
-void MathFunctions::rand_prepare(
-        FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
+void MathFunctions::rand_prepare(FunctionContext* ctx, FunctionContext::FunctionStateScope scope) {
     if (scope == FunctionContext::THREAD_LOCAL) {
         uint32_t* seed = reinterpret_cast<uint32_t*>(ctx->allocate(sizeof(uint32_t)));
         ctx->set_function_state(scope, seed);
@@ -239,18 +232,18 @@ void MathFunctions::rand_prepare(
 }
 
 DoubleVal MathFunctions::rand(FunctionContext* ctx) {
-  uint32_t* seed = reinterpret_cast<uint32_t*>(
-      ctx->get_function_state(FunctionContext::THREAD_LOCAL));
-  *seed = ::rand_r(seed);
-  // Normalize to [0,1].
-  return DoubleVal(static_cast<double>(*seed) / RAND_MAX);
+    uint32_t* seed =
+            reinterpret_cast<uint32_t*>(ctx->get_function_state(FunctionContext::THREAD_LOCAL));
+    *seed = ::rand_r(seed);
+    // Normalize to [0,1].
+    return DoubleVal(static_cast<double>(*seed) / RAND_MAX);
 }
 
 DoubleVal MathFunctions::rand_seed(FunctionContext* ctx, const BigIntVal& seed) {
-  if (seed.is_null) {
-      return DoubleVal::null();
-  }
-  return rand(ctx);
+    if (seed.is_null) {
+        return DoubleVal::null();
+    }
+    return rand(ctx);
 }
 
 StringVal MathFunctions::bin(FunctionContext* ctx, const BigIntVal& v) {
@@ -352,17 +345,16 @@ StringVal MathFunctions::unhex(FunctionContext* ctx, const StringVal& s) {
     return AnyValUtil::from_buffer_temp(ctx, result, result_len);
 }
 
-StringVal MathFunctions::conv_int(
-        FunctionContext* ctx, const BigIntVal& num,
-        const TinyIntVal& src_base, const TinyIntVal& dest_base) {
+StringVal MathFunctions::conv_int(FunctionContext* ctx, const BigIntVal& num,
+                                  const TinyIntVal& src_base, const TinyIntVal& dest_base) {
     if (num.is_null || src_base.is_null || dest_base.is_null) {
         return StringVal::null();
     }
     // As in MySQL and Hive, min base is 2 and max base is 36.
     // (36 is max base representable by alphanumeric chars)
     // If a negative target base is given, num should be interpreted in 2's complement.
-    if (std::abs(src_base.val) < MIN_BASE || std::abs(src_base.val) > MAX_BASE
-        || std::abs(dest_base.val) < MIN_BASE || std::abs(dest_base.val) > MAX_BASE) {
+    if (std::abs(src_base.val) < MIN_BASE || std::abs(src_base.val) > MAX_BASE ||
+        std::abs(dest_base.val) < MIN_BASE || std::abs(dest_base.val) > MAX_BASE) {
         // Return NULL like Hive does.
         return StringVal::null();
     }
@@ -382,24 +374,23 @@ StringVal MathFunctions::conv_int(
     return decimal_to_base(ctx, decimal_num, dest_base.val);
 }
 
-StringVal MathFunctions::conv_string(
-        FunctionContext* ctx, const StringVal& num_str,
-        const TinyIntVal& src_base, const TinyIntVal& dest_base) {
+StringVal MathFunctions::conv_string(FunctionContext* ctx, const StringVal& num_str,
+                                     const TinyIntVal& src_base, const TinyIntVal& dest_base) {
     if (num_str.is_null || src_base.is_null || dest_base.is_null) {
         return StringVal::null();
     }
     // As in MySQL and Hive, min base is 2 and max base is 36.
     // (36 is max base representable by alphanumeric chars)
     // If a negative target base is given, num should be interpreted in 2's complement.
-    if (std::abs(src_base.val) < MIN_BASE || std::abs(src_base.val) > MAX_BASE
-        || std::abs(dest_base.val) < MIN_BASE || std::abs(dest_base.val) > MAX_BASE) {
+    if (std::abs(src_base.val) < MIN_BASE || std::abs(src_base.val) > MAX_BASE ||
+        std::abs(dest_base.val) < MIN_BASE || std::abs(dest_base.val) > MAX_BASE) {
         // Return NULL like Hive does.
         return StringVal::null();
     }
     // Convert digits in num_str in src_base to decimal.
     StringParser::ParseResult parse_res;
     int64_t decimal_num = StringParser::string_to_int<int64_t>(
-        reinterpret_cast<char*>(num_str.ptr), num_str.len, src_base.val, &parse_res);
+            reinterpret_cast<char*>(num_str.ptr), num_str.len, src_base.val, &parse_res);
     if (src_base.val < 0 && decimal_num >= 0) {
         // Invalid input.
         return StringVal::null();
@@ -411,8 +402,7 @@ StringVal MathFunctions::conv_string(
     return decimal_to_base(ctx, decimal_num, dest_base.val);
 }
 
-StringVal MathFunctions::decimal_to_base(
-        FunctionContext* ctx, int64_t src_num, int8_t dest_base) {
+StringVal MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, int8_t dest_base) {
     // Max number of digits of any base (base 2 gives max digits), plus sign.
     const size_t max_digits = sizeof(uint64_t) * 8 + 1;
     char buf[max_digits];
@@ -442,8 +432,7 @@ StringVal MathFunctions::decimal_to_base(
     return AnyValUtil::from_buffer_temp(ctx, buf + max_digits - result_len, result_len);
 }
 
-bool MathFunctions::decimal_in_base_to_decimal(
-        int64_t src_num, int8_t src_base, int64_t* result) {
+bool MathFunctions::decimal_in_base_to_decimal(int64_t src_num, int8_t src_base, int64_t* result) {
     uint64_t temp_num = std::abs(src_num);
     int32_t place = 1;
     *result = 0;
@@ -467,8 +456,8 @@ bool MathFunctions::decimal_in_base_to_decimal(
     return true;
 }
 
-bool MathFunctions::handle_parse_result(
-        int8_t dest_base, int64_t* num, StringParser::ParseResult parse_res) {
+bool MathFunctions::handle_parse_result(int8_t dest_base, int64_t* num,
+                                        StringParser::ParseResult parse_res) {
     // On overflow set special value depending on dest_base.
     // This is consistent with Hive and MySQL's behavior.
     if (parse_res == StringParser::PARSE_OVERFLOW) {
@@ -484,76 +473,65 @@ bool MathFunctions::handle_parse_result(
     return true;
 }
 
-BigIntVal MathFunctions::pmod_bigint(
-        FunctionContext* ctx, const BigIntVal& a, const BigIntVal& b) {
+BigIntVal MathFunctions::pmod_bigint(FunctionContext* ctx, const BigIntVal& a, const BigIntVal& b) {
     if (a.is_null || b.is_null) {
         return BigIntVal::null();
     }
     return BigIntVal(((a.val % b.val) + b.val) % b.val);
 }
 
-DoubleVal MathFunctions::pmod_double(
-        FunctionContext* ctx, const DoubleVal& a, const DoubleVal& b) {
+DoubleVal MathFunctions::pmod_double(FunctionContext* ctx, const DoubleVal& a, const DoubleVal& b) {
     if (a.is_null || b.is_null) {
         return DoubleVal::null();
     }
     return DoubleVal(fmod(fmod(a.val, b.val) + b.val, b.val));
 }
 
-FloatVal MathFunctions::fmod_float(
-        FunctionContext* ctx, const FloatVal& a, const FloatVal& b) {
+FloatVal MathFunctions::fmod_float(FunctionContext* ctx, const FloatVal& a, const FloatVal& b) {
     if (a.is_null || b.is_null || b.val == 0) {
         return FloatVal::null();
     }
     return FloatVal(fmodf(a.val, b.val));
 }
 
-DoubleVal MathFunctions::fmod_double(
-        FunctionContext* ctx, const DoubleVal& a, const DoubleVal& b) {
+DoubleVal MathFunctions::fmod_double(FunctionContext* ctx, const DoubleVal& a, const DoubleVal& b) {
     if (a.is_null || b.is_null || b.val == 0) {
         return DoubleVal::null();
     }
     return DoubleVal(fmod(a.val, b.val));
 }
 
-BigIntVal MathFunctions::positive_bigint(
-        FunctionContext* ctx, const BigIntVal& val) {
+BigIntVal MathFunctions::positive_bigint(FunctionContext* ctx, const BigIntVal& val) {
     return val;
 }
 
-DoubleVal MathFunctions::positive_double(
-        FunctionContext* ctx, const DoubleVal& val) {
+DoubleVal MathFunctions::positive_double(FunctionContext* ctx, const DoubleVal& val) {
     return val;
 }
 
-DecimalVal MathFunctions::positive_decimal(
-        FunctionContext* ctx, const DecimalVal& val) {
+DecimalVal MathFunctions::positive_decimal(FunctionContext* ctx, const DecimalVal& val) {
     return val;
 }
 
-DecimalV2Val MathFunctions::positive_decimal(
-        FunctionContext* ctx, const DecimalV2Val& val) {
+DecimalV2Val MathFunctions::positive_decimal(FunctionContext* ctx, const DecimalV2Val& val) {
     return val;
 }
 
-BigIntVal MathFunctions::negative_bigint(
-        FunctionContext* ctx, const BigIntVal& val) {
+BigIntVal MathFunctions::negative_bigint(FunctionContext* ctx, const BigIntVal& val) {
     if (val.is_null) {
         return val;
     }
     return BigIntVal(-val.val);
 }
 
-DoubleVal MathFunctions::negative_double(
-        FunctionContext* ctx, const DoubleVal& val) {
+DoubleVal MathFunctions::negative_double(FunctionContext* ctx, const DoubleVal& val) {
     if (val.is_null) {
         return val;
     }
     return DoubleVal(-val.val);
 }
 
-DecimalVal MathFunctions::negative_decimal(
-        FunctionContext* ctx, const DecimalVal& val) {
+DecimalVal MathFunctions::negative_decimal(FunctionContext* ctx, const DecimalVal& val) {
     if (val.is_null) {
         return val;
     }
@@ -565,8 +543,7 @@ DecimalVal MathFunctions::negative_decimal(
     return result;
 }
 
-DecimalV2Val MathFunctions::negative_decimal(
-        FunctionContext* ctx, const DecimalV2Val& val) {
+DecimalV2Val MathFunctions::negative_decimal(FunctionContext* ctx, const DecimalV2Val& val) {
     if (val.is_null) {
         return val;
     }
@@ -576,95 +553,91 @@ DecimalV2Val MathFunctions::negative_decimal(
     return result;
 }
 
-#define LEAST_FN(TYPE) \
-    TYPE MathFunctions::least(\
-            FunctionContext* ctx, int num_args, const TYPE* args) { \
-        if (args[0].is_null) return TYPE::null(); \
-        int result_idx = 0; \
-        for (int i = 1; i < num_args; ++i) { \
-            if (args[i].is_null) return TYPE::null(); \
-            if (args[i].val < args[result_idx].val) result_idx = i; \
-        } \
-        return TYPE(args[result_idx].val); \
+#define LEAST_FN(TYPE)                                                                \
+    TYPE MathFunctions::least(FunctionContext* ctx, int num_args, const TYPE* args) { \
+        if (args[0].is_null) return TYPE::null();                                     \
+        int result_idx = 0;                                                           \
+        for (int i = 1; i < num_args; ++i) {                                          \
+            if (args[i].is_null) return TYPE::null();                                 \
+            if (args[i].val < args[result_idx].val) result_idx = i;                   \
+        }                                                                             \
+        return TYPE(args[result_idx].val);                                            \
     }
 
-#define LEAST_FNS() \
-    LEAST_FN(TinyIntVal); \
+#define LEAST_FNS()        \
+    LEAST_FN(TinyIntVal);  \
     LEAST_FN(SmallIntVal); \
-    LEAST_FN(IntVal); \
-    LEAST_FN(BigIntVal); \
+    LEAST_FN(IntVal);      \
+    LEAST_FN(BigIntVal);   \
     LEAST_FN(LargeIntVal); \
-    LEAST_FN(FloatVal); \
+    LEAST_FN(FloatVal);    \
     LEAST_FN(DoubleVal);
 
 LEAST_FNS();
 
-#define LEAST_NONNUMERIC_FN(TYPE_NAME, TYPE, DORIS_TYPE) \
-    TYPE MathFunctions::least(\
-            FunctionContext* ctx, int num_args, const TYPE* args) { \
-        if (args[0].is_null) return TYPE::null(); \
-        DORIS_TYPE result_val = DORIS_TYPE::from_##TYPE_NAME(args[0]); \
-        for (int i = 1; i < num_args; ++i) { \
-            if (args[i].is_null) return TYPE::null(); \
-            DORIS_TYPE val = DORIS_TYPE::from_##TYPE_NAME(args[i]); \
-            if (val < result_val) result_val = val; \
-        } \
-        TYPE result; \
-        result_val.to_##TYPE_NAME(&result); \
-        return result; \
+#define LEAST_NONNUMERIC_FN(TYPE_NAME, TYPE, DORIS_TYPE)                              \
+    TYPE MathFunctions::least(FunctionContext* ctx, int num_args, const TYPE* args) { \
+        if (args[0].is_null) return TYPE::null();                                     \
+        DORIS_TYPE result_val = DORIS_TYPE::from_##TYPE_NAME(args[0]);                \
+        for (int i = 1; i < num_args; ++i) {                                          \
+            if (args[i].is_null) return TYPE::null();                                 \
+            DORIS_TYPE val = DORIS_TYPE::from_##TYPE_NAME(args[i]);                   \
+            if (val < result_val) result_val = val;                                   \
+        }                                                                             \
+        TYPE result;                                                                  \
+        result_val.to_##TYPE_NAME(&result);                                           \
+        return result;                                                                \
     }
 
-#define LEAST_NONNUMERIC_FNS() \
-    LEAST_NONNUMERIC_FN(string_val, StringVal, StringValue); \
+#define LEAST_NONNUMERIC_FNS()                                     \
+    LEAST_NONNUMERIC_FN(string_val, StringVal, StringValue);       \
     LEAST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
-    LEAST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue); \
-    LEAST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value); \
+    LEAST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue);    \
+    LEAST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value);
 
 LEAST_NONNUMERIC_FNS();
 
-#define GREATEST_FN(TYPE) \
-    TYPE MathFunctions::greatest(\
-            FunctionContext* ctx, int num_args, const TYPE* args) { \
-        if (args[0].is_null) return TYPE::null(); \
-        int result_idx = 0; \
-        for (int i = 1; i < num_args; ++i) { \
-            if (args[i].is_null) return TYPE::null(); \
-            if (args[i].val > args[result_idx].val) result_idx = i; \
-        } \
-        return TYPE(args[result_idx].val); \
+#define GREATEST_FN(TYPE)                                                                \
+    TYPE MathFunctions::greatest(FunctionContext* ctx, int num_args, const TYPE* args) { \
+        if (args[0].is_null) return TYPE::null();                                        \
+        int result_idx = 0;                                                              \
+        for (int i = 1; i < num_args; ++i) {                                             \
+            if (args[i].is_null) return TYPE::null();                                    \
+            if (args[i].val > args[result_idx].val) result_idx = i;                      \
+        }                                                                                \
+        return TYPE(args[result_idx].val);                                               \
     }
 
-#define GREATEST_FNS() \
-    GREATEST_FN(TinyIntVal); \
+#define GREATEST_FNS()        \
+    GREATEST_FN(TinyIntVal);  \
     GREATEST_FN(SmallIntVal); \
-    GREATEST_FN(IntVal); \
-    GREATEST_FN(BigIntVal); \
+    GREATEST_FN(IntVal);      \
+    GREATEST_FN(BigIntVal);   \
     GREATEST_FN(LargeIntVal); \
-    GREATEST_FN(FloatVal); \
+    GREATEST_FN(FloatVal);    \
     GREATEST_FN(DoubleVal);
 
 GREATEST_FNS();
 
-#define GREATEST_NONNUMERIC_FN(TYPE_NAME, TYPE, DORIS_TYPE) \
-    TYPE MathFunctions::greatest(\
-            FunctionContext* ctx, int num_args, const TYPE* args) { \
-        if (args[0].is_null) return TYPE::null(); \
-        DORIS_TYPE result_val = DORIS_TYPE::from_##TYPE_NAME(args[0]); \
-        for (int i = 1; i < num_args; ++i) { \
-            if (args[i].is_null) return TYPE::null(); \
-            DORIS_TYPE val = DORIS_TYPE::from_##TYPE_NAME(args[i]); \
-            if (val > result_val) result_val = val; \
-        } \
-        TYPE result; \
-        result_val.to_##TYPE_NAME(&result); \
-        return result; \
+#define GREATEST_NONNUMERIC_FN(TYPE_NAME, TYPE, DORIS_TYPE)                              \
+    TYPE MathFunctions::greatest(FunctionContext* ctx, int num_args, const TYPE* args) { \
+        if (args[0].is_null) return TYPE::null();                                        \
+        DORIS_TYPE result_val = DORIS_TYPE::from_##TYPE_NAME(args[0]);                   \
+        for (int i = 1; i < num_args; ++i) {                                             \
+            if (args[i].is_null) return TYPE::null();                                    \
+            DORIS_TYPE val = DORIS_TYPE::from_##TYPE_NAME(args[i]);                      \
+            if (val > result_val) result_val = val;                                      \
+        }                                                                                \
+        TYPE result;                                                                     \
+        result_val.to_##TYPE_NAME(&result);                                              \
+        return result;                                                                   \
     }
 
-#define GREATEST_NONNUMERIC_FNS() \
-    GREATEST_NONNUMERIC_FN(string_val, StringVal, StringValue); \
+#define GREATEST_NONNUMERIC_FNS()                                     \
+    GREATEST_NONNUMERIC_FN(string_val, StringVal, StringValue);       \
     GREATEST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
-    GREATEST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue); \
-    GREATEST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value); \
+    GREATEST_NONNUMERIC_FN(decimal_val, DecimalVal, DecimalValue);    \
+    GREATEST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value);
 
 GREATEST_NONNUMERIC_FNS();
 
@@ -864,5 +837,4 @@ void* MathFunctions::least_timestamp(Expr* e, TupleRow* row) {
 }
 
 #endif
-}
-
+} // namespace doris

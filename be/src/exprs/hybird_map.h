@@ -19,22 +19,21 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_HYBIRD_MAP_H
 
 #include <unordered_map>
+
+#include "common/object_pool.h"
 #include "common/status.h"
+#include "exprs/hybird_set.h"
+#include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/string_value.h"
-#include "runtime/datetime_value.h"
-#include "common/object_pool.h"
-#include "exprs/hybird_set.h"
 
 namespace doris {
 
 class HybirdMap {
 public:
-    HybirdMap(PrimitiveType type) : _type(type) {
-    }
+    HybirdMap(PrimitiveType type) : _type(type) {}
 
-    virtual ~HybirdMap() {
-    }
+    virtual ~HybirdMap() {}
 
     virtual HybirdSetBase* find_or_insert_set(uint64_t dst, bool* is_add_buckets) {
         HybirdSetBase* _set_ptr;
@@ -58,6 +57,6 @@ private:
     PrimitiveType _type;
     ObjectPool _pool;
 };
-}
+} // namespace doris
 
-#endif  // DORIS_BE_SRC_QUERY_EXPRS_HYBIRD_MAP_H
+#endif // DORIS_BE_SRC_QUERY_EXPRS_HYBIRD_MAP_H

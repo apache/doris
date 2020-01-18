@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "exprs/binary_predicate.h"
 
 #include <sstream>
@@ -746,3 +747,4 @@ Status EqStringValPred::get_codegend_compute_fn(RuntimeState* state, llvm::Funct
 #endif
 
 }
+// clang-format on

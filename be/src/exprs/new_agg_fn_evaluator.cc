@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "exprs/new_agg_fn_evaluator.h"
 
 #include <sstream>
@@ -712,3 +713,4 @@ void NewAggFnEvaluator::ShallowClone(ObjectPool* pool, MemPool* mem_pool,
 //  for (NewAggFnEvaluator* eval : evals) eval->FreeLocalAllocations();
 //}
 
+// clang-format on

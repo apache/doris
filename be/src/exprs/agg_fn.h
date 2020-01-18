@@ -22,6 +22,7 @@
 #include "runtime/descriptors.h"
 #include "udf/udf.h"
 
+// clang-format off
 namespace doris {
 
 using doris_udf::FunctionContext;
@@ -193,6 +194,7 @@ private:
   virtual Status Init(const RowDescriptor& desc, RuntimeState* state) WARN_UNUSED_RESULT;
 };
 
-}
+} // namespace doris
+// clang-format on
 
 #endif
