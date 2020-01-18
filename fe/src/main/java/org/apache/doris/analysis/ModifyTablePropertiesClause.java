@@ -76,6 +76,15 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
         } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+            String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+            throw new AnalysisException("Please use " + defaultReplicationNumName +
+                    " instead of " + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM + " config to escape misleading, this operation" +
+                    " doesn't support changing the replication_num of the table data");
+        } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+            String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, properties.get(defaultReplicationNumName));
+            properties.remove(defaultReplicationNumName);
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

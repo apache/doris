@@ -199,10 +199,10 @@ public class ShowExecutorTest {
                 minTimes = 0;
                 result = catalog;
 
-                Catalog.getDdlStmt((Table) any, (List) any, (List) any, (List) any, anyBoolean, anyShort, anyBoolean);
+                Catalog.getDdlStmt((Table) any, (List) any, (List) any, (List) any, anyBoolean, anyBoolean);
                 minTimes = 0;
 
-                Catalog.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyShort, anyBoolean);
+                Catalog.getDdlStmt((Table) any, (List) any, null, null, anyBoolean, anyBoolean);
                 minTimes = 0;
             }
         };
