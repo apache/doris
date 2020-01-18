@@ -88,8 +88,7 @@ public class GetDdlStmtAction extends RestBaseAction {
                 throw new DdlException("Table[" + tableName + "] does not exist");
             }
 
-            Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, true, (short) 1,
-                               false /* show password */);
+            Catalog.getDdlStmt(table, createTableStmt, addPartitionStmt, createRollupStmt, true, false /* show password */);
 
         } finally {
             db.readUnlock();

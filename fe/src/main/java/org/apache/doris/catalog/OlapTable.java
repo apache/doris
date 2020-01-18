@@ -898,7 +898,7 @@ public class OlapTable extends Table {
             out.writeBoolean(false);
         }
       
-        //dynamicProperties
+        // tableProperty
         if (tableProperty == null) {
             out.writeBoolean(false);
         } else {
@@ -1005,7 +1005,7 @@ public class OlapTable extends Table {
                 this.indexes = TableIndexes.read(in);
             }
         }
-        // dynamic partition
+        // tableProperty
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_71) {
             if (in.readBoolean()) {
                 tableProperty = TableProperty.read(in);
@@ -1202,5 +1202,20 @@ public class OlapTable extends Table {
             }
         }
         return hasChanged;
+    }
+
+    public void setReplicationNum(Short replicationNum) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
+        tableProperty.buildReplicationNum();
+    }
+
+    public Short getReplicationNum() {
+        if (tableProperty != null) {
+            return tableProperty.getReplicationNum();
+        }
+        return null;
     }
 }

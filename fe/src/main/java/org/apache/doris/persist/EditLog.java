@@ -697,9 +697,10 @@ public class EditLog {
                     catalog.replayConvertDistributionType(tableInfo);
                     break;
                 }
-                case OperationType.OP_DYNAMIC_PARTITION: {
-                    ModifyDynamicPartitionInfo modifyDynamicPartitionInfo = (ModifyDynamicPartitionInfo) journal.getData();
-                    catalog.replayModifyTableDynamicPartition(modifyDynamicPartitionInfo);
+                case OperationType.OP_DYNAMIC_PARTITION:
+                case OperationType.OP_MODIFY_REPLICATION_NUM: {
+                    ModifyTablePropertyOperationLog modifyTablePropertyOperationLog = (ModifyTablePropertyOperationLog) journal.getData();
+                    catalog.replayModifyTableProperty(opCode, modifyTablePropertyOperationLog);
                     break;
                 }
                 default: {
@@ -1204,7 +1205,11 @@ public class EditLog {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
     }
 
-    public void logDynamicPartition(ModifyDynamicPartitionInfo info) {
+    public void logDynamicPartition(ModifyTablePropertyOperationLog info) {
         logEdit(OperationType.OP_DYNAMIC_PARTITION, info);
+    }
+
+    public void logModifyReplicationNum(ModifyTablePropertyOperationLog info) {
+        logEdit(OperationType.OP_MODIFY_REPLICATION_NUM, info);
     }
 }

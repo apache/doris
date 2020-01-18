@@ -157,7 +157,7 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
-import org.apache.doris.persist.ModifyDynamicPartitionInfo;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.PartitionPersistInfo;
@@ -241,6 +241,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+
 
 public class Catalog {
     private static final Logger LOG = LogManager.getLogger(Catalog.class);
@@ -2912,8 +2913,13 @@ public class Catalog {
             // check range
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             // here we check partition's properties
-            singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), null);
-
+            Short replicationNum = olapTable.getReplicationNum();
+            Map<String, String> partitionDescProperties = null;
+            if (replicationNum != null) {
+                partitionDescProperties = new HashMap<>();
+                partitionDescProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
+            }
+            singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), partitionDescProperties);
             rangePartitionInfo.checkAndCreateRange(singlePartitionDesc);
 
             // get distributionInfo
@@ -3473,6 +3479,18 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
 
+        // analyze replication_num
+        short replicationNum = FeConstants.default_replication_num;
+        try {
+            boolean isReplicationNumSet = properties != null && properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);
+            replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
+            if (isReplicationNumSet) {
+                olapTable.setReplicationNum(replicationNum);
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
             // if this is a partitioned table, there properties are already analyzed in RangePartitionDesc analyze phase.
@@ -3489,14 +3507,6 @@ public class Catalog {
             }
             Preconditions.checkNotNull(dataProperty);
             partitionInfo.setDataProperty(partitionId, dataProperty);
-
-            // analyze replication num
-            short replicationNum = FeConstants.default_replication_num;
-            try {
-                replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
-            } catch (AnalysisException e) {
-                throw new DdlException(e.getMessage());
-            }
             partitionInfo.setReplicationNum(partitionId, replicationNum);
         }
 
@@ -3573,8 +3583,6 @@ public class Catalog {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
                     PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
-                    PropertyAnalyzer.analyzeReplicationNum(properties, FeConstants.default_replication_num);
-
                     DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties);
 
                     if (properties != null && !properties.isEmpty()) {
@@ -3787,8 +3795,7 @@ public class Catalog {
     }
 
     public static void getDdlStmt(Table table, List<String> createTableStmt, List<String> addPartitionStmt,
-                                  List<String> createRollupStmt, boolean separatePartition, short replicationNum,
-                                  boolean hidePassword) {
+                                  List<String> createRollupStmt, boolean separatePartition, boolean hidePassword) {
         StringBuilder sb = new StringBuilder();
 
         // 1. create table
@@ -3891,11 +3898,6 @@ public class Catalog {
                         .append("\"");
             }
 
-            if (replicationNum > 0) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
-                sb.append(replicationNum).append("\"");
-            }
-
             // 5. colocateTable
             String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
@@ -3908,6 +3910,12 @@ public class Catalog {
                 sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().toString());
             }
 
+            // 7. replicationNum
+            Short replicationNum = olapTable.getReplicationNum();
+            if (replicationNum != null) {
+                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
+                sb.append(replicationNum).append("\"");
+            }
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
             MysqlTable mysqlTable = (MysqlTable) table;
@@ -3996,14 +4004,9 @@ public class Catalog {
                 sb.append(" ADD PARTITION ").append(partition.getName()).append(" VALUES [");
                 sb.append(entry.getValue().lowerEndpoint().toSql());
                 sb.append(", ").append(entry.getValue().upperEndpoint().toSql()).append(")");
-
                 sb.append("(\"version_info\" = \"");
                 sb.append(Joiner.on(",").join(partition.getVisibleVersion(), partition.getVisibleVersionHash()))
                         .append("\"");
-                if (replicationNum > 0) {
-                    sb.append(", \"replication_num\" = \"").append(replicationNum).append("\"");
-                }
-
                 sb.append(");");
                 addPartitionStmt.add(sb.toString());
             }
@@ -5094,16 +5097,17 @@ public class Catalog {
         } else {
             Map<String, String> analyzedDynamicPartition = DynamicPartitionUtil.analyzeDynamicPartition(properties);
             tableProperty.modifyTableProperties(analyzedDynamicPartition);
+            tableProperty.buildDynamicProperty();
         }
 
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
                 table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
-        ModifyDynamicPartitionInfo info = new ModifyDynamicPartitionInfo(db.getId(), table.getId(), table.getTableProperty().getProperties());
+        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
         editLog.logDynamicPartition(info);
     }
 
-    public void replayModifyTableDynamicPartition(ModifyDynamicPartitionInfo info) {
+    public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info) {
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();
@@ -5114,13 +5118,26 @@ public class Catalog {
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
             TableProperty tableProperty = olapTable.getTableProperty();
             if (tableProperty == null) {
-                olapTable.setTableProperty(new TableProperty(properties).buildDynamicProperty());
+                olapTable.setTableProperty(new TableProperty(properties).buildProperty(opCode));
             } else {
                 tableProperty.modifyTableProperties(properties);
+                tableProperty.buildProperty(opCode);
             }
         } finally {
             db.writeUnlock();
         }
+    }
+
+    public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
+        TableProperty tableProperty = table.getTableProperty();
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(properties);
+        } else {
+            tableProperty.modifyTableProperties(properties);
+        }
+        tableProperty.buildReplicationNum();
+        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
+        editLog.logModifyReplicationNum(info);
     }
 
     /*
