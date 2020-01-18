@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -29,7 +30,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowFunctionStmt extends ShowStmt {
+public class ShowFunctionsStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Signature", ScalarType.createVarchar(256)))
@@ -41,15 +42,49 @@ public class ShowFunctionStmt extends ShowStmt {
 
     private String dbName;
 
-    public ShowFunctionStmt(String dbName) {
+    private boolean isBuiltin;
+
+    private boolean isVerbose;
+
+    private String wild;
+
+    private Expr expr;
+
+    public ShowFunctionsStmt(String dbName, boolean isBuiltin, boolean isVerbose, String wild, Expr expr) {
         this.dbName = dbName;
+        this.isBuiltin = isBuiltin;
+        this.isVerbose = isVerbose;
+        this.wild = wild;
+        this.expr = expr;
     }
 
     public String getDbName() { return dbName; }
 
+    public boolean getIsBuiltin() {
+        return isBuiltin;
+    }
+
+    public boolean getIsVerbose() {
+        return isVerbose;
+    }
+
+    public String getWild() {
+        return wild;
+    }
+
+    public Expr getExpr() {
+        return expr;
+    }
+
+    public boolean like(String str) {
+        str = str.toLowerCase();
+        return str.matches(wild.replace(".", "\\.").replace("?", ".").replace("%", ".*").toLowerCase());
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
@@ -61,7 +96,11 @@ public class ShowFunctionStmt extends ShowStmt {
 
         if (!Catalog.getCurrentCatalog().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DB_ACCESS_DENIED, ConnectContext.get().getQualifiedUser(), dbName);
+                ErrorCode.ERR_DB_ACCESS_DENIED, ConnectContext.get().getQualifiedUser(), dbName);
+        }
+
+        if (expr != null) {
+            throw new AnalysisException("Only support like 'function_pattern' syntax.");
         }
     }
 
@@ -69,4 +108,31 @@ public class ShowFunctionStmt extends ShowStmt {
     public ShowResultSetMetaData getMetaData() {
         return META_DATA;
     }
+
+
+    @Override
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SHOW ");
+        if (isVerbose) {
+            sb.append("FULL ");
+        }
+        if (isBuiltin) {
+            sb.append("BUILTIN ");
+        }
+        sb.append("FUNCTIONS FROM ");
+        if (!Strings.isNullOrEmpty(dbName)) {
+            sb.append("`").append(dbName).append("` ");
+        }
+        if (wild != null) {
+            sb.append("LIKE ").append("`").append(wild).append("`");
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
+    }
+
 }
