@@ -77,7 +77,7 @@ public:
         return _rowset_id;
     }
 
-    void set_rowset_id(RowsetId rowset_id) {
+    void set_rowset_id(const RowsetId& rowset_id) {
         // rowset id is a required field, just set it to 0
         _rowset_meta_pb.set_rowset_id(0);
         _rowset_id = rowset_id;
@@ -133,8 +133,7 @@ public:
     }
 
     Version version() const {
-        return { _rowset_meta_pb.start_version(),
-                 _rowset_meta_pb.end_version() };  
+        return { _rowset_meta_pb.start_version(), _rowset_meta_pb.end_version() };
     }
 
     void set_version(Version version) {
@@ -154,7 +153,7 @@ public:
     void set_start_version(int64_t start_version) {
         _rowset_meta_pb.set_start_version(start_version);
     }
-    
+
     int64_t end_version() const {
         return _rowset_meta_pb.end_version();
     }
@@ -162,7 +161,7 @@ public:
     void set_end_version(int64_t end_version) {
         _rowset_meta_pb.set_end_version(end_version);
     }
-    
+
     VersionHash version_hash() const {
         return _rowset_meta_pb.version_hash();
     }
@@ -381,7 +380,7 @@ private:
             // ATTN(cmy): the num segments should be read from rowset meta pb.
             // But the previous code error caused this value not to be set in some cases.
             // So when init the rowset meta and find that the num_segments is 0(not set),
-            // we will try to calculate the num segmengts from AlphaRowsetExtraMetaPB, 
+            // we will try to calculate the num segmengts from AlphaRowsetExtraMetaPB,
             // and then set the num_segments field.
             // This should only happen in some rowsets converted from old version.
             // and for all newly created rowsets, the num_segments field must be set.

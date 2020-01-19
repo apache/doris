@@ -25,6 +25,7 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/txn_manager.h"
 #include "boost/filesystem.hpp"
@@ -66,14 +67,14 @@ public:
 
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
-        string tmp_data_path = _engine_data_path + "/data"; 
+        string tmp_data_path = _engine_data_path + "/data";
         if (boost::filesystem::exists(tmp_data_path)) {
             boost::filesystem::remove_all(tmp_data_path);
         }
         copy_dir(test_engine_data_path, tmp_data_path);
         _tablet_id = 15007;
         _schema_hash = 368169781;
-        _tablet_data_path = tmp_data_path 
+        _tablet_data_path = tmp_data_path
                 + "/" + std::to_string(0)
                 + "/" + std::to_string(_tablet_id)
                 + "/" + std::to_string(_schema_hash);

@@ -49,17 +49,17 @@ const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 const uint32_t LIST_REMOTE_FILE_TIMEOUT = 15;
 const uint32_t GET_LENGTH_TIMEOUT = 10;
 
-EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req, 
-                    const TMasterInfo& master_info,  
-                    int64_t signature, 
-                    vector<string>* error_msgs, 
+EngineCloneTask::EngineCloneTask(const TCloneReq& clone_req,
+                    const TMasterInfo& master_info,
+                    int64_t signature,
+                    vector<string>* error_msgs,
                     vector<TTabletInfo>* tablet_infos,
                     AgentStatus* res_status) :
     _clone_req(clone_req),
-    _error_msgs(error_msgs), 
+    _error_msgs(error_msgs),
     _tablet_infos(tablet_infos),
     _res_status(res_status),
-    _signature(signature), 
+    _signature(signature),
     _master_info(master_info) {}
 
 OLAPStatus EngineCloneTask::execute() {
@@ -98,7 +98,7 @@ OLAPStatus EngineCloneTask::execute() {
                     << "tablet=" << tablet->full_name()
                     << ", committed_version=" << _clone_req.committed_version
                     << ", missed_versions_size=" << missed_versions.size();
-            // if missed version size is 0, then it is useless to clone from remote be, it means local data is 
+            // if missed version size is 0, then it is useless to clone from remote be, it means local data is
             // completed. Or remote be will just return header not the rowset files. clone will failed.
             if (missed_versions.size() == 0) {
                 LOG(INFO) << "missed version size = 0, skip clone and return success";
@@ -183,7 +183,7 @@ OLAPStatus EngineCloneTask::execute() {
             schema_hash_path_stream << local_shard_root_path
                                     << "/" << _clone_req.tablet_id
                                     << "/" << _clone_req.schema_hash;
-            string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(), 
+            string header_path = TabletMeta::construct_header_file_path(schema_hash_path_stream.str(),
                 _clone_req.tablet_id);
             OLAPStatus reset_id_status = TabletMeta::reset_tablet_uid(header_path);
             if (reset_id_status != OLAP_SUCCESS) {
@@ -263,7 +263,7 @@ void EngineCloneTask::_set_tablet_info(AgentStatus status, bool is_new_tablet) {
                             << ", signature:" << _signature
                             << ", version:" << tablet_info.version
                             << ", expected_version: " << _clone_req.committed_version;
-                OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(_clone_req.tablet_id, 
+                OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(_clone_req.tablet_id,
                     _clone_req.schema_hash);
                 if (drop_status != OLAP_SUCCESS && drop_status != OLAP_ERR_TABLE_NOT_FOUND) {
                     // just log
@@ -305,7 +305,7 @@ AgentStatus EngineCloneTask::_clone_copy(
         *src_host = src;
         int32_t snapshot_version = 0;
         // make snapsthot
-        auto st = _make_snapshot(src.host, src.be_port, 
+        auto st = _make_snapshot(src.host, src.be_port,
                                  _clone_req.tablet_id, _clone_req.schema_hash,
                                  timeout_s,
                                  missed_versions,
@@ -329,7 +329,7 @@ AgentStatus EngineCloneTask::_clone_copy(
 
         std::string remote_url_prefix;
         {
-            // TODO(zc): if snapshot path has been returned from source, it is some strange to 
+            // TODO(zc): if snapshot path has been returned from source, it is some strange to
             // concat talbet_id and schema hash here.
             std::stringstream ss;
             ss << "http://" << src.host << ":" << src.http_port
@@ -408,7 +408,7 @@ Status EngineCloneTask::_make_snapshot(
         // if not, this place should be rewrote.
         request.__isset.missing_version = true;
         for (auto& version : *missed_versions) {
-            request.missing_version.push_back(version.first); 
+            request.missing_version.push_back(version.first);
         }
     }
     if (timeout_s > 0) {
@@ -587,7 +587,7 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, in
     }
 
     set<string> clone_files;
-    
+
     RETURN_WITH_WARN_IF_ERROR(
             FileUtils::list_dirs_files(clone_dir, NULL, &clone_files, Env::Default()),
             OLAP_ERR_DISK_FAILURE,
@@ -616,7 +616,7 @@ OLAPStatus EngineCloneTask::_convert_to_new_snapshot(const string& clone_dir, in
     // remove all files
     RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_paths(files_to_delete), OLAP_ERR_IO_ERROR,
             "remove paths failed.")
-    
+
     res = TabletMeta::save(cloned_meta_file, tablet_meta_pb);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir;
@@ -691,8 +691,8 @@ OLAPStatus EngineCloneTask::_finish_clone(Tablet* tablet, const string& clone_di
             string to = tablet_dir + "/" + clone_file;
             LOG(INFO) << "src file:" << from << " dest file:" << to;
             if (link(from.c_str(), to.c_str()) != 0) {
-                LOG(WARNING) << "fail to create hard link when clone. " 
-                             << " from=" << from.c_str() 
+                LOG(WARNING) << "fail to create hard link when clone. "
+                             << " from=" << from.c_str()
                              << " to=" << to.c_str();
                 res = OLAP_ERR_OS_ERROR;
                 break;
@@ -742,13 +742,13 @@ OLAPStatus EngineCloneTask::_clone_incremental_data(Tablet* tablet, const Tablet
               << ", committed_version=" << committed_version;
 
     vector<Version> missed_versions;
-    tablet->calc_missed_versions_unlock(committed_version, &missed_versions);
-    
+    tablet->calc_missed_versions_unlocked(committed_version, &missed_versions);
+
     vector<Version> versions_to_delete;
     vector<RowsetMetaSharedPtr> rowsets_to_clone;
 
     VLOG(3) << "get missed versions again when finish incremental clone. "
-            << "tablet=" << tablet->full_name() 
+            << "tablet=" << tablet->full_name()
             << ", committed_version=" << committed_version
             << ", missed_versions_size=" << missed_versions.size();
 
@@ -812,7 +812,7 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
             }
 
             if (existed_in_src) {
-                OLAPStatus delete_res = cloned_tablet_meta->delete_rs_meta_by_version(local_version, 
+                OLAPStatus delete_res = cloned_tablet_meta->delete_rs_meta_by_version(local_version,
                     &rs_metas_found_in_src);
                 if (delete_res != OLAP_SUCCESS) {
                     LOG(WARNING) << "failed to delete existed version from clone src when full clone. "
