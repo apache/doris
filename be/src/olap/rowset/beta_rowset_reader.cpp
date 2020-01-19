@@ -23,6 +23,7 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
+#include "olap/delete_handler.h"
 
 namespace doris {
 

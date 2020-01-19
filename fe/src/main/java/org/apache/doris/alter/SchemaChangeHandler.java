@@ -1310,12 +1310,12 @@ public class SchemaChangeHandler extends AlterHandler {
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException {
         // index id -> index schema
-        Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<Long, LinkedList<Column>>();
+        Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
         for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
-            indexSchemaMap.put(entry.getKey(), new LinkedList<Column>(entry.getValue()));
+            indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
         }
         List<Index> newIndexes = olapTable.getCopiedIndexes();
-        Map<String, String> propertyMap = new HashMap<String, String>();
+        Map<String, String> propertyMap = new HashMap<>();
         for (AlterClause alterClause : alterClauses) {
             // get properties
             Map<String, String> properties = alterClause.getProperties();
@@ -1344,6 +1344,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     return;
                 } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                     Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
+                    return;
+                } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+                    Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
                     return;
                 }
             }

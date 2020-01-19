@@ -20,6 +20,7 @@
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
@@ -141,7 +142,7 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     for (auto& inc_delta : olap_header.incremental_delta()) {
         // check if inc delta already exist in delta
         Version rowset_version = { inc_delta.start_version(), inc_delta.end_version() };
-        auto exist_rs = _rs_version_map.find(rowset_version); 
+        auto exist_rs = _rs_version_map.find(rowset_version);
         if (exist_rs != _rs_version_map.end()) {
             RowsetMetaPB* rowset_meta = tablet_meta_pb->add_inc_rs_metas();
             *rowset_meta = *(exist_rs->second);
@@ -194,7 +195,7 @@ OLAPStatus OlapSnapshotConverter::convert_to_pdelta(const RowsetMetaPB& rowset_m
     }
     delta->set_creation_time(rowset_meta_pb.creation_time());
     AlphaRowsetExtraMetaPB extra_meta_pb = rowset_meta_pb.alpha_rowset_extra_meta_pb();
-    
+
     for (auto& segment_group : extra_meta_pb.segment_groups()) {
         SegmentGroupPB* new_segment_group = delta->add_segment_group();
         *new_segment_group = segment_group;
@@ -206,7 +207,7 @@ OLAPStatus OlapSnapshotConverter::convert_to_pdelta(const RowsetMetaPB& rowset_m
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta, 
+OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta,
         const RowsetId& rowset_id, int64_t tablet_id, int32_t schema_hash, RowsetMetaPB* rowset_meta_pb) {
     rowset_meta_pb->set_rowset_id(0);
     rowset_meta_pb->set_rowset_id_v2(rowset_id.to_string());
@@ -217,7 +218,7 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta,
     rowset_meta_pb->set_start_version(delta.start_version());
     rowset_meta_pb->set_end_version(delta.end_version());
     rowset_meta_pb->set_version_hash(delta.version_hash());
-    
+
     bool empty = true;
     int64_t num_rows = 0;
     int64_t index_size = 0;
@@ -254,7 +255,7 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PDelta& delta,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pending_delta, 
+OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pending_delta,
         const RowsetId& rowset_id, int64_t tablet_id, int32_t schema_hash, RowsetMetaPB* rowset_meta_pb) {
     rowset_meta_pb->set_rowset_id(0);
     rowset_meta_pb->set_rowset_id_v2(rowset_id.to_string());
@@ -265,7 +266,7 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pe
     rowset_meta_pb->set_partition_id(pending_delta.partition_id());
     rowset_meta_pb->set_txn_id(pending_delta.transaction_id());
     rowset_meta_pb->set_creation_time(pending_delta.creation_time());
-    
+
     bool empty = true;
     int64_t num_rows = 0;
     int64_t index_size = 0;
@@ -285,7 +286,7 @@ OLAPStatus OlapSnapshotConverter::convert_to_rowset_meta(const PPendingDelta& pe
         new_segment_group->set_empty(pending_segment_group.empty());
         PUniqueId* load_id = new_segment_group->mutable_load_id();
         *load_id = pending_segment_group.load_id();
-        
+
         if (!pending_segment_group.empty()) {
             empty = false;
         }
@@ -398,7 +399,7 @@ OLAPStatus OlapSnapshotConverter::to_column_msg(const ColumnPB& column_pb, Colum
     return OLAP_SUCCESS;
 }
 
-OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(const SchemaChangeStatusMessage& schema_change_msg, 
+OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(const SchemaChangeStatusMessage& schema_change_msg,
                                                    AlterTabletPB* alter_tablet_pb) {
     alter_tablet_pb->set_related_tablet_id(schema_change_msg.related_tablet_id());
     alter_tablet_pb->set_related_schema_hash(schema_change_msg.related_schema_hash());
@@ -449,7 +450,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
         RETURN_NOT_OK(rowset.convert_from_old_files(inc_data_path, &success_files));
         _modify_old_segment_group_id(const_cast<RowsetMetaPB&>(inc_rowset));
     }
-    
+
     for (auto it = pending_rowsets->begin(); it != pending_rowsets->end(); ++it) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(*it);
@@ -472,7 +473,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
 }
 
 // from tablet meta to olap header
-OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix, 
+OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_meta_pb, string& new_data_path_prefix,
     string& old_data_path_prefix, OLAPHeaderMessage* olap_header) {
     RETURN_NOT_OK(to_olap_header(tablet_meta_pb, olap_header));
 
