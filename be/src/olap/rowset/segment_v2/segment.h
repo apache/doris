@@ -122,6 +122,7 @@ private:
     Status _load_index();
 
 private:
+    friend class SegmentIterator;
     std::string _fname;
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;

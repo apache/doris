@@ -36,138 +36,6 @@ namespace doris {
 
 namespace internal {
 
-template <class FileType>
-class OpenedFileHandle;
-
-// Encapsulates common descriptor fields and methods.
-template <class FileType>
-class BaseDescriptor {
-public:
-    BaseDescriptor(FileCache<FileType>* file_cache, const std::string& filename)
-        : _file_cache(file_cache), _file_name(filename) { }
-
-    ~BaseDescriptor() {
-        // The (now expired) weak_ptr remains in '_descriptors', to be removed
-        // by the next call to RunDescriptorExpiry(). Removing it here would
-        // risk a deadlock on recursive acquisition of '_lock'.
-
-        if (deleted()) {
-            cache()->erase(filename());
-
-            WARN_IF_ERROR(env()->delete_file(filename()), "delete file failed:");
-        }
-    }
-
-    // Insert a pointer to an open file object(FileType*) into the file cache with the
-    // filename as the cache key.
-    //
-    // Returns a handle to the inserted entry. The handle always contains an
-    // open file.
-    OpenedFileHandle<FileType> insert_into_cache(void* file_ptr) const {
-        // TODO(hkp)
-        auto deleter = [](const doris::CacheKey& key, void* value) {
-            delete (FileType*)value;
-        };
-        FileType* file = reinterpret_cast<FileType*>(file_ptr);
-        CacheKey key(file->file_name());
-        auto lru_handle = cache()->insert(key, file_ptr, sizeof(file_ptr), deleter);
-        return OpenedFileHandle<FileType>(this, lru_handle);
-    }
-
-    // Retrieves a pointer to an open file object from the file cache with the
-    // filename as the cache key.
-    //
-    // Returns a handle to the looked up entry. The handle may or may not
-    // contain an open file, depending on whether the cache hit or missed.
-    OpenedFileHandle<FileType> lookup_from_cache() const {
-        // TODO(hkp): use lru_cache to replace
-        CacheKey key(filename());
-        return OpenedFileHandle<FileType>(this, cache()->lookup(key));
-    }
-
-    // Mark this descriptor as to-be-deleted later.
-    void mark_deleted() {
-        DCHECK(!deleted());
-        while (true) {
-            auto v = _flags.load();
-            if (_flags.compare_exchange_weak(v, v | FILE_DELETED)) return;
-        }
-    }
-
-    // Mark this descriptor as invalidated. No further access is allowed
-    // to this file.
-    void mark_invalidated() {
-        DCHECK(!invalidated());
-        while (true) {
-            auto v = _flags.load();
-            if (_flags.compare_exchange_weak(v, v | INVALIDATED)) return;
-        }
-    }
-
-    Cache* cache() const { return _file_cache->_cache.get(); }
-
-    Env* env() const { return _file_cache->_env; }
-
-    const std::string& filename() const { return _file_name; }
-
-    bool deleted() const { return _flags.load() & FILE_DELETED; }
-    bool invalidated() const { return _flags.load() & INVALIDATED; }
-
-private:
-    FileCache<FileType>* _file_cache;
-    std::string _file_name;
-    enum Flags { FILE_DELETED = 1 << 0, INVALIDATED = 1 << 1 };
-    std::atomic<uint8_t> _flags{0};
-
-    DISALLOW_COPY_AND_ASSIGN(BaseDescriptor);
-};
-
-// A "smart" retrieved LRU cache handle.
-//
-// The cache handle is released when this object goes out of scope, possibly
-// closing the opened file if it is no longer in the cache.
-template <class FileType>
-class OpenedFileHandle {
-public:
-    // A not-yet-but-soon-to-be opened descriptor.
-    explicit OpenedFileHandle(const BaseDescriptor<FileType>* desc)
-        : _desc(desc), _handle(nullptr) { }
-
-    // An opened descriptor. Its handle may or may not contain an open file.
-    OpenedFileHandle(const BaseDescriptor<FileType>* desc,
-                     Cache::Handle* handle) : _desc(desc), _handle(handle) { }
-
-    ~OpenedFileHandle() {
-        if (_handle != nullptr) {
-            _desc->cache()->release(_handle);
-        }
-    }
-
-    OpenedFileHandle(OpenedFileHandle&& other) noexcept {
-        std::swap(_desc, other._desc);
-        std::swap(_handle, other._handle);
-    }
-
-    OpenedFileHandle& operator=(OpenedFileHandle&& other) noexcept {
-        std::swap(_desc, other._desc);
-        std::swap(_handle, other._handle);
-        return *this;
-    }
-
-    bool opened() {
-        return _handle != nullptr;
-    }
-
-    FileType* file() const {
-        DCHECK(_handle != nullptr);
-        return reinterpret_cast<FileType*>(_desc->cache()->value(_handle));
-    }
-
-private:
-    const BaseDescriptor<FileType>* _desc;
-    Cache::Handle* _handle;
-};
-
 // Reference to an on-disk file that may or may not be opened (and thus
 // cached) in the file cache.
 //
@@ -181,18 +49,18 @@ class Descriptor : public FileType {
 // provides a read-only interface to the underlying file).
 template <>
 class Descriptor<RandomAccessFile> : public RandomAccessFile {
-   public:
+public:
     Descriptor(FileCache<RandomAccessFile>* file_cache, const std::string& filename)
         : _base(file_cache, filename) {}
 
     ~Descriptor() = default;
 
-    /*
-    Status file_instance(std::unique_ptr<OpenedFileHandle<RandomAccessFile>>* file) {
+    // return a file handle point to the RandomAccessFile to iterator for performance
+    Status file_handle(std::unique_ptr<OpenedFileHandle<RandomAccessFile>>* file) {
         file->reset(new OpenedFileHandle<RandomAccessFile>(&_base));
         RETURN_IF_ERROR(reopen_if_necessary(file->get()));
         return Status::OK();
-    }*/
+    }
 
     Status read_at(uint64_t offset, const Slice& result) const override {
         OpenedFileHandle<RandomAccessFile> opened(&_base);
@@ -372,7 +240,7 @@ template <class FileType>
 void FileCache<FileType>::run_descriptor_expiry() {
     std::unique_lock<std::mutex> lock(_expire_lock);
     while (_expire_cond.wait_for(lock,
-            std::chrono::milliseconds(config::file_cache_expiry_period_ms)) == std::cv_status::timeout) {
+            std::chrono::milliseconds(config::fd_cache_expiry_period_ms)) == std::cv_status::timeout) {
         std::lock_guard<SpinLock> l(_lock);
         for (auto it = _descriptors.begin(); it != _descriptors.end();) {
             if (it->second.expired()) {

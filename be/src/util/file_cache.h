@@ -34,15 +34,145 @@ namespace doris {
 
 class Env;
 
-namespace internal {
+template <class FileType>
+class FileCache;
 
 template <class FileType>
-class BaseDescriptor;
+class OpenedFileHandle;
+
+namespace internal {
 
 template <class FileType>
 class Descriptor;
 
 } // namespace internal
+
+// Encapsulates common descriptor fields and methods.
+template <class FileType>
+class BaseDescriptor {
+public:
+    BaseDescriptor(FileCache<FileType>* file_cache, const std::string& filename)
+        : _file_cache(file_cache), _file_name(filename) { }
+
+    ~BaseDescriptor() {
+        // The (now expired) weak_ptr remains in '_descriptors', to be removed
+        // by the next call to RunDescriptorExpiry(). Removing it here would
+        // risk a deadlock on recursive acquisition of '_lock'.
+
+        if (deleted()) {
+            cache()->erase(filename());
+
+            WARN_IF_ERROR(env()->delete_file(filename()), "delete file failed:");
+        }
+    }
+
+    // Insert a pointer to an open file object(FileType*) into the file cache with the
+    // filename as the cache key.
+    //
+    // Returns a handle to the inserted entry. The handle always contains an
+    // open file.
+    OpenedFileHandle<FileType> insert_into_cache(void* file_ptr) const {
+        auto deleter = [](const doris::CacheKey& key, void* value) {
+            delete (FileType*)value;
+        };
+        FileType* file = reinterpret_cast<FileType*>(file_ptr);
+        CacheKey key(file->file_name());
+        auto lru_handle = cache()->insert(key, file_ptr, 1, deleter);
+        return OpenedFileHandle<FileType>(this, lru_handle);
+    }
+
+    // Retrieves a pointer to an open file object from the file cache with the
+    // filename as the cache key.
+    //
+    // Returns a handle to the looked up entry. The handle may or may not
+    // contain an open file, depending on whether the cache hit or missed.
+    OpenedFileHandle<FileType> lookup_from_cache() const {
+        CacheKey key(filename());
+        return OpenedFileHandle<FileType>(this, cache()->lookup(key));
+    }
+
+    // Mark this descriptor as to-be-deleted later.
+    void mark_deleted() {
+        DCHECK(!deleted());
+        while (true) {
+            auto v = _flags.load();
+            if (_flags.compare_exchange_weak(v, v | FILE_DELETED)) return;
+        }
+    }
+
+    // Mark this descriptor as invalidated. No further access is allowed
+    // to this file.
+    void mark_invalidated() {
+        DCHECK(!invalidated());
+        while (true) {
+            auto v = _flags.load();
+            if (_flags.compare_exchange_weak(v, v | INVALIDATED)) return;
+        }
+    }
+
+    Cache* cache() const { return _file_cache->_cache.get(); }
+
+    Env* env() const { return _file_cache->_env; }
+
+    const std::string& filename() const { return _file_name; }
+
+    bool deleted() const { return _flags.load() & FILE_DELETED; }
+    bool invalidated() const { return _flags.load() & INVALIDATED; }
+
+private:
+    FileCache<FileType>* _file_cache;
+    std::string _file_name;
+    enum Flags { FILE_DELETED = 1 << 0, INVALIDATED = 1 << 1 };
+    std::atomic<uint8_t> _flags{0};
+
+    DISALLOW_COPY_AND_ASSIGN(BaseDescriptor);
+};
+
+// A "smart" retrieved LRU cache handle.
+//
+// The cache handle is released when this object goes out of scope, possibly
+// closing the opened file if it is no longer in the cache.
+template <class FileType>
+class OpenedFileHandle {
+public:
+    // A not-yet-but-soon-to-be opened descriptor.
+    explicit OpenedFileHandle(const BaseDescriptor<FileType>* desc)
+        : _desc(desc), _handle(nullptr) { }
+
+    // An opened descriptor. Its handle may or may not contain an open file.
+    OpenedFileHandle(const BaseDescriptor<FileType>* desc,
+                     Cache::Handle* handle) : _desc(desc), _handle(handle) { }
+
+    ~OpenedFileHandle() {
+        if (_handle != nullptr) {
+            _desc->cache()->release(_handle);
+        }
+    }
+
+    OpenedFileHandle(OpenedFileHandle&& other) noexcept {
+        std::swap(_desc, other._desc);
+        std::swap(_handle, other._handle);
+    }
+
+    OpenedFileHandle& operator=(OpenedFileHandle&& other) noexcept {
+        std::swap(_desc, other._desc);
+        std::swap(_handle, other._handle);
+        return *this;
+    }
+
+    bool opened() {
+        return _handle != nullptr;
+    }
+
+    FileType* file() const {
+        DCHECK(_handle != nullptr);
+        return reinterpret_cast<FileType*>(_desc->cache()->value(_handle));
+    }
+
+private:
+    const BaseDescriptor<FileType>* _desc;
+    Cache::Handle* _handle;
+};
 
 // Cache of open files.
 //
@@ -145,7 +275,7 @@ public:
     void run_descriptor_expiry();
 
 private:
-    friend class internal::BaseDescriptor<FileType>;
+    friend class BaseDescriptor<FileType>;
 
     // Looks up a descriptor by file name.
     //
@@ -176,7 +306,6 @@ private:
     std::condition_variable _expire_cond;
     // thread to collect expired descriptors
     std::unique_ptr<std::thread> _expire_thread;
-
 
     // Maps filenames to descriptors.
     std::unordered_map<std::string, std::weak_ptr<internal::Descriptor<FileType>>> _descriptors;

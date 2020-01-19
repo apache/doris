@@ -25,6 +25,9 @@ class WritableFileOptions;
 class RandomAccessFileOptions;
 class RandomRWFileOptions;
 
+template <class FileType>
+class OpenedFileHandle;
+
 class Env {
 public:
     // Governs if/how the file is created.
@@ -232,6 +235,12 @@ class RandomAccessFile {
 public:
     RandomAccessFile() { }
     virtual ~RandomAccessFile() { }
+
+    // get the cache handle of file
+    // only realized for file in cache
+    virtual Status file_handle(std::unique_ptr<OpenedFileHandle<RandomAccessFile>>* file) {
+        return Status::NotSupported("No file handle function");
+    }
 
     // Read "result.size" bytes from the file starting at "offset".
     // Copies the resulting data into "result.data".

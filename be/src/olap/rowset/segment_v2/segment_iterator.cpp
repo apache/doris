@@ -124,6 +124,8 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
 
 Status SegmentIterator::_init() {
     DorisMetrics::segment_read_total.increment(1);
+    // get file handle from file descriptor of segment
+    _segment->_input_file->file_handle(&_file);
     _row_bitmap.addRange(0, _segment->num_rows());
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
@@ -195,6 +197,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
+            iter_opts.segment_file_handle = _file.get();
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -312,6 +315,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
+            iter_opts.segment_file_handle = _file.get();
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }

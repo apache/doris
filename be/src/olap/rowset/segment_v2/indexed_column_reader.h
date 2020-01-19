@@ -29,6 +29,7 @@
 #include "olap/rowset/segment_v2/parsed_page.h"
 #include "util/block_compression.h"
 #include "util/slice.h"
+#include "util/file_cache.h"
 
 namespace doris {
 
@@ -49,7 +50,13 @@ public:
 
     Status load();
 
+    // read a page from file into a page handle
+    // use reader owned _file(usually is Descriptor<RandomAccessFile>*) to read page
     Status read_page(const PagePointer& pp, PageHandle* handle) const;
+
+    // read a page from file into a page handle
+    // use file(usually is RandomAccessFile*) to read page
+    Status read_page(RandomAccessFile* file, const PagePointer& pp, PageHandle* handle) const;
 
     int64_t num_values() const { return _num_values; }
 
@@ -90,6 +97,7 @@ public:
         : _reader(reader),
           _ordinal_iter(&reader->_ordinal_index_reader),
           _value_iter(&reader->_value_index_reader) {
+        reader->_file->file_handle(&_file_handle);
     }
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
@@ -131,6 +139,8 @@ private:
     std::unique_ptr<ParsedPage> _data_page;
     // next_batch() will read from this position
     rowid_t _current_rowid = 0;
+    // open file handle
+    std::unique_ptr<OpenedFileHandle<RandomAccessFile>> _file_handle;
 };
 
 } // namespace segment_v2

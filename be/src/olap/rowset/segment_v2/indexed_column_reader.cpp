@@ -67,10 +67,15 @@ Status IndexedColumnReader::load() {
     return Status::OK();
 }
 
+// use file descriptor to read data
 Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle) const {
+    return read_page(_file, pp, handle);
+}
+
+Status IndexedColumnReader::read_page(RandomAccessFile* file, const PagePointer& pp, PageHandle* handle) const {
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
-    StoragePageCache::CacheKey cache_key(_file->file_name(), pp.offset);
+    StoragePageCache::CacheKey cache_key(file->file_name(), pp.offset);
     if (cache->lookup(cache_key, &cache_handle)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
@@ -86,7 +91,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle)
     // this buffer will assigned uncompressed page, and origin content will be freed.
     std::unique_ptr<uint8_t[]> page(new uint8_t[page_size]);
     Slice page_slice(page.get(), page_size);
-    RETURN_IF_ERROR(_file->read_at(pp.offset, page_slice));
+    RETURN_IF_ERROR(file->read_at(pp.offset, page_slice));
 
     size_t data_size = page_size - 4;
     if (_verify_checksum) {
@@ -124,7 +129,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle)
 ///////////////////////////////////////////////////////////////////////////////
 
 Status IndexedColumnIterator::_read_data_page(const PagePointer& page_pointer, ParsedPage* page) {
-    RETURN_IF_ERROR(_reader->read_page(page_pointer, &page->page_handle));
+    RETURN_IF_ERROR(_reader->read_page(_file_handle->file() , page_pointer, &page->page_handle));
     Slice data = page->page_handle.data();
 
     // decode first rowid

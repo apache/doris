@@ -499,12 +499,16 @@ public:
         return Status::OK();
     }
 
+    // get a RandomAccessFile by using file cache.
+    // the result is Descriptor<RandomAccessFile>*, the RandomAccessFile in the Descriptor<RandomAccessFile>
+    // will be closed when there is no ref to RandomAccessFile, and reopen if necessary
     Status new_random_access_file(const std::string& fname,
                                std::shared_ptr<RandomAccessFile>* result) override {
         RETURN_IF_ERROR(_file_cache.init());
         return _file_cache.open_file(fname, result);
     }
 
+    // get a RandomAccessFile pointer without file cache
     Status new_random_access_file(const std::string& fname,
                                std::unique_ptr<RandomAccessFile>* result) override {
         return new_random_access_file(RandomAccessFileOptions(), fname, result);

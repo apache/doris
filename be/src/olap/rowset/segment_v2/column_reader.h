@@ -33,6 +33,7 @@
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 #include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
 #include "util/once.h"
+#include "util/file_cache.h"
 
 namespace doris {
 
@@ -57,6 +58,9 @@ struct ColumnReaderOptions {
 struct ColumnIteratorOptions {
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
+    // just use pointer, make sure not to delete the handle pointer
+    // the lifetime of segment_file_handle will be managed in SegmentIterator
+    OpenedFileHandle<RandomAccessFile>* segment_file_handle = nullptr;
 };
 
 // There will be concurrent users to read the same column. So
@@ -85,7 +89,12 @@ public:
     Status seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* iter);
 
     // read a page from file into a page handle
+    // use reader owned _file(usually is Descriptor<RandomAccessFile>*) to read page
     Status read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle);
+
+    // read a page from file into a page handle
+    // use file(usually is RandomAccessFile*) to read page
+    Status read_page(RandomAccessFile* file, const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle);
 
     bool is_nullable() const { return _meta.is_nullable(); }
 

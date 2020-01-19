@@ -84,10 +84,16 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 }
 
 Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle) {
+    // _file is Descriptor<RandomAccessFile>*
+    return read_page(_file, pp, stats, handle);
+}
+
+Status ColumnReader::read_page(RandomAccessFile* file, const PagePointer& pp,
+        OlapReaderStatistics* stats, PageHandle* handle) {
     stats->total_pages_num++;
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
-    StoragePageCache::CacheKey cache_key(_file->file_name(), pp.offset);
+    StoragePageCache::CacheKey cache_key(file->file_name(), pp.offset);
     if (cache->lookup(cache_key, &cache_handle)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
@@ -106,7 +112,7 @@ Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stat
     Slice page_slice(page.get(), page_size);
     {
         SCOPED_RAW_TIMER(&stats->io_ns);
-        RETURN_IF_ERROR(_file->read_at(pp.offset, page_slice));
+        RETURN_IF_ERROR(file->read_at(pp.offset, page_slice));
         stats->compressed_bytes_read += page_size;
     }
 
@@ -454,7 +460,8 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 // it ready to read
 Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, ParsedPage* page) {
     page->page_pointer = iter.page();
-    RETURN_IF_ERROR(_reader->read_page(page->page_pointer, _opts.stats, &page->page_handle));
+    RETURN_IF_ERROR(_reader->read_page(_opts.segment_file_handle->file(),
+            page->page_pointer, _opts.stats, &page->page_handle));
     // TODO(zc): read page from file
     Slice data = page->page_handle.data();
 
@@ -496,7 +503,7 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
         if (binary_dict_page_decoder->is_dict_encoding()) {
             if (_dict_decoder == nullptr) {
                 PagePointer pp = _reader->get_dict_page_pointer();
-                RETURN_IF_ERROR(_reader->read_page(pp, _opts.stats, &_dict_page_handle));
+                RETURN_IF_ERROR(_reader->read_page(_opts.segment_file_handle->file(), pp, _opts.stats, &_dict_page_handle));
 
                 _dict_decoder.reset(new BinaryPlainPageDecoder(_dict_page_handle.data()));
                 RETURN_IF_ERROR(_dict_decoder->init());

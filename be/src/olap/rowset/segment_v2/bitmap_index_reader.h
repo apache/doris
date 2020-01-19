@@ -78,7 +78,7 @@ public:
           _dict_column_iter(reader->_dict_column_reader.get()),
           _bitmap_column_iter(reader->_bitmap_column_reader.get()),
           _current_rowid(0),
-          _pool(new MemPool(&_tracker)){
+          _pool(new MemPool(&_tracker)) {
     }
 
     bool has_null_bitmap() const { return _reader->_has_null; }
