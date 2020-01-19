@@ -25,11 +25,17 @@
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
-#include "olap/storage_engine.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "olap/utils.h"
 
 namespace doris {
+
+class Tablet;
+class TabletManager;
+class TabletMeta;
+class TxnManager;
 
 // A DataDir used to manange data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
@@ -68,7 +74,6 @@ public:
     void health_check();
 
     OLAPStatus get_shard(uint64_t* shard);
-
 
     OlapMeta* get_meta() { return _meta; }
 

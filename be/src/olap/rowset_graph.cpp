@@ -16,8 +16,11 @@
 // under the License.
 
 #include "olap/rowset_graph.h"
-#include "common/logging.h"
+
 #include <queue>
+#include <memory>
+
+#include "common/logging.h"
 
 namespace doris {
 
@@ -36,7 +39,7 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
         vertex_values.push_back(rs_metas[i]->end_version() + 1);
     }
 
-    sort(vertex_values.begin(), vertex_values.end());
+    std::sort(vertex_values.begin(), vertex_values.end());
 
     // Items in vertex_values are sorted, but not unique.
     // we choose unique items in vertex_values to create vertexes.
@@ -141,21 +144,15 @@ OLAPStatus RowsetGraph::_add_vertex_to_graph(int64_t vertex_value) {
         return OLAP_SUCCESS;
     }
 
-    std::list<int64_t>* edges = new std::list<int64_t>();
-    if (edges == nullptr) {
-        LOG(WARNING) << "fail to malloc edge list.";
-        return OLAP_ERR_OTHER_ERROR;
-    }
-
-    Vertex vertex = {vertex_value, edges};
-    _version_graph.push_back(vertex);
+    std::unique_ptr<std::list<int64_t>> edges(new std::list<int64_t>());
+    Vertex vertex = {vertex_value, edges.release()};
+    _version_graph.emplace_back(vertex);
     _vertex_index_map[vertex_value] = _version_graph.size() - 1;
     return OLAP_SUCCESS;
 }
 
-OLAPStatus RowsetGraph::capture_consistent_versions(
-                            const Version& spec_version,
-                            std::vector<Version>* version_path) const {
+OLAPStatus RowsetGraph::capture_consistent_versions(const Version& spec_version,
+                                                    std::vector<Version>* version_path) const {
     if (spec_version.first > spec_version.second) {
         LOG(WARNING) << "invalid specfied version. "
                      << "spec_version=" << spec_version.first << "-" << spec_version.second;
@@ -227,7 +224,7 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
     if (!visited[end_vertex_index]) {
         LOG(WARNING) << "fail to find path in version_graph. "
                      << "spec_version: " << spec_version.first << "-" << spec_version.second;
-        return OLAP_ERR_VERSION_NOT_EXIST; 
+        return OLAP_ERR_VERSION_NOT_EXIST;
     }
 
     std::vector<int64_t> reversed_path;
@@ -253,12 +250,10 @@ OLAPStatus RowsetGraph::capture_consistent_versions(
             version_path->emplace_back(tmp_end_vertex_value, tmp_start_vertex_value - 1);
         }
 
-        shortest_path_for_debug << (*version_path)[version_path->size() - 1].first << '-'
-            << (*version_path)[version_path->size() - 1].second << ' ';
+        shortest_path_for_debug << (*version_path)[version_path->size() - 1] << ' ';
     }
 
-    VLOG(10) << "success to find path for spec_version. "
-            << "spec_version=" << spec_version.first << "-" << spec_version.second
+    VLOG(10) << "success to find path for spec_version. spec_version=" << spec_version
             << ", path=" << shortest_path_for_debug.str();
 
     return OLAP_SUCCESS;

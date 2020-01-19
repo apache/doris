@@ -26,6 +26,7 @@
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/storage_engine.h"
 #include "olap/txn_manager.h"
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
@@ -93,7 +94,7 @@ public:
 
     virtual void SetUp() {
         config::max_runnings_transactions = 1000;
-        
+
         std::vector<StorePath> paths;
         paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
@@ -175,7 +176,7 @@ private:
 };
 
 TEST_F(TxnManagerTest, PrepareNewTxn) {
-    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 }
@@ -184,9 +185,9 @@ TEST_F(TxnManagerTest, PrepareNewTxn) {
 // 2. commit txn
 // 3. should be success
 TEST_F(TxnManagerTest, CommitTxnWithPrepare) {
-    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id);
-    _txn_mgr.commit_txn(_meta, partition_id, transaction_id, 
+    _txn_mgr.commit_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
@@ -198,7 +199,7 @@ TEST_F(TxnManagerTest, CommitTxnWithPrepare) {
 // 1. commit without prepare
 // 2. should success
 TEST_F(TxnManagerTest, CommitTxnWithNoPrepare) {
-    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 }
@@ -206,10 +207,10 @@ TEST_F(TxnManagerTest, CommitTxnWithNoPrepare) {
 // 1. commit twice with different rowset id
 // 2. should failed
 TEST_F(TxnManagerTest, CommitTxnTwiceWithDiffRowsetId) {
-    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
-    status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id, 
+    status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id, _alpha_rowset_diff_id, false);
     ASSERT_TRUE(status != OLAP_SUCCESS);
 }
@@ -217,30 +218,30 @@ TEST_F(TxnManagerTest, CommitTxnTwiceWithDiffRowsetId) {
 // 1. commit twice with same rowset id
 // 2. should success
 TEST_F(TxnManagerTest, CommitTxnTwiceWithSameRowsetId) {
-    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
-    status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id, 
+    status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id, _alpha_rowset_same_id, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 }
 
 // 1. prepare twice should be success
 TEST_F(TxnManagerTest, PrepareNewTxnTwice) {
-    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id);
     ASSERT_TRUE(status == OLAP_SUCCESS);
-    status = _txn_mgr.prepare_txn(partition_id, transaction_id, 
+    status = _txn_mgr.prepare_txn(partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 }
 
 // 1. txn could be rollbacked if it is not committed
 TEST_F(TxnManagerTest, RollbackNotCommittedTxn) {
-    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id);
     ASSERT_TRUE(status == OLAP_SUCCESS);
-    status = _txn_mgr.rollback_txn(partition_id, transaction_id, 
+    status = _txn_mgr.rollback_txn(partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
@@ -250,10 +251,10 @@ TEST_F(TxnManagerTest, RollbackNotCommittedTxn) {
 
 // 1. txn could not be rollbacked if it is committed
 TEST_F(TxnManagerTest, RollbackCommittedTxn) {
-    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
-    status = _txn_mgr.rollback_txn(partition_id, transaction_id, 
+    status = _txn_mgr.rollback_txn(partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid);
     ASSERT_FALSE(status == OLAP_SUCCESS);
     RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
@@ -264,12 +265,12 @@ TEST_F(TxnManagerTest, RollbackCommittedTxn) {
 
 // 1. publish version success
 TEST_F(TxnManagerTest, PublishVersionSuccessful) {
-    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     Version new_version(10,11);
     VersionHash new_versionhash = 123;
-    status = _txn_mgr.publish_txn(_meta, partition_id, transaction_id, 
+    status = _txn_mgr.publish_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, new_version, new_versionhash);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 
@@ -285,28 +286,28 @@ TEST_F(TxnManagerTest, PublishVersionSuccessful) {
 TEST_F(TxnManagerTest, PublishNotExistedTxn) {
     Version new_version(10,11);
     VersionHash new_versionhash = 123;
-    OLAPStatus status = _txn_mgr.publish_txn(_meta, partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.publish_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, new_version, new_versionhash);
     ASSERT_TRUE(status != OLAP_SUCCESS);
 }
 
 TEST_F(TxnManagerTest, DeletePreparedTxn) {
-    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.prepare_txn(partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id);
     ASSERT_TRUE(status == OLAP_SUCCESS);
-    status = _txn_mgr.delete_txn(_meta, partition_id, transaction_id, 
+    status = _txn_mgr.delete_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 }
 
 TEST_F(TxnManagerTest, DeleteCommittedTxn) {
-    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id, 
+    OLAPStatus status = _txn_mgr.commit_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid, load_id, _alpha_rowset, false);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
     status = RowsetMetaManager::get_rowset_meta(_meta, _tablet_uid, _alpha_rowset->rowset_id(), rowset_meta);
     ASSERT_TRUE(status == OLAP_SUCCESS);
-    status = _txn_mgr.delete_txn(_meta, partition_id, transaction_id, 
+    status = _txn_mgr.delete_txn(_meta, partition_id, transaction_id,
         tablet_id, schema_hash, _tablet_uid);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     RowsetMetaSharedPtr rowset_meta2(new AlphaRowsetMeta());
