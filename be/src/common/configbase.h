@@ -53,6 +53,7 @@ public:
     }
 }; 
 
+// clang-format off
 #define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT)\
     FIELD_TYPE FIELD_NAME;\
     static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &FIELD_NAME, FIELD_DEFAULT);
@@ -86,6 +87,7 @@ public:
 #define CONF_Doubles(name, defaultstr)      DECLARE_FIELD(std::vector<double>, name)
 #define CONF_Strings(name, defaultstr)      DECLARE_FIELD(std::vector<std::string>, name)
 #endif
+// clang-format on
 
 class Properties {
 public:

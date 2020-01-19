@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "codegen/codegen_anyval.h"
 
 #include "runtime/multi_precision.h"
@@ -705,4 +706,4 @@ CodegenAnyVal CodegenAnyVal::get_non_null_val(
 }
 
 }
-
+// clang-format on

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #ifndef DORIS_BE_SRC_COMMON_ATOMIC_H
 #define DORIS_BE_SRC_COMMON_ATOMIC_H
 
@@ -208,3 +209,4 @@ private:
 } // end namespace doris
 
 #endif // DORIS_BE_SRC_COMMON_ATOMIC_H
+// clang-format on

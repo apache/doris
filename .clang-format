@@ -2,11 +2,18 @@
 Language: Cpp
 BasedOnStyle: Google
 AccessModifierOffset: -4
+AlignEscapedNewlines: DontAlign
+AlignOperands: false
+AlignTrailingComments: false
 AllowShortFunctionsOnASingleLine: Inline
-ColumnLimit: 100
+AlwaysBreakBeforeMultilineStrings: false
+BreakBeforeBinaryOperators: NonAssignment
+BreakConstructorInitializers: AfterColon
+ColumnLimit: 0
 ConstructorInitializerIndentWidth: 8 # double of IndentWidth
 ContinuationIndentWidth: 8 # double of IndentWidth
 DerivePointerAlignment: false # always use PointerAlignment
+IncludeBlocks: Preserve # sort each #include block separately
 IndentCaseLabels: false
 IndentWidth: 4
 PointerAlignment: Left

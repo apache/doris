@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #include "agent/cgroups_mgr.h"
 #include <fstream>
 #include <future>
@@ -503,3 +504,4 @@ bool CgroupsMgr::is_file_exist(const std::string& file_path) {
 }
 
 } // namespace doris
+// clang-format on

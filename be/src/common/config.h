@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+// clang-format off
 #ifndef DORIS_BE_SRC_COMMON_CONFIG_H
 #define DORIS_BE_SRC_COMMON_CONFIG_H
 
@@ -510,3 +511,4 @@ namespace config {
 } // namespace doris
 
 #endif // DORIS_BE_SRC_COMMON_CONFIG_H
+// clang-format on
