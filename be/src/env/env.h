@@ -9,8 +9,8 @@
 
 #pragma once
 
-#include <string>
 #include <memory>
+#include <string>
 
 #include "common/status.h"
 #include "util/slice.h"
@@ -42,8 +42,8 @@ public:
         MUST_EXIST
     };
 
-    Env() { }
-    virtual ~Env() { }
+    Env() {}
+    virtual ~Env() {}
 
     // Return a default environment suitable for the current operating
     // system.  Sophisticated users may wish to provide their own Env
@@ -82,7 +82,6 @@ public:
     // The returned file will only be accessed by one thread at a time.
     virtual Status new_writable_file(const std::string& fname,
                                      std::unique_ptr<WritableFile>* result) = 0;
-
 
     // Like the previous new_writable_file, but allows options to be
     // specified.
@@ -165,7 +164,7 @@ public:
 
     // Store the last modification time of fname in *file_mtime.
     virtual Status get_file_modified_time(const std::string& fname,
-                                              uint64_t* file_mtime) = 0;
+                                          uint64_t* file_mtime) = 0;
     // Rename file src to target.
     virtual Status rename_file(const std::string& src,
                                const std::string& target) = 0;
@@ -178,7 +177,7 @@ public:
 };
 
 struct RandomAccessFileOptions {
-    RandomAccessFileOptions() { }
+    RandomAccessFileOptions() {}
 };
 
 // Creation-time options for WritableFile
@@ -200,8 +199,8 @@ struct RandomRWFileOptions {
 // A file abstraction for reading sequentially through a file
 class SequentialFile {
 public:
-    SequentialFile() { }
-    virtual ~SequentialFile() { }
+    SequentialFile() {}
+    virtual ~SequentialFile() {}
 
     // Read up to "result.size" bytes from the file.
     // Sets "result.data" to the data that was read.
@@ -227,8 +226,8 @@ public:
 
 class RandomAccessFile {
 public:
-    RandomAccessFile() { }
-    virtual ~RandomAccessFile() { }
+    RandomAccessFile() {}
+    virtual ~RandomAccessFile() {}
 
     // Read "result.size" bytes from the file starting at "offset".
     // Copies the resulting data into "result.data".
@@ -272,8 +271,8 @@ public:
         FLUSH_ASYNC
     };
 
-    WritableFile() { }
-    virtual ~WritableFile() { }
+    WritableFile() {}
+    virtual ~WritableFile() {}
 
     // Append data to the end of the file
     // Note: A WritableFile object must support either Append or
@@ -323,7 +322,7 @@ public:
         FLUSH_ASYNC
     };
     RandomRWFile() {}
-    virtual ~RandomRWFile() { }
+    virtual ~RandomRWFile() {}
 
     virtual Status read_at(uint64_t offset, const Slice& result) const = 0;
 
@@ -343,4 +342,4 @@ public:
     virtual const std::string& filename() const = 0;
 };
 
-}
+} // namespace doris

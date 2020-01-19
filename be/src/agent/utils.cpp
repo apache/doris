@@ -17,31 +17,31 @@
 
 #include "agent/utils.h"
 #include <arpa/inet.h>
-#include <cstdio>
 #include <errno.h>
-#include <fstream>
-#include <iostream>
 #include <netdb.h>
 #include <netinet/in.h>
-#include <sstream>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <cstdio>
+#include <fstream>
+#include <iostream>
+#include <sstream>
 
-#include <boost/filesystem.hpp>
-#include <thrift/Thrift.h>
-#include <thrift/transport/TSocket.h>
-#include <thrift/transport/TTransportException.h>
-#include <thrift/transport/TTransportUtils.h>
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#include <thrift/Thrift.h>
+#include <thrift/transport/TSocket.h>
+#include <thrift/transport/TTransportException.h>
+#include <thrift/transport/TTransportUtils.h>
+#include <boost/filesystem.hpp>
 
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
-#include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/FrontendService.h"
+#include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Status_types.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
@@ -148,7 +148,7 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
                                      _master_info.network_address.port,
                                      client_status.code());
                     return DORIS_ERROR;
-                }   
+                }
 
                 client->report(*result, request);
             } else {
@@ -156,12 +156,12 @@ AgentStatus MasterServerClient::report(const TReportRequest& request, TMasterRes
                 // actually we don't care what FE returns.
                 OLAP_LOG_WARNING("master client, report failed: %s", e.what());
                 return DORIS_ERROR;
-            }   
-        }   
+            }
+        }
     } catch (TException& e) {
         client.reopen(config::thrift_rpc_timeout_ms);
         LOG(WARNING) << "master client. finish report failed. host: " << _master_info.network_address.hostname
-                    << ". port: " << _master_info.network_address.port << ". code: " << client_status.code();
+                     << ". port: " << _master_info.network_address.port << ". code: " << client_status.code();
         return DORIS_ERROR;
     }
 
@@ -260,7 +260,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg) {
     string cmd = command + " 2>&1";
 
     // Execute command.
-    FILE *fp = popen(cmd.c_str(), "r");
+    FILE* fp = popen(cmd.c_str(), "r");
     if (fp == NULL) {
         stringstream err_stream;
         err_stream << "popen failed. " << strerror(errno) << ", with errno: " << errno << ".\n";
@@ -277,7 +277,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg) {
     // Waits for the associated process to terminate and returns.
     rc = pclose(fp);
     if (rc == -1) {
-        if (errno==ECHILD) {
+        if (errno == ECHILD) {
             *errmsg += "pclose cannot obtain the child status.\n";
         } else {
             stringstream err_stream;
@@ -291,7 +291,7 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg) {
     // Get return code of command.
     int32_t status_child = WEXITSTATUS(rc);
     if (status_child == 0) {
-       return true;
+        return true;
     } else {
         return false;
     }
@@ -299,11 +299,11 @@ bool AgentUtils::exec_cmd(const string& command, string* errmsg) {
 
 bool AgentUtils::write_json_to_file(const map<string, string>& info, const string& path) {
     rapidjson::Document json_info(rapidjson::kObjectType);
-    for (auto &it : info) {
+    for (auto& it : info) {
         json_info.AddMember(
-            rapidjson::Value(it.first.c_str(), json_info.GetAllocator()).Move(),
-            rapidjson::Value(it.second.c_str(), json_info.GetAllocator()).Move(), 
-            json_info.GetAllocator());
+                rapidjson::Value(it.first.c_str(), json_info.GetAllocator()).Move(),
+                rapidjson::Value(it.second.c_str(), json_info.GetAllocator()).Move(),
+                json_info.GetAllocator());
     }
     rapidjson::StringBuffer json_info_str;
     rapidjson::Writer<rapidjson::StringBuffer> writer(json_info_str);
@@ -314,8 +314,8 @@ bool AgentUtils::write_json_to_file(const map<string, string>& info, const strin
     }
     fp << json_info_str.GetString() << std::endl;
     fp.close();
-    
-    return true; 
-} 
 
-}  // namespace doris
+    return true;
+}
+
+} // namespace doris

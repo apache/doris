@@ -17,29 +17,29 @@
 
 #include "agent/agent_server.h"
 #include <string>
-#include "boost/filesystem.hpp"
-#include "boost/lexical_cast.hpp"
-#include "thrift/concurrency/ThreadManager.h"
-#include "thrift/concurrency/PosixThreadFactory.h"
-#include "thrift/server/TThreadPoolServer.h"
-#include "thrift/server/TThreadedServer.h"
-#include "thrift/transport/TSocket.h"
-#include "thrift/transport/TTransportUtils.h"
-#include "util/thrift_server.h"
 #include "agent/status.h"
 #include "agent/task_worker_pool.h"
 #include "agent/user_resource_listener.h"
-#include "common/status.h"
+#include "boost/filesystem.hpp"
+#include "boost/lexical_cast.hpp"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/Status_types.h"
 #include "gen_cpp/Types_constants.h"
-#include "olap/utils.h"
 #include "olap/snapshot_manager.h"
-#include "runtime/exec_env.h"
+#include "olap/utils.h"
 #include "runtime/etl_job_mgr.h"
+#include "runtime/exec_env.h"
+#include "thrift/concurrency/PosixThreadFactory.h"
+#include "thrift/concurrency/ThreadManager.h"
+#include "thrift/server/TThreadPoolServer.h"
+#include "thrift/server/TThreadedServer.h"
+#include "thrift/transport/TSocket.h"
+#include "thrift/transport/TTransportUtils.h"
 #include "util/debug_util.h"
+#include "util/thrift_server.h"
 
 using apache::thrift::transport::TProcessor;
 using std::deque;
@@ -58,7 +58,6 @@ AgentServer::AgentServer(ExecEnv* exec_env,
         _exec_env(exec_env),
         _master_info(master_info),
         _topic_subscriber(new TopicSubscriber()) {
-    
     for (auto& path : exec_env->store_paths()) {
         try {
             string dpp_download_path_str = path.path + DPP_PREFIX;
@@ -141,7 +140,7 @@ AgentServer::AgentServer(ExecEnv* exec_env,
             TaskWorkerPool::TaskWorkerType::RELEASE_SNAPSHOT,
             _exec_env,
             master_info);
-    _move_dir_workers= new TaskWorkerPool(
+    _move_dir_workers = new TaskWorkerPool(
             TaskWorkerPool::TaskWorkerType::MOVE,
             _exec_env,
             master_info);
@@ -230,7 +229,7 @@ AgentServer::~AgentServer() {
     if (_make_snapshot_workers != NULL) {
         delete _make_snapshot_workers;
     }
-    if (_move_dir_workers!= NULL) {
+    if (_move_dir_workers != NULL) {
         delete _move_dir_workers;
     }
     if (_recover_tablet_workers != NULL) {
@@ -243,7 +242,7 @@ AgentServer::~AgentServer() {
     if (_release_snapshot_workers != NULL) {
         delete _release_snapshot_workers;
     }
-    if (_topic_subscriber !=NULL) {
+    if (_topic_subscriber != NULL) {
         delete _topic_subscriber;
     }
 }
@@ -251,14 +250,13 @@ AgentServer::~AgentServer() {
 void AgentServer::submit_tasks(
         TAgentResult& return_value,
         const vector<TAgentTaskRequest>& tasks) {
-
     // Set result to dm
     vector<string> error_msgs;
     TStatusCode::type status_code = TStatusCode::OK;
 
     // TODO check require master same to heartbeat master
     if (_master_info.network_address.hostname == ""
-            || _master_info.network_address.port == 0) {
+        || _master_info.network_address.port == 0) {
         error_msgs.push_back("Not get master heartbeat yet.");
         return_value.status.__set_error_msgs(error_msgs);
         return_value.status.__set_status_code(TStatusCode::CANCELLED);
@@ -272,7 +270,7 @@ void AgentServer::submit_tasks(
         switch (task_type) {
         case TTaskType::CREATE:
             if (task.__isset.create_tablet_req) {
-               _create_tablet_workers->submit_task(task);
+                _create_tablet_workers->submit_task(task);
             } else {
                 status_code = TStatusCode::ANALYSIS_ERROR;
             }
@@ -288,7 +286,7 @@ void AgentServer::submit_tasks(
         case TTaskType::PUSH:
             if (task.__isset.push_req) {
                 if (task.push_req.push_type == TPushType::LOAD
-                        || task.push_req.push_type == TPushType::LOAD_DELETE) {
+                    || task.push_req.push_type == TPushType::LOAD_DELETE) {
                     _push_workers->submit_task(task);
                 } else if (task.push_req.push_type == TPushType::DELETE) {
                     _delete_workers->submit_task(task);
@@ -406,7 +404,7 @@ void AgentServer::submit_tasks(
 }
 
 void AgentServer::make_snapshot(TAgentResult& return_value,
-        const TSnapshotRequest& snapshot_request) {
+                                const TSnapshotRequest& snapshot_request) {
     TStatus status;
     vector<string> error_msgs;
     TStatusCode::type status_code = TStatusCode::OK;
@@ -419,8 +417,7 @@ void AgentServer::make_snapshot(TAgentResult& return_value,
         OLAP_LOG_WARNING("make_snapshot failed. tablet_id: %ld, schema_hash: %ld, status: %d",
                          snapshot_request.tablet_id, snapshot_request.schema_hash,
                          make_snapshot_status);
-        error_msgs.push_back("make_snapshot failed. status: " +
-                             boost::lexical_cast<string>(make_snapshot_status));
+        error_msgs.push_back("make_snapshot failed. status: " + boost::lexical_cast<string>(make_snapshot_status));
     } else {
         LOG(INFO) << "make_snapshot success. tablet_id: " << snapshot_request.tablet_id
                   << " schema_hash: " << snapshot_request.schema_hash << " snapshot_path: " << snapshot_path;
@@ -444,8 +441,7 @@ void AgentServer::release_snapshot(TAgentResult& return_value, const std::string
     if (release_snapshot_status != OLAP_SUCCESS) {
         status_code = TStatusCode::RUNTIME_ERROR;
         LOG(WARNING) << "release_snapshot failed. snapshot_path: " << snapshot_path << ", status: " << release_snapshot_status;
-        error_msgs.push_back("release_snapshot failed. status: " +
-                             boost::lexical_cast<string>(release_snapshot_status));
+        error_msgs.push_back("release_snapshot failed. status: " + boost::lexical_cast<string>(release_snapshot_status));
     } else {
         LOG(INFO) << "release_snapshot success. snapshot_path: " << snapshot_path << ", status: " << release_snapshot_status;
     }
@@ -461,15 +457,15 @@ void AgentServer::publish_cluster_state(TAgentResult& _return, const TAgentPubli
 }
 
 void AgentServer::submit_etl_task(TAgentResult& return_value,
-                                 const TMiniLoadEtlTaskRequest& request) {
+                                  const TMiniLoadEtlTaskRequest& request) {
     Status status = _exec_env->etl_job_mgr()->start_job(request);
     if (status.ok()) {
         VLOG_RPC << "start etl task successfull id="
-            << request.params.params.fragment_instance_id;
+                 << request.params.params.fragment_instance_id;
     } else {
         VLOG_RPC << "start etl task failed id="
-            << request.params.params.fragment_instance_id
-            << " and err_msg=" << status.get_error_msg();
+                 << request.params.params.fragment_instance_id
+                 << " and err_msg=" << status.get_error_msg();
     }
     status.to_thrift(&return_value.status);
 }
@@ -481,8 +477,8 @@ void AgentServer::get_etl_status(TMiniLoadEtlStatusResult& return_value,
         LOG(WARNING) << "get job state failed. [id=" << request.mini_load_id << "]";
     } else {
         VLOG_RPC << "get job state successful. [id=" << request.mini_load_id << ",status="
-            << return_value.status.status_code << ",etl_state=" << return_value.etl_state
-            << ",files=";
+                 << return_value.status.status_code << ",etl_state=" << return_value.etl_state
+                 << ",files=";
         for (auto& item : return_value.file_map) {
             VLOG_RPC << item.first << ":" << item.second << ";";
         }
@@ -495,11 +491,11 @@ void AgentServer::delete_etl_files(TAgentResult& result,
     Status status = _exec_env->etl_job_mgr()->erase_job(request);
     if (!status.ok()) {
         LOG(WARNING) << "delete etl files failed. because " << status.get_error_msg()
-            << " with request " << request;
+                     << " with request " << request;
     } else {
         VLOG_RPC << "delete etl files successful with param " << request;
     }
     status.to_thrift(&result.status);
 }
 
-}  // namesapce doris
+} // namespace doris

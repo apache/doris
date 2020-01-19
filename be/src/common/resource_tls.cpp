@@ -64,4 +64,4 @@ int ResourceTls::set_resource_tls(TResourceInfo* info) {
     return ret;
 }
 
-}
+} // namespace doris

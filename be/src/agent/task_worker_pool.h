@@ -86,7 +86,7 @@ private:
     void _spawn_callback_worker_thread(CALLBACK_FUNCTION callback_func);
     void _finish_task(const TFinishTaskRequest& finish_task_request);
     uint32_t _get_next_task_index(int32_t thread_count, std::deque<TAgentTaskRequest>& tasks,
-            TPriority::type priority);
+                                  TPriority::type priority);
 
     static void* _create_tablet_worker_thread_callback(void* arg_this);
     static void* _drop_tablet_worker_thread_callback(void* arg_this);
@@ -152,6 +152,6 @@ private:
     static std::map<TTaskType::type, std::set<int64_t>> _s_task_signatures;
 
     DISALLOW_COPY_AND_ASSIGN(TaskWorkerPool);
-};  // class TaskWorkerPool
-}  // namespace doris
-#endif  // DORIS_BE_SRC_TASK_WORKER_POOL_H
+}; // class TaskWorkerPool
+} // namespace doris
+#endif // DORIS_BE_SRC_TASK_WORKER_POOL_H

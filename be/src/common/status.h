@@ -7,9 +7,9 @@
 #include <string>
 #include <vector>
 
-#include "common/logging.h"
 #include "common/compiler_util.h"
-#include "gen_cpp/Status_types.h"  // for TStatus
+#include "common/logging.h"
+#include "gen_cpp/Status_types.h" // for TStatus
 #include "gen_cpp/status.pb.h" // for PStatus
 #include "util/slice.h" // for Slice
 
@@ -17,12 +17,13 @@ namespace doris {
 
 class Status {
 public:
-    Status(): _state(nullptr) {}
+    Status() :
+            _state(nullptr) {}
     ~Status() noexcept { delete[] _state; }
 
     // copy c'tor makes copy of error detail so Status can be returned by value
-    Status(const Status& s)
-            : _state(s._state == nullptr ? nullptr : copy_state(s._state))  {
+    Status(const Status& s) :
+            _state(s._state == nullptr ? nullptr : copy_state(s._state)) {
     }
 
     // same as copy c'tor
@@ -37,7 +38,8 @@ public:
     }
 
     // move c'tor
-    Status(Status&& s) noexcept : _state(s._state) {
+    Status(Status&& s) noexcept :
+            _state(s._state) {
         s._state = nullptr;
     }
 
@@ -73,13 +75,13 @@ public:
         return Status(TStatusCode::CORRUPTION, msg, precise_code, msg2);
     }
     static Status IOError(const Slice& msg,
-                               int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
+                          int16_t precise_code = 1,
+                          const Slice& msg2 = Slice()) {
         return Status(TStatusCode::IO_ERROR, msg, precise_code, msg2);
     }
     static Status NotFound(const Slice& msg,
-                               int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
+                           int16_t precise_code = 1,
+                           const Slice& msg2 = Slice()) {
         return Status(TStatusCode::NOT_FOUND, msg, precise_code, msg2);
     }
     static Status AlreadyExist(const Slice& msg,
@@ -98,8 +100,8 @@ public:
         return Status(TStatusCode::END_OF_FILE, msg, precise_code, msg2);
     }
     static Status InternalError(const Slice& msg,
-                               int16_t precise_code = 1,
-                               const Slice& msg2 = Slice()) {
+                                int16_t precise_code = 1,
+                                const Slice& msg2 = Slice()) {
         return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, msg2);
     }
     static Status RuntimeError(const Slice& msg,
@@ -135,8 +137,8 @@ public:
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
 
     bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
-    
-    bool is_io_error() const {return code() == TStatusCode::IO_ERROR; }
+
+    bool is_io_error() const { return code() == TStatusCode::IO_ERROR; }
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
     template <typename T>
@@ -242,7 +244,7 @@ private:
         const Status& _status_ = (stmt); \
         if (UNLIKELY(!_status_.ok())) { \
             string msg = _status_.get_error_msg(); \
-            LOG(ERROR) << msg;            \
+            LOG(ERROR) << msg; \
             exit(1); \
         } \
     } while (false)
@@ -250,20 +252,20 @@ private:
 /// @brief Emit a warning if @c to_call returns a bad status.
 #define WARN_IF_ERROR(to_call, warning_prefix) \
     do { \
-        const Status& _s = (to_call);  \
+        const Status& _s = (to_call); \
         if (UNLIKELY(!_s.ok())) { \
-            LOG(WARNING) << (warning_prefix) << ": " << _s.to_string();  \
+            LOG(WARNING) << (warning_prefix) << ": " << _s.to_string(); \
         } \
     } while (0);
 
 #define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix) \
-    do {    \
-        const Status& _s = (stmt);  \
-        if (UNLIKELY(!_s.ok())) {   \
+    do { \
+        const Status& _s = (stmt); \
+        if (UNLIKELY(!_s.ok())) { \
             LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
-            return ret_code;    \
-        }   \
+            return ret_code; \
+        } \
     } while (0);
-}
+} // namespace doris
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))

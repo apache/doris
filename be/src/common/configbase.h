@@ -34,10 +34,10 @@ public:
         void* storage;
         const char* defval;
         Field(const char* ftype, const char* fname, void* fstorage, const char* fdefval) :
-            type(ftype), 
-            name(fname),
-            storage(fstorage),
-            defval(fdefval) {}
+                type(ftype),
+                name(fname),
+                storage(fstorage),
+                defval(fdefval) {}
     };
 
 public:
@@ -51,7 +51,7 @@ public:
         Field field(ftype, fname, fstorage, fdefval);
         _s_fieldlist->push_back(field);
     }
-}; 
+};
 
 // clang-format off
 #define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT)\
@@ -92,14 +92,14 @@ public:
 class Properties {
 public:
     bool load(const char* filename);
-    template<typename T> 
+    template <typename T>
     bool get(const char* key, const char* defstr, T& retval) const;
     const std::map<std::string, std::string>& getmap() const;
 
 private:
-    template <typename T> 
+    template <typename T>
     static bool strtox(const std::string& valstr, std::vector<T>& retval);
-    template<typename T> 
+    template <typename T>
     static bool strtointeger(const std::string& valstr, T& retval);
     static bool strtox(const std::string& valstr, bool& retval);
     static bool strtox(const std::string& valstr, int16_t& retval);

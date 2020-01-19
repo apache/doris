@@ -21,24 +21,24 @@
 #include <iostream>
 #include <sstream>
 
-#include <boost/thread/mutex.hpp>
 #include <llvm/Analysis/Dominators.h>
-#include <llvm/Analysis/Passes.h>
 #include <llvm/Analysis/InstructionSimplify.h>
-#include <llvm/Support/DynamicLibrary.h>
+#include <llvm/Analysis/Passes.h>
 #include <llvm/IRReader/IRReader.h>
-#include <llvm/Support/MemoryBuffer.h>
+#include <llvm/Support/DynamicLibrary.h>
 #include <llvm/Support/InstIterator.h>
+#include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/NoFolder.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Support/system_error.h>
-#include "llvm/Transforms/IPO.h"
 #include <llvm/Transforms/Scalar.h>
 #include <llvm/Transforms/Utils/SSAUpdater.h>
+#include <boost/thread/mutex.hpp>
+#include "llvm/Transforms/IPO.h"
 
-#include "common/logging.h"
 #include "codegen/subexpr_elimination.h"
+#include "common/logging.h"
 #include "doris_ir/doris_ir_names.h"
 #include "util/cpu_info.h"
 #include "util/path_builder.h"
@@ -53,7 +53,8 @@ using llvm::Value;
 using llvm::DominatorTree;
 namespace doris {
 
-SubExprElimination::SubExprElimination(LlvmCodeGen* codegen) : _codegen(codegen) {
+SubExprElimination::SubExprElimination(LlvmCodeGen* codegen) :
+        _codegen(codegen) {
 }
 
 // Before running the standard llvm optimization passes, first remove redundant calls
@@ -166,8 +167,7 @@ bool SubExprElimination::run(Function* fn) {
 
         CallInst* call_instr = reinterpret_cast<CallInst*>(instr);
         Function* called_fn = call_instr->getCalledFunction();
-        if (_codegen->_registered_exprs.find(called_fn) == 
-                _codegen->_registered_exprs.end()) {
+        if (_codegen->_registered_exprs.find(called_fn) == _codegen->_registered_exprs.end()) {
             continue;
         }
 
@@ -225,4 +225,4 @@ bool SubExprElimination::run(Function* fn) {
     return true;
 }
 
-}
+} // namespace doris

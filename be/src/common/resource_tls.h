@@ -28,6 +28,6 @@ public:
     static int set_resource_tls(TResourceInfo*);
 };
 
-}
+} // namespace doris
 
 #endif

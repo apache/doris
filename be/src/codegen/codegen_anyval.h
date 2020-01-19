@@ -23,7 +23,7 @@
 namespace llvm {
 class Type;
 class Value;
-}
+} // namespace llvm
 
 namespace doris {
 
@@ -81,27 +81,27 @@ public:
     /// 'name' optionally specifies the name of the returned value.
     static llvm::Value* create_call(
             LlvmCodeGen* cg, LlvmCodeGen::LlvmBuilder* builder,
-            llvm::Function* fn, llvm::ArrayRef<llvm::Value*> args, 
+            llvm::Function* fn, llvm::ArrayRef<llvm::Value*> args,
             const char* name,
             llvm::Value* result_ptr);
 
     static llvm::Value* create_call(
             LlvmCodeGen* cg, LlvmCodeGen::LlvmBuilder* builder,
-            llvm::Function* fn, llvm::ArrayRef<llvm::Value*> args, 
+            llvm::Function* fn, llvm::ArrayRef<llvm::Value*> args,
             const char* name) {
         return create_call(cg, builder, fn, args, name, NULL);
     }
 
     /// Same as above but wraps the result in a CodegenAnyVal.
     static CodegenAnyVal create_call_wrapped(LlvmCodeGen* cg,
-            LlvmCodeGen::LlvmBuilder* builder, const TypeDescriptor& type, llvm::Function* fn,
-            llvm::ArrayRef<llvm::Value*> args, const char* name,
-            llvm::Value* result_ptr);
+                                             LlvmCodeGen::LlvmBuilder* builder, const TypeDescriptor& type, llvm::Function* fn,
+                                             llvm::ArrayRef<llvm::Value*> args, const char* name,
+                                             llvm::Value* result_ptr);
 
     /// Same as above but wraps the result in a CodegenAnyVal.
     static CodegenAnyVal create_call_wrapped(LlvmCodeGen* cg,
-            LlvmCodeGen::LlvmBuilder* builder, const TypeDescriptor& type, llvm::Function* fn,
-            llvm::ArrayRef<llvm::Value*> args, const char* name) {
+                                             LlvmCodeGen::LlvmBuilder* builder, const TypeDescriptor& type, llvm::Function* fn,
+                                             llvm::ArrayRef<llvm::Value*> args, const char* name) {
         return create_call_wrapped(cg, builder, type, fn, args, name, NULL);
     }
 
@@ -135,11 +135,11 @@ public:
     /// This returns a CodegenAnyVal, rather than the unwrapped Value*, because the actual
     /// value still needs to be set.
     static CodegenAnyVal get_non_null_val(
-        LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder, 
-        const TypeDescriptor& type, const char* name);
+            LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder,
+            const TypeDescriptor& type, const char* name);
 
     static CodegenAnyVal get_non_null_val(
-            LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder, 
+            LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder,
             const TypeDescriptor& type) {
         return get_non_null_val(codegen, builder, type, "");
     }
@@ -160,7 +160,7 @@ public:
     CodegenAnyVal(LlvmCodeGen* codegen, LlvmCodeGen::LlvmBuilder* builder,
                   const TypeDescriptor& type, llvm::Value* value = NULL, const char* name = "");
 
-    ~CodegenAnyVal() { }
+    ~CodegenAnyVal() {}
 
     /// Returns the current type-lowered value.
     llvm::Value* value() { return _value; }
@@ -193,7 +193,7 @@ public:
 
     /// Getters for StringVals.
     llvm::Value* get_ptr();
-    llvm::Value *get_len();
+    llvm::Value* get_len();
 
     /// Setters for StringVals.
     void set_ptr(llvm::Value* ptr);
@@ -235,13 +235,13 @@ public:
     /// RawValue::Compare()). This and 'other' must be non-null. Return value is < 0 if
     /// this < 'other', 0 if this == 'other', > 0 if this > 'other'.
     llvm::Value* compare(CodegenAnyVal* other, const char* name);
-    llvm::Value* compare(CodegenAnyVal* other) { 
+    llvm::Value* compare(CodegenAnyVal* other) {
         return compare(other, "result");
     }
 
     /// Ctor for created an uninitialized CodegenAnYVal that can be assigned to later.
-    CodegenAnyVal() : 
-        _type(INVALID_TYPE), _value(NULL), _name(NULL), _codegen(NULL), _builder(NULL) { 
+    CodegenAnyVal() :
+            _type(INVALID_TYPE), _value(NULL), _name(NULL), _codegen(NULL), _builder(NULL) {
     }
 
 private:
@@ -260,12 +260,11 @@ private:
         return get_high_bits(num_bits, v, "");
     }
 
-
     /// Helper function for setting the top (most significant) half of a 'dst' to 'src'.
     /// 'src' must have width <= 'num_bits' and 'dst' must have width = 'num_bits' * 2.
     /// Both 'dst' and 'src' should be integer types.
     llvm::Value* set_high_bits(
-        int num_bits, llvm::Value* src, llvm::Value* dst, const char* name);
+            int num_bits, llvm::Value* src, llvm::Value* dst, const char* name);
 
     llvm::Value* set_high_bits(
             int num_bits, llvm::Value* src, llvm::Value* dst) {
@@ -273,7 +272,6 @@ private:
     }
 };
 
-}
+} // namespace doris
 
 #endif
-

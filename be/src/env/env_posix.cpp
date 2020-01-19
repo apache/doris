@@ -14,14 +14,14 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <unistd.h>
 #include <sys/uio.h>
+#include <unistd.h>
 #include <memory>
 
 #include "common/logging.h"
+#include "gutil/gscoped_ptr.h"
 #include "gutil/macros.h"
 #include "gutil/port.h"
-#include "gutil/gscoped_ptr.h"
 #include "gutil/strings/substitute.h"
 #include "util/errno.h"
 #include "util/slice.h"
@@ -92,7 +92,7 @@ static Status do_readv_at(int fd, const std::string& filename, uint64_t offset,
     for (size_t i = 0; i < res_cnt; i++) {
         const Slice& result = res[i];
         bytes_req += result.size;
-        iov[i] = { result.data, result.size };
+        iov[i] = {result.data, result.size};
     }
 
     uint64_t cur_offset = offset;
@@ -110,7 +110,7 @@ static Status do_readv_at(int fd, const std::string& filename, uint64_t offset,
 
         if (PREDICT_FALSE(r == 0)) {
             return Status::EndOfFile(
-                Substitute("EOF trying to read $0 bytes at offset $1", bytes_req, offset));
+                    Substitute("EOF trying to read $0 bytes at offset $1", bytes_req, offset));
         }
 
         if (PREDICT_TRUE(r == rem)) {
@@ -128,7 +128,7 @@ static Status do_readv_at(int fd, const std::string& filename, uint64_t offset,
             } else {
                 // Partially read this result.
                 // Adjust the iov_len and iov_base to request only the missing data.
-                iov[i].iov_base = static_cast<uint8_t *>(iov[i].iov_base) + bytes_rem;
+                iov[i].iov_base = static_cast<uint8_t*>(iov[i].iov_base) + bytes_rem;
                 iov[i].iov_len -= bytes_rem;
                 break; // Don't need to adjust remaining iovec's
             }
@@ -149,7 +149,7 @@ static Status do_writev_at(int fd, const string& filename, uint64_t offset,
     for (size_t i = 0; i < data_cnt; i++) {
         const Slice& result = data[i];
         bytes_req += result.size;
-        iov[i] = { result.data, result.size };
+        iov[i] = {result.data, result.size};
     }
 
     uint64_t cur_offset = offset;
@@ -180,7 +180,7 @@ static Status do_writev_at(int fd, const string& filename, uint64_t offset,
             } else {
                 // Partially wrote this result.
                 // Adjust the iov_len and iov_base to write only the missing data.
-                iov[i].iov_base = static_cast<uint8_t *>(iov[i].iov_base) + bytes_rem;
+                iov[i].iov_base = static_cast<uint8_t*>(iov[i].iov_base) + bytes_rem;
                 iov[i].iov_len -= bytes_rem;
                 break; // Don't need to adjust remaining iovec's.
             }
@@ -193,24 +193,23 @@ static Status do_writev_at(int fd, const string& filename, uint64_t offset,
     return Status::OK();
 }
 
-class PosixSequentialFile: public SequentialFile {
+class PosixSequentialFile : public SequentialFile {
 public:
-    PosixSequentialFile(string fname, FILE* f)
-        : _filename(std::move(fname)), _file(f) {}
+    PosixSequentialFile(string fname, FILE* f) :
+            _filename(std::move(fname)), _file(f) {}
 
     ~PosixSequentialFile() override {
         int err;
         RETRY_ON_EINTR(err, fclose(_file));
         if (PREDICT_FALSE(err != 0)) {
             LOG(WARNING) << "Failed to close " << _filename
-                << ", msg=" << errno_to_string(ferror(_file));
+                         << ", msg=" << errno_to_string(ferror(_file));
         }
     }
 
     Status read(Slice* result) override {
         size_t r;
-        STREAM_RETRY_ON_EINTR(r, _file, fread_unlocked(result->data, 1,
-                                                       result->size, _file));
+        STREAM_RETRY_ON_EINTR(r, _file, fread_unlocked(result->data, 1, result->size, _file));
         if (r < result->size) {
             if (feof(_file)) {
                 // We leave status as ok if we hit the end of the file.
@@ -240,14 +239,15 @@ private:
 
 class PosixRandomAccessFile : public RandomAccessFile {
 public:
-    PosixRandomAccessFile(std::string filename, int fd) : _filename(std::move(filename)), _fd(fd) {
+    PosixRandomAccessFile(std::string filename, int fd) :
+            _filename(std::move(filename)), _fd(fd) {
     }
     ~PosixRandomAccessFile() override {
         int res;
         RETRY_ON_EINTR(res, close(_fd));
         if (res != 0) {
             LOG(WARNING) << "close file failed, name=" << _filename
-                << ", msg=" << errno_to_string(errno);
+                         << ", msg=" << errno_to_string(errno);
         }
     }
 
@@ -269,6 +269,7 @@ public:
     }
 
     const std::string& file_name() const override { return _filename; }
+
 private:
     std::string _filename;
     int _fd;
@@ -276,8 +277,8 @@ private:
 
 class PosixWritableFile : public WritableFile {
 public:
-    PosixWritableFile(std::string filename, int fd, uint64_t filesize, bool sync_on_close)
-        : _filename(std::move(filename)), _fd(fd), _sync_on_close(sync_on_close), _filesize(filesize) { }
+    PosixWritableFile(std::string filename, int fd, uint64_t filesize, bool sync_on_close) :
+            _filename(std::move(filename)), _fd(fd), _sync_on_close(sync_on_close), _filesize(filesize) {}
 
     ~PosixWritableFile() override {
         WARN_IF_ERROR(close(), "Failed to close file, file=" + _filename);
@@ -378,6 +379,7 @@ public:
 
     uint64_t size() const override { return _filesize; }
     const string& filename() const override { return _filename; }
+
 private:
     std::string _filename;
     int _fd;
@@ -390,11 +392,11 @@ private:
 
 class PosixRandomRWFile : public RandomRWFile {
 public:
-    PosixRandomRWFile(string fname, int fd, bool sync_on_close)
-        : _filename(std::move(fname)),
-        _fd(fd),
-        _sync_on_close(sync_on_close),
-        _closed(false) {}
+    PosixRandomRWFile(string fname, int fd, bool sync_on_close) :
+            _filename(std::move(fname)),
+            _fd(fd),
+            _sync_on_close(sync_on_close),
+            _closed(false) {}
 
     ~PosixRandomRWFile() {
         WARN_IF_ERROR(close(), "Failed to close " + _filename);
@@ -484,11 +486,11 @@ private:
 
 class PosixEnv : public Env {
 public:
-    PosixEnv() { }
-    ~PosixEnv() override { }
+    PosixEnv() {}
+    ~PosixEnv() override {}
 
     Status new_sequential_file(
-        const string& fname, std::unique_ptr<SequentialFile>* result) override {
+            const string& fname, std::unique_ptr<SequentialFile>* result) override {
         FILE* f;
         POINTER_RETRY_ON_EINTR(f, fopen(fname.c_str(), "r"));
         if (f == nullptr) {
@@ -499,13 +501,13 @@ public:
     }
 
     Status new_random_access_file(const std::string& fname,
-                               std::unique_ptr<RandomAccessFile>* result) override {
+                                  std::unique_ptr<RandomAccessFile>* result) override {
         return new_random_access_file(RandomAccessFileOptions(), fname, result);
     }
 
     Status new_random_access_file(const RandomAccessFileOptions& opts,
-                               const std::string& fname,
-                               std::unique_ptr<RandomAccessFile>* result) override {
+                                  const std::string& fname,
+                                  std::unique_ptr<RandomAccessFile>* result) override {
         int fd;
         RETRY_ON_EINTR(fd, open(fname.c_str(), O_RDONLY));
         if (fd < 0) {
@@ -516,7 +518,7 @@ public:
     }
 
     Status new_writable_file(const string& fname,
-                           std::unique_ptr<WritableFile>* result) override {
+                             std::unique_ptr<WritableFile>* result) override {
         return new_writable_file(WritableFileOptions(), fname, result);
     }
 
@@ -535,7 +537,7 @@ public:
     }
 
     Status new_random_rw_file(const string& fname,
-                           std::unique_ptr<RandomRWFile>* result) override {
+                              std::unique_ptr<RandomRWFile>* result) override {
         return new_random_rw_file(RandomRWFileOptions(), fname, result);
     }
 
@@ -656,9 +658,9 @@ public:
     }
 
     Status get_file_modified_time(const std::string& fname,
-                                      uint64_t* file_mtime) override {
+                                  uint64_t* file_mtime) override {
         struct stat s;
-        if (stat(fname.c_str(), &s) !=0) {
+        if (stat(fname.c_str(), &s) != 0) {
             return io_error(fname, errno);
         }
         *file_mtime = static_cast<uint64_t>(s.st_mtime);
@@ -691,8 +693,8 @@ private:
 
 // Default Posix Env
 Env* Env::Default() {
-  static PosixEnv default_env;
-  return &default_env;
+    static PosixEnv default_env;
+    return &default_env;
 }
 
-}
+} // namespace doris

@@ -38,7 +38,7 @@ class ThriftServer;
 class HeartbeatServer : public HeartbeatServiceIf {
 public:
     explicit HeartbeatServer(TMasterInfo* master_info);
-    virtual ~HeartbeatServer() {};
+    virtual ~HeartbeatServer(){};
 
     virtual void init_cluster_id();
 
@@ -53,7 +53,7 @@ public:
 
 private:
     Status _heartbeat(
-        const TMasterInfo& master_info);
+            const TMasterInfo& master_info);
 
     StorageEngine* _olap_engine;
 
@@ -63,7 +63,7 @@ private:
     int64_t _epoch;
 
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);
-};  // class HeartBeatServer
+}; // class HeartBeatServer
 
 AgentStatus create_heartbeat_server(
         ExecEnv* exec_env,
@@ -71,5 +71,5 @@ AgentStatus create_heartbeat_server(
         ThriftServer** heart_beat_server,
         uint32_t worker_thread_num,
         TMasterInfo* local_master_info);
-}  // namespace doris
-#endif  // DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H
+} // namespace doris
+#endif // DORIS_BE_SRC_AGENT_HEARTBEAT_SERVER_H

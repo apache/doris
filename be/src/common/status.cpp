@@ -36,7 +36,8 @@ const char* Status::copy_state(const char* state) {
     return result;
 }
 
-Status::Status(const TStatus& s) : _state(nullptr) {
+Status::Status(const TStatus& s) :
+        _state(nullptr) {
     if (s.status_code != TStatusCode::OK) {
         if (s.error_msgs.empty()) {
             _state = assemble_state(s.status_code, Slice(), 1, Slice());
@@ -46,7 +47,8 @@ Status::Status(const TStatus& s) : _state(nullptr) {
     }
 }
 
-Status::Status(const PStatus& s) : _state(nullptr) {
+Status::Status(const PStatus& s) :
+        _state(nullptr) {
     TStatusCode::type code = (TStatusCode::type)s.status_code();
     if (code != TStatusCode::OK) {
         if (s.error_msgs_size() == 0) {
@@ -57,8 +59,8 @@ Status::Status(const PStatus& s) : _state(nullptr) {
     }
 }
 
-Status::Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2)
-        : _state(assemble_state(code, msg, precise_code, msg2)) {
+Status::Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2) :
+        _state(assemble_state(code, msg, precise_code, msg2)) {
 }
 
 void Status::to_thrift(TStatus* s) const {
@@ -194,4 +196,4 @@ Status Status::clone_and_append(const Slice& msg) const {
     return Status(code(), message(), precise_code(), msg);
 }
 
-}
+} // namespace doris

@@ -18,8 +18,8 @@
 #ifndef DORIS_BE_SRC_QUERY_CODEGEN_SUBEXPR_ELIMINATION_H
 #define DORIS_BE_SRC_QUERY_CODEGEN_SUBEXPR_ELIMINATION_H
 
-#include "common/status.h"
 #include "codegen/llvm_codegen.h"
+#include "common/status.h"
 
 namespace doris {
 
@@ -28,7 +28,7 @@ namespace doris {
 class SubExprElimination {
 public:
     SubExprElimination(LlvmCodeGen* codegen);
-    ~SubExprElimination() { }
+    ~SubExprElimination() {}
 
     // Perform subexpr elimination on function.
     bool run(llvm::Function* function);
@@ -38,7 +38,6 @@ private:
     LlvmCodeGen* _codegen;
 };
 
-}
+} // namespace doris
 
 #endif
-

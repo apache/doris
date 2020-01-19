@@ -32,18 +32,19 @@
 #include "env/env.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/Types_types.h"
+#include "gutil/strings/substitute.h"
 #include "http/http_client.h"
+#include "olap/data_dir.h"
 #include "olap/olap_common.h"
+#include "olap/snapshot_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
-#include "olap/data_dir.h"
-#include "olap/snapshot_manager.h"
-#include "olap/task/engine_checksum_task.h"
-#include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_alter_tablet_task.h"
 #include "olap/task/engine_batch_load_task.h"
-#include "olap/task/engine_storage_migration_task.h"
+#include "olap/task/engine_checksum_task.h"
+#include "olap/task/engine_clone_task.h"
 #include "olap/task/engine_publish_version_task.h"
+#include "olap/task/engine_storage_migration_task.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/snapshot_loader.h"
@@ -52,7 +53,6 @@
 #include "util/file_utils.h"
 #include "util/stopwatch.hpp"
 #include "util/time.h"
-#include "gutil/strings/substitute.h"
 
 using std::deque;
 using std::list;
@@ -106,7 +106,7 @@ void TaskWorkerPool::start() {
         break;
     case TaskWorkerType::PUSH:
     case TaskWorkerType::REALTIME_PUSH:
-        _worker_count =  config::push_worker_count_normal_priority
+        _worker_count = config::push_worker_count_normal_priority
                 + config::push_worker_count_high_priority;
         _callback_function = _push_worker_thread_callback;
         break;
@@ -209,7 +209,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
             _worker_thread_condition_lock.notify();
         }
         LOG(INFO) << "success to submit task. type=" << type_str << ", signature=" << signature
-                << ", task_count_in_queue=" << task_count_in_queue;
+                  << ", task_count_in_queue=" << task_count_in_queue;
     } else {
         LOG(INFO) << "fail to register task. type=" << type_str << ", signature=" << signature;
     }
@@ -347,7 +347,7 @@ void* TaskWorkerPool::_create_tablet_worker_thread_callback(void* arg_this) {
             ++_s_report_version;
             // get path hash of the created tablet
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                create_tablet_req.tablet_id, create_tablet_req.tablet_schema.schema_hash);
+                    create_tablet_req.tablet_id, create_tablet_req.tablet_schema.schema_hash);
             DCHECK(tablet != nullptr);
             TTabletInfo tablet_info;
             tablet_info.tablet_id = tablet->table_id();
@@ -402,18 +402,18 @@ void* TaskWorkerPool::_drop_tablet_worker_thread_callback(void* arg_this) {
         vector<string> error_msgs;
         TStatus task_status;
         TabletSharedPtr dropped_tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-            drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
+                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
         if (dropped_tablet != nullptr) {
             OLAPStatus drop_status = StorageEngine::instance()->tablet_manager()->drop_tablet(
-                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
-            if (drop_status != OLAP_SUCCESS ) {
+                    drop_tablet_req.tablet_id, drop_tablet_req.schema_hash);
+            if (drop_status != OLAP_SUCCESS) {
                 LOG(WARNING) << "drop table failed! signature: " << agent_task_req.signature;
                 error_msgs.push_back("drop table failed!");
                 status_code = TStatusCode::RUNTIME_ERROR;
             }
             // if tablet is dropped by fe, then the related txn should also be removed
             StorageEngine::instance()->txn_manager()->force_rollback_tablet_related_txns(dropped_tablet->data_dir()->get_meta(),
-                drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
+                                                                                         drop_tablet_req.tablet_id, drop_tablet_req.schema_hash, dropped_tablet->tablet_uid());
         }
         task_status.__set_status_code(status_code);
         task_status.__set_error_msgs(error_msgs);
@@ -449,7 +449,7 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
             worker_pool_this->_tasks.pop_front();
         }
         int64_t signatrue = agent_task_req.signature;
-        LOG(INFO) << "get alter table task, signature: " <<  agent_task_req.signature;
+        LOG(INFO) << "get alter table task, signature: " << agent_task_req.signature;
         bool is_task_timeout = false;
         if (agent_task_req.__isset.recv_time) {
             int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
@@ -465,10 +465,10 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
             switch (task_type) {
             case TTaskType::ALTER:
                 worker_pool_this->_alter_tablet(worker_pool_this,
-                                            agent_task_req,
-                                            signatrue,
-                                            task_type,
-                                            &finish_task_request);
+                                                agent_task_req,
+                                                signatrue,
+                                                task_type,
+                                                &finish_task_request);
                 break;
             default:
                 // pass
@@ -545,7 +545,7 @@ void TaskWorkerPool::_alter_tablet(
                 &tablet_info);
 
         if (status != DORIS_SUCCESS) {
-            LOG(WARNING) << process_name<< " success, but get new tablet info failed."
+            LOG(WARNING) << process_name << " success, but get new tablet info failed."
                          << "tablet_id: " << new_tablet_id
                          << ", schema_hash: " << new_schema_hash
                          << ", signature: " << signature;
@@ -628,7 +628,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
 #endif
 
         LOG(INFO) << "get push task. signature: " << agent_task_req.signature
-                << " priority: " << priority;
+                  << " priority: " << priority;
         vector<TTabletInfo> tablet_infos;
 
         EngineBatchLoadTask engine_task(push_req, &tablet_infos, agent_task_req.signature, &status);
@@ -705,7 +705,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
         }
 
         DorisMetrics::publish_task_request_total.increment(1);
-        LOG(INFO)<< "get publish version task, signature:" << agent_task_req.signature;
+        LOG(INFO) << "get publish version task, signature:" << agent_task_req.signature;
 
         Status st;
         vector<TTabletId> error_tablet_ids;
@@ -732,7 +732,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             // if publish failed, return failed, FE will ignore this error and
             // check error tablet ids and FE will also republish this task
             LOG(WARNING) << "publish version failed. signature:" << agent_task_req.signature
-                    << ", error_code=" << res;
+                         << ", error_code=" << res;
             st = Status::RuntimeError(strings::Substitute("publish version failed. error=$0", res));
             finish_task_request.__set_error_tablet_ids(error_tablet_ids);
         } else {
@@ -815,7 +815,6 @@ void* TaskWorkerPool::_clear_transaction_task_worker_thread_callback(void* arg_t
 }
 
 void* TaskWorkerPool::_update_tablet_meta_worker_thread_callback(void* arg_this) {
-
     TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
     while (true) {
         TAgentTaskRequest agent_task_req;
@@ -838,7 +837,7 @@ void* TaskWorkerPool::_update_tablet_meta_worker_thread_callback(void* arg_this)
 
         for (auto tablet_meta_info : update_tablet_meta_req.tabletMetaInfos) {
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                tablet_meta_info.tablet_id, tablet_meta_info.schema_hash);
+                    tablet_meta_info.tablet_id, tablet_meta_info.schema_hash);
             if (tablet == nullptr) {
                 LOG(WARNING) << "could not find tablet when update partition id"
                              << " tablet_id=" << tablet_meta_info.tablet_id
@@ -1005,10 +1004,10 @@ void* TaskWorkerPool::_check_consistency_worker_thread_callback(void* arg_this) 
 
         uint32_t checksum = 0;
         EngineChecksumTask engine_task(check_consistency_req.tablet_id,
-                check_consistency_req.schema_hash,
-                check_consistency_req.version,
-                check_consistency_req.version_hash,
-                &checksum);
+                                       check_consistency_req.schema_hash,
+                                       check_consistency_req.version,
+                                       check_consistency_req.version_hash,
+                                       &checksum);
         OLAPStatus res = worker_pool_this->_env->storage_engine()->execute_task(&engine_task);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("check consistency failed. status: %d, signature: %ld",
@@ -1062,8 +1061,8 @@ void* TaskWorkerPool::_report_task_worker_thread_callback(void* arg_this) {
         if (status != DORIS_SUCCESS) {
             DorisMetrics::report_task_requests_failed.increment(1);
             LOG(WARNING) << "finish report task failed. status:" << status
-                << ", master host:" << worker_pool_this->_master_info.network_address.hostname
-                << "port:" << worker_pool_this->_master_info.network_address.port;
+                         << ", master host:" << worker_pool_this->_master_info.network_address.hostname
+                         << "port:" << worker_pool_this->_master_info.network_address.port;
         }
 
 #ifndef BE_TEST
@@ -1120,8 +1119,8 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
         if (status != DORIS_SUCCESS) {
             DorisMetrics::report_disk_requests_failed.increment(1);
             LOG(WARNING) << "finish report disk state failed. status:" << status
-                << ", master host:" << worker_pool_this->_master_info.network_address.hostname
-                << ", port:" << worker_pool_this->_master_info.network_address.port;
+                         << ", master host:" << worker_pool_this->_master_info.network_address.hostname
+                         << ", port:" << worker_pool_this->_master_info.network_address.port;
         }
 
 #ifndef BE_TEST
@@ -1167,11 +1166,11 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
                     config::report_tablet_interval_seconds, true);
             continue;
 #else
-            return (void*)0;
+        return (void*)0;
 #endif
         }
         int64_t max_compaction_score = std::max(DorisMetrics::tablet_cumulative_max_compaction_score.value(),
-                DorisMetrics::tablet_base_max_compaction_score.value());
+                                                DorisMetrics::tablet_base_max_compaction_score.value());
         request.__set_tablet_max_compaction_score(max_compaction_score);
 
         TMasterResult result;
@@ -1180,8 +1179,8 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
         if (status != DORIS_SUCCESS) {
             DorisMetrics::report_all_tablets_requests_failed.increment(1);
             LOG(WARNING) << "finish report olap table state failed. status:" << status
-                << ", master host:" << worker_pool_this->_master_info.network_address.hostname
-                << ", port:" << worker_pool_this->_master_info.network_address.port;
+                         << ", master host:" << worker_pool_this->_master_info.network_address.hostname
+                         << ", port:" << worker_pool_this->_master_info.network_address.port;
         }
 
 #ifndef BE_TEST
@@ -1195,7 +1194,7 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
 }
 
 void* TaskWorkerPool::_upload_worker_thread_callback(void* arg_this) {
-    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*) arg_this;
+    TaskWorkerPool* worker_pool_this = (TaskWorkerPool*)arg_this;
 
 #ifndef BE_TEST
     while (true) {
@@ -1229,8 +1228,8 @@ void* TaskWorkerPool::_upload_worker_thread_callback(void* arg_this) {
         if (!status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
             OLAP_LOG_WARNING("upload failed. job id: %ld, msg: %s",
-                upload_request.job_id,
-                status.get_error_msg().c_str());
+                             upload_request.job_id,
+                             status.get_error_msg().c_str());
             error_msgs.push_back(status.get_error_msg());
         }
 
@@ -1293,8 +1292,8 @@ void* TaskWorkerPool::_download_worker_thread_callback(void* arg_this) {
         if (!status.ok()) {
             status_code = TStatusCode::RUNTIME_ERROR;
             OLAP_LOG_WARNING("download failed. job id: %ld, msg: %s",
-                download_request.job_id,
-                status.get_error_msg().c_str());
+                             download_request.job_id,
+                             status.get_error_msg().c_str());
             error_msgs.push_back(status.get_error_msg());
         }
 
@@ -1330,14 +1329,14 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                 worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_lock.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
             snapshot_request = agent_task_req.snapshot_req;
             worker_pool_this->_tasks.pop_front();
         }
-        LOG(INFO) << "get snapshot task, signature:" <<  agent_task_req.signature;
+        LOG(INFO) << "get snapshot task, signature:" << agent_task_req.signature;
 
         TStatusCode::type status_code = TStatusCode::OK;
         vector<string> error_msgs;
@@ -1354,8 +1353,7 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
                              snapshot_request.tablet_id, snapshot_request.schema_hash,
                              snapshot_request.version, snapshot_request.version_hash,
                              make_snapshot_status);
-            error_msgs.push_back("make_snapshot failed. status: " +
-                                 boost::lexical_cast<string>(make_snapshot_status));
+            error_msgs.push_back("make_snapshot failed. status: " + boost::lexical_cast<string>(make_snapshot_status));
         } else {
             LOG(INFO) << "make_snapshot success. tablet_id:" << snapshot_request.tablet_id
                       << ", schema_hash:" << snapshot_request.schema_hash
@@ -1368,17 +1366,16 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
                 // we need to add subdir: tablet_id/schema_hash/
                 std::stringstream ss;
                 ss << snapshot_path << "/" << snapshot_request.tablet_id
-                    << "/" << snapshot_request.schema_hash << "/";
+                   << "/" << snapshot_request.schema_hash << "/";
                 Status st = FileUtils::list_files(Env::Default(), ss.str(), &snapshot_files);
                 if (!st.ok()) {
                     status_code = TStatusCode::RUNTIME_ERROR;
                     OLAP_LOG_WARNING("make_snapshot failed. tablet_id: %ld, schema_hash: %ld, version: %d,"
-                        "version_hash: %ld, list file failed: %s",
-                        snapshot_request.tablet_id, snapshot_request.schema_hash,
-                        snapshot_request.version, snapshot_request.version_hash,
-                        st.get_error_msg().c_str());
-                    error_msgs.push_back("make_snapshot failed. list file failed: " +
-                                 st.get_error_msg());
+                                     "version_hash: %ld, list file failed: %s",
+                                     snapshot_request.tablet_id, snapshot_request.schema_hash,
+                                     snapshot_request.version, snapshot_request.version_hash,
+                                     st.get_error_msg().c_str());
+                    error_msgs.push_back("make_snapshot failed. list file failed: " + st.get_error_msg());
                 }
             }
         }
@@ -1433,8 +1430,7 @@ void* TaskWorkerPool::_release_snapshot_thread_callback(void* arg_this) {
             status_code = TStatusCode::RUNTIME_ERROR;
             LOG(WARNING) << "release_snapshot failed. snapshot_path: " << snapshot_path
                          << ". status: " << release_snapshot_status;
-            error_msgs.push_back("release_snapshot failed. status: " +
-                                 boost::lexical_cast<string>(release_snapshot_status));
+            error_msgs.push_back("release_snapshot failed. status: " + boost::lexical_cast<string>(release_snapshot_status));
         } else {
             LOG(INFO) << "release_snapshot success. snapshot_path: " << snapshot_path
                       << ". status: " << release_snapshot_status;
@@ -1490,7 +1486,7 @@ void* TaskWorkerPool::_move_dir_thread_callback(void* arg_this) {
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
-            move_dir_req =  agent_task_req.move_dir_req;
+            move_dir_req = agent_task_req.move_dir_req;
             worker_pool_this->_tasks.pop_front();
         }
         LOG(INFO) << "get move dir task, signature:" << agent_task_req.signature
@@ -1502,18 +1498,18 @@ void* TaskWorkerPool::_move_dir_thread_callback(void* arg_this) {
 
         // TODO: move dir
         AgentStatus status = worker_pool_this->_move_dir(
-                    move_dir_req.tablet_id,
-                    move_dir_req.schema_hash,
-                    move_dir_req.src,
-                    move_dir_req.job_id,
-                    true /* TODO */,
-                    &error_msgs);
+                move_dir_req.tablet_id,
+                move_dir_req.schema_hash,
+                move_dir_req.src,
+                move_dir_req.job_id,
+                true /* TODO */,
+                &error_msgs);
 
         if (status != DORIS_SUCCESS) {
             status_code = TStatusCode::RUNTIME_ERROR;
             OLAP_LOG_WARNING("failed to move dir: %s, tablet id: %ld, signature: %ld, job id: %ld",
-                    move_dir_req.src.c_str(), move_dir_req.tablet_id, agent_task_req.signature,
-                    move_dir_req.job_id);
+                             move_dir_req.src.c_str(), move_dir_req.tablet_id, agent_task_req.signature,
+                             move_dir_req.job_id);
         } else {
             LOG(INFO) << "finished to move dir:" << move_dir_req.src
                       << ", tablet_id:" << move_dir_req.tablet_id
@@ -1540,15 +1536,14 @@ void* TaskWorkerPool::_move_dir_thread_callback(void* arg_this) {
 }
 
 AgentStatus TaskWorkerPool::_move_dir(
-     const TTabletId tablet_id,
-     const TSchemaHash schema_hash,
-     const std::string& src,
-     int64_t job_id,
-     bool overwrite,
-     std::vector<std::string>* error_msgs) {
-
+        const TTabletId tablet_id,
+        const TSchemaHash schema_hash,
+        const std::string& src,
+        int64_t job_id,
+        bool overwrite,
+        std::vector<std::string>* error_msgs) {
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                tablet_id, schema_hash);
+            tablet_id, schema_hash);
     if (tablet == nullptr) {
         LOG(INFO) << "failed to get tablet. tablet_id:" << tablet_id
                   << ", schema hash:" << schema_hash;
@@ -1591,20 +1586,20 @@ void* TaskWorkerPool::_recover_tablet_thread_callback(void* arg_this) {
         TStatus task_status;
 
         LOG(INFO) << "begin to recover tablet."
-              << ", tablet_id:" << recover_tablet_req.tablet_id << "." << recover_tablet_req.schema_hash
-              << ", version:" << recover_tablet_req.version << "-" << recover_tablet_req.version_hash;
+                  << ", tablet_id:" << recover_tablet_req.tablet_id << "." << recover_tablet_req.schema_hash
+                  << ", version:" << recover_tablet_req.version << "-" << recover_tablet_req.version_hash;
         OLAPStatus status = worker_pool_this->_env->storage_engine()->recover_tablet_until_specfic_version(recover_tablet_req);
         if (status != OLAP_SUCCESS) {
             status_code = TStatusCode::RUNTIME_ERROR;
             LOG(WARNING) << "failed to recover tablet."
-                << "signature:" << agent_task_req.signature
-                << ", table:" << recover_tablet_req.tablet_id << "." << recover_tablet_req.schema_hash
-                << ", version:" << recover_tablet_req.version << "-" << recover_tablet_req.version_hash;
+                         << "signature:" << agent_task_req.signature
+                         << ", table:" << recover_tablet_req.tablet_id << "." << recover_tablet_req.schema_hash
+                         << ", version:" << recover_tablet_req.version << "-" << recover_tablet_req.version_hash;
         } else {
             LOG(WARNING) << "succeed to recover tablet."
-                << "signature:" << agent_task_req.signature
-                << ", table:" << recover_tablet_req.tablet_id << "." << recover_tablet_req.schema_hash
-                << ", version:" << recover_tablet_req.version << "-" << recover_tablet_req.version_hash;
+                         << "signature:" << agent_task_req.signature
+                         << ", table:" << recover_tablet_req.tablet_id << "." << recover_tablet_req.schema_hash
+                         << ", version:" << recover_tablet_req.version << "-" << recover_tablet_req.version_hash;
         }
 
         task_status.__set_status_code(status_code);
@@ -1618,9 +1613,8 @@ void* TaskWorkerPool::_recover_tablet_thread_callback(void* arg_this) {
 
         worker_pool_this->_finish_task(finish_task_request);
         worker_pool_this->_remove_task_info(agent_task_req.task_type, agent_task_req.signature);
-
     }
     return (void*)0;
 }
 
-}  // namespace doris
+} // namespace doris

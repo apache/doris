@@ -23,9 +23,9 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include "agent/cgroups_mgr.h"
 #include "boost/filesystem.hpp"
 #include "boost/lexical_cast.hpp"
-#include "agent/cgroups_mgr.h"
 #include "gen_cpp/AgentService_types.h"
 #include "http/http_client.h"
 #include "olap/olap_common.h"
@@ -130,13 +130,13 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
             estimate_time_out = config::download_low_speed_time;
         }
         bool is_timeout = false;
-        auto download_cb = [this, estimate_time_out, file_size, &is_timeout] (HttpClient* client) {
+        auto download_cb = [this, estimate_time_out, file_size, &is_timeout](HttpClient* client) {
             // Check timeout and set timeout
             time_t now = time(NULL);
             if (_push_req.timeout > 0 && _push_req.timeout < now) {
                 // return status to break this callback
                 VLOG(3) << "check time out. time_out:" << _push_req.timeout
-                    << ", now:" << now;
+                        << ", now:" << now;
                 is_timeout = true;
                 return Status::OK();
             }
@@ -159,7 +159,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
                 uint64_t local_file_size = boost::filesystem::file_size(_local_file_path);
                 if (file_size != local_file_size) {
                     LOG(WARNING) << "download_file size error. file_size=" << file_size
-                        << ", local_file_size=" << local_file_size;
+                                 << ", local_file_size=" << local_file_size;
                     return Status::InternalError("downloaded file's size isn't right");
                 }
             }
@@ -167,7 +167,7 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
             _push_req.http_file_path = _local_file_path;
             return Status::OK();
         };
-        
+
         MonotonicStopWatch stopwatch;
         stopwatch.start();
         auto st = HttpClient::execute_with_retry(MAX_RETRY, 1, download_cb);
@@ -178,18 +178,18 @@ AgentStatus Pusher::process(vector<TTabletInfo>* tablet_infos) {
         if (st.ok() && !is_timeout) {
             double rate = -1.0;
             if (_push_req.__isset.http_file_size) {
-                rate = (double) _push_req.http_file_size / (cost / 1000 / 1000 / 1000) / 1024;
+                rate = (double)_push_req.http_file_size / (cost / 1000 / 1000 / 1000) / 1024;
             }
             LOG(INFO) << "down load file success. local_file=" << _local_file_path
-                << ", remote_file=" << _remote_file_path
-                << ", tablet_id" << _push_req.tablet_id
-                << ", cost=" << cost / 1000 << "us, file_size" << _push_req.http_file_size
-                << ", download rage:" << rate << "KB/s";
+                      << ", remote_file=" << _remote_file_path
+                      << ", tablet_id" << _push_req.tablet_id
+                      << ", cost=" << cost / 1000 << "us, file_size" << _push_req.http_file_size
+                      << ", download rage:" << rate << "KB/s";
         } else {
             LOG(WARNING) << "down load file failed. remote_file=" << _remote_file_path
-                << ", tablet=" << _push_req.tablet_id
-                << ", cost=" << cost / 1000
-                << "us, errmsg=" << st.get_error_msg() << ", is_timeout=" << is_timeout;
+                         << ", tablet=" << _push_req.tablet_id
+                         << ", cost=" << cost / 1000
+                         << "us, errmsg=" << st.get_error_msg() << ", is_timeout=" << is_timeout;
             status = DORIS_ERROR;
         }
     }
