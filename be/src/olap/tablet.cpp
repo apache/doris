@@ -255,7 +255,7 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
     // yiguolei: temp code, should remove the rowset contains by this rowset
     // but it should be removed in multi path version
     for (auto& it : _rs_version_map) {
-        if (it.first.contains(rowset->version()) && it.first != rowset->version()) {
+        if (rowset->version().contains(it.first) && rowset->version() != it.first) {
             if (it.second == nullptr) {
                 LOG(FATAL) << "there exist a version=" << it.first
                            << " contains the input rs with version=" << rowset->version()

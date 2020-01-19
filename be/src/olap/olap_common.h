@@ -199,7 +199,7 @@ struct Version {
     }
 
     bool contains(const Version& other) const {
-        return first <= other.first && second >= other.first;
+        return first <= other.first && second >= other.second;
     }
 };
 
