@@ -42,7 +42,7 @@ namespace doris {
 //
 //   NOTREADY -> RUNNING -> TOMBSTONED -> STOPPED -> SHUTDOWN
 //      |           |            |          ^^^
-//      |           |            +----------+||
+//      |           |            +----------++|
 //      |           +------------------------+|
 //      +-------------------------------------+
 
@@ -111,7 +111,7 @@ public:
                int64_t tablet_id, int32_t schema_hash,
                uint64_t shard_id, const TTabletSchema& tablet_schema,
                uint32_t next_unique_id,
-               const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id, 
+               const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                TabletUid tablet_uid);
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
@@ -130,7 +130,7 @@ public:
     OLAPStatus to_meta_pb(TabletMetaPB* tablet_meta_pb);
     OLAPStatus to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
 
-    const TabletUid tablet_uid();
+    inline const TabletUid tablet_uid() const;
     inline const int64_t table_id() const;
     inline const int64_t partition_id() const;
     inline const int64_t tablet_id() const;
@@ -215,6 +215,10 @@ private:
 
     RWMutex _meta_lock;
 };
+
+inline const TabletUid TabletMeta::tablet_uid() const {
+    return _tablet_uid;
+}
 
 inline const int64_t TabletMeta::table_id() const {
     return _table_id;

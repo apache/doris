@@ -30,15 +30,14 @@ namespace doris {
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
 class EngineTask {
-
 public:
-    // use agent_status not olap_status, because the task is very close to engine
+    // use olap_status not agent_status, because the task is very close to engine
     virtual OLAPStatus prepare() { return OLAP_SUCCESS; }
     virtual OLAPStatus execute() { return OLAP_SUCCESS; }
     virtual OLAPStatus finish() { return OLAP_SUCCESS; }
     virtual OLAPStatus cancel() { return OLAP_SUCCESS; }
-    virtual void get_related_tablets(vector<TabletInfo>* tablet_infos) {}
-}; // EngineTask
+    virtual void get_related_tablets(std::vector<TabletInfo>* tablet_infos) {}
+};
 
-} // doris
+} // end namespace doris
 #endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_TASK_H
