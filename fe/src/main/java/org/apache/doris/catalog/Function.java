@@ -21,6 +21,7 @@ import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HdfsURI;
 import org.apache.doris.common.io.Text;
@@ -667,5 +668,35 @@ public class Function implements Writable {
 
     public String getProperties() {
         return "";
+    }
+
+    public List<Comparable> getInfo(boolean isVerbose) {
+        List<Comparable> row = Lists.newArrayList();
+        if (isVerbose) {
+            // signature
+            row.add(getSignature());
+            // return type
+            row.add(getReturnType().getPrimitiveType().toString());
+            // function type
+            // intermediate type
+            if (this instanceof ScalarFunction) {
+                row.add("Scalar");
+                row.add("NULL");
+            } else {
+                row.add("Aggregate");
+                AggregateFunction aggFunc = (AggregateFunction) this;
+                Type intermediateType = aggFunc.getIntermediateType();
+                if (intermediateType != null) {
+                    row.add(intermediateType.getPrimitiveType().toString());
+                } else {
+                    row.add("NULL");
+                }
+            }
+            // property
+            row.add(getProperties());
+        } else {
+            row.add(functionName());
+        }
+        return row;
     }
 }
