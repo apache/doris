@@ -63,11 +63,11 @@ under the License.
             2) 对于单分区表，partition_name 同表名。
         
     rollup 支持如下几种创建方式：
-    1. 创建 rollup index
+    1. 批量创建 rollup index
         语法：
-            ADD ROLLUP rollup_name (column_name1, column_name2, ...)
+            ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
             [FROM from_index_name]
-            [PROPERTIES ("key"="value", ...)]
+            [PROPERTIES ("key"="value", ...)],...]
         注意：
             1) 如果没有指定 from_index_name，则默认从 base index 创建
             2) rollup 表中的列必须是 from_index 中已有的列
@@ -75,8 +75,7 @@ under the License.
             
     2. 删除 rollup index
         语法：
-            DROP ROLLUP rollup_name
-            [PROPERTIES ("key"="value", ...)]
+            DROP ROLLUP [rollup_name [PROPERTIES ("key"="value", ...)],...]
         注意：
             1) 不能删除 base index
             2) 执行 DROP ROLLUP 一段时间内，可以通过 RECOVER 语句恢复被删除的 rollup index。详见 RECOVER 语句

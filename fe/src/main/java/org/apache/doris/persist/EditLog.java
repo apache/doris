@@ -18,6 +18,7 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.BatchAlterJobV2;
 import org.apache.doris.alter.DecommissionBackendJob;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.RollupJobV2;
@@ -692,6 +693,13 @@ public class EditLog {
                     }
                     break;
                 }
+                case OperationType.OP_BATCH_ALTER_JOB_V2: {
+                    BatchAlterJobV2 batchAlterJobV2 = (BatchAlterJobV2)journal.getData();
+                    for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
+                        catalog.getRollupHandler().replayAlterJobV2(alterJobV2);
+                    }
+                    break;
+                }
                 case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
                     TableInfo tableInfo = (TableInfo)journal.getData();
                     catalog.replayConvertDistributionType(tableInfo);
@@ -1198,6 +1206,10 @@ public class EditLog {
 
     public void logAlterJob(AlterJobV2 alterJob) {
         logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
+    }
+
+    public void logBatchAlterJob(BatchAlterJobV2 batchAlterJobV2) {
+        logEdit(OperationType.OP_BATCH_ALTER_JOB_V2, batchAlterJobV2);
     }
 
     public void logModifyDistributionType(TableInfo tableInfo) {

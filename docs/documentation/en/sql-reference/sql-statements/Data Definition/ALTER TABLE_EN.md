@@ -63,20 +63,20 @@ under the License.
             2) For single-partition tables, partition_name is the same as the table name.
         
     Rollup supports the following ways to create:
-    1. Create a rollup index
+    1. Batch Create rollup index
         grammar:
-            ADD ROLLUP rollup_name (column_name1, column_name2, ...)
+            ADD ROLLUP rollup_name [(column_name1, column_name2, ...)
             [FROM from_index_name]
-            [PROPERTIES ("key"="value", ...)]
+            [PROPERTIES ("key"="value", ...)],...]
         note:
             1) If from_index_name is not specified, it is created by default from base index
             2) The columns in the rollup table must be existing columns in from_index
             3) In properties, you can specify the storage format. See CREATE TABLE for details.
             
-    2. Delete the rollup index
+    2. Batch Delete the rollup index
         grammar:
-            DROP ROLLUP rollup_name
-            [PROPERTIES ("key"="value", ...)]
+            DROP ROLLUP [rollup_name
+            [PROPERTIES ("key"="value", ...)],...]
         note:
             1) Cannot delete base index
             2) Execute DROP ROLLUP For a period of time, the deleted rollup index can be restored by the RECOVER statement. See the RECOVER statement for details.

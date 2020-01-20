@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -85,7 +86,7 @@ public class CancelAlterTableStmt extends CancelStmt {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CANCEL ALTER " + this.alterType);
         stringBuilder.append(" FROM " + dbTableName.toSql());
-        if (alterJobIdList != null && alterJobIdList.size() > 0) {
+        if (!CollectionUtils.isEmpty(alterJobIdList)) {
             stringBuilder.append(" (")
             .append(String.join(",",alterJobIdList.stream().map(String::valueOf).collect(Collectors.toList())));
             stringBuilder.append(")");
