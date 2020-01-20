@@ -958,11 +958,12 @@ create_stmt ::=
             opt_comment:tableComment
             opt_partition:partition
             opt_distribution:distribution
+            opt_rollup:index
             opt_properties:tblProperties
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment);
+        distribution, tblProperties, extProperties, tableComment, index);
     :}
     /* User */
     | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole

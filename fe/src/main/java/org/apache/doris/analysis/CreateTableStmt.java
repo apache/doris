@@ -75,7 +75,7 @@ public class CreateTableStmt extends DdlStmt {
     private Map<String, String> extProperties;
     private String engineName;
     private String comment;
-    private List<AlterClause> ops;
+    private List<AlterClause> rollupAlterClauseList;
 
     private static Set<String> engineNames;
 
@@ -143,24 +143,7 @@ public class CreateTableStmt extends DdlStmt {
                            DistributionDesc distributionDesc,
                            Map<String, String> properties,
                            Map<String, String> extProperties,
-                           String comment) {
-        this(ifNotExists, isExternal, tableName, columnDefinitions, indexDefs, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, null);
-    }
-
-
-    public CreateTableStmt(boolean ifNotExists,
-                           boolean isExternal,
-                           TableName tableName,
-                           List<ColumnDef> columnDefinitions,
-                           List<IndexDef> indexDefs,
-                           String engineName,
-                           KeysDesc keysDesc,
-                           PartitionDesc partitionDesc,
-                           DistributionDesc distributionDesc,
-                           Map<String, String> properties,
-                           Map<String, String> extProperties,
-                           String comment, List<AlterClause> ops) {
+                           String comment, List<AlterClause> rollupAlterClauseList) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -184,7 +167,7 @@ public class CreateTableStmt extends DdlStmt {
         this.comment = Strings.nullToEmpty(comment);
 
         this.tableSignature = -1;
-        this.ops = ops == null ? new ArrayList<>() : ops;
+        this.rollupAlterClauseList = rollupAlterClauseList == null ? new ArrayList<>() : rollupAlterClauseList;
     }
 
     public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }
@@ -253,12 +236,12 @@ public class CreateTableStmt extends DdlStmt {
         return comment;
     }
 
-    public void setOps(List<AlterClause> ops) {
-        this.ops = ops;
+    public void setRollupAlterClauseList(List<AlterClause> rollupAlterClauseList) {
+        this.rollupAlterClauseList = rollupAlterClauseList;
     }
 
-    public List<AlterClause> getOps() {
-        return ops;
+    public List<AlterClause> getRollupAlterClauseList() {
+        return rollupAlterClauseList;
     }
 
     public List<Index> getIndexes() {
@@ -567,12 +550,12 @@ public class CreateTableStmt extends DdlStmt {
             sb.append("\n").append(distributionDesc.toSql());
         }
 
-        if (ops != null && ops.size() != 0) {
+        if (rollupAlterClauseList != null && rollupAlterClauseList.size() != 0) {
             sb.append("\n rollup(");
             StringBuilder opsSb = new StringBuilder();
-            for (int i = 0; i < ops.size(); i++) {
-                opsSb.append(ops.get(i).toSql());
-                if (i != ops.size() - 1) {
+            for (int i = 0; i < rollupAlterClauseList.size(); i++) {
+                opsSb.append(rollupAlterClauseList.get(i).toSql());
+                if (i != rollupAlterClauseList.size() - 1) {
                     opsSb.append(",");
                 }
             }

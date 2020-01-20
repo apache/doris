@@ -989,6 +989,6 @@ public class Config extends ConfigBase {
      * control rollup job concurrent limit
      */
     @ConfField
-    public static int max_running_rollup_job_num = 1;
+    public static int max_running_rollup_job_num_per_table = 1;
 }
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import com.google.common.collect.Iterators;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -62,6 +63,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
+
+import static org.apache.doris.catalog.TabletInvertedIndex.NOT_EXIST_VALUE;
 
 /*
  * Version 2 of RollupJob.
@@ -146,6 +149,73 @@ public class RollupJobV2 extends AlterJobV2 {
         this.parentRollupJobId = parentRollupJobId;
     }
 
+    protected void runInitJob() throws AlterCancelException {
+        Preconditions.checkState(jobState == JobState.INIT);
+        LOG.info("begin to create materialized index for job {}", jobId);
+
+        Catalog catalog = Catalog.getCurrentCatalog();
+        Database db = catalog.getDb(getDbId());
+
+        db.readLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(getTableId());
+            Preconditions.checkState(olapTable.getState() == OlapTableState.ROLLUP);
+            for (Partition partition : olapTable.getPartitions()) {
+                long partitionId = partition.getId();
+                TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+                // index state is SHADOW
+                MaterializedIndex mvIndex = new MaterializedIndex(rollupIndexId, IndexState.SHADOW);
+                MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
+
+                TabletMeta mvTabletMeta = new TabletMeta(db.getId(), olapTable.getId(), partitionId, rollupIndexId, rollupSchemaHash, medium);
+                for (Tablet baseTablet : baseIndex.getTablets()) {
+                    long baseTabletId = baseTablet.getId();
+                    long mvTabletId = catalog.getNextId();
+
+                    Tablet newTablet = new Tablet(mvTabletId);
+                    mvIndex.addTablet(newTablet, mvTabletMeta);
+
+                    addTabletIdMap(partitionId, mvTabletId, baseTabletId);
+                    List<Replica> baseReplicas = baseTablet.getReplicas();
+
+                    for (Replica baseReplica : baseReplicas) {
+                        long mvReplicaId = catalog.getNextId();
+                        long backendId = baseReplica.getBackendId();
+
+                        if (baseReplica.getState() == ReplicaState.CLONE
+                                || baseReplica.getState() == ReplicaState.DECOMMISSION
+                                || baseReplica.getLastFailedVersion() > 0) {
+                            // just skip it.
+                            continue;
+                        }
+                        Preconditions.checkState(baseReplica.getState() == ReplicaState.NORMAL);
+                        // replica's init state is ALTER, so that tablet report process will ignore its report
+
+                        Replica mvReplica = new Replica(mvReplicaId, backendId, ReplicaState.ALTER,
+                                Partition.PARTITION_INIT_VERSION, Partition
+                                .PARTITION_INIT_VERSION_HASH,
+                                getRollupSchemaHash());
+                        newTablet.addReplica(mvReplica);
+                    } // end for baseReplica
+                } // end for baseTablets
+
+                addMVIndex(partitionId, mvIndex);
+
+                LOG.debug("create materialized view index {} based on index {} in partition {}",
+                        getRollupIndexId(), getBaseIndexId(), partitionId);
+            } // end for partitions
+        } catch (Exception e) {
+            LOG.error("create materialized view index failed, index {} based on index {}, job id:",
+                    getRollupIndexId(), getBaseIndexId(), jobId, e);
+            throw new AlterCancelException(String.format("create materialized view index failed, index %s based on %s", rollupIndexName, baseIndexName));
+        } finally {
+            db.readUnlock();
+        }
+
+        this.jobState = JobState.PENDING;
+        catalog.getEditLog().logAlterJob(this);
+        LOG.info("transfer rollup job {} state to {}", jobId, jobState);
+    }
     /*
      * runPendingJob():
      * 1. Create all rollup replicas and wait them finished.
@@ -161,6 +231,28 @@ public class RollupJobV2 extends AlterJobV2 {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             throw new AlterCancelException("Database " + dbId + " does not exist");
+        }
+
+
+        // if restart the fe when a pending job has been checkpoint,replayPendingJob won't be called,and TabletInvertedIndex will lose the new tablet info
+        // so we need to check whether tablet exist in TabletInvertedIndex before run pending job
+        db.readLock();
+        try {
+            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+            Map.Entry<Long, MaterializedIndex> indexEntry = Iterators.get(partitionIdToRollupIndex.entrySet().iterator(), 0);
+            Tablet tablet = Iterators.get(indexEntry.getValue().getTablets().iterator(), 0);
+            long tabletId = invertedIndex.getTableId(tablet.getId());
+            if (tabletId == NOT_EXIST_VALUE) {
+                OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                db.writeLock();
+                try {
+                    addRollupIndexToCatalog(olapTable);
+                } finally {
+                    db.writeUnlock();
+                }
+            }
+        } finally {
+            db.readUnlock();
         }
 
         // 1. create rollup replicas
@@ -595,6 +687,11 @@ public class RollupJobV2 extends AlterJobV2 {
         watershedTxnId = in.readLong();
     }
 
+    private void replayInit(RollupJobV2 replayedJob) {
+        this.jobState = JobState.INIT;
+        LOG.info("replay init rollup job: {}", jobId);
+    }
+
     /*
      * Replay job in PENDING state.
      * Should replay all changes before this job's state transfer to PENDING.
@@ -615,35 +712,39 @@ public class RollupJobV2 extends AlterJobV2 {
                 return;
             }
 
-            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             if (this.partitionIdToBaseRollupTabletIdMap.size() == 0 && replayedJob.partitionIdToBaseRollupTabletIdMap.size() != 0) {
                 this.partitionIdToBaseRollupTabletIdMap = replayedJob.partitionIdToBaseRollupTabletIdMap;
             }
             if (this.partitionIdToRollupIndex.size() == 0 && replayedJob.partitionIdToRollupIndex.size() != 0) {
                 this.partitionIdToRollupIndex = replayedJob.partitionIdToRollupIndex;
             }
-            // add all rollup replicas to tablet inverted index
-            for (Long partitionId : partitionIdToRollupIndex.keySet()) {
-                MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
-                TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
-                TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
-                        rollupSchemaHash, medium);
-
-                for (Tablet rollupTablet : rollupIndex.getTablets()) {
-                    invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
-                    for (Replica rollupReplica : rollupTablet.getReplicas()) {
-                        invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);
-                    }
-                }
-            }
+            addTabletToInvertedIndex(tbl);
         } finally {
             db.writeUnlock();
         }
 
-        this.jobState = JobState.WAITING_TXN;
+        this.jobState = JobState.PENDING;
         this.watershedTxnId = replayedJob.watershedTxnId;
 
         LOG.info("replay pending rollup job: {}", jobId);
+    }
+
+    private void addTabletToInvertedIndex(OlapTable tbl) {
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        // add all rollup replicas to tablet inverted index
+        for (Long partitionId : partitionIdToRollupIndex.keySet()) {
+            MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
+            TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+            TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
+                    rollupSchemaHash, medium);
+
+            for (Tablet rollupTablet : rollupIndex.getTablets()) {
+                invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
+                for (Replica rollupReplica : rollupTablet.getReplicas()) {
+                    invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);
+                }
+            }
+        }
     }
 
     /*
@@ -664,6 +765,8 @@ public class RollupJobV2 extends AlterJobV2 {
                 // table may be dropped before replaying this log. just return
                 return;
             }
+            // for pending job which has been checkpoint,replayPendingJob method won't be called,so need to addTabletToInvertedIndex here
+            addTabletToInvertedIndex(tbl);
             addRollupIndexToCatalog(tbl);
         } finally {
             db.writeUnlock();
@@ -716,6 +819,9 @@ public class RollupJobV2 extends AlterJobV2 {
     public void replay(AlterJobV2 replayedJob) {
         RollupJobV2 replayedRollupJob = (RollupJobV2) replayedJob;
         switch (replayedJob.jobState) {
+            case INIT:
+                replayInit(replayedRollupJob);
+                break;
             case PENDING:
                 replayPending(replayedRollupJob);
                 break;

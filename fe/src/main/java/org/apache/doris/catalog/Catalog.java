@@ -1683,7 +1683,7 @@ public class Catalog {
             newChecksum ^= size;
             for (int i = 0; i < size; i++) {
                 AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
-                alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
+                this.getRollupHandler().addAlterJobV2(alterJobV2);
             }
         }
 
@@ -3537,8 +3537,8 @@ public class Catalog {
 
 
         // set rollup index to olap table
-        stmt.setOps(MaterializedViewHandler.sortRollupIndex(stmt.getOps()));
-        for (AlterClause alterClause : stmt.getOps()) {
+        stmt.setRollupAlterClauseList(MaterializedViewHandler.sortRollupIndex(stmt.getRollupAlterClauseList()));
+        for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
             AddRollupClause addRollupClause = (AddRollupClause)alterClause;
 
             String baseRollupIndexName = addRollupClause.getBaseRollupName();

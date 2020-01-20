@@ -38,7 +38,8 @@ public abstract class AlterJobV2 implements Writable {
     private static final Logger LOG = LogManager.getLogger(AlterJobV2.class);
 
     public enum JobState {
-        PENDING, // Job is created
+        INIT, // Job is created
+        PENDING, // Job's MaterializedIndex is created
         WAITING_TXN, // New replicas are created and Shadow catalog object is visible for incoming txns,
                      // waiting for previous txns to be finished
         RUNNING, // alter tasks are sent to BE, and waiting for them finished.
@@ -76,7 +77,7 @@ public abstract class AlterJobV2 implements Writable {
         this.timeoutMs = timeoutMs;
 
         this.createTimeMs = System.currentTimeMillis();
-        this.jobState = JobState.PENDING;
+        this.jobState = JobState.INIT;
     }
 
     protected AlterJobV2(JobType type) {
@@ -133,6 +134,9 @@ public abstract class AlterJobV2 implements Writable {
 
         try {
             switch (jobState) {
+            case INIT:
+                runInitJob();
+                break;
             case PENDING:
                 runPendingJob();
                 break;
@@ -155,6 +159,8 @@ public abstract class AlterJobV2 implements Writable {
             return cancelImpl(errMsg);
         }
     }
+
+    protected void runInitJob() throws AlterCancelException {}
 
     protected abstract void runPendingJob() throws AlterCancelException;
 
