@@ -4200,6 +4200,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BACKENDS:id
     {: RESULT = id; :}
+    | KW_BUILTIN:id
+    {: RESULT = id; :}
     | KW_CHAIN:id
     {: RESULT = id; :}
     | KW_CHARSET:id

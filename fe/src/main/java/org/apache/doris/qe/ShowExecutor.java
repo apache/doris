@@ -67,7 +67,6 @@ import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
-import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -80,12 +79,10 @@ import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.BaseParam;
@@ -316,40 +313,14 @@ public class ShowExecutor {
 
         List<List<Comparable>> rowSet = Lists.newArrayList();
         for (Function function : functions) {
-            List<Comparable> row = Lists.newArrayList();
-            if (showStmt.getIsVerbose()) {
-                // signature
-                row.add(function.getSignature());
-                // return type
-                row.add(function.getReturnType().getPrimitiveType().toString());
-                // function type
-                // intermediate type
-                if (function instanceof ScalarFunction) {
-                    row.add("Scalar");
-                    row.add("NULL");
-                } else {
-                    row.add("Aggregate");
-                    AggregateFunction aggFunc = (AggregateFunction) function;
-                    Type intermediateType = aggFunc.getIntermediateType();
-                    if (intermediateType != null) {
-                        row.add(intermediateType.getPrimitiveType().toString());
-                    } else {
-                        row.add("NULL");
-                    }
-                }
-                // property
-                row.add(function.getProperties());
-            } else {
-                row.add(function.functionName());
-            }
-
+            List<Comparable> row = function.getInfo(showStmt.getIsVerbose());
             // like predicate
             if (showStmt.getWild() == null || showStmt.like(function.functionName())) {
                 rowSet.add(row);
             }
         }
 
-        // sort function rows by fisrt column asec
+        // sort function rows by first column asc
         ListComparator<List<Comparable>> comparator = null;
         OrderByPair orderByPair = new OrderByPair(0, false);
         comparator = new ListComparator<>(orderByPair);
