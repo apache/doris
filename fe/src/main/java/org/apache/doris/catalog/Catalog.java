@@ -5268,6 +5268,10 @@ public class Catalog {
         return functionSet.getFunction(desc, mode);
     }
 
+    public List<Function> getBuiltinFunctions() {
+        return functionSet.getBulitinFunctions();
+    }
+
     /**
      * create cluster
      *

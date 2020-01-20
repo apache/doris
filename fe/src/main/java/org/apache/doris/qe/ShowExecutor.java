@@ -39,7 +39,7 @@ import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
-import org.apache.doris.analysis.ShowFunctionStmt;
+import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
@@ -67,7 +67,6 @@ import org.apache.doris.backup.AbstractJob;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
-import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -80,11 +79,10 @@ import org.apache.doris.catalog.MetadataViewer;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.ScalarFunction;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.BaseParam;
@@ -138,6 +136,7 @@ import java.net.URLConnection;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -183,8 +182,8 @@ public class ShowExecutor {
             handleShowProcesslist();
         } else if (stmt instanceof ShowEnginesStmt) {
             handleShowEngines();
-        } else if (stmt instanceof ShowFunctionStmt) {
-            handleShowFunction();
+        } else if (stmt instanceof ShowFunctionsStmt) {
+            handleShowFunctions();
         } else if (stmt instanceof ShowVariablesStmt) {
             handleShowVariables();
         } else if (stmt instanceof ShowColumnStmt) {
@@ -302,44 +301,51 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
     }
 
-    // Handle show function
-    private void handleShowFunction() throws AnalysisException {
-        ShowFunctionStmt showStmt = (ShowFunctionStmt) stmt;
-
+    // Handle show functions
+    private void handleShowFunctions() throws AnalysisException {
+        ShowFunctionsStmt showStmt = (ShowFunctionsStmt) stmt;
         Database db = ctx.getCatalog().getDb(showStmt.getDbName());
         if (db == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
-        List<Function> functions = db.getFunctions();
+        List<Function> functions = showStmt.getIsBuiltin() ? ctx.getCatalog().getBuiltinFunctions() :
+            db.getFunctions();
 
-        List<List<String>> rowSet = Lists.newArrayList();
+        List<List<Comparable>> rowSet = Lists.newArrayList();
         for (Function function : functions) {
-            List<String> row = Lists.newArrayList();
-            // signature
-            row.add(function.getSignature());
-            // return type
-            row.add(function.getReturnType().getPrimitiveType().toString());
-            // function type
-            // intermediate type
-            if (function instanceof ScalarFunction) {
-                row.add("Scalar");
-                row.add("NULL");
-            } else {
-                row.add("Aggregate");
-                AggregateFunction aggFunc = (AggregateFunction) function;
-                Type intermediateType = aggFunc.getIntermediateType();
-                if (intermediateType != null) {
-                    row.add(intermediateType.getPrimitiveType().toString());
-                } else {
-                    row.add("NULL");
-                }
+            List<Comparable> row = function.getInfo(showStmt.getIsVerbose());
+            // like predicate
+            if (showStmt.getWild() == null || showStmt.like(function.functionName())) {
+                rowSet.add(row);
             }
-            // property
-            row.add(function.getProperties());
-            rowSet.add(row);
         }
+
+        // sort function rows by first column asc
+        ListComparator<List<Comparable>> comparator = null;
+        OrderByPair orderByPair = new OrderByPair(0, false);
+        comparator = new ListComparator<>(orderByPair);
+        Collections.sort(rowSet, comparator);
+        List<List<String>> resultRowSet = Lists.newArrayList();
+
+        Set<String> functionNameSet = new HashSet<>();
+        for (List<Comparable> row : rowSet) {
+            List<String> resultRow = Lists.newArrayList();
+            // if not verbose, remove duplicate function name
+            if (functionNameSet.contains(row.get(0).toString())) {
+                continue;
+            }
+            for (Comparable column : row) {
+                resultRow.add(column.toString());
+            }
+            resultRowSet.add(resultRow);
+            functionNameSet.add(resultRow.get(0));
+        }
+
         // Only success
-        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+        ShowResultSetMetaData showMetaData = showStmt.getIsVerbose() ? showStmt.getMetaData() :
+            ShowResultSetMetaData.builder()
+                .addColumn(new Column("Function Name", ScalarType.createVarchar(256))).build();
+        resultSet = new ShowResultSet(showMetaData, resultRowSet);
     }
 
     private void handleShowProc() throws AnalysisException {
