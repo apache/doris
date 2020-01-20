@@ -58,9 +58,7 @@ struct ColumnReaderOptions {
 struct ColumnIteratorOptions {
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
-    // just use pointer, make sure not to delete the handle pointer
-    // the lifetime of segment_file_handle will be managed in SegmentIterator
-    OpenedFileHandle<RandomAccessFile>* segment_file_handle = nullptr;
+    RandomAccessFile* file = nullptr;
 };
 
 // There will be concurrent users to read the same column. So
@@ -74,7 +72,7 @@ public:
     static Status create(const ColumnReaderOptions& opts,
                          const ColumnMetaPB& meta,
                          uint64_t num_rows,
-                         RandomAccessFile* file,
+                         const std::string& file_name,
                          std::unique_ptr<ColumnReader>* reader);
 
     ~ColumnReader();
@@ -129,7 +127,7 @@ private:
     ColumnReader(const ColumnReaderOptions& opts,
                  const ColumnMetaPB& meta,
                  uint64_t num_rows,
-                 RandomAccessFile* file);
+                 const std::string& file_name);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -160,7 +158,7 @@ private:
     ColumnReaderOptions _opts;
     ColumnMetaPB _meta;
     uint64_t _num_rows;
-    RandomAccessFile* _file;
+    std::string _file_name;
 
     // initialized in init()
     const TypeInfo* _type_info = nullptr;
@@ -237,6 +235,13 @@ public:
     FileColumnIterator(ColumnReader* reader);
     ~FileColumnIterator() override;
 
+    Status init(const ColumnIteratorOptions& opts) override {
+        RETURN_IF_ERROR(ColumnIterator::init(opts));
+        DCHECK(_opts.file != nullptr);
+        _file = _opts.file;
+        return Status::OK();
+    }
+
     Status seek_to_first() override;
 
     Status seek_to_ordinal(rowid_t ord_idx) override;
@@ -283,6 +288,8 @@ private:
 
     // page indexes those are DEL_PARTIAL_SATISFIED
     std::vector<uint32_t> _delete_partial_statisfied_pages;
+
+    RandomAccessFile* _file;
 };
 
 // This iterator is used to read default value column

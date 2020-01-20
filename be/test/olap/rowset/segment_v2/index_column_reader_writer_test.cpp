@@ -68,15 +68,11 @@ void wirte_index_file(std::string& file_name, const void* values,
 
 template<FieldType type>
 void get_bitmap_reader_iter(std::string& file_name, BitmapIndexColumnPB& bitmap_index_meta,
-                            std::unique_ptr<RandomAccessFile>* rfile,
                             BitmapIndexReader** reader,
                             BitmapIndexIterator** iter) {
     file_name = dname + "/" + file_name;
-    auto st = Env::Default()->new_random_access_file(file_name, rfile);
-    ASSERT_TRUE(st.ok());
-
-    *reader = new BitmapIndexReader(rfile->get(), bitmap_index_meta);
-    st = (*reader)->load();
+    *reader = new BitmapIndexReader(file_name, bitmap_index_meta);
+    auto st = (*reader)->load();
     ASSERT_TRUE(st.ok());
 
     st = (*reader)->new_iterator(iter);
@@ -98,8 +94,7 @@ TEST_F(IndexColumnReaderWriterTest, test_invert) {
         std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, bitmap_index_meta,
-                                                    &rfile, &reader, &iter);
+        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, bitmap_index_meta, &reader, &iter);
 
         int value = 2;
         bool exact_match;
@@ -151,11 +146,9 @@ TEST_F(IndexColumnReaderWriterTest, test_invert_2) {
                                           &bitmap_index_meta);
 
     {
-        std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, bitmap_index_meta,
-                                                    &rfile, &reader, &iter);
+        get_bitmap_reader_iter<OLAP_FIELD_TYPE_INT>(file_name, bitmap_index_meta, &reader, &iter);
 
         int value = 1026;
         bool exact_match;
@@ -187,11 +180,9 @@ TEST_F(IndexColumnReaderWriterTest, test_multi_pages) {
     wirte_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num_uint8_rows, 0,
                                              &bitmap_index_meta);
     {
-        std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, bitmap_index_meta,
-                                                       &rfile, &reader, &iter);
+        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, bitmap_index_meta, &reader, &iter);
 
         int64_t value = 2019;
         bool exact_match;
@@ -220,11 +211,9 @@ TEST_F(IndexColumnReaderWriterTest, test_null) {
     wirte_index_file<OLAP_FIELD_TYPE_BIGINT>(file_name, val, num_uint8_rows, 30,
                                              &bitmap_index_meta);
     {
-        std::unique_ptr<RandomAccessFile> rfile;
         BitmapIndexReader* reader = nullptr;
         BitmapIndexIterator* iter = nullptr;
-        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, bitmap_index_meta,
-                                                       &rfile, &reader, &iter);
+        get_bitmap_reader_iter<OLAP_FIELD_TYPE_BIGINT>(file_name, bitmap_index_meta, &reader, &iter);
 
         Roaring bitmap;
         iter->read_null_bitmap(&bitmap);

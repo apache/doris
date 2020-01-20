@@ -485,7 +485,6 @@ private:
 
 class PosixEnv : public Env {
 public:
-    PosixEnv() : _file_cache("posix_random_file_cache", this, config::file_descriptor_cache_capacity) { }
     ~PosixEnv() override { }
 
     Status new_sequential_file(
@@ -497,15 +496,6 @@ public:
         }
         result->reset(new PosixSequentialFile(fname, f));
         return Status::OK();
-    }
-
-    // get a RandomAccessFile by using file cache.
-    // the result is Descriptor<RandomAccessFile>*, the RandomAccessFile in the Descriptor<RandomAccessFile>
-    // will be closed when there is no ref to RandomAccessFile, and reopen if necessary
-    Status new_random_access_file(const std::string& fname,
-                               std::shared_ptr<RandomAccessFile>* result) override {
-        RETURN_IF_ERROR(_file_cache.init());
-        return _file_cache.open_file(fname, result);
     }
 
     // get a RandomAccessFile pointer without file cache
@@ -698,11 +688,6 @@ private:
         }
         return false; // stat() failed return false
     }
-
-private:
-    // this cache should be better put in file block manager when imported later
-    // And now we only support RandomAccessFile cache
-    FileCache<RandomAccessFile> _file_cache;
 };
 
 // Default Posix Env
