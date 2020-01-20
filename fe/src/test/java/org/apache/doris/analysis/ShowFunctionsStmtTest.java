@@ -33,60 +33,60 @@ import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
 public class ShowFunctionsStmtTest {
-  @Mocked
-  private Analyzer analyzer;
-  private Catalog catalog;
+    @Mocked
+    private Analyzer analyzer;
+    private Catalog catalog;
 
-  @Mocked
-  private PaloAuth auth;
-  @Mocked
-  private ConnectContext ctx;
-  private FakeCatalog fakeCatalog;
+    @Mocked
+    private PaloAuth auth;
+    @Mocked
+    private ConnectContext ctx;
+    private FakeCatalog fakeCatalog;
 
-  @Rule
-  public ExpectedException expectedEx = ExpectedException.none();
+    @Rule
+    public ExpectedException expectedEx = ExpectedException.none();
 
-  @Before
-  public void setUp() {
-    fakeCatalog = new FakeCatalog();
-    catalog = AccessTestUtil.fetchAdminCatalog();
-    MockedAuth.mockedAuth(auth);
-    MockedAuth.mockedConnectContext(ctx, "root", "192.188.3.1");
+    @Before
+    public void setUp() {
+        fakeCatalog = new FakeCatalog();
+        catalog = AccessTestUtil.fetchAdminCatalog();
+        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedConnectContext(ctx, "root", "192.188.3.1");
+        FakeCatalog.setCatalog(catalog);
 
-    FakeCatalog.setCatalog(catalog);
-    new Expectations() {
-      {
-        analyzer.getDefaultDb();
-        minTimes = 0;
-        result = "testDb";
+        new Expectations() {
+            {
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "testDb";
 
-        analyzer.getCatalog();
-        minTimes = 0;
-        result = catalog;
+                analyzer.getCatalog();
+                minTimes = 0;
+                result = catalog;
 
-        analyzer.getClusterName();
-        minTimes = 0;
-        result = "testCluster";
-      }
-    };
+                analyzer.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+            }
+        };
+    }
 
-  }
+    @Test
+    public void testNormal() throws UserException {
+        ShowFunctionsStmt stmt = new ShowFunctionsStmt(null, true, true, "%year%", null);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW FULL BUILTIN FUNCTIONS FROM `testDb` LIKE `%year%`", stmt.toString());
+    }
 
-  @Test
-  public void testNormal() throws UserException {
-    ShowFunctionsStmt stmt = new ShowFunctionsStmt(null, true, true, "%year%", null);
-    stmt.analyze(analyzer);
-    Assert.assertEquals("SHOW FULL BUILTIN FUNCTIONS FROM `testDb` LIKE `%year%`", stmt.toString());
-  }
+    @Test
+    public void testUnsupportFilter() throws UserException {
+        SlotRef slotRef = new SlotRef(null, "Signature");
+        StringLiteral stringLiteral = new StringLiteral("year(DATETIME)");
+        BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef, stringLiteral);
+        ShowFunctionsStmt stmt = new ShowFunctionsStmt(null, true, true, null, binaryPredicate);
+        expectedEx.expect(AnalysisException.class);
+        expectedEx.expectMessage("Only support like 'function_pattern' syntax.");
+        stmt.analyze(analyzer);
+    }
 
-  @Test
-  public void testUnsupportFilter() throws UserException {
-    SlotRef slotRef = new SlotRef(null, "Signature");
-    StringLiteral stringLiteral = new StringLiteral("year(DATETIME)");
-    BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef, stringLiteral);
-    ShowFunctionsStmt stmt = new ShowFunctionsStmt(null, true, true, null, binaryPredicate);
-    expectedEx.expect(AnalysisException.class);
-    expectedEx.expectMessage("Only support like 'function_pattern' syntax.");
-    stmt.analyze(analyzer);
-  }
 }
