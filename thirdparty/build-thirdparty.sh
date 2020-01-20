@@ -159,7 +159,7 @@ build_libevent() {
 
     CFLAGS="-std=c99 -fPIC -D_BSD_SOURCE -fno-omit-frame-pointer -g -ggdb -O2 -I${TP_INCLUDE_DIR}" \
     LDFLAGS="-L${TP_LIB_DIR}" \
-    ./configure --prefix=$TP_INSTALL_DIR --enable-shared=no --disable-samples
+    ./configure --prefix=$TP_INSTALL_DIR --enable-shared=no --disable-samples --disable-libevent-regress
     make -j$PARALLEL && make install
 }
 
@@ -690,6 +690,7 @@ build_orc() {
     -DLZ4_INCLUDE_DIR=$TP_INSTALL_DIR/include/lz4 \
     -DZLIB_HOME=$TP_INSTALL_DIR\
     -DBUILD_LIBHDFSPP=OFF \
+    -DBUILD_CPP_TESTS=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR 
 
     make -j$PARALLEL && make install
