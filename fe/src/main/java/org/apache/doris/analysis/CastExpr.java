@@ -271,9 +271,9 @@ public class CastExpr extends Expr {
     }
 
     private Expr castTo(LiteralExpr value) throws AnalysisException {
-        Preconditions.checkArgument(!(value instanceof NullLiteral)
-            && !type.isNull());
-        if (type.isIntegerType()) {
+        if (value instanceof NullLiteral) {
+            return value;
+        } else if (type.isIntegerType()) {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());
