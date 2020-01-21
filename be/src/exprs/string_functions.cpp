@@ -79,6 +79,16 @@ StringVal StringFunctions::right(
     return substring(context, str, IntVal(pos), len);
 }
 
+BooleanVal StringFunctions::starts_with(
+        FunctionContext* context, const StringVal& str, const StringVal& prefix) {
+    if (str.is_null || prefix.is_null) {
+        return BooleanVal::null();
+    }
+    re2::StringPiece str_sp(reinterpret_cast<char*>(str.ptr), str.len);
+    re2::StringPiece prefix_sp(reinterpret_cast<char*>(prefix.ptr), prefix.len);
+    return BooleanVal(str_sp.starts_with(prefix_sp));
+}
+
 BooleanVal StringFunctions::ends_with(
         FunctionContext* context, const StringVal& str, const StringVal& suffix) {
     if (str.is_null || suffix.is_null) {

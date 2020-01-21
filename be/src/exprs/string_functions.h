@@ -49,6 +49,9 @@ public:
     static doris_udf::StringVal right(
         doris_udf::FunctionContext* context, const doris_udf::StringVal& str, 
         const doris_udf::IntVal& len);
+    static doris_udf::BooleanVal starts_with(
+        doris_udf::FunctionContext* context, const doris_udf::StringVal& str,
+        const doris_udf::StringVal& prefix);
     static doris_udf::BooleanVal ends_with(
         doris_udf::FunctionContext* context, const doris_udf::StringVal& str,
         const doris_udf::StringVal& suffix);

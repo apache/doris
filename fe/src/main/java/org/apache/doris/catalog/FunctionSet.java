@@ -1320,4 +1320,12 @@ public class FunctionSet {
         }
 
     }
+
+    public List<Function> getBulitinFunctions() {
+        List<Function> builtinFunctions = Lists.newArrayList();
+        for (Map.Entry<String, List<Function>> entry : functions.entrySet()) {
+            builtinFunctions.addAll(entry.getValue());
+        }
+        return builtinFunctions;
+    }
 }

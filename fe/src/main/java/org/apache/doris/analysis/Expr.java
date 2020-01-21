@@ -170,6 +170,12 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 public boolean apply(Expr arg) { return arg instanceof BinaryPredicate; }
             };
 
+    public static final com.google.common.base.Predicate<Expr> IS_NULL_LITERAL =
+            new com.google.common.base.Predicate<Expr>() {
+                @Override
+                public boolean apply(Expr arg) { return arg instanceof NullLiteral; }
+            };
+
     /* TODO(zc)
     public final static com.google.common.base.Predicate<Expr>
             IS_NONDETERMINISTIC_BUILTIN_FN_PREDICATE =

@@ -506,6 +506,8 @@ visible_functions = [
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
     [['ends_with'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris15StringFunctions9ends_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
+    [['starts_with'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
+        '_ZN5doris15StringFunctions11starts_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['space'], 'VARCHAR', ['INT'],
         '_ZN5doris15StringFunctions5spaceEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
     [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'],
