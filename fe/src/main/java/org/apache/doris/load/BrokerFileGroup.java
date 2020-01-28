@@ -64,7 +64,7 @@ public class BrokerFileGroup implements Writable {
     // fileFormat may be null, which means format will be decided by file's suffix
     private String fileFormat;
     private boolean isNegative;
-    private List<Long> partitionIds;
+    private List<Long> partitionIds; // can be null, means no partition specified
     private List<String> filePaths;
 
     private List<String> fileFieldNames;
