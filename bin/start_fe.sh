@@ -100,11 +100,16 @@ jdk_version() {
  
 # check java version and choose correct JAVA_OPTS
 java_version=$(jdk_version)
-echo "using java version $java_version" >> $LOG_DIR/fe.out
 final_java_opt=$JAVA_OPTS
 if [ $java_version -gt 8 ]; then
-    final_java_opt=$JAVA_OPTS_FOR_9
+    if [ -z "$JAVA_OPTS_FOR_JDK_9" ]; then
+        echo "JAVA_OPTS_FOR_JDK_9 is not set in fe.conf" >> $LOG_DIR/fe.out
+        exit -1
+    fi 
+    final_java_opt=$JAVA_OPTS_FOR_JDK_9
 fi
+echo "using java version $java_version" >> $LOG_DIR/fe.out
+echo $final_java_opt >> $LOG_DIR/fe.out
 
 # add libs to CLASSPATH
 for f in $DORIS_HOME/lib/*.jar; do
