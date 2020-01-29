@@ -17,7 +17,7 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.doris.common.ThriftServer;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.proto.PCancelPlanFragmentRequest;
 import org.apache.doris.proto.PCancelPlanFragmentResult;
 import org.apache.doris.proto.PExecPlanFragmentResult;
@@ -31,10 +31,12 @@ import org.apache.doris.rpc.PExecPlanFragmentRequest;
 import org.apache.doris.rpc.PFetchDataRequest;
 import org.apache.doris.rpc.PTriggerProfileReportRequest;
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TAgentPublishRequest;
 import org.apache.doris.thrift.TAgentResult;
 import org.apache.doris.thrift.TAgentTaskRequest;
+import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TBackendInfo;
 import org.apache.doris.thrift.TCancelPlanFragmentParams;
 import org.apache.doris.thrift.TCancelPlanFragmentResult;
@@ -47,6 +49,7 @@ import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
 import org.apache.doris.thrift.TFetchDataParams;
 import org.apache.doris.thrift.TFetchDataResult;
+import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
 import org.apache.doris.thrift.TMiniLoadEtlStatusRequest;
@@ -68,14 +71,14 @@ import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.baidu.jprotobuf.pbrpc.ProtobufRPCService;
-import com.baidu.jprotobuf.pbrpc.transport.RpcServer;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
 
 import org.apache.thrift.TException;
-import org.apache.thrift.TProcessor;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.BlockingQueue;
 
 /*
  * This class is used to create mock backends.
@@ -108,44 +111,24 @@ import java.util.List;
  */
 public class MockedBackendFactory {
 
+    public static final String BE_DEFAULT_IP = "127.0.0.1";
     public static final int BE_DEFAULT_HEARTBEAT_PORT = 9050;
     public static final int BE_DEFAULT_THRIFT_PORT = 9060;
     public static final int BE_DEFAULT_BRPC_PORT = 8060;
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
 
-    public static void createDefaultBackend() throws IOException {
-        createBackend(BE_DEFAULT_HEARTBEAT_PORT, BE_DEFAULT_THRIFT_PORT, BE_DEFAULT_BRPC_PORT,
+    public static MockedBackend createDefaultBackend() throws IOException {
+        return createBackend(BE_DEFAULT_IP, BE_DEFAULT_HEARTBEAT_PORT, BE_DEFAULT_THRIFT_PORT, BE_DEFAULT_BRPC_PORT, BE_DEFAULT_HTTP_PORT,
                 new DefaultHeartbeatServiceImpl(), new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
     }
 
-    public static void createBackend(int heartbeatPort, int thriftPort, int brpcPort, 
-            HeartbeatService.Iface hbServiceImpl,
-            BackendService.Iface backendServiceImpl,
-            Object pBackendServiceImpl) throws IOException {
-        createHeartbeatService(heartbeatPort, hbServiceImpl);
-        createBeThriftService(thriftPort, backendServiceImpl);
-        createBrpcService(brpcPort, pBackendServiceImpl);
-    }
+    public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort, int httpPort,
+            HeartbeatService.Iface hbService, BeThriftService beThriftService, Object pBackendService)
+            throws IOException {
 
-    private static void createHeartbeatService(int heartbeatPort, HeartbeatService.Iface serviceImpl) throws IOException {
-        TProcessor tprocessor = new HeartbeatService.Processor<HeartbeatService.Iface>(serviceImpl);
-        ThriftServer heartbeatServer = new ThriftServer(heartbeatPort, tprocessor);
-        heartbeatServer.start();
-        System.out.println("Be heartbeat service is started with port: " + heartbeatPort);
-    }
-
-    private static void createBeThriftService(int beThriftPort, BackendService.Iface serviceImpl) throws IOException {
-        TProcessor tprocessor = new BackendService.Processor<BackendService.Iface>(serviceImpl);
-        ThriftServer beThriftServer = new ThriftServer(beThriftPort, tprocessor);
-        beThriftServer.start();
-        System.out.println("Be thrift service is started with port: " + beThriftPort);
-    }
-
-    private static void createBrpcService(int brpcPort, Object pBackendServiceImpl) {
-        RpcServer rpcServer = new RpcServer();
-        rpcServer.registerService(pBackendServiceImpl);
-        rpcServer.start(brpcPort);
-        System.out.println("Be brpc service is started with port: " + brpcPort);
+        MockedBackend backend = new MockedBackend(host, heartbeatPort, thriftPort, brpcPort, httpPort, hbService,
+                beThriftService, pBackendService);
+        return backend;
     }
 
     public static class DefaultHeartbeatServiceImpl implements HeartbeatService.Iface {
@@ -158,7 +141,54 @@ public class MockedBackendFactory {
         }
     }
     
-    public static class DefaultBeThriftServiceImpl implements BackendService.Iface {
+    public static abstract class BeThriftService implements BackendService.Iface {
+        protected MockedBackend backend;
+
+        public void setBackend(MockedBackend backend) {
+            this.backend = backend;
+        }
+
+        public abstract void init();
+    }
+
+    public static class DefaultBeThriftServiceImpl extends BeThriftService {
+
+        private BlockingQueue<TAgentTaskRequest> taskQueue = Queues.newLinkedBlockingQueue();
+
+        private TBackend tBackend;
+        
+        private long reportVersion = 0;
+
+        public DefaultBeThriftServiceImpl() {
+
+        }
+
+        @Override
+        public void init() {
+            tBackend = new TBackend(backend.getHost(), backend.getBeThriftPort(), backend.getHttpPort());
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    while (true) {
+                        try {
+                            TAgentTaskRequest request = taskQueue.take();
+                            System.out.println("get agent task request. type: " + request.getTask_type()
+                                    + ", signature: " + request.getSignature());
+                            TFinishTaskRequest finishTaskRequest = new TFinishTaskRequest(tBackend,
+                                    request.getTask_type(), request.getSignature(), new TStatus(TStatusCode.OK));
+                            finishTaskRequest.setReport_version(++reportVersion);
+
+                            FrontendService.Client client = ClientPool.frontendPool.borrowObject(backend.getFeAddress(), 2000);
+                            System.out.println("get fe " + backend.getFeAddress() + " client: " + client);
+                            client.finishTask(finishTaskRequest);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+            }).start();
+        }
+
         @Override
         public TExecPlanFragmentResult exec_plan_fragment(TExecPlanFragmentParams params) throws TException {
             return null;
@@ -181,6 +211,11 @@ public class MockedBackendFactory {
 
         @Override
         public TAgentResult submit_tasks(List<TAgentTaskRequest> tasks) throws TException {
+            for (TAgentTaskRequest request : tasks) {
+                taskQueue.add(request);
+                System.out.println("receive agent task request. type: " + request.getTask_type() + ", signature: "
+                        + request.getSignature());
+            }
             return new TAgentResult(new TStatus(TStatusCode.OK));
         }
 

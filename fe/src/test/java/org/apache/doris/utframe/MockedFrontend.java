@@ -65,11 +65,13 @@ import java.util.Map;
  *  
  *  PID_DIR/ is used to save fe.pid file.
  */
-public class FrontendProcess {
+public class MockedFrontend {
     public static final String FE_PROCESS = "fe";
     
     // the min set of fe.conf.
     private static final Map<String, String> MIN_FE_CONF;
+
+    private Map<String, String> finalFeConf;
 
     static {
         MIN_FE_CONF = Maps.newHashMap();
@@ -86,11 +88,15 @@ public class FrontendProcess {
     }
 
     private static class SingletonHolder {
-        private static final FrontendProcess INSTANCE = new FrontendProcess();
+        private static final MockedFrontend INSTANCE = new MockedFrontend();
     }
 
-    public static FrontendProcess getInstance() {
+    public static MockedFrontend getInstance() {
         return SingletonHolder.INSTANCE;
+    }
+
+    public int getRpcPort() {
+        return Integer.valueOf(finalFeConf.get("rpc_port"));
     }
 
     private boolean isInit = false;
@@ -127,13 +133,13 @@ public class FrontendProcess {
     }
 
     private void initFeConf(Map<String, String> feConf) throws IOException {
-        Map<String, String> conf = Maps.newHashMap(MIN_FE_CONF);
-        conf.putAll(feConf);
+        finalFeConf = Maps.newHashMap(MIN_FE_CONF);
+        finalFeConf.putAll(feConf);
 
         final String dorisHome = System.getenv("DORIS_HOME");
         final String confDir = dorisHome + "/conf/";
 
-        PrintableMap<String, String> map = new PrintableMap<>(conf, "=", false, true, "");
+        PrintableMap<String, String> map = new PrintableMap<>(finalFeConf, "=", false, true, "");
         File confFile = new File(confDir + "fe.conf");
         if (!confFile.exists()) {
             confFile.createNewFile();
