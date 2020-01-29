@@ -103,8 +103,8 @@ public class PaloFe {
             while (true) {
                 Thread.sleep(2000);
             }
-        } catch (Throwable exception) {
-            exception.printStackTrace();
+        } catch (Throwable e) {
+            e.printStackTrace();
             System.exit(-1);
         }
     } // end PaloFe main()

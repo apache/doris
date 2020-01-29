@@ -32,6 +32,7 @@ import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
+import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
@@ -51,13 +52,11 @@ import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
-import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.PartitionRenameClause;
@@ -69,9 +68,10 @@ import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
-import org.apache.doris.analysis.TableRenameClause;
-import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableRef;
+import org.apache.doris.analysis.TableRenameClause;
+import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupHandler;
@@ -157,9 +157,9 @@ import org.apache.doris.persist.DatabaseInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.DropLinkDbAndUpdateDbInfo;
 import org.apache.doris.persist.DropPartitionInfo;
-import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.ModifyPartitionInfo;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
@@ -684,19 +684,15 @@ public class Catalog {
     }
 
     // wait until FE is ready.
-    public void waitForReady() {
+    public void waitForReady() throws InterruptedException {
         while (true) {
             if (isReady()) {
                 LOG.info("catalog is ready. FE type: {}", feType);
                 break;
             }
 
-            try {
-                Thread.sleep(2000);
-                LOG.info("wait catalog to be ready. FE type: {}. is ready: {}", feType, isReady.get());
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
+            Thread.sleep(2000);
+            LOG.info("wait catalog to be ready. FE type: {}. is ready: {}", feType, isReady.get());
         }
     }
     

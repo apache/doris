@@ -76,7 +76,9 @@ public class ResultReceiver {
                         throw new TimeoutException("query timeout");
                     }
                     try {
+                        LOG.debug("cmy before get next");
                         pResult = future.get(timeoutTs - currentTs, TimeUnit.MILLISECONDS);
+                        LOG.debug("cmy after get next, pResult: {}", pResult);
                     } catch (InterruptedException e) {
                         // continue to get result
                         LOG.info("future get interrupted Exception");
