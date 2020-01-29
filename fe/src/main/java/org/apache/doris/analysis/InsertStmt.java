@@ -87,8 +87,8 @@ public class InsertStmt extends DdlStmt {
 
     private final TableName tblName;
     private final Set<String> targetPartitionNames;
-    // parsed from targetPartitionNames. null means no partition specified
-    private List<Long> targetPartitionIds;
+    // parsed from targetPartitionNames. empty means no partition specified
+    private List<Long> targetPartitionIds = Lists.newArrayList();
     private final List<String> targetColumnNames;
     private final QueryStmt queryStmt;
     private final List<String> planHints;
@@ -325,7 +325,6 @@ public class InsertStmt extends DdlStmt {
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
                 }
-                targetPartitionIds = Lists.newArrayList();
                 for (String partName : targetPartitionNames) {
                     Partition part = olapTable.getPartition(partName);
                     if (part == null) {

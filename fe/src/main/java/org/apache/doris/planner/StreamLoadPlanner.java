@@ -55,7 +55,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 // Used to generate a plan fragment for a streaming load.
 // we only support OlapTable now.
@@ -172,13 +171,12 @@ public class StreamLoadPlanner {
         return params;
     }
 
+    // get all specified partition ids. return an empty list if no partition is specified.
     private List<Long> getAllPartitionIds() throws DdlException {
         List<Long> partitionIds = Lists.newArrayList();
 
         String partitionsStr = streamLoadTask.getPartitions();
-        if (partitionsStr == null) {
-            partitionIds.addAll(destTable.getPartitions().stream().map(p -> p.getId()).collect(Collectors.toList()));
-        } else {
+        if (partitionsStr != null) {
             String[] partNames = partitionsStr.trim().split("\\s*,\\s*");
             for (String partName : partNames) {
                 Partition part = destTable.getPartition(partName);

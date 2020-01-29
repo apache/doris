@@ -73,7 +73,6 @@ public class OlapTableSink extends DataSink {
     // input variables
     private OlapTable dstTable;
     private TupleDescriptor tupleDescriptor;
-    private String partitions;
     // specified partition ids. empty means partition does not specified, so all partitions will be included.
     private List<Long> partitionIds;
 

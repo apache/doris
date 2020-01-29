@@ -99,7 +99,7 @@ public class OlapTableSinkTest {
             dstTable.getPartitions(); result = Lists.newArrayList(partition);
         }};
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, null);
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList());
         sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());
