@@ -44,7 +44,7 @@ public class BrokerLoadPendingTask extends LoadTask {
 
     public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
             Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
-                                 BrokerDesc brokerDesc) {
+            BrokerDesc brokerDesc) {
         super(loadTaskCallback);
         this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);

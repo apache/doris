@@ -77,8 +77,8 @@ public class BrokerFileGroup implements Writable {
     // filter the data which has been conformed
     private Expr whereExpr;
 
-    // Used for recovery from edit log
-    private BrokerFileGroup() {
+    // for unit test and edit log persistence
+    public BrokerFileGroup() {
     }
 
     // Used for broker table, no need to parse

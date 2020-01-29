@@ -17,6 +17,7 @@
 
 package org.apache.doris.load;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
@@ -39,26 +40,90 @@ import java.util.stream.Collectors;
  * This class is mainly used to aggregate information of multiple DataDescriptors.
  * When the table name and specified partitions in the two DataDescriptors are same,
  * the BrokerFileGroup information corresponding to the two DataDescriptors will be aggregated together.
- * eg.
+ * eg1：
  * 
- * DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
- * INTO TABLE `tbl1`
- * PARTITION (p1, p2)
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p1, p2)
  * 
- * and
+ *  and
  * 
- * DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
- * INTO TABLE `tbl1`
- * PARTITION (p1, p2)
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p1, p2)
  *
- * will be aggregated together, because they have same table name and specified partitions
- * =>
- * FileGroupAggKey(tbl1, [p1, p2]) => List(file1, file2);
+ *  will be aggregated together, because they have same table name and specified partitions
+ *  =>
+ *  FileGroupAggKey(tbl1, [p1, p2]) => List(file1, file2);
+ * 
+ * eg2:
+ * 
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p1)
+ * 
+ *  and
+ * 
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p2)
+ * 
+ *  will NOT be aggregated together, because they have same table name but different specified partitions
+ *  FileGroupAggKey(tbl1, [p1]) => List(file1);
+ *  FileGroupAggKey(tbl1, [p2]) => List(file2);
+ * 
+ * eg3:
+ * 
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p1, p2)
+ * 
+ *  and
+ * 
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p2, p3)
+ * 
+ *  will throw an Exception, because there is an overlap partition(p2) between 2 data descriptions. And we
+ *  currently not allow this. You can rewrite the data descriptions like this:
+ *  
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p1)
+ * 
+ *  and
+ * 
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p3) 
+ *  
+ *  and
+ * 
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file1")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p2) 
+ *  
+ *  and
+ *  
+ *  DATA INFILE("hdfs://hdfs_host:hdfs_port/input/file2")
+ *  INTO TABLE `tbl1`
+ *  PARTITION (p2)
+ *  
+ *  they will be aggregate like:
+ *  FileGroupAggKey(tbl1, [p1]) => List(file1);
+ *  FileGroupAggKey(tbl1, [p3]) => List(file2);
+ *  FileGroupAggKey(tbl1, [p2]) => List(file1, file2);
+ *  
+ *  Although this transformation can be done automatically by system, but it change the "max_filter_ratio".
+ *  So we have to let user decide what to do.
  */
 public class BrokerFileGroupAggInfo implements Writable {
     private static final Logger LOG = LogManager.getLogger(BrokerFileGroupAggInfo.class);
 
     private Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
+    // auxiliary structure, tbl id -> set of partition ids.
+    // used to exam the overlapping partitions of same table.
+    private Map<Long, Set<Long>> tableIdToPartitioIds = Maps.newHashMap();
 
     // this inner class This class is used to distinguish different combinations of table and partitions
     public static class FileGroupAggKey {
@@ -112,14 +177,29 @@ public class BrokerFileGroupAggInfo implements Writable {
 
     }
 
-    public void addFileGroup(BrokerFileGroup fileGroup) {
+    public void addFileGroup(BrokerFileGroup fileGroup) throws DdlException {
         FileGroupAggKey fileGroupAggKey = new FileGroupAggKey(fileGroup.getTableId(), fileGroup.getPartitionIds());
         List<BrokerFileGroup> fileGroupList = aggKeyToFileGroups.get(fileGroupAggKey);
         if (fileGroupList == null) {
+            // check if there are overlapping partitions of same table
+            if (tableIdToPartitioIds.containsKey(fileGroup.getTableId()) 
+                    && tableIdToPartitioIds.get(fileGroup.getTableId()).stream().anyMatch(id -> fileGroup.getPartitionIds().contains(id))) {
+                throw new DdlException("There are overlapping partitions of same table in data descrition of load job stmt");
+            }
+            
             fileGroupList = Lists.newArrayList();
             aggKeyToFileGroups.put(fileGroupAggKey, fileGroupList);
         }
+        // exist, aggregate them
         fileGroupList.add(fileGroup);
+
+        // update tableIdToPartitioIds
+        Set<Long> partitionIds = tableIdToPartitioIds.get(fileGroup.getTableId());
+        if (partitionIds == null) {
+            partitionIds = Sets.newHashSet();
+            tableIdToPartitioIds.put(fileGroup.getTableId(), partitionIds);
+        }
+        partitionIds.addAll(fileGroup.getPartitionIds());
     }
 
     public Set<Long> getAllTableIds() {
