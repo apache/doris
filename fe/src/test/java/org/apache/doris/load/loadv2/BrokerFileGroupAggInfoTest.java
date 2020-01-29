@@ -65,18 +65,25 @@ public class BrokerFileGroupAggInfoTest {
         Deencapsulation.setField(group4, "tableId", 3L);
         Deencapsulation.setField(group4, "partitionIds", Lists.newArrayList(11L, 12L));
 
+        BrokerFileGroup group5 = new BrokerFileGroup();
+        Deencapsulation.setField(group5, "tableId", 4L);
+        Deencapsulation.setField(group5, "partitionIds", null);
+
         brokerFileGroupAggInfo.addFileGroup(group1);
         brokerFileGroupAggInfo.addFileGroup(group2);
         brokerFileGroupAggInfo.addFileGroup(group3);
         brokerFileGroupAggInfo.addFileGroup(group4);
+        brokerFileGroupAggInfo.addFileGroup(group5);
 
         Map<FileGroupAggKey, List<BrokerFileGroup>> map = brokerFileGroupAggInfo.getAggKeyToFileGroups();
-        Assert.assertEquals(3, map.keySet().size());
+        Assert.assertEquals(4, map.keySet().size());
         FileGroupAggKey aggKey = new FileGroupAggKey(1L, Lists.newArrayList(10L));
         Assert.assertEquals(2, map.get(aggKey).size());
         aggKey = new FileGroupAggKey(2L, Lists.newArrayList());
         Assert.assertEquals(1, map.get(aggKey).size());
         aggKey = new FileGroupAggKey(3L, Lists.newArrayList(11L, 12L));
+        Assert.assertEquals(1, map.get(aggKey).size());
+        aggKey = new FileGroupAggKey(4L, Lists.newArrayList());
         Assert.assertEquals(1, map.get(aggKey).size());
     }
 
