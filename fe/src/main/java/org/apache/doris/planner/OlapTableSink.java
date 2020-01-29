@@ -98,27 +98,6 @@ public class OlapTableSink extends DataSink {
         tDataSink.setType(TDataSinkType.OLAP_TABLE_SINK);
         tDataSink.setOlap_table_sink(tSink);
 
-        /*
-        if (partitions != null) {
-            if (dstTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
-            }
-            partitionSet = Sets.newHashSet();
-            String[] partNames = partitions.trim().split("\\s*,\\s*");
-            for (String partName : partNames) {
-                Partition part = dstTable.getPartition(partName);
-                if (part == null) {
-                    ErrorReport.reportAnalysisException(
-                            ErrorCode.ERR_UNKNOWN_PARTITION, partName, dstTable.getName());
-                }
-                partitionSet.add(partName);
-            }
-            if (partitionSet.isEmpty()) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_ON_NONPARTITIONED);
-            }
-        }
-        */
-
         // check partition
         if (!partitionIds.isEmpty() && dstTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
