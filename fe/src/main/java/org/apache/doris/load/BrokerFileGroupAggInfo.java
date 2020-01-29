@@ -199,7 +199,9 @@ public class BrokerFileGroupAggInfo implements Writable {
             partitionIds = Sets.newHashSet();
             tableIdToPartitioIds.put(fileGroup.getTableId(), partitionIds);
         }
-        partitionIds.addAll(fileGroup.getPartitionIds());
+        if (fileGroup.getPartitionIds() != null) {
+            partitionIds.addAll(fileGroup.getPartitionIds());
+        }
     }
 
     public Set<Long> getAllTableIds() {
