@@ -75,7 +75,6 @@ public class MockedFrontend {
 
     static {
         MIN_FE_CONF = Maps.newHashMap();
-        MIN_FE_CONF.put("JAVA_OPTS", "\"-Xmx256m\"");
         MIN_FE_CONF.put("sys_log_level", "INFO");
         MIN_FE_CONF.put("http_port", "8030");
         MIN_FE_CONF.put("rpc_port", "9020");
