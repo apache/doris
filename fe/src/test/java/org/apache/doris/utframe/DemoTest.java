@@ -60,7 +60,7 @@ import java.util.Random;
  *  3. Make a schema change to tbl.
  *  4. send a query and get query plan
  */
-public class Demo {
+public class DemoTest {
 
     private static int fe_http_port;
     private static int fe_rpc_port;
