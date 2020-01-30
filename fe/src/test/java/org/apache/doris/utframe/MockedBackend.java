@@ -29,6 +29,18 @@ import org.apache.thrift.TProcessor;
 
 import java.io.IOException;
 
+/*
+ * Mocked Backend
+ * A mocked Backend has 3 rpc services. 
+ *      HeartbeatService.Iface to handle heart beat from Frontend.
+ *      BeThriftService to handle agent tasks and other requests from Frontend.
+ *      BRpcService to handle the query request from Frontend.
+ *      
+ * Users can create a BE by customizing three rpc services.
+ * 
+ * Better to create a mocked Backend from MockedBackendFactory.
+ * In MockedBackendFactory, there default rpc service for above 3 rpc services.
+ */
 public class MockedBackend {
 
     private ThriftServer heartbeatServer;
@@ -40,7 +52,8 @@ public class MockedBackend {
     private int thriftPort;
     private int brpcPort;
     private int httpPort;
-
+    // the fe address: fe host and fe rpc port.
+    // This must be set explicitly after creating mocked Backend
     private TNetworkAddress feAddress;
 
     public MockedBackend(String host, int heartbeatPort, int thriftPort, int brpcPort, int httpPort,
@@ -102,13 +115,11 @@ public class MockedBackend {
     private void createHeartbeatService(int heartbeatPort, HeartbeatService.Iface serviceImpl) throws IOException {
         TProcessor tprocessor = new HeartbeatService.Processor<HeartbeatService.Iface>(serviceImpl);
         heartbeatServer = new ThriftServer(heartbeatPort, tprocessor);
-
     }
 
     private void createBeThriftService(int beThriftPort, BackendService.Iface serviceImpl) throws IOException {
         TProcessor tprocessor = new BackendService.Processor<BackendService.Iface>(serviceImpl);
         beThriftServer = new ThriftServer(beThriftPort, tprocessor);
-
     }
 
     private void createBrpcService(int brpcPort, Object pBackendServiceImpl) {

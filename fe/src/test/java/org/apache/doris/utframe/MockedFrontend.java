@@ -20,7 +20,6 @@ package org.apache.doris.utframe;
 import org.apache.doris.PaloFe;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.utframe.ThreadManager.ThreadAlreadyExistException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -38,13 +37,11 @@ import java.util.Map;
  * This class is used to start a Frontend process locally, for unit test.
  * This is a singleton class. There can be only one instance of this class globally.
  * Usage:
- *      FrontendProcess frontendProcess = FrontendProcess.getInstance();
- *      frontendProcess.init(confMap);
- *      frontendProcess.start(new String[0]);
+ *      MockedFrontend mockedFrontend = MockedFrontend.getInstance();
+ *      mockedFrontend.init(confMap);
+ *      mockedFrontend.start(new String[0]);
  *      
  *      ...
- *      
- *      frontendProcess.stop();
  *      
  * confMap is a instance of Map<String, String>.
  * Here you can add any FE configuration you want to add. For example:
@@ -53,21 +50,24 @@ import java.util.Map;
  * FrontendProcess already contains a minimal set of FE configurations.
  * Any configuration in confMap will form the final fe.conf file with this minimal set.
  *      
- * 2 environment variable must be set:
- *      DORIS_HOME/ and PID_DIR/
- *      
- * There will be 3 directories under DORIS_HOME/:
- *      DORIS_HOME/conf/
- *      DORIS_HOME/log/
- *      DORIS_HOME/palo-meta/
+ * 1 environment variable must be set:
+ *      DORIS_HOME/
+ * 
+ * The running dir is set when calling init();
+ * There will be 3 directories under running dir/:
+ *      running dir/conf/
+ *      running dir/log/
+ *      running dir/palo-meta/
  *      
  *  All these 3 directories will be cleared first.
  *  
- *  PID_DIR/ is used to save fe.pid file.
  */
 public class MockedFrontend {
     public static final String FE_PROCESS = "fe";
-    
+
+    // the running dir of this mocked frontend.
+    // log/ palo-meta/ and conf/ dirs will be created under this dir.
+    private String runningDir;
     // the min set of fe.conf.
     private static final Map<String, String> MIN_FE_CONF;
 
@@ -75,10 +75,8 @@ public class MockedFrontend {
 
     static {
         MIN_FE_CONF = Maps.newHashMap();
-        MIN_FE_CONF.put("LOG_DIR", "${DORIS_HOME}/log");
-        MIN_FE_CONF.put("JAVA_OPTS", "\"-Xmx4096m -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+UseCMSCompactAtFullCollection -XX:CMSFullGCsBeforeCompaction=0 -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:$DORIS_HOME/log/fe.gc.log.$DATE\"");
+        MIN_FE_CONF.put("JAVA_OPTS", "\"-Xmx256m\"");
         MIN_FE_CONF.put("sys_log_level", "INFO");
-        MIN_FE_CONF.put("meta_dir", "${DORIS_HOME}/palo-meta");
         MIN_FE_CONF.put("http_port", "8030");
         MIN_FE_CONF.put("rpc_port", "9020");
         MIN_FE_CONF.put("query_port", "9030");
@@ -103,41 +101,46 @@ public class MockedFrontend {
 
     // init the fe process. This must be called before starting the frontend process.
     // 1. check if all neccessary environment variables are set.
-    // 2. clear and create 3 dirs: log/ palo-meta/ conf/
+    // 2. clear and create 3 dirs: runningDir/log/, runningDir/palo-meta/, runningDir/conf/
     // 3. init fe.conf
     //      The content of "fe.conf" is a merge set of input `feConf` and MIN_FE_CONF
-    public void init(Map<String, String> feConf) throws EnvVarNotSetException, IOException {
+    public void init(String runningDir, Map<String, String> feConf) throws EnvVarNotSetException, IOException {
         if (isInit) {
             return;
         }
 
-        final String dorisHome = System.getenv("DORIS_HOME");
-        if (Strings.isNullOrEmpty(dorisHome)) {
-            throw new EnvVarNotSetException("env DORIS_HOME is not set.");
+        if (Strings.isNullOrEmpty(runningDir)) {
+            System.err.println("running dir is not set for mocked frontend");
+            throw new EnvVarNotSetException("running dir is not set for mocked frontend");
         }
-        
-        final String pidDir = System.getenv("PID_DIR");
-        if (Strings.isNullOrEmpty(pidDir)) {
-            throw new EnvVarNotSetException("env PID_DIR is not set.");
-        }
+
+        this.runningDir = runningDir;
+        System.out.println("mocked frontend running in dir: " + this.runningDir);
+
+        // root running dir
+        createAndClearDir(this.runningDir);
         // clear and create log dir
-        createAndClearDir(dorisHome + "/log/");
+        createAndClearDir(runningDir + "/log/");
         // clear and create meta dir
-        createAndClearDir(dorisHome + "/palo-meta/");
+        createAndClearDir(runningDir + "/palo-meta/");
         // clear and create conf dir
-        createAndClearDir(dorisHome + "/conf/");
+        createAndClearDir(runningDir + "/conf/");
         // init fe.conf
-        initFeConf(feConf);
+        initFeConf(runningDir + "/conf/", feConf);
 
         isInit = true;
     }
 
-    private void initFeConf(Map<String, String> feConf) throws IOException {
+    private void initFeConf(String confDir, Map<String, String> feConf) throws IOException {
         finalFeConf = Maps.newHashMap(MIN_FE_CONF);
+        // these 2 configs depends on running dir, so set them here.
+        finalFeConf.put("LOG_DIR", this.runningDir + "/log");
+        finalFeConf.put("meta_dir", this.runningDir + "/palo-meta");
+        finalFeConf.put("sys_log_dir", this.runningDir + "/log");
+        finalFeConf.put("audit_log_dir", this.runningDir + "/log");
+        finalFeConf.put("tmp_dir", this.runningDir + "/temp_dir");
+        // use custom config to add or override default config
         finalFeConf.putAll(feConf);
-
-        final String dorisHome = System.getenv("DORIS_HOME");
-        final String confDir = dorisHome + "/conf/";
 
         PrintableMap<String, String> map = new PrintableMap<>(finalFeConf, "=", false, true, "");
         File confFile = new File(confDir + "fe.conf");
@@ -166,27 +169,32 @@ public class MockedFrontend {
         }
     }
 
+    public String getRunningDir() {
+        return runningDir;
+    }
+
     private static class FERunnable implements Runnable {
+        private MockedFrontend frontend;
         private String[] args;
 
-        public FERunnable(String[] args) {
+        public FERunnable(MockedFrontend frontend, String[] args) {
+            this.frontend = frontend;
             this.args = args;
         }
 
         @Override
         public void run() {
-            PaloFe.main(args);
+            PaloFe.start(frontend.getRunningDir(), frontend.getRunningDir(), args);
         }
     }
 
     // must call init() before start.
-    public void start(String[] args) throws ThreadAlreadyExistException, FeStartException, NotInitException {
+    public void start(String[] args) throws FeStartException, NotInitException {
         if (!isInit) {
             throw new NotInitException("fe process is not initialized");
         }
-        Thread feThread = new Thread(new FERunnable(args), FE_PROCESS);
+        Thread feThread = new Thread(new FERunnable(this, args), FE_PROCESS);
         feThread.start();
-        ThreadManager.getInstance().registerThread(feThread);
         // wait the catalog to be ready until timeout (30 seconds)
         waitForCatalogReady(30 * 1000);
         System.out.println("Fe process is started");
@@ -207,18 +215,6 @@ public class MockedFrontend {
         if (left <= 0 && !Catalog.getCurrentCatalog().isReady()) {
             throw new FeStartException("fe start failed");
         }
-    }
-
-    public void stop() throws IOException {
-        Thread feThread = ThreadManager.getInstance().removeThread(FE_PROCESS);
-        if (feThread != null) {
-            feThread.interrupt();
-        }
-        
-        // clear the running dir
-        final String dorisHome = System.getenv("DORIS_HOME");
-        createAndClearDir(dorisHome);
-        System.out.println("Fe process is stopped");
     }
 
     public static class FeStartException extends Exception {

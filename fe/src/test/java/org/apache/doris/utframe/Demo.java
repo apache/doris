@@ -17,47 +17,61 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
-import org.apache.doris.utframe.ThreadManager.ThreadAlreadyExistException;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.util.List;
 import java.util.Map;
 
+/*
+ * This demo shows how to run unit test with mocked FE and BE.
+ * It will
+ *  1. start a mocked FE and a mocked BE.
+ *  2. Create a database and a tbl.
+ *  3. Make a schema change to tbl.
+ *  4. send a query and get query plan
+ */
 public class Demo {
 
     @BeforeClass
-    public static void beforeClass() throws EnvVarNotSetException, IOException, ThreadAlreadyExistException,
+    public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
-        // start fe
+        // get DORIS_HOME
+        final String dorisHome = System.getenv("DORIS_HOME");
+        if (Strings.isNullOrEmpty(dorisHome)) {
+            throw new EnvVarNotSetException("env DORIS_HOME is not set");
+        }
+
+        // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = MockedFrontend.getInstance();
         Map<String, String> feConfMap = Maps.newHashMap();
-        feConfMap.put("tablet_create_timeout_second", "10");
-        frontend.init(feConfMap);
+        feConfMap.put("tablet_create_timeout_second", "10"); // set additional fe config
+        frontend.init(dorisHome + "/fe/mocked/", feConfMap);
         frontend.start(new String[0]);
 
         // start be
@@ -75,55 +89,64 @@ public class Demo {
     }
 
     @Test
-    public void test() {
-        System.out.println(Catalog.getCurrentCatalog().getDbNames());
-
-        ConnectContext ctx = new ConnectContext();
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-        ctx.setQualifiedUser(PaloAuth.ROOT_USER);
-        ctx.setThreadLocalInfo();
-        ctx.setCatalog(Catalog.getCurrentCatalog());
-
+    public void testCreateDbAndTable() throws Exception {
+        // 1. create connect context
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        // 2. create database db1
         String createDbStmtStr = "create database db1;";
-        SqlScanner input = new SqlScanner(new StringReader(createDbStmtStr), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+        System.out.println(Catalog.getCurrentCatalog().getDbNames());
+        // 3. create table tbl1
+        String createTblStmtStr = "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+        // 4. get and test the created db and table
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
+        Assert.assertNotNull(db);
+        db.readLock();
         try {
-            CreateDbStmt createDbStmt = (CreateDbStmt) parser.parse().value;
-            Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
-            createDbStmt.analyze(analyzer);
-
-            Catalog.getCurrentCatalog().createDb(createDbStmt);
-
-            System.out.println(Catalog.getCurrentCatalog().getDbNames());
-
-        } catch (Exception e) {
-            e.printStackTrace();
+            OlapTable tbl = (OlapTable) db.getTable("tbl1");
+            Assert.assertNotNull(tbl);
+            System.out.println(tbl.getName());
+            Assert.assertEquals("Doris", tbl.getEngine());
+            Assert.assertEquals(1, tbl.getBaseSchema().size());
+        } finally {
+            db.readUnlock();
         }
-
-        String createTblStmtStr = "create table db1.tbl1(k1 int) distributed by hash(k1) buckets 1 properties('replication_num' = '1');";
-        
-        input = new SqlScanner(new StringReader(createTblStmtStr), ctx.getSessionVariable().getSqlMode());
-        parser = new SqlParser(input);
-        try {
-            CreateTableStmt createTableStmt = (CreateTableStmt) parser.parse().value;
-            Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
-            createTableStmt.analyze(analyzer);
-
-            Catalog.getCurrentCatalog().createTable(createTableStmt);
-
-            Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
-            db.readLock();
-            try {
-                OlapTable tbl = (OlapTable) db.getTable("tbl1");
-                System.out.println(tbl.getName());
-            } finally {
-                db.readUnlock();
+        // 5. process a schema change job
+        String alterStmtStr = "alter table db1.tbl1 add column k2 int default '1'";
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, ctx);
+        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+        // 6. check alter job
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2();
+        Assert.assertEquals(1, alterJobs.size());
+        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
+            while (!alterJobV2.getJobState().isFinalState()) {
+                System.out.println("alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
+                Thread.sleep(5000);
             }
-
-        } catch (Exception e) {
-            e.printStackTrace();
+            System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
+            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
-    }
+        db.readLock();
+        try {
+            OlapTable tbl = (OlapTable) db.getTable("tbl1");
+            Assert.assertEquals(2, tbl.getBaseSchema().size());
+        } finally {
+            db.readUnlock();
+        }
 
+        // query
+        // TODO: we can not process real query for now. So it has to be a explain query
+        String queryStr = "explain select * from db1.tbl1";
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
+        stmtExecutor.execute();
+        Planner planner = stmtExecutor.planner();
+        List<PlanFragment> fragments = planner.getFragments();
+        Assert.assertEquals(1, fragments.size());
+        PlanFragment fragment = fragments.get(0);
+        Assert.assertTrue(fragment.getPlanRoot() instanceof OlapScanNode);
+        Assert.assertEquals(0, fragment.getChildren().size());
+    }
 }

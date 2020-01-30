@@ -51,25 +51,36 @@ import java.nio.channels.OverlappingFileLockException;
 public class PaloFe {
     private static final Logger LOG = LogManager.getLogger(PaloFe.class);
 
-    // entrance for palo frontend
+    public static final String DORIS_HOME_DIR = System.getenv("DORIS_HOME");
+    public static final String PID_DIR = System.getenv("PID_DIR");
+
     public static void main(String[] args) {
+        start(DORIS_HOME_DIR, PID_DIR, args);
+    }
+
+    // entrance for doris frontend
+    public static void start(String dorisHomeDir, String pidDir, String[] args) {
+        if (Strings.isNullOrEmpty(dorisHomeDir)) {
+            System.out.println("env DORIS_HOME is not set");
+            return;
+        }
+
+        if (Strings.isNullOrEmpty(pidDir)) {
+            System.out.println("env PID_DIR is not set.");
+            return;
+        }
+
         CommandLineOptions cmdLineOpts = parseArgs(args);
         System.out.println(cmdLineOpts.toString());
 
         try {
-            final String paloHome = System.getenv("DORIS_HOME");
-            if (Strings.isNullOrEmpty(paloHome)) {
-                System.out.println("env DORIS_HOME is not set.");
-                return;
-            }
-
             // pid file
-            if (!createAndLockPidFile(System.getenv("PID_DIR") + "/fe.pid")) {
+            if (!createAndLockPidFile(pidDir + "/fe.pid")) {
                 throw new IOException("pid file is already locked.");
             }
 
             // init config
-            new Config().init(paloHome + "/conf/fe.conf");
+            new Config().init(dorisHomeDir + "/conf/fe.conf");
             Log4jConfig.initLogging();
 
             // set dns cache ttl
@@ -107,7 +118,7 @@ public class PaloFe {
             e.printStackTrace();
             System.exit(-1);
         }
-    } // end PaloFe main()
+    }
 
     /*
      * -v --version

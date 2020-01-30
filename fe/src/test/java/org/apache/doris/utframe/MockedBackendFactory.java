@@ -82,31 +82,8 @@ import java.util.concurrent.BlockingQueue;
 
 /*
  * This class is used to create mock backends.
- * Usage:
- *      // create a default mocked backend
- *      MockedBackendFactory.createDefaultBackend();
- *      List<Pair<String, Integer>> bes = Lists.newArrayList();
- *      bes.add(Pair.create("127.0.0.1", MockedBackend.BE_DEFAULT_HEARTBEAT_PORT));
- *      Catalog.getCurrentSystemInfo().addBackends(bes, false, "default_cluster");
- *      Thread.sleep(5000); // sleep at least 5 seconds so that the first heartbeat can be done.
- *      
- *      // create a customized mocked backend
- *      MockedBackendFactory.createBackend(hbPort, thriftPort, brpcPort, hbServiceImpl, backendServiceImpl, pBackendServiceImpl);
- *      List<Pair<String, Integer>> bes = Lists.newArrayList();
- *      bes.add(Pair.create("127.0.0.1", beHeartbeatPort));
- *      Catalog.getCurrentSystemInfo().addBackends(bes, false, "default_cluster");
- *      Thread.sleep(5000); // sleep at least 5 seconds so that the first heartbeat can be done.
- *      
- * A mocked backend has 4 ports:
- *      heartbeat port
- *      be thrift port
- *      brpc port
- *      http port
- *      
- *      The first 3 ports must be specified to start corresponding mocking service.
- *      the http port should be specified in response of HeartbeatService.heartbeat().
- *      
- * A default mocked backend offers 3 default services.
+ * Usage can be found in Demon.java's beforeClass()
+ * 
  * 
  */
 public class MockedBackendFactory {
@@ -117,20 +94,23 @@ public class MockedBackendFactory {
     public static final int BE_DEFAULT_BRPC_PORT = 8060;
     public static final int BE_DEFAULT_HTTP_PORT = 8040;
 
+    // create a default mocked backend with 3 default rpc services
     public static MockedBackend createDefaultBackend() throws IOException {
         return createBackend(BE_DEFAULT_IP, BE_DEFAULT_HEARTBEAT_PORT, BE_DEFAULT_THRIFT_PORT, BE_DEFAULT_BRPC_PORT, BE_DEFAULT_HTTP_PORT,
                 new DefaultHeartbeatServiceImpl(), new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
     }
 
+    // create a mocked backend with customize parameters
     public static MockedBackend createBackend(String host, int heartbeatPort, int thriftPort, int brpcPort, int httpPort,
             HeartbeatService.Iface hbService, BeThriftService beThriftService, Object pBackendService)
             throws IOException {
-
         MockedBackend backend = new MockedBackend(host, heartbeatPort, thriftPort, brpcPort, httpPort, hbService,
                 beThriftService, pBackendService);
         return backend;
     }
 
+    // the default hearbeat service.
+    // User can implement HeartbeatService.Iface to create other custom heartbeat service.
     public static class DefaultHeartbeatServiceImpl implements HeartbeatService.Iface {
         @Override
         public THeartbeatResult heartbeat(TMasterInfo master_info) throws TException {
@@ -141,6 +121,8 @@ public class MockedBackendFactory {
         }
     }
     
+    // abstract BeThriftService.
+    // User can extends this abstract class to create other custom be thrift service
     public static abstract class BeThriftService implements BackendService.Iface {
         protected MockedBackend backend;
 
@@ -151,21 +133,21 @@ public class MockedBackendFactory {
         public abstract void init();
     }
 
+    // the default be thrift service extends from BeThriftService
     public static class DefaultBeThriftServiceImpl extends BeThriftService {
-
+        // task queue to save all agent tasks coming from Frontend
         private BlockingQueue<TAgentTaskRequest> taskQueue = Queues.newLinkedBlockingQueue();
-
         private TBackend tBackend;
-        
         private long reportVersion = 0;
 
         public DefaultBeThriftServiceImpl() {
-
         }
 
         @Override
         public void init() {
             tBackend = new TBackend(backend.getHost(), backend.getBeThriftPort(), backend.getHttpPort());
+            // start a thread to handle all agent tasks in taskQueue.
+            // Only return information that the task was successfully executed.
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -290,11 +272,12 @@ public class MockedBackendFactory {
         }
     }
 
+    // The default Brpc service.
+    // TODO(cmy): Currently this service cannot correctly simulate the processing of query requests.
     public static class DefaultPBackendServiceImpl {
-
         @ProtobufRPCService(serviceName = "PBackendService", methodName = "exec_plan_fragment")
         public PExecPlanFragmentResult exec_plan_fragment(PExecPlanFragmentRequest request) {
-            System.out.println("get exec_plan_fragment");
+            System.out.println("get exec_plan_fragment request");
             PExecPlanFragmentResult result = new PExecPlanFragmentResult();
             PStatus pStatus = new PStatus();
             pStatus.status_code = 0;
@@ -304,7 +287,7 @@ public class MockedBackendFactory {
 
         @ProtobufRPCService(serviceName = "PBackendService", methodName = "cancel_plan_fragment")
         public PCancelPlanFragmentResult cancel_plan_fragment(PCancelPlanFragmentRequest request) {
-            System.out.println("get cancel_plan_fragment");
+            System.out.println("get cancel_plan_fragment request");
             PCancelPlanFragmentResult result = new PCancelPlanFragmentResult();
             PStatus pStatus = new PStatus();
             pStatus.status_code = 0;
