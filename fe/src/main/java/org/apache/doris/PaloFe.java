@@ -239,7 +239,7 @@ public class PaloFe {
             System.out.println("Build hash: " + Version.PALO_BUILD_HASH);
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
-            BDBTool bdbTool = new BDBTool(Catalog.BDB_DIR, cmdLineOpts.getBdbToolOpts());
+            BDBTool bdbTool = new BDBTool(Catalog.getCurrentCatalog().getBdbDir(), cmdLineOpts.getBdbToolOpts());
             if (bdbTool.run()) {
                 System.exit(0);
             } else {

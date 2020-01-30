@@ -250,8 +250,11 @@ public class Catalog {
     private static final int HTTP_TIMEOUT_SECOND = 5;
     private static final int STATE_CHANGE_CHECK_INTERVAL_MS = 100;
     private static final int REPLAY_INTERVAL_MS = 1;
-    public static final String BDB_DIR = Config.meta_dir + "/bdb";
-    public static final String IMAGE_DIR = Config.meta_dir + "/image";
+    private static final String BDB_DIR = "/bdb";
+    private static final String IMAGE_DIR = "/image";
+
+    private String bdbDir;
+    private String imageDir;
 
     private MetaContext metaContext;
     private long epoch = 0;
@@ -505,6 +508,9 @@ public class Catalog {
 
         this.dynamicPartitionScheduler = new DynamicPartitionScheduler("DynamicPartitionScheduler",
                 Config.dynamic_partition_check_interval_seconds * 1000L);
+        
+        this.bdbDir = Config.meta_dir + BDB_DIR;
+        this.imageDir = Config.meta_dir + IMAGE_DIR;
     }
 
     public static void destroyCheckpoint() {
@@ -635,6 +641,14 @@ public class Catalog {
         }
     }
 
+    public String getBdbDir() {
+        return bdbDir;
+    }
+
+    public String getImageDir() {
+        return imageDir;
+    }
+
     public void initialize(String[] args) throws Exception {
         // 0. get local node and helper node info
         getSelfHostPort();
@@ -648,12 +662,12 @@ public class Catalog {
         }
 
         if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
-            File bdbDir = new File(BDB_DIR);
+            File bdbDir = new File(this.bdbDir);
             if (!bdbDir.exists()) {
                 bdbDir.mkdirs();
             }
 
-            File imageDir = new File(IMAGE_DIR);
+            File imageDir = new File(this.imageDir);
             if (!imageDir.exists()) {
                 imageDir.mkdirs();
             }
@@ -667,7 +681,7 @@ public class Catalog {
 
         // 3. Load image first and replay edits
         this.editLog = new EditLog(nodeName);
-        loadImage(IMAGE_DIR); // load image file
+        loadImage(this.imageDir); // load image file
         editLog.open(); // open bdb env
         this.globalTransactionMgr.setEditLog(editLog);
         this.idGenerator.setEditLog(editLog);
@@ -701,8 +715,8 @@ public class Catalog {
     }
 
     private void getClusterIdAndRole() throws IOException {
-        File roleFile = new File(IMAGE_DIR, Storage.ROLE_FILE);
-        File versionFile = new File(IMAGE_DIR, Storage.VERSION_FILE);
+        File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
+        File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
 
         // if helper node is point to self, or there is ROLE and VERSION file in local.
         // get the node type from local
@@ -728,7 +742,7 @@ public class Catalog {
             // FOLLOWER, which may cause UNDEFINED behavior.
             // Everything may be OK if the origin role is exactly FOLLOWER,
             // but if not, FE process will exit somehow.
-            Storage storage = new Storage(IMAGE_DIR);
+            Storage storage = new Storage(this.imageDir);
             if (!roleFile.exists()) {
                 // The very first time to start the first node of the cluster.
                 // It should became a Master node (Master node's role is also FOLLOWER, which means electable)
@@ -765,7 +779,7 @@ public class Catalog {
                 clusterId = Config.cluster_id == -1 ? Storage.newClusterID() : Config.cluster_id;
                 token = Strings.isNullOrEmpty(Config.auth_token) ?
                         Storage.newToken() : Config.auth_token;
-                storage = new Storage(clusterId, token, IMAGE_DIR);
+                storage = new Storage(clusterId, token, this.imageDir);
                 storage.writeClusterIdAndToken();
 
                 isFirstTimeStartUp = true;
@@ -816,7 +830,7 @@ public class Catalog {
 
             Pair<String, Integer> rightHelperNode = helperNodes.get(0);
 
-            Storage storage = new Storage(IMAGE_DIR);
+            Storage storage = new Storage(this.imageDir);
             if (roleFile.exists() && (role != storage.getRole() || !nodeName.equals(storage.getNodeName()))
                     || !roleFile.exists()) {
                 storage.writeFrontendRoleAndNodeName(role, nodeName);
@@ -830,7 +844,7 @@ public class Catalog {
 
                 // NOTE: cluster_id will be init when Storage object is constructed,
                 //       so we new one.
-                storage = new Storage(IMAGE_DIR);
+                storage = new Storage(this.imageDir);
                 clusterId = storage.getClusterID();
                 token = storage.getToken();
                 if (Strings.isNullOrEmpty(token)) {
@@ -1011,8 +1025,8 @@ public class Catalog {
         Preconditions.checkNotNull(deployManager);
 
         // 1. check if this is the first time to start up
-        File roleFile = new File(IMAGE_DIR, Storage.ROLE_FILE);
-        File versionFile = new File(IMAGE_DIR, Storage.VERSION_FILE);
+        File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
+        File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
         if ((roleFile.exists() && !versionFile.exists())
                 || (!roleFile.exists() && versionFile.exists())) {
             LOG.error("role file and version file must both exist or both not exist. "
@@ -1263,7 +1277,7 @@ public class Catalog {
     private boolean getVersionFileFromHelper(Pair<String, Integer> helperNode) throws IOException {
         try {
             String url = "http://" + helperNode.first + ":" + Config.http_port + "/version";
-            File dir = new File(IMAGE_DIR);
+            File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
             MetaHelper.complete(Storage.VERSION_FILE, dir);
@@ -1277,7 +1291,7 @@ public class Catalog {
 
     private void getNewImage(Pair<String, Integer> helperNode) throws IOException {
         long localImageVersion = 0;
-        Storage storage = new Storage(IMAGE_DIR);
+        Storage storage = new Storage(this.imageDir);
         localImageVersion = storage.getImageSeq();
 
         try {
@@ -1288,7 +1302,7 @@ public class Catalog {
                 String url = "http://" + helperNode.first + ":" + Config.http_port
                         + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
-                File dir = new File(IMAGE_DIR);
+                File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
                 MetaHelper.complete(filename, dir);
             }
@@ -1758,9 +1772,9 @@ public class Catalog {
     // Only called by checkpoint thread
     public void saveImage() throws IOException {
         // Write image.ckpt
-        Storage storage = new Storage(IMAGE_DIR);
+        Storage storage = new Storage(this.imageDir);
         File curFile = storage.getImageFile(replayedJournalId.get());
-        File ckpt = new File(IMAGE_DIR, Storage.IMAGE_NEW);
+        File ckpt = new File(this.imageDir, Storage.IMAGE_NEW);
         saveImage(ckpt, replayedJournalId.get());
 
         // Move image.ckpt to image.dataVersion
@@ -4668,10 +4682,6 @@ public class Catalog {
 
     public boolean canRead() {
         return this.canRead.get();
-    }
-
-    public void setMetaDir(String metaDir) {
-        this.metaDir = metaDir;
     }
 
     public boolean isElectable() {
