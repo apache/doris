@@ -32,6 +32,9 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
+import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
+import org.apache.doris.utframe.MockedBackendFactory.DefaultPBackendServiceImpl;
 import org.apache.doris.utframe.MockedFrontend.EnvVarNotSetException;
 import org.apache.doris.utframe.MockedFrontend.FeStartException;
 import org.apache.doris.utframe.MockedFrontend.NotInitException;
@@ -47,6 +50,7 @@ import org.junit.Test;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 /*
  * This demo shows how to run unit test with mocked FE and BE.
@@ -58,6 +62,16 @@ import java.util.Map;
  */
 public class Demo {
 
+    private static int fe_http_port;
+    private static int fe_rpc_port;
+    private static int fe_query_port;
+    private static int fe_edit_log_port;
+
+    private static int be_heartbeat_port;
+    private static int be_thrift_port;
+    private static int be_brpc_port;
+    private static int be_http_port;
+
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
@@ -67,15 +81,25 @@ public class Demo {
             throw new EnvVarNotSetException("env DORIS_HOME is not set");
         }
 
+        getRandomPort();
+
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = MockedFrontend.getInstance();
         Map<String, String> feConfMap = Maps.newHashMap();
-        feConfMap.put("tablet_create_timeout_second", "10"); // set additional fe config
+        // set additional fe config
+        feConfMap.put("http_port", String.valueOf(fe_http_port));
+        feConfMap.put("rpc_port", String.valueOf(fe_rpc_port));
+        feConfMap.put("query_port", String.valueOf(fe_query_port));
+        feConfMap.put("edit_log_port", String.valueOf(fe_edit_log_port));
+        feConfMap.put("tablet_create_timeout_second", "10");
         frontend.init(dorisHome + "/fe/mocked/", feConfMap);
         frontend.start(new String[0]);
 
         // start be
-        MockedBackend backend = MockedBackendFactory.createDefaultBackend();
+        MockedBackend backend = MockedBackendFactory.createBackend("127.0.0.1",
+                be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
+                new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
+                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", frontend.getRpcPort()));
         backend.start();
 
@@ -86,6 +110,21 @@ public class Demo {
 
         // sleep to wait first heartbeat
         Thread.sleep(5000);
+    }
+
+    // generate all port from between 20000 ~ 30000
+    private static void getRandomPort() {
+        Random r = new Random(System.currentTimeMillis());
+        int basePort = 20000 + r.nextInt(9000);
+        fe_http_port = basePort + 1;
+        fe_rpc_port = basePort + 2;
+        fe_query_port = basePort + 3;
+        fe_edit_log_port = basePort + 4;
+
+        be_heartbeat_port = basePort + 5;
+        be_thrift_port = basePort + 6;
+        be_brpc_port = basePort + 7;
+        be_http_port = basePort + 8;
     }
 
     @Test

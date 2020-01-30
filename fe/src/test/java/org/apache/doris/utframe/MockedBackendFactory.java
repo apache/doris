@@ -97,7 +97,8 @@ public class MockedBackendFactory {
     // create a default mocked backend with 3 default rpc services
     public static MockedBackend createDefaultBackend() throws IOException {
         return createBackend(BE_DEFAULT_IP, BE_DEFAULT_HEARTBEAT_PORT, BE_DEFAULT_THRIFT_PORT, BE_DEFAULT_BRPC_PORT, BE_DEFAULT_HTTP_PORT,
-                new DefaultHeartbeatServiceImpl(), new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+                new DefaultHeartbeatServiceImpl(BE_DEFAULT_THRIFT_PORT, BE_DEFAULT_HTTP_PORT, BE_DEFAULT_BRPC_PORT),
+                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
     }
 
     // create a mocked backend with customize parameters
@@ -112,10 +113,20 @@ public class MockedBackendFactory {
     // the default hearbeat service.
     // User can implement HeartbeatService.Iface to create other custom heartbeat service.
     public static class DefaultHeartbeatServiceImpl implements HeartbeatService.Iface {
+        private int beThriftPort;
+        private int beHttpPort;
+        private int beBrpcPort;
+
+        public DefaultHeartbeatServiceImpl(int beThriftPort, int beHttpPort, int beBrpcPort) {
+            this.beThriftPort = beThriftPort;
+            this.beHttpPort = beHttpPort;
+            this.beBrpcPort = beBrpcPort;
+        }
+
         @Override
         public THeartbeatResult heartbeat(TMasterInfo master_info) throws TException {
-            TBackendInfo backendInfo = new TBackendInfo(BE_DEFAULT_THRIFT_PORT, BE_DEFAULT_HTTP_PORT);
-            backendInfo.setBrpc_port(BE_DEFAULT_BRPC_PORT);
+            TBackendInfo backendInfo = new TBackendInfo(beThriftPort, beHttpPort);
+            backendInfo.setBrpc_port(beBrpcPort);
             THeartbeatResult result = new THeartbeatResult(new TStatus(TStatusCode.OK), backendInfo);
             return result;
         }
