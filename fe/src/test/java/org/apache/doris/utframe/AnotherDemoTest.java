@@ -88,7 +88,7 @@ public class AnotherDemoTest {
         feConfMap.put("query_port", String.valueOf(fe_query_port));
         feConfMap.put("edit_log_port", String.valueOf(fe_edit_log_port));
         feConfMap.put("tablet_create_timeout_second", "10");
-        frontend.init(dorisHome + "/fe/mocked/", feConfMap);
+        frontend.init(dorisHome + "/fe/mocked/AnotherDemoTest", feConfMap);
         frontend.start(new String[0]);
 
         // start be
