@@ -11,6 +11,8 @@
 
 #include <string>
 
+#include "olap/olap_common.h"
+
 #include "gutil/endian.h"
 #include "util/slice.h"
 
@@ -51,6 +53,15 @@ inline void encode_fixed64_le(uint8_t* buf, uint64_t val) {
 #endif
 }
 
+inline void encode_fixed128_le(uint8_t* buf, uint128_t val) {
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    memcpy(buf, &val, sizeof(val));
+#else
+    uint128_t res = gbswap_128(val);
+    memcpy(buf, &res, sizeof(res));
+#endif
+}
+
 inline uint8_t decode_fixed8(const uint8_t* buf) {
     return *buf;
 }
@@ -85,6 +96,16 @@ inline uint64_t decode_fixed64_le(const uint8_t* buf) {
 #endif
 }
 
+inline uint128_t decode_fixed128_le(const uint8_t* buf) {
+    uint128_t res;
+    memcpy(&res, buf, sizeof(res));
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    return res;
+#else
+    return gbswap_128(res);
+#endif
+}
+
 template<typename T>
 inline void put_fixed32_le(T* dst, uint32_t val) {
     uint8_t buf[sizeof(val)];
@@ -107,6 +128,13 @@ inline int varint_length(uint64_t v) {
         len++;
     }
     return len;
+}
+
+template<typename T>
+inline void put_fixed128_le(T* dst, uint128_t val) {
+    uint8_t buf[sizeof(val)];
+    encode_fixed128_le(buf, val);
+    dst->append((char*)buf, sizeof(buf));
 }
 
 extern uint8_t* encode_varint32(uint8_t* dst, uint32_t value);
