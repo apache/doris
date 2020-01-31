@@ -253,6 +253,7 @@ public class Catalog {
     private static final String BDB_DIR = "/bdb";
     private static final String IMAGE_DIR = "/image";
 
+    private String metaDir;
     private String bdbDir;
     private String imageDir;
 
@@ -315,7 +316,6 @@ public class Catalog {
 
     private CatalogIdGenerator idGenerator = new CatalogIdGenerator(NEXT_ID_INIT_VALUE);
 
-    private String metaDir;
     private EditLog editLog;
     private int clusterId;
     private String token;
@@ -509,8 +509,9 @@ public class Catalog {
         this.dynamicPartitionScheduler = new DynamicPartitionScheduler("DynamicPartitionScheduler",
                 Config.dynamic_partition_check_interval_seconds * 1000L);
         
-        this.bdbDir = Config.meta_dir + BDB_DIR;
-        this.imageDir = Config.meta_dir + IMAGE_DIR;
+        this.metaDir = Config.meta_dir;
+        this.bdbDir = this.metaDir + BDB_DIR;
+        this.imageDir = this.metaDir + IMAGE_DIR;
     }
 
     public static void destroyCheckpoint() {
@@ -650,6 +651,14 @@ public class Catalog {
     }
 
     public void initialize(String[] args) throws Exception {
+        // set meta dir first.
+        // we already set these varialbes in constructor. but Catalog is a singleton class.
+        // so they may be set before Config is intialized.
+        // set them here again to make sure these variables use values in fe.conf.
+        this.metaDir = Config.meta_dir;
+        this.bdbDir = this.metaDir + BDB_DIR;
+        this.imageDir = this.metaDir + IMAGE_DIR;
+
         // 0. get local node and helper node info
         getSelfHostPort();
         getHelperNodes(args);

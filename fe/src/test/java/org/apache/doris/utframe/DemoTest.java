@@ -71,6 +71,9 @@ public class DemoTest {
     private static int be_thrift_port;
     private static int be_brpc_port;
     private static int be_http_port;
+    // use a unique dir so that it won't be conflict with other unit test which
+    // may also start a Mocked Frontend
+    private static String runningDir = "fe/mocked/DemoTest";
 
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
@@ -92,7 +95,7 @@ public class DemoTest {
         feConfMap.put("query_port", String.valueOf(fe_query_port));
         feConfMap.put("edit_log_port", String.valueOf(fe_edit_log_port));
         feConfMap.put("tablet_create_timeout_second", "10");
-        frontend.init(dorisHome + "/fe/mocked/DemoTest", feConfMap);
+        frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
 
         // start be
@@ -109,7 +112,7 @@ public class DemoTest {
         Catalog.getCurrentSystemInfo().addBackends(bes, false, "default_cluster");
 
         // sleep to wait first heartbeat
-        Thread.sleep(5000);
+        Thread.sleep(6000);
     }
 
     // generate all port from between 20000 ~ 30000
@@ -175,8 +178,7 @@ public class DemoTest {
         } finally {
             db.readUnlock();
         }
-
-        // query
+        // 7. query
         // TODO: we can not process real query for now. So it has to be a explain query
         String queryStr = "explain select * from db1.tbl1";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);

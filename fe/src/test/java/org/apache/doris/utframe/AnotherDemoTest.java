@@ -17,8 +17,6 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
@@ -68,6 +66,10 @@ public class AnotherDemoTest {
     private static int be_brpc_port;
     private static int be_http_port;
 
+    // use a unique dir so that it won't be conflict with other unit test which
+    // may also start a Mocked Frontend
+    private static String runningDir = "fe/mocked/AnotherDemoTest";
+
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
@@ -88,7 +90,7 @@ public class AnotherDemoTest {
         feConfMap.put("query_port", String.valueOf(fe_query_port));
         feConfMap.put("edit_log_port", String.valueOf(fe_edit_log_port));
         feConfMap.put("tablet_create_timeout_second", "10");
-        frontend.init(dorisHome + "/fe/mocked/AnotherDemoTest", feConfMap);
+        frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
 
         // start be
@@ -149,30 +151,7 @@ public class AnotherDemoTest {
         } finally {
             db.readUnlock();
         }
-        // 5. process a schema change job
-        String alterStmtStr = "alter table db1.tbl1 add column k2 int default '1'";
-        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, ctx);
-        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
-        // 6. check alter job
-        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2();
-        Assert.assertEquals(1, alterJobs.size());
-        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
-            while (!alterJobV2.getJobState().isFinalState()) {
-                System.out.println("alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(5000);
-            }
-            System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
-            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
-        }
-        db.readLock();
-        try {
-            OlapTable tbl = (OlapTable) db.getTable("tbl1");
-            Assert.assertEquals(2, tbl.getBaseSchema().size());
-        } finally {
-            db.readUnlock();
-        }
-
-        // query
+        // 5. query
         // TODO: we can not process real query for now. So it has to be a explain query
         String queryStr = "explain select * from db1.tbl1";
         StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);

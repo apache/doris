@@ -578,6 +578,9 @@ under the License.
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>2.22.2</version>
                 <configuration>
+                    <forkCount>1</forkCount>
+                    <!-->not reuse forked jvm, so that each unit test will run in separate jvm. to avoid singleton confict<-->
+                    <reuseForks>false</reuseForks>
                     <argLine>
                         -javaagent:${settings.localRepository}/org/jmockit/jmockit/1.48/jmockit-1.48.jar
                     </argLine>
