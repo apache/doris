@@ -99,7 +99,7 @@ public class RollupJobV2 extends AlterJobV2 {
 
     private TStorageFormat storageFormat = null;
 
-    // default value = 0,means no parent rollup job
+    // default value = 0 ,means no parent rollup job
     private long parentRollupJobId = 0;
 
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
