@@ -224,7 +224,15 @@ public class BrokerFileGroupAggInfo implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        in.readInt();
+        int mapSize = in.readInt();
+        // just for compatibility, the following read objects are useless
+        for (int i = 0; i < mapSize; ++i) {
+            long id = in.readLong();
+            int listSize = in.readInt();
+            for (int j = 0; j < listSize; ++j) {
+                BrokerFileGroup fileGroup = BrokerFileGroup.read(in);
+            }
+        }
     }
 
     public static BrokerFileGroupAggInfo read(DataInput in) throws IOException {
