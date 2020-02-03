@@ -25,9 +25,6 @@ class WritableFileOptions;
 class RandomAccessFileOptions;
 class RandomRWFileOptions;
 
-template <class FileType>
-class OpenedFileHandle;
-
 class Env {
 public:
     // Governs if/how the file is created.
