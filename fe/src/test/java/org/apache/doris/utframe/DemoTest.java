@@ -51,6 +51,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 
 /*
  * This demo shows how to run unit test with mocked FE and BE.
@@ -73,7 +74,7 @@ public class DemoTest {
     private static int be_http_port;
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
-    private static String runningDir = "fe/mocked/DemoTest";
+    private static String runningDir = "fe/mocked/DemoTest/" + UUID.randomUUID().toString() + "/";
 
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,

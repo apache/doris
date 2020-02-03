@@ -652,8 +652,8 @@ public class Catalog {
 
     public void initialize(String[] args) throws Exception {
         // set meta dir first.
-        // we already set these varialbes in constructor. but Catalog is a singleton class.
-        // so they may be set before Config is intialized.
+        // we already set these variables in constructor. but Catalog is a singleton class.
+        // so they may be set before Config is initialized.
         // set them here again to make sure these variables use values in fe.conf.
         this.metaDir = Config.meta_dir;
         this.bdbDir = this.metaDir + BDB_DIR;

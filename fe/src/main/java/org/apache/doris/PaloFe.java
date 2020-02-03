@@ -61,12 +61,12 @@ public class PaloFe {
     // entrance for doris frontend
     public static void start(String dorisHomeDir, String pidDir, String[] args) {
         if (Strings.isNullOrEmpty(dorisHomeDir)) {
-            System.out.println("env DORIS_HOME is not set");
+            System.err.println("env DORIS_HOME is not set.");
             return;
         }
 
         if (Strings.isNullOrEmpty(pidDir)) {
-            System.out.println("env PID_DIR is not set.");
+            System.err.println("env PID_DIR is not set.");
             return;
         }
 

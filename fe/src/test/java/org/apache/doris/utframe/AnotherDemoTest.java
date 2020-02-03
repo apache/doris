@@ -49,6 +49,7 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 
 /*
  * This demo is mainly used to confirm that 
@@ -68,7 +69,7 @@ public class AnotherDemoTest {
 
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
-    private static String runningDir = "fe/mocked/AnotherDemoTest";
+    private static String runningDir = "fe/mocked/AnotherDemoTest/" + UUID.randomUUID().toString() + "/";
 
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
