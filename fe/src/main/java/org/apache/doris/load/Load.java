@@ -493,7 +493,7 @@ public class Load {
         job.setIdToTableLoadInfo(idToTableLoadInfo);
 
         if (etlJobType == EtlJobType.BROKER) {
-            PullLoadSourceInfo sourceInfo = new PullLoadSourceInfo();
+            BrokerFileGroupAggInfo sourceInfo = new BrokerFileGroupAggInfo();
             for (DataDescription dataDescription : dataDescriptions) {
                 BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
                 fileGroup.parse(db, dataDescription);

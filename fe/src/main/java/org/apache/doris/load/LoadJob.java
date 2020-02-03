@@ -87,7 +87,7 @@ public class LoadJob implements Writable {
     private JobState state;
 
     private BrokerDesc brokerDesc;
-    private PullLoadSourceInfo pullLoadSourceInfo;
+    private BrokerFileGroupAggInfo pullLoadSourceInfo;
 
     // progress has two functions at ETL stage:
     // 1. when progress < 100, it indicates ETL progress
@@ -392,11 +392,11 @@ public class LoadJob implements Writable {
         return brokerDesc;
     }
 
-    public void setPullLoadSourceInfo(PullLoadSourceInfo sourceInfo) {
+    public void setPullLoadSourceInfo(BrokerFileGroupAggInfo sourceInfo) {
         this.pullLoadSourceInfo = sourceInfo;
     }
 
-    public PullLoadSourceInfo getPullLoadSourceInfo() {
+    public BrokerFileGroupAggInfo getPullLoadSourceInfo() {
         return pullLoadSourceInfo;
     }
 
@@ -931,7 +931,7 @@ public class LoadJob implements Writable {
             }
             // Pull load
             if (in.readBoolean()) {
-                this.pullLoadSourceInfo = PullLoadSourceInfo.read(in);
+                this.pullLoadSourceInfo = BrokerFileGroupAggInfo.read(in);
             }
         }
 
