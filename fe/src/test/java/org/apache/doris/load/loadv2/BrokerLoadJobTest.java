@@ -29,10 +29,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.BrokerFileGroupAggInfo;
+import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.PullLoadSourceInfo;
 import org.apache.doris.load.Source;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
@@ -172,23 +173,27 @@ public class BrokerLoadJobTest {
     }
 
     @Test
-    public void testGetTableNames(@Injectable PullLoadSourceInfo dataSourceInfo,
+    public void testGetTableNames(@Injectable BrokerFileGroupAggInfo fileGroupAggInfo,
                                   @Injectable BrokerFileGroup brokerFileGroup,
                                   @Mocked Catalog catalog,
                                   @Injectable Database database,
                                   @Injectable Table table) throws MetaNotFoundException {
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         brokerFileGroups.add(brokerFileGroup);
-        Map<Long, List<BrokerFileGroup>> idToFileGroups = Maps.newHashMap();
-        idToFileGroups.put(1L, brokerFileGroups);
+        Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
+        FileGroupAggKey aggKey = new FileGroupAggKey(1L, null);
+        aggKeyToFileGroups.put(aggKey, brokerFileGroups);
         BrokerLoadJob brokerLoadJob = new BrokerLoadJob();
-        Deencapsulation.setField(brokerLoadJob, "dataSourceInfo", dataSourceInfo);
+        Deencapsulation.setField(brokerLoadJob, "fileGroupAggInfo", fileGroupAggInfo);
         String tableName = "table";
         new Expectations() {
             {
-                dataSourceInfo.getIdToFileGroups();
+                fileGroupAggInfo.getAggKeyToFileGroups();
                 minTimes = 0;
-                result = idToFileGroups;
+                result = aggKeyToFileGroups;
+                fileGroupAggInfo.getAllTableIds();
+                minTimes = 0;
+                result = Sets.newHashSet(1L);
                 catalog.getDb(anyLong);
                 minTimes = 0;
                 result = database;
@@ -249,7 +254,7 @@ public class BrokerLoadJobTest {
     public void testPendingTaskOnFinished(@Injectable BrokerPendingTaskAttachment attachment,
                                           @Mocked Catalog catalog,
                                           @Injectable Database database,
-                                          @Injectable PullLoadSourceInfo dataSourceInfo,
+                                          @Injectable BrokerFileGroupAggInfo fileGroupAggInfo,
                                           @Injectable BrokerFileGroup brokerFileGroup1,
                                           @Injectable BrokerFileGroup brokerFileGroup2,
                                           @Injectable BrokerFileGroup brokerFileGroup3,
@@ -261,15 +266,22 @@ public class BrokerLoadJobTest {
         long taskId = 1L;
         long tableId1 = 1L;
         long tableId2 = 2L;
-        Map<Long, List<BrokerFileGroup>> idToFileGroups = Maps.newHashMap();
+        long partitionId1 = 3L;
+        long partitionId2 = 4;
+
+        Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> fileGroups1 = Lists.newArrayList();
         fileGroups1.add(brokerFileGroup1);
-        idToFileGroups.put(tableId1, fileGroups1);
+        aggKeyToFileGroups.put(new FileGroupAggKey(tableId1, null), fileGroups1);
+
         List<BrokerFileGroup> fileGroups2 = Lists.newArrayList();
         fileGroups2.add(brokerFileGroup2);
         fileGroups2.add(brokerFileGroup3);
-        idToFileGroups.put(tableId2, fileGroups2);
-        Deencapsulation.setField(brokerLoadJob, "dataSourceInfo", dataSourceInfo);
+        aggKeyToFileGroups.put(new FileGroupAggKey(tableId2, Lists.newArrayList(partitionId1)), fileGroups2);
+        // add another file groups with different partition id
+        aggKeyToFileGroups.put(new FileGroupAggKey(tableId2, Lists.newArrayList(partitionId2)), fileGroups2);
+
+        Deencapsulation.setField(brokerLoadJob, "fileGroupAggInfo", fileGroupAggInfo);
         new Expectations() {
             {
                 attachment.getTaskId();
@@ -278,9 +290,9 @@ public class BrokerLoadJobTest {
                 catalog.getDb(anyLong);
                 minTimes = 0;
                 result = database;
-                dataSourceInfo.getIdToFileGroups();
+                fileGroupAggInfo.getAggKeyToFileGroups();
                 minTimes = 0;
-                result = idToFileGroups;
+                result = aggKeyToFileGroups;
                 database.getTable(anyLong);
                 minTimes = 0;
                 result = olapTable;
@@ -288,6 +300,7 @@ public class BrokerLoadJobTest {
                 minTimes = 0;
                 result = 1L;
                 result = 2L;
+                result = 3L;
             }
         };
 
@@ -296,7 +309,7 @@ public class BrokerLoadJobTest {
         Assert.assertEquals(1, finishedTaskIds.size());
         Assert.assertEquals(true, finishedTaskIds.contains(taskId));
         Map<Long, LoadTask> idToTasks = Deencapsulation.getField(brokerLoadJob, "idToTasks");
-        Assert.assertEquals(2, idToTasks.size());
+        Assert.assertEquals(3, idToTasks.size());
     }
 
     @Test
