@@ -27,8 +27,8 @@ Status BitmapIndexReader::load() {
     const IndexedColumnMetaPB& bitmap_meta = _bitmap_index_meta.bitmap_column();
     _has_null = _bitmap_index_meta.has_null();
 
-    _dict_column_reader.reset(new IndexedColumnReader(_file, dict_meta));
-    _bitmap_column_reader.reset(new IndexedColumnReader(_file, bitmap_meta));
+    _dict_column_reader.reset(new IndexedColumnReader(_file_name, dict_meta));
+    _bitmap_column_reader.reset(new IndexedColumnReader(_file_name, bitmap_meta));
     RETURN_IF_ERROR(_dict_column_reader->load());
     RETURN_IF_ERROR(_bitmap_column_reader->load());
     return Status::OK();

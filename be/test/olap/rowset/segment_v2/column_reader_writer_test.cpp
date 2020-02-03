@@ -102,21 +102,21 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
     // read and check
     {
         // read and check
-        std::unique_ptr<RandomAccessFile> rfile;
-        auto st = Env::Default()->new_random_access_file(fname, &rfile);
-        ASSERT_TRUE(st.ok());
-
         ColumnReaderOptions reader_opts;
         std::unique_ptr<ColumnReader> reader;
-        st = ColumnReader::create(reader_opts, meta, num_rows, rfile.get(), &reader);
+        auto st = ColumnReader::create(reader_opts, meta, num_rows, fname, &reader);
         ASSERT_TRUE(st.ok());
 
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
+        std::unique_ptr<RandomAccessFile> rfile;
+        st = Env::Default()->new_random_access_file(fname, &rfile);
+        ASSERT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
+        iter_opts.file = rfile.get();
         st = iter->init(iter_opts);
         ASSERT_TRUE(st.ok());
         // sequence read

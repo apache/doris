@@ -33,6 +33,7 @@
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 #include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
 #include "util/once.h"
+#include "util/file_cache.h"
 
 namespace doris {
 
@@ -57,6 +58,7 @@ struct ColumnReaderOptions {
 struct ColumnIteratorOptions {
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
+    RandomAccessFile* file = nullptr;
 };
 
 // There will be concurrent users to read the same column. So
@@ -70,7 +72,7 @@ public:
     static Status create(const ColumnReaderOptions& opts,
                          const ColumnMetaPB& meta,
                          uint64_t num_rows,
-                         RandomAccessFile* file,
+                         const std::string& file_name,
                          std::unique_ptr<ColumnReader>* reader);
 
     ~ColumnReader();
@@ -85,7 +87,12 @@ public:
     Status seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* iter);
 
     // read a page from file into a page handle
+    // use reader owned _file(usually is Descriptor<RandomAccessFile>*) to read page
     Status read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle);
+
+    // read a page from file into a page handle
+    // use file(usually is RandomAccessFile*) to read page
+    Status read_page(RandomAccessFile* file, const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle);
 
     bool is_nullable() const { return _meta.is_nullable(); }
 
@@ -120,7 +127,7 @@ private:
     ColumnReader(const ColumnReaderOptions& opts,
                  const ColumnMetaPB& meta,
                  uint64_t num_rows,
-                 RandomAccessFile* file);
+                 const std::string& file_name);
     Status init();
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
@@ -151,7 +158,7 @@ private:
     ColumnReaderOptions _opts;
     ColumnMetaPB _meta;
     uint64_t _num_rows;
-    RandomAccessFile* _file;
+    std::string _file_name;
 
     // initialized in init()
     const TypeInfo* _type_info = nullptr;
@@ -228,6 +235,13 @@ public:
     FileColumnIterator(ColumnReader* reader);
     ~FileColumnIterator() override;
 
+    Status init(const ColumnIteratorOptions& opts) override {
+        RETURN_IF_ERROR(ColumnIterator::init(opts));
+        DCHECK(_opts.file != nullptr);
+        _file = _opts.file;
+        return Status::OK();
+    }
+
     Status seek_to_first() override;
 
     Status seek_to_ordinal(rowid_t ord_idx) override;
@@ -274,6 +288,8 @@ private:
 
     // page indexes those are DEL_PARTIAL_SATISFIED
     std::vector<uint32_t> _delete_partial_statisfied_pages;
+
+    RandomAccessFile* _file;
 };
 
 // This iterator is used to read default value column

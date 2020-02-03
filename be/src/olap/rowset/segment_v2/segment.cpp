@@ -27,6 +27,7 @@
 #include "util/slice.h" // Slice
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
+#include "util/file_manager.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -54,7 +55,6 @@ Segment::Segment(
 Segment::~Segment() = default;
 
 Status Segment::_open() {
-    RETURN_IF_ERROR(Env::Default()->new_random_access_file(_fname, &_input_file));
     RETURN_IF_ERROR(_parse_footer());
     RETURN_IF_ERROR(_create_column_readers());
     return Status::OK();
@@ -118,15 +118,18 @@ Status Segment::new_iterator(const Schema& schema,
 
 Status Segment::_parse_footer() {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
+    OpenedFileHandle<RandomAccessFile> file_handle;
+    RETURN_IF_ERROR(FileManager::instance()->open_file(_fname, &file_handle));
+    RandomAccessFile* input_file = file_handle.file();
     uint64_t file_size;
-    RETURN_IF_ERROR(_input_file->size(&file_size));
+    RETURN_IF_ERROR(input_file->size(&file_size));
 
     if (file_size < 12) {
         return Status::Corruption(Substitute("Bad segment file $0: file size $1 < 12", _fname, file_size));
     }
 
     uint8_t fixed_buf[12];
-    RETURN_IF_ERROR(_input_file->read_at(file_size - 12, Slice(fixed_buf, 12)));
+    RETURN_IF_ERROR(input_file->read_at(file_size - 12, Slice(fixed_buf, 12)));
 
     // validate magic number
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
@@ -141,7 +144,7 @@ Status Segment::_parse_footer() {
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(_input_file->read_at(file_size - 12 - footer_length, footer_buf));
+    RETURN_IF_ERROR(input_file->read_at(file_size - 12 - footer_length, footer_buf));
 
     // validate footer PB's checksum
     uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
@@ -162,9 +165,12 @@ Status Segment::_parse_footer() {
 Status Segment::_load_index() {
     return _load_index_once.call([this] {
         // read short key index content
+        OpenedFileHandle<RandomAccessFile> file_handle;
+        RETURN_IF_ERROR(FileManager::instance()->open_file(_fname, &file_handle));
+        RandomAccessFile* input_file = file_handle.file();
         _sk_index_buf.resize(_footer.short_key_index_page().size());
         Slice slice(_sk_index_buf.data(), _sk_index_buf.size());
-        RETURN_IF_ERROR(_input_file->read_at(_footer.short_key_index_page().offset(), slice));
+        RETURN_IF_ERROR(input_file->read_at(_footer.short_key_index_page().offset(), slice));
 
         // Parse short key index
         _sk_index_decoder.reset(new ShortKeyIndexDecoder(_sk_index_buf));
@@ -189,8 +195,9 @@ Status Segment::_create_column_readers() {
 
         ColumnReaderOptions opts;
         std::unique_ptr<ColumnReader> reader;
+        // pass Descriptor<RandomAccessFile>* to column reader
         RETURN_IF_ERROR(ColumnReader::create(
-            opts, _footer.columns(iter->second), _footer.num_rows(), _input_file.get(), &reader));
+            opts, _footer.columns(iter->second), _footer.num_rows(), _fname, &reader));
         _column_readers[ordinal] = std::move(reader);
     }
     return Status::OK();
