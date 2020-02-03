@@ -299,8 +299,8 @@ echo "Finished patching $LZ4_SOURCE"
 
 # brpc patch to disable shared library
 cd $TP_SOURCE_DIR/$BRPC_SOURCE
-if [ ! -f $PATCHED_MARK ]; then
-    patch -p0 < $TP_PATCH_DIR/brpc-0.9.0.patch
+if [ ! -f $PATCHED_MARK ] && [ $BRPC_SOURCE == "incubator-brpc-0.9.5" ]; then
+    patch -p0 < $TP_PATCH_DIR/incubator-brpc-0.9.5.patch
     touch $PATCHED_MARK
 fi
 cd -

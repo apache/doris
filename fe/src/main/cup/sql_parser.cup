@@ -17,27 +17,30 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.Version;
-import org.apache.doris.common.AnalysisException;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.doris.analysis.UnionStmt.Qualifier;
+import org.apache.doris.analysis.UnionStmt.UnionOperand;
 import org.apache.doris.catalog.AccessPrivilege;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.UnionStmt.UnionOperand;
-import org.apache.doris.analysis.UnionStmt.Qualifier;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Version;
 import org.apache.doris.mysql.MysqlPassword;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.math.BigDecimal;
-import java_cup.runtime.Symbol;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+
+import java_cup.runtime.Symbol;
 
 // Commented by Zhao Chun
 // Now we have 2 shift/reduce conflict
@@ -191,38 +194,37 @@ parser code {:
 
 // Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
-    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY,
+    KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
-    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CURRENT, KW_CURRENT_USER,
+    KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
     KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
-    KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION,
-    KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP,
+    KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
+    KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP, KW_GROUPING,
     KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE,
     KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
     KW_JOIN,
     KW_KEY, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD,
-    KW_ROUTINE, KW_PAUSE, KW_RESUME, KW_STOP, KW_TASK,
     KW_LOCAL, KW_LOCATION,
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
-    KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_PIPE, KW_ORDER, KW_OUTER, KW_OVER,
-    KW_PARTITION, KW_PARTITIONS, KW_PATH, KW_PRECEDING,
-    KW_PASSWORD, KW_PLUGIN, KW_PLUGINS,
+    KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OVER,
+    KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
+    KW_PLUGIN, KW_PLUGINS,
     KW_PRIMARY,
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
-    KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_RETURNS, KW_REVOKE,
-    KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROW, KW_ROWS,
-    KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SHOW,
-    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STORAGE, KW_STRING,
+    KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
+    KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
+    KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW,
+    KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STRING,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
-    KW_TABLE, KW_TABLES, KW_TABLET, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIME, KW_TIMESTAMP, KW_TINYINT,
+    KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIME, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW, KW_MATERIALIZED,
@@ -306,7 +308,7 @@ nonterminal Expr where_clause;
 nonterminal Expr where_clause_without_null;
 nonterminal Predicate predicate, between_predicate, comparison_predicate,
   compound_predicate, in_predicate, like_predicate, exists_predicate;
-nonterminal ArrayList<Expr> group_by_clause, opt_partition_by_clause;
+nonterminal ArrayList<Expr> opt_partition_by_clause;
 nonterminal Expr having_clause;
 nonterminal ArrayList<OrderByElement> order_by_elements, order_by_clause;
 nonterminal OrderByElement order_by_element;
@@ -413,6 +415,10 @@ nonterminal List<AlterClause> alter_table_clause_list, opt_rollup, add_rollup_cl
 nonterminal AddRollupClause add_rollup_clause;
 nonterminal DropRollupClause drop_rollup_clause;
 
+// grouping sets
+nonterminal List<ArrayList<Expr>> grouping_set_list;
+nonterminal ArrayList<Expr> grouping_set;
+nonterminal GroupByClause group_by_clause, grouping_elements;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name, text_or_password,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
@@ -425,6 +431,7 @@ nonterminal Boolean opt_external;
 nonterminal IndexDef.IndexType opt_index_type;
 
 nonterminal ShowAlterStmt.AlterType opt_alter_type;
+nonterminal Boolean opt_builtin;
 
 precedence left KW_FULL, KW_MERGE;
 precedence left DOT;
@@ -2141,9 +2148,9 @@ show_param ::=
     {:
         RESULT = new ShowRolesStmt();
     :}
-    | KW_FUNCTION opt_db:dbName
+    | opt_full opt_builtin:isBuiltin KW_FUNCTIONS opt_db:dbName opt_wild_where
     {:
-        RESULT = new ShowFunctionStmt(dbName);
+        RESULT = new ShowFunctionsStmt(dbName, isBuiltin, parser.isVerbose, parser.wild, parser.where);
     :}
     | KW_FILE opt_db:dbName
     {:
@@ -2291,6 +2298,16 @@ opt_alter_type ::=
     | KW_COLUMN
     {:
         RESULT = ShowAlterStmt.AlterType.COLUMN;
+    :}
+    ;
+
+opt_builtin ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_BUILTIN
+    {:
+        RESULT = true;
     :}
     ;
 
@@ -2962,13 +2979,13 @@ select_stmt ::=
   | select_clause:selectList
     from_clause:fromClause
     where_clause:wherePredicate
-    group_by_clause:groupingExprs
+    group_by_clause:groupByClause
     having_clause:havingPredicate
     order_by_clause:orderByClause
     limit_clause:limitClause
   {:
     RESULT = new SelectStmt(selectList, fromClause, wherePredicate,
-                            groupingExprs, havingPredicate, orderByClause,
+                            groupByClause, havingPredicate, orderByClause,
                             limitClause);
   :}
   | value_clause:valueClause order_by_clause:orderByClause limit_clause:limitClause
@@ -3390,9 +3407,52 @@ where_clause_without_null ::=
   {: RESULT = e; :}
   ;
 
-group_by_clause ::=
-  KW_GROUP KW_BY expr_list:l
+grouping_set ::=
+  LPAREN RPAREN
+  {:
+    ArrayList<Expr> list = Lists.newArrayList();
+    RESULT = list;
+  :}
+  | LPAREN expr_list:l RPAREN
   {: RESULT = l; :}
+  ;
+
+grouping_set_list ::=
+  grouping_set:l
+  {:
+    List<ArrayList<Expr>> list = Lists.newArrayList();
+    list.add(l);
+    RESULT = list;
+  :}
+  | grouping_set_list:list COMMA grouping_set:l
+  {:
+    list.add(l);
+    RESULT = list;
+  :}
+  ;
+
+grouping_elements ::=
+  expr_list:l
+  {:
+    RESULT = new GroupByClause(l, GroupByClause.GroupingType.GROUP_BY);
+  :}
+  | KW_GROUPING KW_SETS LPAREN grouping_set_list:ls RPAREN
+  {:
+    RESULT = new GroupByClause(ls, GroupByClause.GroupingType.GROUPING_SETS);
+  :}
+  | KW_CUBE LPAREN expr_list:l RPAREN
+  {:
+    RESULT = new GroupByClause(l, GroupByClause.GroupingType.CUBE);
+  :}
+  | KW_ROLLUP LPAREN expr_list:l RPAREN
+  {:
+    RESULT = new GroupByClause(l, GroupByClause.GroupingType.ROLLUP);
+  :}
+  ;
+
+group_by_clause ::=
+  KW_GROUP KW_BY grouping_elements:e
+  {: RESULT = e; :}
   | /* empty */
   {: RESULT = null; :}
   ;
@@ -3618,7 +3678,18 @@ function_call_expr ::=
   function_name:fn_name LPAREN RPAREN
   {: RESULT = new FunctionCallExpr(fn_name, new ArrayList<Expr>()); :}
   | function_name:fn_name LPAREN function_params:params RPAREN
-  {: RESULT = new FunctionCallExpr(fn_name, params); :}
+  {:
+    if ("grouping".equalsIgnoreCase(fn_name.getFunction())) {
+      if (params.exprs().size() > 1) {
+        throw new AnalysisException("GROUPING requires exactly one column parameter.");
+      }
+      RESULT = new GroupingFunctionCallExpr(fn_name, params);
+    } else if ("grouping_id".equalsIgnoreCase(fn_name.getFunction())) {
+      RESULT = new GroupingFunctionCallExpr(fn_name, params);
+    } else {
+      RESULT = new FunctionCallExpr(fn_name, params);
+    }
+  :}
   ;
 
 exists_predicate ::=
@@ -4192,6 +4263,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_BACKENDS:id
     {: RESULT = id; :}
+    | KW_BUILTIN:id
+    {: RESULT = id; :}
     | KW_CHAIN:id
     {: RESULT = id; :}
     | KW_CHARSET:id
@@ -4417,6 +4490,8 @@ keyword ::=
     | KW_RESUME:id
     {: RESULT = id; :}
     | KW_STOP:id
+    {: RESULT = id; :}
+    | KW_GROUPING:id
     {: RESULT = id; :}
     | KW_DYNAMIC:id
     {: RESULT = id; :}

@@ -25,8 +25,8 @@ namespace doris {
 /*
  * How to add a bitmap related function:
  * 1. Implement the function in BitmapFunctions
- *    Note: we have done a improve for bitmap query, So the RoaringBitmap input
- *    of bitmap functions maybe char array or point, you should handle it.
+ *    Note: we have done a improve for bitmap query, So the BitmapValue input
+ *    of bitmap functions maybe char array or pointer, you should handle it.
  *    You could refer to bitmap_union or bitmap_count function.
  * 2. Add a UT in BitmapFunctionsTest
  * 3. Add the function signature in gensrc/script/doris_builtins_functions.py
@@ -43,8 +43,8 @@ public:
 
     template <typename T>
     static void bitmap_update_int(FunctionContext* ctx, const T& src, StringVal* dst);
-    // the input src's ptr need to point a RoaringBitmap, this function will release the
-    // RoaringBitmap memory
+    // the input src's ptr need to point a BitmapValue, this function will release the
+    // BitmapValue memory
     static BigIntVal bitmap_finalize(FunctionContext* ctx, const StringVal& src);
 
     static void bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst);

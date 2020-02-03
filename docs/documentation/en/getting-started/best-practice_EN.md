@@ -26,7 +26,7 @@ under the License.
 
 Doris data model is currently divided into three categories: AGGREGATE KEY, UNIQUE KEY, DUPLICATE KEY. Data in all three models are sorted by KEY.
 
-1. AGGREGATE KEY
+1.1.1. AGGREGATE KEY
 
 When AGGREGATE KEY is the same, old and new records are aggregated. The aggregation functions currently supported are SUM, MIN, MAX, REPLACE.
 
@@ -44,7 +44,7 @@ AGGREGATE KEY(siteid, city, username)
 DISTRIBUTED BY HASH(siteid) BUCKETS 10;
 ```
 
-2. KEY UNIQUE
+1.1.2. KEY UNIQUE
 
 When UNIQUE KEY is the same, the new record covers the old record. At present, UNIQUE KEY implements the same RPLACE aggregation method as GGREGATE KEY, and they are essentially the same. Suitable for analytical business with updated requirements.
 
@@ -60,7 +60,7 @@ KEY (orderid) UNIT
 DISTRIBUTED BY HASH(orderid) BUCKETS 10;
 ```
 
-3. DUPLICATE KEY
+1.1.3. DUPLICATE KEY
 
 Only sort columns are specified, and the same rows are not merged. It is suitable for the analysis business where data need not be aggregated in advance.
 
@@ -89,11 +89,11 @@ In order to adapt to the front-end business, business side often does not distin
 
 In the process of using Star Schema, users are advised to use Star Schema to distinguish dimension tables from indicator tables as much as possible. Frequently updated dimension tables can also be placed in MySQL external tables. If there are only a few updates, they can be placed directly in Doris. When storing dimension tables in Doris, more copies of dimension tables can be set up to improve Join's performance.
 
-### 1.4 Partitions and Barrels
+### 1.3 Partitions and Barrels
 
 Doris supports two-level partitioned storage. The first layer is RANGE partition and the second layer is HASH bucket.
 
-1. RANGE分区(partition)
+1.3.1. RANGE分区(partition)
 
 The RANGE partition is used to divide data into different intervals, which can be logically understood as dividing the original table into multiple sub-tables. In business, most users will choose to partition on time, which has the following advantages:
 
@@ -101,14 +101,14 @@ The RANGE partition is used to divide data into different intervals, which can b
 * Availability of Doris Hierarchical Storage (SSD + SATA)
 * Delete data by partition more quickly
 
-2. HASH分桶(bucket)
+1.3.2. HASH分桶(bucket)
 
 The data is divided into different buckets according to the hash value.
 
 * It is suggested that columns with large differentiation should be used as buckets to avoid data skew.
 * In order to facilitate data recovery, it is suggested that the size of a single bucket should not be too large and should be kept within 10GB. Therefore, the number of buckets should be considered reasonably when building tables or increasing partitions, among which different partitions can specify different buckets.
 
-### 1.5 Sparse Index and Bloom Filter
+### 1.4 Sparse Index and Bloom Filter
 
 Doris stores the data in an orderly manner, and builds a sparse index for Doris on the basis of ordered data. The index granularity is block (1024 rows).
 
@@ -118,13 +118,13 @@ Sparse index chooses fixed length prefix in schema as index content, and Doris c
 * One particular feature of this is the varchar type field. The varchar type field can only be used as the last field of the sparse index. The index is truncated at varchar, so if varchar appears in front, the length of the index may be less than 36 bytes. Specifically, you can refer to [data model, ROLLUP and prefix index] (. / data-model-rollup. md).
 * In addition to sparse index, Doris also provides bloomfilter index. Bloomfilter index has obvious filtering effect on columns with high discrimination. If you consider that varchar cannot be placed in a sparse index, you can create a bloomfilter index.
 
-### 1.6 Physical and Chemical View (rollup)
+### 1.5 Physical and Chemical View (rollup)
 
 Rollup can essentially be understood as a physical index of the original table. When creating Rollup, only some columns in Base Table can be selected as Schema. The order of fields in Schema can also be different from that in Base Table.
 
 Rollup can be considered in the following cases:
 
-1. Base Table 中数据聚合度不高。
+1.5.1. Base Table 中数据聚合度不高。
 
 This is usually due to the fact that Base Table has more differentiated fields. At this point, you can consider selecting some columns and establishing Rollup.
 
@@ -140,7 +140,7 @@ Siteid may lead to a low degree of data aggregation. If business parties often b
 ALTER TABLE site_visit ADD ROLLUP rollup_city(city, pv);
 ```
 
-2. The prefix index in Base Table cannot be hit
+1.5.2. The prefix index in Base Table cannot be hit
 
 Generally, the way Base Table is constructed cannot cover all query modes. At this point, you can consider adjusting the column order and establishing Rollup.
 
@@ -160,7 +160,7 @@ ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLIC
 
 Doris中目前进行 Schema Change 的方式有三种：Sorted Schema Change，Direct Schema Change, Linked Schema Change。
 
-1. Sorted Schema Change
+2.1. Sorted Schema Change
 
 The sorting of columns has been changed and the data needs to be reordered. For example, delete a column in a sorted column and reorder the fields.
 
@@ -168,13 +168,14 @@ The sorting of columns has been changed and the data needs to be reordered. For 
 ALTER TABLE site_visit DROP COLUMN city;
 ```
 
-2. Direct Schema Change: There is no need to reorder, but there is a need to convert the data. For example, modify the type of column, add a column to the sparse index, etc.
+2.2. Direct Schema Change: There is no need to reorder, but there is a need to convert the data. For example, modify
+ the type of column, add a column to the sparse index, etc.
 
 ```
 ALTER TABLE site_visit MODIFY COLUMN username varchar(64);
 ```
 
-3. Linked Schema Change: 无需转换数据，直接完成。例如加列操作。
+2.3. Linked Schema Change: 无需转换数据，直接完成。例如加列操作。
 
 ```
 ALTER TABLE site_visit ADD COLUMN click bigint SUM default '0';

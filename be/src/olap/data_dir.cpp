@@ -41,14 +41,15 @@
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/olap_snapshot_converter.h"
+#include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_factory.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/utils.h" // for check_dir_existed
 #include "service/backend_options.h"
 #include "util/file_utils.h"
 #include "util/string_util.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/rowset/rowset_meta_manager.h"
-#include "olap/rowset/alpha_rowset_meta.h"
-#include "olap/rowset/rowset_factory.h"
 
 namespace doris {
 
@@ -376,11 +377,13 @@ OLAPStatus DataDir::_read_and_write_test_file() {
 }
 
 OLAPStatus DataDir::get_shard(uint64_t* shard) {
-    std::lock_guard<std::mutex> l(_mutex);
-
     std::stringstream shard_path_stream;
-    uint32_t next_shard = _current_shard;
-    _current_shard = (_current_shard + 1) % MAX_SHARD_NUM;
+    uint32_t next_shard = 0;
+    {
+        std::lock_guard<std::mutex> l(_mutex);
+        next_shard = _current_shard;
+        _current_shard = (_current_shard + 1) % MAX_SHARD_NUM;
+    }
     shard_path_stream << _path << DATA_PREFIX << "/" << next_shard;
     std::string shard_path = shard_path_stream.str();
     if (!FileUtils::check_exist(shard_path)) {

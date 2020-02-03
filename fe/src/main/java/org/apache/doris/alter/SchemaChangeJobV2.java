@@ -184,13 +184,23 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 totalReplicaNum += tablet.getReplicas().size();
             }
         }
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
+        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
         db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 throw new AlterCancelException("Table " + tableId + " does not exist");
-            } 
+            }
+
+            boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
+                    Catalog.getCurrentCatalog().getTabletScheduler(),
+                    db.getClusterName());
+            if (!isStable) {
+                errMsg = "table is unstable";
+                LOG.warn("doing schema change job: " + jobId + " while table is not stable.");
+                return;
+            }
+
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);

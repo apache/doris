@@ -17,40 +17,37 @@
 
 package org.apache.doris.common.proc;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.List;
 
 public class DbsProcDirTest {
-    private static Database db1;
-    private static Database db2;
+    private Database db1;
+    private Database db2;
+    @Mocked
     private Catalog catalog;
 
     // construct test case
     //  catalog
     //  | - db1
     //  | - db2
-    @BeforeClass
-    public static void setUpClass() {
-        db1 = new Database(10000L, "db1");
-        db2 = new Database(10001L, "db2");
-    }
 
     @Before
     public void setUp() {
-        catalog = EasyMock.createNiceMock(Catalog.class);
+        db1 = new Database(10000L, "db1");
+        db2 = new Database(10001L, "db2");
     }
 
     @After
@@ -68,13 +65,33 @@ public class DbsProcDirTest {
 
     @Test(expected = AnalysisException.class)
     public void testLookupNormal() throws AnalysisException {
-        EasyMock.expect(catalog.getDb("db1")).andReturn(db1);
-        EasyMock.expect(catalog.getDb("db2")).andReturn(db2);
-        EasyMock.expect(catalog.getDb("db3")).andReturn(null);
-        EasyMock.expect(catalog.getDb(db1.getId())).andReturn(db1);
-        EasyMock.expect(catalog.getDb(db2.getId())).andReturn(db2);
-        EasyMock.expect(catalog.getDb(10002L)).andReturn(null);
-        EasyMock.replay(catalog);
+        new Expectations(catalog) {
+            {
+                catalog.getDb("db1");
+                minTimes = 0;
+                result = db1;
+
+                catalog.getDb("db2");
+                minTimes = 0;
+                result = db2;
+
+                catalog.getDb("db3");
+                minTimes = 0;
+                result = null;
+
+                catalog.getDb(db1.getId());
+                minTimes = 0;
+                result = db1;
+
+                catalog.getDb(db2.getId());
+                minTimes = 0;
+                result = db2;
+
+                catalog.getDb(anyLong);
+                minTimes = 0;
+                result = null;
+            }
+        };
 
         DbsProcDir dir;
         ProcNodeInterface node;
@@ -126,14 +143,37 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultNormal() throws AnalysisException {
-        EasyMock.expect(catalog.getDbNames()).andReturn(Lists.newArrayList("db1", "db2"));
-        EasyMock.expect(catalog.getDb("db1")).andReturn(db1);
-        EasyMock.expect(catalog.getDb("db2")).andReturn(db2);
-        EasyMock.expect(catalog.getDb("db3")).andReturn(null);
-        EasyMock.expect(catalog.getDb(db1.getId())).andReturn(db1);
-        EasyMock.expect(catalog.getDb(db2.getId())).andReturn(db2);
-        EasyMock.expect(catalog.getDb(10002L)).andReturn(null);
-        EasyMock.replay(catalog);
+        new Expectations(catalog) {
+            {
+                catalog.getDbNames();
+                minTimes = 0;
+                result = Lists.newArrayList("db1", "db2");
+
+                catalog.getDb("db1");
+                minTimes = 0;
+                result = db1;
+
+                catalog.getDb("db2");
+                minTimes = 0;
+                result = db2;
+
+                catalog.getDb("db3");
+                minTimes = 0;
+                result = null;
+
+                catalog.getDb(db1.getId());
+                minTimes = 0;
+                result = db1;
+
+                catalog.getDb(db2.getId());
+                minTimes = 0;
+                result = db2;
+
+                catalog.getDb(anyLong);
+                minTimes = 0;
+                result = null;
+            }
+        };
 
         DbsProcDir dir;
         ProcResult result;
@@ -153,8 +193,13 @@ public class DbsProcDirTest {
 
     @Test
     public void testFetchResultInvalid() throws AnalysisException {
-        EasyMock.expect(catalog.getDbNames()).andReturn(null);
-        EasyMock.replay(catalog);
+        new Expectations(catalog) {
+            {
+                catalog.getDbNames();
+                minTimes = 0;
+                result = null;
+            }
+        };
 
         DbsProcDir dir;
         ProcResult result;

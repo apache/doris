@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Injectable;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
@@ -24,10 +26,6 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.IOException;
 import java.net.URL;
@@ -35,9 +33,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({"javax.management.*", "org.apache.log4j.*"})
-@PrepareForTest({HelpModule.class, HelpObjectLoader.class})
 public class HelpModuleTest {
     private List<HelpCategory> categories;
     private List<HelpTopic> topics;

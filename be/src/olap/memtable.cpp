@@ -25,6 +25,7 @@
 #include "olap/schema.h"
 #include "runtime/tuple.h"
 #include "util/debug_util.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -51,8 +52,7 @@ MemTable::~MemTable() {
     delete _skip_list;
 }
 
-MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema)
-    : _schema(schema) {}
+MemTable::RowCursorComparator::RowCursorComparator(const Schema* schema) : _schema(schema) {}
 
 int MemTable::RowCursorComparator::operator()(const char* left, const char* right) const {
     ContiguousRow lhs_row(_schema, left);
