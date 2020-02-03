@@ -99,7 +99,7 @@ public class OlapTableSinkTest {
             dstTable.getPartitions(); result = Lists.newArrayList(partition);
         }};
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, "");
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList());
         sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());
@@ -126,16 +126,12 @@ public class OlapTableSinkTest {
             partInfo.getType(); result = PartitionType.RANGE;
             partInfo.getPartitionColumns(); result = Lists.newArrayList(partKey);
             partInfo.getRange(1); result = Range.lessThan(key);
-            // partInfo.getRange(2); result = Range.atLeast(key);
             dstTable.getPartitions(); result = Lists.newArrayList(p1, p2);
-            dstTable.getPartition("p1"); result = p1;
-
+            dstTable.getPartition(p1.getId()); result = p1;
             index.getTablets(); result = Lists.newArrayList(new Tablet(1));
-            // systemInfoService.getBackendIds(anyBoolean); result = Lists.newArrayList(new Long(1));
-            // systemInfoService.getBackend(new Long(1)); result = new Backend(1, "abc", 1234);
         }};
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p1");
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()));
         sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         try {
             sink.finalize();
@@ -152,12 +148,13 @@ public class OlapTableSinkTest {
             @Injectable MaterializedIndex index) throws UserException {
         TupleDescriptor tuple = getTuple();
 
+        long unknownPartId = 12345L;
         new Expectations() {{
             partInfo.getType(); result = PartitionType.RANGE;
-            dstTable.getPartition("p3"); result = null;
+            dstTable.getPartition(unknownPartId); result = null;
         }};
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p3");
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(unknownPartId));
         sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());
@@ -174,7 +171,7 @@ public class OlapTableSinkTest {
             partInfo.getType(); result = PartitionType.UNPARTITIONED;
         }};
 
-        OlapTableSink sink = new OlapTableSink(dstTable, tuple, "p1");
+        OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(1L));
         sink.init(new TUniqueId(1, 2), 3, 4, 1000);
         sink.finalize();
         LOG.info("sink is {}", sink.toThrift());

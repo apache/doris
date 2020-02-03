@@ -20,9 +20,10 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
@@ -48,10 +49,11 @@ public class BrokerLoadPendingTaskTest {
                                 @Injectable BrokerDesc brokerDesc,
                                 @Mocked Catalog catalog,
                                 @Injectable TBrokerFileStatus tBrokerFileStatus) throws UserException {
-        Map<Long, List<BrokerFileGroup>> tableToFileGroups = Maps.newHashMap();
+        Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
         List<BrokerFileGroup> brokerFileGroups = Lists.newArrayList();
         brokerFileGroups.add(brokerFileGroup);
-        tableToFileGroups.put(1L, brokerFileGroups);
+        FileGroupAggKey aggKey = new FileGroupAggKey(1L, null);
+        aggKeyToFileGroups.put(aggKey, brokerFileGroups);
         new Expectations() {
             {
                 catalog.getNextId();
@@ -67,10 +69,10 @@ public class BrokerLoadPendingTaskTest {
             }
         };
 
-        BrokerLoadPendingTask brokerLoadPendingTask = new BrokerLoadPendingTask(brokerLoadJob, tableToFileGroups, brokerDesc);
+        BrokerLoadPendingTask brokerLoadPendingTask = new BrokerLoadPendingTask(brokerLoadJob, aggKeyToFileGroups, brokerDesc);
         brokerLoadPendingTask.executeTask();
         BrokerPendingTaskAttachment brokerPendingTaskAttachment = Deencapsulation.getField(brokerLoadPendingTask, "attachment");
-        Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(1L));
-        Assert.assertEquals(tBrokerFileStatus, brokerPendingTaskAttachment.getFileStatusByTable(1L).get(0).get(0));
+        Assert.assertEquals(1, brokerPendingTaskAttachment.getFileNumByTable(aggKey));
+        Assert.assertEquals(tBrokerFileStatus, brokerPendingTaskAttachment.getFileStatusByTable(aggKey).get(0).get(0));
     }
 }

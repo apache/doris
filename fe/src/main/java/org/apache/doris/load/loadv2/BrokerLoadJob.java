@@ -40,9 +40,10 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.BrokerFileGroupAggInfo;
+import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.PullLoadSourceInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
@@ -88,7 +89,7 @@ public class BrokerLoadJob extends LoadJob {
     private String originStmt = "";
 
     // include broker desc and data desc
-    private PullLoadSourceInfo dataSourceInfo = new PullLoadSourceInfo();
+    private BrokerFileGroupAggInfo fileGroupAggInfo = new BrokerFileGroupAggInfo();
     private List<TabletCommitInfo> commitInfos = Lists.newArrayList();
 
     // sessionVariable's name -> sessionVariable's value
@@ -145,7 +146,7 @@ public class BrokerLoadJob extends LoadJob {
             for (DataDescription dataDescription : dataDescriptions) {
                 BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
                 fileGroup.parse(db, dataDescription);
-                dataSourceInfo.addFileGroup(fileGroup);
+                fileGroupAggInfo.addFileGroup(fileGroup);
             }
         } finally {
             db.readUnlock();
@@ -165,12 +166,12 @@ public class BrokerLoadJob extends LoadJob {
         Set<String> result = Sets.newHashSet();
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
-            for (long tableId : dataSourceInfo.getIdToFileGroups().keySet()) {
+            for (long tableId : fileGroupAggInfo.getAllTableIds()) {
                 result.add(String.valueOf(tableId));
             }
             return result;
         }
-        for (long tableId : dataSourceInfo.getIdToFileGroups().keySet()) {
+        for (long tableId : fileGroupAggInfo.getAllTableIds()) {
             Table table = database.getTable(tableId);
             if (table == null) {
                 result.add(String.valueOf(tableId));
@@ -190,7 +191,7 @@ public class BrokerLoadJob extends LoadJob {
         }
         // The database will not be locked in here.
         // The getTable is a thread-safe method called without read lock of database
-        for (long tableId : dataSourceInfo.getIdToFileGroups().keySet()) {
+        for (long tableId : fileGroupAggInfo.getAllTableIds()) {
             Table table = database.getTable(tableId);
             if (table == null) {
                 throw new MetaNotFoundException("Failed to find table " + tableId + " in db " + dbId);
@@ -212,7 +213,7 @@ public class BrokerLoadJob extends LoadJob {
 
     @Override
     protected void unprotectedExecuteJob() {
-        LoadTask task = new BrokerLoadPendingTask(this, dataSourceInfo.getIdToFileGroups(), brokerDesc);
+        LoadTask task = new BrokerLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(), brokerDesc);
         idToTasks.put(task.getSignature(), task);
         Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
     }
@@ -280,7 +281,7 @@ public class BrokerLoadJob extends LoadJob {
             return;
         }
         // Reset dataSourceInfo, it will be re-created in analyze
-        dataSourceInfo = new PullLoadSourceInfo();
+        fileGroupAggInfo = new BrokerFileGroupAggInfo();
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         LoadStmt stmt = null;
@@ -357,9 +358,10 @@ public class BrokerLoadJob extends LoadJob {
         db.readLock();
         try {
             List<LoadLoadingTask> newLoadingTasks = Lists.newArrayList();
-            for (Map.Entry<Long, List<BrokerFileGroup>> entry :
-                    dataSourceInfo.getIdToFileGroups().entrySet()) {
-                long tableId = entry.getKey();
+            for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry : fileGroupAggInfo.getAggKeyToFileGroups().entrySet()) {
+                FileGroupAggKey aggKey = entry.getKey();
+                List<BrokerFileGroup> brokerFileGroups = entry.getValue();
+                long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTable(tableId);
                 if (table == null) {
                     LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
@@ -373,11 +375,11 @@ public class BrokerLoadJob extends LoadJob {
 
                 // Generate loading task and init the plan of task
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
-                        entry.getValue(), getDeadlineMs(), execMemLimit,
+                        brokerFileGroups, getDeadlineMs(), execMemLimit,
                         strictMode, transactionId, this, timezone, timeoutSecond);
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-                task.init(loadId, attachment.getFileStatusByTable(tableId), attachment.getFileNumByTable(tableId));
+                task.init(loadId, attachment.getFileStatusByTable(aggKey), attachment.getFileNumByTable(aggKey));
                 idToTasks.put(task.getSignature(), task);
                 // idToTasks contains previous LoadPendingTasks, so idToTasks is just used to save all tasks.
                 // use newLoadingTasks to save new created loading tasks and submit them later.
@@ -532,7 +534,7 @@ public class BrokerLoadJob extends LoadJob {
         super.readFields(in);
         brokerDesc = BrokerDesc.read(in);
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_61) {
-            dataSourceInfo.readFields(in);
+            fileGroupAggInfo.readFields(in);
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {

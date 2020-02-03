@@ -26,7 +26,10 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.task.StreamLoadTask;
@@ -107,7 +110,8 @@ public class StreamLoadPlanner {
         scanNode.finalize(analyzer);
 
         // create dest sink
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, streamLoadTask.getPartitions());
+        List<Long> partitionIds = getAllPartitionIds();
+        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
         olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId(), streamLoadTask.getTimeout());
         olapTableSink.finalize();
 
@@ -165,5 +169,23 @@ public class StreamLoadPlanner {
 
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
+    }
+
+    // get all specified partition ids. return an empty list if no partition is specified.
+    private List<Long> getAllPartitionIds() throws DdlException {
+        List<Long> partitionIds = Lists.newArrayList();
+
+        String partitionsStr = streamLoadTask.getPartitions();
+        if (partitionsStr != null) {
+            String[] partNames = partitionsStr.trim().split("\\s*,\\s*");
+            for (String partName : partNames) {
+                Partition part = destTable.getPartition(partName);
+                if (part == null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
+                }
+                partitionIds.add(part.getId());
+            }
+        }
+        return partitionIds;
     }
 }
