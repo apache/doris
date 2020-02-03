@@ -95,7 +95,7 @@ public:
           _ordinal_iter(&reader->_ordinal_index_reader),
           _value_iter(&reader->_value_index_reader) {
         _file_handle.reset(new OpenedFileHandle<RandomAccessFile>());
-        auto st = FileManager::instance()->open_file(_reader->_file_name, file_handle.get());
+        auto st = FileManager::instance()->open_file(_reader->_file_name, _file_handle.get());
         DCHECK(st.ok());
         WARN_IF_ERROR(st, "open file failed:" + _reader->_file_name);
         _file = _file_handle->file();
