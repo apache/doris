@@ -492,8 +492,8 @@ public class Coordinator {
                             errMsg = "exec rpc error. backend id: " + pair.first.backend.getId();
                         }
                         queryStatus.setStatus(errMsg);
-                        LOG.warn("exec plan fragment failed, errmsg={}, fragmentId={}, backend={}:{}",
-                                 errMsg, fragment.getFragmentId(),
+                        LOG.warn("exec plan fragment failed, errmsg={}, code: {}, fragmentId={}, backend={}:{}",
+                                 errMsg, code, fragment.getFragmentId(),
                                  pair.first.address.hostname, pair.first.address.port);
                         cancelInternal(PPlanFragmentCancelReason.INTERNAL_ERROR);
                         switch (code) {

@@ -81,7 +81,7 @@ public class BDBJEJournal implements Journal {
      * node name is ip_port (the port is edit_log_port)
      */
     private void initBDBEnv(String nodeName) {
-        environmentPath = Catalog.BDB_DIR;
+        environmentPath = Catalog.getCurrentCatalog().getBdbDir();
         try {
             Pair<String, Integer> selfNode = Catalog.getInstance().getSelfNode();
             if (isPortUsing(selfNode.first, selfNode.second)) {
