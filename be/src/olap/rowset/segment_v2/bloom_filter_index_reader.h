@@ -43,9 +43,9 @@ class BloomFilter;
 
 class BloomFilterIndexReader {
 public:
-    explicit BloomFilterIndexReader(RandomAccessFile* file,
+    explicit BloomFilterIndexReader(const std::string& file_name,
                                const BloomFilterIndexPB& bloom_filter_index_meta)
-        : _file(file),
+        : _file_name(file_name),
           _bloom_filter_index_meta(bloom_filter_index_meta) {
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
@@ -62,7 +62,7 @@ public:
 private:
     friend class BloomFilterIndexIterator;
 
-    RandomAccessFile* _file;
+    std::string _file_name;
     const TypeInfo* _typeinfo;
     BloomFilterIndexPB _bloom_filter_index_meta;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;

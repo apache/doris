@@ -83,10 +83,12 @@ set(UTIL_FILES
   frame_of_reference_coding.cpp
   minizip/ioapi.c
   minizip/unzip.c
-  zip_util.cpp        
+  zip_util.cpp
   utf8_check.cpp
   cgroup_util.cpp
   path_util.cpp
+  file_manager.cpp
+  file_cache.cpp
 )
 
 if (WITH_MYSQL)

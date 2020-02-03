@@ -26,7 +26,7 @@ namespace segment_v2 {
 Status BloomFilterIndexReader::load() {
     const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta.bloom_filter();
 
-    _bloom_filter_reader.reset(new IndexedColumnReader(_file, bf_index_meta));
+    _bloom_filter_reader.reset(new IndexedColumnReader(_file_name, bf_index_meta));
     RETURN_IF_ERROR(_bloom_filter_reader->load());
     return Status::OK();
 }
