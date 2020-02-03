@@ -27,6 +27,7 @@
 #include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
 #include "util/crc32c.h"
 #include "util/rle_encoding.h" // for RleDecoder
+#include "util/file_manager.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -42,12 +43,15 @@ Status IndexedColumnReader::load() {
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
     _validx_key_coder = get_key_coder(_type_info->type());
 
+    OpenedFileHandle<RandomAccessFile> file_handle;
+    RETURN_IF_ERROR(FileManager::instance()->open_file(_file_name, &file_handle));
+    RandomAccessFile* input_file = file_handle.file();
     // read and parse ordinal index page when exists
     if (_meta.has_ordinal_index_meta()) {
         if (_meta.ordinal_index_meta().is_root_data_page()) {
             _sole_data_page = PagePointer(_meta.ordinal_index_meta().root_page());
         } else {
-            RETURN_IF_ERROR(read_page(_meta.ordinal_index_meta().root_page(), &_ordinal_index_page_handle));
+            RETURN_IF_ERROR(read_page(input_file, _meta.ordinal_index_meta().root_page(), &_ordinal_index_page_handle));
             RETURN_IF_ERROR(_ordinal_index_reader.parse(_ordinal_index_page_handle.data()));
             _has_index_page = true;
         }
@@ -58,7 +62,7 @@ Status IndexedColumnReader::load() {
         if (_meta.value_index_meta().is_root_data_page()) {
             _sole_data_page = PagePointer(_meta.value_index_meta().root_page());
         } else {
-            RETURN_IF_ERROR(read_page(_meta.value_index_meta().root_page(), &_value_index_page_handle));
+            RETURN_IF_ERROR(read_page(input_file, _meta.value_index_meta().root_page(), &_value_index_page_handle));
             RETURN_IF_ERROR(_value_index_reader.parse(_value_index_page_handle.data()));
             _has_index_page = true;
         }
@@ -67,10 +71,10 @@ Status IndexedColumnReader::load() {
     return Status::OK();
 }
 
-Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle) const {
+Status IndexedColumnReader::read_page(RandomAccessFile* file, const PagePointer& pp, PageHandle* handle) const {
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
-    StoragePageCache::CacheKey cache_key(_file->file_name(), pp.offset);
+    StoragePageCache::CacheKey cache_key(file->file_name(), pp.offset);
     if (cache->lookup(cache_key, &cache_handle)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
@@ -86,7 +90,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle)
     // this buffer will assigned uncompressed page, and origin content will be freed.
     std::unique_ptr<uint8_t[]> page(new uint8_t[page_size]);
     Slice page_slice(page.get(), page_size);
-    RETURN_IF_ERROR(_file->read_at(pp.offset, page_slice));
+    RETURN_IF_ERROR(file->read_at(pp.offset, page_slice));
 
     size_t data_size = page_size - 4;
     if (_verify_checksum) {
@@ -124,7 +128,7 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle)
 ///////////////////////////////////////////////////////////////////////////////
 
 Status IndexedColumnIterator::_read_data_page(const PagePointer& page_pointer, ParsedPage* page) {
-    RETURN_IF_ERROR(_reader->read_page(page_pointer, &page->page_handle));
+    RETURN_IF_ERROR(_reader->read_page(_file, page_pointer, &page->page_handle));
     Slice data = page->page_handle.data();
 
     // decode first rowid

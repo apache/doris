@@ -25,6 +25,7 @@
 #include "gutil/strings/substitute.h"
 #include "util/errno.h"
 #include "util/slice.h"
+#include "util/file_cache.h"
 
 namespace doris {
 
@@ -484,7 +485,6 @@ private:
 
 class PosixEnv : public Env {
 public:
-    PosixEnv() { }
     ~PosixEnv() override { }
 
     Status new_sequential_file(
@@ -498,6 +498,7 @@ public:
         return Status::OK();
     }
 
+    // get a RandomAccessFile pointer without file cache
     Status new_random_access_file(const std::string& fname,
                                std::unique_ptr<RandomAccessFile>* result) override {
         return new_random_access_file(RandomAccessFileOptions(), fname, result);

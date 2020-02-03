@@ -29,6 +29,8 @@
 #include "olap/rowset/segment_v2/parsed_page.h"
 #include "util/block_compression.h"
 #include "util/slice.h"
+#include "util/file_cache.h"
+#include "util/file_manager.h"
 
 namespace doris {
 
@@ -44,12 +46,14 @@ class IndexedColumnIterator;
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {
 public:
-    explicit IndexedColumnReader(RandomAccessFile* file, const IndexedColumnMetaPB& meta)
-        : _file(file), _meta(meta) {};
+    explicit IndexedColumnReader(const std::string& file_name, const IndexedColumnMetaPB& meta)
+        : _file_name(file_name), _meta(meta) {};
 
     Status load();
 
-    Status read_page(const PagePointer& pp, PageHandle* handle) const;
+    // read a page from file into a page handle
+    // use file(usually is RandomAccessFile*) to read page
+    Status read_page(RandomAccessFile* file, const PagePointer& pp, PageHandle* handle) const;
 
     int64_t num_values() const { return _num_values; }
 
@@ -64,7 +68,7 @@ public:
 private:
     friend class IndexedColumnIterator;
 
-    RandomAccessFile* _file;
+    std::string _file_name;
     IndexedColumnMetaPB _meta;
     int64_t _num_values = 0;
     // whether this column contains any index page.
@@ -89,7 +93,12 @@ public:
     explicit IndexedColumnIterator(const IndexedColumnReader* reader)
         : _reader(reader),
           _ordinal_iter(&reader->_ordinal_index_reader),
-          _value_iter(&reader->_value_index_reader) {
+          _value_iter(&reader->_value_index_reader),
+          _file(nullptr) {
+        auto st = FileManager::instance()->open_file(_reader->_file_name, &_file_handle);
+        DCHECK(st.ok());
+        WARN_IF_ERROR(st, "open file failed:" + _reader->_file_name);
+        _file = _file_handle.file();
     }
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
@@ -131,6 +140,10 @@ private:
     std::unique_ptr<ParsedPage> _data_page;
     // next_batch() will read from this position
     rowid_t _current_rowid = 0;
+    // open file handle
+    OpenedFileHandle<RandomAccessFile> _file_handle;
+    // file to read
+    RandomAccessFile* _file;
 };
 
 } // namespace segment_v2

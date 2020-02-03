@@ -122,12 +122,12 @@ private:
     Status _load_index();
 
 private:
+    friend class SegmentIterator;
     std::string _fname;
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
 
     SegmentFooterPB _footer;
-    std::unique_ptr<RandomAccessFile> _input_file;
 
     // Map from column unique id to column ordinal in footer's ColumnMetaPB
     // If we can't find unique id from it, it means this segment is created
