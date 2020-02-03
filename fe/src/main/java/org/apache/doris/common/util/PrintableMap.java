@@ -29,6 +29,7 @@ public class PrintableMap<K, V> {
     private boolean withQuotation;
     private boolean wrap;
     private boolean hidePassword;
+    private String entryDelimiter = ",";
     
     public static final Set<String> SENSITIVE_KEY;
     static {
@@ -37,14 +38,20 @@ public class PrintableMap<K, V> {
         SENSITIVE_KEY.add("kerberos_keytab_content");
         SENSITIVE_KEY.add("bos_secret_accesskey");
     }
-
+    
     public PrintableMap(Map<K, V> map, String keyValueSaperator,
-                        boolean withQuotation, boolean wrap) {
+            boolean withQuotation, boolean wrap, String entryDelimiter) {
         this.map = map;
         this.keyValueSaperator = keyValueSaperator;
         this.withQuotation = withQuotation;
         this.wrap = wrap;
         this.hidePassword = false;
+        this.entryDelimiter = entryDelimiter;
+    }
+
+    public PrintableMap(Map<K, V> map, String keyValueSaperator,
+                        boolean withQuotation, boolean wrap) {
+        this(map, keyValueSaperator, withQuotation, wrap, ",");
     }
 
     public PrintableMap(Map<K, V> map, String keyValueSaperator,
@@ -79,10 +86,11 @@ public class PrintableMap<K, V> {
                 sb.append("\"");
             }
             if (iter.hasNext()) {
+                sb.append(entryDelimiter);
                 if (wrap) {
-                    sb.append(",\n");
+                    sb.append("\n");
                 } else {
-                    sb.append(", ");
+                    sb.append(" ");
                 }
             }
         }

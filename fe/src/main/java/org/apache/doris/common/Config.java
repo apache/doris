@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.PaloFe;
+
 public class Config extends ConfigBase {
     
     /*
@@ -55,7 +57,8 @@ public class Config extends ConfigBase {
      *          60m     60 mins
      *          120s    120 seconds
      */
-    @ConfField public static String sys_log_dir = System.getenv("DORIS_HOME") + "/log";
+    @ConfField
+    public static String sys_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static String sys_log_level = "INFO"; 
     @ConfField public static int sys_log_roll_num = 10;
     @ConfField public static String[] sys_log_verbose_modules = {};
@@ -90,7 +93,7 @@ public class Config extends ConfigBase {
      *          60m     60 mins
      *          120s    120 seconds
      */
-    @ConfField public static String audit_log_dir = System.getenv("DORIS_HOME") + "/log";
+    @ConfField public static String audit_log_dir = PaloFe.DORIS_HOME_DIR + "/log";
     @ConfField public static int audit_log_roll_num = 90;
     @ConfField public static String[] audit_log_modules = {"slow_query", "query"};
     @ConfField(mutable = true) public static long qe_slow_log_ms = 5000;
@@ -130,13 +133,13 @@ public class Config extends ConfigBase {
      * 1. High write performance (SSD)
      * 2. Safe (RAID)
      */
-    @ConfField public static String meta_dir = System.getenv("DORIS_HOME") + "/palo-meta";
+    @ConfField public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/palo-meta";
     
     /*
      * temp dir is used to save intermediate results of some process, such as backup and restore process.
      * file in this dir will be cleaned after these process is finished.
      */
-    @ConfField public static String tmp_dir = System.getenv("DORIS_HOME") + "/temp_dir";
+    @ConfField public static String tmp_dir = PaloFe.DORIS_HOME_DIR + "/temp_dir";
     
     /*
      * Edit log type.
@@ -920,7 +923,7 @@ public class Config extends ConfigBase {
     /*
      * Save small files
      */
-    @ConfField public static String small_file_dir = System.getenv("DORIS_HOME") + "/small_files";
+    @ConfField public static String small_file_dir = PaloFe.DORIS_HOME_DIR + "/small_files";
     
     /*
      * The following 2 configs can set to true to disable the automatic colocate tables's relocate and balance.

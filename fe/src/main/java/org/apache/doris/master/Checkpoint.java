@@ -55,7 +55,7 @@ public class Checkpoint extends MasterDaemon {
 
     public Checkpoint(EditLog editLog) {
         super("leaderCheckpointer", FeConstants.checkpoint_interval_second * 1000L);
-        this.imageDir = Catalog.IMAGE_DIR;
+        this.imageDir = Catalog.getCurrentCatalog().getImageDir();
         this.editLog = editLog;
     }
 
