@@ -103,6 +103,7 @@ private:
 
     int _rows_of_group; // rows in a group.
     int _current_line_of_group;
+    int _current_line_of_batch;
 };
 
 }

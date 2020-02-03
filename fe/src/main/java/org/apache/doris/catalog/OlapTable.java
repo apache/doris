@@ -113,9 +113,8 @@ public class OlapTable extends Table {
 
     private String colocateGroup;
 
-
     private TableIndexes indexes;
-
+    
     // In former implementation, base index id is same as table id.
     // But when refactoring the process of alter table job, we find that
     // using same id is not suitable for our new framework.
@@ -147,7 +146,7 @@ public class OlapTable extends Table {
         this.colocateGroup = null;
 
         this.indexes = null;
-
+      
         this.tableProperty = null;
     }
 
@@ -182,7 +181,7 @@ public class OlapTable extends Table {
         this.bfFpp = 0;
 
         this.colocateGroup = null;
-
+        
         if (indexes == null) {
             this.indexes = null;
         } else {
@@ -898,8 +897,8 @@ public class OlapTable extends Table {
         } else {
             out.writeBoolean(false);
         }
-
-        //dynamicProperties
+      
+        // tableProperty
         if (tableProperty == null) {
             out.writeBoolean(false);
         } else {
@@ -1006,7 +1005,7 @@ public class OlapTable extends Table {
                 this.indexes = TableIndexes.read(in);
             }
         }
-        // dynamic partition
+        // tableProperty
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_71) {
             if (in.readBoolean()) {
                 tableProperty = TableProperty.read(in);
@@ -1203,5 +1202,20 @@ public class OlapTable extends Table {
             }
         }
         return hasChanged;
+    }
+
+    public void setReplicationNum(Short replicationNum) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
+        tableProperty.buildReplicationNum();
+    }
+
+    public Short getReplicationNum() {
+        if (tableProperty != null) {
+            return tableProperty.getReplicationNum();
+        }
+        return null;
     }
 }

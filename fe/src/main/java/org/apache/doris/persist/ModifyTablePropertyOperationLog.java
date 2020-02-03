@@ -28,7 +28,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-public class ModifyDynamicPartitionInfo implements Writable {
+public class ModifyTablePropertyOperationLog implements Writable {
 
     @SerializedName(value = "dbId")
     private long dbId;
@@ -37,7 +37,7 @@ public class ModifyDynamicPartitionInfo implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties = new HashMap<>();
 
-    public ModifyDynamicPartitionInfo(long dbId, long tableId, Map<String, String> properties) {
+    public ModifyTablePropertyOperationLog(long dbId, long tableId, Map<String, String> properties) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.properties = properties;
@@ -60,7 +60,7 @@ public class ModifyDynamicPartitionInfo implements Writable {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public static ModifyDynamicPartitionInfo read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), ModifyDynamicPartitionInfo.class);
+    public static ModifyTablePropertyOperationLog read(DataInput in) throws IOException {
+        return GsonUtils.GSON.fromJson(Text.readString(in), ModifyTablePropertyOperationLog.class);
     }
 }

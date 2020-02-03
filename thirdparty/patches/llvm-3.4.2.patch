@@ -2,8 +2,8 @@
 +++ autoconf/config.guess    2019-12-24 16:00:25.940000000 +0800
 @@ -864,6 +864,13 @@
      i*86:Minix:*:*)
-     echo ${UNAME_MACHINE}-pc-minix
-     exit ;;
+ 	echo ${UNAME_MACHINE}-pc-minix
+ 	exit ;;
 +    aarch64:Linux:*:*)
 +    echo "$UNAME_MACHINE"-unknown-linux-"$LIBC"
 +    exit ;;

@@ -17,13 +17,17 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.rewrite.ExprRewriter;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.StringReader;
 
 public class SqlModeTest {
+
+    private Analyzer analyzer;
 
     @Test
     public void testScannerConstructor() {
@@ -75,5 +79,35 @@ public class SqlModeTest {
             Assert.fail();
         }
         Assert.assertEquals("(('a') OR ('b')) OR ('c')", expr.toSql());
+    }
+
+    @Test
+    public void testPipesAsConcatModeNull() {
+        // Mode Active
+        String stmt = new String("SELECT ('10' || 'xy' > 1) + 2");
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt), SqlModeHelper.MODE_PIPES_AS_CONCAT));
+        SelectStmt parsedStmt = null;
+        try {
+            parsedStmt = (SelectStmt) parser.parse().value;
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+        Expr expr = parsedStmt.getSelectList().getItems().get(0).getExpr();
+        if (!(expr.contains(FunctionCallExpr.class))) {
+            Assert.fail("Mode not working");
+        }
+
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
+        try {
+            parsedStmt.analyze(analyzer);
+            ExprRewriter rewriter = analyzer.getExprRewriter();
+            rewriter.reset();
+            parsedStmt.rewriteExprs(rewriter);
+
+            Expr result = parsedStmt.getSelectList().getItems().get(0).getExpr();
+            Assert.assertEquals(Expr.IS_NULL_LITERAL.apply(result), true);
+        } catch (UserException e) {
+            Assert.fail(e.getMessage());
+        }
     }
 }

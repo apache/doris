@@ -20,6 +20,8 @@ package org.apache.doris.catalog;
 import com.google.gson.annotations.SerializedName;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
@@ -41,8 +43,12 @@ public class TableProperty implements Writable {
 
     private DynamicPartitionProperty dynamicPartitionProperty;
 
+    private Short replicationNum;
+
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
+        dynamicPartitionProperty = null;
+        replicationNum = null;
     }
 
     public static boolean isSamePrefixProperties(Map<String, String> properties, String prefix) {
@@ -54,6 +60,19 @@ public class TableProperty implements Writable {
         return true;
     }
 
+    public TableProperty buildProperty(short opCode) {
+        switch (opCode) {
+            case OperationType.OP_DYNAMIC_PARTITION:
+                buildDynamicProperty();
+                break;
+            case OperationType.OP_MODIFY_REPLICATION_NUM:
+                buildReplicationNum();
+                break;
+            default:
+                break;
+        }
+        return this;
+    }
     public TableProperty buildDynamicProperty() {
         HashMap<String, String> dynamicPartitionProperties = new HashMap<>();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
@@ -65,9 +84,19 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildReplicationNum() {
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+            replicationNum = Short.valueOf(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        }
+        return this;
+    }
+
     void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
-        buildDynamicProperty();
+    }
+
+    void modifyTableProperties(String key, String value) {
+        properties.put(key, value);
     }
 
     public Map<String, String> getProperties() {
@@ -78,12 +107,16 @@ public class TableProperty implements Writable {
         return dynamicPartitionProperty;
     }
 
+    public Short getReplicationNum() {
+        return replicationNum;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static TableProperty read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class).buildDynamicProperty();
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class).buildDynamicProperty().buildReplicationNum();
     }
 }

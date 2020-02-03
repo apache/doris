@@ -77,7 +77,7 @@ Syntax:
             HLL tpye, No need to specify length.
             This type can only be queried by hll_union_agg, hll_cardinality, hll_hash functions.
         BITMAP
-            BITMAP type, No need to specify length.
+            BITMAP type, No need to specify length. Represent a set of unsigned bigint numbers, the largest element could be 2^64 - 1
     ```
     agg_type: Aggregation type. If not specified, the column is key column. Otherwise, the column   is value column.
        * SUM、MAX、MIN、REPLACE
@@ -86,7 +86,7 @@ Syntax:
        * BITMAP_UNION: Only for BITMAP type
     Allow NULL: Default is NOT NULL. NULL value should be represented as `\N` in load source file.
     Notice:  
-        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT.
+        The origin value of BITMAP_UNION column should be TINYINT, SMALLINT, INT, BIGINT.
 2. index_definition
     Syntax:
         `INDEX index_name (col_name[, col_name, ...]) [USING BITMAP] COMMENT 'xxxxxx'`
@@ -227,6 +227,28 @@ Syntax:
             "colocate_with"="table1"
         )
         ```
+        
+    4) if you want to use the dynamic partitioning feature, specify it in properties
+       
+        ```
+        PROPERTIES (
+            "dynamic_partition.enable" = "true|false",
+            "dynamic_partition.time_unit" = "DAY|WEEK|MONTH",
+            "dynamic_partitoin.end" = "${integer_value}",
+            "dynamic_partition.prefix" = "${string_value}",
+            "dynamic_partition.buckets" = "${integer_value}
+        )    
+       ```
+       
+       Dynamic_partition. Enable: specifies whether dynamic partitioning at the table level is enabled
+       
+       Dynamic_partition. Time_unit: used to specify the time unit for dynamically adding partitions, which can be selected as DAY, WEEK, and MONTH.
+       
+       Dynamic_partition. End: used to specify the number of partitions created in advance
+       
+       Dynamic_partition. Prefix: used to specify the partition name prefix to be created, such as the partition name prefix p, automatically creates the partition name p20200108
+       
+       Dynamic_partition. Buckets: specifies the number of partition buckets that are automatically created
 
 ## example
 
@@ -442,7 +464,7 @@ Syntax:
     );
     ```
 
-10. 创建一个带有bitmap 索引的表
+10. Create a table with a bitmap index 
 
     ```
     CREATE TABLE example_db.table_hash
@@ -458,6 +480,42 @@ Syntax:
     COMMENT "my first doris table"
     DISTRIBUTED BY HASH(k1) BUCKETS 32
     PROPERTIES ("storage_type"="column");
+    ```
+    
+11. Create a dynamic partitioning table (dynamic partitioning needs to be enabled in FE configuration), which creates partitions 3 days in advance every day. For example, if today is' 2020-01-08 ', partitions named 'p20200108', 'p20200109', 'p20200110', 'p20200111' will be created.
+
+    ```
+    [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
+    [types: [DATE]; keys: [2020-01-09]; ‥types: [DATE]; keys: [2020-01-10]; )
+    [types: [DATE]; keys: [2020-01-10]; ‥types: [DATE]; keys: [2020-01-11]; )
+    [types: [DATE]; keys: [2020-01-11]; ‥types: [DATE]; keys: [2020-01-12]; )
+    ```
+    
+     ```
+        CREATE TABLE example_db.dynamic_partition
+        (
+        k1 DATE,
+        k2 INT,
+        k3 SMALLINT,
+        v1 VARCHAR(2048),
+        v2 DATETIME DEFAULT "2014-02-04 15:36:00"
+        )
+        ENGINE=olap
+        DUPLICATE KEY(k1, k2, k3)
+        PARTITION BY RANGE (k1)
+        (
+        PARTITION p1 VALUES LESS THAN ("2014-01-01"),
+        PARTITION p2 VALUES LESS THAN ("2014-06-01"),
+        PARTITION p3 VALUES LESS THAN ("2014-12-01")
+        )
+        DISTRIBUTED BY HASH(k2) BUCKETS 32
+        PROPERTIES(
+        "storage_medium" = "SSD",
+        "dynamic_partition.time_unit" = "DAY",
+        "dynamic_partition.end" = "3",
+        "dynamic_partition.prefix" = "p",
+        "dynamic_partition.buckets" = "32"
+         );
     ```
 
 ## keyword

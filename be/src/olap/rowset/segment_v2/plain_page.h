@@ -157,6 +157,44 @@ public:
         return Status::OK();
     }
 
+    Status seek_at_or_after_value(const void* value, bool* exact_match) override {
+        DCHECK(_parsed) << "Must call init() firstly";
+
+        if (_num_elems == 0) {
+            return Status::NotFound("page is empty");
+        }
+
+        size_t left = 0;
+        size_t right = _num_elems;
+
+        const void* mid_value = nullptr;
+
+        // find the first value >= target. after loop,
+        // - left == index of first value >= target when found
+        // - left == _num_elems when not found (all values < target)
+        while (left < right) {
+            size_t mid = left + (right - left) / 2;
+            mid_value = &_data[PLAIN_PAGE_HEADER_SIZE + mid * SIZE_OF_TYPE];
+            if (TypeTraits<Type>::cmp(mid_value, value) < 0) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+        if (left >= _num_elems) {
+            return Status::NotFound("all value small than the value");
+        }
+        const void* find_value = &_data[PLAIN_PAGE_HEADER_SIZE + left * SIZE_OF_TYPE];
+        if (TypeTraits<Type>::cmp(find_value, value) == 0) {
+            *exact_match = true;
+        } else {
+            *exact_match = false;
+        }
+
+        _cur_idx = left;
+        return Status::OK();
+    }
+
     Status next_batch(size_t *n, ColumnBlockView *dst) override {
         DCHECK(_parsed);
 

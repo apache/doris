@@ -112,6 +112,59 @@ public:
             EXPECT_EQ(decoded[seek_off], ret);
        }
     }
+
+    template <FieldType Type, class PageBuilderType, class PageDecoderType>
+    void test_seek_at_or_after_value_template(typename TypeTraits<Type>::CppType* src,
+            size_t size, typename TypeTraits<Type>::CppType* small_than_smallest,
+            typename TypeTraits<Type>::CppType* bigger_than_biggest) {
+        typedef typename TypeTraits<Type>::CppType CppType;
+
+        PageBuilderOptions options;
+        options.data_page_size = 256 * 1024;
+        PageBuilderType page_builder(options);
+
+        page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
+        OwnedSlice s = page_builder.finish();
+
+        PageDecoderOptions decoder_options;
+        PageDecoderType page_decoder(s.slice(), decoder_options);
+        Status status = page_decoder.init();
+
+        ASSERT_TRUE(status.ok());
+        ASSERT_EQ(0, page_decoder.current_index());
+
+        size_t index = random() % size;
+        CppType seek_value = src[index];
+        bool exact_match;
+        status = page_decoder.seek_at_or_after_value(&seek_value, &exact_match);
+        EXPECT_EQ(index, page_decoder.current_index());
+        ASSERT_TRUE(status.ok());
+        ASSERT_TRUE(exact_match);
+
+        CppType last_value = src[size - 1];
+        status = page_decoder.seek_at_or_after_value(&last_value, &exact_match);
+        EXPECT_EQ(size - 1, page_decoder.current_index());
+        ASSERT_TRUE(status.ok());
+        ASSERT_TRUE(exact_match);
+
+        CppType first_value = src[0];
+        status = page_decoder.seek_at_or_after_value(&first_value, &exact_match);
+        EXPECT_EQ(0, page_decoder.current_index());
+        ASSERT_TRUE(status.ok());
+        ASSERT_TRUE(exact_match);
+
+        if (small_than_smallest != nullptr) {
+            status = page_decoder.seek_at_or_after_value(small_than_smallest, &exact_match);
+            EXPECT_EQ(0, page_decoder.current_index());
+            ASSERT_TRUE(status.ok());
+            ASSERT_FALSE(exact_match);
+        }
+
+        if (bigger_than_biggest != nullptr) {
+            status = page_decoder.seek_at_or_after_value(bigger_than_biggest, &exact_match);
+            EXPECT_EQ(status.code(), TStatusCode::NOT_FOUND);
+        }
+    }
 };
 
 TEST_F(PlainPageTest, TestInt32PlainPageRandom) {
@@ -125,6 +178,19 @@ TEST_F(PlainPageTest, TestInt32PlainPageRandom) {
         segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
 }
 
+TEST_F(PlainPageTest, TestInt32PlainPageSeekValue) {
+    const uint32_t size = 1000;
+    std::unique_ptr<int32_t[]> ints(new int32_t[size]);
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = i + 100;
+    }
+    int32_t small_than_smallest = 99;
+    int32_t bigger_than_biggest = 1111;
+
+    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_INT, segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_INT>,
+        segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size, &small_than_smallest, &bigger_than_biggest);
+}
+
 TEST_F(PlainPageTest, TestInt64PlainPageRandom) {
     const uint32_t size = 10000;            
     std::unique_ptr<int64_t[]> ints(new int64_t[size]);
@@ -134,6 +200,19 @@ TEST_F(PlainPageTest, TestInt64PlainPageRandom) {
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_BIGINT, segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BIGINT>,
         segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BIGINT> >(ints.get(), size);                            
+}
+
+TEST_F(PlainPageTest, TestInt64PlainPageSeekValue) {
+    const uint32_t size = 1000;
+    std::unique_ptr<int64_t[]> ints(new int64_t[size]);
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = i + 100;
+    }
+    int64_t small_than_smallest = 99;
+    int64_t bigger_than_biggest = 1111;
+
+    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_BIGINT, segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BIGINT>,
+        segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BIGINT> >(ints.get(), size, &small_than_smallest, &bigger_than_biggest);
 }
 
 TEST_F(PlainPageTest, TestPlainFloatBlockEncoderRandom) {
@@ -208,6 +287,23 @@ TEST_F(PlainPageTest, TestInt32PageEncoderSequence) {
     
     test_encode_decode_page_template<OLAP_FIELD_TYPE_INT, segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_INT>,
         segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_INT> >(ints.get(), size);
+}
+
+TEST_F(PlainPageTest, TestBoolPlainPageSeekValue) {
+    std::unique_ptr<bool[]> bools(new bool[2]);
+    bools.get()[0] = false;
+    bools.get()[1] = true;
+
+    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_BOOL, segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BOOL>,
+        segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BOOL> >(bools.get(), 2, nullptr, nullptr);
+
+    bool t = true;
+    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_BOOL, segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BOOL>,
+        segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BOOL> >(bools.get(), 1, nullptr, &t);
+
+    t = false;
+    test_seek_at_or_after_value_template<OLAP_FIELD_TYPE_BOOL, segment_v2::PlainPageBuilder<OLAP_FIELD_TYPE_BOOL>,
+        segment_v2::PlainPageDecoder<OLAP_FIELD_TYPE_BOOL> >(&bools.get()[1], 1, &t, nullptr);
 }
 
 }

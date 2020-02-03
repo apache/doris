@@ -17,6 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Objects;
+
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -30,16 +35,11 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 /**
  * Most predicates with two operands..
@@ -551,6 +551,11 @@ public class BinaryPredicate extends Predicate implements Writable {
                 Preconditions.checkState(false, "No defined binary operator.");
         }
         return this;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }
 

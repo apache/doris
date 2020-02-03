@@ -91,7 +91,7 @@ ALTER TABLE dynamic_partition set ("dynamic_partition.enable" = "true", "dynamic
 
 ### 停止动态分区功能
 
-如果需要对集群中所有动态分区表停止动态分区功能，则需要在fe.conf中设置`dynamic_partition_enable=true`
+如果需要对集群中所有动态分区表停止动态分区功能，则需要在fe.conf中设置`dynamic_partition_enable=false`
 
 如果需要对指定表停止动态分区功能，则可以通过以下命令修改表的属性
 ```

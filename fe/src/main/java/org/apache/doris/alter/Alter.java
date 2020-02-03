@@ -275,8 +275,9 @@ public class Alter {
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
             }
-            
-            if (needTableStable) {
+
+            // schema change job will wait until table become stable
+            if (needTableStable && !hasSchemaChange && !hasAddMaterializedView) {
                 // check if all tablets are healthy, and no tablet is in tablet scheduler
                 boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
                         Catalog.getCurrentCatalog().getTabletScheduler(),

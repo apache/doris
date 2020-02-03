@@ -104,6 +104,18 @@ struct TypeEncodingTraits<type, DICT_ENCODING, Slice> {
     }
 };
 
+template<>
+struct TypeEncodingTraits<OLAP_FIELD_TYPE_DATE, FOR_ENCODING, typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
+        *decoder = new FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE>(data, opts);
+        return Status::OK();
+    }
+};
+
 template<FieldType type, typename CppType>
 struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
                           typename std::enable_if<std::is_integral<CppType>::value>::type> {
@@ -180,38 +192,56 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
+
     _add_map<OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
+
     _add_map<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_INT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
+
     _add_map<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
+
     _add_map<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_LARGEINT, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_LARGEINT, FOR_ENCODING, true>();
+
     _add_map<OLAP_FIELD_TYPE_FLOAT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_FLOAT, PLAIN_ENCODING>();
+
     _add_map<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
+
     _add_map<OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
+
     _add_map<OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
-    _add_map<OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
+
     _add_map<OLAP_FIELD_TYPE_BOOL, RLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING, true>();
+
     _add_map<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATE, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_DATE, FOR_ENCODING, true>();
+
     _add_map<OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING, true>();
+
     _add_map<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DECIMAL, PLAIN_ENCODING>();
+    _add_map<OLAP_FIELD_TYPE_DECIMAL, BIT_SHUFFLE, true>();
+
     _add_map<OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
+
     _add_map<OLAP_FIELD_TYPE_OBJECT, PLAIN_ENCODING>();
 }
 

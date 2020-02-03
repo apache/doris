@@ -53,5 +53,8 @@ public interface ConfigurationOptions {
     String DORIS_BATCH_SIZE = "doris.batch.size";
     int DORIS_BATCH_SIZE_DEFAULT = 1024;
 
+    String DORIS_EXEC_MEM_LIMIT = "doris.exec.mem.limit";
+    long DORIS_EXEC_MEM_LIMIT_DEFAULT = 2147483648L;
+
     String DORIS_VALUE_READER_CLASS = "doris.value.reader.class";
 }

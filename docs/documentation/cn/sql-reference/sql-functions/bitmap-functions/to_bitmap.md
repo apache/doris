@@ -23,7 +23,7 @@ under the License.
 
 `BITMAP TO_BITMAP(expr)`
 
-输入为取值在 0 ~ 4294967295 区间的 unsigned int ，输出为包含该元素的bitmap。
+输入为取值在 0 ~ 18446744073709551615 区间的 unsigned bigint ，输出为包含该元素的bitmap。
 该函数主要用于stream load任务将整型字段导入Doris表的bitmap字段。例如
 
 ```

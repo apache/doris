@@ -28,7 +28,6 @@ namespace doris {
 
 class ContiguousRow;
 class RowCursor;
-class RowsetWriter;
 
 class RowsetWriter {
 public:

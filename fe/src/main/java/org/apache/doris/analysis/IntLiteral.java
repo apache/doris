@@ -335,4 +335,9 @@ public class IntLiteral extends LiteralExpr {
         literal.readFields(in);
         return literal;
     }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Long.hashCode(value);
+    }
 }

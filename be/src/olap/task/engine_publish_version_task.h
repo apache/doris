@@ -24,20 +24,20 @@
 
 namespace doris {
 
-// base class for storage engine
-// add "Engine" as task prefix to prevent duplicate name with agent task
 class EnginePublishVersionTask : public EngineTask {
-
 public:
-    EnginePublishVersionTask(TPublishVersionRequest& publish_version_req, vector<TTabletId>* error_tablet_ids);
+    EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
+                             vector<TTabletId>* error_tablet_ids);
     ~EnginePublishVersionTask() {}
 
-    virtual OLAPStatus finish();
+    virtual OLAPStatus finish() override;
 
 private:
     const TPublishVersionRequest& _publish_version_req;
     vector<TTabletId>* _error_tablet_ids;
-}; // EnginePublishVersionTask
+};
 
 } // doris
-#endif //DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
+
+#endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_PUBLISH_VERSION_TASK_H
+
