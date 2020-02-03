@@ -123,7 +123,7 @@ private:
     std::unique_ptr<RowBlockV2> _seek_block;
 
     // Handle for file to read
-    std::unique_ptr<OpenedFileHandle<RandomAccessFile>> _file_handle;
+    OpenedFileHandle<RandomAccessFile> _file_handle;
 };
 
 }

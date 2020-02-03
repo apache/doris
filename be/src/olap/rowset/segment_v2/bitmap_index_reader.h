@@ -40,7 +40,7 @@ class IndexedColumnIterator;
 
 class BitmapIndexReader {
 public:
-    explicit BitmapIndexReader(const std::string file_name,
+    explicit BitmapIndexReader(const std::string& file_name,
                                const BitmapIndexColumnPB& bitmap_index_meta)
         : _file_name(file_name),
           _bitmap_index_meta(bitmap_index_meta){

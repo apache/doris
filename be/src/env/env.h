@@ -233,12 +233,6 @@ public:
     RandomAccessFile() { }
     virtual ~RandomAccessFile() { }
 
-    // get the cache handle of file
-    // only realized for file in cache
-    virtual Status file_handle(std::unique_ptr<OpenedFileHandle<RandomAccessFile>>* file) {
-        return Status::NotSupported("No file handle function");
-    }
-
     // Read "result.size" bytes from the file starting at "offset".
     // Copies the resulting data into "result.data".
     //

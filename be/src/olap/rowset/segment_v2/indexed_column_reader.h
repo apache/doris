@@ -93,12 +93,12 @@ public:
     explicit IndexedColumnIterator(const IndexedColumnReader* reader)
         : _reader(reader),
           _ordinal_iter(&reader->_ordinal_index_reader),
-          _value_iter(&reader->_value_index_reader) {
-        _file_handle.reset(new OpenedFileHandle<RandomAccessFile>());
-        auto st = FileManager::instance()->open_file(_reader->_file_name, _file_handle.get());
+          _value_iter(&reader->_value_index_reader),
+          _file(nullptr) {
+        auto st = FileManager::instance()->open_file(_reader->_file_name, &_file_handle);
         DCHECK(st.ok());
         WARN_IF_ERROR(st, "open file failed:" + _reader->_file_name);
-        _file = _file_handle->file();
+        _file = _file_handle.file();
     }
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
@@ -141,7 +141,7 @@ private:
     // next_batch() will read from this position
     rowid_t _current_rowid = 0;
     // open file handle
-    std::unique_ptr<OpenedFileHandle<RandomAccessFile>> _file_handle;
+    OpenedFileHandle<RandomAccessFile> _file_handle;
     // file to read
     RandomAccessFile* _file;
 };
