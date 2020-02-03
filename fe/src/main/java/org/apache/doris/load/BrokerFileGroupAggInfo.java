@@ -173,10 +173,6 @@ public class BrokerFileGroupAggInfo implements Writable {
         }
     }
 
-    public BrokerFileGroupAggInfo() {
-
-    }
-
     public void addFileGroup(BrokerFileGroup fileGroup) throws DdlException {
         FileGroupAggKey fileGroupAggKey = new FileGroupAggKey(fileGroup.getTableId(), fileGroup.getPartitionIds());
         List<BrokerFileGroup> fileGroupList = aggKeyToFileGroups.get(fileGroupAggKey);

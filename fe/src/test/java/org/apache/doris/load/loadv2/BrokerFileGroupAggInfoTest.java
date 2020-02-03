@@ -49,23 +49,23 @@ public class BrokerFileGroupAggInfoTest {
          */
         BrokerFileGroupAggInfo brokerFileGroupAggInfo = new BrokerFileGroupAggInfo();
 
-        BrokerFileGroup group1 = new BrokerFileGroup();
+        BrokerFileGroup group1 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group1, "tableId", 1L);
         Deencapsulation.setField(group1, "partitionIds", Lists.newArrayList(10L));
 
-        BrokerFileGroup group2 = new BrokerFileGroup();
+        BrokerFileGroup group2 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group2, "tableId", 1L);
         Deencapsulation.setField(group2, "partitionIds", Lists.newArrayList(10L));
 
-        BrokerFileGroup group3 = new BrokerFileGroup();
+        BrokerFileGroup group3 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group3, "tableId", 2L);
         Deencapsulation.setField(group3, "partitionIds", Lists.newArrayList());
 
-        BrokerFileGroup group4 = new BrokerFileGroup();
+        BrokerFileGroup group4 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group4, "tableId", 3L);
         Deencapsulation.setField(group4, "partitionIds", Lists.newArrayList(11L, 12L));
 
-        BrokerFileGroup group5 = new BrokerFileGroup();
+        BrokerFileGroup group5 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group5, "tableId", 4L);
         Deencapsulation.setField(group5, "partitionIds", null);
 
@@ -100,15 +100,15 @@ public class BrokerFileGroupAggInfoTest {
          */
         BrokerFileGroupAggInfo brokerFileGroupAggInfo = new BrokerFileGroupAggInfo();
 
-        BrokerFileGroup group1 = new BrokerFileGroup();
+        BrokerFileGroup group1 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group1, "tableId", 1L);
         Deencapsulation.setField(group1, "partitionIds", Lists.newArrayList(10L, 11L));
 
-        BrokerFileGroup group2 = new BrokerFileGroup();
+        BrokerFileGroup group2 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group2, "tableId", 1L);
         Deencapsulation.setField(group2, "partitionIds", Lists.newArrayList(11L, 12L));
 
-        BrokerFileGroup group3 = new BrokerFileGroup();
+        BrokerFileGroup group3 = Deencapsulation.newInstance(BrokerFileGroup.class);
         Deencapsulation.setField(group3, "tableId", 2L);
         Deencapsulation.setField(group3, "partitionIds", Lists.newArrayList());
 
