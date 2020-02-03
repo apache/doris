@@ -36,7 +36,7 @@ public class MetaHelper {
     private static final int CHECKPOINT_LIMIT_BYTES = 30 * 1024 * 1024;
 
     public static File getMasterImageDir() {
-        String metaDir = Catalog.IMAGE_DIR;
+        String metaDir = Catalog.getCurrentCatalog().getImageDir();
         return new File(metaDir);
     }
     

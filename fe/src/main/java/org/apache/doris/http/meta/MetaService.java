@@ -179,7 +179,7 @@ public class MetaService {
                     + "/image?version=" + versionStr;
             String filename = Storage.IMAGE + "." + versionStr;
 
-            File dir = new File(Catalog.IMAGE_DIR);
+            File dir = new File(Catalog.getCurrentCatalog().getImageDir());
             try {
                 OutputStream out = MetaHelper.getOutputStream(filename, dir);
                 MetaHelper.getRemoteFile(url, TIMEOUT_SECOND * 1000, out);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.http.action;
 
+import org.apache.doris.PaloFe;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
@@ -116,7 +117,7 @@ public class StaticResourceAction extends WebBaseAction {
     }
 
     public static void registerAction(ActionController controller) throws IllegalArgException {
-        String httpDir = System.getenv("DORIS_HOME") + "/webroot";
+        String httpDir = PaloFe.DORIS_HOME_DIR + "/webroot";
         StaticResourceAction action = new StaticResourceAction(controller, httpDir + "/static");
         controller.registerHandler(HttpMethod.GET, "/static/js", action);
         controller.registerHandler(HttpMethod.GET, "/static/css", action);
