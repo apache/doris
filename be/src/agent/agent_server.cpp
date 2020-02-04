@@ -98,6 +98,8 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info) :
 
 AgentServer::~AgentServer() { }
 
+// TODO(lingbin): each task in the batch may have it own status or FE must check and
+// resend request when something is wrong(BE may need some logic to guarantee idempotence.
 void AgentServer::submit_tasks(TAgentResult& agent_result, const vector<TAgentTaskRequest>& tasks) {
     Status ret_st;
 
@@ -113,16 +115,17 @@ void AgentServer::submit_tasks(TAgentResult& agent_result, const vector<TAgentTa
         TTaskType::type task_type = task.task_type;
         int64_t signature = task.signature;
 
-#define HANDLE_TYPE(t_task_type, work_pool, req_member)                     \
-    case t_task_type:                                                       \
-        if (task.__isset.req_member) {                                      \
-            work_pool->submit_task(task);                                   \
-        }                                                                   \
-        ret_st = Status::InvalidArgument(strings::Substitute(               \
-                "task(signature=$0) has wrong request member", signature)); \
+#define HANDLE_TYPE(t_task_type, work_pool, req_member)                         \
+    case t_task_type:                                                           \
+        if (task.__isset.req_member) {                                          \
+            work_pool->submit_task(task);                                       \
+        } else {                                                                \
+            ret_st = Status::InvalidArgument(strings::Substitute(               \
+                    "task(signature=$0) has wrong request member", signature)); \
+        }                                                                       \
         break;
 
-        // TODO(lingbin): divided these task types into several categories
+        // TODO(lingbin): It still too long, divided these task types into several categories
         switch (task_type) {
         HANDLE_TYPE(TTaskType::CREATE, _create_tablet_workers, create_tablet_req);
         HANDLE_TYPE(TTaskType::DROP, _drop_tablet_workers, drop_tablet_req);
@@ -183,7 +186,16 @@ void AgentServer::submit_tasks(TAgentResult& agent_result, const vector<TAgentTa
         if (!ret_st.ok()) {
             LOG(WARNING) << "fail to submit task. reason: " << ret_st.get_error_msg()
                     << ", task: " << task;
-            break;
+            // For now, all tasks in the batch share one status, so if any task
+            // was failed to submit, we can only return error to FE(even when some
+            // tasks have already been successfully submitted).
+            // However, Fe does not check the return status of submit_tasks() currently,
+            // and it is not sure that FE will retry when something is wrong, so here we
+            // only print an warning log and go on(i.e. do not break current loop),
+            // to ensure every task can be submitted once. It is OK for now, because the
+            // ret_st can be error only when it encounters an wrong task_type and
+            // req-member in TAgentTaskRequest, which is basically impossible.
+            // TODO(lingbin): check the logic in FE again later.
         }
     }
 
@@ -231,53 +243,28 @@ void AgentServer::release_snapshot(TAgentResult& t_agent_result, const std::stri
     ret_st.to_thrift(&t_agent_result.status);
 }
 
-// TODO(lingbin): always return OK?
 void AgentServer::publish_cluster_state(TAgentResult& t_agent_result,
                                         const TAgentPublishRequest& request) {
-    Status ret_st;
-    _topic_subscriber->handle_updates(request);
-    ret_st.to_thrift(&t_agent_result.status);
+    Status status = Status::NotSupported("deprecated method(publish_cluster_state) was invoked");
+    status.to_thrift(&t_agent_result.status);
 }
 
 void AgentServer::submit_etl_task(TAgentResult& t_agent_result,
                                  const TMiniLoadEtlTaskRequest& request) {
-    Status status = _exec_env->etl_job_mgr()->start_job(request);
-    auto fragment_instance_id = request.params.params.fragment_instance_id;
-    if (status.ok()) {
-        VLOG_RPC << "success to submit etl task. id=" << fragment_instance_id;
-    } else {
-        VLOG_RPC << "fail to submit etl task. id=" << fragment_instance_id
-                 << ", err_msg=" << status.get_error_msg();
-    }
+    Status status = Status::NotSupported("deprecated method(submit_etl_task) was invoked");
     status.to_thrift(&t_agent_result.status);
 }
 
 void AgentServer::get_etl_status(TMiniLoadEtlStatusResult& t_agent_result,
                                  const TMiniLoadEtlStatusRequest& request) {
-    Status status = _exec_env->etl_job_mgr()->get_job_state(request.mini_load_id, &t_agent_result);
-    if (!status.ok()) {
-        LOG(WARNING) << "fail to get job state. [id=" << request.mini_load_id << "]";
-    }
-
-    VLOG_RPC << "success to get job state. [id=" << request.mini_load_id << ", status="
-        << t_agent_result.status.status_code << ", etl_state=" << t_agent_result.etl_state
-        << ", files=";
-    for (auto& item : t_agent_result.file_map) {
-        VLOG_RPC << item.first << ":" << item.second << ";";
-    }
-    VLOG_RPC << "]";
+    Status status = Status::NotSupported("deprecated method(get_etl_status) was invoked");
+    status.to_thrift(&t_agent_result.status);
 }
 
-void AgentServer::delete_etl_files(TAgentResult& result,
+void AgentServer::delete_etl_files(TAgentResult& t_agent_result,
                                    const TDeleteEtlFilesRequest& request) {
-    Status status = _exec_env->etl_job_mgr()->erase_job(request);
-    if (!status.ok()) {
-        LOG(WARNING) << "fail to delete etl files. because " << status.get_error_msg()
-            << " with request " << request;
-    }
-
-    VLOG_RPC << "success to delete etl files. request=" << request;
-    status.to_thrift(&result.status);
+    Status status = Status::NotSupported("deprecated method(delete_etl_files) was invoked");
+    status.to_thrift(&t_agent_result.status);
 }
 
 }  // namesapce doris

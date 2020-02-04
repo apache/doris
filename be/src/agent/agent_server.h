@@ -30,6 +30,7 @@ namespace doris {
 class TaskWorkerPool;
 class TopicSubscriber;
 
+// Each method corresponds to one RPC from FE Master, see BackendService.
 class AgentServer {
 public:
     explicit AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info);
@@ -42,15 +43,12 @@ public:
     void make_snapshot(TAgentResult& agent_result, const TSnapshotRequest& snapshot_request);
     void release_snapshot(TAgentResult& agent_result, const std::string& snapshot_path);
 
+    // TODO(lingbin): The following 4 methods are all deprecated, should be removed later.
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
-
-    // Methods related with ETL tasks. Each method corresponds to one RPC from the FE Master.
-    void submit_etl_task(TAgentResult& agent_result,
-                         const TMiniLoadEtlTaskRequest& request);
+    void submit_etl_task(TAgentResult& agent_result, const TMiniLoadEtlTaskRequest& request);
     void get_etl_status(TMiniLoadEtlStatusResult& agent_result,
                         const TMiniLoadEtlStatusRequest& request);
-    void delete_etl_files(TAgentResult& result,
-                          const TDeleteEtlFilesRequest& request);
+    void delete_etl_files(TAgentResult& result, const TDeleteEtlFilesRequest& request);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
