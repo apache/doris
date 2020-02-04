@@ -29,11 +29,11 @@ import java.util.List;
  * used for batch log AlterJob to editLog in one atomic operation
  *
  */
-public class BatchAlterJobV2 implements Writable {
+public class BatchAlterJobPersistInfo implements Writable {
 
     private List<AlterJobV2> alterJobV2List;
 
-    public BatchAlterJobV2(List<AlterJobV2> alterJobV2List) {
+    public BatchAlterJobPersistInfo(List<AlterJobV2> alterJobV2List) {
         this.alterJobV2List = alterJobV2List;
     }
 
@@ -45,13 +45,13 @@ public class BatchAlterJobV2 implements Writable {
         }
     }
 
-    public static BatchAlterJobV2 read(DataInput in) throws IOException {
+    public static BatchAlterJobPersistInfo read(DataInput in) throws IOException {
         int size = in.readInt();
         List<AlterJobV2> alterJobV2List = new ArrayList<>();
         for (int i = 0; i < size; i++) {
             alterJobV2List.add(AlterJobV2.read(in));
         }
-        return new BatchAlterJobV2(alterJobV2List);
+        return new BatchAlterJobPersistInfo(alterJobV2List);
     }
 
     public List<AlterJobV2> getAlterJobV2List() {

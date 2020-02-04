@@ -97,6 +97,21 @@ public class CreateTableStmtTest {
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getProperties());
     }
+
+    @Test
+    public void testCreateTableWithRollup() throws UserException {
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "table1", null));
+        ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "table1", null));
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "", ops);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("table1", stmt.getTableName());
+        Assert.assertNull(stmt.getProperties());
+        Assert.assertTrue(stmt.toSql().contains("rollup( `index1` (`col1`, `col2`) FROM `table1`, `index2` (`col2`, `col3`) FROM `table1`)"));
+    }
     
     @Test
     public void testDefaultDbNormal() throws UserException, AnalysisException {

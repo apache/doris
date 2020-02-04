@@ -441,10 +441,10 @@ public class TabletInvertedIndex {
             tabletMetaMap.put(tabletId, tabletMeta);
             if (!tabletMetaTable.contains(tabletMeta.getPartitionId(), tabletMeta.getIndexId())) {
                 tabletMetaTable.put(tabletMeta.getPartitionId(), tabletMeta.getIndexId(), tabletMeta);
-                LOG.info("add tablet meta: {}", tabletId);
+                LOG.debug("add tablet meta: {}", tabletId);
             }
 
-            LOG.info("add tablet: {}", tabletId);
+            LOG.debug("add tablet: {}", tabletId);
         } finally {
             writeUnlock();
         }
@@ -469,10 +469,10 @@ public class TabletInvertedIndex {
             TabletMeta tabletMeta = tabletMetaMap.remove(tabletId);
             if (tabletMeta != null) {
                 tabletMetaTable.remove(tabletMeta.getPartitionId(), tabletMeta.getIndexId());
-                LOG.info("delete tablet meta: {}", tabletId);
+                LOG.debug("delete tablet meta: {}", tabletId);
             }
 
-            LOG.info("delete tablet: {}", tabletId);
+            LOG.debug("delete tablet: {}", tabletId);
         } finally {
             writeUnlock();
         }

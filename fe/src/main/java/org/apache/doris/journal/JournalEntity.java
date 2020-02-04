@@ -19,7 +19,7 @@ package org.apache.doris.journal;
 
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.alter.BatchAlterJobV2;
+import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -495,7 +495,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_BATCH_ALTER_JOB_V2: {
-                data = BatchAlterJobV2.read(in);
+                data = BatchAlterJobPersistInfo.read(in);
                 isRead = true;
                 break;
             }

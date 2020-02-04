@@ -1634,7 +1634,6 @@ public class Catalog {
         if (type == JobType.ROLLUP) {
             alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
-            alterJobsV2 = this.getRollupHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
             alterJobs = this.getSchemaChangeHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getSchemaChangeHandler().unprotectedGetFinishedOrCancelledAlterJobs();
@@ -1684,7 +1683,11 @@ public class Catalog {
             newChecksum ^= size;
             for (int i = 0; i < size; i++) {
                 AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
-                this.getRollupHandler().addAlterJobV2(alterJobV2);
+                if (type == JobType.ROLLUP) {
+                    this.getRollupHandler().addAlterJobV2(alterJobV2);
+                } else {
+                    alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
+                }
             }
         }
 
@@ -3546,16 +3549,11 @@ public class Catalog {
                 shortKeyColumnCount);
 
 
-        // set rollup index to olap table
-        stmt.setRollupAlterClauseList(MaterializedViewHandler.sortRollupIndex(stmt.getRollupAlterClauseList()));
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
             AddRollupClause addRollupClause = (AddRollupClause)alterClause;
 
-            String baseRollupIndexName = addRollupClause.getBaseRollupName();
-            if (baseRollupIndexName == null) {
-                baseRollupIndexName = tableName;
-            }
-            Long baseRollupIndex = olapTable.getIndexIdByName(baseRollupIndexName);
+            // TODO(wangbo): 2020/2/3 doris auto select base rollup
+            Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
 
             // set rollup index schema to olap table
             List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
