@@ -42,11 +42,18 @@ bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle) {
     return true;
 }
 
-void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle) {
+void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle,
+                              bool in_memory) {
     auto deleter = [](const doris::CacheKey& key, void* value) {
         delete[] (uint8_t*)value;
     };
-    auto lru_handle = _cache->insert(key.encode(), data.data, data.size, deleter);
+
+    CachePriority priority =  CachePriority::NORMAL;
+    if (in_memory) {
+        priority = CachePriority::DURABLE;
+    }
+
+    auto lru_handle = _cache->insert(key.encode(), data.data, data.size, deleter, priority);
     *handle = PageCacheHandle(_cache.get(), lru_handle);
 }
 

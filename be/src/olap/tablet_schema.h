@@ -103,6 +103,10 @@ public:
     inline CompressKind compress_kind() const { return _compress_kind; }
     inline size_t next_column_unique_id() const { return _next_column_unique_id; }
     inline double bloom_filter_fpp() const { return _bf_fpp; }
+    inline bool is_in_memory() const {return _is_in_memory; }
+    inline void set_is_in_memory (bool is_in_memory) {
+        _is_in_memory = is_in_memory;
+    }
 private:
     KeysType _keys_type;
     std::vector<TabletColumn> _cols;
@@ -116,6 +120,7 @@ private:
 
     bool _has_bf_fpp;
     double _bf_fpp;
+    bool _is_in_memory = false;
 };
 
 } // namespace doris

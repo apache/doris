@@ -59,7 +59,11 @@ under the License.
         grammar:
             MODIFY PARTITION partition_name SET ("key" = "value", ...)
         Description:
-            1) The storage_medium, storage_cooldown_time, and replication_num attributes of the modified partition are currently supported.
+            1) The following attributes of the modified partition are currently supported.
+                - storage_medium
+                - storage_cooldown_time
+                - replication_num 
+                — in_memory
             2) For single-partition tables, partition_name is the same as the table name.
         
     Rollup supports the following ways to create:
@@ -308,6 +312,10 @@ under the License.
         If you need to add dynamic partition attributes to a table without dynamic partition attributes, you need to specify all dynamic partition attributes
     
         ALTER TABLE example_db.my_table set ("dynamic_partition. Enable "= "true", dynamic_partition. Time_unit" = "DAY", "dynamic_partition. End "= "3", "dynamic_partition. Prefix" = "p", "Dynamic_partition. Buckets" = "32");
+
+    15. Modify the in_memory property of the table
+
+        ALTER TABLE example_db.my_table set ("in_memory" = "true");
         
     [rename]
     1. Modify the table named table1 to table2
