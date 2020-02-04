@@ -661,8 +661,6 @@ public class RollupJobV2 extends AlterJobV2 {
                 // table may be dropped before replaying this log. just return
                 return;
             }
-            // for pending job which has been checkpoint,replayPendingJob method won't be called,so need to addTabletToInvertedIndex here
-            addTabletToInvertedIndex(tbl);
             addRollupIndexToCatalog(tbl);
         } finally {
             db.writeUnlock();

@@ -30,6 +30,11 @@ Grammar:
 CANCEL ALTER TABLE ROLLUP
 FROM db_name.table_name
 
+3. batch cancel rollup by job id
+    Grammar:
+        CANCEL ALTER TABLE ROLLUP
+                FROM db_name.table_name (jobid,...)
+
 2. OTHER CLUSTER
 Grammar:
 (To be realized...
@@ -45,6 +50,11 @@ FROM example_db.my_table;
 1. 撤销 my_table 下的 ADD ROLLUP 操作。
 CANCEL ALTER TABLE ROLLUP
 FROM example_db.my_table;
+
+[CANCEL ALTER TABLE ROLLUP]
+1. cancel rollup alter job by job id
+CANCEL ALTER TABLE ROLLUP
+FROM example_db.my_table (12801,12802);
 
 ## keyword
 CANCEL,ALTER,TABLE,COLUMN,ROLLUP

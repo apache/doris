@@ -3552,7 +3552,6 @@ public class Catalog {
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
             AddRollupClause addRollupClause = (AddRollupClause)alterClause;
 
-            // TODO(wangbo): 2020/2/3 doris auto select base rollup
             Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
 
             // set rollup index schema to olap table

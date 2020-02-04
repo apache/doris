@@ -34,7 +34,7 @@ under the License.
     语法:
         CANCEL ALTER TABLE ROLLUP
                 FROM db_name.table_name (jobid,...)
-    2. 撤销 ALTER CLUSTER 操作
+    4. 撤销 ALTER CLUSTER 操作
     语法：
         （待实现...）
 
@@ -53,7 +53,7 @@ under the License.
     [CANCEL ALTER TABLE ROLLUP]
     1. 根据job id撤销 my_table 下的 ADD ROLLUP 操作。
         CANCEL ALTER TABLE ROLLUP
-         FROM example_db.my_table (jobid,...);
+         FROM example_db.my_table (12801,12802);
 
 ## keyword
     CANCEL,ALTER,TABLE,COLUMN,ROLLUP
