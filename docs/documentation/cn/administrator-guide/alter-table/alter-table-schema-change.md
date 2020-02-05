@@ -25,6 +25,7 @@ under the License.
 * 修改列类型
 * 调整列顺序
 * 增加、修改 Bloom Filter
+* 增加、删除 bitmap index
 
 本文档主要介绍如何创建 Scheam Change 作业，以及进行 Scheam Change 的一些注意事项和常见问题。
 
