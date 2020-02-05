@@ -185,7 +185,7 @@ public abstract class LoadEtlTask extends MasterTask {
                         Partition partition = table.getPartition(partitionId);
                         if (partition == null) {
                             throw new MetaNotFoundException("partition does not exist. id: " + partitionId);
-                        } 
+                        }
                         // yiguolei: real time load do not need get version here
                     } finally {
                         db.readUnlock();

@@ -720,6 +720,11 @@ public class EditLog {
                     catalog.replayModifyTableProperty(opCode, modifyTablePropertyOperationLog);
                     break;
                 }
+                case OperationType.OP_REPLACE_TEMP_PARTITION: {
+                    ReplacePartitionOperationLog replaceTempPartitionLog = (ReplacePartitionOperationLog) journal.getData();
+                    catalog.replayReplaceTempPartition(replaceTempPartitionLog);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1240,5 +1245,9 @@ public class EditLog {
 
     public void logModifyInMemory(ModifyTablePropertyOperationLog info) {
         logEdit(OperationType.OP_MODIFY_IN_MEMORY, info);
+    }
+
+    public void logReplaceTempPartition(ReplacePartitionOperationLog info) {
+        logEdit(OperationType.OP_REPLACE_TEMP_PARTITION, info);
     }
 }

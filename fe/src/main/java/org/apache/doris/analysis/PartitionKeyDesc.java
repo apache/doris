@@ -80,7 +80,7 @@ public class PartitionKeyDesc {
         return upperValues != null;
     }
 
-    public PartitionRangeType getPartitionType () {
+    public PartitionRangeType getPartitionType() {
         return partitionType;
     }
 

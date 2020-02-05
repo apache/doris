@@ -40,9 +40,11 @@ public class TableProcDir implements ProcDirInterface {
 
     public static final String INDEX_SCHEMA = "index_schema";
     private static final String PARTITIONS = "partitions";
+    private static final String TEMP_PARTITIONS = "temp_partitions";
 
     private static final ImmutableList<String> CHILDREN_NODES = new ImmutableList.Builder<String>()
             .add(PARTITIONS)
+            .add(TEMP_PARTITIONS)
             .add(INDEX_SCHEMA)
             .build();
 
@@ -81,11 +83,17 @@ public class TableProcDir implements ProcDirInterface {
 
         if (entryName.equals(PARTITIONS)) {
             if (table.getType() == TableType.OLAP) {
-                return new PartitionsProcDir(db, (OlapTable) table);
+                return new PartitionsProcDir(db, (OlapTable) table, false);
             } else if (table.getType() == TableType.ELASTICSEARCH) {
                 return new EsPartitionsProcDir(db, (EsTable) table);
             } else {
                 throw new AnalysisException("Table[" + table.getName() + "] is not a OLAP or ELASTICSEARCH table");
+            }
+        } else if (entryName.equals(TEMP_PARTITIONS)) {
+            if (table.getType() == TableType.OLAP) {
+                return new PartitionsProcDir(db, (OlapTable) table, true);
+            } else {
+                throw new AnalysisException("Table[" + table.getName() + "] does not have temp partitions");
             }
         } else if (entryName.equals(INDEX_SCHEMA)) {
             return new IndexInfoProcDir(db, table);

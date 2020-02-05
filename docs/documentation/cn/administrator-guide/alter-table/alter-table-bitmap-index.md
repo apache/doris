@@ -39,6 +39,7 @@ create/drop index 语法
 2. 查看索引
 
     参照[SHOW INDEX](../../sql-reference/sql-statements/Administration/SHOW%20INDEX.md)
+
 3. 删除索引
 
     参照[DROP INDEX](../../sql-reference/sql-statements/Data%20Definition/DROP%20INDEX.md)

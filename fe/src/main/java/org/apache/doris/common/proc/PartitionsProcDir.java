@@ -17,13 +17,6 @@
 
 package org.apache.doris.common.proc;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
-
-
-import com.google.common.collect.Range;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
@@ -38,7 +31,7 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Table.TableType;
@@ -52,15 +45,23 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 
 /*
- * SHOW PROC /dbs/dbId/tableId/partitions
- * show partitions' detail info within a table
+ * SHOW PROC /dbs/dbId/tableId/partitions, or
+ * SHOW PROC /dbs/dbId/tableId/temp_partitions
+ * show [temp] partitions' detail info within a table
  */
 public class PartitionsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -74,10 +75,12 @@ public class PartitionsProcDir implements ProcDirInterface {
 
     private Database db;
     private OlapTable olapTable;
+    private boolean isTempPartition = false;
 
-    public PartitionsProcDir(Database db, OlapTable olapTable) {
+    public PartitionsProcDir(Database db, OlapTable olapTable, boolean isTempPartition) {
         this.db = db;
         this.olapTable = olapTable;
+        this.isTempPartition = isTempPartition;
     }
 
     public boolean filter(String columnName, Comparable element, Map<String, Expr> filterMap) throws AnalysisException {
@@ -197,7 +200,7 @@ public class PartitionsProcDir implements ProcDirInterface {
         return result;
     }
 
-    public  List<List<Comparable>> getPartitionInfos() {
+    private List<List<Comparable>> getPartitionInfos() {
         Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(olapTable);
         Preconditions.checkState(olapTable.getType() == TableType.OLAP);
@@ -206,121 +209,86 @@ public class PartitionsProcDir implements ProcDirInterface {
         List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
         db.readLock();
         try {
-            RangePartitionInfo rangePartitionInfo = null;
-            Joiner joiner = Joiner.on(", ");
-            if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
-                rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
-                List<Map.Entry<Long, Range<PartitionKey>>> sortedRange = rangePartitionInfo.getSortedRangeMap();
-                for (Map.Entry<Long, Range<PartitionKey>> entry : sortedRange) {
-                    long partitionId = entry.getKey();
-                    Partition partition = olapTable.getPartition(partitionId);
-                    List<Comparable> partitionInfo = new ArrayList<Comparable>();
-                    String partitionName = partition.getName();
-                    partitionInfo.add(partitionId);
-                    partitionInfo.add(partitionName);
-                    partitionInfo.add(partition.getVisibleVersion());
-                    partitionInfo.add(partition.getVisibleVersionHash());
-                    partitionInfo.add(partition.getState());
+            Set<String> partitionsNames;
+            if (isTempPartition) {
+                partitionsNames = olapTable.getAllTempPartitions().stream().map(p -> p.getName()).collect(Collectors.toSet());
+            } else {
+                partitionsNames = olapTable.getPartitions().stream().map(p -> p.getName()).collect(Collectors.toSet());
+            }
 
-                    // partition
-                    List<Column> partitionColumns = rangePartitionInfo.getPartitionColumns();
+            Joiner joiner = Joiner.on(", ");
+            PartitionInfo tblPartitionInfo;
+            if (isTempPartition) {
+                tblPartitionInfo = olapTable.getTempPartitonRangeInfo();
+                if (tblPartitionInfo == null) {
+                    // not temp partitons in this table, return empty result
+                    return partitionInfos;
+                }
+            } else {
+                tblPartitionInfo = olapTable.getPartitionInfo();
+            }
+            for (String partName : partitionsNames) {
+                Partition partition = olapTable.getPartition(partName, isTempPartition);
+                long partitionId = partition.getId();
+
+                List<Comparable> partitionInfo = new ArrayList<Comparable>();
+                String partitionName = partition.getName();
+                partitionInfo.add(partitionId);
+                partitionInfo.add(partitionName);
+                partitionInfo.add(partition.getVisibleVersion());
+                partitionInfo.add(partition.getVisibleVersionHash());
+                partitionInfo.add(partition.getState());
+
+                if (tblPartitionInfo.getType() == PartitionType.RANGE) {
+                    // partition range info
+                    List<Column> partitionColumns = ((RangePartitionInfo) tblPartitionInfo).getPartitionColumns();
                     List<String> colNames = new ArrayList<String>();
                     for (Column column : partitionColumns) {
                         colNames.add(column.getName());
                     }
                     partitionInfo.add(joiner.join(colNames));
-
-                    partitionInfo.add(entry.getValue().toString());
-
-                    // distribution
-                    DistributionInfo distributionInfo = partition.getDistributionInfo();
-                    if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                        List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
-                        StringBuilder sb = new StringBuilder();
-                        for (int i = 0; i < distributionColumns.size(); i++) {
-                            if (i != 0) {
-                                sb.append(", ");
-                            }
-                            sb.append(distributionColumns.get(i).getName());
-                        }
-                        partitionInfo.add(sb.toString());
-                    } else {
-                        partitionInfo.add("ALL KEY");
-                    }
-
-                    partitionInfo.add(distributionInfo.getBucketNum());
-
-                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
-                    partitionInfo.add(String.valueOf(replicationNum));
-
-                    DataProperty dataProperty = rangePartitionInfo.getDataProperty(partitionId);
-                    partitionInfo.add(dataProperty.getStorageMedium().name());
-                    partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
-
-                    partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
-
-                    long dataSize = partition.getDataSize();
-                    Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
-                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
-                        + sizePair.second;
-                    partitionInfo.add(readableSize);
-
-                    partitionInfo.add(olapTable.getPartitionInfo().getIsInMemory(partitionId));
-                    partitionInfos.add(partitionInfo);
-                }
-            } else {
-                for (Partition partition : olapTable.getPartitions()) {
-                    List<Comparable> partitionInfo = new ArrayList<Comparable>();
-                    String partitionName = partition.getName();
-                    long partitionId = partition.getId();
-                    partitionInfo.add(partitionId);
-                    partitionInfo.add(partitionName);
-                    partitionInfo.add(partition.getVisibleVersion());
-                    partitionInfo.add(partition.getVisibleVersionHash());
-                    partitionInfo.add(partition.getState());
-
-                    // partition
+                    partitionInfo.add(((RangePartitionInfo) tblPartitionInfo).getRange(partitionId).toString());
+                } else {
                     partitionInfo.add("");
                     partitionInfo.add("");
-
-                    // distribution
-                    DistributionInfo distributionInfo = partition.getDistributionInfo();
-                    if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                        HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                        List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
-                        StringBuilder sb = new StringBuilder();
-                        for (int i = 0; i < distributionColumns.size(); i++) {
-                            if (i != 0) {
-                                sb.append(", ");
-                            }
-                            sb.append(distributionColumns.get(i).getName());
-                        }
-                        partitionInfo.add(sb.toString());
-                    } else {
-                        partitionInfo.add("ALL KEY");
-                    }
-
-                    partitionInfo.add(distributionInfo.getBucketNum());
-
-                    short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
-                    partitionInfo.add(String.valueOf(replicationNum));
-
-                    DataProperty dataProperty = olapTable.getPartitionInfo().getDataProperty(partitionId);
-                    partitionInfo.add(dataProperty.getStorageMedium().name());
-                    partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
-
-                    partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
-
-                    long dataSize = partition.getDataSize();
-                    Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
-                    String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
-                        + sizePair.second;
-                    partitionInfo.add(readableSize);
-                    partitionInfo.add(olapTable.getPartitionInfo().getIsInMemory(partitionId));
-
-                    partitionInfos.add(partitionInfo);
                 }
+
+                // distribution
+                DistributionInfo distributionInfo = partition.getDistributionInfo();
+                if (distributionInfo.getType() == DistributionInfoType.HASH) {
+                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
+                    List<Column> distributionColumns = hashDistributionInfo.getDistributionColumns();
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < distributionColumns.size(); i++) {
+                        if (i != 0) {
+                            sb.append(", ");
+                        }
+                        sb.append(distributionColumns.get(i).getName());
+                    }
+                    partitionInfo.add(sb.toString());
+                } else {
+                    partitionInfo.add("ALL KEY");
+                }
+
+                partitionInfo.add(distributionInfo.getBucketNum());
+
+                short replicationNum = tblPartitionInfo.getReplicationNum(partitionId);
+                partitionInfo.add(String.valueOf(replicationNum));
+
+                DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
+                partitionInfo.add(dataProperty.getStorageMedium().name());
+                partitionInfo.add(TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs()));
+
+                partitionInfo.add(TimeUtils.longToTimeString(partition.getLastCheckTime()));
+
+                long dataSize = partition.getDataSize();
+                Pair<Double, String> sizePair = DebugUtil.getByteUint(dataSize);
+                String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
+                        + sizePair.second;
+                partitionInfo.add(readableSize);
+                partitionInfo.add(tblPartitionInfo.getIsInMemory(partitionId));
+
+                partitionInfos.add(partitionInfo);
             }
         } finally {
             db.readUnlock();

@@ -17,10 +17,6 @@
 
 package org.apache.doris.task;
 
-import java.util.List;
-import java.util.Set;
-
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -31,10 +27,15 @@ import org.apache.doris.thrift.TTabletMetaInfo;
 import org.apache.doris.thrift.TTabletMetaType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUpdateTabletMetaInfoReq;
+
+import com.google.common.collect.Lists;
+
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import com.google.common.collect.Lists;
+import java.util.List;
+import java.util.Set;
 
 public class UpdateTabletMetaInfoTask extends AgentTask {
 

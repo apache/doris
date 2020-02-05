@@ -334,6 +334,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("tables", new Integer(SqlParserSymbols.KW_TABLES));
         keywordMap.put("tablet", new Integer(SqlParserSymbols.KW_TABLET));
         keywordMap.put("task", new Integer(SqlParserSymbols.KW_TASK));
+        keywordMap.put("temporary", new Integer(SqlParserSymbols.KW_TEMPORARY));
         keywordMap.put("terminated", new Integer(SqlParserSymbols.KW_TERMINATED));
         keywordMap.put("than", new Integer(SqlParserSymbols.KW_THAN));
         keywordMap.put("then", new Integer(SqlParserSymbols.KW_THEN));

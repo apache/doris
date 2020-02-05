@@ -17,14 +17,10 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Partition;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -32,26 +28,32 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 
-public class TruncateTableInfo implements Writable {
+/*
+ * For serialize "replace temp partition" operation log
+ */
+public class ReplacePartitionOperationLog implements Writable {
 
     @SerializedName(value = "dbId")
     private long dbId;
     @SerializedName(value = "tblId")
     private long tblId;
     @SerializedName(value = "partitions")
-    private List<Partition> partitions = Lists.newArrayList();
-    @SerializedName(value = "isEntireTable")
-    private boolean isEntireTable = false;
+    private List<String> partitions;
+    @SerializedName(value = "tempPartitions")
+    private List<String> tempPartitions;
+    @SerializedName(value = "strictRange")
+    private boolean strictRange;
+    @SerializedName(value = "useTempPartitionName")
+    private boolean useTempPartitionName;
 
-    private TruncateTableInfo() {
-
-    }
-
-    public TruncateTableInfo(long dbId, long tblId, List<Partition> partitions, boolean isEntireTable) {
+    public ReplacePartitionOperationLog(long dbId, long tblId, List<String> partitionNames,
+            List<String> tempPartitonNames, boolean strictRange, boolean useTempPartitionName) {
         this.dbId = dbId;
         this.tblId = tblId;
-        this.partitions = partitions;
-        this.isEntireTable = isEntireTable;
+        this.partitions = partitionNames;
+        this.tempPartitions = tempPartitonNames;
+        this.strictRange = strictRange;
+        this.useTempPartitionName = useTempPartitionName;
     }
 
     public long getDbId() {
@@ -62,38 +64,30 @@ public class TruncateTableInfo implements Writable {
         return tblId;
     }
 
-    public List<Partition> getPartitions() {
+    public List<String> getPartitions() {
         return partitions;
     }
 
-    public boolean isEntireTable() {
-        return isEntireTable;
+    public List<String> getTempPartitions() {
+        return tempPartitions;
     }
 
-    public static TruncateTableInfo read(DataInput in) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_74) {
-            TruncateTableInfo info = new TruncateTableInfo();
-            info.readFields(in);
-            return info;
-        } else {
-            String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, TruncateTableInfo.class);
-        }
+    public boolean isStrictRange() {
+        return strictRange;
+    }
+
+    public boolean useTempPartitionName() {
+        return useTempPartitionName;
+    }
+
+    public static ReplacePartitionOperationLog read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ReplacePartitionOperationLog.class);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
-    }
-
-    private void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tblId = in.readLong();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Partition partition = Partition.read(in);
-            partitions.add(partition);
-        }
     }
 }

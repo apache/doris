@@ -28,9 +28,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
-import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -81,6 +81,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
+
+    private static final String PROPERTIES_STRICT_RANGE = "strict_range";
+    private static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -406,5 +409,23 @@ public class PropertyAnalyzer {
             return Boolean.parseBoolean(inMemory);
         }
         return defaultInMemory;
+    }
+
+    public static boolean analyzeStrictRange(Map<String, String> properties, boolean defaultVal) {
+        if (properties != null && properties.containsKey(PROPERTIES_STRICT_RANGE)) {
+            String inMemory = properties.get(PROPERTIES_STRICT_RANGE);
+            properties.remove(PROPERTIES_STRICT_RANGE);
+            return Boolean.parseBoolean(inMemory);
+        }
+        return defaultVal;
+    }
+
+    public static boolean analyzeUseTempPartitionName(Map<String, String> properties, boolean defaultVal) {
+        if (properties != null && properties.containsKey(PROPERTIES_USE_TEMP_PARTITION_NAME)) {
+            String inMemory = properties.get(PROPERTIES_USE_TEMP_PARTITION_NAME);
+            properties.remove(PROPERTIES_USE_TEMP_PARTITION_NAME);
+            return Boolean.parseBoolean(inMemory);
+        }
+        return defaultVal;
     }
 }

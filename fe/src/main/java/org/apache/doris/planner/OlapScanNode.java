@@ -588,13 +588,9 @@ public class OlapScanNode extends ScanNode {
         OlapScanNode olapScanNode = new OlapScanNode(id, desc, planNodeName);
         olapScanNode.numInstances = 1;
 
-        Collection<Long> partitionIds = new ArrayList<Long>();
         ArrayList<Partition> partitions = Lists.newArrayList(olapScanNode.olapTable.getPartitions());
         Preconditions.checkState(!partitions.isEmpty());
-        if (!partitions.isEmpty()) {
-            olapScanNode.selectedIndexId = partitions.get(0).getBaseIndex().getId();
-        }
-
+        olapScanNode.selectedIndexId = partitions.get(0).getBaseIndex().getId();
         olapScanNode.selectedPartitionNum = 1;
         olapScanNode.selectedTabletsNum = 1;
         olapScanNode.totalTabletsNum = 1;
