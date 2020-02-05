@@ -362,6 +362,11 @@ public:
         ++_offset;
         return *this;
     }
+
+    BinarySearchIterator& operator--() {
+        --_offset;
+        return *this;
+    }
     
     BinarySearchIterator& operator-=(size_t step) {
         _offset = _offset - step;

@@ -160,7 +160,7 @@ if [ ${BUILD_BE} -eq 1 ] ; then
     fi
     mkdir -p ${DORIS_HOME}/be/build/
     cd ${DORIS_HOME}/be/build/
-    cmake -DMAKE_TEST=OFF -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
+    ${CMAKE_CMD} -DMAKE_TEST=OFF -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
     make -j${PARALLEL}
     make install
     cd ${DORIS_HOME}
@@ -177,9 +177,9 @@ if [ ${BUILD_FE} -eq 1 ] ; then
     echo "Build Frontend"
     cd ${DORIS_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
-        ${MVN} clean
+        ${MVN_CMD} clean
     fi
-    ${MVN} package -DskipTests
+    ${MVN_CMD} package -DskipTests
     cd ${DORIS_HOME}
 fi
 

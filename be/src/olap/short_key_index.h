@@ -183,6 +183,11 @@ public:
         _ordinal++;
         return *this;
     }
+
+    ShortKeyIndexIterator& operator--() {
+        --_ordinal;
+        return *this;
+    }
     
     bool operator!=(const ShortKeyIndexIterator& other) {
         return _ordinal != other._ordinal || _decoder != other._decoder;
