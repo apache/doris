@@ -19,7 +19,7 @@
 #################################################################################
 # This script will
 # 1. Check prerequisite libraries. Including:
-#    ant cmake byacc flex automake libtool binutils-dev libiberty-dev bison
+#    cmake byacc flex automake libtool binutils-dev libiberty-dev bison
 # 2. Compile and install all thirdparties which are downloaded
 #    using *download-thirdparty.sh*.
 #
@@ -81,14 +81,9 @@ check_prerequest() {
     fi
 }
 
-# check pre-request tools
-# sudo apt-get install ant
-# sudo yum install ant
-#check_prerequest "ant -version" "ant"
-
 # sudo apt-get install cmake
 # sudo yum install cmake
-check_prerequest "cmake --version" "cmake"
+check_prerequest "${CMAKE_CMD} --version" "cmake"
 
 # sudo apt-get install byacc
 # sudo yum install byacc
@@ -121,8 +116,6 @@ check_prerequest "libtoolize --version" "libtool"
 #########################
 # build all thirdparties
 #########################
-
-CMAKE_CMD=`which cmake`
 
 check_if_source_exist() {
     if [ -z $1 ]; then
@@ -523,7 +516,7 @@ build_rocksdb() {
 
     cd $TP_SOURCE_DIR/$ROCKSDB_SOURCE
 
-    CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC" LDFLAGS="-static-libstdc++ -static-libgcc" \
+    CFLAGS="-I ${TP_INCLUDE_DIR} -I ${TP_INCLUDE_DIR}/snappy -I ${TP_INCLUDE_DIR}/lz4" CXXFLAGS="-fPIC -Wno-deprecated-copy -Wno-stringop-truncation -Wno-pessimizing-move" LDFLAGS="-static-libstdc++ -static-libgcc" \
         PORTABLE=1 make USE_RTTI=1 -j$PARALLEL static_lib
     cp librocksdb.a ../../installed/lib/librocksdb.a
     cp -r include/rocksdb ../../installed/include/
@@ -548,8 +541,10 @@ build_flatbuffers() {
   cd $TP_SOURCE_DIR/$FLATBUFFERS_SOURCE
   mkdir build -p && cd build
   rm -rf CMakeCache.txt CMakeFiles/
-  cmake ..
-  CXXFLAGS="-fPIC" make -j$PARALLEL
+  CXXFLAGS="-fPIC -Wno-class-memaccess" \
+  LDFLAGS="-static-libstdc++ -static-libgcc" \
+  ${CMAKE_CMD} ..
+  make -j$PARALLEL
   cp flatc  ../../../installed/bin/flatc
   cp -r ../include/flatbuffers  ../../../installed/include/flatbuffers
   cp libflatbuffers.a ../../../installed/lib/libflatbuffers.a
@@ -568,7 +563,7 @@ build_arrow() {
     export ARROW_JEMALLOC_URL=${TP_SOURCE_DIR}/${JEMALLOC_NAME}
     export LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc"
 
-    cmake -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_USE_GLOG=off -DARROW_BUILD_SHARED=OFF \
+    ${CMAKE_CMD} -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_USE_GLOG=off -DARROW_BUILD_SHARED=OFF \
     -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INSTALL_LIBDIR=lib64 \
     -DARROW_BOOST_USE_SHARED=OFF -DARROW_GFLAGS_USE_SHARED=OFF -DBoost_NO_BOOST_CMAKE=ON -DBOOST_ROOT=$TP_INSTALL_DIR \
@@ -682,6 +677,7 @@ build_orc() {
     cd $TP_SOURCE_DIR/orc-1.5.8
     mkdir build -p && cd build
     rm -rf CMakeCache.txt CMakeFiles/
+    CXXFLAGS="-O3 -Wno-array-bounds" \
     $CMAKE_CMD ../ -DBUILD_JAVA=OFF \
     -DPROTOBUF_HOME=$TP_INSTALL_DIR \
     -DSNAPPY_HOME=$TP_INSTALL_DIR \
