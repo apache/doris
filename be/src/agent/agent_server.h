@@ -43,8 +43,11 @@ public:
     void make_snapshot(TAgentResult& agent_result, const TSnapshotRequest& snapshot_request);
     void release_snapshot(TAgentResult& agent_result, const std::string& snapshot_path);
 
-    // TODO(lingbin): The following 4 methods are all deprecated, should be removed later.
+    // Deprected
+    // TODO(lingbin): This method is deprecated, should be removed later.
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
+
+    // Multi-Load will still use the following 3 methods for now.
     void submit_etl_task(TAgentResult& agent_result, const TMiniLoadEtlTaskRequest& request);
     void get_etl_status(TMiniLoadEtlStatusResult& agent_result,
                         const TMiniLoadEtlStatusRequest& request);
