@@ -80,9 +80,23 @@ if [[ $JAVA_VER -lt 18 ]]; then
 fi
 
 # check maven
-export MVN=mvn
+MVN=mvn
+if [[ ! -z ${CUSTOM_MVN} ]]; then
+    MVN=${CUSTOM_MVN}
+fi
 if ! ${MVN} --version; then
     echo "Error: mvn is not found"
     exit 1
 fi
+export MVN
+
+CMAKE_CMD=cmake
+if [[ ! -z ${CUSTOM_CMAKE} ]]; then
+    CMAKE_CMD=${CUSTOM_CMAKE}
+fi
+if ! ${CMAKE_CMD} --version; then
+    echo "Error: cmake is not found"
+    exit 1
+fi
+export CMAKE_CMD
 
