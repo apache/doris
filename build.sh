@@ -177,9 +177,9 @@ if [ ${BUILD_FE} -eq 1 ] ; then
     echo "Build Frontend"
     cd ${DORIS_HOME}/fe
     if [ ${CLEAN} -eq 1 ]; then
-        ${MVN} clean
+        ${MVN_CMD} clean
     fi
-    ${MVN} package -DskipTests
+    ${MVN_CMD} package -DskipTests
     cd ${DORIS_HOME}
 fi
 
