@@ -67,6 +67,12 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     RETURN_NOT_OK(check_version_continuity(_input_rowsets));
     RETURN_NOT_OK(_check_rowset_overlapping(_input_rowsets));
 
+    if (_input_rowsets.size() == 2 && _input_rowsets[0]->end_version() == 1) {
+        // the tablet is with rowset: [0-1], [2-y]
+        // and [0-1] has no data. in this situation, no need to do base compaction.
+        return OLAP_ERR_BE_NO_SUITABLE_VERSION;
+    }
+
     // 1. cumulative rowset must reach base_compaction_num_cumulative_deltas threshold
     if (_input_rowsets.size() > config::base_compaction_num_cumulative_deltas) {
         LOG(INFO) << "satisfy the base compaction policy. tablet="<< _tablet->full_name()
@@ -87,6 +93,11 @@ OLAPStatus BaseCompaction::pick_rowsets_to_compact() {
     }
 
     double base_cumulative_delta_ratio = config::base_cumulative_delta_ratio;
+    if (base_size == 0) {
+        // base_size == 0 means this may be a base version [0-1], which has no data.
+        // set to 1 to void devide by zero
+        base_size = 1;
+    }
     double cumulative_base_ratio = static_cast<double>(cumulative_total_size) / base_size;
 
     if (cumulative_base_ratio > base_cumulative_delta_ratio) {
