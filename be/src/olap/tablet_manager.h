@@ -169,6 +169,8 @@ private:
 
     void _build_tablet_stat();
 
+    void _remove_tablet_from_partition_unlocked(const Tablet& tablet);
+
 private:
     // TODO(lingbin): should be TabletInstances?
     // should be removed after schema_hash be removed

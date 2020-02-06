@@ -569,11 +569,10 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
             for (list<TabletSharedPtr>::iterator it = _tablet_map[tablet_id].table_arr.begin();
                     it != _tablet_map[tablet_id].table_arr.end();) {
                 if ((*it)->equal(tablet_id, schema_hash)) {
+                    // We should first remove tablet from partition_map to avoid iterator
+                    // becoming invalid.
+                    _remove_tablet_from_partition_unlocked(*(*it));
                     it = _tablet_map[tablet_id].table_arr.erase(it);
-                    _partition_tablet_map[(*it)->partition_id()].erase((*it)->get_tablet_info());
-                    if (_partition_tablet_map[(*it)->partition_id()].empty()) {
-                        _partition_tablet_map.erase((*it)->partition_id());
-                    }
                 } else {
                     ++it;
                 }
@@ -1110,7 +1109,8 @@ void TabletManager::update_root_path_info(std::map<std::string, DataDirInfo>* pa
     }
 } // update_root_path_info
 
-void TabletManager::get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos) {
+void TabletManager::get_partition_related_tablets(int64_t partition_id,
+                                                  std::set<TabletInfo>* tablet_infos) {
     ReadLock rlock(&_tablet_map_lock);
     if (_partition_tablet_map.find(partition_id) != _partition_tablet_map.end()) {
         for (auto& tablet_info : _partition_tablet_map[partition_id]) {
@@ -1332,10 +1332,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
             it != _tablet_map[tablet_id].table_arr.end();) {
         if ((*it)->equal(tablet_id, schema_hash)) {
             TabletSharedPtr tablet = *it;
-            _partition_tablet_map[(*it)->partition_id()].erase((*it)->get_tablet_info());
-            if (_partition_tablet_map[(*it)->partition_id()].empty()) {
-                _partition_tablet_map.erase((*it)->partition_id());
-            }
+            _remove_tablet_from_partition_unlocked(*(*it));
             it = _tablet_map[tablet_id].table_arr.erase(it);
             if (!keep_files) {
                 // drop tablet will update tablet meta, should lock
@@ -1393,6 +1390,13 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
     // Return nullptr tablet if fail
     TabletSharedPtr tablet;
     return tablet;
+}
+
+void TabletManager::_remove_tablet_from_partition_unlocked(const Tablet& tablet) {
+    _partition_tablet_map[tablet.partition_id()].erase(tablet.get_tablet_info());
+    if (_partition_tablet_map[tablet.partition_id()].empty()) {
+        _partition_tablet_map.erase(tablet.partition_id());
+    }
 }
 
 } // doris
