@@ -223,7 +223,7 @@ public:
 
     OLAPStatus set_partition_id(int64_t partition_id);
 
-    TabletInfo get_tablet_info();
+    TabletInfo get_tablet_info() const;
 
     void pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
