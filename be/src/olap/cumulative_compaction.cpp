@@ -130,24 +130,37 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
         // the cumulative point after waiting for a long time, to ensure that the base compaction can continue.
 
         // check both last success time of base and cumulative compaction
-        int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation * 1000;
         int64_t now = UnixMillis();
-        int64_t cumu_interval = now - _tablet->last_cumu_compaction_success_time();
-        int64_t base_interval = now - _tablet->last_base_compaction_success_time();
-        if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
-            // before increasing cumulative point, we should make sure all rowsets are non-overlapping.
-            // if at least one rowset is overlapping, we should compact them first.
-            CHECK(candidate_rowsets.size() == transient_rowsets.size())
-                << "tablet: " << _tablet->full_name() << ", "<<  candidate_rowsets.size() << " vs. " << transient_rowsets.size();
-            for (auto& rs : candidate_rowsets) {
-                if (rs->rowset_meta()->is_segments_overlapping()) {
-                    _input_rowsets = candidate_rowsets;
-                    return OLAP_SUCCESS;
+        int64_t last_cumu = _tablet->last_cumu_compaction_success_time();
+        int64_t last_base = _tablet->last_base_compaction_success_time();
+        if (last_cumu != 0 || last_base != 0) {
+            int64_t interval_threshold = config::base_compaction_interval_seconds_since_last_operation * 1000;
+            int64_t cumu_interval = now - last_cumu;
+            int64_t base_interval = now - last_base;
+            if (cumu_interval > interval_threshold && base_interval > interval_threshold) {
+                // before increasing cumulative point, we should make sure all rowsets are non-overlapping.
+                // if at least one rowset is overlapping, we should compact them first.
+                CHECK(candidate_rowsets.size() == transient_rowsets.size())
+                    << "tablet: " << _tablet->full_name() << ", "<<  candidate_rowsets.size() << " vs. " << transient_rowsets.size();
+                for (auto& rs : candidate_rowsets) {
+                    if (rs->rowset_meta()->is_segments_overlapping()) {
+                        _input_rowsets = candidate_rowsets;
+                        return OLAP_SUCCESS;
+                    }
                 }
+
+                // all candicate rowsets are non-overlapping, increase the cumulative point
+                _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version() + 1);
+            }
+        } else {
+            // init the compaction success time for first time
+            if (last_cumu == 0) {
+                _tablet->set_last_cumu_compaction_success_time(now);
             }
 
-            // all candicate rowsets are non-overlapping, increase the cumulative point
-            _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version() + 1);
+            if (last_base == 0) {
+                _tablet->set_last_base_compaction_success_time(now);
+            }
         }
 
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
