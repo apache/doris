@@ -43,10 +43,12 @@ public:
         PUSH,
         REALTIME_PUSH,
         PUBLISH_VERSION,
+        // Deprecated
         CLEAR_ALTER_TASK,
         CLEAR_TRANSACTION_TASK,
         DELETE,
         ALTER_TABLE,
+        // Deprecated
         QUERY_SPLIT_KEY,
         CLONE,
         STORAGE_MEDIUM_MIGRATE,
