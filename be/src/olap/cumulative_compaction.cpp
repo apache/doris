@@ -151,6 +151,7 @@ OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
 
                 // all candicate rowsets are non-overlapping, increase the cumulative point
                 _tablet->set_cumulative_layer_point(candidate_rowsets.back()->start_version() + 1);
+            }
         } else {
             // init the compaction success time for first time
             if (last_cumu == 0) {
