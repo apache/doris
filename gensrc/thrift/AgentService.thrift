@@ -56,7 +56,8 @@ struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
     3: optional Types.TVersion version
-    4: optional Types.TVersionHash version_hash // Deprecated
+    // Deprecated
+    4: optional Types.TVersionHash version_hash 
     5: optional Types.TStorageMedium storage_medium
     6: optional bool in_restore_mode
     // this new tablet should be colocate with base tablet
