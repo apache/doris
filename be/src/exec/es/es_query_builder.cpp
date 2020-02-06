@@ -82,13 +82,13 @@ void RangeQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value*
             op_node.AddMember("lt", value, allocator);
             break;
         case TExprOpcode::LE:
-            op_node.AddMember("le", value, allocator);
+            op_node.AddMember("lte", value, allocator);
             break;
         case TExprOpcode::GT:
             op_node.AddMember("gt", value, allocator);
             break;
         case TExprOpcode::GE:
-            op_node.AddMember("ge", value, allocator);
+            op_node.AddMember("gte", value, allocator);
             break;
         default:
             break;

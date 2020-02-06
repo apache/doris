@@ -75,7 +75,7 @@ TEST_F(BooleanQueryBuilderTest, range_query) {
     range_value.Accept(writer);
     std::string actual_json = buffer.GetString();
     //LOG(INFO) << "range query" << actual_json;
-    ASSERT_STREQ("{\"range\":{\"k\":{\"ge\":\"a\"}}}", actual_json.c_str());
+    ASSERT_STREQ("{\"range\":{\"k\":{\"gte\":\"a\"}}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, es_query) {
@@ -248,7 +248,7 @@ TEST_F(BooleanQueryBuilderTest, bool_query) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     bool_query_value.Accept(writer);
     std::string actual_json = buffer.GetString();
-    std::string expected_json = "{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}},{\"range\":{\"k\":{\"ge\":\"a\"}}},{\"term\":{\"content\":\"wyf\"}}]}}";
+    std::string expected_json = "{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}},{\"range\":{\"k\":{\"gte\":\"a\"}}},{\"term\":{\"content\":\"wyf\"}}]}}";
     //LOG(INFO) << "bool query" << actual_json;
     ASSERT_STREQ(expected_json.c_str(), actual_json.c_str());
 }
@@ -332,7 +332,7 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     compound_bool_value.Accept(writer);
     std::string actual_bool_json = buffer.GetString();
-    std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}}]}},{\"bool\":{\"should\":[{\"range\":{\"k\":{\"ge\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}}";
+    std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}}]}},{\"bool\":{\"should\":[{\"range\":{\"k\":{\"gte\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}}";
     //LOG(INFO) << "compound bool query" << actual_bool_json;
     ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
 }
