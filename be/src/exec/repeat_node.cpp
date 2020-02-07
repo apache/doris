@@ -80,13 +80,6 @@ Status RepeatNode::get_repeated_batch(
     const vector<TupleDescriptor*>& src_tuple_descs = child_row_batch->row_desc().tuple_descriptors();
     const vector<TupleDescriptor*>& dst_tuple_descs = row_batch->row_desc().tuple_descriptors();
     vector<Tuple*> dst_tuples(src_tuple_descs.size(), nullptr);
-    for (Tuple* &tuple : dst_tuples) {
-        void* tuple_buffer = tuple_pool->allocate(0);
-        if (tuple_buffer == nullptr) {
-            return Status::InternalError("Allocate memory for row batch failed.");
-        }
-        tuple = reinterpret_cast<Tuple*>(tuple_buffer);
-    }
     for (int i = 0; i < child_row_batch->num_rows(); ++i) {
         int row_idx = row_batch->add_row();
         TupleRow* dst_row = row_batch->get_row(row_idx);
@@ -100,10 +93,18 @@ Status RepeatNode::get_repeated_batch(
                 continue;
             }
 
-            char* new_tuple = reinterpret_cast<char*>(dst_tuples[j]);
-            new_tuple += (*dst_it)->byte_size();
-            dst_tuples[j] = reinterpret_cast<Tuple*>(new_tuple);
-
+            if (dst_tuples[j] == nullptr) {
+                int size = row_batch->capacity() * (*dst_it)->byte_size();
+                void* tuple_buffer = tuple_pool->allocate(size);
+                if (tuple_buffer == nullptr) {
+                    return Status::InternalError("Allocate memory for row batch failed.");
+                }
+                dst_tuples[j] = reinterpret_cast<Tuple*>(tuple_buffer);
+            } else {
+                char* new_tuple = reinterpret_cast<char*>(dst_tuples[j]);
+                new_tuple += (*dst_it)->byte_size();
+                dst_tuples[j] = reinterpret_cast<Tuple*>(new_tuple);
+            }
             dst_row->set_tuple(j, dst_tuples[j]);
             memset(dst_tuples[j], 0, (*dst_it)->num_null_bytes());
             src_tuple->deep_copy(dst_tuples[j], **dst_it, tuple_pool);
