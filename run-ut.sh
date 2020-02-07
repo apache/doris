@@ -170,6 +170,7 @@ ${DORIS_TEST_BINARY_DIR}/util/cgroup_util_test
 ${DORIS_TEST_BINARY_DIR}/util/path_util_test
 ${DORIS_TEST_BINARY_DIR}/util/file_cache_test
 ${DORIS_TEST_BINARY_DIR}/util/file_manager_test
+${DORIS_TEST_BINARY_DIR}/util/parse_util_test
 
 # Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
