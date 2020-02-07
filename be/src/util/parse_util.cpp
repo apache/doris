@@ -34,26 +34,32 @@ int64_t ParseUtil::parse_mem_spec(const std::string& mem_spec_str, bool* is_perc
 
     // Look for accepted suffix character.
     switch (*mem_spec_str.rbegin()) {
+    case 't':
+    case 'T':
+        // Terabytes.
+        multiplier = 1024L * 1024L * 1024L * 1024L;
+        break;
     case 'g':
     case 'G':
         // Gigabytes.
         multiplier = 1024L * 1024L * 1024L;
         break;
-
-    case '%':
-        *is_percent = true;
-        break;
-
     case 'm':
     case 'M':
         // Megabytes.
         multiplier = 1024L * 1024L;
         break;
-
+    case 'k':
+    case 'K':
+        // Kilobytes
+        multiplier = 1024L;
+        break;
     case 'b':
     case 'B':
         break;
-
+    case '%':
+        *is_percent = true;
+        break;
     default:
         // No unit was given. Default to bytes.
         number_str_len = mem_spec_str.size();
