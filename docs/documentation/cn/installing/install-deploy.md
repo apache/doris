@@ -311,7 +311,7 @@ DECOMMISSION 语句如下：
 > 3. 该命令**不一定执行成功**。比如剩余 BE 存储空间不足以容纳下线 BE 上的数据，或者剩余机器数量不满足最小副本数时，该命令都无法完成，并且 BE 会一直处于 isDecommission 为 true 的状态。  
 > 4. DECOMMISSION 的进度，可以通过 ```SHOW PROC '/backends';``` 中的 TabletNum 查看，如果正在进行，TabletNum 将不断减少。  
 > 5. 该操作可以通过:  
-> 		```CANCEL ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```  
+> 		```CANCEL DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```  
 > 	命令取消。取消后，该 BE 上的数据将维持当前剩余的数据量。后续 Doris 重新进行负载均衡
 
 **对于多租户部署环境下，BE 节点的扩容和缩容，请参阅 [多租户设计文档](../administrator-guide/operation/multi-tenant.md)。**
