@@ -1438,7 +1438,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
             // find from new alter jobs first
             List<AlterJobV2> schemaChangeJobV2List = getUnfinishedAlterJobV2ByTableId(olapTable.getId());
-            schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? schemaChangeJobV2 : Iterables.getOnlyElement(schemaChangeJobV2List);
+            // current schemaChangeJob job doesn't support batch operation,so just need to get one job
+            schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null : Iterables.getOnlyElement(schemaChangeJobV2List);
             if (schemaChangeJobV2 == null) {
                 schemaChangeJob = getAlterJob(olapTable.getId());
                 Preconditions.checkNotNull(schemaChangeJob, olapTable.getId());

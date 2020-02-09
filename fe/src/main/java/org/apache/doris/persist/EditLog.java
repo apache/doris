@@ -284,6 +284,13 @@ public class EditLog {
                     catalog.getRollupHandler().replayDropRollup(info, catalog);
                     break;
                 }
+                case OperationType.OP_BATCH_DROP_ROLLUP: {
+                    BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
+                    for (DropInfo info : batchDropInfo.getDropInfoList()) {
+                        catalog.getRollupHandler().replayDropRollup(info, catalog);
+                    }
+                    break;
+                }
                 case OperationType.OP_START_SCHEMA_CHANGE: {
                     SchemaChangeJob job = (SchemaChangeJob) journal.getData();
                     LOG.info("Begin to unprotect create schema change job. db = " + job.getDbId()
@@ -909,6 +916,10 @@ public class EditLog {
 
     public void logDropRollup(DropInfo info) {
         logEdit(OperationType.OP_DROP_ROLLUP, info);
+    }
+
+    public void logBatchDropRollup (BatchDropInfo batchDropInfo) {
+        logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
     }
 
     public void logStartSchemaChange(SchemaChangeJob schemaChangeJob) {

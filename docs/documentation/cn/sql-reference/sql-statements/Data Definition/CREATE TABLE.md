@@ -574,7 +574,7 @@ under the License.
     rollup (
     r1(event_day,siteid),
     r2(event_day,citycode),
-    r3(event_day) from r1
+    r3(event_day)
     )
     PROPERTIES("replication_num" = "3");
 ```

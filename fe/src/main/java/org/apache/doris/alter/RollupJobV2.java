@@ -306,7 +306,13 @@ public class RollupJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
 
-        // TODO(wangbo): 2020/2/4 in the case that the [WaitingTxnJob|PendingJob] is checkpointed and replayMethod won't be called, make sure the tablet meta exists in olapTable and TabletInvertedIndex before doris run
+        // TODO(wangbo): 2020/2/4
+        //   In the case that the [WaitingTxnJob|PendingJob] is checkpointed and replayMethod won't be called
+        //   For example,
+        //          1. create and pending job A
+        //          2. restart fe twice before job A running(for checkpoint job A)
+        //          3. For job A,replayPendingJob method won't be called,so we lose metadata in memory
+        //   So Make sure the tablet meta exists in olapTable and TabletInvertedIndex before doris run
 
         db.readLock();
         try {
@@ -619,6 +625,7 @@ public class RollupJobV2 extends AlterJobV2 {
             db.writeUnlock();
         }
 
+        // to make sure that this job will run runPendingJob() again to create the rollup replicas
         this.jobState = JobState.PENDING;
         this.watershedTxnId = replayedJob.watershedTxnId;
 

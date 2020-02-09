@@ -34,6 +34,8 @@ under the License.
     语法:
         CANCEL ALTER TABLE ROLLUP
                 FROM db_name.table_name (jobid,...)
+    注意：
+        该命令为异步操作，具体是否执行成功需要使用`show alter table rollup`查看任务状态确认
     4. 撤销 ALTER CLUSTER 操作
     语法：
         （待实现...）

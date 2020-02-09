@@ -49,6 +49,7 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -72,6 +73,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -90,7 +92,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
 
     // for batch submit rollup job, tableId -> jobId
-    // keep table's not final state job size. The job size determine's table's state, = 0 means table is normal,otherwrise is rollup
+    // keep table's not final state job size. The job size determine's table's state, = 0 means table is normal, otherwise is rollup
     private Map<Long, Set<Long>> tableNotFinalStateJobMap = new ConcurrentHashMap<>();
     // keep table's running job,used for concurrency limit
     private Map<Long, Set<Long>> tableRunningJobMap = new ConcurrentHashMap<>();
@@ -121,6 +123,12 @@ public class MaterializedViewHandler extends AlterHandler {
         tableNotFinalStateJobIdSet.add(jobId);
     }
 
+    /**
+     *
+     * @param alterJobV2
+     * @return true current table doesn't have not not final rollup job,table'state is normal
+     *         false table status is rollup
+     */
     private boolean removeAlterJobV2FromTableNotFinalStateJobMap(AlterJobV2 alterJobV2) {
         Long tableId = alterJobV2.getTableId();
         Long jobId = alterJobV2.getJobId();
@@ -608,58 +616,73 @@ public class MaterializedViewHandler extends AlterHandler {
         return baseIndexId;
     }
 
-    public void processBatchDropRollup (List<AlterClause> dropRollupClauses, Database db, OlapTable olapTable) throws DdlException {
-        for (AlterClause dropRollupClause : dropRollupClauses) {
-            processDropRollup((DropRollupClause)dropRollupClause, db, olapTable);
-        }
-    }
+    public void processBatchDropRollup(List<AlterClause> dropRollupClauses, Database db, OlapTable olapTable) throws DdlException {
+        db.writeLock();
+        try {
+            // just for log
+            Set<String> rollupNameSet = new HashSet<>();
+            Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
+            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+            long dbId = db.getId();
+            long tableId = olapTable.getId();
 
-    public void processDropRollup(DropRollupClause alterClause, Database db, OlapTable olapTable)
-            throws DdlException {
-        // make sure we got db write lock here.
-        // up to here, table's state can only be NORMAL.
-        Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
+            // check drop rollup index operation
+            for (AlterClause alterClause : dropRollupClauses) {
+                DropRollupClause dropRollupClause = (DropRollupClause) alterClause;
 
-        String rollupIndexName = alterClause.getRollupName();
-        if (rollupIndexName.equals(olapTable.getName())) {
-            throw new DdlException("Cannot drop base index by using DROP ROLLUP.");
-        }
+                // make sure we got db write lock here.
+                // up to here, table's state can only be NORMAL.
+                String rollupIndexName = dropRollupClause.getRollupName();
+                if (rollupIndexName.equals(olapTable.getName())) {
+                    throw new DdlException("Cannot drop base index by using DROP ROLLUP.");
+                }
 
-        long dbId = db.getId();
-        long tableId = olapTable.getId();
-        if (!olapTable.hasMaterializedIndex(rollupIndexName)) {
-            throw new DdlException("Rollup index[" + rollupIndexName + "] does not exist in table["
-                    + olapTable.getName() + "]");
-        }
+                if (!olapTable.hasMaterializedIndex(rollupIndexName)) {
+                    throw new DdlException("Rollup index[" + rollupIndexName + "] does not exist in table["
+                            + olapTable.getName() + "]");
+                }
 
-        long rollupIndexId = olapTable.getIndexIdByName(rollupIndexName);
-        int rollupSchemaHash = olapTable.getSchemaHashByIndexId(rollupIndexId);
-        Preconditions.checkState(rollupSchemaHash != -1);
+                long rollupIndexId = olapTable.getIndexIdByName(rollupIndexName);
+                int rollupSchemaHash = olapTable.getSchemaHashByIndexId(rollupIndexId);
+                Preconditions.checkState(rollupSchemaHash != -1);
 
-        // drop rollup for each partition.
-        // also remove tablets from inverted index.
-        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        for (Partition partition : olapTable.getPartitions()) {
-            MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
-            Preconditions.checkNotNull(rollupIndex);
+                for (Partition partition : olapTable.getPartitions()) {
+                    MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
+                    Preconditions.checkNotNull(rollupIndex);
+                }
 
-            // delete rollup index
-            partition.deleteRollupIndex(rollupIndexId);
-
-            // remove tablets from inverted index
-            for (Tablet tablet : rollupIndex.getTablets()) {
-                long tabletId = tablet.getId();
-                invertedIndex.deleteTablet(tabletId);
             }
+
+            List<DropInfo> dropInfoList = new ArrayList<>();
+            // drop data in memory
+            for (AlterClause alterClause : dropRollupClauses) {
+                DropRollupClause dropRollupClause = (DropRollupClause) alterClause;
+                String rollupIndexName = dropRollupClause.getRollupName();
+
+                long rollupIndexId = olapTable.getIndexIdByName(rollupIndexName);
+                for (Partition partition : olapTable.getPartitions()) {
+                    MaterializedIndex rollupIndex = partition.getIndex(rollupIndexId);
+                    // delete rollup index
+                    partition.deleteRollupIndex(rollupIndexId);
+                    // remove tablets from inverted index
+                    for (Tablet tablet : rollupIndex.getTablets()) {
+                        long tabletId = tablet.getId();
+                        invertedIndex.deleteTablet(tabletId);
+                    }
+                }
+                olapTable.deleteIndexInfo(rollupIndexName);
+
+                dropInfoList.add(new DropInfo(dbId, tableId, rollupIndexId));
+                rollupNameSet.add(rollupIndexName);
+            }
+
+            // batch log drop rollup operation
+            EditLog editLog = Catalog.getInstance().getEditLog();
+            editLog.logBatchDropRollup(new BatchDropInfo(dropInfoList));
+            LOG.info("finished drop rollup index[{}] in table[{}]", String.join("", rollupNameSet), olapTable.getName());
+        } finally {
+            db.writeUnlock();
         }
-
-        olapTable.deleteIndexInfo(rollupIndexName);
-
-        // log drop rollup operation
-        EditLog editLog = Catalog.getInstance().getEditLog();
-        DropInfo dropInfo = new DropInfo(dbId, tableId, rollupIndexId);
-        editLog.logDropRollup(dropInfo);
-        LOG.info("finished drop rollup index[{}] in table[{}]", rollupIndexName, olapTable.getName());
     }
 
     public void replayDropRollup(DropInfo dropInfo, Catalog catalog) {
@@ -963,12 +986,11 @@ public class MaterializedViewHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
-        Iterator<AlterClause> alterClauseIterator = alterClauses.iterator();
-        if (alterClauseIterator.hasNext()) {
-            AlterClause alterClause = alterClauseIterator.next();
-            if (alterClause instanceof AddRollupClause) {
+        Optional<AlterClause> alterClauseOptional = alterClauses.stream().findAny();
+        if (alterClauseOptional.isPresent()) {
+            if (alterClauseOptional.get() instanceof AddRollupClause) {
                 processBatchAddRollup(alterClauses, db, olapTable);
-            } else if (alterClause instanceof DropRollupClause) {
+            } else  if (alterClauseOptional.get() instanceof DropRollupClause) {
                 processBatchDropRollup(alterClauses, db, olapTable);
             } else {
                 Preconditions.checkState(false);
@@ -1010,6 +1032,9 @@ public class MaterializedViewHandler extends AlterHandler {
             // find from new alter jobs first
             if (cancelAlterTableStmt.getAlterJobIdList() != null) {
                 for (Long jobId : cancelAlterTableStmt.getAlterJobIdList()) {
+                    AlterJobV2 alterJobV2 = getUnfinishedAlterJobV2ByJobId(jobId);
+                    if (alterJobV2 == null)
+                        continue;
                     rollupJobV2List.add(getUnfinishedAlterJobV2ByJobId(jobId));
                 }
             } else {

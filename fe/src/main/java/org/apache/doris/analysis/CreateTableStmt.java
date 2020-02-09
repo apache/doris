@@ -236,10 +236,6 @@ public class CreateTableStmt extends DdlStmt {
         return comment;
     }
 
-    public void setRollupAlterClauseList(List<AlterClause> rollupAlterClauseList) {
-        this.rollupAlterClauseList = rollupAlterClauseList;
-    }
-
     public List<AlterClause> getRollupAlterClauseList() {
         return rollupAlterClauseList;
     }
