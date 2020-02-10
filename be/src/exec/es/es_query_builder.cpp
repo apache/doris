@@ -111,8 +111,10 @@ void WildCardQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
 WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate) : _field(like_predicate.col.name) {
     _like_value = like_predicate.value.to_string();
     // example of translation :
-    //      abc\_123 ===> abc?123
-    //      abc\%ykz ===> abc*123
+    //      abc_123  ===> abc?123
+    //      abc%ykz  ===> abc*123
+    //      abc\\_123 ===> abc\\_123
+    //      abc\\%123 ===> abc\\%123
     // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
     for (int i = 0; i< _like_value.size(); i++) {
         if ((_like_value[i] == '_' || _like_value[i]== '%') && i > 0) {
