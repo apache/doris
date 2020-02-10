@@ -48,18 +48,22 @@ Doris中现有的导入方式中，针对百G级别以上的数据的批量导�
 			k4 = hll_hash(k2)
 		)
 		where k1 > 20
-		with spark
         )
+		with spark
         PROPERTIES
         (
-        "cluster_type" = "yarn",
-        "yarn_resourcemanager_address" = "xxx.tc:8032",
-        "max_filter_ratio" = "0.1"
+        "spark.master" = "yarn",
+		"spark.executor.cores" = "5",
+		"spark.executor.memory" = "10g",
+		"yarn.resourcemanager.address" = "xxx.tc:8032",
+        "max_filter_ratio" = "0.1",
         );
 ```
 其中各个property的含义如下:
-- cluster_type是表示spark集群部署模式，支持包括yarn/standalone/local/k8s，预计先实现yarn的支持，并且使用yarn-cluster模式（yarn-client模式一般用于交互式的场景）。
-- yarn_resourcemanager_address：指定yarn的resourcemanager地址
+- spark.master是表示spark集群部署模式，支持包括yarn/standalone/local/k8s，预计先实现yarn的支持，并且使用yarn-cluster模式（yarn-client模式一般用于交互式的场景）。
+- spark.executor.cores: executor的cpu个数
+- spark.executor.memory: executor的内存大小
+- yarn.resourcemanager.address：指定yarn的resourcemanager地址
 - max_filter_ratio：指定最大过滤比例阈值
 
 ##### SparkLoadJob
@@ -76,7 +80,7 @@ SparkLoadJob:
          +-------+-------+                 |
          |    LOADING    |-----------------|
          +-------+-------+                 |
-				 | LoadLodingTask          |
+				 | LoadLoadingTask         |
                  v                         |
          +-------+-------+                 |
          |  COMMITTED    |-----------------|
@@ -130,6 +134,23 @@ spark任务执行的事情，包括以下几个关键点：
 6. 排序和预聚合
 
 	因为在OlapTableSink过程中会进行排序和聚合，逻辑上可以不需要进行排序和聚合，但是因为排序和预聚合可以提升在BE端执行导入的效率。**如果在spark etl作业中进行排序和聚合，那么在BE执行导入的时候可以省略这个步骤。**这块可以依据后续测试的情况进行调整。目前看，可以先在etl作业中进行排序。
+	还有一个需要考虑的就是如何支持bitmap类型中的全局字典，string类型的bitmap列需要依赖全局字典。
+	为了告诉下游etl作业是否已经完成已经完成排序和聚合，可以在作业完成的时候生成一个job.json的描述文件，里面包含如下属性：
+
+	```
+	{
+		"is_segment_file" : "false",
+		"is_sort" : "true",
+		"is_agg" : "true",
+	}
+	```
+	其中：
+		is_sort表示是否排序
+		is_agg表示是否聚合
+		is_segment_file表示是否生成的是segment文件
+
+7. 现在rollup数据的计算都是基于base表，需要考虑能够根据index之间的层级关系，优化rollup数据的生成。
+
 这里面相对比较复杂一点就是列的表达式计算的支持。
 
 最后，spark load作业完成之后，产出的文件存储格式可以支持csv、parquet、orc，从存储效率上来说，建议默认为parquet。
@@ -144,23 +165,17 @@ LoadLoadingTask可以复现现在的逻辑，但是，有一个地方跟BrokerLo
 
 #### 方案2
 
-方案1可以最大限度的复用现有的导入框架，能够快速实现支持大数据量导入的功能。但是存在以下问题，就是经过spark etl处理之后的数据其实已经按照tablet划分好了，但是现有的Broker导入框架还是会对流式读取的数据进行分区和bucket计算，然后经过序列化通过rpc发送到对应的目标BE的机器，有一次序列化和网络IO的开销。
-
-这里可以进行一个优化，就是在SparkLoadPendingTask在生成文件的时候，在文件末位加上.{tabletid}后缀，并且在SparkLoadPendingTask类中增加一个接口protected Map<long, Pair<String, Long>> getFilePathMap()用于返回tabletid和文件之间的映射关系，然后在生成LoadLoadingTask实例的时候，这个table涉及的所有的BE机器的会创建一个LoadLoadingTask，让这个LoadLoadingTask只负责本机器上相关的tablet数据的导入，并且在BE中执行导入计划的时候，采用short curcuit的机制，不走网络发送，直接通过函数调用实现数据的写入。但是由于现在三副本机制，这种方案需要读取三次源数据，如果数据量比较大的话，这个成本也有点大。因此这个优化需要把导入改成主副本导入，其他副本从主副本进行拷贝之后，可行性比较大。
-
-#### 方案3
-
-方案1和方案2都有一些问题，方案3是在SparkEtlJob生成数据的时候，直接生成doris的存储格式Segment文件，然后三个副本需要通过类似clone机制的方式，通过add_rowset接口，进行文件的导入。这种方案具体不一样的地方如下：
+方案1可以最大限度的复用现有的导入框架，能够快速实现支持大数据量导入的功能。但是存在以下问题，就是经过spark etl处理之后的数据其实已经按照tablet划分好了，但是现有的Broker导入框架还是会对流式读取的数据进行分区和bucket计算，然后经过序列化通过rpc发送到对应的目标BE的机器，有一次序列化和网络IO的开销。 方案2是在SparkEtlJob生成数据的时候，直接生成doris的存储格式Segment文件，然后三个副本需要通过类似clone机制的方式，通过add_rowset接口，进行文件的导入。这种方案具体不一样的地方如下：
 
 1. 需要在生成的文件中添加tabletid后续
 2. 在SparkLoadPendingTask类中增加一个接口protected Map<long, Pair<String, Long>> getFilePathMap()用于返回tabletid和文件之间的映射关系，
 3. 在BE rpc服务中增加一个spark_push接口，实现拉取源端etl转化之后的文件到本地（可以通过broker读取），然后通过add_rowset接口完成数据的导入，类似克隆的逻辑
-4. 生成新的导入任务SparkLoadLoadingTask,该SparkLoadLoadingTask主要功能就是调用spark_push接口，向tablet所在的后端BE发送导入请求，进行数据的导入。
+4. 生成新的导入任务SparkLoadLoadingTask,该SparkLoadLoadingTask主要功能就是读取job.json文件，解析其中的属性并且，将属性作为rpc参数，调用spark_push接口，向tablet所在的后端BE发送导入请求，进行数据的导入。BE中spark_push根据is_segment_file来决定如何处理，如果为true，则直接下载segment文件，进行add rowset；如果为false，则走pusher逻辑，实现数据导入。
 
-该方案将segment文件的生成也统一放到了spark集群中进行，能够极大的降低doris集群的负载，效率应该会比较高。但是方案3需要依赖于将底层rowset和segment v2的接口打包成独立的so文件，并且通过spark调用该接口来将数据转化成segment文件。
+该方案将segment文件的生成也统一放到了spark集群中进行，能够极大的降低doris集群的负载，效率应该会比较高。但是方案2需要依赖于将底层rowset和segment v2的接口打包成独立的so文件，并且通过spark调用该接口来将数据转化成segment文件。
 
 ## 总结
 
 综合以上三种方案，第一种方案的改动量比较小，是后面两种方案的基础。第二种方案的对导入框架的改动较大，而且需要依赖单副本导入的修改。相对来说第三种方案的性能提升可能会更好。所以，计划分两步完成spark load的工作。
-第一步，按照方案一，快读支持spark导入的功能。
-第二部，按照方案三，封装segment写入的库，并且增加一个rpc接口，实现类似clone的导入逻辑。
+第一步，按照方案1，快读支持spark导入的功能。
+第二部，按照方案2，封装segment写入的库，并且增加一个rpc接口，实现类似clone的导入逻辑。
