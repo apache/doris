@@ -67,8 +67,6 @@ private:
 
     int64_t get_file_size(FILE* fp);
 
-    std::string get_file_extension(const std::string& file_name);
-
     std::string get_content_type(const std::string& file_name);
 
     ExecEnv* _exec_env;
