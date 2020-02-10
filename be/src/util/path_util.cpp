@@ -80,5 +80,15 @@ string base_name(const string& path) {
     return basename(path_copy.get());
 }
 
+string file_extension(const string& path) {
+    string file_name = base_name(path);
+    if (file_name == "." || file_name == "..") {
+        return "";
+    }
+
+    string::size_type pos = file_name.rfind(".");
+    return pos == string::npos ? "" : file_name.substr(pos);
+}
+
 } // namespace path_util
 } // namespace doris
