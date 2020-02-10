@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -176,7 +179,7 @@ if not os.path.exists(BE_PATH):
     os.makedirs(BE_PATH)
 
 if __name__ == "__main__":
-    print "Generating IR description files"
+    print("Generating IR description files")
     enums_file = open(BE_PATH + 'doris_ir_functions.h', 'w')
     enums_file.write(enums_preamble)
 
