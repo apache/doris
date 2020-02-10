@@ -69,14 +69,14 @@ under the License.
             [FROM from_index_name]
             [PROPERTIES ("key"="value", ...)]
         example:
-            ADD ROLLUP r1(col1,col2) from r0 PROPERTIES("replication_num"="1")
+            ADD ROLLUP r1(col1,col2) from r0
     1.2 Batch create rollup index
         grammar:
             ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
                                     [FROM from_index_name]
                                     [PROPERTIES ("key"="value", ...)],...]
         example：
-            ADD ROLLUP r1(col1,col2) from r0 PROPERTIES("replication_num"="1"), r2(col3,col4) from r0 PROPERTIES("replication_num"="2")
+            ADD ROLLUP r1(col1,col2) from r0, r2(col3,col4) from r0
     1.3 note:
             1) If from_index_name is not specified, it is created by default from base index
             2) The columns in the rollup table must be existing columns in from_index

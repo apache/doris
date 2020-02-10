@@ -653,7 +653,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
             }
 
-            List<DropInfo> dropInfoList = new ArrayList<>();
+            Set<Long> indexIdSet = new HashSet<>();
             // drop data in memory
             for (AlterClause alterClause : dropRollupClauses) {
                 DropRollupClause dropRollupClause = (DropRollupClause) alterClause;
@@ -672,13 +672,13 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
                 olapTable.deleteIndexInfo(rollupIndexName);
 
-                dropInfoList.add(new DropInfo(dbId, tableId, rollupIndexId));
+                indexIdSet.add(rollupIndexId);
                 rollupNameSet.add(rollupIndexName);
             }
 
             // batch log drop rollup operation
             EditLog editLog = Catalog.getInstance().getEditLog();
-            editLog.logBatchDropRollup(new BatchDropInfo(dropInfoList));
+            editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, indexIdSet));
             LOG.info("finished drop rollup index[{}] in table[{}]", String.join("", rollupNameSet), olapTable.getName());
         } finally {
             db.writeUnlock();

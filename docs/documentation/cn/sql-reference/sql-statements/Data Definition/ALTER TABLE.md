@@ -69,14 +69,14 @@ under the License.
             [FROM from_index_name]
             [PROPERTIES ("key"="value", ...)]
         例子：
-            ADD ROLLUP r1(col1,col2) from r0 PROPERTIES("replication_num"="1")
+            ADD ROLLUP r1(col1,col2) from r0
     1.2 批量创建 rollup index
         语法：
             ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
                         [FROM from_index_name]
                         [PROPERTIES ("key"="value", ...)],...]
         例子：
-            ADD ROLLUP r1(col1,col2) from r0 PROPERTIES("replication_num"="1"), r2(col3,col4) from r0 PROPERTIES("replication_num"="2")
+            ADD ROLLUP r1(col1,col2) from r0, r2(col3,col4) from r0
     1.3 注意：
             1) 如果没有指定 from_index_name，则默认从 base index 创建
             2) rollup 表中的列必须是 from_index 中已有的列

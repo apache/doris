@@ -286,8 +286,9 @@ public class EditLog {
                 }
                 case OperationType.OP_BATCH_DROP_ROLLUP: {
                     BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
-                    for (DropInfo info : batchDropInfo.getDropInfoList()) {
-                        catalog.getRollupHandler().replayDropRollup(info, catalog);
+                    for (long indexId : batchDropInfo.getIndexIdSet()) {
+                        catalog.getRollupHandler().replayDropRollup(
+                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId), catalog);
                     }
                     break;
                 }
