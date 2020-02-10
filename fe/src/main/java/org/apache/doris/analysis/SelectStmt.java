@@ -351,6 +351,14 @@ public class SelectStmt extends QueryStmt {
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
             groupingInfo = new GroupingInfo(analyzer, groupByClause.getGroupingType());
             groupingInfo.substituteGroupingFn(resultExprs, analyzer);
+        } else {
+            for (Expr expr : resultExprs) {
+                if (checkGroupingFn(expr)) {
+                    throw new AnalysisException(
+                            "cannot use GROUPING functions without [grouping sets|rollup|cube] "
+                                    + "clause or grouping sets only have one element.");
+                }
+            }
         }
 
         if (valueList != null) {
@@ -1404,7 +1412,7 @@ public class SelectStmt extends QueryStmt {
     private boolean checkGroupingFn(Expr expr) {
         if (expr instanceof GroupingFunctionCallExpr) {
             return true;
-        } else if (expr.getChildren().size() > 0) {
+        } else if (expr.getChildren() != null && expr.getChildren().size() > 0) {
             for (Expr child : expr.getChildren()) {
                 if (checkGroupingFn(child)) {
                     return true;

@@ -30,6 +30,7 @@ RepeatNode::RepeatNode(ObjectPool* pool, const TPlanNode& tnode,
                      const DescriptorTbl& descs)
     : ExecNode(pool, tnode, descs),
     _slot_id_set_list(tnode.repeat_node.slot_id_set_list),
+    _all_slot_ids(tnode.repeat_node.all_slot_ids),
     _repeat_id_list(tnode.repeat_node.repeat_id_list),
     _grouping_list(tnode.repeat_node.grouping_list),
     _output_tuple_id(tnode.repeat_node.output_tuple_id),
@@ -114,8 +115,7 @@ Status RepeatNode::get_repeated_batch(
                 DCHECK_EQ(src_slot_desc->type().type, dst_slot_desc->type().type);
                 DCHECK_EQ(src_slot_desc->col_name(), dst_slot_desc->col_name());
                 // set null base on repeated list
-                // the first element in _slot_id_set_list contain all slots, so find in the _slot_id_set_list[0]
-                if (_slot_id_set_list[0].find(src_slot_desc->id()) != _slot_id_set_list[0].end()) {
+                if (_all_slot_ids.find(src_slot_desc->id()) != _all_slot_ids.end()) {
                     std::set<SlotId>& repeat_ids = _slot_id_set_list[repeat_id_idx];
                     if (repeat_ids.find(src_slot_desc->id()) == repeat_ids.end()) {
                         dst_tuples[j]->set_null(dst_slot_desc->null_indicator_offset());
