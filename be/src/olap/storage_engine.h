@@ -61,7 +61,6 @@ class Tablet;
 // allocation/deallocation must be done outside.
 class StorageEngine {
 public:
-    StorageEngine() { }
     StorageEngine(const EngineOptions& options);
     ~StorageEngine();
 
@@ -153,8 +152,7 @@ public:
     // @param [in] root_path specify root path of new tablet
     // @param [in] request specify new tablet info
     // @return OLAP_SUCCESS if load tablet success
-    OLAPStatus load_header(
-        const std::string& shard_path, const TCloneReq& request);
+    OLAPStatus load_header(const std::string& shard_path, const TCloneReq& request);
 
     // call this if you want to trigger a disk and tablet report
     void report_notify(bool is_all) {
@@ -175,6 +173,7 @@ public:
 
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
+    MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
@@ -183,11 +182,13 @@ public:
 
     RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); };
 
-    bool rowset_id_in_use(const RowsetId& rowset_id) { return _rowset_id_generator->id_in_use(rowset_id); };
+    bool rowset_id_in_use(const RowsetId& rowset_id) {
+        return _rowset_id_generator->id_in_use(rowset_id);
+    }
 
-    void release_rowset_id(const RowsetId& rowset_id) { return _rowset_id_generator->release_id(rowset_id); };
-
-    MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor; }
+    void release_rowset_id(const RowsetId& rowset_id) {
+        return _rowset_id_generator->release_id(rowset_id);
+    }
 
     RowsetTypePB default_rowset_type() const {
         if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
@@ -208,12 +209,10 @@ public:
     }
 
 private:
-
+    OLAPStatus _start_bg_worker();
     OLAPStatus _check_file_descriptor_number();
 
     OLAPStatus _check_all_root_path_cluster_id();
-
-    bool _used_disk_not_enough(uint32_t unused_num, uint32_t total_num);
 
     OLAPStatus _config_root_path_unused_flag_file(
             const std::string& root_path,
@@ -224,8 +223,6 @@ private:
     void _update_storage_medium_type_count();
 
     OLAPStatus _judge_and_update_effective_cluster_id(int32_t cluster_id);
-
-    OLAPStatus _start_bg_worker();
 
     void _clean_unused_txns();
 
@@ -304,8 +301,6 @@ private:
     bool _is_all_cluster_id_exist;
     bool _is_drop_tables;
 
-    // 错误磁盘所在百分比，超过设定的值，则engine需要退出运行
-    uint32_t _min_percentage_of_error_disk;
     Cache* _file_descriptor_lru_cache;
     Cache* _index_stream_lru_cache;
 
@@ -355,7 +350,7 @@ private:
 
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
-    MemTableFlushExecutor* _memtable_flush_executor;
+    std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
 
     // default rowset type for load
     // used to decide the type of new loaded data
