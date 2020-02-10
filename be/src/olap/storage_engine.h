@@ -224,8 +224,6 @@ private:
 
     OLAPStatus _judge_and_update_effective_cluster_id(int32_t cluster_id);
 
-    bool _too_many_disks_are_broken(uint32_t unused_num, uint32_t total_num);
-
     void _clean_unused_txns();
 
     void _clean_unused_rowset_metas();

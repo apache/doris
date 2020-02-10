@@ -313,11 +313,6 @@ void StorageEngine::start_disk_stat_monitor() {
     }
 }
 
-bool StorageEngine::_too_many_disks_are_broken(uint32_t unused_num, uint32_t total_num) {
-    return ((total_num == 0)
-            || (unused_num * 100 / total_num > config::max_percentage_of_error_disk));
-}
-
 // TODO(lingbin): Should be in EnvPosix?
 OLAPStatus StorageEngine::_check_file_descriptor_number() {
     struct rlimit l;
@@ -405,6 +400,11 @@ DataDir* StorageEngine::get_store(const std::string& path) {
     return it->second;
 }
 
+static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {
+    return ((total_num == 0)
+            || (unused_num * 100 / total_num > config::max_percentage_of_error_disk));
+}
+
 void StorageEngine::_delete_tablets_on_unused_root_path() {
     vector<TabletInfo> tablet_info_vec;
     uint32_t unused_root_path_num = 0;
@@ -424,8 +424,8 @@ void StorageEngine::_delete_tablets_on_unused_root_path() {
         ++unused_root_path_num;
     }
 
-    if (_too_many_disks_are_broken(unused_root_path_num, total_root_path_num)) {
-        LOG(FATAL) << "meet too many error disk, process exit. "
+    if (too_many_disks_are_failed(unused_root_path_num, total_root_path_num)) {
+        LOG(FATAL) << "meet too many error disks, process exit. "
                    << "max_ratio_allowed=" << config::max_percentage_of_error_disk << "%"
                    << ", error_disk_count=" << unused_root_path_num
                    << ", total_disk_count=" << total_root_path_num;
