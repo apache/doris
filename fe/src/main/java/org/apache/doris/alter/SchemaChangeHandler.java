@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import com.google.common.collect.Iterables;
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
@@ -1436,7 +1437,9 @@ public class SchemaChangeHandler extends AlterHandler {
             }
 
             // find from new alter jobs first
-            schemaChangeJobV2 = getUnfinishedAlterJobV2(olapTable.getId());
+            List<AlterJobV2> schemaChangeJobV2List = getUnfinishedAlterJobV2ByTableId(olapTable.getId());
+            // current schemaChangeJob job doesn't support batch operation,so just need to get one job
+            schemaChangeJobV2 = schemaChangeJobV2List.size() == 0 ? null : Iterables.getOnlyElement(schemaChangeJobV2List);
             if (schemaChangeJobV2 == null) {
                 schemaChangeJob = getAlterJob(olapTable.getId());
                 Preconditions.checkNotNull(schemaChangeJob, olapTable.getId());

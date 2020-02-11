@@ -50,6 +50,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +75,7 @@ public class CreateTableStmt extends DdlStmt {
     private Map<String, String> extProperties;
     private String engineName;
     private String comment;
+    private List<AlterClause> rollupAlterClauseList;
 
     private static Set<String> engineNames;
 
@@ -112,7 +114,22 @@ public class CreateTableStmt extends DdlStmt {
                            Map<String, String> extProperties,
                            String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment);
+                distributionDesc, properties, extProperties, comment, null);
+    }
+
+    public CreateTableStmt(boolean ifNotExists,
+                           boolean isExternal,
+                           TableName tableName,
+                           List<ColumnDef> columnDefinitions,
+                           String engineName,
+                           KeysDesc keysDesc,
+                           PartitionDesc partitionDesc,
+                           DistributionDesc distributionDesc,
+                           Map<String, String> properties,
+                           Map<String, String> extProperties,
+                           String comment, List<AlterClause> ops) {
+        this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
+                distributionDesc, properties, extProperties, comment, ops);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -126,7 +143,7 @@ public class CreateTableStmt extends DdlStmt {
                            DistributionDesc distributionDesc,
                            Map<String, String> properties,
                            Map<String, String> extProperties,
-                           String comment) {
+                           String comment, List<AlterClause> rollupAlterClauseList) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -150,6 +167,7 @@ public class CreateTableStmt extends DdlStmt {
         this.comment = Strings.nullToEmpty(comment);
 
         this.tableSignature = -1;
+        this.rollupAlterClauseList = rollupAlterClauseList == null ? new ArrayList<>() : rollupAlterClauseList;
     }
 
     public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }
@@ -216,6 +234,10 @@ public class CreateTableStmt extends DdlStmt {
 
     public String getComment() {
         return comment;
+    }
+
+    public List<AlterClause> getRollupAlterClauseList() {
+        return rollupAlterClauseList;
     }
 
     public List<Index> getIndexes() {
@@ -522,6 +544,18 @@ public class CreateTableStmt extends DdlStmt {
         
         if (distributionDesc != null) {
             sb.append("\n").append(distributionDesc.toSql());
+        }
+
+        if (rollupAlterClauseList != null && rollupAlterClauseList.size() != 0) {
+            sb.append("\n rollup(");
+            StringBuilder opsSb = new StringBuilder();
+            for (int i = 0; i < rollupAlterClauseList.size(); i++) {
+                opsSb.append(rollupAlterClauseList.get(i).toSql());
+                if (i != rollupAlterClauseList.size() - 1) {
+                    opsSb.append(",");
+                }
+            }
+            sb.append(opsSb.toString().replace("ADD ROLLUP", "")).append(")");
         }
 
         // properties may contains password and other sensitive information,

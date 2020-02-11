@@ -380,7 +380,7 @@ nonterminal List<SingleRangePartitionDesc> single_range_partition_desc_list;
 
 nonterminal List<AccessPrivilege> privilege_list;
 nonterminal List<String> string_list;
-nonterminal List<Long> integer_list;
+nonterminal List<Long> integer_list, cancel_rollup_job_id_list;
 nonterminal AccessPrivilege privilege_type;
 
 nonterminal DataDescription data_desc;
@@ -411,7 +411,9 @@ nonterminal ColumnPosition opt_col_pos;
 
 // Alter statement
 nonterminal AlterClause alter_system_clause, alter_cluster_clause, alter_table_clause;
-nonterminal List<AlterClause> alter_table_clause_list;
+nonterminal List<AlterClause> alter_table_clause_list, opt_rollup, add_rollup_clause_list, drop_rollup_clause_list;
+nonterminal AddRollupClause add_rollup_clause;
+nonterminal DropRollupClause drop_rollup_clause;
 
 // grouping sets
 nonterminal List<ArrayList<Expr>> grouping_set_list;
@@ -670,8 +672,54 @@ opt_user ::=
     :}
     ;
 
+add_rollup_clause ::=
+    ident:rollupName LPAREN ident_list:cols RPAREN opt_dup_keys:dup_keys opt_from_rollup:baseRollup opt_properties:properties
+    {:
+        RESULT = new AddRollupClause(rollupName, cols, dup_keys, baseRollup, properties);
+    :}
+    ;
+
+add_rollup_clause_list ::=
+    add_rollup_clause:clause
+    {:
+        RESULT = Lists.newArrayList(clause);
+    :}
+    | add_rollup_clause_list:list COMMA add_rollup_clause:clause
+    {:
+        list.add(clause);
+        RESULT = list;
+    :}
+    ;
+
+drop_rollup_clause ::=
+    ident:rollupName opt_properties:properties
+    {:
+        RESULT = new DropRollupClause(rollupName, properties);
+    :}
+    ;
+
+drop_rollup_clause_list ::=
+    drop_rollup_clause:clause
+    {:
+        RESULT = Lists.newArrayList(clause);
+    :}
+    | drop_rollup_clause_list:list COMMA drop_rollup_clause:clause
+    {:
+        list.add(clause);
+        RESULT = list;
+    :}
+    ;
+
 alter_table_clause_list ::=
-    alter_table_clause:clause
+    KW_ADD KW_ROLLUP add_rollup_clause_list:list
+    {:
+        RESULT = list;
+    :}
+    | KW_DROP KW_ROLLUP drop_rollup_clause_list:list
+    {:
+        RESULT = list;
+    :}
+    | alter_table_clause:clause
     {:
         RESULT = Lists.newArrayList(clause);
     :}
@@ -739,17 +787,9 @@ alter_table_clause ::=
     {:
         RESULT = new AddColumnsClause(cols, rollup, properties);
     :}
-    | KW_ADD KW_ROLLUP ident:rollupName LPAREN ident_list:cols RPAREN opt_dup_keys:dup_keys opt_from_rollup:baseRollup opt_properties:properties
-    {:
-        RESULT = new AddRollupClause(rollupName, cols, dup_keys, baseRollup, properties);
-    :}
     | KW_DROP KW_COLUMN ident:col opt_from_rollup:rollup opt_properties:properties
     {:
         RESULT = new DropColumnClause(col, rollup, properties);
-    :}
-    | KW_DROP KW_ROLLUP ident:rollup opt_properties:properties
-    {:
-        RESULT = new DropRollupClause(rollup, properties);
     :}
     | KW_MODIFY KW_COLUMN column_definition:col opt_col_pos:col_pos opt_from_rollup:rollup opt_properties:properties
     {:
@@ -912,11 +952,12 @@ create_stmt ::=
             opt_comment:tableComment
             opt_partition:partition
             opt_distribution:distribution
+            opt_rollup:index
             opt_properties:tblProperties
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment);
+        distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns COMMA index_definition_list:indexes RPAREN opt_engine:engineName
@@ -924,11 +965,12 @@ create_stmt ::=
             opt_comment:tableComment
             opt_partition:partition
             opt_distribution:distribution
+            opt_rollup:index
             opt_properties:tblProperties
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment);
+        distribution, tblProperties, extProperties, tableComment, index);
     :}
     /* User */
     | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole
@@ -1533,6 +1575,17 @@ opt_distribution ::=
     | KW_DISTRIBUTED KW_BY KW_RANDOM opt_distribution_number:numDistribution
     {:
         RESULT = new RandomDistributionDesc(numDistribution);
+    :}
+    ;
+
+opt_rollup ::=
+    /* Empty: no rollup */
+    {:
+        RESULT = new ArrayList<>();
+    :}
+    | KW_ROLLUP LPAREN add_rollup_clause_list:list RPAREN
+    {:
+        RESULT = list;
     :}
     ;
 
@@ -2293,14 +2346,24 @@ cancel_stmt ::=
     :}
     ;
 
+cancel_rollup_job_id_list ::=
+    {:
+        RESULT = null;
+    :}
+    | LPAREN integer_list:list RPAREN
+    {:
+        RESULT = list;
+    :}
+    ;
+
 cancel_param ::=
     KW_LOAD opt_db:db opt_wild_where
     {:
         RESULT = new CancelLoadStmt(db, parser.where);
     :}
-    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table
+    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table cancel_rollup_job_id_list:list
     {:
-        RESULT = new CancelAlterTableStmt(type, table);
+        RESULT = new CancelAlterTableStmt(type, table, list);
     :}
     | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:

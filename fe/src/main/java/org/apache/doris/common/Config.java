@@ -194,7 +194,7 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int bdbje_lock_timeout_second = 1;
-    
+
     /*
      * the max txn number which bdbje can rollback when trying to rejoin the group
      */
@@ -867,7 +867,7 @@ public class Config extends ConfigBase {
     // no more balance check
     @ConfField(mutable = true, masterOnly = true)
     public static int max_balancing_tablets = 100;
-    
+
     // This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.
     // In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost
     // several seconds after some modification of metadata(drop partition, etc..).
@@ -987,5 +987,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static boolean dynamic_partition_enable = false;
+
+    /*
+     * control rollup job concurrent limit
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_running_rollup_job_num_per_table = 1;
 }
 
