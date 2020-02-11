@@ -41,7 +41,8 @@ create/drop index 语法
     参照[SHOW INDEX](../../sql-reference/sql-statements/Administration/SHOW%20INDEX.md)
 3. 删除索引
 
-    参照[DROP INDEX](../../sql-reference/sql-statements/Administration/SHOW%20INDEX.md) 或者 [ALTER TABLE](../../sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.md#description) 中bitmap 索引相关的操作
+    参照[DROP INDEX](../../sql-reference/sql-statements/Data%20Definition/DROP%20INDEX.md)
+    或者 [ALTER TABLE](../../sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE.md#description) 中bitmap 索引相关的操作
 
 ## 创建作业
 参照 schema change 文档 [Scheam Change](alter-table-schema-change.md#创建作业)
