@@ -200,12 +200,21 @@ public class Alter {
                         }
                         Set<String> idxSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
                         idxSet.addAll(idx.getColumns());
-                            if (newColset.equals(idxSet)) {
-                                throw new AnalysisException("index for columns (" + String
-                                        .join(",", indexDef.getColumns()) + " ) already exist.");
-                            }
+                        if (newColset.equals(idxSet)) {
+                            throw new AnalysisException("index for columns (" + String
+                                    .join(",", indexDef.getColumns()) + " ) already exist.");
                         }
-
+                    }
+                    OlapTable olapTable = (OlapTable) table;
+                    for (String col : indexDef.getColumns()) {
+                        Column column = olapTable.getColumn(col);
+                        if (column != null) {
+                            indexDef.checkColumn(column, olapTable.getKeysType());
+                        } else {
+                            throw new AnalysisException("BITMAP column does not exist in table. invalid column: "
+                                    + col);
+                        }
+                    }
                 } else if (alterClause instanceof DropIndexClause) {
                     Table table = db.getTable(dbTableName.getTbl());
                     if (!(table instanceof OlapTable)) {
