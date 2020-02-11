@@ -90,7 +90,7 @@ Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_
     RETURN_IF_ERROR(_validate_options(options));
     LOG(INFO) << "starting backend using uid:" << options.backend_uid.to_string();
     std::unique_ptr<StorageEngine> engine(new StorageEngine(options));
-    auto st = engine->open();
+    auto st = engine->_open();
     if (st != OLAP_SUCCESS) {
         LOG(WARNING) << "engine open failed, res=" << st;
         return Status::InternalError("open engine failed");
@@ -110,10 +110,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _available_storage_medium_type_count(0),
         _effective_cluster_id(-1),
         _is_all_cluster_id_exist(true),
-        _is_drop_tables(false),
         _index_stream_lru_cache(NULL),
-        _is_report_disk_state_already(false),
-        _is_report_tablet_already(false),
         _tablet_manager(new TabletManager()),
         _txn_manager(new TxnManager()),
         _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
@@ -138,6 +135,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
             if (res != OLAP_SUCCESS) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
                     << ", data dir=" << data_dir->path();
+                    // TODO(lingbin): why not exit progress, to force OP to change the conf
             }
         });
     }
@@ -146,7 +144,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     }
 }
 
-OLAPStatus StorageEngine::open() {
+OLAPStatus StorageEngine::_open() {
     // init store_map
     for (auto& path : _options.store_paths) {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
@@ -198,7 +196,7 @@ OLAPStatus StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster
     OLAPStatus res = OLAP_SUCCESS;
 
     if (cluster_id == -1 && _effective_cluster_id == -1) {
-        // maybe this is a new cluster, cluster id will get from heartbeate
+        // maybe this is a new cluster, cluster id will get from heartbeat message
         return res;
     } else if (cluster_id != -1 && _effective_cluster_id == -1) {
         _effective_cluster_id = cluster_id;
@@ -274,8 +272,8 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
     }
 
     // 2. get total tablets' size of each data dir
-    int tablet_counter = 0;
-    _tablet_manager->update_root_path_info(&path_map, &tablet_counter);
+    size_t tablet_count = 0;
+    _tablet_manager->update_root_path_info(&path_map, &tablet_count);
 
     // add path info to data_dir_infos
     for (auto& entry : path_map) {
@@ -284,32 +282,22 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
 
     timer.stop();
     LOG(INFO) << "get root path info cost: " << timer.elapsed_time() / 1000000
-            << " ms. tablet counter: " << tablet_counter;
+            << " ms. tablet counter: " << tablet_count;
 
     return res;
 }
 
-void StorageEngine::start_disk_stat_monitor() {
+void StorageEngine::_start_disk_stat_monitor() {
     for (auto& it : _store_map) {
         it.second->health_check();
     }
+
     _update_storage_medium_type_count();
-    _delete_tablets_on_unused_root_path();
-
-    // if drop tables
-    // notify disk_state_worker_thread and tablet_worker_thread until they received
-    if (_is_drop_tables) {
-        report_notify(true);
-
-        bool is_report_disk_state_expected = true;
-        bool is_report_tablet_expected = true;
-        bool is_report_disk_state_exchanged =
-                _is_report_disk_state_already.compare_exchange_strong(is_report_disk_state_expected, false);
-        bool is_report_tablet_exchanged =
-                _is_report_tablet_already.compare_exchange_strong(is_report_tablet_expected, false);
-        if (is_report_disk_state_exchanged && is_report_tablet_exchanged) {
-            _is_drop_tables = false;
-        }
+    bool some_tablets_were_dropped = _delete_tablets_on_unused_root_path();
+    // If some tablets were dropped, we should notify disk_state_worker_thread and
+    // tablet_worker_thread (see TaskWorkerPool) to make them report to FE ASAP.
+    if (some_tablets_were_dropped) {
+        trigger_report();
     }
 }
 
@@ -405,18 +393,18 @@ static bool too_many_disks_are_failed(uint32_t unused_num, uint32_t total_num) {
             || (unused_num * 100 / total_num > config::max_percentage_of_error_disk));
 }
 
-void StorageEngine::_delete_tablets_on_unused_root_path() {
+bool StorageEngine::_delete_tablets_on_unused_root_path() {
     vector<TabletInfo> tablet_info_vec;
     uint32_t unused_root_path_num = 0;
     uint32_t total_root_path_num = 0;
 
     std::lock_guard<std::mutex> l(_store_lock);
     if (_store_map.size() == 0) {
-        return;
+        return false;
     }
 
     for (auto& it : _store_map) {
-        total_root_path_num++;
+        ++total_root_path_num;
         if (it.second->is_used()) {
             continue;
         }
@@ -432,11 +420,9 @@ void StorageEngine::_delete_tablets_on_unused_root_path() {
         exit(0);
     }
 
-    if (!tablet_info_vec.empty()) {
-        _is_drop_tables = true;
-    }
-
     _tablet_manager->drop_tablets_on_error_root_path(tablet_info_vec);
+    // If tablet_info_vec is not empty, means we have dropped some tablets.
+    return !tablet_info_vec.empty();
 }
 
 OLAPStatus StorageEngine::clear() {
@@ -488,13 +474,13 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
     LOG(INFO) << "finish to clear transaction task. transaction_id=" << transaction_id;
 }
 
-void StorageEngine::start_clean_fd_cache() {
+void StorageEngine::_start_clean_fd_cache() {
     VLOG(10) << "start clean file descritpor cache";
     FileHandler::get_fd_cache()->prune();
     VLOG(10) << "end clean file descritpor cache";
 }
 
-void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
+void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
             CompactionType::CUMULATIVE_COMPACTION, data_dir);
     if (best_tablet == nullptr) {
@@ -517,7 +503,7 @@ void StorageEngine::perform_cumulative_compaction(DataDir* data_dir) {
     best_tablet->set_last_cumu_compaction_failure_time(0);
 }
 
-void StorageEngine::perform_base_compaction(DataDir* data_dir) {
+void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
     TabletSharedPtr best_tablet = _tablet_manager->find_best_tablet_to_compaction(
             CompactionType::BASE_COMPACTION, data_dir);
     if (best_tablet == nullptr) {
@@ -543,7 +529,7 @@ void StorageEngine::get_cache_status(rapidjson::Document* document) const {
     return _index_stream_lru_cache->get_cache_status(document);
 }
 
-OLAPStatus StorageEngine::start_trash_sweep(double* usage) {
+OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
     OLAPStatus res = OLAP_SUCCESS;
     LOG(INFO) << "start trash and snapshot sweep.";
 
@@ -785,7 +771,6 @@ OLAPStatus StorageEngine::recover_tablet_until_specfic_version(
 OLAPStatus StorageEngine::obtain_shard_path(
         TStorageMedium::type storage_medium, std::string* shard_path, DataDir** store) {
     LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
-    OLAPStatus res = OLAP_SUCCESS;
 
     if (shard_path == NULL) {
         LOG(WARNING) << "invalid output parameter which is null pointer.";
@@ -798,6 +783,7 @@ OLAPStatus StorageEngine::obtain_shard_path(
         return OLAP_ERR_NO_AVAILABLE_ROOT_PATH;
     }
 
+    OLAPStatus res = OLAP_SUCCESS;
     uint64_t shard = 0;
     res = stores[0]->get_shard(&shard);
     if (res != OLAP_SUCCESS) {

@@ -1092,7 +1092,7 @@ bool TabletManager::try_schema_change_lock(TTabletId tablet_id) {
 }
 
 void TabletManager::update_root_path_info(std::map<std::string, DataDirInfo>* path_map,
-    int* tablet_counter) {
+                                          size_t* tablet_counter) {
     ReadLock rlock(&_tablet_map_lock);
     for (auto& entry : _tablet_map) {
         const TableInstances& instance = entry.second;
