@@ -44,6 +44,7 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -90,9 +91,21 @@ public abstract class AlterHandler extends MasterDaemon {
         LOG.info("add {} job {}", alterJob.getType(), alterJob.getJobId());
     }
 
-    public AlterJobV2 getUnfinishedAlterJobV2(long tblId) {
+    public List<AlterJobV2> getUnfinishedAlterJobV2ByTableId(long tblId) {
+        List<AlterJobV2> unfinishedAlterJobList = new ArrayList<>();
         for (AlterJobV2 alterJob : alterJobsV2.values()) {
             if (alterJob.getTableId() == tblId
+                    && alterJob.getJobState() != AlterJobV2.JobState.FINISHED
+                    && alterJob.getJobState() != AlterJobV2.JobState.CANCELLED) {
+                unfinishedAlterJobList.add(alterJob);
+            }
+        }
+        return unfinishedAlterJobList;
+    }
+
+    public AlterJobV2 getUnfinishedAlterJobV2ByJobId(long jobId) {
+        for (AlterJobV2 alterJob : alterJobsV2.values()) {
+            if (alterJob.getJobId() == jobId
                     && alterJob.getJobState() != AlterJobV2.JobState.FINISHED
                     && alterJob.getJobState() != AlterJobV2.JobState.CANCELLED) {
                 return alterJob;

@@ -19,6 +19,7 @@ package org.apache.doris.journal;
 
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -46,6 +47,7 @@ import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
+import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
@@ -214,6 +216,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_DROP_ROLLUP: {
                 data = new DropInfo();
                 ((DropInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BATCH_DROP_ROLLUP: {
+                data = ((BatchDropInfo) data).read(in);
                 isRead = true;
                 break;
             }
@@ -490,6 +497,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_ALTER_JOB_V2: {
                 data = AlterJobV2.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_BATCH_ALTER_JOB_V2: {
+                data = BatchAlterJobPersistInfo.read(in);
                 isRead = true;
                 break;
             }

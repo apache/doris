@@ -33,6 +33,7 @@ Syntax:
     [COMMENT "table comment"]
     [partition_desc]
     [distribution_desc]
+    [rollup_index]
     [PROPERTIES ("key"="value", ...)]
     [BROKER PROPERTIES ("key"="value", ...)];
 ```
@@ -249,6 +250,13 @@ Syntax:
        Dynamic_partition. Prefix: used to specify the partition name prefix to be created, such as the partition name prefix p, automatically creates the partition name p20200108
        
        Dynamic_partition. Buckets: specifies the number of partition buckets that are automatically created
+8. rollup_index
+    grammar:
+    ```
+      ROLLUP (rollup_name (column_name1, column_name2, ...)
+                     [FROM from_index_name]
+                      [PROPERTIES ("key"="value", ...)],...)
+    ```
 
 ## example
 
@@ -517,6 +525,25 @@ Syntax:
         "dynamic_partition.buckets" = "32"
          );
     ```
+12. Create a table with rollup index
+```
+    CREATE TABLE example_db.rolup_index_table
+    (
+        event_day DATE,
+        siteid INT DEFAULT '10',
+        citycode SMALLINT,
+        username VARCHAR(32) DEFAULT '',
+        pv BIGINT SUM DEFAULT '0'
+    )
+    AGGREGATE KEY(event_day, siteid, citycode, username)
+    DISTRIBUTED BY HASH(siteid) BUCKETS 10
+    rollup (
+    r1(event_day,siteid),
+    r2(event_day,citycode),
+    r3(event_day)
+    )
+    PROPERTIES("replication_num" = "3");
+```
 
 ## keyword
 
