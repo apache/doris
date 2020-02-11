@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
@@ -70,6 +71,7 @@ public class RollupJobV2Test {
     private static String transactionSource = "localfe";
     private static Analyzer analyzer;
     private static AddRollupClause clause;
+    private static AddRollupClause clause2;
 
     private FakeCatalog fakeCatalog;
     private FakeEditLog fakeEditLog;
@@ -97,6 +99,10 @@ public class RollupJobV2Test {
                 CatalogTestUtil.testIndex1, null);
         clause.analyze(analyzer);
 
+        clause2 = new AddRollupClause(CatalogTestUtil.testRollupIndex3, Lists.newArrayList("k1", "v"), null,
+                CatalogTestUtil.testIndex1, null);
+        clause2.analyze(analyzer);
+
         FeConstants.runningUnitTest = true;
         AgentTaskQueue.clearAllTasks();
 
@@ -110,6 +116,27 @@ public class RollupJobV2Test {
                 return masterCatalog;
             }
         };
+    }
+
+    @Test
+    public void testRunRollupJobConcurrentLimit() throws UserException {
+        fakeCatalog = new FakeCatalog();
+        fakeEditLog = new FakeEditLog();
+        FakeCatalog.setCatalog(masterCatalog);
+        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        ArrayList<AlterClause> alterClauses = new ArrayList<>();
+        alterClauses.add(clause);
+        alterClauses.add(clause2);
+        Database db = masterCatalog.getDb(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTable(CatalogTestUtil.testTableId1);
+        materializedViewHandler.process(alterClauses, db.getClusterName(), db, olapTable);
+        Map<Long, AlterJobV2> alterJobsV2 = materializedViewHandler.getAlterJobsV2();
+
+        materializedViewHandler.runAfterCatalogReady();
+
+        Assert.assertEquals(Config.max_running_rollup_job_num_per_table, materializedViewHandler.getTableRunningJobMap().get(CatalogTestUtil.testTableId1).size());
+        Assert.assertEquals(2, alterJobsV2.size());
+        Assert.assertEquals(OlapTableState.ROLLUP, olapTable.getState());
     }
 
     @Test

@@ -81,7 +81,19 @@ public class AlterTableStmt extends DdlStmt {
             if (idx != 0) {
                 sb.append(", \n");
             }
-            sb.append(op.toSql());
+            if (op instanceof AddRollupClause) {
+                if (idx == 0) {
+                    sb.append("ADD ROLLUP");
+                }
+                sb.append(op.toSql().replace("ADD ROLLUP", ""));
+            } else if (op instanceof DropRollupClause) {
+                if (idx == 0) {
+                    sb.append("DROP ROLLUP ");
+                }
+                sb.append(((AddRollupClause) op).getRollupName());
+            } else {
+                sb.append(op.toSql());
+            }
             idx++;
         }
         return sb.toString();

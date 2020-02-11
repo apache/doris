@@ -305,7 +305,15 @@ public class RollupJobV2 extends AlterJobV2 {
         if (db == null) {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
-        
+
+        // TODO(wangbo): 2020/2/4
+        //   In the case that the [WaitingTxnJob|PendingJob] is checkpointed and replayMethod won't be called
+        //   For example,
+        //          1. create and pending job A
+        //          2. restart fe twice before job A running(for checkpoint job A)
+        //          3. For job A,replayPendingJob method won't be called,so we lose metadata in memory
+        //   So Make sure the tablet meta exists in olapTable and TabletInvertedIndex before doris run
+
         db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
@@ -456,7 +464,6 @@ public class RollupJobV2 extends AlterJobV2 {
             }
             partition.visualiseShadowIndex(rollupIndexId, false);
         }
-        tbl.setState(OlapTableState.NORMAL);
     }
 
     /*
@@ -499,7 +506,6 @@ public class RollupJobV2 extends AlterJobV2 {
                         partition.deleteRollupIndex(rollupIndexId);
                     }
                     tbl.deleteIndexInfo(rollupIndexName);
-                    tbl.setState(OlapTableState.NORMAL);
                 }
             } finally {
                 db.writeUnlock();
@@ -614,31 +620,34 @@ public class RollupJobV2 extends AlterJobV2 {
                 // table may be dropped before replaying this log. just return
                 return;
             }
-
-            // add all rollup replicas to tablet inverted index
-            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            for (Long partitionId : partitionIdToRollupIndex.keySet()) {
-                MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
-                TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
-                TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
-                        rollupSchemaHash, medium);
-
-                for (Tablet rollupTablet : rollupIndex.getTablets()) {
-                    invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
-                    for (Replica rollupReplica : rollupTablet.getReplicas()) {
-                        invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);
-                    }
-                }
-            }
-            tbl.setState(OlapTableState.ROLLUP);
+            addTabletToInvertedIndex(tbl);
         } finally {
             db.writeUnlock();
         }
 
-        this.jobState = JobState.WAITING_TXN;
+        // to make sure that this job will run runPendingJob() again to create the rollup replicas
+        this.jobState = JobState.PENDING;
         this.watershedTxnId = replayedJob.watershedTxnId;
 
         LOG.info("replay pending rollup job: {}", jobId);
+    }
+
+    private void addTabletToInvertedIndex(OlapTable tbl) {
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        // add all rollup replicas to tablet inverted index
+        for (Long partitionId : partitionIdToRollupIndex.keySet()) {
+            MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
+            TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+            TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
+                    rollupSchemaHash, medium);
+
+            for (Tablet rollupTablet : rollupIndex.getTablets()) {
+                invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
+                for (Replica rollupReplica : rollupTablet.getReplicas()) {
+                    invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);
+                }
+            }
+        }
     }
 
     /*
@@ -692,7 +701,7 @@ public class RollupJobV2 extends AlterJobV2 {
         
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
-        
+
         LOG.info("replay finished rollup job: {}", jobId);
     }
 
@@ -766,4 +775,13 @@ public class RollupJobV2 extends AlterJobV2 {
         }
         return taskInfos;
     }
+
+    public Map<Long, MaterializedIndex> getPartitionIdToRollupIndex() {
+        return partitionIdToRollupIndex;
+    }
+
+    public void setJobState(JobState jobState) {
+        this.jobState = jobState;
+    }
+
 }

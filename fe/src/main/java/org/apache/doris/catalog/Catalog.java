@@ -26,7 +26,9 @@ import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AdminSetConfigStmt;
+import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
@@ -1651,7 +1653,6 @@ public class Catalog {
         if (type == JobType.ROLLUP) {
             alterJobs = this.getRollupHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getRollupHandler().unprotectedGetFinishedOrCancelledAlterJobs();
-            alterJobsV2 = this.getRollupHandler().getAlterJobsV2();
         } else if (type == JobType.SCHEMA_CHANGE) {
             alterJobs = this.getSchemaChangeHandler().unprotectedGetAlterJobs();
             finishedOrCancelledAlterJobs = this.getSchemaChangeHandler().unprotectedGetFinishedOrCancelledAlterJobs();
@@ -1701,7 +1702,11 @@ public class Catalog {
             newChecksum ^= size;
             for (int i = 0; i < size; i++) {
                 AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
-                alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
+                if (type == JobType.ROLLUP) {
+                    this.getRollupHandler().addAlterJobV2(alterJobV2);
+                } else {
+                    alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
+                }
             }
         }
 
@@ -3561,6 +3566,31 @@ public class Catalog {
         int schemaHash = Util.schemaHash(schemaVersion, baseSchema, bfColumns, bfFpp);
         olapTable.setIndexSchemaInfo(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash,
                 shortKeyColumnCount);
+
+
+        for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
+            AddRollupClause addRollupClause = (AddRollupClause)alterClause;
+
+            Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
+
+            // set rollup index schema to olap table
+            List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
+            short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
+            int rollupSchemaHash = Util.schemaHash(schemaVersion, rollupColumns, bfColumns, bfFpp);
+            long rollupIndexId = getCurrentCatalog().getNextId();
+            olapTable.setIndexSchemaInfo(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion, rollupSchemaHash,
+                    rollupShortKeyColumnCount);
+
+            // set storage type for rollup index
+            TStorageType rollupIndexStorageType = null;
+            try {
+                rollupIndexStorageType = PropertyAnalyzer.analyzeStorageType(addRollupClause.getProperties());
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
+            }
+            Preconditions.checkNotNull(rollupIndexStorageType);
+            olapTable.setStorageTypeToIndex(rollupIndexId, rollupIndexStorageType);
+        }
 
         // analyze version info
         Pair<Long, Long> versionInfo = null;
