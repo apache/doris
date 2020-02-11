@@ -140,7 +140,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         }
     }
 
-    VLOG(10) << "init finished.";
+    VLOG(10) << "all bg worker started.";
     return OLAP_SUCCESS;
 }
 
@@ -156,7 +156,7 @@ void* StorageEngine::_fd_cache_clean_callback(void* arg) {
     }
     while (true) {
         sleep(interval);
-        start_clean_fd_cache();
+        _start_clean_fd_cache();
     }
 
     return nullptr;
@@ -181,7 +181,7 @@ void* StorageEngine::_base_compaction_thread_callback(void* arg, DataDir* data_d
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
         if (!data_dir->reach_capacity_limit(0)) {
-            perform_base_compaction(data_dir);
+            _perform_base_compaction(data_dir);
         }
 
         usleep(interval * 1000000);
@@ -202,9 +202,9 @@ void* StorageEngine::_garbage_sweeper_thread_callback(void* arg) {
                          max_interval, min_interval);
         min_interval = 1;
         max_interval = max_interval >= min_interval ? max_interval : min_interval;
-        LOG(INFO) << "force reset garbage sweep interval."
-                  << "max_interval" << max_interval
-                  << ", min_interval" << min_interval;
+        LOG(INFO) << "force reset garbage sweep interval. "
+                  << "max_interval=" << max_interval
+                  << ", min_interval=" << min_interval;
     }
 
     const double pi = 4 * std::atan(1);
@@ -225,7 +225,7 @@ void* StorageEngine::_garbage_sweeper_thread_callback(void* arg) {
         sleep(curr_interval);
 
         // 开始清理，并得到清理后的磁盘使用率
-        OLAPStatus res = start_trash_sweep(&usage);
+        OLAPStatus res = _start_trash_sweep(&usage);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("one or more errors occur when sweep trash."
                     "see previous message for detail. [err code=%d]", res);
@@ -250,7 +250,7 @@ void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
     }
 
     while (true) {
-        start_disk_stat_monitor();
+        _start_disk_stat_monitor();
         sleep(interval);
     }
 
@@ -275,7 +275,7 @@ void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* 
         // add tid to cgroup
         CgroupsMgr::apply_system_cgroup();
         if (!data_dir->reach_capacity_limit(0)) {
-            perform_cumulative_compaction(data_dir);
+            _perform_cumulative_compaction(data_dir);
         }
         usleep(interval * 1000000);
     }
