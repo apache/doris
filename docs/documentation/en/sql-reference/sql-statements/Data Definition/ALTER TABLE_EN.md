@@ -169,7 +169,7 @@ under the License.
     Bitmap index supports the following modifications:
     1. create bitmap index
         grammar:
-            ADD INDEX index_name [USING BITMAP] (column [, ...],) [COMMENT 'balabala'];
+            ADD INDEX index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
         note:
             1. only supports bitmap index for current version
             2. BITMAP index only supports apply on single column

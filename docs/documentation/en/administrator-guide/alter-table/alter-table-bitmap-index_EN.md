@@ -42,7 +42,7 @@ create/drop index syntax
     Please refer to [SHOW INDEX](../../sql-reference/sql-statements/Administration/SHOW%20INDEX_EN.md)
 3. Drop Index
 
-    Please refer to [DROP INDEX](../../sql-reference/sql-statements/Administration/SHOW%20INDEX_EN.md) or [ALTER TABLE
+    Please refer to [DROP INDEX](../../sql-reference/sql-statements/Data%20Definition/DROP%20INDEX_EN.md) or [ALTER TABLE
     ](../../sql-reference/sql-statements/Data%20Definition/ALTER%20TABLE_EN.md#description)
 
 ## Create Job
