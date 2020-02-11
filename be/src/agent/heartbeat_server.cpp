@@ -72,9 +72,7 @@ void HeartbeatServer::heartbeat(
     }
 }
 
-Status HeartbeatServer::_heartbeat(
-        const TMasterInfo& master_info) {
-    
+Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     std::lock_guard<std::mutex> lk(_hb_mtx);
 
     if (master_info.__isset.backend_ip) {
@@ -155,7 +153,7 @@ Status HeartbeatServer::_heartbeat(
 
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
-        _olap_engine->report_notify(true);
+        _olap_engine->trigger_report();
     }
 
     return Status::OK();
