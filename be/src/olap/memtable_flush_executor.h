@@ -73,12 +73,12 @@ class MemTableFlushExecutor;
 // when calling submit();
 class FlushHandler : public std::enable_shared_from_this<FlushHandler> {
 public:
-    FlushHandler(int32_t flush_queue_idx, MemTableFlushExecutor* flush_executor):
-        _flush_queue_idx(flush_queue_idx),
-        _last_flush_status(OLAP_SUCCESS),
-        _counter_cond(0),
-        _flush_executor(flush_executor),
-        _is_cancelled(false) {
+    FlushHandler(int32_t flush_queue_idx, MemTableFlushExecutor* flush_executor) :
+            _flush_queue_idx(flush_queue_idx),
+            _last_flush_status(OLAP_SUCCESS),
+            _counter_cond(0),
+            _flush_executor(flush_executor),
+            _is_cancelled(false) {
     }
 
     // submit a memtable to flush. return error if some previous submitted MemTable has failed
@@ -87,18 +87,22 @@ public:
     OLAPStatus wait();
     // get flush operations' statistics
     const FlushStatistic& get_stats() const { return _stats; }
-    // called when a memtable is finished by executor.
-    void on_flush_finished(const FlushResult& res);
-    // called when a flush memtable execution is cancelled
-    void on_flush_cancelled() {
-        _counter_cond.dec();
+
+    bool is_cancelled() {
+        return _last_flush_status.load() != OLAP_SUCCESS || _is_cancelled.load();
     }
-
-    bool is_cancelled() { return _last_flush_status.load() != OLAP_SUCCESS || _is_cancelled.load(); }
-
     void cancel() { _is_cancelled.store(true); }
 
 private:
+    friend class MemTableFlushExecutor;
+
+    // called when a memtable is finished by executor.
+    void _on_flush_finished(const FlushResult& res);
+    // called when a flush memtable execution is cancelled
+    void _on_flush_cancelled() {
+        _counter_cond.dec();
+    }
+
     // flush queue idx in memtable flush executor
     int32_t _flush_queue_idx;
     // the flush status of last memtable
@@ -137,7 +141,6 @@ public:
 
     // create a flush handler to access the flush executor
     OLAPStatus create_flush_handler(size_t path_hash, std::shared_ptr<FlushHandler>* flush_handler);
-
 private:
     friend class FlushHandler;
 

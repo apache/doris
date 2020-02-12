@@ -17,6 +17,8 @@
 
 #include "olap/memtable_flush_executor.h"
 
+#include <functional>
+
 #include "olap/data_dir.h"
 #include "olap/delta_writer.h"
 #include "olap/memtable.h"
@@ -33,7 +35,7 @@ OLAPStatus FlushHandler::submit(std::shared_ptr<MemTable> memtable) {
     _counter_cond.inc();
     VLOG(5) << "submitting " << *(ctx.memtable) << " to flush queue " << _flush_queue_idx;
     RETURN_NOT_OK(_flush_executor->_push_memtable(_flush_queue_idx, ctx));
-    return OLAP_SUCCESS; 
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus FlushHandler::wait() {
@@ -42,7 +44,7 @@ OLAPStatus FlushHandler::wait() {
     return _last_flush_status.load();
 }
 
-void FlushHandler::on_flush_finished(const FlushResult& res) {
+void FlushHandler::_on_flush_finished(const FlushResult& res) {
     if (res.flush_status != OLAP_SUCCESS) {
         _last_flush_status.store(res.flush_status);
     } else {
@@ -72,7 +74,7 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
     // create thread pool
     _flush_pool = new ThreadPool(_num_threads, 1);
     for (int32_t i = 0; i < _num_threads; ++i) {
-       _flush_pool->offer(boost::bind<void>(&MemTableFlushExecutor::_flush_memtable, this, i));
+       _flush_pool->offer(std::bind<void>(&MemTableFlushExecutor::_flush_memtable, this, i));
     }
 
     // _path_map saves the path hash to current idx of flush queue.
@@ -137,7 +139,7 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
             VLOG(5) << "skip flushing " << *(ctx.memtable) << " due to cancellation";
             // must release memtable before notifying
             ctx.memtable.reset();
-            ctx.flush_handler->on_flush_cancelled();
+            ctx.flush_handler->_on_flush_cancelled();
             continue;
         }
 
@@ -154,7 +156,7 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
         // must release memtable before notifying
         ctx.memtable.reset();
         // callback
-        ctx.flush_handler->on_flush_finished(res);
+        ctx.flush_handler->_on_flush_finished(res);
     }
 }
 

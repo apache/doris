@@ -17,32 +17,51 @@
 
 #include "runtime/load_channel_mgr.h"
 
+#include "gutil/strings/substitute.h"
+#include "olap/lru_cache.h"
 #include "runtime/load_channel.h"
 #include "runtime/mem_tracker.h"
 #include "service/backend_options.h"
 #include "util/stopwatch.hpp"
-#include "olap/lru_cache.h"
 
 namespace doris {
 
-LoadChannelMgr::LoadChannelMgr():_is_stopped(false) {
-    _lastest_success_channel = new_lru_cache(1024);
-}
-
-Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    int64_t load_mem_limit = _calc_total_mem_limit(process_mem_limit);
-    _mem_tracker.reset(new MemTracker(load_mem_limit, "load channel mgr"));
-    RETURN_IF_ERROR(_start_bg_worker());
-    return Status::OK();
-}
-
-int64_t LoadChannelMgr::_calc_total_mem_limit(int64_t process_mem_limit) {
+// Calculate the totol memory limit of all load tasks on this BE
+static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
     if (process_mem_limit == -1) {
         // no limit
         return -1;
     }
-    int64_t load_mem_limit = process_mem_limit * (config::load_process_max_memory_limit_percent / 100.0);
-    return std::min<int64_t>(load_mem_limit, config::load_process_max_memory_limit_bytes);
+    int32_t max_load_memory_percent = config::load_process_max_memory_limit_percent;
+    int64_t max_load_memory_bytes = process_mem_limit * max_load_memory_percent / 100;
+    return std::min<int64_t>(max_load_memory_bytes, config::load_process_max_memory_limit_bytes);
+}
+
+// Calculate the memory limit for a single load job.
+static int64_t calc_job_max_load_memory(int64_t mem_limit_in_req, int64_t total_mem_limit) {
+    // default mem limit is used to be compatible with old request.
+    // new request should be set load_mem_limit.
+    const int64_t default_load_mem_limit = 2 * 1024 * 1024 * 1024L; // 2GB
+    int64_t load_mem_limit = default_load_mem_limit;
+    if (mem_limit_in_req != -1) {
+        // mem-limit of a certain load should between config::write_buffer_size
+        // and total-memory-limit
+        load_mem_limit = std::max<int64_t>(mem_limit_in_req, config::write_buffer_size);
+        load_mem_limit = std::min<int64_t>(load_mem_limit, total_mem_limit);
+    }
+    return load_mem_limit;
+}
+
+static int64_t calc_job_timeout_s(int64_t timeout_in_req_s) {
+    int64_t load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
+    if (timeout_in_req_s > 0) {
+        load_channel_timeout_s = std::max<int64_t>(load_channel_timeout_s, timeout_in_req_s);
+    }
+    return load_channel_timeout_s;
+}
+
+LoadChannelMgr::LoadChannelMgr() : _is_stopped(false) {
+    _lastest_success_channel = new_lru_cache(1024);
 }
 
 LoadChannelMgr::~LoadChannelMgr() {
@@ -51,6 +70,13 @@ LoadChannelMgr::~LoadChannelMgr() {
         _load_channels_clean_thread.join();
     }
     delete _lastest_success_channel;
+}
+
+Status LoadChannelMgr::init(int64_t process_mem_limit) {
+    int64_t load_mem_limit = calc_process_max_load_memory(process_mem_limit);
+    _mem_tracker.reset(new MemTracker(load_mem_limit, "load channel mgr"));
+    RETURN_IF_ERROR(_start_bg_worker());
+    return Status::OK();
 }
 
 Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
@@ -63,36 +89,22 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             channel = it->second;
         } else {
             // create a new load channel
-            int64_t load_mem_limit = _calc_load_mem_limit(params.has_load_mem_limit() ? params.load_mem_limit() : -1);
-            int64_t load_channel_timeout_s = _get_load_channel_timeout(params.has_load_channel_timeout_s() ? params.load_channel_timeout_s() : -1);
-            channel.reset(new LoadChannel(load_id, load_mem_limit, _mem_tracker.get(), load_channel_timeout_s));
+            int64_t mem_limit_in_req = params.has_load_mem_limit() ? params.load_mem_limit() : -1;
+            int64_t job_max_memory = calc_job_max_load_memory(mem_limit_in_req,
+                                                              _mem_tracker->limit());
+
+            int64_t timeout_in_req_s = params.has_load_channel_timeout_s()
+                    ? params.load_channel_timeout_s() : -1;
+            int64_t job_timeout_s = calc_job_timeout_s(timeout_in_req_s);
+
+            channel.reset(new LoadChannel(load_id, job_max_memory,
+                                          job_timeout_s, _mem_tracker.get()));
             _load_channels.insert({load_id, channel});
         }
     }
 
     RETURN_IF_ERROR(channel->open(params));
     return Status::OK();
-}
-
-int64_t LoadChannelMgr::_calc_load_mem_limit(int64_t mem_limit) {
-    // default mem limit is used to be compatible with old request.
-    // new request should be set load_mem_limit.
-    const int64_t default_load_mem_limit = 2 * 1024 * 1024 * 1024L; // 2GB
-    int64_t load_mem_limit = default_load_mem_limit;
-    if (mem_limit != -1) {
-        // mem limit of a certain load should between config::write_buffer_size and config::load_process_memory_limit_bytes
-        load_mem_limit = std::max<int64_t>(mem_limit, config::write_buffer_size);
-        load_mem_limit = std::min<int64_t>(_mem_tracker->limit(), load_mem_limit);
-    }
-    return load_mem_limit;
-}
-
-int64_t LoadChannelMgr::_get_load_channel_timeout(int64_t timeout_s) {
-    int64_t load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
-    if (timeout_s > 0) {
-        load_channel_timeout_s = std::max<int64_t>(load_channel_timeout_s, timeout_s);
-    }
-    return load_channel_timeout_s;
 }
 
 static void dummy_deleter(const CacheKey& key, void* value) {
@@ -102,7 +114,6 @@ Status LoadChannelMgr::add_batch(
         const PTabletWriterAddBatchRequest& request,
         google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
         int64_t* wait_lock_time_ns) {
-
     UniqueId load_id(request.id());
     // 1. get load channel
     std::shared_ptr<LoadChannel> channel;
@@ -118,15 +129,14 @@ Status LoadChannelMgr::add_batch(
                     return Status::OK();
                 }
             }
-            std::stringstream ss;
-            ss << "load channel manager add batch with unknown load id: " << load_id;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(strings::Substitute(
+                     "fail to add batch in load channel. unknown load_id=$0", load_id.to_string()));
         }
         channel = it->second;
     }
 
     // 2. check if mem consumption exceed limit
-    _handle_mem_exceed_limit(); 
+    _handle_mem_exceed_limit();
 
     // 3. add batch to load channel
     // batch may not exist in request(eg: eos request without batch),
@@ -140,7 +150,7 @@ Status LoadChannelMgr::add_batch(
             std::lock_guard<std::mutex> l(_lock);
             _load_channels.erase(load_id);
             auto handle = _lastest_success_channel->insert(
-                load_id.to_string(), nullptr, 1, dummy_deleter);
+                    load_id.to_string(), nullptr, 1, dummy_deleter);
             _lastest_success_channel->release(handle);
         }
         VLOG(1) << "removed load channel " << load_id;
@@ -154,7 +164,7 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     if (!_mem_tracker->limit_exceeded()) {
         return;
     }
-    
+
     int64_t max_consume = 0;
     std::shared_ptr<LoadChannel> channel;
     for (auto& kv : _load_channels) {
@@ -187,7 +197,7 @@ Status LoadChannelMgr::cancel(const PTabletWriterCancelRequest& params) {
             _load_channels.erase(load_id);
         }
     }
-    
+
     if (cancelled_channel.get() != nullptr) {
         cancelled_channel->cancel();
         LOG(INFO) << "load channel has been cancelled: " << load_id;
@@ -218,7 +228,7 @@ Status LoadChannelMgr::_start_bg_worker() {
 
 Status LoadChannelMgr::_start_load_channels_clean() {
     std::vector<std::shared_ptr<LoadChannel>> need_delete_channels;
-    LOG(INFO) << "start cleaning load channels that have timed out";
+    LOG(INFO) << "cleaning timed out load channels";
     time_t now = time(nullptr);
     {
         std::vector<UniqueId> need_delete_channel_ids;
@@ -241,7 +251,7 @@ Status LoadChannelMgr::_start_load_channels_clean() {
     }
 
     // we must cancel these load channels before destroying them.
-    // or some object may be invalid before trying to visit it.
+    // otherwise some object may be invalid before trying to visit it.
     // eg: MemTracker in load channel
     for (auto& channel : need_delete_channels) {
         channel->cancel();
