@@ -57,6 +57,9 @@ public class TableIndexes implements Writable {
     }
 
     public List<Index> getIndexes() {
+        if (indexes == null) {
+            indexes = Lists.newArrayList();
+        }
         return indexes;
     }
 
@@ -73,6 +76,9 @@ public class TableIndexes implements Writable {
     }
 
     public Map<String, String> getProperties() {
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
         return properties;
     }
 
