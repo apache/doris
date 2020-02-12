@@ -17,12 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import java.util.List;
+import java.util.TreeSet;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
-
-import java.util.List;
-import java.util.TreeSet;
 
 public class IndexDef {
     private String indexName;
@@ -48,7 +51,7 @@ public class IndexDef {
     public void analyze() throws AnalysisException {
         if (indexType == IndexDef.IndexType.BITMAP) {
             if (columns == null || columns.size() != 1) {
-                throw new AnalysisException("bitmap index definition expect at least one column.");
+                throw new AnalysisException("bitmap index can only apply to a single column.");
             }
             if (Strings.isNullOrEmpty(indexName)) {
                 throw new AnalysisException("index name cannot be blank.");
@@ -117,5 +120,30 @@ public class IndexDef {
 
     public enum IndexType {
         BITMAP,
+    }
+
+    public void checkColumn(Column column, KeysType keysType) throws AnalysisException {
+        if (indexType == IndexType.BITMAP) {
+            String indexColName = column.getName();
+            PrimitiveType colType = column.getDataType();
+            if (!(colType.isDateType() || colType.isDecimalType() || colType.isFixedPointType() ||
+                          colType.isStringType() || colType == PrimitiveType.BOOLEAN)) {
+                throw new AnalysisException(colType + " is not supported in bitmap index. "
+                        + "invalid column: " + indexColName);
+            } else if (((keysType == KeysType.AGG_KEYS || keysType == KeysType.UNIQUE_KEYS) && !column.isKey())
+                    || keysType == KeysType.PRIMARY_KEYS) {
+                throw new AnalysisException(
+                        "BITMAP index only used in columns of DUP_KEYS table or key columns of"
+                                + " UNIQUE_KEYS/AGG_KEYS table. invalid column: " + indexColName);
+            }
+        }
+    }
+
+    public void checkColumns(List<Column> columns, KeysType keysType) throws AnalysisException {
+        if (indexType == IndexType.BITMAP) {
+            for (Column col : columns) {
+                checkColumn(col, keysType);
+            }
+        }
     }
 }
