@@ -32,6 +32,23 @@ namespace doris {
 using std::string;
 using strings::Substitute;
 
+// Close file descriptor when object goes out of scope.
+class ScopedFdCloser {
+public:
+    explicit ScopedFdCloser(int fd) : fd_(fd) {}
+
+    ~ScopedFdCloser() {
+        int err;
+        RETRY_ON_EINTR(err, ::close(fd_));
+        if (PREDICT_FALSE(err != 0)) {
+            LOG(WARNING) << "Failed to close fd " << fd_;
+        }
+    }
+
+private:
+    const int fd_;
+};
+
 static Status io_error(const std::string& context, int err_number) {
     switch (err_number) {
     case EACCES:
@@ -51,7 +68,7 @@ static Status io_error(const std::string& context, int err_number) {
     return Status::IOError(context, err_number, errno_to_string(err_number));
 }
 
-Status do_sync(int fd, const string& filename) {
+static Status do_sync(int fd, const string& filename) {
     if (fdatasync(fd) < 0) {
         return io_error(filename, errno);
     }
@@ -595,10 +612,49 @@ public:
         return Status::OK();
     }
 
-    // Create the specified directory. Returns error if directory exists.
     Status create_dir(const std::string& name) override {
         if (mkdir(name.c_str(), 0755) != 0) {
             return io_error(name, errno);
+        }
+        return Status::OK();
+    }
+
+    Status create_dir_if_missing(const string& dirname, bool* created = nullptr) override {
+        Status s = create_dir(dirname);
+        if (created != nullptr) {
+            *created = s.ok();
+        }
+
+        // Check that dirname is actually a directory.
+        if (s.is_already_exist()) {
+            bool is_dir = false;
+            RETURN_IF_ERROR(is_directory(dirname, &is_dir));
+            if (is_dir) {
+                return Status::OK();
+            } else {
+                return s.clone_and_append("path already exists but not a dir");
+            }
+        }
+        return s;
+    }
+
+    // Delete the specified directory.
+    Status delete_dir(const std::string& dirname) override {
+        if (rmdir(dirname.c_str()) != 0) {
+            return io_error(dirname, errno);
+        }
+        return Status::OK();
+    }
+
+    Status sync_dir(const string& dirname) override {
+        int dir_fd;
+        RETRY_ON_EINTR(dir_fd, open(dirname.c_str(), O_DIRECTORY|O_RDONLY));
+        if (dir_fd < 0) {
+            return io_error(dirname, errno);
+        }
+        ScopedFdCloser fd_closer(dir_fd);
+        if (fsync(dir_fd) != 0) {
+            return io_error(dirname, errno);
         }
         return Status::OK();
     }
@@ -615,34 +671,13 @@ public:
     }
 
     Status canonicalize(const std::string& path, std::string* result) override {
+        // NOTE: we must use free() to release the buffer retruned by realpath(),
+        // because the buffer is allocated by malloc(), see `man 3 realpath`.
         std::unique_ptr<char[], FreeDeleter> r(realpath(path.c_str(), nullptr));
         if (r == nullptr) {
             return io_error(Substitute("Unable to canonicalize $0", path), errno);
         }
         *result = std::string(r.get());
-        return Status::OK();
-    }
-
-    // Creates directory if missing. Return Ok if it exists, or successful in
-    // Creating.
-    Status create_dir_if_missing(const std::string& name) override {
-        if (mkdir(name.c_str(), 0755) != 0) {
-            if (errno != EEXIST) {
-                return io_error(name, errno);
-            } else if (!dir_exists(name)) { // Check that name is actually a
-                // directory.
-                // Message is taken from mkdir
-                return Status::IOError(name + " exists but is not a directory");
-            }
-        }
-        return Status::OK();
-    }
-
-    // Delete the specified directory.
-    Status delete_dir(const std::string& dirname) override {
-        if (rmdir(dirname.c_str()) != 0) {
-            return io_error(dirname, errno);
-        }
         return Status::OK();
     }
 
@@ -656,8 +691,7 @@ public:
         return Status::OK();
     }
 
-    Status get_file_modified_time(const std::string& fname,
-                                      uint64_t* file_mtime) override {
+    Status get_file_modified_time(const std::string& fname, uint64_t* file_mtime) override {
         struct stat s;
         if (stat(fname.c_str(), &s) !=0) {
             return io_error(fname, errno);
@@ -673,27 +707,18 @@ public:
         return Status::OK();
     }
 
-    Status link_file(const std::string& src, const std::string& target) override {
-        if (link(src.c_str(), target.c_str()) != 0) {
-            return io_error(src, errno);
+    Status link_file(const std::string& old_path, const std::string& new_path) override {
+        if (link(old_path.c_str(), new_path.c_str()) != 0) {
+            return io_error(old_path, errno);
         }
         return Status::OK();
-    }
-
-private:
-    bool dir_exists(const std::string& dname) {
-        struct stat statbuf;
-        if (stat(dname.c_str(), &statbuf) == 0) {
-            return S_ISDIR(statbuf.st_mode);
-        }
-        return false; // stat() failed return false
     }
 };
 
 // Default Posix Env
 Env* Env::Default() {
-  static PosixEnv default_env;
-  return &default_env;
+    static PosixEnv default_env;
+    return &default_env;
 }
 
-}
+} // end namespace doris
