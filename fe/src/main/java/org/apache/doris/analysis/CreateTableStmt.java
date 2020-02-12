@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -425,43 +424,19 @@ public class CreateTableStmt extends DdlStmt {
                     throw new AnalysisException("index only support in olap engine at current version.");
                 }
                 for (String indexColName : indexDef.getColumns()) {
-                    indexColName = indexColName.trim();
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexColName = column.getName();
-                            PrimitiveType colType = column.getDataType();
-
-                            // key columns and none/replace aggregate non-key columns support
-                            if (indexDef.getIndexType() == IndexDef.IndexType.BITMAP) {
-                                    if (!(colType == PrimitiveType.TINYINT || colType == PrimitiveType.SMALLINT
-                                                  || colType == PrimitiveType.INT || colType == PrimitiveType.BIGINT ||
-                                                  colType == PrimitiveType.CHAR || colType == PrimitiveType.VARCHAR)) {
-                                        throw new AnalysisException(colType + " is not supported in bitmap index. "
-                                                + "invalid column: " + indexColName);
-                                    } else if (column.isKey()
-                                            || column.getAggregationType() == AggregateType.NONE
-                                            || column.getAggregationType() == AggregateType.REPLACE
-                                            || column.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
-                                        found = true;
-                                        break;
-                                    } else {
-                                        // althrough the implemention supports bf for replace non-key column,
-                                        // for simplicity and unity, we don't expose that to user.
-                                        throw new AnalysisException(
-                                                "BITMAP index only used in columns of DUP_KEYS table or "
-                                                        + "key columns of UNIQUE_KEYS/AGG_KEYS table. invalid column: "
-                                                        + indexColName);
-                                    }
-                                }
-                            }
-                        }
-
-                        if (!found) {
-                            throw new AnalysisException("BITMAP column does not exist in table. invalid column: "
-                                    + indexColName);
+                            indexDef.checkColumn(column, getKeysDesc().getKeysType());
+                            found = true;
+                            break;
                         }
                     }
+                    if (!found) {
+                        throw new AnalysisException("BITMAP column does not exist in table. invalid column: "
+                                + indexColName);
+                    }
+                }
                 indexes.add(new Index(indexDef.getIndexName(), indexDef.getColumns(), indexDef.getIndexType(),
                         indexDef.getComment()));
                 distinct.add(indexDef.getIndexName());
