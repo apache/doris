@@ -53,6 +53,7 @@ import java.util.stream.Collectors;
 public class RepeatNode extends PlanNode {
 
     private List<Set<Integer>> repeatSlotIdList;
+    private Set<Integer> allSlotId;
     private TupleDescriptor outputTupleDesc;
     private List<List<Long>> groupingList;
     private GroupingInfo groupingInfo;
@@ -88,6 +89,7 @@ public class RepeatNode extends PlanNode {
             }
             slotIdList.add(intSet);
         }
+
         return slotIdList;
     }
 
@@ -131,6 +133,7 @@ public class RepeatNode extends PlanNode {
         List<Set<SlotId>> groupingIdList = new ArrayList<>();
         List<Expr> exprList = groupByClause.getGroupingExprs();
         Preconditions.checkState(exprList.size() >= 2);
+        allSlotId = new HashSet<>();
         for (BitSet bitSet : Collections.unmodifiableList(groupingInfo.getGroupingIdList())) {
             Set<SlotId> slotIdSet = new HashSet<>();
             for (SlotDescriptor slotDesc : slotDescSet) {
@@ -150,7 +153,11 @@ public class RepeatNode extends PlanNode {
             }
             groupingIdList.add(slotIdSet);
         }
+
         this.repeatSlotIdList = buildIdSetList(groupingIdList);
+        for (Set<Integer> s : this.repeatSlotIdList) {
+            allSlotId.addAll(s);
+        }
         this.groupingList = groupingInfo.genGroupingList(groupByClause.getGroupingExprs());
         tupleIds.add(outputTupleDesc.getId());
         for (TupleId id : tupleIds) {
@@ -165,7 +172,7 @@ public class RepeatNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.REPEAT_NODE;
         msg.repeat_node = new TRepeatNode(outputTupleDesc.getId().asInt(), repeatSlotIdList, groupingList.get(0),
-                groupingList);
+                groupingList, allSlotId);
     }
 
     @Override

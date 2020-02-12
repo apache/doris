@@ -48,9 +48,8 @@ public class GroupByClause implements ParseNode {
     private final static Logger LOG = LogManager.getLogger(GroupByClause.class);
 
     // max num of distinct sets in grouping sets clause
-    private final static int MAX_GROUPING_SETS_NUM = 16;
+    private final static int MAX_GROUPING_SETS_NUM = 64;
     // max num of distinct expressions
-    private final static int MAX_GROUPING_SETS_EXPRESSION_NUM = 64;
     private boolean analyzed_ = false;
     private boolean exprGenerated = false;
     private GroupingType groupingType;
@@ -193,21 +192,16 @@ public class GroupByClause implements ParseNode {
             }
         }
 
-        if (groupingExprs != null && groupingExprs.size() > MAX_GROUPING_SETS_NUM) {
-            throw new AnalysisException(
-                    "Too many sets in GROUP BY clause, it must be not more than "
-                            + MAX_GROUPING_SETS_NUM);
+        if (isGroupByExtension() && groupingExprs != null && groupingExprs.size() > MAX_GROUPING_SETS_NUM) {
+            throw new AnalysisException("Too many sets in GROUP BY clause, the max grouping sets item is "
+                    + MAX_GROUPING_SETS_NUM);
         }
         analyzed_ = true;
     }
 
+    // check if group by clause is contain grouping set/rollup/cube
     public boolean isGroupByExtension() {
-        if (groupingType == GroupingType.GROUP_BY ||
-                groupingType == GroupingType.GROUPING_SETS && (groupingSetList == null || groupingSetList.size() < 2)) {
-            return false;
-        } else {
-            return true;
-        }
+        return groupingType != GroupingType.GROUP_BY;
     }
 
     @Override
