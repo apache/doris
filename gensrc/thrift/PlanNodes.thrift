@@ -396,6 +396,8 @@ struct TRepeatNode {
   3: required list<i64> repeat_id_list
   // A list of integer list, it indicates the position of the grouping virtual slot.
   4: required list<list<i64>> grouping_list
+  // A list of all slot
+  5: required set<Types.TSlotId> all_slot_ids
 }
 
 struct TPreAggregationNode {

@@ -97,10 +97,8 @@ public class GroupByClauseTest {
                 + ".`k3`, `testdb`.`t`.`k2`), (`testdb`.`t`.`k1`, `testdb`.`t`.`k3`), (`testdb`.`t`.`k4`), (`testdb`"
                 + ".`t`.`k1`, `testdb`.`t`.`k2`, `testdb`.`t`.`k3`, `testdb`.`t`.`k4`))", groupByClause.toSql());
         List<BitSet> bitSetList = groupingInfo.getGroupingIdList();
-        bitSetList.remove(0);
-
         {
-            String[] answer = {"{0, 1}", "{0, 2}", "{3}"};
+            String[] answer = {"{0, 1, 2, 3}", "{0, 1}", "{0, 2}", "{3}"};
             Set<String> answerSet = new HashSet<String>(Arrays.asList(answer));
             Set<String> resultSet = new HashSet<>();
             for (BitSet aBitSetList : bitSetList) {
@@ -137,10 +135,8 @@ public class GroupByClauseTest {
         Assert.assertEquals("ROLLUP (`testdb`.`t`.`k2`, `testdb`.`t`.`k3`, "
                 + "`testdb`.`t`.`k4`, `testdb`.`t`.`k3`)", groupByClause.toSql());
         List<BitSet> bitSetList = groupingInfo.getGroupingIdList();
-        bitSetList.remove(0);
-
         {
-            String[] answer = {"{}", "{0}", "{0, 1}"};
+            String[] answer = {"{}", "{0}", "{0, 1}", "{0, 1, 2}"};
             Set<String> answerSet = new HashSet<String>(Arrays.asList(answer));
             Set<String> resultSet = new HashSet<>();
             for (BitSet aBitSetList : bitSetList) {
@@ -176,10 +172,8 @@ public class GroupByClauseTest {
         Assert.assertEquals(4, groupByClause.getGroupingExprs().size());
 
         List<BitSet> bitSetList = groupingInfo.getGroupingIdList();
-        bitSetList.remove(0);
-
         {
-            String[] answer = {"{}", "{1}", "{0}", "{0, 1}", "{2}", "{1, 2}", "{0, 2}"};
+            String[] answer = {"{}", "{1}", "{0}", "{0, 1}", "{2}", "{1, 2}", "{0, 1, 2}", "{0, 2}"};
             Set<String> answerSet = new HashSet<String>(Arrays.asList(answer));
             Set<String> resultSet = new HashSet<>();
             for (BitSet aBitSetList : bitSetList) {
