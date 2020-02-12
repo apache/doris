@@ -44,7 +44,7 @@ OLAPStatus FlushHandler::wait() {
     return _last_flush_status.load();
 }
 
-void FlushHandler::_on_flush_finished(const FlushResult& res) {
+void FlushHandler::on_flush_finished(const FlushResult& res) {
     if (res.flush_status != OLAP_SUCCESS) {
         _last_flush_status.store(res.flush_status);
     } else {
@@ -139,7 +139,7 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
             VLOG(5) << "skip flushing " << *(ctx.memtable) << " due to cancellation";
             // must release memtable before notifying
             ctx.memtable.reset();
-            ctx.flush_handler->_on_flush_cancelled();
+            ctx.flush_handler->on_flush_cancelled();
             continue;
         }
 
@@ -156,7 +156,7 @@ void MemTableFlushExecutor::_flush_memtable(int32_t queue_idx) {
         // must release memtable before notifying
         ctx.memtable.reset();
         // callback
-        ctx.flush_handler->_on_flush_finished(res);
+        ctx.flush_handler->on_flush_finished(res);
     }
 }
 

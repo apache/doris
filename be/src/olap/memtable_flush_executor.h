@@ -93,16 +93,16 @@ public:
     }
     void cancel() { _is_cancelled.store(true); }
 
-private:
-    friend class MemTableFlushExecutor;
-
+    // These on_xxx() methods are callback when flush finishes or cancels, user should
+    // not call them directly.
     // called when a memtable is finished by executor.
-    void _on_flush_finished(const FlushResult& res);
+    void on_flush_finished(const FlushResult& res);
     // called when a flush memtable execution is cancelled
-    void _on_flush_cancelled() {
+    void on_flush_cancelled() {
         _counter_cond.dec();
     }
 
+private:
     // flush queue idx in memtable flush executor
     int32_t _flush_queue_idx;
     // the flush status of last memtable
