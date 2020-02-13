@@ -27,8 +27,6 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TQueryOptions;
@@ -74,7 +72,7 @@ public class Planner {
     }
 
     public void plan(StatementBase queryStmt, Analyzer analyzer, TQueryOptions queryOptions)
-            throws NotImplementedException, UserException, AnalysisException {
+            throws UserException {
         createPlanFragments(queryStmt, analyzer, queryOptions);
     }
 
@@ -133,7 +131,7 @@ public class Planner {
      * a list such that element i of that list can only consume output of the following fragments j > i.
      */
     public void createPlanFragments(StatementBase statement, Analyzer analyzer, TQueryOptions queryOptions)
-            throws NotImplementedException, UserException, AnalysisException {
+            throws UserException {
         QueryStmt queryStmt;
         if (statement instanceof InsertStmt) {
             queryStmt = ((InsertStmt) statement).getQueryStmt();
