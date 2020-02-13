@@ -23,8 +23,9 @@
 
 namespace doris {
 
-LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker* mem_tracker, int64_t timeout_s)
-        : _load_id(load_id), _timeout_s(timeout_s) {
+LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit,
+                         int64_t timeout_s, MemTracker* mem_tracker) :
+        _load_id(load_id), _timeout_s(timeout_s) {
     _mem_tracker.reset(new MemTracker(mem_limit, _load_id.to_string(), mem_tracker));
     // _last_updated_time should be set before being inserted to
     // _load_channels in load_channel_mgr, or it may be erased
@@ -33,9 +34,9 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker*
 }
 
 LoadChannel::~LoadChannel() {
-    LOG(INFO) << "load channel mem peak usage: " << _mem_tracker->peak_consumption()
-        << ", info: " << _mem_tracker->debug_string()
-        << ", load id: " << _load_id;
+    LOG(INFO) << "load channel mem peak usage=" << _mem_tracker->peak_consumption()
+        << ", info=" << _mem_tracker->debug_string()
+        << ", load_id=" << _load_id;
 }
 
 Status LoadChannel::open(const PTabletWriterOpenRequest& params) {
@@ -95,7 +96,8 @@ Status LoadChannel::add_batch(
     Status st;
     if (request.has_eos() && request.eos()) {
         bool finished = false;
-        RETURN_IF_ERROR(channel->close(request.sender_id(), &finished, request.partition_ids(), tablet_vec));
+        RETURN_IF_ERROR(channel->close(request.sender_id(), &finished,
+                                       request.partition_ids(), tablet_vec));
         if (finished) {
             std::lock_guard<std::mutex> l(_lock);
             _tablets_channels.erase(index_id);
@@ -109,7 +111,7 @@ Status LoadChannel::add_batch(
 void LoadChannel::handle_mem_exceed_limit(bool force) {
     // lock so that only one thread can check mem limit
     std::lock_guard<std::mutex> l(_lock);
-    if (!force && !_mem_tracker->limit_exceeded()) {
+    if (!(force || _mem_tracker->limit_exceeded())) {
         return;
     }
 
@@ -120,26 +122,25 @@ void LoadChannel::handle_mem_exceed_limit(bool force) {
     }
 
     std::shared_ptr<TabletsChannel> channel;
-    if (_find_largest_max_consumption_tablets_channel(&channel)) {
+    if (_find_largest_consumption_channel(&channel)) {
         channel->reduce_mem_usage();
     } else {
         // should not happen, add log to observe
-        LOG(WARNING) << "failed to find suitable tablets channel when mem limit execeed: " << _load_id;
+        LOG(WARNING) << "fail to find suitable tablets-channel when memory execeed. "
+                     << "load_id=" << _load_id;
     }
 }
 
 // lock should be held when calling this method
-bool LoadChannel::_find_largest_max_consumption_tablets_channel(std::shared_ptr<TabletsChannel>* channel) {
-    bool find = false;;
+bool LoadChannel::_find_largest_consumption_channel(std::shared_ptr<TabletsChannel>* channel) {
     int64_t max_consume = 0;
-    for (auto& it : _tablets_channels) { 
+    for (auto& it : _tablets_channels) {
         if (it.second->mem_consumption() > max_consume) {
             max_consume = it.second->mem_consumption();
             *channel = it.second;
-            find = true;
         }
     }
-    return find;
+    return max_consume > 0;
 }
 
 bool LoadChannel::is_finished() {
@@ -152,7 +153,7 @@ bool LoadChannel::is_finished() {
 
 Status LoadChannel::cancel() {
     std::lock_guard<std::mutex> l(_lock);
-    for (auto& it : _tablets_channels) { 
+    for (auto& it : _tablets_channels) {
         it.second->cancel();
     }
     return Status::OK();

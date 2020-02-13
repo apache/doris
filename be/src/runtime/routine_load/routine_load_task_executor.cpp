@@ -55,13 +55,13 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(
     }
     t_info.__set_properties(std::move(properties));
 
-    ctx.kafka_info = new KafkaLoadInfo(t_info);
+    ctx.kafka_info.reset(new KafkaLoadInfo(t_info));
     ctx.need_rollback = false;
 
     std::shared_ptr<DataConsumer> consumer;
     RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
 
-    Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(partition_ids); 
+    Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(partition_ids);
     if (st.ok()) {
         _data_consumer_pool.return_consumer(consumer);
     }
@@ -69,7 +69,7 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(
 }
 
 Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
-    std::unique_lock<std::mutex> l(_lock); 
+    std::unique_lock<std::mutex> l(_lock);
     if (_task_map.find(task.id) != _task_map.end()) {
         // already submitted
         LOG(INFO) << "routine load task " << UniqueId(task.id) << " has already been submitted";
@@ -115,7 +115,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     // set source related params
     switch (task.type) {
         case TLoadSourceType::KAFKA:
-            ctx->kafka_info = new KafkaLoadInfo(task.kafka_load_info);
+            ctx->kafka_info.reset(new KafkaLoadInfo(task.kafka_load_info));
             break;
         default:
             LOG(WARNING) << "unknown load source type: " << task.type;
@@ -127,7 +127,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     // register the task
     ctx->ref();
     _task_map[ctx->id] = ctx;
-    
+
     // offer the task to thread pool
     if (!_thread_pool.offer(
             boost::bind<void>(&RoutineLoadTaskExecutor::exec_task, this, ctx,
@@ -176,7 +176,7 @@ void RoutineLoadTaskExecutor::exec_task(
 
     // create data consumer group
     std::shared_ptr<DataConsumerGroup> consumer_grp;
-    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");    
+    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");
 
     // create and set pipe
     std::shared_ptr<StreamLoadPipe> pipe;
@@ -212,7 +212,7 @@ void RoutineLoadTaskExecutor::exec_task(
     // only for test
     HANDLE_ERROR(_execute_plan_for_test(ctx), "test failed");
 #endif
-    
+
     // start to consume, this may block a while
     HANDLE_ERROR(consumer_grp->start_all(ctx), "consuming failed");
 
@@ -220,10 +220,10 @@ void RoutineLoadTaskExecutor::exec_task(
     HANDLE_ERROR(ctx->future.get(), "consume failed");
 
     ctx->load_cost_nanos = MonotonicNanos() - ctx->start_nanos;
-    
+
     // return the consumer back to pool
     // call this before commit txn, in case the next task can come very fast
-    consumer_pool->return_consumers(consumer_grp.get()); 
+    consumer_pool->return_consumers(consumer_grp.get());
 
     // commit txn
     HANDLE_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx), "commit failed");
@@ -246,7 +246,7 @@ void RoutineLoadTaskExecutor::exec_task(
                         ctx->kafka_info->topic, kv.first, kv.second);
                 topic_partitions.push_back(tp1);
             }
-            
+
             st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->commit(topic_partitions);
             if (!st.ok()) {
                 // Kafka Offset Commit is idempotent, Failure should not block the normal process
@@ -293,7 +293,7 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
         std::shared_ptr<StreamLoadPipe> pipe = _exec_env->load_stream_mgr()->get(ctx->id);
         bool eof = false;
         std::stringstream ss;
-        while (true) { 
+        while (true) {
             char one;
             size_t len = 1;
             Status st = pipe->read((uint8_t*) &one, &len, &eof);
