@@ -166,6 +166,11 @@ Status EsHttpScanNode::start_scanners() {
 }
 
 Status EsHttpScanNode::collect_scanners_status() {
+    // NOTE. if open() was called, but set_range() was NOT called for some reason.
+    // then close() was called. 
+    // there would cause a core because _scanners_status's iterator was in [0, _scan_ranges) other than [0, _scanners_status)
+    // it is said that the fragment-call-frame is calling scan-node in this way....
+    // in my options, it's better fixed in fragment-call-frame. e.g. call close() according the return value of open()
     for (int i = 0; i < _scanners_status.size(); i++) {
         std::future<Status> f = _scanners_status[i].get_future();
         RETURN_IF_ERROR(f.get());
