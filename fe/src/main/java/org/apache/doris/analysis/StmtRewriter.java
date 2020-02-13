@@ -252,20 +252,6 @@ public class StmtRewriter {
 
 
     /**
-     * Situation: The expr is a binary predicate and the type of subquery is not scalar type.
-     * Rewrite: The stmt of inline view is added an assert condition (return error if row count > 1).
-     * Input params:
-     *     expr: k1=(select k1 from t2)
-     *     origin inline view: (select k1 $a from t2) $b
-     *     stmt: select * from t1 where k1=(select k1 from t2);
-     * Output params:
-     *     rewritten inline view: (select k1 $a from t2 (assert row count: return error if row count > 1)) $b
-     */
-    private static void rewriteBinaryPredicateWithSubquery(InlineViewRef inlineViewRef) {
-        inlineViewRef.getViewStmt().setAssertNumRowsElement(1);
-    }
-
-    /**
      * Replace an ExistsPredicate that contains a subquery with a BoolLiteral if we
      * can determine its result without evaluating it. Return null if the result of the
      * ExistsPredicate can only be determined at run-time.
@@ -401,10 +387,6 @@ public class StmtRewriter {
             // For uncorrelated subqueries, we limit the number of rows returned by the
             // subquery.
             subqueryStmt.setLimit(1);
-        }
-
-        if (expr instanceof BinaryPredicate && !expr.getSubquery().getType().isScalarType()) {
-            rewriteBinaryPredicateWithSubquery(inlineView);
         }
 
         // Analyzing the inline view trigger reanalysis of the subquery's select statement.
