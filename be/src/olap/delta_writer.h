@@ -58,11 +58,9 @@ class DeltaWriter {
 public:
     static OLAPStatus open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer);
 
-    DeltaWriter(WriteRequest* req, MemTracker* parent, StorageEngine* storage_engine);
+    ~DeltaWriter();
 
     OLAPStatus init();
-
-    ~DeltaWriter();
 
     OLAPStatus write(Tuple* tuple);
     // flush the last memtable to flush queue, must call it before close_wait()
@@ -85,6 +83,8 @@ public:
     int64_t mem_consumption() const;
 
 private:
+    DeltaWriter(WriteRequest* req, MemTracker* parent, StorageEngine* storage_engine);
+
     // push a full memtable to flush executor
     OLAPStatus _flush_memtable_async();
 
@@ -101,7 +101,7 @@ private:
     TabletSharedPtr _new_tablet;
     std::unique_ptr<RowsetWriter> _rowset_writer;
     std::shared_ptr<MemTable> _mem_table;
-    Schema* _schema;
+    std::unique_ptr<Schema> _schema;
     const TabletSchema* _tablet_schema;
     bool _delta_written_success;
 

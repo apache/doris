@@ -67,7 +67,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _batch.reset(new RowBatch(row_desc, state->batch_size(), _parent->_mem_tracker));
 
     _stub = state->exec_env()->brpc_stub_cache()->get_stub(
-        _node_info->host, _node_info->brpc_port);
+            _node_info->host, _node_info->brpc_port);
     if (_stub == nullptr) {
         LOG(WARNING) << "Get rpc stub failed, host=" << _node_info->host
             << ", port=" << _node_info->brpc_port;
@@ -260,8 +260,6 @@ IndexChannel::~IndexChannel() {
 
 Status IndexChannel::init(RuntimeState* state,
                           const std::vector<TTabletWithPartition>& tablets) {
-    // nodeId -> tabletIds
-    std::map<int64_t, std::vector<int64_t>> tablets_by_node;
     for (auto& tablet : tablets) {
         auto location = _parent->_location->find_tablet(tablet.tablet_id);
         if (location == nullptr) {
@@ -274,7 +272,7 @@ Status IndexChannel::init(RuntimeState* state,
             auto it = _node_channels.find(node_id);
             if (it == std::end(_node_channels)) {
                 channel = _parent->_pool->add(
-                    new NodeChannel(_parent, _index_id, node_id, _schema_hash));
+                        new NodeChannel(_parent, _index_id, node_id, _schema_hash));
                 _node_channels.emplace(node_id, channel);
             } else {
                 channel = it->second;
@@ -441,8 +439,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile(_pool, "OlapTableSink"));
-    _mem_tracker = _pool->add(
-        new MemTracker(-1, "OlapTableSink", state->instance_mem_tracker()));
+    _mem_tracker = _pool->add(new MemTracker(-1, "OlapTableSink", state->instance_mem_tracker()));
 
     SCOPED_TIMER(_profile->total_time_counter());
 
