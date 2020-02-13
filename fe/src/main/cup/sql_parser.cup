@@ -1931,11 +1931,6 @@ show_param ::=
     {:
         RESULT = new ShowProcesslistStmt();
     :}
-    /* show keys */
-    | keys_or_index from_or_in table_ref:table opt_db:db where_clause:e
-    {:
-        RESULT = new ShowKeysStmt();
-    :}
     /* routine */
     | procedure_or_function KW_STATUS opt_wild_where
     {:
@@ -2159,13 +2154,9 @@ show_param ::=
     {:
         RESULT = new ShowSmallFilesStmt(dbName);
     :}
-    | KW_INDEX KW_FROM table_name:dbTblName opt_db:dbName
+    | keys_or_index from_or_in table_name:dbTblName opt_db:dbName
     {:
         RESULT = new ShowIndexStmt(dbName, dbTblName);
-    :}
-    | KW_INDEXES KW_FROM table_name:tableName opt_db:dbName
-    {:
-        RESULT = new ShowIndexStmt(dbName, tableName);
     :}
     | KW_TRANSACTION opt_db:dbName opt_wild_where
     {:
