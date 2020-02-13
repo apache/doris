@@ -39,6 +39,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
+import org.apache.doris.analysis.SetOperationStmt;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
@@ -46,7 +47,6 @@ import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.TupleIsNullPredicate;
-import org.apache.doris.analysis.UnionStmt;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -235,8 +235,8 @@ public class SingleNodePlanner {
                 }
             }
         } else {
-            Preconditions.checkState(stmt instanceof UnionStmt);
-            root = createUnionPlan((UnionStmt) stmt, analyzer, newDefaultOrderByLimit);
+            Preconditions.checkState(stmt instanceof SetOperationStmt);
+            root = createSetOperationPlan((SetOperationStmt) stmt, analyzer, newDefaultOrderByLimit);
         }
 
         // Avoid adding a sort node if the sort tuple has no materialized slots.
@@ -1175,8 +1175,8 @@ public class SingleNodePlanner {
                 viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getDesc().getId().asList());
             }
         } else {
-            Preconditions.checkArgument(stmt instanceof UnionStmt);
-            final UnionStmt union = (UnionStmt) stmt;
+            Preconditions.checkArgument(stmt instanceof SetOperationStmt);
+            final SetOperationStmt union = (SetOperationStmt) stmt;
             viewAnalyzer.registerConjuncts(newConjuncts, union.getTupleId().asList());
         }
     }
@@ -1204,11 +1204,11 @@ public class SingleNodePlanner {
         // UnionNode will handle predicates and assigns predicates to it's children.
         final List<Expr> candicatePredicates =
                 Expr.substituteList(viewPredicates, inlineViewRef.getSmap(), analyzer, false);
-        if (inlineViewRef.getViewStmt() instanceof UnionStmt) {
-            final UnionStmt unionStmt = (UnionStmt) inlineViewRef.getViewStmt();
+        if (inlineViewRef.getViewStmt() instanceof SetOperationStmt) {
+            final SetOperationStmt setOperationStmt = (SetOperationStmt) inlineViewRef.getViewStmt();
             for (int i = 0; i < candicatePredicates.size(); i++) {
                 final Expr predicate = candicatePredicates.get(i);
-                if (predicate.isBound(unionStmt.getTupleId())) {
+                if (predicate.isBound(setOperationStmt.getTupleId())) {
                     pushDownPredicates.add(predicate);
                 } else {
                     pushDownFailedPredicates.add(viewPredicates.get(i));
@@ -1483,12 +1483,12 @@ public class SingleNodePlanner {
      * as a child of the returned UnionNode.
      */
     private UnionNode createUnionPlan(
-            Analyzer analyzer, UnionStmt unionStmt, List<UnionStmt.UnionOperand> unionOperands,
+            Analyzer analyzer, SetOperationStmt setOperationStmt, List<SetOperationStmt.SetOperand> setOperands,
             PlanNode unionDistinctPlan, long defaultOrderByLimit)
             throws UserException, AnalysisException {
-        UnionNode unionNode = new UnionNode(ctx_.getNextNodeId(), unionStmt.getTupleId(),
-                unionStmt.getUnionResultExprs(), false);
-        for (UnionStmt.UnionOperand op : unionOperands) {
+        UnionNode unionNode = new UnionNode(ctx_.getNextNodeId(), setOperationStmt.getTupleId(),
+                setOperationStmt.getSetOpsResultExprs(), false);
+        for (SetOperationStmt.SetOperand op : setOperands) {
             if (op.getAnalyzer().hasEmptyResultSet()) {
                 unmarkCollectionSlots(op.getQueryStmt());
                 continue;
@@ -1512,10 +1512,10 @@ public class SingleNodePlanner {
         }
 
         if (unionDistinctPlan != null) {
-            Preconditions.checkState(unionStmt.hasDistinctOps());
+            Preconditions.checkState(setOperationStmt.hasDistinctOps());
             Preconditions.checkState(unionDistinctPlan instanceof AggregationNode);
             unionNode.addChild(unionDistinctPlan,
-                    unionStmt.getDistinctAggInfo().getGroupingExprs());
+                    setOperationStmt.getDistinctAggInfo().getGroupingExprs());
         }
         unionNode.init(analyzer);
         return unionNode;
@@ -1537,23 +1537,23 @@ public class SingleNodePlanner {
      * TODO: Simplify the plan of unions with only a single non-empty operand to not
      * use a union node (this is tricky because a union materializes a new tuple).
      */
-    private PlanNode createUnionPlan(UnionStmt unionStmt, Analyzer analyzer, long defaultOrderByLimit)
+    private PlanNode createSetOperationPlan(SetOperationStmt setOperationStmt, Analyzer analyzer, long defaultOrderByLimit)
             throws UserException, AnalysisException {
         // TODO(zc): get unassigned conjuncts
         // List<Expr> conjuncts =
         //         analyzer.getUnassignedConjuncts(unionStmt.getTupleId().asList(), false);
-        List<Expr> conjuncts = analyzer.getUnassignedConjuncts(unionStmt.getTupleId().asList());
+        List<Expr> conjuncts = analyzer.getUnassignedConjuncts(setOperationStmt.getTupleId().asList());
         // TODO chenhao
         // Because Conjuncts can't be assigned to UnionNode and Palo's fe can't evaluate conjuncts,
         // it needs to add SelectNode as UnionNode's parent, when UnionStmt's Ops contains constant 
         // Select.
         boolean hasConstantOp = false;
-        if (!unionStmt.hasAnalyticExprs()) {
+        if (!setOperationStmt.hasAnalyticExprs()) {
             // Turn unassigned predicates for unionStmt's tupleId_ into predicates for
             // the individual operands.
             // Do this prior to creating the operands' plan trees so they get a chance to
             // pick up propagated predicates.
-            for (UnionStmt.UnionOperand op : unionStmt.getOperands()) {
+            for (SetOperationStmt.SetOperand op : setOperationStmt.getOperands()) {
                 List<Expr> opConjuncts =
                         Expr.substituteList(conjuncts, op.getSmap(), analyzer, false);
                 boolean selectHasTableRef = true;
@@ -1570,8 +1570,8 @@ public class SingleNodePlanner {
                 if ((queryStmt instanceof SelectStmt) && selectHasTableRef) {
                     final SelectStmt select = (SelectStmt) queryStmt;
                     op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
-                } else if (queryStmt instanceof UnionStmt) {
-                    final UnionStmt union = (UnionStmt) queryStmt;
+                } else if (queryStmt instanceof SetOperationStmt) {
+                    final SetOperationStmt union = (SetOperationStmt) queryStmt;
                     op.getAnalyzer().registerConjuncts(opConjuncts, union.getTupleId().asList());
                 } else {
                     if (selectHasTableRef) {
@@ -1587,24 +1587,24 @@ public class SingleNodePlanner {
             analyzer.materializeSlots(conjuncts);
         }
         // mark slots after predicate propagation but prior to plan tree generation
-        unionStmt.materializeRequiredSlots(analyzer);
+        setOperationStmt.materializeRequiredSlots(analyzer);
 
         PlanNode result = null;
         // create DISTINCT tree
-        if (unionStmt.hasDistinctOps()) {
+        if (setOperationStmt.hasDistinctOps()) {
             result = createUnionPlan(
-                    analyzer, unionStmt, unionStmt.getDistinctOperands(), null, defaultOrderByLimit);
-            result = new AggregationNode(ctx_.getNextNodeId(), result, unionStmt.getDistinctAggInfo());
+                    analyzer, setOperationStmt, setOperationStmt.getDistinctOperands(), null, defaultOrderByLimit);
+            result = new AggregationNode(ctx_.getNextNodeId(), result, setOperationStmt.getDistinctAggInfo());
             result.init(analyzer);
         }
         // create ALL tree
-        if (unionStmt.hasAllOps()) {
-            result = createUnionPlan(analyzer, unionStmt, unionStmt.getAllOperands(), result, defaultOrderByLimit);
+        if (setOperationStmt.hasAllOps()) {
+            result = createUnionPlan(analyzer, setOperationStmt, setOperationStmt.getAllOperands(), result, defaultOrderByLimit);
         }
 
-        if (unionStmt.hasAnalyticExprs() || hasConstantOp) {
+        if (setOperationStmt.hasAnalyticExprs() || hasConstantOp) {
             result = addUnassignedConjuncts(
-                    analyzer, unionStmt.getTupleId().asList(), result);
+                    analyzer, setOperationStmt.getTupleId().asList(), result);
         }
         return result;
     }
