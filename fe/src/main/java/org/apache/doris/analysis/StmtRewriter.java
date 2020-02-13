@@ -69,8 +69,8 @@ public class StmtRewriter {
         Preconditions.checkNotNull(stmt);
         if (stmt instanceof SelectStmt) {
             rewriteSelectStatement((SelectStmt) stmt, analyzer);
-        } else if (stmt instanceof UnionStmt) {
-            rewriteUnionStatement((UnionStmt) stmt, analyzer);
+        } else if (stmt instanceof SetOperationStmt) {
+            rewriteUnionStatement((SetOperationStmt) stmt, analyzer);
         } else {
             throw new AnalysisException("Subqueries not supported for "
                     + stmt.getClass().getSimpleName() + " statements");
@@ -105,9 +105,9 @@ public class StmtRewriter {
      * Rewrite all operands in a UNION. The conditions that apply to SelectStmt rewriting
      * also apply here.
      */
-    private static void rewriteUnionStatement(UnionStmt stmt, Analyzer analyzer)
+    private static void rewriteUnionStatement(SetOperationStmt stmt, Analyzer analyzer)
             throws AnalysisException {
-        for (UnionStmt.UnionOperand operand: stmt.getOperands()) {
+        for (SetOperationStmt.SetOperand operand: stmt.getOperands()) {
             Preconditions.checkState(operand.getQueryStmt() instanceof SelectStmt);
             StmtRewriter.rewriteSelectStatement(
                     (SelectStmt)operand.getQueryStmt(), operand.getAnalyzer());
