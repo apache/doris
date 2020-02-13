@@ -318,11 +318,12 @@ public abstract class AlterHandler extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
+        long curTime = System.currentTimeMillis();
         // clean history job
         Iterator<AlterJob> iter = finishedOrCancelledAlterJobs.iterator();
         while (iter.hasNext()) {
             AlterJob historyJob = iter.next();
-            if ((System.currentTimeMillis() - historyJob.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second) {
+            if ((curTime - historyJob.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second) {
                 iter.remove();
                 LOG.info("remove history {} job[{}]. created at {}", historyJob.getType(),
                          historyJob.getTableId(), TimeUtils.longToTimeString(historyJob.getCreateTimeMs()));

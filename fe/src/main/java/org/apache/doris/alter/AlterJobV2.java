@@ -107,12 +107,16 @@ public abstract class AlterJobV2 implements Writable {
         return tableName;
     }
 
-    private boolean isTimeout() {
+    public boolean isTimeout() {
         return System.currentTimeMillis() - createTimeMs > timeoutMs;
     }
 
     public boolean isDone() {
         return jobState.isFinalState();
+    }
+
+    public long getFinishedTimeMs() {
+        return finishedTimeMs;
     }
 
     /*
