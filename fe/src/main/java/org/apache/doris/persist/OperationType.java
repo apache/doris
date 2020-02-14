@@ -57,7 +57,7 @@ public class OperationType {
     public static final short OP_RENAME_ROLLUP = 120;
     public static final short OP_ALTER_JOB_V2 = 121;
     public static final short OP_MODIFY_DISTRIBUTION_TYPE = 122;
-    public static final short OP_BATCH_ALTER_JOB_V2 = 123;
+    public static final short OP_BATCH_ADD_ROLLUP = 123;
     public static final short OP_BATCH_DROP_ROLLUP = 124;
 
     // 30~39 130~139 230~239 ...

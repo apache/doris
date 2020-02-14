@@ -500,7 +500,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_BATCH_ALTER_JOB_V2: {
+            case OperationType.OP_BATCH_ADD_ROLLUP: {
                 data = BatchAlterJobPersistInfo.read(in);
                 isRead = true;
                 break;
