@@ -69,10 +69,6 @@ public:
   /// Non-null if there is a write in flight, the page is clean, or the page is evicted.
   //std::unique_ptr<TmpFileMgr::WriteHandle> write_handle;
 
-  /// Condition variable signalled when a write for this page completes. Protected by
-  /// client->lock_.
-  ConditionVariable write_complete_cv_;
-
   /// This lock must be held when accessing 'buffer' if the page is unpinned and not
   /// evicted (i.e. it is safe to access 'buffer' if the page is pinned or evicted).
   SpinLock buffer_lock;
@@ -292,9 +288,6 @@ class BufferPool::Client {
 
   /// Lock to protect the below member variables;
   boost::mutex lock_;
-
-  /// Condition variable signalled when a write for this client completes.
-  ConditionVariable write_complete_cv_;
 
   /// All non-OK statuses returned by write operations are merged into this status.
   /// All operations that depend on pages being written to disk successfully (e.g.
