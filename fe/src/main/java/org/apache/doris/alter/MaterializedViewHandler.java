@@ -18,11 +18,11 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.alter.AlterJob.JobState;
-import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.analysis.MVColumnItem;
 import org.apache.doris.catalog.AggregateType;
@@ -54,13 +54,13 @@ import org.apache.doris.persist.DropInfo;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import org.apache.doris.thrift.TStorageMedium;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,58 +90,69 @@ public class MaterializedViewHandler extends AlterHandler {
         super("materialized view");
     }
 
-
     // for batch submit rollup job, tableId -> jobId
     // keep table's not final state job size. The job size determine's table's state, = 0 means table is normal, otherwise is rollup
     private Map<Long, Set<Long>> tableNotFinalStateJobMap = new ConcurrentHashMap<>();
     // keep table's running job,used for concurrency limit
+    // table id -> set of running job ids
     private Map<Long, Set<Long>> tableRunningJobMap = new ConcurrentHashMap<>();
 
-    public synchronized void addAlterJobV2(AlterJobV2 alterJob) {
+    public void addAlterJobV2(AlterJobV2 alterJob) {
         super.addAlterJobV2(alterJob);
         addAlterJobV2ToTableNotFinalStateJobMap(alterJob);
     }
 
-    protected synchronized void batchAddAlterJobV2(List<AlterJobV2> alterJobV2List) {
+    protected void batchAddAlterJobV2(List<AlterJobV2> alterJobV2List) {
         for (AlterJobV2 alterJobV2 : alterJobV2List) {
             addAlterJobV2(alterJobV2);
         }
     }
 
-    private void addAlterJobV2ToTableNotFinalStateJobMap(AlterJobV2 alterJobV2) {
+    // return true iff job is actually added this time
+    private boolean addAlterJobV2ToTableNotFinalStateJobMap(AlterJobV2 alterJobV2) {
         if (alterJobV2.isDone()) {
             LOG.warn("try to add a final job({}) to a unfinal set", alterJobV2.getJobId());
-            return;
+            return false;
         }
+
         Long tableId = alterJobV2.getTableId();
         Long jobId = alterJobV2.getJobId();
-        Set<Long> tableNotFinalStateJobIdSet = tableNotFinalStateJobMap.get(tableId);
-        if (tableNotFinalStateJobIdSet == null) {
-            tableNotFinalStateJobIdSet = new HashSet<>();
-            tableNotFinalStateJobMap.put(tableId, tableNotFinalStateJobIdSet);
+
+        synchronized (tableNotFinalStateJobMap) {
+            Set<Long> tableNotFinalStateJobIdSet = tableNotFinalStateJobMap.get(tableId);
+            if (tableNotFinalStateJobIdSet == null) {
+                tableNotFinalStateJobIdSet = new HashSet<>();
+                tableNotFinalStateJobMap.put(tableId, tableNotFinalStateJobIdSet);
+            }
+            return tableNotFinalStateJobIdSet.add(jobId);
         }
-        tableNotFinalStateJobIdSet.add(jobId);
     }
 
     /**
      *
      * @param alterJobV2
-     * @return true current table doesn't have not not final rollup job,table'state is normal
-     *         false table status is rollup
+     * @return true iif we really removed a job from tableNotFinalStateJobMap,
+     *         and there is no running job of this table
+     *         false otherwise.
      */
     private boolean removeAlterJobV2FromTableNotFinalStateJobMap(AlterJobV2 alterJobV2) {
         Long tableId = alterJobV2.getTableId();
         Long jobId = alterJobV2.getJobId();
-        Set<Long> tableNotFinalStateJobIdset = tableNotFinalStateJobMap.get(tableId);
-        if (tableNotFinalStateJobIdset == null) {
-            return true;
+
+        synchronized (tableNotFinalStateJobMap) {
+            Set<Long> tableNotFinalStateJobIdset = tableNotFinalStateJobMap.get(tableId);
+            if (tableNotFinalStateJobIdset == null) {
+                // This could happen when this job is already removed before.
+                // return false, so that we will not set table's to NORMAL again.
+                return false;
+            }
+            tableNotFinalStateJobIdset.remove(jobId);
+            if (tableNotFinalStateJobIdset.size() == 0) {
+                tableNotFinalStateJobMap.remove(tableId);
+                return true;
+            }
+            return false;
         }
-        tableNotFinalStateJobIdset.remove(jobId);
-        if (tableNotFinalStateJobIdset.size() == 0) {
-            tableNotFinalStateJobMap.remove(tableId);
-            return true;
-        }
-        return false;
     }
 
     /**
@@ -260,12 +271,17 @@ public class MaterializedViewHandler extends AlterHandler {
             throw e;
         }
 
+        // set table' state to ROLLUP before adding rollup jobs.
+        // so that when the AlterHandler thread run the jobs, it will see the expected table's state.
+        // ATTN: This order is not mandatory, because database lock will protect us,
+        // but this order is more reasonable
+        olapTable.setState(OlapTableState.ROLLUP);
+
         // 2 batch submit rollup job
         List<AlterJobV2> rollupJobV2List = new ArrayList<>(rollupNameJobMap.values());
         batchAddAlterJobV2(rollupJobV2List);
-        BatchAlterJobPersistInfo batchAlterJobV2 = new BatchAlterJobPersistInfo(rollupJobV2List);
-        olapTable.setState(OlapTableState.ROLLUP);
 
+        BatchAlterJobPersistInfo batchAlterJobV2 = new BatchAlterJobPersistInfo(rollupJobV2List);
         Catalog.getCurrentCatalog().getEditLog().logBatchAlterJob(batchAlterJobV2);
         LOG.info("finished to create materialized view job: {}", logJobIdSet);
     }
@@ -720,16 +736,18 @@ public class MaterializedViewHandler extends AlterHandler {
         runAlterJobV2();
     }
 
-    private synchronized Map<Long, AlterJobV2> getAlterJobsCopy () {
+    private Map<Long, AlterJobV2> getAlterJobsCopy() {
         return new HashMap<>(alterJobsV2);
     }
 
     private void removeJobFromRunningQueue(RollupJobV2 rollupJobV2) {
-        Set<Long> runningJobIdSet = tableRunningJobMap.get(rollupJobV2.getTableId());
-        if (runningJobIdSet != null) {
-            runningJobIdSet.remove(rollupJobV2.getJobId());
-            if (runningJobIdSet.size() == 0) {
-                tableRunningJobMap.remove(rollupJobV2.getTableId());
+        synchronized (tableRunningJobMap) {
+            Set<Long> runningJobIdSet = tableRunningJobMap.get(rollupJobV2.getTableId());
+            if (runningJobIdSet != null) {
+                runningJobIdSet.remove(rollupJobV2.getJobId());
+                if (runningJobIdSet.size() == 0) {
+                    tableRunningJobMap.remove(rollupJobV2.getTableId());
+                }
             }
         }
     }
@@ -749,14 +767,14 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     // replay the alter job v2
+    @Override
     public void replayAlterJobV2(AlterJobV2 alterJob) {
         super.replayAlterJobV2(alterJob);
         if (!alterJob.isDone()) {
             addAlterJobV2ToTableNotFinalStateJobMap(alterJob);
             changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.ROLLUP);
         } else {
-            boolean tableIsNormal = removeAlterJobV2FromTableNotFinalStateJobMap(alterJob);
-            if (tableIsNormal) {
+            if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
                 changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
             }
         }
@@ -766,18 +784,43 @@ public class MaterializedViewHandler extends AlterHandler {
      *  create tablet and alter tablet in be is thread safe,so we can run rollup job for one table concurrently
      */
     private void runAlterJobWithConcurrencyLimit(RollupJobV2 rollupJobV2) {
-        Set<Long> tableRunningJobSet = tableRunningJobMap.get(rollupJobV2.getTableId());
-        if (tableRunningJobSet == null) {
-            tableRunningJobSet = new HashSet<>();
-            tableRunningJobMap.put(rollupJobV2.getTableId(), tableRunningJobSet);
+        if (rollupJobV2.isDone()) {
+            return;
         }
 
-        // current job is already in running
-        if (tableRunningJobSet.contains(rollupJobV2.getJobId())) {
+        if (rollupJobV2.isTimeout()) {
+            // in run(), the timeout job will be cancelled.
             rollupJobV2.run();
-        } else if (tableRunningJobSet.size() < Config.max_running_rollup_job_num_per_table) {
-            // add current job to running queue
-            tableRunningJobSet.add(rollupJobV2.getJobId());
+            return;
+        }
+
+        // check if rollup job can be run within limitation.
+        long tblId = rollupJobV2.getTableId();
+        long jobId = rollupJobV2.getJobId();
+        boolean shouldJobRun = false;
+        synchronized (tableRunningJobMap) {
+            Set<Long> tableRunningJobSet = tableRunningJobMap.get(tblId);
+            if (tableRunningJobSet == null) {
+                tableRunningJobSet = new HashSet<>();
+                tableRunningJobMap.put(tblId, tableRunningJobSet);
+            }
+
+            // current job is already in running
+            if (tableRunningJobSet.contains(jobId)) {
+                shouldJobRun = true;
+            } else if (tableRunningJobSet.size() < Config.max_running_rollup_job_num_per_table) {
+                // add current job to running queue
+                tableRunningJobSet.add(jobId);
+                shouldJobRun = true;
+            } else {
+                LOG.debug("number of running alter job {} in table {} exceed limit {}. job {} is suspended",
+                        tableRunningJobSet.size(), rollupJobV2.getTableId(),
+                        Config.max_running_rollup_job_num_per_table, rollupJobV2.getJobId());
+                shouldJobRun = false;
+            }
+        }
+
+        if (shouldJobRun) {
             rollupJobV2.run();
         }
     }
@@ -787,17 +830,21 @@ public class MaterializedViewHandler extends AlterHandler {
         while (iterator.hasNext()) {
             Map.Entry<Long, AlterJobV2> entry = iterator.next();
             RollupJobV2 alterJob = (RollupJobV2)entry.getValue();
+            // run alter job
+            runAlterJobWithConcurrencyLimit(alterJob);
+            // the following check should be right after job's running, so that the table's state
+            // can be changed to NORMAL immediately after the last alter job of the table is done.
+            //
+            // ATTN(cmy): there is still a short gap between "job finish" and "table become normal",
+            // so if user send next alter job right after the "job finish",
+            // it may encounter "table's state not NORMAL" error.
             if (alterJob.isDone()) {
                 removeJobFromRunningQueue(alterJob);
-
-                boolean tableIsNormal = removeAlterJobV2FromTableNotFinalStateJobMap(alterJob);
-                if (tableIsNormal) {
+                if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
                     changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
                 }
                 continue;
             }
-            // run alter job
-            runAlterJobWithConcurrencyLimit(alterJob);
         }
     }
 

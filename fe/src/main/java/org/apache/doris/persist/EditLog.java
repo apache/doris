@@ -701,7 +701,7 @@ public class EditLog {
                     }
                     break;
                 }
-                case OperationType.OP_BATCH_ALTER_JOB_V2: {
+                case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo)journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
                         catalog.getRollupHandler().replayAlterJobV2(alterJobV2);
@@ -1222,7 +1222,7 @@ public class EditLog {
     }
 
     public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
-        logEdit(OperationType.OP_BATCH_ALTER_JOB_V2, batchAlterJobV2);
+        logEdit(OperationType.OP_BATCH_ADD_ROLLUP, batchAlterJobV2);
     }
 
     public void logModifyDistributionType(TableInfo tableInfo) {
