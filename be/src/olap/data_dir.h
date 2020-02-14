@@ -28,7 +28,7 @@
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_id_generator.h"
-#include "olap/utils.h"
+#include "util/mutex.h"
 
 namespace doris {
 

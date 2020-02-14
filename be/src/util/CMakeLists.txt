@@ -89,6 +89,9 @@ set(UTIL_FILES
   path_util.cpp
   file_manager.cpp
   file_cache.cpp
+  monotime.cpp
+  mutex.cpp
+  condition_variable.cpp
 )
 
 if (WITH_MYSQL)

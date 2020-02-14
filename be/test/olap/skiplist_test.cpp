@@ -22,11 +22,12 @@
 
 #include <gtest/gtest.h>
 #include "olap/schema.h"
-#include "olap/utils.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "util/hash_util.hpp"
 #include "util/random.h"
+#include "util/condition_variable.h"
+#include "util/mutex.h"
 #include "util/thread_pool.hpp"
 
 namespace doris {
@@ -370,7 +371,7 @@ public:
         : _seed(s),
         _quit_flag(NULL),
         _state(STARTING),
-        _cv_state(_mu) {}
+        _cv_state(&_mu) {}
 
     void wait(ReaderState s) {
         _mu.lock();
@@ -383,14 +384,14 @@ public:
     void change(ReaderState s) {
         _mu.lock();
         _state = s;
-        _cv_state.notify();
+        _cv_state.notify_one();
         _mu.unlock();
     }
 
 private:
     Mutex _mu;
     ReaderState _state;
-    Condition _cv_state;
+    ConditionVariable _cv_state;
 };
 
 static void concurrent_reader(void* arg) {
