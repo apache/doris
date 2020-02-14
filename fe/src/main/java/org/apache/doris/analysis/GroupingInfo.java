@@ -32,6 +32,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class GroupingInfo {
+    public static final String COL_GROUPING_ID = "GROUPING_ID";
+
     private VirtualSlotRef groupingIDSlot;
     private TupleDescriptor virtualTuple;
     private Set<VirtualSlotRef> groupingSlots;
@@ -43,8 +45,7 @@ public class GroupingInfo {
         this.groupingType = groupingType;
         groupingSlots = new LinkedHashSet<>();
         virtualTuple = analyzer.getDescTbl().createTupleDescriptor("VIRTUAL_TUPLE");
-        String colName = "GROUPING_ID";
-        groupingIDSlot = new VirtualSlotRef(colName, Type.BIGINT, virtualTuple, new ArrayList<>());
+        groupingIDSlot = new VirtualSlotRef(COL_GROUPING_ID, Type.BIGINT, virtualTuple, new ArrayList<>());
         groupingIDSlot.analyze(analyzer);
         groupingSlots.add(groupingIDSlot);
     }
@@ -138,7 +139,7 @@ public class GroupingInfo {
             for (BitSet bitSet : groupingIdList) {
                 long l = 0L;
                 // for all column, using for group by
-                if ("GROUPING_ID".equals(slot.getColumnName())) {
+                if (slot.getColumnName().equalsIgnoreCase(COL_GROUPING_ID)) {
                     BitSet newBitSet = new BitSet();
                     for (int i = 0; i < bitSetAll.length(); ++i) {
                         newBitSet.set(i, bitSet.get(bitSetAll.length() - i - 1));
