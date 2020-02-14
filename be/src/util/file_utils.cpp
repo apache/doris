@@ -50,7 +50,7 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
 
     boost::filesystem::path p(path);
 
-    string partial_path;
+    std::string partial_path;
     for (boost::filesystem::path::iterator it = p.begin(); it != p.end(); ++it) {
         partial_path = partial_path + it->string() + "/";
         bool is_dir = false;
@@ -64,7 +64,7 @@ Status FileUtils::create_dir(const std::string& path, Env* env) {
             }
 
             // Maybe a file or a symlink. Let's try to follow the symlink.
-            string real_partial_path;
+            std::string real_partial_path;
             RETURN_IF_ERROR(env->canonicalize(partial_path, &real_partial_path));
 
             RETURN_IF_ERROR(env->is_directory(real_partial_path, &is_dir));
@@ -113,8 +113,8 @@ Status FileUtils::remove(const std::string& path) {
     return remove(path, Env::Default());
 }
 
-Status FileUtils::remove_paths(const std::vector<string>& paths) {
-    for (const string& p : paths) {
+Status FileUtils::remove_paths(const std::vector<std::string>& paths) {
+    for (const std::string& p : paths) {
         RETURN_IF_ERROR(remove(p));
     }
     return Status::OK();
@@ -138,7 +138,7 @@ Status FileUtils::list_dirs_files(const std::string& path, std::set<std::string>
             return true;
         }
 
-        string temp_path =  path + "/" + name;
+        std::string temp_path =  path + "/" + name;
         bool is_dir;
 
         auto st = env->is_directory(temp_path, &is_dir);

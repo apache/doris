@@ -14,7 +14,7 @@
 #include <rapidjson/document.h>
 
 #include "olap/olap_common.h"
-#include "olap/utils.h"
+#include "util/mutex.h"
 #include "util/slice.h"
 
 namespace doris {

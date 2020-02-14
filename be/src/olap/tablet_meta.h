@@ -30,6 +30,7 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/delete_handler.h"
+#include "util/mutex.h"
 #include "util/uid_util.h"
 
 using std::string;

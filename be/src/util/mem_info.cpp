@@ -68,7 +68,7 @@ void MemInfo::init() {
     int64_t cgroup_mem_limit = 0;
     Status status = CGroupUtil::find_cgroup_mem_limit(&cgroup_mem_limit);
     if (status.ok() && cgroup_mem_limit > 0) {
-        _s_physical_mem = min(_s_physical_mem, cgroup_mem_limit);
+        _s_physical_mem = std::min(_s_physical_mem, cgroup_mem_limit);
     }
 
     if (meminfo.is_open()) {
