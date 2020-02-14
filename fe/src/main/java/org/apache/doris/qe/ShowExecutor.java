@@ -671,9 +671,9 @@ public class ShowExecutor {
             if (table != null && table instanceof OlapTable) {
                 List<Index> indexes = ((OlapTable) table).getIndexes();
                 for (Index index : indexes) {
-                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), index.getIndexName(),
-                            index.getColumns().stream().collect(Collectors.joining(",")),
-                            index.getIndexType().name(), index.getComment()));
+                    rows.add(Lists.newArrayList(showStmt.getTableName().toString(), "", index.getIndexName(),
+                            "", index.getColumns().stream().collect(Collectors.joining(",")), "", "", "", "",
+                            "", index.getIndexType().name(), index.getComment()));
                 }
             } else {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TABLE_ERROR,
