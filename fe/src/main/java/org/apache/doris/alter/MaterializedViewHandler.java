@@ -834,6 +834,10 @@ public class MaterializedViewHandler extends AlterHandler {
             runAlterJobWithConcurrencyLimit(alterJob);
             // the following check should be right after job's running, so that the table's state
             // can be changed to NORMAL immediately after the last alter job of the table is done.
+            //
+            // ATTN(cmy): there is still a short gap between "job finish" and "table become normal",
+            // so if user send next alter job right after the "job finish",
+            // it may encounter "table's state not NORMAL" error.
             if (alterJob.isDone()) {
                 removeJobFromRunningQueue(alterJob);
                 if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
