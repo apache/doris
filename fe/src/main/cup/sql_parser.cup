@@ -631,6 +631,14 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_ADD KW_ROLLUP add_rollup_clause_list:clauses
+    {:
+        RESULT = new AlterTableStmt(tbl, clauses);
+    :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_DROP KW_ROLLUP drop_rollup_clause_list:clauses
+    {:
+        RESULT = new AlterTableStmt(tbl, clauses);
+    :}
     | KW_ALTER KW_VIEW table_name:tbl
     opt_col_with_comment_list:columns KW_AS query_stmt:view_def
     {:
@@ -714,15 +722,7 @@ drop_rollup_clause_list ::=
     ;
 
 alter_table_clause_list ::=
-    KW_ADD KW_ROLLUP add_rollup_clause_list:list
-    {:
-        RESULT = list;
-    :}
-    | KW_DROP KW_ROLLUP drop_rollup_clause_list:list
-    {:
-        RESULT = list;
-    :}
-    | alter_table_clause:clause
+    alter_table_clause:clause
     {:
         RESULT = Lists.newArrayList(clause);
     :}
