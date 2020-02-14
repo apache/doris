@@ -194,7 +194,7 @@ parser code {:
 :};
 
 // Total keywords of doris
-terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
+terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS,
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
@@ -425,7 +425,7 @@ nonterminal GroupByClause group_by_clause, grouping_elements;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name, text_or_password,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
-        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format;
+        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit;
 
 nonterminal String opt_db, opt_partition_name, procedure_or_function, opt_comment, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
@@ -3922,7 +3922,7 @@ timestamp_arithmetic_expr ::=
 
     RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
   :}
-  | function_name:functionName LPAREN keyword:u COMMA expr:e1 COMMA expr:e2 RPAREN
+  | function_name:functionName LPAREN time_unit:u COMMA expr:e1 COMMA expr:e2 RPAREN
   {:
     RESULT = new TimestampArithmeticExpr(functionName.getFunction(), e2, e1, u);
   :}
@@ -4499,20 +4499,6 @@ keyword ::=
     {: RESULT = id; :}
     | KW_DYNAMIC:id
     {: RESULT = id; :}
-    | KW_YEAR:id
-    {: RESULT = id; :}
-    | KW_MONTH:id
-    {: RESULT = id; :}
-    | KW_WEEK:id
-    {: RESULT = id; :}
-    | KW_DAY:id
-    {: RESULT = id; :}
-    | KW_HOUR:id
-    {: RESULT = id; :}
-    | KW_MINUTE:id
-    {: RESULT = id; :}
-    | KW_SECOND:id
-    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword
@@ -4537,6 +4523,23 @@ ident_or_text ::=
     {:
         RESULT = text;
     :}
+    ;
+
+time_unit ::=
+    KW_YEAR:id
+    {: RESULT = id; :}
+    | KW_MONTH:id
+    {: RESULT = id; :}
+    | KW_WEEK:id
+    {: RESULT = id; :}
+    | KW_DAY:id
+    {: RESULT = id; :}
+    | KW_HOUR:id
+    {: RESULT = id; :}
+    | KW_MINUTE:id
+    {: RESULT = id; :}
+    | KW_SECOND:id
+    {: RESULT = id; :}
     ;
 
 // TODO(zhaochun): Select for SQL-2003 (http://savage.net.au/SQL/sql-2003-2.bnf.html)
