@@ -223,6 +223,50 @@ TEST_F(StringFunctionsTest, starts_with) {
     ASSERT_EQ(nullRet, StringFunctions::starts_with(context, StringVal::null(), StringVal::null()));
 }
 
+TEST_F(StringFunctionsTest, not_empty) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    doris_udf::BooleanVal falseRet = doris_udf::BooleanVal(false);
+    doris_udf::BooleanVal trueRet = doris_udf::BooleanVal(true);
+    doris_udf::BooleanVal nullRet = doris_udf::BooleanVal::null();
+
+    ASSERT_EQ(falseRet, StringFunctions::not_empty(context, StringVal("")));
+
+    ASSERT_EQ(trueRet, StringFunctions::not_empty(context, StringVal(" ")));
+
+    ASSERT_EQ(trueRet, StringFunctions::not_empty(context, StringVal("hello")));
+
+    ASSERT_EQ(trueRet, StringFunctions::not_empty(context, StringVal("doris")));
+
+    ASSERT_EQ(trueRet, StringFunctions::not_empty(context, StringVal(".")));
+
+    ASSERT_EQ(trueRet, StringFunctions::not_empty(context, StringVal("~")));
+
+    ASSERT_EQ(trueRet, StringFunctions::not_empty(context, StringVal("222")));
+
+    ASSERT_EQ(nullRet, StringFunctions::not_empty(context, StringVal::null()));
+}
+
+TEST_F(StringFunctionsTest, empty) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    doris_udf::BooleanVal falseRet = doris_udf::BooleanVal(false);
+    doris_udf::BooleanVal trueRet = doris_udf::BooleanVal(true);
+    doris_udf::BooleanVal nullRet = doris_udf::BooleanVal::null();
+
+    ASSERT_EQ(trueRet, StringFunctions::empty(context, StringVal("")));
+
+    ASSERT_EQ(falseRet, StringFunctions::empty(context, StringVal(" ")));
+
+    ASSERT_EQ(falseRet, StringFunctions::empty(context, StringVal("hello")));
+
+    ASSERT_EQ(falseRet, StringFunctions::empty(context, StringVal("doris")));
+
+    ASSERT_EQ(falseRet, StringFunctions::empty(context, StringVal("111")));
+
+    ASSERT_EQ(falseRet, StringFunctions::empty(context, StringVal(".")));
+
+    ASSERT_EQ(nullRet, StringFunctions::empty(context, StringVal::null()));
+}
+
 }
 
 int main(int argc, char** argv) {

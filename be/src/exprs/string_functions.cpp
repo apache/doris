@@ -99,6 +99,32 @@ BooleanVal StringFunctions::ends_with(
     return BooleanVal(str_sp.ends_with(suffix_sp));
 }
 
+BooleanVal StringFunctions::empty(
+        FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return BooleanVal::null();
+    }
+    if (str.len == 0) {
+        return 1;
+    }
+    else {
+        return 0;
+    }
+}
+
+BooleanVal StringFunctions::not_empty(
+        FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return BooleanVal::null();
+    }
+    if (str.len == 0) {
+        return 0;
+    }
+    else {
+        return 1;
+    }
+}
+
 StringVal StringFunctions::space(FunctionContext* context, const IntVal& len) {
     if (len.is_null){
         return StringVal::null();

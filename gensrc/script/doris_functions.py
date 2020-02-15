@@ -108,6 +108,8 @@ functions = [
   ['String_Right', 'VARCHAR', ['VARCHAR', 'INT'], 'StringFunctions::right', ['strright', 'right']],
   ['String_Ends_With', 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'StringFunctions::ends_with', ['ends_with']],
   ['String_Starts_With', 'BOOLEAN', ['VARCHAR', 'VARCHAR'], 'StringFunctions::starts_with', ['starts_with']],
+  ['String_Not_Empty', 'BOOLEAN', ['VARCHAR'], 'StringFunctions::not_empty', ['not_empty']],
+  ['String_Empty', 'BOOLEAN', ['VARCHAR'], 'StringFunctions::empty', ['empty']],
   ['String_Length', 'INT', ['VARCHAR'], 'StringFunctions::length', ['length']],
   ['String_Lower', 'VARCHAR', ['VARCHAR'], 'StringFunctions::lower', ['lower', 'lcase']],
   ['String_Upper', 'VARCHAR', ['VARCHAR'], 'StringFunctions::upper', ['upper', 'ucase']],
