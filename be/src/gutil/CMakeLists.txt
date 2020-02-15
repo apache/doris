@@ -31,6 +31,7 @@ SET(SOURCE_FILES
         hash/jenkins.cc
         int128.cc
         once.cc
+        ref_counted.cc
         spinlock_internal.cc
         stringprintf.cc
         strings/ascii_ctype.cc
@@ -46,6 +47,8 @@ SET(SOURCE_FILES
         strings/substitute.cc
         strings/util.cc
         strtoint.cc
+        sysinfo.cc
+        threading/thread_collision_warner.cc
         utf/rune.c
         cpu.cc)
 

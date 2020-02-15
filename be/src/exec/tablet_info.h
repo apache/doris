@@ -123,7 +123,7 @@ public:
 
             auto lhs_value = lhs->get_slot(slot_desc->tuple_offset());
             auto rhs_value = rhs->get_slot(slot_desc->tuple_offset());
-            
+
             int res = RawValue::compare(lhs_value, rhs_value, slot_desc->type());
             if (res != 0) { return res < 0; }
         }
@@ -207,8 +207,8 @@ public:
     int64_t table_id() const { return _t_param.table_id; }
     int64_t version() const { return _t_param.version; }
 
-    TabletLocation* find_tablet(int64_t id) const {
-        auto it = _tablets.find(id);
+    TabletLocation* find_tablet(int64_t tablet_id) const {
+        auto it = _tablets.find(tablet_id);
         if (it != std::end(_tablets)) {
             return it->second;
         }

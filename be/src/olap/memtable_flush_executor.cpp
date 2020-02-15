@@ -17,6 +17,8 @@
 
 #include "olap/memtable_flush_executor.h"
 
+#include <functional>
+
 #include "olap/data_dir.h"
 #include "olap/delta_writer.h"
 #include "olap/memtable.h"
@@ -33,7 +35,7 @@ OLAPStatus FlushHandler::submit(std::shared_ptr<MemTable> memtable) {
     _counter_cond.inc();
     VLOG(5) << "submitting " << *(ctx.memtable) << " to flush queue " << _flush_queue_idx;
     RETURN_NOT_OK(_flush_executor->_push_memtable(_flush_queue_idx, ctx));
-    return OLAP_SUCCESS; 
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus FlushHandler::wait() {
@@ -72,7 +74,7 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
     // create thread pool
     _flush_pool = new ThreadPool(_num_threads, 1);
     for (int32_t i = 0; i < _num_threads; ++i) {
-       _flush_pool->offer(boost::bind<void>(&MemTableFlushExecutor::_flush_memtable, this, i));
+       _flush_pool->offer(std::bind<void>(&MemTableFlushExecutor::_flush_memtable, this, i));
     }
 
     // _path_map saves the path hash to current idx of flush queue.

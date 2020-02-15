@@ -512,6 +512,15 @@ Status OlapScanNode::normalize_conjuncts() {
             break;
         }
 
+        case TYPE_BOOLEAN: {
+            ColumnValueRange<bool> range(slots[slot_idx]->col_name(),
+                                         slots[slot_idx]->type().type,
+                                         false,
+                                         true);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
         default: {
             VLOG(2) << "Unsupport Normalize Slot [ColName="
                     << slots[slot_idx]->col_name() << "]";
@@ -825,6 +834,11 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         range->add_fixed_value(*reinterpret_cast<T*>(const_cast<void*>(iter->get_value())));
                         break;
                     }
+                    case TYPE_BOOLEAN: {
+                        bool v = *reinterpret_cast<bool*>(const_cast<void*>(iter->get_value()));
+                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                        break;
+                    }
                     default: {
                         break;
                     }
@@ -892,6 +906,11 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                     case TYPE_BIGINT:
                     case TYPE_LARGEINT: {
                         range->add_fixed_value(*reinterpret_cast<T*>(value));
+                        break;
+                    }
+                    case TYPE_BOOLEAN: {
+                        bool v = *reinterpret_cast<bool*>(value);
+                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
                         break;
                     }
                     default: {
@@ -1006,6 +1025,12 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
                 case TYPE_LARGEINT: {
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
                                     *reinterpret_cast<T*>(value));
+                    break;
+                }
+                case TYPE_BOOLEAN: {
+                    bool v = *reinterpret_cast<bool*>(value);
+                    range->add_range(to_olap_filter_type(pred->op(), child_idx),
+                                     *reinterpret_cast<T*>(&v));
                     break;
                 }
 

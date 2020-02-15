@@ -712,12 +712,12 @@ if __name__ == "__main__":
 
         # Validate the input is correct
         if len(return_types) != 1 and len(return_types) != num_functions:
-            print "Invalid Declaration: " + func_data
+            print("Invalid Declaration: " + func_data)
             sys.exit(1)
 
         for args in signatures:
             if len(args) != 1 and len(args) != num_functions:
-                print "Invalid Declaration: " + func_data
+                print("Invalid Declaration: " + func_data)
                 sys.exit(1)
 
         # Iterate over every function signature to generate

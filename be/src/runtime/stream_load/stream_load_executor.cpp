@@ -47,9 +47,9 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
     // submit this params
 #ifndef BE_TEST
     ctx->ref();
-    LOG(INFO) << "begin to execute job:" << ctx->label 
-              << " with txn id:" << ctx->txn_id
-              << " with query id:" << print_id(ctx->put_result.params.params.query_id);
+    LOG(INFO) << "begin to execute job. label=" << ctx->label
+              << ", txn_id=" << ctx->txn_id
+              << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
     auto st = _exec_env->fragment_mgr()->exec_plan_fragment(
         ctx->put_result.params,
         [ctx] (PlanFragmentExecutor* executor) {
@@ -61,12 +61,12 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 ctx->number_filtered_rows = executor->runtime_state()->num_rows_load_filtered();
                 ctx->number_unselected_rows = executor->runtime_state()->num_rows_load_unselected();
 
-                int64_t num_selected_rows =
-                    ctx->number_total_rows - ctx->number_unselected_rows;
-                if ((0.0 + ctx->number_filtered_rows) / num_selected_rows > ctx->max_filter_ratio) {
+                int64_t num_selected_rows = ctx->number_total_rows - ctx->number_unselected_rows;
+                if ((double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
+                    // NOTE: Do not modify the error message here, for historical reasons,
+                    // some users may rely on this error message.
                     status = Status::InternalError("too many filtered rows");
-                }
-                else if(ctx->number_loaded_rows == 0){
+                } else if(ctx->number_loaded_rows == 0){
                     status = Status::InternalError("all partitions have no load data");
                 }
                 if (ctx->number_filtered_rows > 0 &&
@@ -82,7 +82,7 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
             } else {
                 LOG(WARNING) << "fragment execute failed"
                     << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
-                    << ", errmsg=" << status.get_error_msg()
+                    << ", err_msg=" << status.get_error_msg()
                     << ctx->brief();
                 // cancel body_sink, make sender known it
                 if (ctx->body_sink != nullptr) {
@@ -117,7 +117,6 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
 Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     DorisMetrics::txn_begin_request_total.increment(1);
 
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnBeginRequest request;
     set_request_auth(&request, ctx->auth);
     request.db = ctx->db;
@@ -130,13 +129,14 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
     }
     request.__set_request_id(ctx->id.to_thrift());
 
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnBeginResult result;
 #ifndef BE_TEST
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr.hostname, master_addr.port,
-                [&request, &result] (FrontendServiceConnection& client) {
+            master_addr.hostname, master_addr.port,
+            [&request, &result] (FrontendServiceConnection& client) {
                 client->loadTxnBegin(result, request);
-                }));
+            }));
 #else
     result = k_stream_load_begin_result;
 #endif
@@ -158,7 +158,6 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     DorisMetrics::txn_commit_request_total.increment(1);
 
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnCommitRequest request;
     set_request_auth(&request, ctx->auth);
     request.db = ctx->db;
@@ -175,6 +174,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
         request.__isset.txnCommitAttachment = true;
     }
 
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     TLoadTxnCommitResult result;
 #ifndef BE_TEST
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -240,7 +240,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
     switch(ctx->load_type) {
         case TLoadType::MINI_LOAD: {
             attach->loadType = TLoadType::MINI_LOAD;
-            
+
             TMiniLoadTxnCommitAttachment ml_attach;
             ml_attach.loadedRows = ctx->number_loaded_rows;
             ml_attach.filteredRows = ctx->number_filtered_rows;
@@ -254,7 +254,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
         }
         case TLoadType::ROUTINE_LOAD: {
             attach->loadType = TLoadType::ROUTINE_LOAD;
-            
+
             TRLTaskTxnCommitAttachment rl_attach;
             rl_attach.jobId = ctx->job_id;
             rl_attach.id = ctx->id.to_thrift();
@@ -264,7 +264,7 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
             rl_attach.__set_receivedBytes(ctx->receive_bytes);
             rl_attach.__set_loadedBytes(ctx->loaded_bytes);
             rl_attach.__set_loadCostMs(ctx->load_cost_nanos / 1000 / 1000);
-            
+
             attach->rlTaskTxnCommitAttachment = std::move(rl_attach);
             attach->__isset.rlTaskTxnCommitAttachment = true;
             break;
@@ -295,4 +295,4 @@ bool StreamLoadExecutor::collect_load_stat(StreamLoadContext* ctx, TTxnCommitAtt
     return false;
 }
 
-} // end namespace 
+} // end namespace

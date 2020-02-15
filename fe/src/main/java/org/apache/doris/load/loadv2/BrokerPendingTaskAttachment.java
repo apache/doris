@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Maps;
@@ -26,25 +27,25 @@ import java.util.Map;
 
 public class BrokerPendingTaskAttachment extends TaskAttachment {
 
-    // table id -> file status
-    private Map<Long, List<List<TBrokerFileStatus>>> fileStatusMap = Maps.newHashMap();
-    // table id -> total file num
-    private Map<Long, Integer> fileNumMap = Maps.newHashMap();
+    // FileGroupAggKey -> status of files group by FileGroup
+    private Map<FileGroupAggKey, List<List<TBrokerFileStatus>>> fileStatusMap = Maps.newHashMap();
+    // FileGroupAggKey -> total file num
+    private Map<FileGroupAggKey, Integer> fileNumMap = Maps.newHashMap();
 
     public BrokerPendingTaskAttachment(long taskId) {
         super(taskId);
     }
 
-    public void addFileStatus(long tableId, List<List<TBrokerFileStatus>> fileStatusList) {
-        fileStatusMap.put(tableId, fileStatusList);
-        fileNumMap.put(tableId, fileStatusList.stream().mapToInt(entity -> entity.size()).sum());
+    public void addFileStatus(FileGroupAggKey aggKey, List<List<TBrokerFileStatus>> fileStatusList) {
+        fileStatusMap.put(aggKey, fileStatusList);
+        fileNumMap.put(aggKey, fileStatusList.stream().mapToInt(entity -> entity.size()).sum());
     }
 
-    public List<List<TBrokerFileStatus>> getFileStatusByTable(long tableId) {
-        return fileStatusMap.get(tableId);
+    public List<List<TBrokerFileStatus>> getFileStatusByTable(FileGroupAggKey aggKey) {
+        return fileStatusMap.get(aggKey);
     }
 
-    public int getFileNumByTable(long tableId) {
-        return fileNumMap.get(tableId);
+    public int getFileNumByTable(FileGroupAggKey aggKey) {
+        return fileNumMap.get(aggKey);
     }
 }

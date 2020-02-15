@@ -33,6 +33,7 @@ under the License.
     [COMMENT "table comment"];
     [partition_desc]
     [distribution_desc]
+    [rollup_index]
     [PROPERTIES ("key"="value", ...)]
     [BROKER PROPERTIES ("key"="value", ...)]
 ```
@@ -272,7 +273,15 @@ under the License.
     dynamic_partition.end: 用于指定提前创建的分区数量
     dynamic_partition.prefix: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108
     dynamic_partition.buckets: 用于指定自动创建的分区分桶数量
-    
+
+4. rollup_index
+    语法：
+    ```
+        ROLLUP (rollup_name (column_name1, column_name2, ...)
+               [FROM from_index_name]
+                [PROPERTIES ("key"="value", ...)],...)
+    ```
+
 ## example
 
 1. 创建一个 olap 表，使用 HASH 分桶，使用列存，相同key的记录进行聚合
@@ -548,6 +557,26 @@ under the License.
     "dynamic_partition.prefix" = "p",
     "dynamic_partition.buckets" = "32"
      );
+```
+
+12. Create a table with rollup index
+```
+    CREATE TABLE example_db.rolup_index_table
+    (
+        event_day DATE,
+        siteid INT DEFAULT '10',
+        citycode SMALLINT,
+        username VARCHAR(32) DEFAULT '',
+        pv BIGINT SUM DEFAULT '0'
+    )
+    AGGREGATE KEY(event_day, siteid, citycode, username)
+    DISTRIBUTED BY HASH(siteid) BUCKETS 10
+    rollup (
+    r1(event_day,siteid),
+    r2(event_day,citycode),
+    r3(event_day)
+    )
+    PROPERTIES("replication_num" = "3");
 ```
 
 ## keyword

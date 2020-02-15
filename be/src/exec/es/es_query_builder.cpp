@@ -82,13 +82,13 @@ void RangeQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value*
             op_node.AddMember("lt", value, allocator);
             break;
         case TExprOpcode::LE:
-            op_node.AddMember("le", value, allocator);
+            op_node.AddMember("lte", value, allocator);
             break;
         case TExprOpcode::GT:
             op_node.AddMember("gt", value, allocator);
             break;
         case TExprOpcode::GE:
-            op_node.AddMember("ge", value, allocator);
+            op_node.AddMember("gte", value, allocator);
             break;
         default:
             break;
@@ -110,8 +110,19 @@ void WildCardQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Val
 }
 WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicate) : _field(like_predicate.col.name) {
     _like_value = like_predicate.value.to_string();
-    std::replace(_like_value.begin(), _like_value.end(), '_', '?');
-    std::replace(_like_value.begin(), _like_value.end(), '%', '*');
+    // example of translation :
+    //      abc_123  ===> abc?123
+    //      abc%ykz  ===> abc*123
+    //      abc\\_123 ===> abc\\_123
+    //      abc\\%123 ===> abc\\%123
+    // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
+    for (int i = 0; i< _like_value.size(); i++) {
+        if ((_like_value[i] == '_' || _like_value[i]== '%') && i > 0) {
+                if (_like_value[i-1] != '\\' ) {
+                    _like_value[i] = (_like_value[i] == '_') ? '?' : '*';
+                }
+        }
+    }
 }
 
 void TermsInSetQueryBuilder::to_json(rapidjson::Document* document, rapidjson::Value* query) {

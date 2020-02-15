@@ -21,7 +21,7 @@
 #include <future>
 #include <sstream>
 
-// use string iequal 
+// use string iequal
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 #include <event2/http.h>
@@ -166,7 +166,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
     ctx->ref();
     req->set_handler_ctx(ctx);
-    
+
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
@@ -178,7 +178,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     }
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
-              << ", db: " << ctx->db << ", tbl: " << ctx->table;
+              << ", db=" << ctx->db << ", tbl=" << ctx->table;
 
     auto st = _on_header(req, ctx);
     if (!st.ok()) {
@@ -236,11 +236,9 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
         }
     }
 
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
         try {
-            ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT)); 
+            ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid timeout format");
         }
@@ -295,7 +293,7 @@ void StreamLoadAction::free_handler_ctx(void* param) {
 Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* ctx) {
     // Now we use stream
     ctx->use_streaming = is_format_support_streaming(ctx->format);
-    
+
     // put request
     TStreamLoadPutRequest request;
     set_request_auth(&request, ctx->auth);
@@ -329,8 +327,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_PARTITIONS));
     }
-    if (!http_req->header(HTTP_NEGATIVE).empty()
-            && http_req->header(HTTP_NEGATIVE) == "true") {
+    if (!http_req->header(HTTP_NEGATIVE).empty() && http_req->header(HTTP_NEGATIVE) == "true") {
             request.__set_negative(true);
     } else {
         request.__set_negative(false);
@@ -349,7 +346,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
     if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
         try {
-            request.__set_execMemLimit(std::stoll(http_req->header(HTTP_EXEC_MEM_LIMIT))); 
+            request.__set_execMemLimit(std::stoll(http_req->header(HTTP_EXEC_MEM_LIMIT)));
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid mem limit format");
         }
@@ -367,9 +364,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
 
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
-                master_addr.hostname, master_addr.port,
+            master_addr.hostname, master_addr.port,
             [&request, ctx] (FrontendServiceConnection& client) {
-            client->streamLoadPut(ctx->put_result, request);
+                client->streamLoadPut(ctx->put_result, request);
             }));
 #else
     ctx->put_result = k_stream_load_put_result;

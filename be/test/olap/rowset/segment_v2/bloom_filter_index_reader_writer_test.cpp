@@ -81,11 +81,9 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const BloomFilte
                             BloomFilterIndexReader** reader,
                             std::unique_ptr<BloomFilterIndexIterator>* iter) {
     std::string fname = dname + "/" + file_name;
-    auto st = Env::Default()->new_random_access_file(fname, rfile);
-    ASSERT_TRUE(st.ok());
 
-    *reader = new BloomFilterIndexReader(rfile->get(), bloom_filter_index_meta);
-    st = (*reader)->load();
+    *reader = new BloomFilterIndexReader(fname, bloom_filter_index_meta);
+    auto st = (*reader)->load();
     ASSERT_TRUE(st.ok());
 
     st = (*reader)->new_iterator(iter);

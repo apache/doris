@@ -202,9 +202,9 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ALL);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", "total error query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ERR);
-        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", "total laod submit");
+        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", "total load submit");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_ADD);
-        COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", "total laod finished");
+        COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", "total load finished");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_FINISHED);
         COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log_write", "counter of edit log write into bdbje");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_WRITE);

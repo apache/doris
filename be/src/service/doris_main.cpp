@@ -50,6 +50,7 @@
 #include "agent/topic_subscriber.h"
 #include "util/doris_metrics.h"
 #include "olap/options.h"
+#include "olap/storage_engine.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"

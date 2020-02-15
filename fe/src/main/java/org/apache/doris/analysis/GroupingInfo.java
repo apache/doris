@@ -32,18 +32,20 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class GroupingInfo {
+    public static final String COL_GROUPING_ID = "GROUPING_ID";
+
     private VirtualSlotRef groupingIDSlot;
     private TupleDescriptor virtualTuple;
     private Set<VirtualSlotRef> groupingSlots;
     private List<BitSet> groupingIdList;
     private GroupByClause.GroupingType groupingType;
+    private BitSet bitSetAll;
 
     public GroupingInfo(Analyzer analyzer, GroupByClause.GroupingType groupingType) throws AnalysisException {
         this.groupingType = groupingType;
         groupingSlots = new LinkedHashSet<>();
         virtualTuple = analyzer.getDescTbl().createTupleDescriptor("VIRTUAL_TUPLE");
-        String colName = "GROUPING__ID";
-        groupingIDSlot = new VirtualSlotRef(colName, Type.BIGINT, virtualTuple, new ArrayList<>());
+        groupingIDSlot = new VirtualSlotRef(COL_GROUPING_ID, Type.BIGINT, virtualTuple, new ArrayList<>());
         groupingIDSlot.analyze(analyzer);
         groupingSlots.add(groupingIDSlot);
     }
@@ -85,12 +87,14 @@ public class GroupingInfo {
     // generate the bitmap that repeated node will repeat rows according to
     public void buildRepeat(ArrayList<Expr> groupingExprs, List<ArrayList<Expr>> groupingSetList) {
         groupingIdList = new ArrayList<>();
-        BitSet bitSetAll = new BitSet();
+        bitSetAll = new BitSet();
         bitSetAll.set(0, groupingExprs.size(), true);
-        groupingIdList.add(bitSetAll);
         switch (groupingType) {
             case CUBE:
-                for (int i = 0; i < (1 << groupingExprs.size()) - 1; i++) {
+                // it will generate the full permutation bitmap of cube item
+                // e.g. cube (k1,k2,k3) the result is ["{}", "{1}", "{0}", "{0, 1}", "{2}", "{1, 2}", "{0, 1, 2}",
+                // "{0, 2}"]
+                for (int i = 0; i < (1 << groupingExprs.size()); i++) {
                     BitSet bitSet = new BitSet();
                     for (int j = 0; j < groupingExprs.size(); j++) {
                         if ((i & (1 << j)) > 0) {
@@ -102,7 +106,7 @@ public class GroupingInfo {
                 break;
 
             case ROLLUP:
-                for (int i = 0; i < groupingExprs.size(); i++) {
+                for (int i = 0; i <= groupingExprs.size(); i++) {
                     BitSet bitSet = new BitSet();
                     bitSet.set(0, i);
                     groupingIdList.add(bitSet);
@@ -110,17 +114,13 @@ public class GroupingInfo {
                 break;
 
             case GROUPING_SETS:
-                BitSet bitSetBase = new BitSet();
-                bitSetBase.set(0, groupingExprs.size());
                 for (ArrayList<Expr> list : groupingSetList) {
                     BitSet bitSet = new BitSet();
                     for (int i = 0; i < groupingExprs.size(); i++) {
                         bitSet.set(i, list.contains(groupingExprs.get(i)));
                     }
-                    if (!bitSet.equals(bitSetBase)) {
-                        if (!groupingIdList.contains(bitSet)) {
-                            groupingIdList.add(bitSet);
-                        }
+                    if (!groupingIdList.contains(bitSet)) {
+                        groupingIdList.add(bitSet);
                     }
                 }
                 break;
@@ -134,19 +134,18 @@ public class GroupingInfo {
     // generate grouping function's value
     public List<List<Long>> genGroupingList(ArrayList<Expr> groupingExprs) {
         List<List<Long>> groupingList = new ArrayList<>();
-        BitSet base = groupingIdList.get(0);
         for (SlotRef slot : groupingSlots) {
             List<Long> glist = new ArrayList<>();
             for (BitSet bitSet : groupingIdList) {
                 long l = 0L;
                 // for all column, using for group by
-                if ("GROUPING__ID".equals(slot.getColumnName())) {
+                if (slot.getColumnName().equalsIgnoreCase(COL_GROUPING_ID)) {
                     BitSet newBitSet = new BitSet();
-                    for (int i = 0; i < base.length(); ++i) {
-                        newBitSet.set(i, bitSet.get(base.length() - i - 1));
+                    for (int i = 0; i < bitSetAll.length(); ++i) {
+                        newBitSet.set(i, bitSet.get(bitSetAll.length() - i - 1));
                     }
-                    newBitSet.flip(0, base.length());
-                    newBitSet.and(base);
+                    newBitSet.flip(0, bitSetAll.length());
+                    newBitSet.and(bitSetAll);
                     for (int i = 0; i < newBitSet.length(); ++i) {
                         l += newBitSet.get(i) ? (1L << i) : 0L;
                     }
@@ -179,7 +178,7 @@ public class GroupingInfo {
 
     public void substituteGroupingFn(Expr expr, Analyzer analyzer) throws AnalysisException {
         if (expr instanceof GroupingFunctionCallExpr) {
-            // TODO(yangzhengguo) support expression in grouping functuons
+            // TODO(yangzhengguo) support expression in grouping functions
             for (Expr child: expr.getChildren()) {
                 if (!(child instanceof SlotRef)) {
                     throw new AnalysisException("grouping functions only support column in current version.");
@@ -200,7 +199,7 @@ public class GroupingInfo {
             VirtualSlotRef vSlot = addGroupingSlots(((GroupingFunctionCallExpr) expr).getRealSlot(), analyzer);
             ((GroupingFunctionCallExpr) expr).resetChild(vSlot);
             expr.analyze(analyzer);
-        } else if (expr.getChildren().size() > 0) {
+        } else if (expr.getChildren() != null && expr.getChildren().size() > 0) {
             for (Expr child : expr.getChildren()) {
                 substituteGroupingFn(child, analyzer);
             }

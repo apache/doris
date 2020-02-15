@@ -17,9 +17,10 @@
 
 #pragma once
 
-#include <unordered_map>
 #include <mutex>
 #include <ostream>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
@@ -37,21 +38,20 @@ class TabletsChannel;
 // corresponding to a certain load job
 class LoadChannel {
 public:
-    LoadChannel(const UniqueId& load_id, int64_t mem_limit, MemTracker* mem_tracker, int64_t timeout_s);
+    LoadChannel(const UniqueId& load_id, int64_t mem_limit,
+                int64_t timeout_s, MemTracker* mem_tracker);
     ~LoadChannel();
 
     // open a new load channel if not exist
     Status open(const PTabletWriterOpenRequest& request);
 
     // this batch must belong to a index in one transaction
-    Status add_batch(
-            const PTabletWriterAddBatchRequest& request,
-            google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
+    Status add_batch(const PTabletWriterAddBatchRequest& request,
+                     google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
     // return true if this load channel has been opened and all tablets channels are closed then.
     bool is_finished();
 
-    // cancel this channel
     Status cancel();
 
     time_t last_updated_time() const { return _last_updated_time.load(); }
@@ -69,14 +69,13 @@ public:
     int64_t timeout() const { return _timeout_s; }
 
 private:
-    // when mem consumption exceeds limit, should call this to find the max mem consumption channel
-    // and try to reduce its mem usage.
-    bool _find_largest_max_consumption_tablets_channel(std::shared_ptr<TabletsChannel>* channel);
+    // when mem consumption exceeds limit, should call this method to find the channel
+    // that consumes the largest memory(, and then we can reduce its memory usage).
+    bool _find_largest_consumption_channel(std::shared_ptr<TabletsChannel>* channel);
 
-private:
     UniqueId _load_id;
-    // this mem tracker tracks the total mem comsuption of this load task
-    std::unique_ptr<MemTracker> _mem_tracker; 
+    // Tracks the total memory comsupted by current load job on this BE
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     // lock protect the tablets channel map
     std::mutex _lock;
@@ -89,8 +88,8 @@ private:
 
     std::atomic<time_t> _last_updated_time;
 
-    // the timeout of this load channel.
-    // if channel is timeout, it will be removed by load channel manager.
+    // the timeout of this load job.
+    // Timed out channels will be periodically deleted by LoadChannelMgr.
     int64_t _timeout_s;
 };
 

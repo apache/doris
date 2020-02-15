@@ -47,7 +47,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -87,7 +86,9 @@ public class InsertStmt extends DdlStmt {
     public static final String STREAMING = "STREAMING";
 
     private final TableName tblName;
-    private final Set<String> targetPartitions;
+    private final Set<String> targetPartitionNames;
+    // parsed from targetPartitionNames. empty means no partition specified
+    private List<Long> targetPartitionIds = Lists.newArrayList();
     private final List<String> targetColumnNames;
     private final QueryStmt queryStmt;
     private final List<String> planHints;
@@ -117,7 +118,7 @@ public class InsertStmt extends DdlStmt {
     private DataSink dataSink;
     private DataPartition dataPartition;
 
-    List<Column> targetColumns = Lists.newArrayList();
+    private List<Column> targetColumns = Lists.newArrayList();
 
     /*
      * InsertStmt may be analyzed twice, but transaction must be only begun once.
@@ -129,10 +130,10 @@ public class InsertStmt extends DdlStmt {
         this.tblName = target.getTblName();
         List<String> tmpPartitions = target.getPartitions();
         if (tmpPartitions != null) {
-            targetPartitions = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-            targetPartitions.addAll(tmpPartitions);
+            targetPartitionNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            targetPartitionNames.addAll(tmpPartitions);
         } else {
-            targetPartitions = null;
+            targetPartitionNames = null;
         }
         this.label = label;
         this.queryStmt = source.getQueryStmt();
@@ -147,7 +148,7 @@ public class InsertStmt extends DdlStmt {
     // Ctor for CreateTableAsSelectStmt
     public InsertStmt(TableName name, QueryStmt queryStmt) {
         this.tblName = name;
-        this.targetPartitions = null;
+        this.targetPartitionNames = null;
         this.targetColumnNames = null;
         this.queryStmt = queryStmt;
         this.planHints = null;
@@ -263,7 +264,7 @@ public class InsertStmt extends DdlStmt {
         }
 
         // check partition
-        if (targetPartitions != null && targetPartitions.isEmpty()) {
+        if (targetPartitionNames != null && targetPartitionNames.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_ON_NONPARTITIONED);
         }
 
@@ -320,16 +321,17 @@ public class InsertStmt extends DdlStmt {
             }
 
             // partition
-            if (targetPartitions != null) {
+            if (targetPartitionNames != null) {
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
                 }
-                for (String partName : targetPartitions) {
+                for (String partName : targetPartitionNames) {
                     Partition part = olapTable.getPartition(partName);
                     if (part == null) {
                         ErrorReport.reportAnalysisException(
                                 ErrorCode.ERR_UNKNOWN_PARTITION, partName, targetTable.getName());
                     }
+                    targetPartitionIds.add(part.getId());
                 }
             }
             // need a descriptor
@@ -349,11 +351,11 @@ public class InsertStmt extends DdlStmt {
             // will use it during create load job
             indexIdToSchemaHash = olapTable.getIndexIdToSchemaHash();
         } else if (targetTable instanceof MysqlTable) {
-            if (targetPartitions != null) {
+            if (targetPartitionNames != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
         } else if (targetTable instanceof BrokerTable) {
-            if (targetPartitions != null) {
+            if (targetPartitionNames != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
 
@@ -714,8 +716,7 @@ public class InsertStmt extends DdlStmt {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            String partitionNames = targetPartitions == null ? null : Joiner.on(",").join(targetPartitions);
-            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, partitionNames);
+            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds);
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;

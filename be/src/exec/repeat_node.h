@@ -45,6 +45,8 @@ private:
 
     // Slot id set used to indicate those slots need to set to null.
     std::vector<std::set<SlotId>> _slot_id_set_list;
+    // all slot id
+    std::set<SlotId> _all_slot_ids;
     // An integer bitmap list, it indicates the bit position of the exprs not null.
     std::vector<int64_t> _repeat_id_list;
     std::vector<std::vector<int64_t>> _grouping_list;

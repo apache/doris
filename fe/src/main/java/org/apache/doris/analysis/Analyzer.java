@@ -1425,7 +1425,7 @@ public class Analyzer {
      * the i-th expr among all expr lists is compatible.
      * Throw an AnalysisException if the types are incompatible.
      */
-    public void castToUnionCompatibleTypes(List<List<Expr>> exprLists)
+    public void castToSetOpsCompatibleTypes(List<List<Expr>> exprLists)
             throws AnalysisException {
         if (exprLists == null || exprLists.size() < 2) return;
 

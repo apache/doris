@@ -43,8 +43,6 @@ import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.MiniLoadEtlTask;
 import org.apache.doris.task.MiniLoadPendingTask;
-import org.apache.doris.task.PullLoadEtlTask;
-import org.apache.doris.task.PullLoadPendingTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
@@ -169,9 +167,6 @@ public class LoadChecker extends MasterDaemon {
                     case MINI:
                         task = new MiniLoadPendingTask(job);
                         break;
-                    case BROKER:
-                        task = new PullLoadPendingTask(job);
-                        break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());
                         break;
@@ -202,9 +197,6 @@ public class LoadChecker extends MasterDaemon {
                         break;
                     case INSERT:
                         task = new InsertLoadEtlTask(job);
-                        break;
-                    case BROKER:
-                        task = new PullLoadEtlTask(job);
                         break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());

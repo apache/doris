@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.SchemaChangeJob;
 import org.apache.doris.cluster.Cluster;
@@ -99,6 +100,11 @@ public class FakeEditLog extends MockUp<EditLog> {
 
     @Mock
     public void logAlterJob(AlterJobV2 alterJob) {
+
+    }
+
+    @Mock
+    public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
 
     }
 

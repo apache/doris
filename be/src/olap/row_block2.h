@@ -33,6 +33,7 @@
 namespace doris {
 
 class MemPool;
+class RowBlockRow;
 class RowCursor;
 
 // This struct contains a block of rows, in which each column's data is stored

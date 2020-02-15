@@ -844,6 +844,13 @@ ColumnPredicate* Reader::_new_##NAME##_pred(const TabletColumn& column, int inde
             predicate = new PREDICATE<uint64_t>(index, value); \
             break; \
         } \
+        case OLAP_FIELD_TYPE_BOOL: { \
+            std::stringstream ss(cond); \
+            bool value = false; \
+            ss >> value; \
+            predicate = new PREDICATE<bool>(index, value); \
+            break; \
+        } \
         default: break; \
     } \
  \
@@ -991,6 +998,7 @@ ColumnPredicate* Reader::_parse_to_predicate(const TCondition& condition) {
                 predicate = new InListPredicate<uint64_t>(index, std::move(values));
                 break;
             }
+            // OLAP_FIELD_TYPE_BOOL is not valid in this case.
             default: break;
         }
     } else if (condition.condition_op == "is") {

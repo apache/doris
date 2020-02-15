@@ -90,10 +90,13 @@ if [ ${COVERAGE} -eq 1 ]; then
     ant cover-test
 else
     if [ ${RUN} -eq 1 ]; then
-        echo "Run the specified class"  
-        $MVN test -D test=$1
+        echo "Run the specified class: $1"
+        # eg:
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2
+        ${MVN_CMD} test -D test=$1
     else    
         echo "Run Frontend UT"
-        $MVN test   
+        ${MVN_CMD} test   
     fi 
 fi

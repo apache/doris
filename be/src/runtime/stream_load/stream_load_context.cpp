@@ -78,7 +78,7 @@ std::string StreamLoadContext::to_json() const {
     return s.GetString();
 }
 
-/* 
+/*
  * The old mini load result format is as followes:
  * (which defined in src/util/json_util.cpp)
  *
@@ -123,7 +123,7 @@ std::string StreamLoadContext::to_json_for_mini_load() const {
 
 std::string StreamLoadContext::brief(bool detail) const {
     std::stringstream ss;
-    ss << "id=" << id << ", job id=" << job_id << ", txn id=" << txn_id << ", label=" << label;
+    ss << "id=" << id << ", job_id=" << job_id << ", txn_id=" << txn_id << ", label=" << label;
     if (detail) {
         switch(load_src_type) {
             case TLoadSourceType::KAFKA:

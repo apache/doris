@@ -45,6 +45,7 @@
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
+#include "util/path_util.h"
 #include "util/time.h"
 
 using apache::thrift::ThriftDebugString;
@@ -63,7 +64,6 @@ using std::priority_queue;
 using std::set;
 using std::set_difference;
 using std::string;
-using std::stringstream;
 using std::vector;
 
 namespace doris {
@@ -382,6 +382,14 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
     }
 } // _internal_create_tablet_unlocked
 
+static string _gen_tablet_dir(const string& dir, int16_t shard_id, int64_t tablet_id) {
+    string path = dir;
+    path = path_util::join_path_segments(path, DATA_PREFIX);
+    path = path_util::join_path_segments(path, std::to_string(shard_id));
+    path = path_util::join_path_segments(path, std::to_string(tablet_id));
+    return path;
+}
+
 TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         const TCreateTabletReq& request, const bool is_schema_change_tablet,
         const TabletSharedPtr ref_tablet, std::vector<DataDir*> data_dirs) {
@@ -399,22 +407,18 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
         OLAPStatus res = _create_tablet_meta_unlocked(
                 request, data_dir, is_schema_change_tablet, ref_tablet, &tablet_meta);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to create tablet meta. res=" << res << ", root=" << data_dir->path();
+            LOG(WARNING) << "fail to create tablet meta. res=" << res
+                         << ", root=" << data_dir->path();
             continue;
         }
 
-        stringstream schema_hash_dir_stream;
-        schema_hash_dir_stream << data_dir->path()
-                << DATA_PREFIX
-                << "/" << tablet_meta->shard_id()
-                << "/" << request.tablet_id
-                << "/" << request.tablet_schema.schema_hash;
-        string schema_hash_dir = schema_hash_dir_stream.str();
-        boost::filesystem::path schema_hash_path(schema_hash_dir);
-        boost::filesystem::path tablet_path = schema_hash_path.parent_path();
-        std::string tablet_dir = tablet_path.string();
-        // because the tablet is removed async, so that the dir may still exist
-        // when be receive create tablet again. For example redo schema change
+        string tablet_dir = _gen_tablet_dir(
+                data_dir->path(), tablet_meta->shard_id(), request.tablet_id);
+        string schema_hash_dir = path_util::join_path_segments(
+                tablet_dir, std::to_string(request.tablet_schema.schema_hash));
+
+        // Because the tablet is removed asynchronously, so that the dir may still exist when BE
+        // receive create-tablet request again, For example retried schema-change request
         if (FileUtils::check_exist(schema_hash_dir)) {
             LOG(WARNING) << "skip this dir because tablet path exist, path="<< schema_hash_dir;
             continue;
@@ -456,17 +460,16 @@ OLAPStatus TabletManager::drop_tablet(
         TTabletId tablet_id, SchemaHash schema_hash, bool keep_files) {
     WriteLock wlock(&_tablet_map_lock);
     return _drop_tablet_unlocked(tablet_id, schema_hash, keep_files);
-} // drop_tablet
+}
 
-
-// Drop tablet specified, the main logical is as follows:
+// Drop specified tablet, the main logical is as follows:
 // 1. tablet not in schema change:
 //      drop specified tablet directly;
 // 2. tablet in schema change:
-//      a. schema change not finished && dropped tablet is base :
-//          base tablet cannot be dropped;
+//      a. schema change not finished && the dropping tablet is a base-tablet:
+//          base-tablet cannot be dropped;
 //      b. other cases:
-//          drop specified tablet and clear schema change info.
+//          drop specified tablet directly and clear schema change info.
 OLAPStatus TabletManager::_drop_tablet_unlocked(
         TTabletId tablet_id, SchemaHash schema_hash, bool keep_files) {
     LOG(INFO) << "begin to process drop tablet."
@@ -557,8 +560,7 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
     for (const TabletInfo& tablet_info : tablet_info_vec) {
         TTabletId tablet_id = tablet_info.tablet_id;
         TSchemaHash schema_hash = tablet_info.schema_hash;
-        VLOG(3) << "drop_tablet begin. tablet_id=" << tablet_id
-                << ", schema_hash=" << schema_hash;
+        VLOG(3) << "drop_tablet begin. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
         TabletSharedPtr dropped_tablet = _get_tablet_unlocked(tablet_id, schema_hash);
         if (dropped_tablet == nullptr) {
             LOG(WARNING) << "dropping tablet not exist. "
@@ -569,11 +571,10 @@ OLAPStatus TabletManager::drop_tablets_on_error_root_path(
             for (list<TabletSharedPtr>::iterator it = _tablet_map[tablet_id].table_arr.begin();
                     it != _tablet_map[tablet_id].table_arr.end();) {
                 if ((*it)->equal(tablet_id, schema_hash)) {
+                    // We should first remove tablet from partition_map to avoid iterator
+                    // becoming invalid.
+                    _remove_tablet_from_partition_unlocked(*(*it));
                     it = _tablet_map[tablet_id].table_arr.erase(it);
-                    _partition_tablet_map[(*it)->partition_id()].erase((*it)->get_tablet_info());
-                    if (_partition_tablet_map[(*it)->partition_id()].empty()) {
-                        _partition_tablet_map.erase((*it)->partition_id());
-                    }
                 } else {
                     ++it;
                 }
@@ -833,9 +834,8 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
     // not add lock here, because load_tablet_from_meta already add lock
     string header_path = TabletMeta::construct_header_file_path(schema_hash_path, tablet_id);
     // should change shard id before load tablet
-    path boost_header_path(header_path);
-    std::string shard_path = boost_header_path.parent_path().parent_path().parent_path().string();
-    std::string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
+    string shard_path = path_util::dir_name(path_util::dir_name(path_util::dir_name(header_path)));
+    string shard_str = shard_path.substr(shard_path.find_last_of('/') + 1);
     int32_t shard = stol(shard_str);
     // load dir is called by clone, restore, storage migration
     // should change tablet uid when tablet object changed
@@ -967,8 +967,8 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
 
 OLAPStatus TabletManager::start_trash_sweep() {
     {
-        ReadLock rlock(&_tablet_map_lock);
         std::vector<int64_t> tablets_to_clean;
+        WriteLock rlock(&_tablet_map_lock);
         for (auto& item : _tablet_map) {
             // try to clean empty item
             if (item.second.table_arr.empty()) {
@@ -1079,8 +1079,8 @@ OLAPStatus TabletManager::start_trash_sweep() {
 bool TabletManager::try_schema_change_lock(TTabletId tablet_id) {
     bool res = false;
     VLOG(3) << "try_schema_change_lock begin. tablet_id=" << tablet_id;
-    ReadLock rlock(&_tablet_map_lock);
 
+    ReadLock rlock(&_tablet_map_lock);
     tablet_map_t::iterator it = _tablet_map.find(tablet_id);
     if (it == _tablet_map.end()) {
         LOG(WARNING) << "tablet does not exists. tablet_id=" << tablet_id;
@@ -1089,28 +1089,29 @@ bool TabletManager::try_schema_change_lock(TTabletId tablet_id) {
     }
     VLOG(3) << "try_schema_change_lock end. tablet_id=" <<  tablet_id;
     return res;
-} // try_schema_change_lock
+}
 
 void TabletManager::update_root_path_info(std::map<std::string, DataDirInfo>* path_map,
-    int* tablet_counter) {
+                                          size_t* tablet_counter) {
     ReadLock rlock(&_tablet_map_lock);
     for (auto& entry : _tablet_map) {
-        TableInstances& instance = entry.second;
+        const TableInstances& instance = entry.second;
         for (auto& tablet : instance.table_arr) {
-            (*tablet_counter) ++ ;
+            ++(*tablet_counter);
             int64_t data_size = tablet->tablet_footprint();
-            auto find = path_map->find(tablet->data_dir()->path());
-            if (find == path_map->end()) {
+            auto iter = path_map->find(tablet->data_dir()->path());
+            if (iter == path_map->end()) {
                 continue;
             }
-            if (find->second.is_used) {
-                find->second.data_used_capacity += data_size;
+            if (iter->second.is_used) {
+                iter->second.data_used_capacity += data_size;
             }
         }
     }
 } // update_root_path_info
 
-void TabletManager::get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos) {
+void TabletManager::get_partition_related_tablets(int64_t partition_id,
+                                                  std::set<TabletInfo>* tablet_infos) {
     ReadLock rlock(&_tablet_map_lock);
     if (_partition_tablet_map.find(partition_id) != _partition_tablet_map.end()) {
         for (auto& tablet_info : _partition_tablet_map[partition_id]) {
@@ -1332,10 +1333,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
             it != _tablet_map[tablet_id].table_arr.end();) {
         if ((*it)->equal(tablet_id, schema_hash)) {
             TabletSharedPtr tablet = *it;
-            _partition_tablet_map[(*it)->partition_id()].erase((*it)->get_tablet_info());
-            if (_partition_tablet_map[(*it)->partition_id()].empty()) {
-                _partition_tablet_map.erase((*it)->partition_id());
-            }
+            _remove_tablet_from_partition_unlocked(*(*it));
             it = _tablet_map[tablet_id].table_arr.erase(it);
             if (!keep_files) {
                 // drop tablet will update tablet meta, should lock
@@ -1395,4 +1393,11 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
     return tablet;
 }
 
-} // doris
+void TabletManager::_remove_tablet_from_partition_unlocked(const Tablet& tablet) {
+    _partition_tablet_map[tablet.partition_id()].erase(tablet.get_tablet_info());
+    if (_partition_tablet_map[tablet.partition_id()].empty()) {
+        _partition_tablet_map.erase(tablet.partition_id());
+    }
+}
+
+} // end namespace doris
