@@ -547,6 +547,16 @@ TEST_F(OrcScannerTest, normal3) {
         node.__set_scalar_type(scalar_type);
         decimal_type.types.push_back(node);
     }
+    
+    TTypeDesc tinyint_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::TINYINT);
+        node.__set_scalar_type(scalar_type);
+        tinyint_type.types.push_back(node);
+    }
 
     TTypeDesc datetime_type;
     {
@@ -588,10 +598,43 @@ TEST_F(OrcScannerTest, normal3) {
             expr.nodes.push_back(cast_expr);
             expr.nodes.push_back(slot_ref);
 
-            params.expr_of_dest_slot.emplace(6 + i, expr);
+            params.expr_of_dest_slot.emplace(7 + i, expr);
             params.src_slot_ids.push_back(i);
         }
-        
+
+        {
+            TExprNode cast_expr;
+            cast_expr.node_type = TExprNodeType::CAST_EXPR;
+            cast_expr.type = tinyint_type;
+            cast_expr.__set_opcode(TExprOpcode::CAST);
+            cast_expr.__set_num_children(1);
+            cast_expr.__set_output_scale(-1);
+            cast_expr.__isset.fn = true;
+            cast_expr.fn.name.function_name = "casttotinyint";
+            cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
+            cast_expr.fn.arg_types.push_back(varchar_type);
+            cast_expr.fn.ret_type = tinyint_type;
+            cast_expr.fn.has_var_args = false;
+            cast_expr.fn.__set_signature("cast_to_tiny_int_val(VARCHAR(*))");
+            cast_expr.fn.__isset.scalar_fn = true;
+            cast_expr.fn.scalar_fn.symbol = "doris::CastFunctions::cast_to_tiny_int_val";
+
+            TExprNode slot_ref;
+            slot_ref.node_type = TExprNodeType::SLOT_REF;
+            slot_ref.type = varchar_type;
+            slot_ref.num_children = 0;
+            slot_ref.__isset.slot_ref = true;
+            slot_ref.slot_ref.slot_id = 5;
+            slot_ref.slot_ref.tuple_id = 0;
+
+            TExpr expr;
+            expr.nodes.push_back(cast_expr);
+            expr.nodes.push_back(slot_ref);
+
+            params.expr_of_dest_slot.emplace(12, expr);
+            params.src_slot_ids.push_back(5);
+        }
+
         {
             TExprNode cast_expr;
             cast_expr.node_type = TExprNodeType::CAST_EXPR;
@@ -614,17 +657,16 @@ TEST_F(OrcScannerTest, normal3) {
             slot_ref.type = varchar_type;
             slot_ref.num_children = 0;
             slot_ref.__isset.slot_ref = true;
-            slot_ref.slot_ref.slot_id = 5;
+            slot_ref.slot_ref.slot_id = 6;
             slot_ref.slot_ref.tuple_id = 0;
 
             TExpr expr;
             expr.nodes.push_back(cast_expr);
             expr.nodes.push_back(slot_ref);
 
-            params.expr_of_dest_slot.emplace(11, expr);
-            params.src_slot_ids.push_back(5);
+            params.expr_of_dest_slot.emplace(13, expr);
+            params.src_slot_ids.push_back(6);
         }
-
     }
     params.__set_src_tuple_id(0);
     params.__set_dest_tuple_id(1);
@@ -656,6 +698,8 @@ TEST_F(OrcScannerTest, normal3) {
                 TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col5").column_pos(5).build());
     src_tuple_builder.add_slot(
                 TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col6").column_pos(6).build());
+    src_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col7").column_pos(7).build());
     src_tuple_builder.build(&dtb);
 
     TTupleDescriptorBuilder dest_tuple_builder;
@@ -670,7 +714,9 @@ TEST_F(OrcScannerTest, normal3) {
     dest_tuple_builder.add_slot(
                 TSlotDescriptorBuilder().decimal_type(10,5).column_name("col5").column_pos(5).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("col5").column_pos(6).build());
+                TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("col6").column_pos(6).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("col7").column_pos(7).build());
 
     dest_tuple_builder.build(&dtb);
     t_desc_table = dtb.desc_tbl();
@@ -698,7 +744,7 @@ TEST_F(OrcScannerTest, normal3) {
     bool eof = false;
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
-                "(1.123456789 1.12 1.1234500000 1.12345 1.12345 2020-01-14 22:12:19)");
+                "(0.123456789 1.12 -1.1234500000 0.12345 0 1 2020-01-14 22:12:19)");
     scanner.close();
 }
 
