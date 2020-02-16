@@ -99,7 +99,7 @@ Status OlapScanner::_prepare(
                 return Status::InternalError(ss.str());
             }
 
-            // acquire tablet rowset readers at the beginning of the scan node 
+            // acquire tablet rowset readers at the beginning of the scan node
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
@@ -113,7 +113,7 @@ Status OlapScanner::_prepare(
             }
         }
     }
-    
+
     {
         // Initialize _params
         RETURN_IF_ERROR(_init_params(key_ranges, filters, is_nulls));
@@ -141,7 +141,7 @@ Status OlapScanner::open() {
     return Status::OK();
 }
 
-// it will be called under tablet read lock because capture rs readers need 
+// it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_params(
         const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
@@ -205,6 +205,10 @@ Status OlapScanner::_init_params(
     // we will not call agg object finalize method in scan node,
     // to avoid the unnecessary SerDe and improve query performance
     _params.need_agg_finalize = _need_agg_finalize;
+
+    if (!config::disable_storage_page_cache) {
+        _params.use_page_cache = true;
+    }
 
     return Status::OK();
 }
@@ -483,7 +487,7 @@ void OlapScanner::_update_realtime_counter() {
     COUNTER_UPDATE(_parent->_read_compressed_counter, _reader->stats().compressed_bytes_read);
     _compressed_bytes_read += _reader->stats().compressed_bytes_read;
     _reader->mutable_stats()->compressed_bytes_read = 0;
-    
+
     COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
     _raw_rows_read += _reader->stats().raw_rows_read;
@@ -497,8 +501,8 @@ Status OlapScanner::close(RuntimeState* state) {
     // olap scan node will call scanner.close() when finished
     // will release resources here
     // if not clear rowset readers in read_params here
-    // readers will be release when runtime state deconstructed but 
-    // deconstructor in reader references runtime state 
+    // readers will be release when runtime state deconstructed but
+    // deconstructor in reader references runtime state
     // so that it will core
     _params.rs_readers.clear();
     update_counter();
