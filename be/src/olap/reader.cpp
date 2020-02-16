@@ -405,7 +405,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             *eof = true;
             return OLAP_SUCCESS;
         }
-    
+
         cur_delete_flag = _next_delete_flag;
         init_row_with_others(row_cursor, *_next_key, mem_pool, agg_pool);
 
@@ -418,7 +418,7 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
                 }
                 break;
             }
-    
+
             // we will not do aggregation in two case:
             //   1. DUP_KEYS keys type has no semantic to aggregate,
             //   2. to make cost of  each scan round reasonable, we will control merged_count.
@@ -436,13 +436,13 @@ OLAPStatus Reader::_unique_key_next_row(RowCursor* row_cursor, MemPool* mem_pool
             agg_update_row(_value_cids, row_cursor, *_next_key);
             ++merged_count;
         }
-    
+
         _merged_rows += merged_count;
-    
+
         if (!cur_delete_flag) {
             return OLAP_SUCCESS;
         }
-    
+
         _stats.rows_del_filtered++;
     } while (cur_delete_flag);
 
@@ -547,6 +547,7 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
     _reader_context.runtime_state = read_params.runtime_state;
+    _reader_context.use_page_cache = read_params.use_page_cache;
     for (auto& rs_reader : *rs_readers) {
         RETURN_NOT_OK(rs_reader->init(&_reader_context));
         _rs_readers.push_back(rs_reader);
@@ -711,14 +712,14 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
             OLAP_LOG_WARNING("fail to new RowCursor!");
             return OLAP_ERR_MALLOC_ERROR;
         }
-        
+
         res = _keys_param.start_keys[i]->init_scan_key(_tablet->tablet_schema(),
                                                        read_params.start_key[i].values());
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
         }
-        
+
         res = _keys_param.start_keys[i]->from_tuple(read_params.start_key[i]);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor from Keys. [res=%d key_index=%ld]", res, i);
@@ -733,14 +734,14 @@ OLAPStatus Reader::_init_keys_param(const ReaderParams& read_params) {
             OLAP_LOG_WARNING("fail to new RowCursor!");
             return OLAP_ERR_MALLOC_ERROR;
         }
-        
+
         res = _keys_param.end_keys[i]->init_scan_key(_tablet->tablet_schema(),
                                                      read_params.end_key[i].values());
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor. [res=%d]", res);
             return res;
         }
-        
+
         res = _keys_param.end_keys[i]->from_tuple(read_params.end_key[i]);
         if (res != OLAP_SUCCESS) {
             OLAP_LOG_WARNING("fail to init row cursor from Keys. [res=%d key_index=%ld]", res, i);
