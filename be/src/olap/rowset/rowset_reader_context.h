@@ -54,6 +54,7 @@ struct RowsetReaderContext {
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
+    bool use_page_cache = false;
 };
 
 } // namespace doris

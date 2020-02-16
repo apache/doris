@@ -62,6 +62,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
                 &read_options.delete_conditions);
     }
     read_options.column_predicates = read_context->predicates;
+    read_options.use_page_cache = read_context->use_page_cache;
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;

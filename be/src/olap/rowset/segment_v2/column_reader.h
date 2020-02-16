@@ -59,6 +59,7 @@ struct ColumnIteratorOptions {
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
     RandomAccessFile* file = nullptr;
+    bool use_page_cache = false;
 };
 
 // There will be concurrent users to read the same column. So
@@ -88,11 +89,11 @@ public:
 
     // read a page from file into a page handle
     // use reader owned _file(usually is Descriptor<RandomAccessFile>*) to read page
-    Status read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle);
+    Status read_page(const PagePointer& pp, const ColumnIteratorOptions& opts, PageHandle* handle);
 
     // read a page from file into a page handle
     // use file(usually is RandomAccessFile*) to read page
-    Status read_page(RandomAccessFile* file, const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle);
+    Status read_page(RandomAccessFile* file, const PagePointer& pp, const ColumnIteratorOptions& opts, PageHandle* handle);
 
     bool is_nullable() const { return _meta.is_nullable(); }
 
