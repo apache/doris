@@ -547,7 +547,7 @@ public class StmtExecutor {
 
         coord.exec();
 
-        // if python's MysqlDb get error after sendfields, it can't catch the excpetion
+        // if python's MysqlDb get error after sendfields, it can't catch the exception
         // so We need to send fields after first batch arrived
 
         // send result
