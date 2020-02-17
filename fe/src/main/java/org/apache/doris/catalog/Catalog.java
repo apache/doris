@@ -1703,16 +1703,17 @@ public class Catalog {
             for (int i = 0; i < size; i++) {
                 AlterJobV2 alterJobV2 = AlterJobV2.read(dis);
                 if (type == JobType.ROLLUP || type == JobType.SCHEMA_CHANGE) {
-                    if (type == JobType.ROLLUP)
+                    if (type == JobType.ROLLUP) {
                         this.getRollupHandler().addAlterJobV2(alterJobV2);
-                    else
+                    } else {
                         alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
+                    }
                     // ATTN : we just want to add tablet into TabletInvertedIndex when only PendingJob is checkpointed
                     // to prevent TabletInvertedIndex data loss,
                     // So just use AlterJob.replay() instead of AlterHandler.replay().
                     if (alterJobV2.getJobState() == AlterJobV2.JobState.PENDING) {
                         alterJobV2.replay(alterJobV2);
-                        LOG.warn("replay pending alter job when load alter job {} ", alterJobV2.getJobId());
+                        LOG.info("replay pending alter job when load alter job {} ", alterJobV2.getJobId());
                     }
                 } else {
                     alterJobsV2.put(alterJobV2.getJobId(), alterJobV2);
