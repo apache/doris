@@ -481,6 +481,7 @@ visible_functions = [
     [['coalesce'], 'LARGEINT', ['LARGEINT', '...'], ''],
     [['coalesce'], 'FLOAT', ['FLOAT', '...'], ''],
     [['coalesce'], 'DOUBLE', ['DOUBLE', '...'], ''],
+    [['coalesce'], 'DATE', ['DATE', '...'], ''],
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], ''],
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
     [['coalesce'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
