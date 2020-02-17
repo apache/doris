@@ -4500,6 +4500,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_DYNAMIC:id
     {: RESULT = id; :}
+    | time_unit:id
+    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword
