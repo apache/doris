@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -349,6 +350,19 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
+            for (SelectListItem item : selectList.getItems()) {
+                if (item.getExpr() instanceof FunctionCallExpr && item.getExpr().fn instanceof AggregateFunction) {
+                    for (Expr expr : item.getExpr().getChildren()) {
+                        for (SelectListItem i : selectList.getItems()) {
+                            if (expr.equals(i.getExpr())) {
+                                throw new AnalysisException("column: " +i.toSql()+ " cannot both in select list and "
+                                        + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
+                                        + " instead.");
+                            }
+                        }
+                    }
+                }
+            }
             groupingInfo = new GroupingInfo(analyzer, groupByClause.getGroupingType());
             groupingInfo.substituteGroupingFn(resultExprs, analyzer);
         } else {
