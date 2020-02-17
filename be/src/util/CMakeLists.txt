@@ -92,6 +92,8 @@ set(UTIL_FILES
   monotime.cpp
   mutex.cpp
   condition_variable.cpp
+  thread.cpp
+  threadpool.cpp
 )
 
 if (WITH_MYSQL)
