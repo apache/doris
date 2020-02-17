@@ -19,15 +19,17 @@ package org.apache.doris.catalog;
 
 import static org.apache.doris.common.io.IOUtils.writeOptionString;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HdfsURI;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -207,6 +209,13 @@ public class Function implements Writable {
     public long getId() { return id; }
     public void setChecksum(String checksum) { this.checksum = checksum; }
     public String getChecksum() { return checksum; }
+
+    // TODO(cmy): Currently we judge whether it is UDF by wheter the 'location' is set.
+    // Maybe we should use a separate variable to identify,
+    // but additional variables need to modify the persistence information.
+    public boolean isUdf() {
+        return location != null;
+    }
 
     // Returns a string with the signature in human readable format:
     // FnName(argtype1, argtyp2).  e.g. Add(int, int)

@@ -708,5 +708,19 @@ visible_functions = [
     [['grouping'], 'BIGINT', ['BIGINT'], '_ZN5doris21GroupingSetsFunctions8groupingEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
 ]
 
+# Except the following functions, other function will directly return
+# null if there is null parameters.
+# Functions in this set will handle null values, not just return null.
+#
+# This set is only used to replace 'functions with null parameters' with NullLiteral
+# when applying FoldConstantsRule rules on the FE side.
+# TODO(cmy): Are these functions only required to handle null values?
+non_null_result_with_null_param_functions = [
+    'if',
+    'hll_hash',
+    'concat_ws',
+    'ifnull'
+]
+
 invisible_functions = [
 ]

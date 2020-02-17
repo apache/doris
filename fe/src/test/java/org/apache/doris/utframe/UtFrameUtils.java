@@ -42,6 +42,7 @@ import com.google.common.collect.Maps;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -49,8 +50,9 @@ import java.util.Random;
 public class UtFrameUtils {
 
     // Help to create a mocked ConnectContext.
-    public static ConnectContext createDefaultCtx() {
-        ConnectContext ctx = new ConnectContext();
+    public static ConnectContext createDefaultCtx() throws IOException {
+        SocketChannel channel = SocketChannel.open();
+        ConnectContext ctx = new ConnectContext(channel);
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setQualifiedUser(PaloAuth.ROOT_USER);
