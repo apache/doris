@@ -332,7 +332,7 @@ bool RowBlockChanger::change_row_block(
                             p--;
                         }
                         slice->size = p + 1;
-                        write_helper.set_field_content(i, buf, mem_pool);
+                        write_helper.set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
                     }
                 }
 
