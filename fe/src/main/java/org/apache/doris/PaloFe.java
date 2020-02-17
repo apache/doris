@@ -71,9 +71,6 @@ public class PaloFe {
             return;
         }
 
-        if (!checkJavaVersion()) {
-            return;
-        }
 
         CommandLineOptions cmdLineOpts = parseArgs(args);
         System.out.println(cmdLineOpts.toString());
@@ -86,6 +83,12 @@ public class PaloFe {
 
             // init config
             new Config().init(dorisHomeDir + "/conf/fe.conf");
+
+            // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
+            if (!checkJavaVersion()) {
+                throw new IllegalArgumentException("Java version doesn't match");
+            }
+
             Log4jConfig.initLogging();
 
             // set dns cache ttl
