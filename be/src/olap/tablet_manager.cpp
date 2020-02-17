@@ -48,6 +48,7 @@
 #include "util/file_utils.h"
 #include "util/pretty_printer.h"
 #include "util/path_util.h"
+#include "util/scoped_cleanup.h"
 #include "util/time.h"
 
 using std::list;
@@ -72,42 +73,42 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
     VLOG(3) << "begin to add tablet to TabletManager. " << "tablet_id=" << tablet_id
             << ", schema_hash=" << schema_hash << ", force=" << force;
 
-    TabletSharedPtr exist_tablet = nullptr;
+    TabletSharedPtr existed_tablet = nullptr;
     for (TabletSharedPtr item : _tablet_map[tablet_id].table_arr) {
         if (item->equal(tablet_id, schema_hash)) {
-            exist_tablet = item;
+            existed_tablet = item;
             break;
         }
     }
 
-    if (exist_tablet == nullptr) {
+    if (existed_tablet == nullptr) {
         return _add_tablet_to_map_unlocked(tablet_id, schema_hash,
                                            tablet, update_meta,
                                            false /*keep_files*/, false /*drop_old*/);
     }
 
     if (!force) {
-        if (exist_tablet->tablet_path() == tablet->tablet_path()) {
+        if (existed_tablet->tablet_path() == tablet->tablet_path()) {
             LOG(WARNING) << "add the same tablet twice! tablet_id=" << tablet_id
                          << ", schema_hash=" << schema_hash
                          << ", tablet_path=" << tablet->tablet_path();
             return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
         }
-        if (exist_tablet->data_dir() == tablet->data_dir()) {
+        if (existed_tablet->data_dir() == tablet->data_dir()) {
             LOG(WARNING) << "add tablet with same data dir twice! tablet_id=" << tablet_id
                          << ", schema_hash=" << schema_hash;
             return OLAP_ERR_ENGINE_INSERT_EXISTS_TABLE;
         }
     }
 
-    exist_tablet->obtain_header_rdlock();
-    const RowsetSharedPtr old_rowset = exist_tablet->rowset_with_max_version();
+    existed_tablet->obtain_header_rdlock();
+    const RowsetSharedPtr old_rowset = existed_tablet->rowset_with_max_version();
     const RowsetSharedPtr new_rowset = tablet->rowset_with_max_version();
 
     // If new tablet is empty, it is a newly created schema change tablet.
     // the old tablet is dropped before add tablet. it should not exist old tablet
     if (new_rowset == nullptr) {
-        exist_tablet->release_header_lock();
+        existed_tablet->release_header_lock();
         // it seems useless to call unlock and return here.
         // it could prevent error when log level is changed in the future.
         LOG(FATAL) << "new tablet is empty and old tablet exists. it should not happen."
@@ -118,7 +119,7 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
     int64_t new_time = new_rowset->creation_time();
     int32_t old_version = old_rowset == nullptr ? -1 : old_rowset->end_version();
     int32_t new_version = new_rowset->end_version();
-    exist_tablet->release_header_lock();
+    existed_tablet->release_header_lock();
 
     // In restore process, we replace all origin files in tablet dir with
     // the downloaded snapshot files. Then we try to reload tablet header.
@@ -140,7 +141,7 @@ OLAPStatus TabletManager::_add_tablet_unlocked(TTabletId tablet_id, SchemaHash s
             << ", tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
             << ", old_version=" << old_version << ", new_version=" << new_version
             << ", old_time=" << old_time << ", new_time=" << new_time
-            << ", old_tablet_path=" << exist_tablet->tablet_path()
+            << ", old_tablet_path=" << existed_tablet->tablet_path()
             << ", new_tablet_path=" << tablet->tablet_path();
 
     return res;
@@ -278,7 +279,7 @@ TabletSharedPtr TabletManager::_internal_create_tablet_unlocked(
 
     // should remove the tablet's pending_id no matter create-tablet success or not
     DataDir* data_dir = tablet->data_dir();
-    std::shared_ptr<void> __defer(nullptr, [&](...) {
+    SCOPED_CLEANUP({
         data_dir->remove_pending_ids(StrCat(TABLET_ID_PREFIX, new_tablet_id));
     });
 
