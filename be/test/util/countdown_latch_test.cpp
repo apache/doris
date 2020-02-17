@@ -18,11 +18,9 @@
 #include <functional>
 #include <gtest/gtest.h>
 
-#include "gutil/std::unique_ptr.h"
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
 #include "util/monotime.h"
-#include "util/test_macros.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 
@@ -41,19 +39,19 @@ static void decrement_latch(CountDownLatch* latch, int amount) {
 TEST(TestCountDownLatch, TestLatch) {
 
     std::unique_ptr<ThreadPool> pool;
-    ASSERT_OK(ThreadPoolBuilder("cdl-test").set_max_threads(1).build(&pool));
+    ASSERT_TRUE(ThreadPoolBuilder("cdl-test").set_max_threads(1).build(&pool).ok());
 
     CountDownLatch latch(1000);
 
     // Decrement the count by 1 in another thread, this should not fire the
     // latch.
-    ASSERT_OK(pool->submit_func(std::bind(decrement_latch, &latch, 1)));
+    ASSERT_TRUE(pool->submit_func(std::bind(decrement_latch, &latch, 1)).ok());
     ASSERT_FALSE(latch.wait_for(MonoDelta::FromMilliseconds(200)));
     ASSERT_EQ(999, latch.count());
 
     // Now decrement by 1000 this should decrement to 0 and fire the latch
     // (even though 1000 is one more than the current count).
-    ASSERT_OK(pool->submit_func(std::bind(decrement_latch, &latch, 1000)));
+    ASSERT_TRUE(pool->submit_func(std::bind(decrement_latch, &latch, 1000)).ok());
     latch.wait();
     ASSERT_EQ(0, latch.count());
 }
@@ -63,11 +61,11 @@ TEST(TestCountDownLatch, TestLatch) {
 TEST(TestCountDownLatch, TestResetToZero) {
     CountDownLatch cdl(100);
     scoped_refptr<Thread> t;
-    ASSERT_OK(Thread::create("test", "cdl-test", &CountDownLatch::wait, &cdl, &t));
+    ASSERT_TRUE(Thread::create("test", "cdl-test", &CountDownLatch::wait, &cdl, &t).ok());
 
     // Sleep for a bit until it's likely the other thread is waiting on the latch.
     SleepFor(MonoDelta::FromMilliseconds(10));
-    cdl.Reset(0);
+    cdl.reset(0);
     t->join();
 }
 
