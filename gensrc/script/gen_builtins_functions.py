@@ -36,6 +36,8 @@ package org.apache.doris.builtins;\n\
 \n\
 import org.apache.doris.catalog.PrimitiveType;\n\
 import org.apache.doris.catalog.FunctionSet;\n\
+import com.google.common.collect.Sets;\n\
+import java.util.Set;\n\
 \n\
 public class ScalarBuiltins { \n\
     public static void initBuiltins(FunctionSet functionSet) { \
@@ -111,9 +113,16 @@ def generate_fe_registry_init(filename):
     for entry in meta_data_entries:
         for name in entry["sql_names"]:
             java_output = generate_fe_entry(entry, name)
-            java_registry_file.write("    functionSet.addScalarBuiltin(%s);\n" % java_output)
+            java_registry_file.write("        functionSet.addScalarBuiltin(%s);\n" % java_output)
 
     java_registry_file.write("\n")
+
+    # add non_null_result_with_null_param_functions
+    java_registry_file.write("        Set<String> funcNames = Sets.newHashSet();\n")
+    for entry in doris_builtins_functions.non_null_result_with_null_param_functions:
+        java_registry_file.write("        funcNames.add(\"%s\");\n" % entry)
+    java_registry_file.write("        functionSet.buildNonNullResultWithNullParamFunction(funcNames);\n");
+
     java_registry_file.write(java_registry_epilogue)
     java_registry_file.close()
 

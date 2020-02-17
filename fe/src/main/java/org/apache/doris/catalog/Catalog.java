@@ -5317,6 +5317,10 @@ public class Catalog {
         return functionSet.getBulitinFunctions();
     }
 
+    public boolean isNonNullResultWithNullParamFunction(String funcName) {
+        return functionSet.isNonNullResultWithNullParamFunctions(funcName);
+    }
+
     /**
      * create cluster
      *

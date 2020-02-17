@@ -17,18 +17,20 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableMultimap;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.FEFunction;
 import org.apache.doris.rewrite.FEFunctions;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableMultimap;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,12 +48,6 @@ public enum ExpressionFunctions {
 
     private static final Logger LOG = LogManager.getLogger(ExpressionFunctions.class);
     private ImmutableMultimap<String, FEFunctionInvoker> functions;
-    // For most build-in functions, it will return NullLiteral when params contain NullLiteral.
-    // But a few functions need to handle NullLiteral differently, such as "if". It need to add
-    // an attribute to LiteralExpr to mark null and check the attribute to decide whether to
-    // replace the result with NullLiteral when function finished. It leaves to be realized.
-    // TODO chenhao16.
-    private ImmutableSet<String> nonNullResultWithNullParamFunctions;
 
     private ExpressionFunctions() {
         registerFunctions();
@@ -71,8 +67,13 @@ public enum ExpressionFunctions {
             Function fn = constExpr.getFn();
             
             Preconditions.checkNotNull(fn, "Expr's fn can't be null.");
-            // null
-            if (!nonNullResultWithNullParamFunctions.contains(fn.getFunctionName().getFunction())) {
+            
+            // return NullLiteral directly iff:
+            // 1. Not UDF
+            // 2. Not in NonNullResultWithNullParamFunctions
+            // 3. Has null parameter
+            if (!Catalog.getCurrentCatalog().isNonNullResultWithNullParamFunction(fn.getFunctionName().getFunction())
+                    && !fn.isUdf()) {
                 for (Expr e : constExpr.getChildren()) {
                     if (e instanceof NullLiteral) {
                         return new NullLiteral();
@@ -144,15 +145,6 @@ public enum ExpressionFunctions {
             }
         }
         this.functions = mapBuilder.build();
-
-        // Functions that need to handle null.
-        ImmutableSet.Builder<String> setBuilder =
-                new ImmutableSet.Builder<String>();
-        setBuilder.add("if");
-        setBuilder.add("hll_hash");
-        setBuilder.add("concat_ws");
-        setBuilder.add("ifnull");
-        this.nonNullResultWithNullParamFunctions = setBuilder.build();
     }
 
     public static class FEFunctionInvoker {

@@ -40,8 +40,6 @@ public class BatchRollupJobTest {
 
     private static String runningDir = "fe/mocked/BatchRollupJobTest/" + UUID.randomUUID().toString() + "/";
 
-    private static ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-
     @BeforeClass
     public static void setup() throws Exception {
         UtFrameUtils.createMinDorisCluster(runningDir);
@@ -49,7 +47,7 @@ public class BatchRollupJobTest {
 
     @Test
     public void test() throws Exception {
-        System.out.println("xxx");
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         // create database db1
         String createDbStmtStr = "create database db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
