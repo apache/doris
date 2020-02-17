@@ -142,10 +142,10 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                     (*ss) << reinterpret_cast<PackedInt128*>(item)->value;
                     break;
                 case TYPE_FLOAT:
-                    (*ss) << *static_cast<float*>(item);
+                    (*ss) << std::to_string(*static_cast<float*>(item));
                     break;
                 case TYPE_DOUBLE:
-                    (*ss) << *static_cast<double*>(item);
+                    (*ss) << std::to_string(*static_cast<double*>(item));
                     break;
                 case TYPE_DATE:
                 case TYPE_DATETIME: {
