@@ -48,16 +48,9 @@ using std::sort;
 using std::string;
 using std::vector;
 
-TabletSharedPtr Tablet::create_tablet_from_meta(
-        TabletMetaSharedPtr tablet_meta,
-        DataDir* data_dir) {
-    TabletSharedPtr tablet = std::make_shared<Tablet>(tablet_meta, data_dir);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "fail to malloc a table.";
-        return nullptr;
-    }
-
-    return tablet;
+TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
+                                                DataDir* data_dir) {
+    return std::make_shared<Tablet>(tablet_meta, data_dir);
 }
 
 void Tablet::_gen_tablet_path() {
@@ -535,6 +528,8 @@ OLAPStatus Tablet::add_delete_predicate(
     return _tablet_meta->add_delete_predicate(delete_predicate, version);
 }
 
+// TODO(lingbin): what is the difference between version_for_delete_predicate() and
+// version_for_load_deletion()? should at least leave a comment
 bool Tablet::version_for_delete_predicate(const Version& version) {
     return _tablet_meta->version_for_delete_predicate(version);
 }
