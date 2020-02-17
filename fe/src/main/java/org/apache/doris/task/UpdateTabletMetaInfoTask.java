@@ -95,7 +95,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     public Set<Pair<Long, Integer>> getTablets() {
         return tableIdWithSchemaHash;
     }
-    
+
     public TUpdateTabletMetaInfoReq toThrift() {
         TUpdateTabletMetaInfoReq updateTabletMetaInfoReq = new TUpdateTabletMetaInfoReq();
         List<TTabletMetaInfo> metaInfos = Lists.newArrayList();
@@ -125,7 +125,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
             case INMEMORY: {
                 if (latch != null) {
                     // for schema change
-                    for (Pair<Long, Integer> pair: tableIdWithSchemaHash) {
+                    for (Pair<Long, Integer> pair : tableIdWithSchemaHash) {
                         TTabletMetaInfo metaInfo = new TTabletMetaInfo();
                         metaInfo.setTablet_id(pair.first);
                         metaInfo.setSchema_hash(pair.second);
@@ -134,8 +134,8 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                         metaInfos.add(metaInfo);
                     }
                 } else {
-                   // for ReportHandler
-                    for(Triple<Long, Integer, Boolean> triple: tabletToInMemory) {
+                    // for ReportHandler
+                    for (Triple<Long, Integer, Boolean> triple : tabletToInMemory) {
                         TTabletMetaInfo metaInfo = new TTabletMetaInfo();
                         metaInfo.setTablet_id(triple.getLeft());
                         metaInfo.setSchema_hash(triple.getMiddle());
