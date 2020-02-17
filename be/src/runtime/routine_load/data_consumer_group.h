@@ -19,7 +19,7 @@
 
 #include "runtime/routine_load/data_consumer.h"
 #include "util/blocking_queue.hpp"
-#include "util/thread_pool.hpp"
+#include "util/priority_thread_pool.hpp"
 
 namespace doris {
 
@@ -59,7 +59,7 @@ protected:
     UniqueId _grp_id;
     std::vector<std::shared_ptr<DataConsumer>> _consumers;
     // thread pool to run each consumer in multi thread
-    ThreadPool _thread_pool;
+    PriorityThreadPool _thread_pool;
     // mutex to protect counter.
     // the counter is init as the number of consumers.
     // once a consumer is done, decrease the counter.
