@@ -335,7 +335,7 @@ public class SelectStmt extends QueryStmt {
                 // of expr child and depth limits (toColumn() label may call toSql()).
                 item.getExpr().analyze(analyzer);
                 if (item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
-                    throw new AnalysisException("Subqueries are not supported in the select list.");
+                    throw new AnalysisException("Subquery is not supported in the select list.");
                 }
                 resultExprs.add(item.getExpr());
                 SlotRef aliasRef = new SlotRef(null, item.toColumnLabel());
@@ -352,13 +352,11 @@ public class SelectStmt extends QueryStmt {
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
             for (SelectListItem item : selectList.getItems()) {
                 if (item.getExpr() instanceof FunctionCallExpr && item.getExpr().fn instanceof AggregateFunction) {
-                    for (Expr expr : item.getExpr().getChildren()) {
-                        for (SelectListItem i : selectList.getItems()) {
-                            if (expr.equals(i.getExpr())) {
-                                throw new AnalysisException("column: " +i.toSql()+ " cannot both in select list and "
-                                        + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
-                                        + " instead.");
-                            }
+                    for (Expr expr: groupByClause.getGroupingExprs()) {
+                        if (item.getExpr().contains(expr)) {
+                            throw new AnalysisException("column: " + expr.toSql() + " cannot both in select list and "
+                                    + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
+                                    + " instead.");
                         }
                     }
                 }
