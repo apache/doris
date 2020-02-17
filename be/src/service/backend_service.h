@@ -100,7 +100,7 @@ public:
 
     virtual void submit_etl_task(TAgentResult& result,
                                  const TMiniLoadEtlTaskRequest& request) {
-        VLOG_ROW << "submit_etl_task. request  is "
+        VLOG_RPC << "submit_etl_task. request is "
             << apache::thrift::ThriftDebugString(request).c_str();
         _agent_server->submit_etl_task(result, request);
     }
