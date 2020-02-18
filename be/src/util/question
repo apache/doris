@@ -1,3 +1,0 @@
-Regression race of lock
-timeout of condition_variable
-deadlock
