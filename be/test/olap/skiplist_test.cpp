@@ -28,7 +28,7 @@
 #include "util/random.h"
 #include "util/condition_variable.h"
 #include "util/mutex.h"
-#include "util/thread_pool.hpp"
+#include "util/priority_thread_pool.hpp"
 
 namespace doris {
 
@@ -411,7 +411,7 @@ static void run_concurrent(int run) {
     Random rnd(seed);
     const int N = 1000;
     const int kSize = 1000;
-    ThreadPool thread_pool(10, 100);
+    PriorityThreadPool thread_pool(10, 100);
     for (int i = 0; i < N; i++) {
         if ((i % 100) == 0) {
             fprintf(stderr, "Run %d of %d\n", i, N);
