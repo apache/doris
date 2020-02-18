@@ -161,4 +161,6 @@ public class OperationType {
 
     // set table replicatin_num config 266
     public static final short OP_MODIFY_REPLICATION_NUM = 266;
+    // set table in memory
+    public static final short OP_MODIFY_IN_MEMORY = 267;
 }

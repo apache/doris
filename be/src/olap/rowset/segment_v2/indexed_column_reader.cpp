@@ -120,7 +120,7 @@ Status IndexedColumnReader::read_page(RandomAccessFile* file, const PagePointer&
     }
     if (!config::disable_storage_page_cache) {
         // insert this into cache and return the cache handle
-        cache->insert(cache_key, page_slice, &cache_handle);
+        cache->insert(cache_key, page_slice, &cache_handle, _cache_in_memory);
         *handle = PageHandle(std::move(cache_handle));
     } else {
         *handle = PageHandle(page_slice);

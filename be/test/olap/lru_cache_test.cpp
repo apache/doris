@@ -97,6 +97,12 @@ public:
                                        &CacheTest::Deleter));
     }
 
+    void InsertDurable(int key, int value, int charge) {
+        std::string result;
+        _cache->release(_cache->insert(EncodeKey(&result, key), EncodeValue(value), charge,
+                                       &CacheTest::Deleter, CachePriority::DURABLE));
+    }
+
     void Erase(int key) {
         std::string result;
         _cache->erase(EncodeKey(&result, key));
@@ -195,6 +201,65 @@ TEST_F(CacheTest, EvictionPolicy) {
 
     ASSERT_EQ(101, Lookup(100));
     ASSERT_EQ(-1, Lookup(200));
+}
+
+TEST_F(CacheTest, EvictionPolicyWithDurable) {
+    Insert(100, 101, 1);
+    InsertDurable(200, 201, 1);
+    Insert(300, 101, 1);
+
+    // Frequently used entry must be kept around
+    for (int i = 0; i < kCacheSize + 100; i++) {
+        Insert(1000 + i, 2000 + i, 1);
+        ASSERT_EQ(2000 + i, Lookup(1000 + i));
+        ASSERT_EQ(101, Lookup(100));
+    }
+
+    ASSERT_EQ(-1, Lookup(300));
+    ASSERT_EQ(101, Lookup(100));
+    ASSERT_EQ(201, Lookup(200));
+}
+
+static void deleter(const CacheKey& key, void* v) {
+    std::cout << "delete key " << key.to_string() << std::endl;
+}
+
+static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value, CachePriority priority) {
+    uint32_t hash = key.hash(key.data(), key.size(), 0);
+    cache.release(cache.insert(key, hash, EncodeValue(value), value, &deleter, priority));
+}
+
+TEST_F(CacheTest, Usage) {
+    LRUCache cache;
+    cache.set_capacity(1000);
+
+    CacheKey key1("100");
+    insert_LRUCache(cache, key1, 100, CachePriority::NORMAL);
+    ASSERT_EQ(100, cache.get_usage());
+
+    CacheKey key2("200");
+    insert_LRUCache(cache, key2, 200, CachePriority::DURABLE);
+    ASSERT_EQ(300, cache.get_usage());
+
+    CacheKey key3("300");
+    insert_LRUCache(cache, key3, 300, CachePriority::NORMAL);
+    ASSERT_EQ(600, cache.get_usage());
+
+    CacheKey key4("400");
+    insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
+    ASSERT_EQ(1000, cache.get_usage());
+
+    CacheKey key5("500");
+    insert_LRUCache(cache, key5, 500, CachePriority::NORMAL);
+    ASSERT_EQ(700, cache.get_usage());
+
+    CacheKey key6("600");
+    insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
+    ASSERT_EQ(800, cache.get_usage());
+
+    CacheKey key7("950");
+    insert_LRUCache(cache, key7, 950, CachePriority::DURABLE);
+    ASSERT_EQ(950, cache.get_usage());
 }
 
 TEST_F(CacheTest, HeavyEntries) {

@@ -50,7 +50,7 @@ public:
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 
-    Status load();
+    Status load(bool cache_in_memory);
 
     // create a new column iterator.
     Status new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator);

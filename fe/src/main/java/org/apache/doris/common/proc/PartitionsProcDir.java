@@ -51,8 +51,6 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -69,12 +67,10 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("PartitionId").add("PartitionName").add("VisibleVersion").add("VisibleVersionHash")
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime")
-            .add("LastConsistencyCheckTime").add("DataSize")
+            .add("LastConsistencyCheckTime")
+            .add("DataSize")
+            .add("IsInMemory")
             .build();
-
-    private static final Logger LOG = LogManager.getLogger(PartitionsProcDir.class);
-
-    public static final int PARTITION_NAME_INDEX = 1;
 
     private Database db;
     private OlapTable olapTable;
@@ -270,6 +266,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                         + sizePair.second;
                     partitionInfo.add(readableSize);
 
+                    partitionInfo.add(olapTable.getPartitionInfo().getIsInMemory(partitionId));
                     partitionInfos.add(partitionInfo);
                 }
             } else {
@@ -320,6 +317,7 @@ public class PartitionsProcDir implements ProcDirInterface {
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                         + sizePair.second;
                     partitionInfo.add(readableSize);
+                    partitionInfo.add(olapTable.getPartitionInfo().getIsInMemory(partitionId));
 
                     partitionInfos.add(partitionInfo);
                 }
