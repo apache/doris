@@ -19,11 +19,7 @@
 
 #include <functional>
 
-#include "olap/data_dir.h"
-#include "olap/delta_writer.h"
 #include "olap/memtable.h"
-#include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "util/scoped_cleanup.h"
 
 namespace doris {
@@ -35,35 +31,38 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 }
 
 OLAPStatus FlushToken::submit(std::shared_ptr<MemTable> memtable) {
-    _flush_token->submit_func(boost::bind(boost::mem_fn(&FlushToken::_flush_memtable), this, memtable));
+    RETURN_NOT_OK(_flush_status.load());
+    _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable));
     return OLAP_SUCCESS;
 }
 
-void FlushToken::cancel() { 
+void FlushToken::cancel() {
     _flush_token->shutdown();
 }
 
-OLAPStatus FlushToken::wait() { 
+OLAPStatus FlushToken::wait() {
     _flush_token->wait();
-    return _flush_status;
+    return _flush_status.load();
 }
 
 void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable) {
+    SCOPED_CLEANUP({ memtable.reset(); });
+
+    // If previous flush has failed, return directly
+    if (_flush_status.load() != OLAP_SUCCESS) {
+        return;
+    }
+
     MonotonicStopWatch timer;
     timer.start();
-    _flush_status = memtable->flush();
-    SCOPED_CLEANUP({
-        memtable.reset();
-    });
-    if (_flush_status != OLAP_SUCCESS) {
+    _flush_status.store(memtable->flush());
+    if (_flush_status.load() != OLAP_SUCCESS) {
         return;
     }
 
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_count++;
     _stats.flush_size_bytes += memtable->memory_usage();
-    LOG(INFO) << "flushed " << *(memtable) << " in " << _stats.flush_time_ns / 1000 / 1000
-              << " ms, status=" << _flush_status;
 }
 
 void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
@@ -71,12 +70,12 @@ void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {
     size_t min_threads = std::max(1, config::flush_thread_num_per_store);
     size_t max_threads = data_dir_num * min_threads;
     ThreadPoolBuilder("MemTableFlushThreadPool")
-        .set_min_threads(min_threads)
-        .set_max_threads(max_threads)
-        .build(&_flush_pool);
+            .set_min_threads(min_threads)
+            .set_max_threads(max_threads)
+            .build(&_flush_pool);
 }
 
-// create a flush token
+// NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
 OLAPStatus MemTableFlushExecutor::create_flush_token(std::unique_ptr<FlushToken>* flush_token) {
     flush_token->reset(new FlushToken(_flush_pool->new_token(ThreadPool::ExecutionMode::SERIAL)));
     return OLAP_SUCCESS;

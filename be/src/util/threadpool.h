@@ -19,12 +19,12 @@
 #define DORIS_BE_SRC_UTIL_THREAD_POOL_H
 
 #include <deque>
+#include <functional>
 #include <memory>
 #include <utility>
 #include <unordered_set>
 #include <string>
 
-#include "boost/function.hpp"
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/list_hook.hpp>
 
@@ -150,7 +150,7 @@ private:
 //            .set_idle_timeout(MonoDelta::FromMilliseconds(2000))
 //            .Build(&thread_pool));
 //    thread_pool->Submit(shared_ptr<Runnable>(new Task()));
-//    thread_pool->SubmitFunc(boost::bind(&Func, 10));
+//    thread_pool->SubmitFunc(std::bind(&Func, 10));
 class ThreadPool {
 public:
     ~ThreadPool();
@@ -166,8 +166,8 @@ public:
     // Submits a Runnable class.
     Status submit(std::shared_ptr<Runnable> r);
 
-    // Submits a function bound using boost::bind(&FuncName, args...).
-    Status submit_func(boost::function<void()> f);
+    // Submits a function bound using std::bind(&FuncName, args...).
+    Status submit_func(std::function<void()> f);
 
     // Waits until all the tasks are completed.
     void wait();
@@ -341,8 +341,8 @@ public:
     // Submits a Runnable class.
     Status submit(std::shared_ptr<Runnable> r);
 
-    // Submits a function bound using boost::bind(&FuncName, args...).
-    Status submit_func(boost::function<void()> f);
+    // Submits a function bound using std::bind(&FuncName, args...).
+    Status submit_func(std::function<void()> f);
 
     // Marks the token as unusable for future submissions. Any queued tasks not
     // yet running are destroyed. If tasks are in flight, Shutdown() will wait

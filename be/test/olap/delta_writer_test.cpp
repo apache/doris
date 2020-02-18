@@ -310,7 +310,7 @@ TEST_F(TestDeltaWriter, open) {
     WriteRequest write_req = {10003, 270068375, WriteType::LOAD,
                               20001, 30001, load_id, false, tuple_desc};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer); 
+    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     ASSERT_EQ(OLAP_SUCCESS, res);
@@ -345,7 +345,7 @@ TEST_F(TestDeltaWriter, write) {
                               20002, 30002, load_id, false, tuple_desc,
                               &(tuple_desc->slots())};
     DeltaWriter* delta_writer = nullptr;
-    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer); 
+    DeltaWriter::open(&write_req, k_mem_tracker, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
 
     MemTracker tracker;
@@ -362,18 +362,18 @@ TEST_F(TestDeltaWriter, write) {
         int128_t large_int_value = -90000;
         memcpy(tuple->get_slot(slots[4]->tuple_offset()), &large_int_value, sizeof(int128_t));
 
-        ((DateTimeValue*)(tuple->get_slot(slots[5]->tuple_offset())))->from_date_str("2048-11-10", 10); 
-        ((DateTimeValue*)(tuple->get_slot(slots[6]->tuple_offset())))->from_date_str("2636-08-16 19:39:43", 19); 
+        ((DateTimeValue*)(tuple->get_slot(slots[5]->tuple_offset())))->from_date_str("2048-11-10", 10);
+        ((DateTimeValue*)(tuple->get_slot(slots[6]->tuple_offset())))->from_date_str("2636-08-16 19:39:43", 19);
 
         StringValue* char_ptr = (StringValue*)(tuple->get_slot(slots[7]->tuple_offset()));
         char_ptr->ptr = (char*)pool.allocate(4);
         memcpy(char_ptr->ptr, "abcd", 4);
-        char_ptr->len = 4; 
+        char_ptr->len = 4;
 
         StringValue* var_ptr = (StringValue*)(tuple->get_slot(slots[8]->tuple_offset()));
         var_ptr->ptr = (char*)pool.allocate(5);
         memcpy(var_ptr->ptr, "abcde", 5);
-        var_ptr->len = 5; 
+        var_ptr->len = 5;
 
         DecimalValue decimal_value(1.1);
         *(DecimalValue*)(tuple->get_slot(slots[9]->tuple_offset())) = decimal_value;
@@ -385,13 +385,13 @@ TEST_F(TestDeltaWriter, write) {
 
         memcpy(tuple->get_slot(slots[14]->tuple_offset()), &large_int_value, sizeof(int128_t));
 
-        ((DateTimeValue*)(tuple->get_slot(slots[15]->tuple_offset())))->from_date_str("2048-11-10", 10); 
-        ((DateTimeValue*)(tuple->get_slot(slots[16]->tuple_offset())))->from_date_str("2636-08-16 19:39:43", 19); 
+        ((DateTimeValue*)(tuple->get_slot(slots[15]->tuple_offset())))->from_date_str("2048-11-10", 10);
+        ((DateTimeValue*)(tuple->get_slot(slots[16]->tuple_offset())))->from_date_str("2636-08-16 19:39:43", 19);
 
         char_ptr = (StringValue*)(tuple->get_slot(slots[17]->tuple_offset()));
         char_ptr->ptr = (char*)pool.allocate(4);
         memcpy(char_ptr->ptr, "abcd", 4);
-        char_ptr->len = 4; 
+        char_ptr->len = 4;
 
         var_ptr = (StringValue*)(tuple->get_slot(slots[18]->tuple_offset()));
         var_ptr->ptr = (char*)pool.allocate(5);
@@ -425,7 +425,7 @@ TEST_F(TestDeltaWriter, write) {
         std::cout << "start to publish txn" << std::endl;
         RowsetSharedPtr rowset = tablet_rs.second;
         res = k_engine->txn_manager()->publish_txn(meta, write_req.partition_id, write_req.txn_id,
-                                   write_req.tablet_id, write_req.schema_hash, tablet_rs.first.tablet_uid, 
+                                   write_req.tablet_id, write_req.schema_hash, tablet_rs.first.tablet_uid,
                                    version, version_hash);
         ASSERT_EQ(OLAP_SUCCESS, res);
         std::cout << "start to add inc rowset:" << rowset->rowset_id() << ", num rows:" << rowset->num_rows()
@@ -441,6 +441,7 @@ TEST_F(TestDeltaWriter, write) {
     auto schema_hash = 270068375;
     res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, res);
+    delete delta_writer;
 }
 
 } // namespace doris
