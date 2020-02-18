@@ -32,6 +32,7 @@
 #include "runtime/descriptor_helper.h"
 #include "util/thrift_util.h"
 #include "olap/delta_writer.h"
+#include "olap/memtable_flush_executor.h"
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
 

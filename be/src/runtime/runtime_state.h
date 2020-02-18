@@ -51,7 +51,6 @@ class DateTimeValue;
 class MemTracker;
 class DataStreamRecvr;
 class ResultBufferMgr;
-class ThreadPool;
 class DiskIoMgrs;
 class TmpFileMgr;
 class BufferedBlockMgr;

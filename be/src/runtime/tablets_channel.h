@@ -23,7 +23,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/mem_tracker.h"
 #include "util/bitmap.h"
-#include "util/thread_pool.hpp"
+#include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
 
 #include "gen_cpp/Types_types.h"
