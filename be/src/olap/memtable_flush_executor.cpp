@@ -20,10 +20,7 @@
 #include <functional>
 
 #include "olap/data_dir.h"
-#include "olap/delta_writer.h"
 #include "olap/memtable.h"
-#include "runtime/exec_env.h"
-#include "runtime/mem_tracker.h"
 #include "util/scoped_cleanup.h"
 
 namespace doris {
@@ -35,7 +32,8 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
 }
 
 OLAPStatus FlushToken::submit(std::shared_ptr<MemTable> memtable) {
-    _flush_token->submit_func(boost::bind(boost::mem_fn(&FlushToken::_flush_memtable), this, memtable));
+    RETURN_NOT_OK(_flush_status.load());
+    _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable));
     return OLAP_SUCCESS;
 }
 
@@ -45,25 +43,30 @@ void FlushToken::cancel() {
 
 OLAPStatus FlushToken::wait() { 
     _flush_token->wait();
-    return _flush_status;
+    return _flush_status.load();
 }
 
 void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable) {
+    SCOPED_CLEANUP({ memtable.reset(); });
+
+    // if previous flush has failed, return directly
+    // This is used to flush task have been submitted into FlushToken
+    // but not be scheduled
+    if (_flush_status.load() != OLAP_SUCCESS) {
+        return;
+    }
+
     MonotonicStopWatch timer;
     timer.start();
-    _flush_status = memtable->flush();
-    SCOPED_CLEANUP({
-        memtable.reset();
-    });
-    if (_flush_status != OLAP_SUCCESS) {
+    _flush_status.store(memtable->flush());
+
+    if (_flush_status.load() != OLAP_SUCCESS) {
         return;
     }
 
     _stats.flush_time_ns += timer.elapsed_time();
     _stats.flush_count++;
     _stats.flush_size_bytes += memtable->memory_usage();
-    LOG(INFO) << "flushed " << *(memtable) << " in " << _stats.flush_time_ns / 1000 / 1000
-              << " ms, status=" << _flush_status;
 }
 
 void MemTableFlushExecutor::init(const std::vector<DataDir*>& data_dirs) {

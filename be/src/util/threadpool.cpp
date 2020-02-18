@@ -36,15 +36,15 @@ using strings::Substitute;
 
 class FunctionRunnable : public Runnable {
 public:
-    explicit FunctionRunnable(boost::function<void()> func)
-        : _func(std::move(func)) {}
+    explicit FunctionRunnable(std::function<void()> func)
+      : _func(std::move(func)) {}
 
     void run() OVERRIDE {
         _func();
     }
 
 private:
-    boost::function<void()> _func;
+    std::function<void()> _func;
 };
 
 ThreadPoolBuilder::ThreadPoolBuilder(string name)
@@ -99,7 +99,7 @@ Status ThreadPoolToken::submit(std::shared_ptr<Runnable> r) {
     return _pool->do_submit(std::move(r), this);
 }
 
-Status ThreadPoolToken::submit_func(boost::function<void()> f) {
+Status ThreadPoolToken::submit_func(std::function<void()> f) {
     return submit(std::make_shared<FunctionRunnable>(std::move(f)));
 }
 
@@ -353,7 +353,7 @@ Status ThreadPool::submit(std::shared_ptr<Runnable> r) {
     return do_submit(std::move(r), _tokenless.get());
 }
 
-Status ThreadPool::submit_func(boost::function<void()> f) {
+Status ThreadPool::submit_func(std::function<void()> f) {
     return submit(std::make_shared<FunctionRunnable>(std::move(f)));
 }
 

@@ -46,8 +46,9 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 class FlushToken {
 public:
     explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
-        : _flush_status(OLAP_SUCCESS),
-          _flush_token(std::move(flush_pool_token)) {}
+      : _flush_token(std::move(flush_pool_token)) {
+        _flush_status.store(OLAP_SUCCESS);
+    }
 
     OLAPStatus submit(std::shared_ptr<MemTable> mem_table);
 
@@ -64,8 +65,11 @@ public:
 private:
     void _flush_memtable(std::shared_ptr<MemTable> mem_table);
 
-    OLAPStatus _flush_status;
     std::unique_ptr<ThreadPoolToken> _flush_token;
+
+    // the status of last flushed memtable
+    std::atomic<OLAPStatus> _flush_status;
+
     FlushStatistic _stats;
 };
 

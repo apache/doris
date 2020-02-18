@@ -323,6 +323,7 @@ TEST_F(TestDeltaWriter, open) {
     auto schema_hash = 270068375;
     res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, res);
+    delete delta_writer;
 }
 
 TEST_F(TestDeltaWriter, write) {
@@ -441,6 +442,7 @@ TEST_F(TestDeltaWriter, write) {
     auto schema_hash = 270068375;
     res = k_engine->tablet_manager()->drop_tablet(tablet_id, schema_hash);
     ASSERT_EQ(OLAP_SUCCESS, res);
+    delete delta_writer;
 }
 
 } // namespace doris
