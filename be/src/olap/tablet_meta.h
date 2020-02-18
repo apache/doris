@@ -161,6 +161,8 @@ public:
 
     inline const TabletSchema& tablet_schema() const;
 
+    inline TabletSchema* mutable_tablet_schema();
+
     inline const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
     RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
@@ -306,6 +308,10 @@ inline OLAPStatus TabletMeta::set_in_restore_mode(bool in_restore_mode) {
 
 inline const TabletSchema& TabletMeta::tablet_schema() const {
     return _schema;
+}
+
+inline TabletSchema* TabletMeta::mutable_tablet_schema() {
+    return &_schema;
 }
 
 inline const std::vector<RowsetMetaSharedPtr>& TabletMeta::all_rs_metas() const {

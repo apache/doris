@@ -53,6 +53,8 @@ class BloomFilterIndexReader;
 struct ColumnReaderOptions {
     // whether verify checksum when read page
     bool verify_checksum = true;
+    // for in memory olap table, use DURABLE CachePriority in page cache
+    bool cache_in_memory = false;
 };
 
 struct ColumnIteratorOptions {

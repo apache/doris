@@ -45,6 +45,8 @@ public class TableProperty implements Writable {
 
     private Short replicationNum;
 
+    private boolean isInMemory = false;
+
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
         dynamicPartitionProperty = null;
@@ -67,6 +69,9 @@ public class TableProperty implements Writable {
                 break;
             case OperationType.OP_MODIFY_REPLICATION_NUM:
                 buildReplicationNum();
+                break;
+            case OperationType.OP_MODIFY_IN_MEMORY:
+                buildInMemory();
                 break;
             default:
                 break;
@@ -91,6 +96,11 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildInMemory() {
+        isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
+        return this;
+    }
+
     void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
     }
@@ -111,12 +121,19 @@ public class TableProperty implements Writable {
         return replicationNum;
     }
 
+    public boolean IsInMemory() {
+        return isInMemory;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static TableProperty read(DataInput in) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class).buildDynamicProperty().buildReplicationNum();
+        return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
+                .buildDynamicProperty()
+                .buildReplicationNum()
+                .buildInMemory();
     }
 }

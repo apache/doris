@@ -166,7 +166,7 @@ LRUCache::LRUCache() : _usage(0), _last_id(0), _lookup_count(0),
         _lru.prev = &_lru;
     }
 
-LRUCache::~LRUCache() { 
+LRUCache::~LRUCache() {
     prune();
 }
 
@@ -241,22 +241,40 @@ void LRUCache::release(Cache::Handle* handle) {
 }
 
 void LRUCache::_evict_from_lru(size_t charge, std::vector<LRUHandle*>* deleted) {
+    LRUHandle* cur = &_lru;
+    // 1. evict normal cache entries
+    while (_usage + charge > _capacity && cur->next != &_lru) {
+        LRUHandle* old = cur->next;
+        if (old->priority == CachePriority::DURABLE) {
+            cur = cur->next;
+            continue;
+        }
+        _evict_one_entry(old);
+        deleted->push_back(old);
+    }
+    // 2. evict durable cache entries if need
     while (_usage + charge > _capacity && _lru.next != &_lru) {
         LRUHandle* old = _lru.next;
-        DCHECK(old->in_cache);
-        DCHECK(old->refs == 1);  // LRU list contains elements which may be evicted
-        _lru_remove(old);
-        _table.remove(old->key(), old->hash);
-        old->in_cache = false;
-        _unref(old);
-        _usage -= old->charge;
+        DCHECK(old->priority == CachePriority::DURABLE);
+        _evict_one_entry(old);
         deleted->push_back(old);
     }
 }
 
+void LRUCache::_evict_one_entry(LRUHandle* e) {
+    DCHECK(e->in_cache);
+    DCHECK(e->refs == 1); // LRU list contains elements which may be evicted
+    _lru_remove(e);
+    _table.remove(e->key(), e->hash);
+    e->in_cache = false;
+    _unref(e);
+    _usage -= e->charge;
+}
+
 Cache::Handle* LRUCache::insert(
         const CacheKey& key, uint32_t hash, void* value, size_t charge,
-        void (*deleter)(const CacheKey& key, void* value)) {
+        void (*deleter)(const CacheKey& key, void* value),
+        CachePriority priority) {
 
     LRUHandle* e = reinterpret_cast<LRUHandle*>(
             malloc(sizeof(LRUHandle) - 1 + key.size()));
@@ -268,8 +286,8 @@ Cache::Handle* LRUCache::insert(
     e->refs = 2;  // one for the returned handle, one for LRUCache.
     e->next = e->prev = nullptr;
     e->in_cache = true;
+    e->priority = priority;
     memcpy(e->key_data, key.data(), key.size());
-
     std::vector<LRUHandle*> last_ref_list;
     {
         MutexLock l(&_mutex);
@@ -371,9 +389,10 @@ Cache::Handle* ShardedLRUCache::insert(
         const CacheKey& key,
         void* value,
         size_t charge,
-        void (*deleter)(const CacheKey& key, void* value)) {
+        void (*deleter)(const CacheKey& key, void* value),
+        CachePriority priority) {
     const uint32_t hash = _hash_slice(key);
-    return _shards[_shard(hash)].insert(key, hash, value, charge, deleter);
+    return _shards[_shard(hash)].insert(key, hash, value, charge, deleter, priority);
 }
 
 Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {

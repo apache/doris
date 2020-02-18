@@ -43,6 +43,7 @@ public class SingleRangePartitionDesc {
 
     private DataProperty partitionDataProperty;
     private Short replicationNum;
+    private boolean isInMemory = false;
     private Pair<Long, Long> versionInfo;
 
     public SingleRangePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
@@ -79,6 +80,10 @@ public class SingleRangePartitionDesc {
         return replicationNum;
     }
 
+    public boolean isInMemory() {
+        return isInMemory;
+    }
+
     public Pair<Long, Long> getVersionInfo() {
         return versionInfo;
     }
@@ -97,12 +102,6 @@ public class SingleRangePartitionDesc {
         partitionKeyDesc.analyze(partColNum);
 
         if (otherProperties != null) {
-            // use given properties
-            if (properties != null && !properties.isEmpty()) {
-                MapJoiner mapJoiner = Joiner.on(", ").withKeyValueSeparator(" = ");
-                throw new AnalysisException("Unknown properties: " + mapJoiner.join(properties));
-            }
-
             this.properties = otherProperties;
         }
 
@@ -119,6 +118,9 @@ public class SingleRangePartitionDesc {
 
         // analyze version info
         versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
+
+        // analyze in memory
+        isInMemory = PropertyAnalyzer.analyzeInMemory(properties, false);
 
         if (otherProperties == null) {
             // check unknown properties
