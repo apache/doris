@@ -17,6 +17,9 @@
 
 package org.apache.doris.master;
 
+import com.google.common.collect.Sets;
+import org.apache.commons.lang3.tuple.ImmutableTriple;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -65,16 +68,15 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
+import org.apache.doris.thrift.TTabletMetaType;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTaskType;
 
-import com.google.common.collect.HashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
-import com.google.common.collect.SetMultimap;
 
 import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -267,8 +269,8 @@ public class ReportHandler extends Daemon {
         
         // db id -> tablet id
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
-        
-        SetMultimap<Long, Integer> tabletWithoutPartitionId = HashMultimap.create();
+
+        Set<Pair<Long, Integer>> tabletWithoutPartitionId = Sets.newHashSet();
 
         // 1. do the diff. find out (intersection) / (be - meta) / (meta - be)
         Catalog.getCurrentInvertedIndex().tabletReport(backendId, backendTablets, storageMediumMap,
@@ -281,7 +283,6 @@ public class ReportHandler extends Daemon {
                                                        transactionsToClear, 
                                                        tabletRecoveryMap, 
                                                        tabletWithoutPartitionId);
-        
 
         // 2. sync
         sync(backendTablets, tabletSyncMap, backendId, backendReportVersion);
@@ -302,14 +303,14 @@ public class ReportHandler extends Daemon {
         // 7. send publish version request to be
         handleRepublishVersionInfo(transactionsToPublish, backendId);
         
-        // 8. send recover request to 
+        // 8. send recover request to be
         handleRecoverTablet(tabletRecoveryMap, backendTablets, backendId, forceRecovery);
         
-        // 9. send force create replica task to be
-        // handleForceCreateReplica(createReplicaTasks, backendId, forceRecovery);
-        
-        // 10. send set tablet partition info to backend
-        handleSetTabletMetaInfo(backendId, tabletWithoutPartitionId);
+        // 9. send set tablet partition info to be
+        handleSetTabletPartitionId(backendId, tabletWithoutPartitionId);
+
+        // 10. send set tablet in memory to be
+        handleSetTabletInMemory(backendId, backendTablets);
         
         long end = System.currentTimeMillis();
         LOG.info("tablet report from backend[{}] cost: {} ms", backendId, (end - start));
@@ -577,7 +578,8 @@ public class ReportHandler extends Daemon {
                                             partition.getVisibleVersionHash(), keysType,
                                             TStorageType.COLUMN,
                                             TStorageMedium.HDD, columns, bfColumns, bfFpp, null,
-                                            olapTable.getCopiedIndexes());
+                                            olapTable.getCopiedIndexes(),
+                                            olapTable.isInMemory());
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad
@@ -860,39 +862,67 @@ public class ReportHandler extends Daemon {
             AgentTaskExecutor.submit(batchTask);
         }
     }
-    
-    private static void handleForceCreateReplica(List<CreateReplicaTask> createReplicaTasks, 
-            long backendId, boolean forceRecovery) {
-        // print this warn info to indicate admin the fatal state
-        if (createReplicaTasks.size() > 0) {
-            // print a warn log here to indicate the exceptions on the backend
-            LOG.warn("find {} tablets with only on replica and it is on this backend {}" 
-                        +  " admin need create the tablet on this backend forcibly, " 
-                        + " force recovery is [{}]", 
-                        createReplicaTasks.size(), backendId, forceRecovery);
-        }
-        if (!forceRecovery) {
-            return;
-        }
-        AgentBatchTask batchTask = new AgentBatchTask();
-        for (CreateReplicaTask recoverTask : createReplicaTasks) {
-            batchTask.addTask(recoverTask);
-            AgentTaskQueue.addTask(recoverTask);
-        }
-        
-        AgentTaskExecutor.submit(batchTask);
-    }
-    
 
-    private static void handleSetTabletMetaInfo(long backendId, SetMultimap<Long, Integer> tabletWithoutPartitionId) {
+    private static void handleSetTabletPartitionId(long backendId, Set<Pair<Long, Integer>>tabletWithoutPartitionId) {
         LOG.info("find [{}] tablets without partition id, try to set them", tabletWithoutPartitionId.size());
         if (tabletWithoutPartitionId.size() < 1) {
             return;
         }
         AgentBatchTask batchTask = new AgentBatchTask();
-        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletWithoutPartitionId);
+        UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(
+                backendId, tabletWithoutPartitionId, TTabletMetaType.PARTITIONID);
         batchTask.addTask(task);
         AgentTaskExecutor.submit(batchTask);
+    }
+
+    private static void handleSetTabletInMemory(long backendId, Map<Long, TTablet> backendTablets) {
+        // <tablet id, tablet schema hash, tablet in memory>
+        List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
+
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        for (TTablet backendTablet : backendTablets.values()) {
+            for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
+                if (!tabletInfo.isSetIs_in_memory()) {
+                    continue;
+                }
+                long tabletId = tabletInfo.getTablet_id();
+                boolean beIsInMemory = tabletInfo.is_in_memory;
+                long dbId = invertedIndex.getDbId(tabletId);
+                long tableId = invertedIndex.getTableId(tabletId);
+                long partitionId = invertedIndex.getPartitionId(tabletId);
+
+                Database db = Catalog.getInstance().getDb(dbId);
+                if (db == null) {
+                    continue;
+                }
+                db.readLock();
+                try {
+                    OlapTable olapTable = (OlapTable) db.getTable(tableId);
+                    if (olapTable == null) {
+                        continue;
+                    }
+                    Partition partition = olapTable.getPartition(partitionId);
+                    if (partition == null) {
+                        continue;
+                    }
+                    boolean feIsInMemory = olapTable.getPartitionInfo().getIsInMemory(partitionId);
+                    if (beIsInMemory != feIsInMemory) {
+                        tabletToInMemory.add(new ImmutableTriple<>(tabletId, tabletInfo.schema_hash, feIsInMemory));
+                    }
+                } finally {
+                    db.readUnlock();
+                }
+            }
+        }
+
+        LOG.info("find [{}] tablets need set in memory meta", tabletToInMemory.size());
+        // When report, needn't synchronous
+        if (!tabletToInMemory.isEmpty()) {
+            AgentBatchTask batchTask = new AgentBatchTask();
+            UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(backendId, tabletToInMemory);
+            batchTask.addTask(task);
+            AgentTaskExecutor.submit(batchTask);
+        }
     }
     
     private static void handleClearTransactions(ListMultimap<Long, Long> transactionsToClear, long backendId) {
@@ -1029,7 +1059,6 @@ public class ReportHandler extends Daemon {
                 task.exec();
             } catch (InterruptedException e) {
                 LOG.warn("got interupted exception when executing report", e);
-                continue;
             }
         }
     }

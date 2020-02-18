@@ -276,6 +276,7 @@ message TabletSchemaPB {
     optional CompressKind compress_kind = 5; // OLAPHeaderMessage.compress_kind
     optional double bf_fpp = 6; // OLAPHeaderMessage.bf_fpp
     optional uint32 next_column_unique_id = 7; // OLAPHeaderMessage.next_column_unique_id
+    optional bool is_in_memory = 8 [default=false];
 }
 
 enum TabletStatePB {

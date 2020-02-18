@@ -846,7 +846,19 @@ void* TaskWorkerPool::_update_tablet_meta_worker_thread_callback(void* arg_this)
                 continue;
             }
             WriteLock wrlock(tablet->get_header_lock_ptr());
-            tablet->set_partition_id(tablet_meta_info.partition_id);
+            // update tablet meta
+            if (!tablet_meta_info.__isset.meta_type) {
+                 tablet->set_partition_id(tablet_meta_info.partition_id);
+            } else {
+                switch (tablet_meta_info.meta_type) {
+                    case TTabletMetaType::PARTITIONID:
+                        tablet->set_partition_id(tablet_meta_info.partition_id);
+                        break;
+                    case TTabletMetaType::INMEMORY:
+                        tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(tablet_meta_info.is_in_memory);
+                        break;
+                }
+            }
             tablet->save_meta();
         }
 

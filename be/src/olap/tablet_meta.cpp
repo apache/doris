@@ -187,6 +187,10 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
         schema->set_bf_fpp(tablet_schema.bloom_filter_fpp);
     }
 
+    if (tablet_schema.__isset.is_in_memory) {
+        schema->set_is_in_memory(tablet_schema.is_in_memory);
+    }
+
     init_from_pb(tablet_meta_pb);
 }
 
