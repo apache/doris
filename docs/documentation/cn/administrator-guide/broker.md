@@ -186,13 +186,29 @@ WITH BROKER "broker_name"
         "kerberos_keytab_content" = "ASDOWHDLAWIDJHWLDKSALDJSDIWALD"
     )
     ```
+    如果采用Kerberos认证方式，则部署Broker进程的时候需要[krb5.conf](https://web.mit.edu/kerberos/krb5-1.12/doc/admin/conf_files/krb5_conf.html)文件，
+    krb5.conf文件包含Kerberos的配置信息，通常，您应该将krb5.conf文件安装在目录/etc中。您可以通过设置环境变量KRB5_CONFIG覆盖默认位置。
+    krb5.conf文件的内容示例如下：
+    ```
+    [libdefaults]
+        default_realm = DORIS.HADOOP
+        default_tkt_enctypes = des3-hmac-sha1 des-cbc-crc
+        default_tgs_enctypes = des3-hmac-sha1 des-cbc-crc
+        dns_lookup_kdc = true
+        dns_lookup_realm = false
+    
+    [realms]
+        DORIS.HADOOP = {
+            kdc = kerberos-doris.hadoop.service:7005
+        }
+    ```
     
 3. HDFS HA 模式
 
     这个配置用于访问以 HA 模式部署的 HDFS 集群。
     
     * `dfs.nameservices`：指定 hdfs 服务的名字，自定义，如："dfs.nameservices" = "my_ha"。
-    * `dfs.ha.namenodes.xxx`：自定义 namenode 的名字,多个名字以逗号分隔。其中 xxx 为 `dfs.nameservices` 中自定义的名字，如 "dfs.ha.namenodes.my_ha" = "my_nn"。
+    * `dfs.ha.namenodes.xxx`：自定义 namenode 的名字,多个名字以逗号分隔。其中 xxx 为 `dfs.nameservices` 中自定义的名字，如： "dfs.ha.namenodes.my_ha" = "my_nn"。
     * `dfs.namenode.rpc-address.xxx.nn`：指定 namenode 的rpc地址信息。其中 nn 表示 `dfs.ha.namenodes.xxx` 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"。
     * `dfs.client.failover.proxy.provider`：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider。
 
@@ -221,6 +237,7 @@ WITH BROKER "broker_name"
         "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
     )
     ```
+   关于HDFS集群的配置可以写入hdfs-site.xml文件中，用户使用Broker进程读取HDFS集群的信息时，只需要填写集群的文件路径名和认证信息即可。
     
 #### 百度对象存储 BOS
 
