@@ -36,7 +36,6 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
-#include "util/thread_pool.hpp"
 #include "util/debug_util.h"
 #include "util/priority_thread_pool.hpp"
 #include "agent/cgroups_mgr.h"

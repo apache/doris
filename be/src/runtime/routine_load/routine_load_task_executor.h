@@ -22,7 +22,7 @@
 #include <mutex>
 
 #include "runtime/routine_load/data_consumer_pool.h"
-#include "util/thread_pool.hpp"
+#include "util/priority_thread_pool.hpp"
 #include "util/uid_util.h"
 
 #include "gen_cpp/internal_service.pb.h"
@@ -74,7 +74,7 @@ private:
 
 private:
     ExecEnv* _exec_env;
-    ThreadPool _thread_pool;
+    PriorityThreadPool _thread_pool;
     DataConsumerPool _data_consumer_pool;
 
     std::mutex _lock;

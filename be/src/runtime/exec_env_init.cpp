@@ -55,7 +55,6 @@
 #include "util/brpc_stub_cache.h"
 #include "util/priority_thread_pool.hpp"
 #include "agent/cgroups_mgr.h"
-#include "util/thread_pool.hpp"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/TPaloBrokerService.h"
@@ -86,7 +85,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _thread_pool = new PriorityThreadPool(
         config::doris_scanner_thread_pool_thread_num,
         config::doris_scanner_thread_pool_queue_size);
-    _etl_thread_pool = new ThreadPool(
+    _etl_thread_pool = new PriorityThreadPool(
         config::etl_thread_pool_size,
         config::etl_thread_pool_queue_size);
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);

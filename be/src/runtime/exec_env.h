@@ -47,7 +47,6 @@ class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class TestExecEnv;
-class ThreadPool;
 class ThreadResourceMgr;
 class TmpFileMgr;
 class WebPageHandler;
@@ -106,7 +105,7 @@ public:
     PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* thread_pool() { return _thread_pool; }
-    ThreadPool* etl_thread_pool() { return _etl_thread_pool; }
+    PriorityThreadPool* etl_thread_pool() { return _etl_thread_pool; }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     TMasterInfo* master_info() { return _master_info; }
@@ -157,7 +156,7 @@ private:
     PoolMemTrackerRegistry* _pool_mem_trackers = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
     PriorityThreadPool* _thread_pool = nullptr;
-    ThreadPool* _etl_thread_pool = nullptr;
+    PriorityThreadPool* _etl_thread_pool = nullptr;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
     TMasterInfo* _master_info = nullptr;
