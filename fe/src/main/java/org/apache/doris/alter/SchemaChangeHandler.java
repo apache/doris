@@ -157,7 +157,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void processDropColumn(DropColumnClause alterClause, OlapTable olapTable,
-                                  Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
+                                  Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes) throws DdlException {
         String dropColName = alterClause.getColName();
         String targetIndexName = alterClause.getRollupName();
         checkIndexExists(olapTable, targetIndexName);
@@ -224,7 +224,18 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
         }
-        
+
+        Iterator<Index> it = indexes.iterator();
+        while(it.hasNext()){
+            Index index = it.next();
+            for (String indexCol : index.getColumns()) {
+                if (dropColName.equalsIgnoreCase(indexCol)) {
+                    it.remove();
+                    break;
+                }
+            }
+        }
+
         long baseIndexId = olapTable.getBaseIndexId();
         if (targetIndexName == null) {
             // if not specify rollup index, column should be dropped from both base and rollup indexes.
@@ -1367,8 +1378,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 // add columns
                 processAddColumns((AddColumnsClause) alterClause, olapTable, indexSchemaMap);
             } else if (alterClause instanceof DropColumnClause) {
-                // drop column
-                processDropColumn((DropColumnClause) alterClause, olapTable, indexSchemaMap);
+                // drop column and drop indexes on this column
+                processDropColumn((DropColumnClause) alterClause, olapTable, indexSchemaMap, newIndexes);
             } else if (alterClause instanceof ModifyColumnClause) {
                 // modify column
                 processModifyColumn((ModifyColumnClause) alterClause, olapTable, indexSchemaMap);
