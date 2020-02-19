@@ -30,7 +30,12 @@ std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat) {
     return os;
 }
 
-OLAPStatus FlushToken::submit(std::shared_ptr<MemTable> memtable) {
+// The type of parameter is safe to be a reference. Because the function object
+// returned by std::bind() will increase the reference count of Memtable. i.e.,
+// after the submit() method returns, even if the caller immediately releases the
+// passed shared_ptr object, the Memtable object will not be destructed because
+// its reference count is not 0.
+OLAPStatus FlushToken::submit(const std::shared_ptr<MemTable>& memtable) {
     RETURN_NOT_OK(_flush_status.load());
     _flush_token->submit_func(std::bind(&FlushToken::_flush_memtable, this, memtable));
     return OLAP_SUCCESS;
