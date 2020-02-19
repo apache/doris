@@ -227,7 +227,6 @@ TEST_F(StringFunctionsTest, not_empty) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
     doris_udf::BooleanVal falseRet = doris_udf::BooleanVal(false);
     doris_udf::BooleanVal trueRet = doris_udf::BooleanVal(true);
-    doris_udf::BooleanVal nullRet = doris_udf::BooleanVal::null();
 
     ASSERT_EQ(falseRet, StringFunctions::not_empty(context, StringVal("")));
 
@@ -243,14 +242,13 @@ TEST_F(StringFunctionsTest, not_empty) {
 
     ASSERT_EQ(trueRet, StringFunctions::not_empty(context, StringVal("222")));
 
-    ASSERT_EQ(nullRet, StringFunctions::not_empty(context, StringVal::null()));
+    ASSERT_EQ(falseRet, StringFunctions::not_empty(context, StringVal::null()));
 }
 
 TEST_F(StringFunctionsTest, empty) {
     doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
     doris_udf::BooleanVal falseRet = doris_udf::BooleanVal(false);
     doris_udf::BooleanVal trueRet = doris_udf::BooleanVal(true);
-    doris_udf::BooleanVal nullRet = doris_udf::BooleanVal::null();
 
     ASSERT_EQ(trueRet, StringFunctions::empty(context, StringVal("")));
 
@@ -264,7 +262,7 @@ TEST_F(StringFunctionsTest, empty) {
 
     ASSERT_EQ(falseRet, StringFunctions::empty(context, StringVal(".")));
 
-    ASSERT_EQ(nullRet, StringFunctions::empty(context, StringVal::null()));
+    ASSERT_EQ(trueRet, StringFunctions::empty(context, StringVal::null()));
 }
 
 }

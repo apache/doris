@@ -101,10 +101,7 @@ BooleanVal StringFunctions::ends_with(
 
 BooleanVal StringFunctions::empty(
         FunctionContext* context, const StringVal& str) {
-    if (str.is_null) {
-        return BooleanVal::null();
-    }
-    if (str.len == 0) {
+    if (str.is_null || str.len == 0) {
         return 1;
     }
     else {
@@ -114,10 +111,7 @@ BooleanVal StringFunctions::empty(
 
 BooleanVal StringFunctions::not_empty(
         FunctionContext* context, const StringVal& str) {
-    if (str.is_null) {
-        return BooleanVal::null();
-    }
-    if (str.len == 0) {
+    if (str.is_null || str.len == 0) {
         return 0;
     }
     else {
