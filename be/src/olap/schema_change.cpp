@@ -335,7 +335,7 @@ bool RowBlockChanger::change_row_block(
                             p--;
                         }
                         slice->size = p + 1;
-                        write_helper.set_field_content(i, buf, mem_pool);
+                        write_helper.set_field_content(i, reinterpret_cast<char*>(&slice), mem_pool);
                     }
                 }
             } else if ((reftype == OLAP_FIELD_TYPE_FLOAT && newtype == OLAP_FIELD_TYPE_DOUBLE)
@@ -718,7 +718,7 @@ bool LinkedSchemaChange::process(
     if (status != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to convert rowset."
                      << ", new_tablet=" << new_tablet->full_name()
-                     << ", base_tablet=" << base_tablet->full_name() 
+                     << ", base_tablet=" << base_tablet->full_name()
                      << ", version=" << new_rowset_writer->version().first
                      << "-" << new_rowset_writer->version().second;
         return false;
@@ -1245,7 +1245,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
-    // check if tablet's state is not_ready, if it is ready, it means the tablet already finished 
+    // check if tablet's state is not_ready, if it is ready, it means the tablet already finished
     // check whether the tablet's max continuous version == request.version
     if (new_tablet->tablet_state() != TABLET_NOTREADY) {
         res = _validate_alter_result(new_tablet, request);
@@ -1255,7 +1255,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         return res;
     }
 
-    LOG(INFO) << "finish to validate alter tablet request. begin to convert data from base tablet to new tablet" 
+    LOG(INFO) << "finish to validate alter tablet request. begin to convert data from base tablet to new tablet"
               << " base_tablet=" << base_tablet->full_name()
               << " new_tablet=" << new_tablet->full_name();
 
@@ -1415,7 +1415,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "failed to alter tablet. base_tablet=" << base_tablet->full_name()
                      << ", drop new_tablet=" << new_tablet->full_name();
-        // do not drop the new tablet and its data. GC thread will 
+        // do not drop the new tablet and its data. GC thread will
     }
 
     return res;
@@ -1452,15 +1452,15 @@ OLAPStatus SchemaChangeHandler::schema_version_convert(
     SchemaChange* sc_procedure = nullptr;
     if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
-        LOG(INFO) << "doing schema change with sorting.";
+        LOG(INFO) << "doing schema change with sorting for base_tablet " << base_tablet->full_name();
         sc_procedure = new(nothrow) SchemaChangeWithSorting(
                                 rb_changer,
                                 memory_limitation * 1024 * 1024 * 1024);
     } else if (sc_directly) {
-        LOG(INFO) << "doing schema change directly.";
+        LOG(INFO) << "doing schema change directly for base_tablet " << base_tablet->full_name();
         sc_procedure = new(nothrow) SchemaChangeDirectly(rb_changer);
     } else {
-        LOG(INFO) << "doing linked schema change.";
+        LOG(INFO) << "doing linked schema change for base_tablet " << base_tablet->full_name();
         sc_procedure = new(nothrow) LinkedSchemaChange(rb_changer);
     }
 
@@ -1622,7 +1622,7 @@ OLAPStatus SchemaChangeHandler::_save_alter_state(
     }
     OLAPStatus res = base_tablet->set_alter_state(state);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to set alter state to " << state 
+        LOG(WARNING) << "failed to set alter state to " << state
                      << " tablet=" <<  base_tablet->full_name()
                      << " res=" << res;
         return res;
@@ -1641,7 +1641,7 @@ OLAPStatus SchemaChangeHandler::_save_alter_state(
     }
     res = new_tablet->set_alter_state(state);
     if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "failed to set alter state to " << state 
+        LOG(WARNING) << "failed to set alter state to " << state
                      << " tablet " <<  new_tablet->full_name()
                      << " res" << res;
         return res;
@@ -1657,7 +1657,7 @@ OLAPStatus SchemaChangeHandler::_save_alter_state(
 }
 
 OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
-    LOG(INFO) << "begin to convert rowsets for new_tablet from base_tablet."
+    LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
               << " base_tablet=" << sc_params.base_tablet->full_name()
               << ", new_tablet=" << sc_params.new_tablet->full_name();
 
@@ -1689,14 +1689,14 @@ OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangePa
     // b. 生成历史数据转换器
     if (sc_sorting) {
         size_t memory_limitation = config::memory_limitation_per_thread_for_schema_change;
-        LOG(INFO) << "doing schema change with sorting.";
+        LOG(INFO) << "doing schema change with sorting for base_tablet " << sc_params.base_tablet->full_name();
         sc_procedure = new(nothrow) SchemaChangeWithSorting(rb_changer,
                                                             memory_limitation * 1024 * 1024 * 1024);
     } else if (sc_directly) {
-        LOG(INFO) << "doing schema change directly.";
+        LOG(INFO) << "doing schema change directly for base_tablet " << sc_params.base_tablet->full_name();
         sc_procedure = new(nothrow) SchemaChangeDirectly(rb_changer);
     } else {
-        LOG(INFO) << "doing linked schema change.";
+        LOG(INFO) << "doing linked schema change for base_tablet " << sc_params.base_tablet->full_name();
         sc_procedure = new(nothrow) LinkedSchemaChange(rb_changer);
     }
 
@@ -1794,7 +1794,7 @@ PROCESS_ALTER_EXIT:
     {
         // save tablet meta here because rowset meta is not saved during add rowset
         WriteLock new_wlock(sc_params.new_tablet->get_header_lock_ptr());
-        res = sc_params.new_tablet->save_meta();    
+        res = sc_params.new_tablet->save_meta();
     }
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);

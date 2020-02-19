@@ -42,15 +42,18 @@ import com.google.common.collect.Maps;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.net.ServerSocket;
+import java.nio.channels.SocketChannel;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 
 public class UtFrameUtils {
 
     // Help to create a mocked ConnectContext.
-    public static ConnectContext createDefaultCtx() {
-        ConnectContext ctx = new ConnectContext();
+    public static ConnectContext createDefaultCtx() throws IOException {
+        SocketChannel channel = SocketChannel.open();
+        ConnectContext ctx = new ConnectContext(channel);
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setQualifiedUser(PaloAuth.ROOT_USER);
@@ -75,22 +78,20 @@ public class UtFrameUtils {
     public static void createMinDorisCluster(String runningDir) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         // get DORIS_HOME
-        final String dorisHome = System.getenv("DORIS_HOME");
+        String dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
-            throw new EnvVarNotSetException("env DORIS_HOME is not set");
+            dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
 
-        Random r = new Random(System.currentTimeMillis());
-        int basePort = 20000 + r.nextInt(9000);
-        int fe_http_port = basePort + 1;
-        int fe_rpc_port = basePort + 2;
-        int fe_query_port = basePort + 3;
-        int fe_edit_log_port = basePort + 4;
+        int fe_http_port = findValidPort();
+        int fe_rpc_port = findValidPort();
+        int fe_query_port = findValidPort();
+        int fe_edit_log_port = findValidPort();
 
-        int be_heartbeat_port = basePort + 5;
-        int be_thrift_port = basePort + 6;
-        int be_brpc_port = basePort + 7;
-        int be_http_port = basePort + 8;
+        int be_heartbeat_port = findValidPort();
+        int be_thrift_port = findValidPort();
+        int be_brpc_port = findValidPort();
+        int be_http_port = findValidPort();
 
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = MockedFrontend.getInstance();
@@ -119,5 +120,23 @@ public class UtFrameUtils {
 
         // sleep to wait first heartbeat
         Thread.sleep(6000);
+    }
+
+    public static int findValidPort() {
+        ServerSocket socket = null;
+        try {
+            socket = new ServerSocket(0);
+            socket.setReuseAddress(true);
+            return socket.getLocalPort();
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
+        } finally {
+            if (socket != null) {
+                try {
+                    socket.close();
+                } catch (Exception e) {
+                }
+            }
+        }
     }
 }

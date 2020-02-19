@@ -17,10 +17,12 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Range;
@@ -37,12 +39,14 @@ public class PartitionPersistInfo implements Writable {
     private Range<PartitionKey> range;
     private DataProperty dataProperty;
     private short replicationNum;
+    private boolean isInMemory;
     
     public PartitionPersistInfo() {
     }
 
     public PartitionPersistInfo(long dbId, long tableId, Partition partition, Range<PartitionKey> range,
-                                DataProperty dataProperty, short replicationNum) {
+                                DataProperty dataProperty, short replicationNum,
+                                boolean isInMemory) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partition = partition;
@@ -51,6 +55,7 @@ public class PartitionPersistInfo implements Writable {
         this.dataProperty = dataProperty;
 
         this.replicationNum = replicationNum;
+        this.isInMemory = isInMemory;
     }
     
     public Long getDbId() {
@@ -77,6 +82,10 @@ public class PartitionPersistInfo implements Writable {
         return replicationNum;
     }
 
+    public boolean isInMemory() {
+        return isInMemory;
+    }
+
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
         out.writeLong(tableId);
@@ -85,6 +94,7 @@ public class PartitionPersistInfo implements Writable {
         RangePartitionInfo.writeRange(out, range);
         dataProperty.write(out);
         out.writeShort(replicationNum);
+        out.writeBoolean(isInMemory);
     }
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
@@ -94,6 +104,9 @@ public class PartitionPersistInfo implements Writable {
         range = RangePartitionInfo.readRange(in);
         dataProperty = DataProperty.read(in);
         replicationNum = in.readShort();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
+            isInMemory = in.readBoolean();
+        }
     }
     
     public boolean equals(Object obj) {

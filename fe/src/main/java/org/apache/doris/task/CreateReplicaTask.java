@@ -63,6 +63,8 @@ public class CreateReplicaTask extends AgentTask {
     // indexes
     private List<Index> indexes;
 
+    private boolean isInMemory;
+
     // used for synchronous process
     private MarkedCountDownLatch<Long, Long> latch;
 
@@ -79,7 +81,8 @@ public class CreateReplicaTask extends AgentTask {
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
-                             List<Index> indexes) {
+                             List<Index> indexes,
+                             boolean isInMemory) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
@@ -99,6 +102,8 @@ public class CreateReplicaTask extends AgentTask {
         this.bfFpp = bfFpp;
 
         this.latch = latch;
+
+        this.isInMemory = isInMemory;
     }
     
     public void countDownLatch(long backendId, long tabletId) {
@@ -173,6 +178,7 @@ public class CreateReplicaTask extends AgentTask {
         if (bfColumns != null) {
             tSchema.setBloom_filter_fpp(bfFpp);
         }
+        tSchema.setIs_in_memory(isInMemory);
         createTabletReq.setTablet_schema(tSchema);
 
         createTabletReq.setVersion(version);

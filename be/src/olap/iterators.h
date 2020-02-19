@@ -79,6 +79,7 @@ public:
 
     // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
+    bool use_page_cache = false;
 };
 
 // Used to read data in RowBlockV2 one by one

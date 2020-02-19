@@ -51,13 +51,7 @@ public class RangePartitionInfo extends PartitionInfo {
     private static final Comparator<Map.Entry<Long, Range<PartitionKey>>> RANGE_MAP_ENTRY_COMPARATOR;
 
     static {
-        RANGE_MAP_ENTRY_COMPARATOR = new Comparator<Map.Entry<Long, Range<PartitionKey>>>() {
-            @Override
-            public int compare(Map.Entry<Long, Range<PartitionKey>> o1,
-                               Map.Entry<Long, Range<PartitionKey>> o2) {
-                return o1.getValue().lowerEndpoint().compareTo(o2.getValue().lowerEndpoint());
-            }
-        };
+        RANGE_MAP_ENTRY_COMPARATOR = Comparator.comparing(o -> o.getValue().lowerEndpoint());
     }
 
     public RangePartitionInfo() {
@@ -85,8 +79,8 @@ public class RangePartitionInfo extends PartitionInfo {
     }
 
     public void addPartition(long partitionId, Range<PartitionKey> range, DataProperty dataProperty,
-            short replicationNum) {
-        addPartition(partitionId, dataProperty, replicationNum);
+                             short replicationNum, boolean isInMemory) {
+        addPartition(partitionId, dataProperty, replicationNum, isInMemory);
         idToRange.put(partitionId, range);
     }
 
@@ -191,16 +185,17 @@ public class RangePartitionInfo extends PartitionInfo {
         }
         idToDataProperty.put(partitionId, desc.getPartitionDataProperty());
         idToReplicationNum.put(partitionId, desc.getReplicationNum());
+        idToInMemory.put(partitionId, desc.isInMemory());
         return range;
     }
 
-    // for catalog restore
     public void unprotectHandleNewSinglePartitionDesc(long partitionId, Range<PartitionKey> range,
-                                                      DataProperty dataProperty, short replicationNum)
-            throws DdlException {
+                                                      DataProperty dataProperty, short replicationNum,
+                                                      boolean isInMemory) {
         idToRange.put(partitionId, range);
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicationNum.put(partitionId, replicationNum);
+        idToInMemory.put(partitionId, isInMemory);
     }
 
     public void setRange(long partitionId, Range<PartitionKey> range) {

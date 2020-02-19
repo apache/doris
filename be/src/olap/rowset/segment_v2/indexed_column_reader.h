@@ -46,8 +46,10 @@ class IndexedColumnIterator;
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
 class IndexedColumnReader {
 public:
-    explicit IndexedColumnReader(const std::string& file_name, const IndexedColumnMetaPB& meta)
-        : _file_name(file_name), _meta(meta) {};
+    explicit IndexedColumnReader(const std::string& file_name,
+                                 const IndexedColumnMetaPB& meta,
+                                 const bool cache_in_memory)
+        : _file_name(file_name), _meta(meta), _cache_in_memory(cache_in_memory) {};
 
     Status load();
 
@@ -70,6 +72,9 @@ private:
 
     std::string _file_name;
     IndexedColumnMetaPB _meta;
+    // if _cache_in_memory is true, we will use DURABLE CachePriority in page cache,
+    // otherwise we use NORMAL CachePriority
+    bool _cache_in_memory;
     int64_t _num_values = 0;
     // whether this column contains any index page.
     // could be false when the column contains only one data page.

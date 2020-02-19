@@ -19,6 +19,9 @@
 
 #include <set>
 
+#include "env/env.h"
+#include "gen_cpp/Types_constants.h"
+#include "gen_cpp/BackendService.h"
 #include "gutil/strings/stringpiece.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/substitute.h"
@@ -28,11 +31,8 @@
 #include "olap/snapshot_manager.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "runtime/client_cache.h"
 #include "util/thrift_rpc_helper.h"
-
-#include "env/env.h"
-
-#include "gen_cpp/Types_constants.h"
 
 using std::set;
 using std::stringstream;

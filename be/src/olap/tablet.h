@@ -47,9 +47,8 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 
 class Tablet : public std::enable_shared_from_this<Tablet> {
 public:
-    static TabletSharedPtr create_tablet_from_meta(
-            TabletMetaSharedPtr tablet_meta,
-            DataDir* data_dir  = nullptr);
+    static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
+                                                   DataDir* data_dir  = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
     ~Tablet();
@@ -240,7 +239,6 @@ public:
     OLAPStatus do_tablet_meta_checkpoint();
 
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
-
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 

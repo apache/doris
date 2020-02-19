@@ -48,16 +48,9 @@ using std::sort;
 using std::string;
 using std::vector;
 
-TabletSharedPtr Tablet::create_tablet_from_meta(
-        TabletMetaSharedPtr tablet_meta,
-        DataDir* data_dir) {
-    TabletSharedPtr tablet = std::make_shared<Tablet>(tablet_meta, data_dir);
-    if (tablet == nullptr) {
-        LOG(WARNING) << "fail to malloc a table.";
-        return nullptr;
-    }
-
-    return tablet;
+TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
+                                                DataDir* data_dir) {
+    return std::make_shared<Tablet>(tablet_meta, data_dir);
 }
 
 void Tablet::_gen_tablet_path() {
@@ -147,9 +140,8 @@ OLAPStatus Tablet::save_meta() {
     if (res != OLAP_SUCCESS) {
        LOG(FATAL) << "fail to save tablet_meta. res=" << res << ", root=" << _data_dir->path();
     }
-    // TODO(lingbin): Why we refetch schema again? should leave a comment to tell everyone why.
-    // seems that in schema-change task where schema will change, this method will be called.
-    // Maybe we should add a param named need_update_schema to this method.
+    // User could directly update tablet schema by _tablet_meta,
+    // So we need to refetch schema again
     _schema = _tablet_meta->tablet_schema();
 
     return res;
@@ -535,6 +527,8 @@ OLAPStatus Tablet::add_delete_predicate(
     return _tablet_meta->add_delete_predicate(delete_predicate, version);
 }
 
+// TODO(lingbin): what is the difference between version_for_delete_predicate() and
+// version_for_load_deletion()? should at least leave a comment
 bool Tablet::version_for_delete_predicate(const Version& version) {
     return _tablet_meta->version_for_delete_predicate(version);
 }
@@ -1125,6 +1119,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_storage_medium(_data_dir->storage_medium());
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
+    tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema().is_in_memory());
     return;
 }
 
