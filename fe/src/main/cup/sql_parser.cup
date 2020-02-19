@@ -1721,7 +1721,7 @@ opt_engine ::=
 
 opt_key_value_map ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | LPAREN key_value_map:map RPAREN
     {:
