@@ -62,6 +62,10 @@ public class LoadStmt extends DdlStmt {
     private static final String VERSION = "version";
     public static final String STRICT_MODE = "strict_mode";
     public static final String TIMEZONE = "timezone";
+
+    public static final String BUFFER_NUM = "buffer_num";
+    public static final String MEM_LIMIT_PER_BUF = "mem_limit_per_buf";
+    public static final String SIZE_LIMIT_PER_BUF = "size_limit_per_buf";
     
     // for load data from Baidu Object Store(BOS)
     public static final String BOS_ENDPOINT = "bos_endpoint";
@@ -95,6 +99,9 @@ public class LoadStmt extends DdlStmt {
             .add(STRICT_MODE)
             .add(VERSION)
             .add(TIMEZONE)
+            .add(BUFFER_NUM)
+            .add(MEM_LIMIT_PER_BUF)
+            .add(SIZE_LIMIT_PER_BUF)
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,

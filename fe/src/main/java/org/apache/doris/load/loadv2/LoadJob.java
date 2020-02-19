@@ -17,6 +17,20 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import com.google.common.collect.Table;
+import com.google.gson.Gson;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
@@ -53,28 +67,10 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
-
-import com.google.common.base.Joiner;
-import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import com.google.common.collect.Table;
-import com.google.gson.Gson;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
 public abstract class LoadJob extends AbstractTxnStateChangeCallback implements LoadTaskCallback, Writable {
-
     private static final Logger LOG = LogManager.getLogger(LoadJob.class);
 
     protected static final String QUALITY_FAIL_MSG = "quality not good enough to cancel";
@@ -98,8 +94,10 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     protected double maxFilterRatio = 0;
     protected boolean strictMode = false; // default is false
     protected String timezone = TimeUtils.DEFAULT_TIME_ZONE;
-    @Deprecated
-    protected boolean deleteFlag = false;
+    protected int bufferNum = 0;
+    protected long memLimitPerBuf = 0;
+    protected long sizeLimitPerBuf = 0;
+    @Deprecated protected boolean deleteFlag = false;
 
     protected long createTimestamp = System.currentTimeMillis();
     protected long loadStartTimestamp = -1;
@@ -350,6 +348,28 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                 // get timezone for session variable
                 timezone = ConnectContext.get().getSessionVariable().getTimeZone();
             }
+
+            if (properties.containsKey(LoadStmt.BUFFER_NUM)) {
+                try {
+                    bufferNum = Integer.parseInt(properties.get(LoadStmt.BUFFER_NUM));
+                } catch (NumberFormatException e) {
+                    throw new DdlException("Timeout is not INT", e);
+                }
+            }
+            if (properties.containsKey(LoadStmt.MEM_LIMIT_PER_BUF)) {
+                try {
+                    memLimitPerBuf = Long.parseLong(properties.get(LoadStmt.MEM_LIMIT_PER_BUF));
+                } catch (NumberFormatException e) {
+                    throw new DdlException("Buffer memory limit is not Long", e);
+                }
+            }
+            if (properties.containsKey(LoadStmt.SIZE_LIMIT_PER_BUF)) {
+                try {
+                    sizeLimitPerBuf = Long.parseLong(properties.get(LoadStmt.SIZE_LIMIT_PER_BUF));
+                } catch (NumberFormatException e) {
+                    throw new DdlException("Buffer size limit is not Long", e);
+                }
+            }
         }
     }
 
@@ -410,8 +430,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    protected void unprotectedExecuteJob() {
-    }
+    protected void unprotectedExecuteJob() {}
 
     /**
      * This method only support update state to finished and loading.
@@ -575,8 +594,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // get load ids of all loading tasks, we will cancel their coordinator process later
         List<TUniqueId> loadIds = Lists.newArrayList();
         for (LoadTask loadTask : idToTasks.values()) {
-            if (loadTask instanceof LoadLoadingTask ) {
-                loadIds.add(((LoadLoadingTask)loadTask).getLoadId());
+            if (loadTask instanceof LoadLoadingTask) {
+                loadIds.add(((LoadLoadingTask) loadTask).getLoadId());
             }
         }
         idToTasks.clear();
@@ -608,7 +627,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                         .build());
             }
         }
-        
+
         // cancel all running coordinators, so that the scheduler's worker thread will be released
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
@@ -880,23 +899,19 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    protected void replayTxnAttachment(TransactionState txnState) {
-    }
+    protected void replayTxnAttachment(TransactionState txnState) {}
 
     @Override
-    public void onTaskFinished(TaskAttachment attachment) {
-    }
+    public void onTaskFinished(TaskAttachment attachment) {}
 
     @Override
-    public void onTaskFailed(long taskId, FailMsg failMsg) {
-    }
+    public void onTaskFailed(long taskId, FailMsg failMsg) {}
 
     // This analyze will be invoked after the replay is finished.
     // The edit log of LoadJob saves the origin param which is not analyzed.
     // So, the re-analyze must be invoked between the replay is finished and LoadJobScheduler is started.
     // Only, the PENDING load job need to be analyzed.
-    public void analyze() {
-    }
+    public void analyze() {}
 
     @Override
     public boolean equals(Object obj) {
@@ -910,11 +925,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
         LoadJob other = (LoadJob) obj;
 
-        return this.id == other.id
-        && this.dbId == other.dbId
-        && this.label.equals(other.label)
-        && this.state.equals(other.state)
-        && this.jobType.equals(other.jobType);
+        return this.id == other.id && this.dbId == other.dbId && this.label.equals(other.label) && this.state.equals(other.state)
+            && this.jobType.equals(other.jobType);
     }
 
     @Override

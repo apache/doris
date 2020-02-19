@@ -76,6 +76,10 @@ public class OlapTableSink extends DataSink {
     // specified partition ids. empty means partition does not specified, so all partitions will be included.
     private List<Long> partitionIds;
 
+    private int bufferNum = 0;
+    private long memLimitPerBuf = 0;
+    private long sizeLimitPerBuf = 0;
+
     // set after init called
     private TDataSink tDataSink;
 
@@ -88,12 +92,29 @@ public class OlapTableSink extends DataSink {
         }
     }
 
+    public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds, int bufferNum,
+        long memLimitPerBuf, long sizeLimitPerBuf) {
+        this(dstTable, tupleDescriptor, partitionIds);
+        this.bufferNum = bufferNum;
+        this.memLimitPerBuf = memLimitPerBuf;
+        this.sizeLimitPerBuf = sizeLimitPerBuf;
+    }
+
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS) throws AnalysisException {
         TOlapTableSink tSink = new TOlapTableSink();
         tSink.setLoad_id(loadId);
         tSink.setTxn_id(txnId);
         tSink.setDb_id(dbId);
         tSink.setLoad_channel_timeout_s(loadChannelTimeoutS);
+
+        if (bufferNum > 0) {
+            tSink.setBuffer_num(bufferNum);
+            if (memLimitPerBuf > 0)
+                tSink.setMem_limit_per_buf(memLimitPerBuf);
+            if (sizeLimitPerBuf > 0)
+                tSink.setSize_limit_per_buf(sizeLimitPerBuf);
+        }
+
         tDataSink = new TDataSink(TDataSinkType.DATA_SPLIT_SINK);
         tDataSink.setType(TDataSinkType.OLAP_TABLE_SINK);
         tDataSink.setOlap_table_sink(tSink);
@@ -291,7 +312,7 @@ public class OlapTableSink extends DataSink {
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
         for (Partition partition : table.getPartitions()) {
-            int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
+            int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive
                 // otherwise, there will be a 'unknown node id, id=xxx' error for stream load
@@ -305,7 +326,7 @@ public class OlapTableSink extends DataSink {
                 }
             }
         }
-        
+
         // check if disk capacity reach limit
         // this is for load process, so use high water mark to check
         Status st = Catalog.getCurrentSystemInfo().checkExceedDiskCapacityLimit(allBePathsMap, true);
@@ -324,6 +345,4 @@ public class OlapTableSink extends DataSink {
         }
         return nodesInfo;
     }
-
 }
-

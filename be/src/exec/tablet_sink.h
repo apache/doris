@@ -17,23 +17,26 @@
 
 #pragma once
 
+#include <boost/lockfree/spsc_queue.hpp>
 #include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include "common/status.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/palo_internal_service.pb.h"
 #include "util/bitmap.h"
-#include "util/thrift_util.h"
+#include "util/mutex.h"
 #include "util/ref_count_closure.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -47,8 +50,29 @@ class ExprContext;
 class TExpr;
 
 namespace stream_load {
- 
+
 class OlapTableSink;
+
+// The counter of add_batch rpc of a single node
+struct AddBatchCounter {
+    // total execution time of a add_batch rpc
+    int64_t add_batch_execution_time_us = 0;
+    // lock waiting time in a add_batch rpc
+    int64_t add_batch_wait_lock_time_us = 0;
+    // number of add_batch call
+    int64_t add_batch_num = 0;
+    AddBatchCounter& operator+=(const AddBatchCounter& rhs) {
+        add_batch_execution_time_us += rhs.add_batch_execution_time_us;
+        add_batch_wait_lock_time_us += rhs.add_batch_wait_lock_time_us;
+        add_batch_num += rhs.add_batch_num;
+        return *this;
+    }
+    friend AddBatchCounter operator+(const AddBatchCounter& lhs, const AddBatchCounter& rhs) {
+        AddBatchCounter sum = lhs;
+        sum += rhs;
+        return sum;
+    }
+};
 
 class NodeChannel {
 public:
@@ -56,9 +80,7 @@ public:
     ~NodeChannel() noexcept;
 
     // called before open, used to add tablet loacted in this backend
-    void add_tablet(const TTabletWithPartition& tablet) {
-        _all_tablets.emplace_back(tablet);
-    }
+    void add_tablet(const TTabletWithPartition& tablet) { _all_tablets.emplace_back(tablet); }
 
     Status init(RuntimeState* state);
 
@@ -73,11 +95,20 @@ public:
 
     void cancel();
 
+    std::string load_id_info() const;
+    int64_t index_id() const { return _index_id; }
     int64_t node_id() const { return _node_id; }
 
     void set_failed() { _already_failed = true; }
     bool already_failed() const { return _already_failed; }
     const NodeInfo* node_info() const { return _node_info; }
+
+    void time_report(int64_t* serialize_batch_ns, int64_t* wait_in_flight_packet_ns,
+                     std::unordered_map<int64_t, AddBatchCounter>& add_batch_counter_map) {
+        *serialize_batch_ns += _serialize_batch_ns;
+        *wait_in_flight_packet_ns += _wait_in_flight_packet_ns;
+        add_batch_counter_map[_node_id] += _add_batch_counter;
+    }
 
 private:
     Status _send_cur_batch(bool eos = false);
@@ -108,18 +139,20 @@ private:
 
     std::vector<TTabletWithPartition> _all_tablets;
     PTabletWriterAddBatchRequest _add_batch_request;
+
+    int64_t _serialize_batch_ns = 0;
+    int64_t _wait_in_flight_packet_ns = 0;
+
+    AddBatchCounter _add_batch_counter;
 };
 
 class IndexChannel {
 public:
     IndexChannel(OlapTableSink* parent, int64_t index_id, int32_t schema_hash)
-            : _parent(parent), _index_id(index_id),
-            _schema_hash(schema_hash) {
-    }
+            : _parent(parent), _index_id(index_id), _schema_hash(schema_hash) {}
     ~IndexChannel();
 
-    Status init(RuntimeState* state,
-                const std::vector<TTabletWithPartition>& tablets);
+    Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
     Status open();
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
@@ -127,9 +160,26 @@ public:
 
     void cancel();
 
+    vector<NodeChannel*> get_node_channels(int64_t tablet_id);
+
+    bool handle_failed_node(NodeChannel* channel) {
+        std::lock_guard<std::mutex> guard(_ch_lock);
+        return _handle_failed_node(channel);
+    }
+
+    void time_report(int64_t* serialize_batch_ns, int64_t* wait_in_flight_packet_ns,
+                     std::unordered_map<int64_t, AddBatchCounter>& add_batch_counter_map) {
+        *serialize_batch_ns += _serialize_batch_ns;
+        *wait_in_flight_packet_ns += _wait_in_flight_packet_ns;
+        for (auto const& item : _add_batch_counter_map) {
+            add_batch_counter_map[item.first] += item.second;
+        }
+    }
+
 private:
     // return true if this load can't success.
     bool _handle_failed_node(NodeChannel* channel);
+    std::mutex _ch_lock;
 
 private:
     OlapTableSink* _parent;
@@ -141,16 +191,67 @@ private:
     std::unordered_map<int64_t, NodeChannel*> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<NodeChannel*>> _channels_by_tablet;
+
+    int64_t _serialize_batch_ns = 0;
+    int64_t _wait_in_flight_packet_ns = 0;
+
+    // BeId -> AddBatchCounter
+    std::unordered_map<int64_t, AddBatchCounter> _add_batch_counter_map;
 };
 
-// The counter of add_batch rpc of a single node
-struct AddBatchCounter {
-    // total execution time of a add_batch rpc
-    int64_t add_batch_execution_time_ns = 0;
-    // lock waiting time in a add_batch rpc
-    int64_t add_batch_wait_lock_time_ns = 0;
-    // number of add_batch call
-    int64_t add_batch_num = 0;
+class RowBuffer {
+public:
+    RowBuffer(TupleDescriptor* tuple_desc, int64_t byte_limit, int64_t size_limit)
+            : _off(false),
+              _consume_err(false),
+              _tuple_desc(tuple_desc),
+              _queue_runtime_size(size_limit),
+              _queue(size_limit),
+              _mem_tracker(new MemTracker(byte_limit)),
+              _buffer_pool(new MemPool(_mem_tracker.get())) {}
+
+    // push method won't generate error, it returns error only if buffer is not workable
+    // only be called from the producer thread
+    Status push(IndexChannel* index_ch, NodeChannel* node_ch, int64_t tablet_id, Tuple* tuple);
+
+    // the thread function of consumer thread
+    bool consume_process(int buffer_id);
+
+    // disable pushing item to buffer, but items in buffer will continue to be consumed
+    void turn_off() { _off = true; }
+
+    // there's no need for productor to differentiate off and error
+    bool workable() { return !_off && !_consume_err; }
+
+    void report_time(int buffer_id) {
+        LOG(INFO) << "buffer " << buffer_id << " time report: {consumed rows: " << _consume_count
+                  << ", mem_handle: " << _mem_handle_ns / 1e9
+                  << "s, deep_copy: " << _deep_copy_ns / 1e9
+                  << "s, spsc push block if full: " << _spsc_push_ns / 1e9
+                  << "s, consume: " << _consume_ns / 1e9
+                  << "s, actual consume: " << _actual_consume_ns / 1e9 << "s}";
+    }
+
+private:
+    std::atomic<bool> _off;
+    std::atomic<bool> _consume_err;
+
+    TupleDescriptor* _tuple_desc = nullptr;
+
+    std::size_t _queue_runtime_size;
+    // https://www.boost.org/doc/libs/1_64_0/doc/html/lockfree/examples.html#lockfree.examples.waitfree_single_producer_single_consumer_queue
+    boost::lockfree::spsc_queue<std::tuple<IndexChannel*, NodeChannel*, int64_t, Tuple*>> _queue;
+
+    boost::scoped_ptr<MemTracker> _mem_tracker;
+    boost::scoped_ptr<MemPool> _buffer_pool;
+
+    std::size_t _consume_count = 0;
+
+    int64_t _mem_handle_ns = 0;
+    int64_t _deep_copy_ns = 0;
+    int64_t _spsc_push_ns = 0;
+    int64_t _consume_ns = 0;
+    int64_t _actual_consume_ns = 0;
 };
 
 // write data to Olap Table.
@@ -158,9 +259,7 @@ struct AddBatchCounter {
 class OlapTableSink : public DataSink {
 public:
     // Construct from thrift struct which is generated by FE.
-    OlapTableSink(ObjectPool* pool,
-                  const RowDescriptor& row_desc,
-                  const std::vector<TExpr>& texprs,
+    OlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc, const std::vector<TExpr>& texprs,
                   Status* status);
     ~OlapTableSink() override;
 
@@ -175,26 +274,7 @@ public:
     Status close(RuntimeState* state, Status close_status) override;
 
     // Returns the runtime profile for the sink.
-    RuntimeProfile* profile() override {
-        return _profile;
-    }
-
-    // these 2 counters does not thread-safe. make sure only one thread
-    // at a time can modify them.
-    int64_t* mutable_wait_in_flight_packet_ns() { return &_wait_in_flight_packet_ns; }
-    int64_t* mutable_serialize_batch_ns() { return &_serialize_batch_ns; }
-    void update_node_add_batch_counter(int64_t be_id, int64_t add_batch_time_ns, int64_t wait_lock_time_ns) {
-        auto search = _node_add_batch_counter_map.find(be_id);
-        if (search == _node_add_batch_counter_map.end()) {
-            AddBatchCounter new_counter;
-            _node_add_batch_counter_map.emplace(be_id, std::move(new_counter));
-        }
-
-        AddBatchCounter& counter = _node_add_batch_counter_map[be_id];
-        counter.add_batch_execution_time_ns += add_batch_time_ns;
-        counter.add_batch_wait_lock_time_ns += wait_lock_time_ns;
-        counter.add_batch_num += 1;
-    }
+    RuntimeProfile* profile() override { return _profile; }
 
 private:
     // convert input batch to output batch which will be loaded into OLAP table.
@@ -205,6 +285,12 @@ private:
     // return number of invalid/filtered rows.
     // invalid row number is set in Bitmap
     int _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap);
+
+    bool _use_multi_thread() { return _buffer_num != 0; }
+
+    // normal: waiting for consuming the rest in buffer
+    // cancel: interrupt threads immediately
+    void _multi_thread_close(bool is_cancel);
 
 private:
     friend class NodeChannel;
@@ -232,9 +318,10 @@ private:
 
     bool _need_validate_data = false;
 
-    // number of senders used to insert into OlapTable, if we only support single node insert,
-    // all data from select should collectted and then send to OlapTable.
-    // To support multiple senders, we maintain a channel for each sender.
+    // number of senders used to insert into OlapTable, if we only support single
+    // node insert, all data from select should collectted and then send to
+    // OlapTable. To support multiple senders, we maintain a channel for each
+    // sender.
     int _sender_id = -1;
     int _num_senders = -1;
 
@@ -248,11 +335,18 @@ private:
     MemTracker* _mem_tracker = nullptr;
 
     std::set<int64_t> _partition_ids;
+    RWMutex _partition_ids_lock;
 
     Bitmap _filter_bitmap;
 
     // index_channel
     std::vector<IndexChannel*> _channels;
+
+    int _buffer_num = 0;
+    int64_t _mem_limit_per_buf = 1024 * 1024;
+    int64_t _size_limit_per_buf = 1024;
+    std::vector<RowBuffer*> _buffers;
+    std::vector<boost::thread> _send_threads;
 
     std::vector<DecimalValue> _max_decimal_val;
     std::vector<DecimalValue> _min_decimal_val;
@@ -281,9 +375,6 @@ private:
     RuntimeProfile::Counter* _wait_in_flight_packet_timer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
 
-    // BE id -> add_batch method counter
-    std::unordered_map<int64_t, AddBatchCounter> _node_add_batch_counter_map;
-
     // load mem limit is for remote load channel
     int64_t _load_mem_limit = -1;
 
@@ -291,5 +382,5 @@ private:
     int64_t _load_channel_timeout_s = 0;
 };
 
-}
-}
+} // namespace stream_load
+} // namespace doris

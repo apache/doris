@@ -60,6 +60,9 @@ public class LoadLoadingTask extends LoadTask {
     private final String timezone;
     // timeout of load job, in seconds
     private final long timeoutS;
+    private int bufferNum = 0;
+    private long memLimitPerBuf = 0;
+    private long sizeLimitPerBuf = 0;
 
     private LoadingTaskPlanner planner;
 
@@ -83,9 +86,16 @@ public class LoadLoadingTask extends LoadTask {
         this.timeoutS = timeoutS;
     }
 
+    public void useMultiThreadSink(int bufferNum, long memLimitPerBuf, long sizeLimitPerBuf) {
+        this.bufferNum = bufferNum;
+        this.memLimitPerBuf = memLimitPerBuf;
+        this.sizeLimitPerBuf = sizeLimitPerBuf;
+    }
+
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
         this.loadId = loadId;
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode, timezone, this.timeoutS);
+        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode,
+            timezone, this.timeoutS, bufferNum, memLimitPerBuf, sizeLimitPerBuf);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 

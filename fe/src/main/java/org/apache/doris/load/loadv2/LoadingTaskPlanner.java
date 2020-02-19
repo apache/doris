@@ -64,7 +64,10 @@ public class LoadingTaskPlanner {
     private final BrokerDesc brokerDesc;
     private final List<BrokerFileGroup> fileGroups;
     private final boolean strictMode;
-    private final long timeoutS;    // timeout of load job, in second
+    private final long timeoutS; // timeout of load job, in second
+    private final int bufferNum;
+    private final long memLimitPerBuf;
+    private final long sizeLimitPerBuf;
 
     // Something useful
     private Analyzer analyzer = new Analyzer(Catalog.getInstance(), null);
@@ -76,9 +79,9 @@ public class LoadingTaskPlanner {
 
     private int nextNodeId = 0;
 
-    public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table,
-                              BrokerDesc brokerDesc, List<BrokerFileGroup> brokerFileGroups,
-                              boolean strictMode, String timezone, long timeoutS) {
+    public LoadingTaskPlanner(Long loadJobId, long txnId, long dbId, OlapTable table, BrokerDesc brokerDesc,
+        List<BrokerFileGroup> brokerFileGroups, boolean strictMode, String timezone, long timeoutS, int bufferNum,
+        long memLimitPerBuf, long sizeLimitPerBuf) {
         this.loadJobId = loadJobId;
         this.txnId = txnId;
         this.dbId = dbId;
@@ -88,6 +91,9 @@ public class LoadingTaskPlanner {
         this.strictMode = strictMode;
         this.analyzer.setTimezone(timezone);
         this.timeoutS = timeoutS;
+        this.bufferNum = bufferNum;
+        this.memLimitPerBuf = memLimitPerBuf;
+        this.sizeLimitPerBuf = sizeLimitPerBuf;
     }
 
     public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
@@ -110,8 +116,8 @@ public class LoadingTaskPlanner {
 
         // Generate plan trees
         // 1. Broker scan node
-        BrokerScanNode scanNode = new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode",
-                                                     fileStatusesList, filesAdded);
+        BrokerScanNode scanNode =
+            new BrokerScanNode(new PlanNodeId(nextNodeId++), tupleDesc, "BrokerScanNode", fileStatusesList, filesAdded);
         scanNode.setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups, strictMode);
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);
@@ -120,7 +126,7 @@ public class LoadingTaskPlanner {
 
         // 2. Olap table sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds);
+        OlapTableSink olapTableSink = new OlapTableSink(table, tupleDesc, partitionIds, bufferNum, memLimitPerBuf, sizeLimitPerBuf);
         olapTableSink.init(loadId, txnId, dbId, timeoutS);
         olapTableSink.finalize();
 

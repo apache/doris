@@ -183,7 +183,7 @@ public class BrokerLoadJob extends LoadJob {
     }
 
     @Override
-    public Set<String> getTableNames() throws MetaNotFoundException{
+    public Set<String> getTableNames() throws MetaNotFoundException {
         Set<String> result = Sets.newHashSet();
         Database database = Catalog.getCurrentCatalog().getDb(dbId);
         if (database == null) {
@@ -377,6 +377,9 @@ public class BrokerLoadJob extends LoadJob {
                 LoadLoadingTask task = new LoadLoadingTask(db, table, brokerDesc,
                         brokerFileGroups, getDeadlineMs(), execMemLimit,
                         strictMode, transactionId, this, timezone, timeoutSecond);
+                if (bufferNum > 0) {
+                    task.useMultiThreadSink(bufferNum, memLimitPerBuf, sizeLimitPerBuf);
+                }
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
                 task.init(loadId, attachment.getFileStatusByTable(aggKey), attachment.getFileNumByTable(aggKey));
@@ -558,5 +561,4 @@ public class BrokerLoadJob extends LoadJob {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
     }
-
 }
