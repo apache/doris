@@ -25,7 +25,6 @@
 #include <gperftools/heap-profiler.h>
 #include <gperftools/malloc_extension.h>
 #include <gperftools/profiler.h>
-#include <boost/filesystem.hpp>
 
 #include "common/config.h"
 #include "http/ev_http_server.h"
@@ -242,8 +241,9 @@ void SymbolAction::handle(HttpRequest* req) {
 }
 
 Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server) {
-    if (!config::pprof_profile_dir.empty())
-        boost::filesystem::create_directories(config::pprof_profile_dir);
+    if (!config::pprof_profile_dir.empty()){
+        FileUtils::create_dir(config::pprof_profile_dir);
+    }
 
     http_server->register_handler(HttpMethod::GET, "/pprof/heap", new HeapAction());
     http_server->register_handler(HttpMethod::GET, "/pprof/growth", new GrowthAction());
