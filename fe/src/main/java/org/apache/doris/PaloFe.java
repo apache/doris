@@ -22,6 +22,7 @@ import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.http.HttpServer;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
@@ -30,7 +31,6 @@ import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Charsets;
 import com.google.common.base.Strings;
 
@@ -85,7 +85,7 @@ public class PaloFe {
             new Config().init(dorisHomeDir + "/conf/fe.conf");
 
             // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
-            if (!checkJavaVersion()) {
+            if (!JdkUtils.checkJavaVersion()) {
                 throw new IllegalArgumentException("Java version doesn't match");
             }
 
@@ -125,53 +125,6 @@ public class PaloFe {
         } catch (Throwable e) {
             e.printStackTrace();
             return;
-        }
-    }
-
-    /*
-     * Doris will check if the compiled and running versions of Java are compatible.
-     * The principle the java version at runtime should higher than or equal to the java version at compile time
-     */
-    @VisibleForTesting
-    public static boolean checkJavaVersion() {
-        if (!Config.check_java_version) {
-            return true;
-        }
-
-        String javaCompileVersionStr = getJavaVersionFromFullVersion(Version.DORIS_JAVA_COMPILE_VERSION);
-        String javaRuntimeVersionStr = System.getProperty("java.version");
-
-        int compileVersion = getJavaVersionAsInteger(javaCompileVersionStr);
-        int runtimeVersion = getJavaVersionAsInteger(javaRuntimeVersionStr);
-
-        if (runtimeVersion < compileVersion) {
-            System.out.println("The runtime java version " + javaRuntimeVersionStr + " is less than "
-                    + "compile version " + javaCompileVersionStr);
-            return false;
-        }
-
-        return true;
-    }
-
-    /*
-     * Input: openjdk full 'version "13.0.1+9"', 'java full version "1.8.0_131-b11"'
-     * Output: '13.0.1+9', '1.8.0_131-b11'
-     */
-    public static String getJavaVersionFromFullVersion(String fullVersionStr) {
-        int begin = fullVersionStr.indexOf("\"");
-        int end = fullVersionStr.lastIndexOf("\"");
-        String versionStr = fullVersionStr.substring(begin + 1, end);
-        return versionStr;
-    }
-
-    // Input: '13.0.1+9', '1.8.0_131-b11'
-    // Output: 13, 8
-    public static int getJavaVersionAsInteger(String javaVersionStr) {
-        String[] parts = javaVersionStr.split("\\.");
-        if (parts[0].equals("1")) {
-            return Integer.valueOf(parts[1]);
-        } else {
-            return Integer.valueOf(parts[0]);
         }
     }
 

@@ -17,32 +17,32 @@
 
 package org.apache.doris.common;
 
-import org.apache.doris.PaloFe;
+import org.apache.doris.common.util.JdkUtils;
 
 import org.junit.Assert;
 import org.junit.Test;
 
-public class JavaVersionCompareTest {
+public class JdkUtilsTest {
 
     @Test
     public void testNormal() {
-        Assert.assertTrue(PaloFe.checkJavaVersion());
+        Assert.assertTrue(JdkUtils.checkJavaVersion());
     }
 
     @Test
     public void testFunctions() {
-        String versionStr = PaloFe.getJavaVersionFromFullVersion("java full version \"1.8.0_131-b11\"");
+        String versionStr = JdkUtils.getJavaVersionFromFullVersion("java full version \"1.8.0_131-b11\"");
         Assert.assertEquals("1.8.0_131-b11", versionStr);
-        versionStr = PaloFe.getJavaVersionFromFullVersion("openjdk full version \"13.0.1+9\"");
+        versionStr = JdkUtils.getJavaVersionFromFullVersion("openjdk full version \"13.0.1+9\"");
         Assert.assertEquals("13.0.1+9", versionStr);
 
-        int version = PaloFe.getJavaVersionAsInteger("1.8.0_131-b11");
+        int version = JdkUtils.getJavaVersionAsInteger("1.8.0_131-b11");
         Assert.assertEquals(8, version);
-        version = PaloFe.getJavaVersionAsInteger("1.7.0_79-b15");
+        version = JdkUtils.getJavaVersionAsInteger("1.7.0_79-b15");
         Assert.assertEquals(7, version);
-        version = PaloFe.getJavaVersionAsInteger("13.0.1+9");
+        version = JdkUtils.getJavaVersionAsInteger("13.0.1+9");
         Assert.assertEquals(13, version);
-        version = PaloFe.getJavaVersionAsInteger("11.0.0+7");
+        version = JdkUtils.getJavaVersionAsInteger("11.0.0+7");
         Assert.assertEquals(11, version);
     }
 }
