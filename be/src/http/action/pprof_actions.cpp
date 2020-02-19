@@ -35,6 +35,7 @@
 #include "http/http_response.h"
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
+#include "util/file_utils.h"
 
 namespace doris {
 
@@ -241,7 +242,7 @@ void SymbolAction::handle(HttpRequest* req) {
 }
 
 Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server) {
-    if (!config::pprof_profile_dir.empty()){
+    if (!config::pprof_profile_dir.empty()) {
         FileUtils::create_dir(config::pprof_profile_dir);
     }
 
