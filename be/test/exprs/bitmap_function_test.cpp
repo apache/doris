@@ -119,6 +119,28 @@ TEST_F(BitmapFunctionsTest, bitmap_union_int) {
     ASSERT_EQ(expected, result);
 }
 
+TEST_F(BitmapFunctionsTest, bitmap_get_value) {
+    StringVal dst;
+    BitmapFunctions::bitmap_init(ctx, &dst);
+    IntVal src1(1);
+    BitmapFunctions::bitmap_update_int(ctx, src1, &dst);
+
+    BigIntVal result = BitmapFunctions::bitmap_get_value(ctx, dst);
+    BigIntVal expected(1);
+    ASSERT_EQ(expected, result);
+
+    IntVal src2(1234567);
+    BitmapFunctions::bitmap_update_int(ctx, src2, &dst);
+
+    result = BitmapFunctions::bitmap_get_value(ctx, dst);
+    expected.val = 2;
+    ASSERT_EQ(expected, result);
+
+    BigIntVal finalize_result = BitmapFunctions::bitmap_finalize(ctx, dst);
+    ASSERT_EQ(result, finalize_result);
+}
+
+
 TEST_F(BitmapFunctionsTest, bitmap_union) {
     StringVal dst;
     BitmapFunctions::bitmap_init(ctx, &dst);
