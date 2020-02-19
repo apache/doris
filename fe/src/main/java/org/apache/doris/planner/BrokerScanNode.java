@@ -292,7 +292,7 @@ public class BrokerScanNode extends LoadScanNode {
                 expr.setType(Type.HLL);
             }
 
-            checkBitmapCompatibility(destSlotDesc, expr);
+            checkBitmapCompatibility(analyzer, destSlotDesc, expr);
 
             // analyze negative
             if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {

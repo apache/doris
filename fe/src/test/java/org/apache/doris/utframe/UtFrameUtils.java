@@ -26,8 +26,12 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
@@ -49,7 +53,6 @@ import java.util.List;
 import java.util.Map;
 
 public class UtFrameUtils {
-
     // Help to create a mocked ConnectContext.
     public static ConnectContext createDefaultCtx() throws IOException {
         SocketChannel channel = SocketChannel.open();
@@ -137,6 +140,18 @@ public class UtFrameUtils {
                 } catch (Exception e) {
                 }
             }
+        }
+    }
+
+    public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr) throws Exception {
+        ctx.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
+        stmtExecutor.execute();
+        if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+            Planner planner = stmtExecutor.planner();
+            return planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
+        } else {
+            return ctx.getState().getErrorMessage();
         }
     }
 }
