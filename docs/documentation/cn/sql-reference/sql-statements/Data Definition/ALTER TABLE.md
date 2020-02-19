@@ -144,6 +144,7 @@ under the License.
             4) 分区列不能做任何修改
             5) 目前支持以下类型的转换（精度损失由用户保证）
                 TINYINT/SMALLINT/INT/BIGINT 转换成 TINYINT/SMALLINT/INT/BIGINT/DOUBLE。
+                TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL 转换成 VARCHAR
                 LARGEINT 转换成 DOUBLE
                 VARCHAR 支持修改最大长度
                 VARCHAR 转换成 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
