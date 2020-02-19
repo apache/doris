@@ -44,7 +44,7 @@ Doris为了解决初次迁移，大量数据迁移doris的问题，引入了spar
 
 ### 实现方案
 
-参考[pr-2865](https://github.com/apache/incubator-doris/pull/2856), 整的方案将按照如下的框架实现：
+参考[pr-2856](https://github.com/apache/incubator-doris/pull/2856), 整的方案将按照如下的框架实现：
 
 ```
 SparkLoadJob:
@@ -56,7 +56,7 @@ SparkLoadJob:
          +-------+-------+                 |
          |    LOADING    |-----------------|
          +-------+-------+                 |
-				 | SparkLoadLodingTas      |
+				 | SparkLoadLodingTask     |
                  v                         |
          +-------+-------+                 |
          |  COMMITTED    |-----------------|
