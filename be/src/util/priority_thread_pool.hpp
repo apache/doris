@@ -56,7 +56,6 @@ public:
     //     capacity available.
     //  -- work_function: the function to run every time an item is consumed from the queue
     PriorityThreadPool(uint32_t num_threads, uint32_t queue_size) :
-            _thread_num(num_threads),
             _work_queue(queue_size),
             _shutdown(false) {
         for (int i = 0; i < num_threads; ++i) {
@@ -85,6 +84,11 @@ public:
     // Returns true if the work item was successfully added to the queue, false otherwise
     // (which typically means that the thread pool has already been shut down).
     bool offer(Task task) {
+        return _work_queue.blocking_put(task);
+    }
+
+    bool offer(WorkFunction func) {
+        PriorityThreadPool::Task task = {0, func};
         return _work_queue.blocking_put(task);
     }
 
@@ -144,8 +148,6 @@ private:
         boost::lock_guard<boost::mutex> l(_lock);
         return _shutdown;
     }
-
-    uint32_t _thread_num;
 
     // Queue on which work items are held until a thread is available to process them in
     // FIFO order.

@@ -18,9 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -390,14 +388,9 @@ public class FunctionCallExpr extends Expr {
                         "function requires at least three parameters");
             }
 
-            if (getChild(0) instanceof SlotRef) {
-                SlotRef slotRef = (SlotRef) getChild(0);
-                Column column = slotRef.getDesc().getColumn();
-                if (column != null && column.getAggregationType() != AggregateType.BITMAP_UNION) {
-                    throw new AnalysisException("intersect_count function first arg must be bitmap column");
-                }
-            } else {
-                throw new AnalysisException("intersect_count function first arg must be bitmap column");
+            Type inputType = getChild(0).getType();
+            if (!inputType.isBitmapType()) {
+                throw new AnalysisException("intersect_count function first argument should be of BITMAP type, but was " + inputType);
             }
 
             for(int i = 2; i < children.size(); i++) {

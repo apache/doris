@@ -84,7 +84,7 @@ TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type,
         _agent_utils(new AgentUtils()),
         _master_client(new MasterServerClient(_master_info, &_master_service_client_cache)),
         _env(env),
-        _worker_thread_condition_lock(_worker_thread_lock),
+        _worker_thread_condition_variable(&_worker_thread_lock),
         _task_worker_type(task_worker_type) {
     _backend.__set_host(BackendOptions::get_localhost());
     _backend.__set_be_port(config::be_port);
@@ -206,7 +206,7 @@ void TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
             lock_guard<Mutex> worker_thread_lock(_worker_thread_lock);
             _tasks.push_back(task);
             task_count_in_queue = _tasks.size();
-            _worker_thread_condition_lock.notify();
+            _worker_thread_condition_variable.notify_one();
         }
         LOG(INFO) << "success to submit task. type=" << type_str << ", signature=" << signature
                 << ", task_count_in_queue=" << task_count_in_queue;
@@ -324,7 +324,7 @@ void* TaskWorkerPool::_create_tablet_worker_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -390,7 +390,7 @@ void* TaskWorkerPool::_drop_tablet_worker_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -442,7 +442,7 @@ void* TaskWorkerPool::_alter_tablet_worker_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -600,7 +600,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
         do {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             index = worker_pool_this->_get_next_task_index(
@@ -610,7 +610,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
 
             if (index < 0) {
                 // there is no high priority task. notify other thread to handle normal task
-                worker_pool_this->_worker_thread_condition_lock.notify();
+                worker_pool_this->_worker_thread_condition_variable.notify_one();
                 break;
             }
 
@@ -696,7 +696,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -764,7 +764,7 @@ void* TaskWorkerPool::_clear_transaction_task_worker_thread_callback(void* arg_t
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -823,7 +823,7 @@ void* TaskWorkerPool::_update_tablet_meta_worker_thread_callback(void* arg_this)
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -846,7 +846,19 @@ void* TaskWorkerPool::_update_tablet_meta_worker_thread_callback(void* arg_this)
                 continue;
             }
             WriteLock wrlock(tablet->get_header_lock_ptr());
-            tablet->set_partition_id(tablet_meta_info.partition_id);
+            // update tablet meta
+            if (!tablet_meta_info.__isset.meta_type) {
+                 tablet->set_partition_id(tablet_meta_info.partition_id);
+            } else {
+                switch (tablet_meta_info.meta_type) {
+                    case TTabletMetaType::PARTITIONID:
+                        tablet->set_partition_id(tablet_meta_info.partition_id);
+                        break;
+                    case TTabletMetaType::INMEMORY:
+                        tablet->tablet_meta()->mutable_tablet_schema()->set_is_in_memory(tablet_meta_info.is_in_memory);
+                        break;
+                }
+            }
             tablet->save_meta();
         }
 
@@ -880,7 +892,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -941,7 +953,7 @@ void* TaskWorkerPool::_storage_medium_migrate_worker_thread_callback(void* arg_t
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -991,7 +1003,7 @@ void* TaskWorkerPool::_check_consistency_worker_thread_callback(void* arg_this) 
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -1205,7 +1217,7 @@ void* TaskWorkerPool::_upload_worker_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -1267,7 +1279,7 @@ void* TaskWorkerPool::_download_worker_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -1330,7 +1342,7 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                 worker_pool_this->_worker_thread_condition_lock.wait();
+                 worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -1413,7 +1425,7 @@ void* TaskWorkerPool::_release_snapshot_thread_callback(void* arg_this) {
         {
             lock_guard<Mutex> worker_thread_lock(worker_pool_this->_worker_thread_lock);
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -1486,7 +1498,7 @@ void* TaskWorkerPool::_move_dir_thread_callback(void* arg_this) {
         {
             MutexLock worker_thread_lock(&(worker_pool_this->_worker_thread_lock));
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();
@@ -1578,7 +1590,7 @@ void* TaskWorkerPool::_recover_tablet_thread_callback(void* arg_this) {
         {
             MutexLock worker_thread_lock(&(worker_pool_this->_worker_thread_lock));
             while (worker_pool_this->_tasks.empty()) {
-                worker_pool_this->_worker_thread_condition_lock.wait();
+                worker_pool_this->_worker_thread_condition_variable.wait();
             }
 
             agent_task_req = worker_pool_this->_tasks.front();

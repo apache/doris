@@ -23,8 +23,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.doris.analysis.UnionStmt.Qualifier;
-import org.apache.doris.analysis.UnionStmt.UnionOperand;
+import org.apache.doris.analysis.SetOperationStmt.Qualifier;
+import org.apache.doris.analysis.SetOperationStmt.Operation;
+import org.apache.doris.analysis.SetOperationStmt.SetOperand;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -193,24 +194,25 @@ parser code {:
 :};
 
 // Total keywords of doris
-terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
+terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS,
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
     KW_DELETE, KW_DISTINCT, KW_DISTINCTPC, KW_DISTINCTPCSA, KW_DISTRIBUTED, KW_DISTRIBUTION, KW_DYNAMIC, KW_BUCKETS, KW_DIV, KW_DOUBLE, KW_DROP, KW_DROPP, KW_DUPLICATE,
-    KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXISTS, KW_EXPORT, KW_EXTERNAL, KW_EXTRACT,
+    KW_ELSE, KW_END, KW_ENGINE, KW_ENGINES, KW_ENTER, KW_ERRORS, KW_EVENTS, KW_EXCEPT, KW_EXISTS, KW_EXPORT,
+    KW_EXTERNAL, KW_EXTRACT,
     KW_FALSE, KW_FOLLOWER, KW_FOLLOWING, KW_FREE, KW_FROM, KW_FILE, KW_FIRST, KW_FLOAT, KW_FOR, KW_FORMAT, KW_FRONTEND, KW_FRONTENDS, KW_FULL, KW_FUNCTION, KW_FUNCTIONS,
     KW_GLOBAL, KW_GRANT, KW_GRANTS, KW_GROUP, KW_GROUPING,
     KW_HASH, KW_HAVING, KW_HELP,KW_HLL, KW_HLL_UNION, KW_HOUR, KW_HUB,
     KW_IDENTIFIED, KW_IF, KW_IN, KW_INDEX, KW_INDEXES, KW_INFILE,
-    KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL,  KW_ISOLATION,
+    KW_INNER, KW_INSERT, KW_INT, KW_INTERMEDIATE, KW_INTERSECT, KW_INTERVAL, KW_INTO, KW_IS, KW_ISNULL, KW_ISOLATION,
     KW_JOIN,
     KW_KEY, KW_KILL,
     KW_LABEL, KW_LARGEINT, KW_LAST, KW_LEFT, KW_LESS, KW_LEVEL, KW_LIKE, KW_LIMIT, KW_LINK, KW_LOAD,
     KW_LOCAL, KW_LOCATION,
-    KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
+    KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
     KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OVER,
     KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
@@ -276,14 +278,14 @@ nonterminal String quantity;
 // Description of user
 nonterminal UserDesc grant_user;
 
-// Select or union statement.
+// Select or set operation(union/intersect/except) statement.
 nonterminal QueryStmt query_stmt;
 // Single select_stmt or parenthesized query_stmt.
-nonterminal QueryStmt union_operand;
-// List of select or union blocks connected by UNION operators or a single select block.
-nonterminal List<UnionOperand> union_operand_list;
-// List of select blocks connected by UNION operators, with order by or limit.
-nonterminal QueryStmt union_with_order_by_or_limit;
+nonterminal QueryStmt set_operand;
+// List of select or set operation(union/intersect/except) blocks connected by  set operators or a single select block.
+nonterminal List<SetOperand> set_operand_list;
+// List of select blocks connected by set operators, with order by or limit.
+nonterminal QueryStmt set_operation_with_order_by_or_limit;
 nonterminal InsertStmt insert_stmt;
 nonterminal InsertTarget insert_target;
 nonterminal InsertSource insert_source;
@@ -342,7 +344,8 @@ nonterminal JoinOperator join_operator;
 nonterminal ArrayList<String> opt_plan_hints;
 nonterminal ArrayList<String> opt_sort_hints;
 nonterminal Expr sign_chain_expr;
-nonterminal Qualifier union_op;
+nonterminal Qualifier opt_set_qualifier;
+nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 
 nonterminal ArrayList<PartitionName> opt_partition_name_list, partition_name_list;
@@ -380,7 +383,7 @@ nonterminal List<SingleRangePartitionDesc> single_range_partition_desc_list;
 
 nonterminal List<AccessPrivilege> privilege_list;
 nonterminal List<String> string_list;
-nonterminal List<Long> integer_list;
+nonterminal List<Long> integer_list, cancel_rollup_job_id_list;
 nonterminal AccessPrivilege privilege_type;
 
 nonterminal DataDescription data_desc;
@@ -411,7 +414,9 @@ nonterminal ColumnPosition opt_col_pos;
 
 // Alter statement
 nonterminal AlterClause alter_system_clause, alter_cluster_clause, alter_table_clause;
-nonterminal List<AlterClause> alter_table_clause_list;
+nonterminal List<AlterClause> alter_table_clause_list, opt_rollup, add_rollup_clause_list, drop_rollup_clause_list;
+nonterminal AddRollupClause add_rollup_clause;
+nonterminal DropRollupClause drop_rollup_clause;
 
 // grouping sets
 nonterminal List<ArrayList<Expr>> grouping_set_list;
@@ -420,7 +425,7 @@ nonterminal GroupByClause group_by_clause, grouping_elements;
 //
 nonterminal String keyword, ident, ident_or_text, variable_name, text_or_password,
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
-        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format;
+        collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit;
 
 nonterminal String opt_db, opt_partition_name, procedure_or_function, opt_comment, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
@@ -446,6 +451,7 @@ precedence left BITAND, BITOR, BITXOR;
 precedence left KW_PIPE;
 precedence left BITNOT;
 precedence left KW_ORDER, KW_BY, KW_LIMIT;
+precedence right KW_PROPERTIES;
 precedence left LPAREN, RPAREN;
 // Support chaining of timestamp arithmetic exprs.
 precedence left KW_INTERVAL;
@@ -626,6 +632,14 @@ alter_stmt ::=
     {:
         RESULT = new AlterTableStmt(tbl, clauses);
     :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_ADD KW_ROLLUP add_rollup_clause_list:clauses
+    {:
+        RESULT = new AlterTableStmt(tbl, clauses);
+    :}
+    | KW_ALTER KW_TABLE table_name:tbl KW_DROP KW_ROLLUP drop_rollup_clause_list:clauses
+    {:
+        RESULT = new AlterTableStmt(tbl, clauses);
+    :}
     | KW_ALTER KW_VIEW table_name:tbl
     opt_col_with_comment_list:columns KW_AS query_stmt:view_def
     {:
@@ -667,6 +681,44 @@ opt_user ::=
     {:
         RESULT = user;
 
+    :}
+    ;
+
+add_rollup_clause ::=
+    ident:rollupName LPAREN ident_list:cols RPAREN opt_dup_keys:dup_keys opt_from_rollup:baseRollup opt_properties:properties
+    {:
+        RESULT = new AddRollupClause(rollupName, cols, dup_keys, baseRollup, properties);
+    :}
+    ;
+
+add_rollup_clause_list ::=
+    add_rollup_clause:clause
+    {:
+        RESULT = Lists.newArrayList(clause);
+    :}
+    | add_rollup_clause_list:list COMMA add_rollup_clause:clause
+    {:
+        list.add(clause);
+        RESULT = list;
+    :}
+    ;
+
+drop_rollup_clause ::=
+    ident:rollupName opt_properties:properties
+    {:
+        RESULT = new DropRollupClause(rollupName, properties);
+    :}
+    ;
+
+drop_rollup_clause_list ::=
+    drop_rollup_clause:clause
+    {:
+        RESULT = Lists.newArrayList(clause);
+    :}
+    | drop_rollup_clause_list:list COMMA drop_rollup_clause:clause
+    {:
+        list.add(clause);
+        RESULT = list;
     :}
     ;
 
@@ -739,17 +791,9 @@ alter_table_clause ::=
     {:
         RESULT = new AddColumnsClause(cols, rollup, properties);
     :}
-    | KW_ADD KW_ROLLUP ident:rollupName LPAREN ident_list:cols RPAREN opt_dup_keys:dup_keys opt_from_rollup:baseRollup opt_properties:properties
-    {:
-        RESULT = new AddRollupClause(rollupName, cols, dup_keys, baseRollup, properties);
-    :}
     | KW_DROP KW_COLUMN ident:col opt_from_rollup:rollup opt_properties:properties
     {:
         RESULT = new DropColumnClause(col, rollup, properties);
-    :}
-    | KW_DROP KW_ROLLUP ident:rollup opt_properties:properties
-    {:
-        RESULT = new DropRollupClause(rollup, properties);
     :}
     | KW_MODIFY KW_COLUMN column_definition:col opt_col_pos:col_pos opt_from_rollup:rollup opt_properties:properties
     {:
@@ -912,11 +956,12 @@ create_stmt ::=
             opt_comment:tableComment
             opt_partition:partition
             opt_distribution:distribution
+            opt_rollup:index
             opt_properties:tblProperties
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment);
+        distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns COMMA index_definition_list:indexes RPAREN opt_engine:engineName
@@ -924,11 +969,12 @@ create_stmt ::=
             opt_comment:tableComment
             opt_partition:partition
             opt_distribution:distribution
+            opt_rollup:index
             opt_properties:tblProperties
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment);
+        distribution, tblProperties, extProperties, tableComment, index);
     :}
     /* User */
     | KW_CREATE KW_USER opt_if_not_exists:ifNotExists grant_user:user opt_user_role:userRole
@@ -1536,6 +1582,17 @@ opt_distribution ::=
     :}
     ;
 
+opt_rollup ::=
+    /* Empty: no rollup */
+    {:
+        RESULT = new ArrayList<>();
+    :}
+    | KW_ROLLUP LPAREN add_rollup_clause_list:list RPAREN
+    {:
+        RESULT = list;
+    :}
+    ;
+
 opt_distribution_number ::=
     /* Empty */
     {:
@@ -1875,11 +1932,6 @@ show_param ::=
     {:
         RESULT = new ShowProcesslistStmt();
     :}
-    /* show keys */
-    | keys_or_index from_or_in table_ref:table opt_db:db where_clause:e
-    {:
-        RESULT = new ShowKeysStmt();
-    :}
     /* routine */
     | procedure_or_function KW_STATUS opt_wild_where
     {:
@@ -2103,13 +2155,9 @@ show_param ::=
     {:
         RESULT = new ShowSmallFilesStmt(dbName);
     :}
-    | KW_INDEX KW_FROM table_name:dbTblName opt_db:dbName
+    | keys_or_index from_or_in table_name:dbTblName opt_db:dbName
     {:
         RESULT = new ShowIndexStmt(dbName, dbTblName);
-    :}
-    | KW_INDEXES KW_FROM table_name:tableName opt_db:dbName
-    {:
-        RESULT = new ShowIndexStmt(dbName, tableName);
     :}
     | KW_TRANSACTION opt_db:dbName opt_wild_where
     {:
@@ -2293,14 +2341,24 @@ cancel_stmt ::=
     :}
     ;
 
+cancel_rollup_job_id_list ::=
+    {:
+        RESULT = null;
+    :}
+    | LPAREN integer_list:list RPAREN
+    {:
+        RESULT = list;
+    :}
+    ;
+
 cancel_param ::=
     KW_LOAD opt_db:db opt_wild_where
     {:
         RESULT = new CancelLoadStmt(db, parser.where);
     :}
-    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table
+    | KW_ALTER KW_TABLE opt_alter_type:type KW_FROM table_name:table cancel_rollup_job_id_list:list
     {:
-        RESULT = new CancelAlterTableStmt(type, table);
+        RESULT = new CancelAlterTableStmt(type, table, list);
     :}
     | KW_DECOMMISSION KW_BACKEND string_list:hostPorts
     {:
@@ -2343,21 +2401,21 @@ delete_stmt ::=
 // even if the union has order by and limit.
 // ORDER BY and LIMIT bind to the preceding select statement by default.
 query_stmt ::=
-    opt_with_clause:w union_operand_list:operands
+    opt_with_clause:w set_operand_list:operands
     {:
         QueryStmt queryStmt = null;
         if (operands.size() == 1) {
           queryStmt = operands.get(0).getQueryStmt();
         } else {
-          queryStmt = new UnionStmt(operands, null, LimitElement.NO_LIMIT);
+          queryStmt = new SetOperationStmt(operands, null, LimitElement.NO_LIMIT);
         }
         queryStmt.setWithClause(w);
         RESULT = queryStmt;
     :}
-    | opt_with_clause:w union_with_order_by_or_limit:union
+    | opt_with_clause:w set_operation_with_order_by_or_limit:set_operation
     {:
-        union.setWithClause(w);
-        RESULT = union;
+        set_operation.setWithClause(w);
+        RESULT = set_operation;
     :}
     ;
 
@@ -2402,80 +2460,80 @@ with_view_def_list ::=
 // making this issue unresolvable.
 // We rely on the left precedence of KW_ORDER, KW_BY, and KW_LIMIT,
 // to resolve the ambiguity with select_stmt in favor of select_stmt
-// (i.e., ORDER BY and LIMIT bind to the select_stmt by default, and not the union).
-// There must be at least two union operands for ORDER BY or LIMIT to bind to a union,
+// (i.e., ORDER BY and LIMIT bind to the select_stmt by default, and not the set operation).
+// There must be at least two set operands for ORDER BY or LIMIT to bind to a set operation,
 // and we manually throw a parse error if we reach this production
 // with only a single operand.
-union_with_order_by_or_limit ::=
-    union_operand_list:operands
+set_operation_with_order_by_or_limit ::=
+    set_operand_list:operands
     KW_LIMIT INTEGER_LITERAL:limit
   {:
     if (operands.size() == 1) {
       parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
     }
-    RESULT = new UnionStmt(operands, null, new LimitElement(limit.longValue()));
+    RESULT = new SetOperationStmt(operands, null, new LimitElement(limit.longValue()));
   :}
   |
-    union_operand_list:operands
+    set_operand_list:operands
     KW_LIMIT INTEGER_LITERAL:offset COMMA INTEGER_LITERAL:limit
   {:
     if (operands.size() == 1) {
       parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
     }
-    RESULT = new UnionStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
+    RESULT = new SetOperationStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
   :}
   |
-    union_operand_list:operands
+    set_operand_list:operands
     KW_LIMIT INTEGER_LITERAL:limit KW_OFFSET INTEGER_LITERAL:offset
   {:
     if (operands.size() == 1) {
       parser.parseError("limit", SqlParserSymbols.KW_LIMIT);
     }
-    RESULT = new UnionStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
+    RESULT = new SetOperationStmt(operands, null, new LimitElement(offset.longValue(), limit.longValue()));
   :}
   |
-    union_operand_list:operands
+    set_operand_list:operands
     KW_ORDER KW_BY order_by_elements:orderByClause
   {:
     if (operands.size() == 1) {
       parser.parseError("order", SqlParserSymbols.KW_ORDER);
     }
-    RESULT = new UnionStmt(operands, orderByClause, LimitElement.NO_LIMIT);
+    RESULT = new SetOperationStmt(operands, orderByClause, LimitElement.NO_LIMIT);
   :}
   |
-    union_operand_list:operands
+    set_operand_list:operands
     KW_ORDER KW_BY order_by_elements:orderByClause
     KW_LIMIT INTEGER_LITERAL:limit
   {:
     if (operands.size() == 1) {
       parser.parseError("order", SqlParserSymbols.KW_ORDER);
     }
-    RESULT = new UnionStmt(operands, orderByClause, new LimitElement(limit.longValue()));
+    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(limit.longValue()));
   :}
   |
-    union_operand_list:operands
+    set_operand_list:operands
     KW_ORDER KW_BY order_by_elements:orderByClause
     KW_LIMIT INTEGER_LITERAL:offset COMMA INTEGER_LITERAL:limit
   {:
     if (operands.size() == 1) {
       parser.parseError("order", SqlParserSymbols.KW_ORDER);
     }
-    RESULT = new UnionStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
+    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
   :}
   |
-    union_operand_list:operands
+    set_operand_list:operands
     KW_ORDER KW_BY order_by_elements:orderByClause
     KW_LIMIT INTEGER_LITERAL:limit KW_OFFSET INTEGER_LITERAL:offset
   {:
     if (operands.size() == 1) {
       parser.parseError("order", SqlParserSymbols.KW_ORDER);
     }
-    RESULT = new UnionStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
+    RESULT = new SetOperationStmt(operands, orderByClause, new LimitElement(offset.longValue(), limit.longValue()));
   :}
   ;
 
 
-union_operand ::=
+set_operand ::=
   select_stmt:select
   {:
     RESULT = select;
@@ -2486,26 +2544,36 @@ union_operand ::=
   :}
   ;
 
-union_operand_list ::=
-  union_operand:operand
+set_operand_list ::=
+  set_operand:operand
   {:
-    List<UnionOperand> operands = new ArrayList<UnionOperand>();
-    operands.add(new UnionOperand(operand, null));
+    List<SetOperand> operands = new ArrayList<SetOperand>();
+    operands.add(new SetOperand(operand, null, null));
     RESULT = operands;
   :}
-  | union_operand_list:operands union_op:op union_operand:operand
+  | set_operand_list:operands set_op:op opt_set_qualifier:qualifier set_operand:operand
   {:
-    operands.add(new UnionOperand(operand, op));
+    operands.add(new SetOperand(operand, op, qualifier));
     RESULT = operands;
   :}
   ;
 
-union_op ::=
+set_op ::=
   KW_UNION
+  {: RESULT = Operation.UNION; :}
+  | KW_INTERSECT
+  {: RESULT = Operation.INTERSECT; :}
+  | KW_EXCEPT
+  {: RESULT = Operation.EXCEPT; :}
+  | KW_MINUS
+  {: RESULT = Operation.EXCEPT; :}
+  ;
+
+opt_set_qualifier ::=
   {: RESULT = Qualifier.DISTINCT; :}
-  | KW_UNION KW_DISTINCT
+  | KW_DISTINCT
   {: RESULT = Qualifier.DISTINCT; :}
-  | KW_UNION KW_ALL
+  | KW_ALL
   {: RESULT = Qualifier.ALL; :}
   ;
 
@@ -3855,7 +3923,7 @@ timestamp_arithmetic_expr ::=
 
     RESULT = new TimestampArithmeticExpr(functionName.getFunction(), l.get(0), v, u);
   :}
-  | function_name:functionName LPAREN keyword:u COMMA expr:e1 COMMA expr:e2 RPAREN
+  | function_name:functionName LPAREN time_unit:u COMMA expr:e1 COMMA expr:e2 RPAREN
   {:
     RESULT = new TimestampArithmeticExpr(functionName.getFunction(), e2, e1, u);
   :}
@@ -4432,19 +4500,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_DYNAMIC:id
     {: RESULT = id; :}
-    | KW_YEAR:id
-    {: RESULT = id; :}
-    | KW_MONTH:id
-    {: RESULT = id; :}
-    | KW_WEEK:id
-    {: RESULT = id; :}
-    | KW_DAY:id
-    {: RESULT = id; :}
-    | KW_HOUR:id
-    {: RESULT = id; :}
-    | KW_MINUTE:id
-    {: RESULT = id; :}
-    | KW_SECOND:id
+    | time_unit:id
     {: RESULT = id; :}
     ;
 
@@ -4470,6 +4526,23 @@ ident_or_text ::=
     {:
         RESULT = text;
     :}
+    ;
+
+time_unit ::=
+    KW_YEAR:id
+    {: RESULT = id; :}
+    | KW_MONTH:id
+    {: RESULT = id; :}
+    | KW_WEEK:id
+    {: RESULT = id; :}
+    | KW_DAY:id
+    {: RESULT = id; :}
+    | KW_HOUR:id
+    {: RESULT = id; :}
+    | KW_MINUTE:id
+    {: RESULT = id; :}
+    | KW_SECOND:id
+    {: RESULT = id; :}
     ;
 
 // TODO(zhaochun): Select for SQL-2003 (http://savage.net.au/SQL/sql-2003-2.bnf.html)

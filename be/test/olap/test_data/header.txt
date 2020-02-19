@@ -45,7 +45,8 @@
         "num_short_key_columns": 1,
         "num_rows_per_row_block": 1024,
         "compress_kind": "COMPRESS_LZ4",
-        "next_column_unique_id": 3
+        "next_column_unique_id": 3,
+        "is_in_memory": false
     },
     "rs_metas": [
         {

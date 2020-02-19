@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 

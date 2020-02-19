@@ -113,7 +113,7 @@ public class ShowPartitionsStmt extends ShowStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         analyzeImpl(analyzer);
         // check access
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName, tableName,
@@ -131,7 +131,7 @@ public class ShowPartitionsStmt extends ShowStmt {
         db.readLock();
         try {
             Table table = db.getTable(tableName);
-            if (table == null || !(table instanceof OlapTable)) {
+            if (!(table instanceof OlapTable)) {
                 throw new AnalysisException("Table[" + tableName + "] does not exists or is not OLAP table");
             }
 
@@ -145,9 +145,6 @@ public class ShowPartitionsStmt extends ShowStmt {
             LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
 
             node = ProcService.getInstance().open(stringBuilder.toString());
-            if (node == null) {
-                throw new AnalysisException("Failed to show partitions");
-            }
         } finally {
             db.readUnlock();
         }

@@ -20,7 +20,7 @@
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/palo_internal_service.pb.h"
-#include "util/thread_pool.hpp"
+#include "util/priority_thread_pool.hpp"
 
 namespace brpc {
 class Controller;
@@ -90,7 +90,7 @@ private:
     Status _exec_plan_fragment(brpc::Controller* cntl);
 private:
     ExecEnv* _exec_env;
-    ThreadPool _tablet_worker_pool;
+    PriorityThreadPool _tablet_worker_pool;
 };
 
 }

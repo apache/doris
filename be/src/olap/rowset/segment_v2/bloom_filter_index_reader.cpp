@@ -23,10 +23,10 @@
 namespace doris {
 namespace segment_v2 {
 
-Status BloomFilterIndexReader::load() {
+Status BloomFilterIndexReader::load(bool cache_in_memory) {
     const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta.bloom_filter();
 
-    _bloom_filter_reader.reset(new IndexedColumnReader(_file_name, bf_index_meta));
+    _bloom_filter_reader.reset(new IndexedColumnReader(_file_name, bf_index_meta, cache_in_memory));
     RETURN_IF_ERROR(_bloom_filter_reader->load());
     return Status::OK();
 }

@@ -83,7 +83,6 @@ public:
     virtual Status new_writable_file(const std::string& fname,
                                      std::unique_ptr<WritableFile>* result) = 0;
 
-
     // Like the previous new_writable_file, but allows options to be
     // specified.
     virtual Status new_writable_file(const WritableFileOptions& opts,
@@ -139,8 +138,20 @@ public:
     // Delete the named file.
     virtual Status delete_file(const std::string& fname) = 0;
 
-    // Create the specified directory. Returns error if directory exists.
+    // Create the specified directory.
+    // NOTE: It will return error if the path already exist(not necessarily as a directory)
     virtual Status create_dir(const std::string& dirname) = 0;
+
+    // Creates directory if missing.
+    // Return OK if it exists, or successful in Creating.
+    virtual Status create_dir_if_missing(const std::string& dirname, bool* created = nullptr) = 0;
+
+    // Delete the specified directory.
+    // NOTE: The dir must be empty.
+    virtual Status delete_dir(const std::string& dirname) = 0;
+
+    // Synchronize the entry for a specific directory.
+    virtual Status sync_dir(const std::string& dirname) = 0;
 
     // Checks if the file is a directory. Returns an error if it doesn't
     // exist, otherwise writes true or false into 'is_dir' appropriately.
@@ -154,13 +165,6 @@ public:
     // All directory entries in 'path' must exist on the filesystem.
     virtual Status canonicalize(const std::string& path, std::string* result) = 0;
 
-    // Creates directory if missing. Return Ok if it exists, or successful in
-    // Creating.
-    virtual Status create_dir_if_missing(const std::string& dirname) = 0;
-
-    // Delete the specified directory.
-    virtual Status delete_dir(const std::string& dirname) = 0;
-
     virtual Status get_file_size(const std::string& fname, uint64_t* size) = 0;
 
     // Store the last modification time of fname in *file_mtime.
@@ -170,11 +174,9 @@ public:
     virtual Status rename_file(const std::string& src,
                                const std::string& target) = 0;
 
-    // Hard Link file src to target.
-    virtual Status link_file(const std::string& /*src*/,
-                             const std::string& /*target*/) {
-        return Status::NotSupported("link file is not supported for this Env");
-    }
+    // create a hard-link
+    virtual Status link_file(const std::string& /*old_path*/,
+                             const std::string& /*new_path*/) = 0;
 };
 
 struct RandomAccessFileOptions {
@@ -265,6 +267,8 @@ public:
 // A file abstraction for sequential writing.  The implementation
 // must provide buffering since callers may append small fragments
 // at a time to the file.
+// Note: To avoid user misuse, WritableFile's API should support only
+// one of Append or PositionedAppend. We support only Append here.
 class WritableFile {
 public:
     enum FlushMode {
@@ -276,10 +280,13 @@ public:
     virtual ~WritableFile() { }
 
     // Append data to the end of the file
-    // Note: A WritableFile object must support either Append or
-    // PositionedAppend, so the users cannot mix the two.
     virtual Status append(const Slice& data) = 0;
 
+    // If possible, uses scatter-gather I/O to efficiently append
+    // multiple buffers to a file. Otherwise, falls back to regular I/O.
+    //
+    // For implementation specific quirks and details, see comments in
+    // implementation source code (e.g., env_posix.cc)
     virtual Status appendv(const Slice* data, size_t cnt) = 0;
 
     // Pre-allocates 'size' bytes for the file in the underlying filesystem.

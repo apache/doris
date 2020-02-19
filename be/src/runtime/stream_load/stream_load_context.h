@@ -94,11 +94,6 @@ public:
         }
 
         _exec_env->load_stream_mgr()->remove(id);
-
-        if (kafka_info != nullptr) {
-            delete kafka_info;
-            kafka_info = nullptr;
-        }
     }
 
     std::string to_json() const;
@@ -177,7 +172,7 @@ public:
     // should be RUNNING or FINISHED
     std::string existing_job_status = "";
 
-    KafkaLoadInfo* kafka_info = nullptr;
+    std::unique_ptr<KafkaLoadInfo> kafka_info;
 
     // consumer_id is used for data consumer cache key.
     // to identified a specified data consumer.

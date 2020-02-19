@@ -83,7 +83,7 @@ void get_bloom_filter_reader_iter(const std::string& file_name, const BloomFilte
     std::string fname = dname + "/" + file_name;
 
     *reader = new BloomFilterIndexReader(fname, bloom_filter_index_meta);
-    auto st = (*reader)->load();
+    auto st = (*reader)->load(true);
     ASSERT_TRUE(st.ok());
 
     st = (*reader)->new_iterator(iter);

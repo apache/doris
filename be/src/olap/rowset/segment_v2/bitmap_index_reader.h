@@ -47,7 +47,7 @@ public:
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 
-    Status load();
+    Status load(bool cache_in_memory);
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(BitmapIndexIterator** iterator);

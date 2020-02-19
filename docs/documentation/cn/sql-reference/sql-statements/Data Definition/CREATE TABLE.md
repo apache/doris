@@ -33,6 +33,7 @@ under the License.
     [COMMENT "table comment"];
     [partition_desc]
     [distribution_desc]
+    [rollup_index]
     [PROPERTIES ("key"="value", ...)]
     [BROKER PROPERTIES ("key"="value", ...)]
 ```
@@ -211,14 +212,7 @@ under the License.
     建议:建议使用Hash分桶方式
 
 4. PROPERTIES
-    1) 如果 ENGINE 类型为 olap，则可以在 properties 中指定列存（目前我们仅支持列存）
-    ```
-    PROPERTIES (
-        "storage_type" = "[column]",
-        )
-    ```
-
-    2) 如果 ENGINE 类型为 olap
+    1) 如果 ENGINE 类型为 olap
            可以在 properties 设置该表数据的初始存储介质、存储到期时间和副本数。
 
     ```
@@ -239,7 +233,7 @@ under the License.
            当表为两级分区时，这些属性为附属于每一个分区。
            如果希望不同分区有不同属性。可以通过 ADD PARTITION 或 MODIFY PARTITION 进行操作
 
-    3) 如果 Engine 类型为 olap, 并且 storage_type 为 column, 可以指定某列使用 bloom filter 索引
+    2 如果 Engine 类型为 olap, 可以指定某列使用 bloom filter 索引
            bloom filter 索引仅适用于查询条件为 in 和 equal 的情况，该列的值越分散效果越好
            目前只支持以下情况的列:除了 TINYINT FLOAT DOUBLE 类型以外的 key 列及聚合方法为 REPLACE 的 value 列
 
@@ -249,7 +243,7 @@ under the License.
            )
 ```
 
-    4) 如果希望使用Colocate Join 特性，需要在 properties 中指定
+    3) 如果希望使用 Colocate Join 特性，需要在 properties 中指定
 
 ```
        PROPERTIES (
@@ -257,7 +251,7 @@ under the License.
            )
 ```
     
-    5) 如果希望使用动态分区特性，需要在properties 中指定
+    4) 如果希望使用动态分区特性，需要在properties 中指定
     
 ```
       PROPERTIES (
@@ -272,7 +266,23 @@ under the License.
     dynamic_partition.end: 用于指定提前创建的分区数量
     dynamic_partition.prefix: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108
     dynamic_partition.buckets: 用于指定自动创建的分区分桶数量
-    
+
+    5) 建表时可以批量创建多个 Rollup
+    语法：
+    ```
+        ROLLUP (rollup_name (column_name1, column_name2, ...)
+               [FROM from_index_name]
+                [PROPERTIES ("key"="value", ...)],...)
+    ```
+
+    6) 如果希望使用 内存表 特性，需要在 properties 中指定
+
+```
+        PROPERTIES (
+           "in_memory"="true"
+        )   
+```
+    当 in_memory 属性为 true 时，Doris会尽可能将该表的数据和索引Cache到BE 内存中
 ## example
 
 1. 创建一个 olap 表，使用 HASH 分桶，使用列存，相同key的记录进行聚合
@@ -548,6 +558,43 @@ under the License.
     "dynamic_partition.prefix" = "p",
     "dynamic_partition.buckets" = "32"
      );
+```
+
+12. Create a table with rollup index
+```
+    CREATE TABLE example_db.rolup_index_table
+    (
+        event_day DATE,
+        siteid INT DEFAULT '10',
+        citycode SMALLINT,
+        username VARCHAR(32) DEFAULT '',
+        pv BIGINT SUM DEFAULT '0'
+    )
+    AGGREGATE KEY(event_day, siteid, citycode, username)
+    DISTRIBUTED BY HASH(siteid) BUCKETS 10
+    rollup (
+    r1(event_day,siteid),
+    r2(event_day,citycode),
+    r3(event_day)
+    )
+    PROPERTIES("replication_num" = "3");
+    
+13. 创建一个内存表
+
+```
+    CREATE TABLE example_db.table_hash
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    v1 CHAR(10) REPLACE,
+    v2 INT SUM,
+    INDEX k1_idx (k1) USING BITMAP COMMENT 'xxxxxx'
+    )
+    ENGINE=olap
+    AGGREGATE KEY(k1, k2)
+    COMMENT "my first doris table"
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES ("in_memory"="true");
 ```
 
 ## keyword

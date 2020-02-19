@@ -18,6 +18,7 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.DecommissionBackendJob;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.RollupJobV2;
@@ -281,6 +282,14 @@ public class EditLog {
                 case OperationType.OP_DROP_ROLLUP: {
                     DropInfo info = (DropInfo) journal.getData();
                     catalog.getRollupHandler().replayDropRollup(info, catalog);
+                    break;
+                }
+                case OperationType.OP_BATCH_DROP_ROLLUP: {
+                    BatchDropInfo batchDropInfo = (BatchDropInfo) journal.getData();
+                    for (long indexId : batchDropInfo.getIndexIdSet()) {
+                        catalog.getRollupHandler().replayDropRollup(
+                                new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(), indexId), catalog);
+                    }
                     break;
                 }
                 case OperationType.OP_START_SCHEMA_CHANGE: {
@@ -692,12 +701,20 @@ public class EditLog {
                     }
                     break;
                 }
+                case OperationType.OP_BATCH_ADD_ROLLUP: {
+                    BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo)journal.getData();
+                    for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
+                        catalog.getRollupHandler().replayAlterJobV2(alterJobV2);
+                    }
+                    break;
+                }
                 case OperationType.OP_MODIFY_DISTRIBUTION_TYPE: {
                     TableInfo tableInfo = (TableInfo)journal.getData();
                     catalog.replayConvertDistributionType(tableInfo);
                     break;
                 }
                 case OperationType.OP_DYNAMIC_PARTITION:
+                case OperationType.OP_MODIFY_IN_MEMORY:
                 case OperationType.OP_MODIFY_REPLICATION_NUM: {
                     ModifyTablePropertyOperationLog modifyTablePropertyOperationLog = (ModifyTablePropertyOperationLog) journal.getData();
                     catalog.replayModifyTableProperty(opCode, modifyTablePropertyOperationLog);
@@ -901,6 +918,10 @@ public class EditLog {
 
     public void logDropRollup(DropInfo info) {
         logEdit(OperationType.OP_DROP_ROLLUP, info);
+    }
+
+    public void logBatchDropRollup (BatchDropInfo batchDropInfo) {
+        logEdit(OperationType.OP_BATCH_DROP_ROLLUP, batchDropInfo);
     }
 
     public void logStartSchemaChange(SchemaChangeJob schemaChangeJob) {
@@ -1201,6 +1222,10 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
     }
 
+    public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
+        logEdit(OperationType.OP_BATCH_ADD_ROLLUP, batchAlterJobV2);
+    }
+
     public void logModifyDistributionType(TableInfo tableInfo) {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
     }
@@ -1211,5 +1236,9 @@ public class EditLog {
 
     public void logModifyReplicationNum(ModifyTablePropertyOperationLog info) {
         logEdit(OperationType.OP_MODIFY_REPLICATION_NUM, info);
+    }
+
+    public void logModifyInMemory(ModifyTablePropertyOperationLog info) {
+        logEdit(OperationType.OP_MODIFY_IN_MEMORY, info);
     }
 }

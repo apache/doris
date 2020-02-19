@@ -234,7 +234,6 @@ public class StmtExecutor {
                         }
                         if (!context.getMysqlChannel().isSend()) {
                             LOG.warn("retry {} times. stmt: {}", (i + 1), context.getStmtId());
-                            continue;
                         } else {
                             throw e;
                         }
@@ -456,8 +455,6 @@ public class StmtExecutor {
                 }
                 // TODO(zc):
                 // Preconditions.checkState(!analyzer.hasUnassignedConjuncts());
-            } catch (AnalysisException e) {
-                throw e;
             } catch (UserException e) {
                 throw e;
             } catch (Exception e) {
@@ -547,7 +544,7 @@ public class StmtExecutor {
 
         coord.exec();
 
-        // if python's MysqlDb get error after sendfields, it can't catch the excpetion
+        // if python's MysqlDb get error after sendfields, it can't catch the exception
         // so We need to send fields after first batch arrived
 
         // send result

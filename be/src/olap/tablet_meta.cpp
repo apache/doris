@@ -28,6 +28,10 @@
 #include "util/uid_util.h"
 #include "util/url_coding.h"
 
+using std::string;
+using std::unordered_map;
+using std::vector;
+
 namespace doris {
 
 OLAPStatus AlterTabletTask::init_from_pb(const AlterTabletPB& alter_task) {
@@ -60,12 +64,23 @@ OLAPStatus TabletMeta::create(int64_t table_id, int64_t partition_id,
                               int64_t tablet_id, int32_t schema_hash,
                               uint64_t shard_id, const TTabletSchema& tablet_schema,
                               uint32_t next_unique_id,
-                              const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
+                              const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
                               TabletMetaSharedPtr* tablet_meta, TabletUid& tablet_uid) {
     tablet_meta->reset(new TabletMeta(table_id, partition_id,
-                                tablet_id, schema_hash,
-                                shard_id, tablet_schema,
-                                next_unique_id, col_ordinal_to_unique_id, tablet_uid));
+                                      tablet_id, schema_hash,
+                                      shard_id, tablet_schema,
+                                      next_unique_id, col_ordinal_to_unique_id, tablet_uid));
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
+                              uint64_t shard_id, uint32_t next_unique_id,
+                              const unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
+                              TabletMetaSharedPtr* tablet_meta) {
+    tablet_meta->reset(new TabletMeta(request.table_id, request.partition_id,
+                                      request.tablet_id, request.tablet_schema.schema_hash,
+                                      shard_id, request.tablet_schema,
+                                      next_unique_id, col_ordinal_to_unique_id, tablet_uid));
     return OLAP_SUCCESS;
 }
 
@@ -172,10 +187,14 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id,
         schema->set_bf_fpp(tablet_schema.bloom_filter_fpp);
     }
 
+    if (tablet_schema.__isset.is_in_memory) {
+        schema->set_is_in_memory(tablet_schema.is_in_memory);
+    }
+
     init_from_pb(tablet_meta_pb);
 }
 
-OLAPStatus TabletMeta::create_from_file(const std::string& file_path) {
+OLAPStatus TabletMeta::create_from_file(const string& file_path) {
     FileHeader<TabletMetaPB> file_header;
     FileHandler file_handler;
 
@@ -201,7 +220,7 @@ OLAPStatus TabletMeta::create_from_file(const std::string& file_path) {
     return init_from_pb(tablet_meta_pb);
 }
 
-OLAPStatus TabletMeta::reset_tablet_uid(const std::string& file_path) {
+OLAPStatus TabletMeta::reset_tablet_uid(const string& file_path) {
     OLAPStatus res = OLAP_SUCCESS;
     TabletMeta tmp_tablet_meta;
     if ((res = tmp_tablet_meta.create_from_file(file_path)) != OLAP_SUCCESS) {
@@ -226,7 +245,8 @@ OLAPStatus TabletMeta::reset_tablet_uid(const std::string& file_path) {
     return res;
 }
 
-std::string TabletMeta::construct_header_file_path(const std::string& schema_hash_path, const int64_t tablet_id) {
+string TabletMeta::construct_header_file_path(const string& schema_hash_path,
+                                                   const int64_t tablet_id) {
     std::stringstream header_name_stream;
     header_name_stream << schema_hash_path << "/" << tablet_id << ".hdr";
     return header_name_stream.str();
@@ -429,7 +449,7 @@ OLAPStatus TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletMeta::to_json(std::string* json_string, json2pb::Pb2JsonOptions& options) {
+OLAPStatus TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) {
     TabletMetaPB tablet_meta_pb;
     RETURN_NOT_OK(to_meta_pb(&tablet_meta_pb));
     json2pb::ProtoMessageToJson(tablet_meta_pb, json_string, options);
@@ -705,7 +725,7 @@ OLAPStatus TabletMeta::set_alter_state(AlterTabletState alter_state) {
     }
 }
 
-std::string TabletMeta::full_name() const {
+string TabletMeta::full_name() const {
     std::stringstream ss;
     ss << _tablet_id
        << "." << _schema_hash

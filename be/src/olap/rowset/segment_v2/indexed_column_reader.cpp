@@ -75,7 +75,8 @@ Status IndexedColumnReader::read_page(RandomAccessFile* file, const PagePointer&
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(file->file_name(), pp.offset);
-    if (cache->lookup(cache_key, &cache_handle)) {
+    // column index only load once, so we use global config to decide
+    if (!config::disable_storage_page_cache && cache->lookup(cache_key, &cache_handle)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
         return Status::OK();
@@ -117,11 +118,15 @@ Status IndexedColumnReader::read_page(RandomAccessFile* file, const PagePointer&
         }
         page_slice = uncompressed_page;
     }
-    // insert this into cache and return the cache handle
-    cache->insert(cache_key, page_slice, &cache_handle);
-    page.release();
-    *handle = PageHandle(std::move(cache_handle));
+    if (!config::disable_storage_page_cache) {
+        // insert this into cache and return the cache handle
+        cache->insert(cache_key, page_slice, &cache_handle, _cache_in_memory);
+        *handle = PageHandle(std::move(cache_handle));
+    } else {
+        *handle = PageHandle(page_slice);
+    }
 
+    page.release();
     return Status::OK();
 }
 

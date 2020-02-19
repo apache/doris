@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -334,7 +335,7 @@ public class SelectStmt extends QueryStmt {
                 // of expr child and depth limits (toColumn() label may call toSql()).
                 item.getExpr().analyze(analyzer);
                 if (item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
-                    throw new AnalysisException("Subqueries are not supported in the select list.");
+                    throw new AnalysisException("Subquery is not supported in the select list.");
                 }
                 resultExprs.add(item.getExpr());
                 SlotRef aliasRef = new SlotRef(null, item.toColumnLabel());
@@ -349,8 +350,27 @@ public class SelectStmt extends QueryStmt {
             }
         }
         if (groupByClause != null && groupByClause.isGroupByExtension()) {
+            for (SelectListItem item : selectList.getItems()) {
+                if (item.getExpr() instanceof FunctionCallExpr && item.getExpr().fn instanceof AggregateFunction) {
+                    for (Expr expr: groupByClause.getGroupingExprs()) {
+                        if (item.getExpr().contains(expr)) {
+                            throw new AnalysisException("column: " + expr.toSql() + " cannot both in select list and "
+                                    + "aggregate functions when using GROUPING SETS/CUBE/ROLLUP, please use union"
+                                    + " instead.");
+                        }
+                    }
+                }
+            }
             groupingInfo = new GroupingInfo(analyzer, groupByClause.getGroupingType());
             groupingInfo.substituteGroupingFn(resultExprs, analyzer);
+        } else {
+            for (Expr expr : resultExprs) {
+                if (checkGroupingFn(expr)) {
+                    throw new AnalysisException(
+                            "cannot use GROUPING functions without [grouping sets|rollup|cube] "
+                                    + "clause or grouping sets only have one element.");
+                }
+            }
         }
 
         if (valueList != null) {
@@ -1404,7 +1424,7 @@ public class SelectStmt extends QueryStmt {
     private boolean checkGroupingFn(Expr expr) {
         if (expr instanceof GroupingFunctionCallExpr) {
             return true;
-        } else if (expr.getChildren().size() > 0) {
+        } else if (expr.getChildren() != null && expr.getChildren().size() > 0) {
             for (Expr child : expr.getChildren()) {
                 if (checkGroupingFn(child)) {
                     return true;

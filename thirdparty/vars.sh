@@ -140,6 +140,7 @@ LZ4_MD5SUM="c9610c5ce97eb431dddddf0073d919b9"
 
 # bzip
 BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
+BZIP_DOWNLOAD="ftp://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
 BZIP_NAME=bzip2-1.0.8.tar.gz
 BZIP_SOURCE=bzip2-1.0.8
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
@@ -170,6 +171,7 @@ RE2_MD5SUM="4aa65a0b22edacb7ddcd7e4aec038dcf"
 
 # boost
 BOOST_DOWNLOAD="https://dl.bintray.com/boostorg/release/1.64.0/source/boost_1_64_0.tar.gz"
+BOOST_DOWNLOAD="https://sourceforge.mirrorservice.org/b/bo/boost/boost/1.64.0/boost_1_64_0.tar.gz"
 BOOST_NAME=boost_1_64_0.tar.gz
 BOOST_SOURCE=boost_1_64_0
 BOOST_MD5SUM="319c6ffbbeccc366f14bb68767a6db79"

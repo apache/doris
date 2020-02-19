@@ -24,6 +24,7 @@
 #include <set>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 #include "agent/status.h"
 #include "common/status.h"
@@ -46,18 +47,18 @@ class DataDir;
 class TabletManager {
 public:
     TabletManager();
-
-    ~TabletManager() {
-        _tablet_map.clear();
-    }
+    ~TabletManager() = default;
 
     bool check_tablet_id_exist(TTabletId tablet_id);
 
-    void clear();
-
-    // Create new tablet for StorageEngine
-    OLAPStatus create_tablet(const TCreateTabletReq& request,
-                             std::vector<DataDir*> stores);
+    // The param stores holds all candidate data_dirs for this tablet.
+    // NOTE: If the request is from a schema-changing tablet, The directory selected by the
+    // new tablet should be the same as the directory of origin tablet. Because the
+    // linked-schema-change type requires Linux hard-link, which does not support cross disk.
+    // TODO(lingbin): Other schema-change type do not need to be on the same disk. Because
+    // there may be insufficient space on the current disk, which will lead the schema-change
+    // task to be fail, even if there is enough space on other disks
+    OLAPStatus create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores);
 
     // Drop a tablet by description
     // If set keep_files == true, files will NOT be deleted when deconstruction.
@@ -70,7 +71,6 @@ public:
 
     TabletSharedPtr find_best_tablet_to_compaction(CompactionType compaction_type, DataDir* data_dir);
 
-    // Get tablet pointer
     TabletSharedPtr get_tablet(TTabletId tablet_id, SchemaHash schema_hash,
                                bool include_deleted = false, std::string* err = nullptr);
 
@@ -93,7 +93,7 @@ public:
 
     static bool get_rowset_id_from_path(const std::string& path, RowsetId* rowset_id);
 
-    void get_tablet_stat(TTabletStatResult& result);
+    void get_tablet_stat(TTabletStatResult* result);
 
     // parse tablet header msg to generate tablet object
     OLAPStatus load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
@@ -120,7 +120,8 @@ public:
     // Prevent schema change executed concurrently.
     bool try_schema_change_lock(TTabletId tablet_id);
 
-    void update_root_path_info(std::map<std::string, DataDirInfo>* path_map, int* tablet_counter);
+    void update_root_path_info(std::map<std::string, DataDirInfo>* path_map,
+                               size_t* tablet_counter);
 
     void get_partition_related_tablets(int64_t partition_id, std::set<TabletInfo>* tablet_infos);
 
@@ -141,7 +142,9 @@ private:
                                            bool keep_files, bool drop_old);
 
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
-    OLAPStatus _create_inital_rowset_unlocked(TabletSharedPtr tablet, const TCreateTabletReq& request);
+    OLAPStatus _create_inital_rowset_unlocked(const TCreateTabletReq& request,
+                                              Tablet* tablet);
+
     OLAPStatus _drop_tablet_directly_unlocked(TTabletId tablet_id,
                                               TSchemaHash schema_hash,
                                               bool keep_files = false);
@@ -154,17 +157,17 @@ private:
 
     TabletSharedPtr _internal_create_tablet_unlocked(const AlterTabletType alter_type,
                                                      const TCreateTabletReq& request,
-                                                     const bool is_schema_change_tablet,
-                                                     const TabletSharedPtr ref_tablet,
-                                                     std::vector<DataDir*> data_dirs);
+                                                     const bool is_schema_change,
+                                                     const Tablet* base_tablet,
+                                                     const std::vector<DataDir*>& data_dirs);
     TabletSharedPtr _create_tablet_meta_and_dir_unlocked(const TCreateTabletReq& request,
-                                                         const bool is_schema_change_tablet,
-                                                         const TabletSharedPtr ref_tablet,
-                                                         std::vector<DataDir*> data_dirs);
+                                                         const bool is_schema_change,
+                                                         const Tablet* base_tablet,
+                                                         const std::vector<DataDir*>& data_dirs);
     OLAPStatus _create_tablet_meta_unlocked(const TCreateTabletReq& request,
                                             DataDir* store,
                                             const bool is_schema_change_tablet,
-                                            const TabletSharedPtr ref_tablet,
+                                            const Tablet* base_tablet,
                                             TabletMetaSharedPtr* tablet_meta);
 
     void _build_tablet_stat();
@@ -172,32 +175,33 @@ private:
     void _remove_tablet_from_partition_unlocked(const Tablet& tablet);
 
 private:
+    DISALLOW_COPY_AND_ASSIGN(TabletManager);
+
     // TODO(lingbin): should be TabletInstances?
     // should be removed after schema_hash be removed
     struct TableInstances {
         Mutex schema_change_lock;
+        // The first element(i.e. tablet_arr[0]) is the base tablet. When we add new tablet
+        // to tablet_arr, we will sort all the elements in create-time ascending order,
+        // which will ensure the first one is base-tablet
         std::list<TabletSharedPtr> table_arr;
     };
-    typedef std::map<int64_t, TableInstances> tablet_map_t;
+    // tablet_id -> TabletInstances
+    typedef std::unordered_map<int64_t, TableInstances> tablet_map_t;
+
+    // Protect _tablet_map, _partition_tablet_map, _shutdown_tablets
     RWMutex _tablet_map_lock;
     tablet_map_t _tablet_map;
-    std::map<std::string, DataDir*> _store_map;
+    // partition_id => tablet_info
+    std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
+    std::vector<TabletSharedPtr> _shutdown_tablets;
 
     std::mutex _tablet_stat_mutex;
-    // cache to save tablets' statistics, such as data size and row
+    // cache to save tablets' statistics, such as data-size and row-count
     // TODO(cmy): for now, this is a naive implementation
     std::map<int64_t, TTabletStat> _tablet_stat_cache;
     // last update time of tablet stat cache
-    int64_t _tablet_stat_cache_update_time_ms;
-
-    uint32_t _available_storage_medium_type_count;
-
-    std::vector<TabletSharedPtr> _shutdown_tablets;
-
-    // map from partition id to tablet_id
-    std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
-
-    DISALLOW_COPY_AND_ASSIGN(TabletManager);
+    int64_t _last_update_stat_ms;
 };
 
 }  // namespace doris

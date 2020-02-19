@@ -253,7 +253,8 @@ Presto supports composition, but not nesting.
 
 ## 2. Object
 
-Support `GROUPING SETS`， `ROLLUP` and `CUBE ` syntax，impliments 1.1, 1.2, 1.3 1.4, 1.5
+Support `GROUPING SETS`， `ROLLUP` and `CUBE ` syntax，impliments 1.1, 1.2, 1.3 1.4, 1.5, not support the combination
+ and nesting of GROUPING SETS at current version.
 
 ### 2.1 GROUPING SETS Syntax
 

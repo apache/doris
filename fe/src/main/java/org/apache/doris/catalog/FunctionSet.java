@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -27,14 +24,20 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
+
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class FunctionSet {
     private static final Logger LOG = LogManager.getLogger(FunctionSet.class);
@@ -45,6 +48,16 @@ public class FunctionSet {
     // on this map. Functions are sorted in a canonical order defined by
     // FunctionResolutionOrder.
     private final HashMap<String, List<Function>> functions;
+
+    // For most build-in functions, it will return NullLiteral when params contain NullLiteral.
+    // But a few functions need to handle NullLiteral differently, such as "if". It need to add
+    // an attribute to LiteralExpr to mark null and check the attribute to decide whether to
+    // replace the result with NullLiteral when function finished. It leaves to be realized.
+    // Functions in this set is defined in `gensrc/script/doris_builtins_functions.py`,
+    // and will be built automatically.
+
+    // cmy: This does not contain any user defined functions. All UDFs handle null values by themselves.
+    private ImmutableSet<String> nonNullResultWithNullParamFunctions;
 
     public FunctionSet() {
         functions = Maps.newHashMap();
@@ -61,6 +74,18 @@ public class FunctionSet {
         ScalarBuiltins.initBuiltins(this);
         LikePredicate.initBuiltins(this);
         InPredicate.initBuiltins(this);
+    }
+
+    public void buildNonNullResultWithNullParamFunction(Set<String> funcNames) {
+        ImmutableSet.Builder<String> setBuilder = new ImmutableSet.Builder<String>();
+        for (String funcName : funcNames) {
+            setBuilder.add(funcName);
+        }
+        this.nonNullResultWithNullParamFunctions = setBuilder.build();
+    }
+
+    public boolean isNonNullResultWithNullParamFunctions(String funcName) {
+        return nonNullResultWithNullParamFunctions.contains(funcName);
     }
 
     private static final Map<Type, String> MIN_UPDATE_SYMBOL =
@@ -746,8 +771,7 @@ public class FunctionSet {
         return null;
     }
 
-    // Only used
-    public boolean addFunction(Function fn) {
+    private boolean addFunction(Function fn, boolean isBuiltin) {
         // TODO: add this to persistent store
         if (getFunction(fn, Function.CompareMode.IS_INDISTINGUISHABLE) != null) {
             return false;
@@ -791,7 +815,7 @@ public class FunctionSet {
      * Adds a builtin to this database. The function must not already exist.
      */
     public void addBuiltin(Function fn) {
-        addFunction(fn);
+        addFunction(fn, true);
     }
 
     // Populate all the aggregate builtins in the catalog.
@@ -1137,8 +1161,10 @@ public class FunctionSet {
                 "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16bitmap_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null,
                 "_ZN5doris15BitmapFunctions15bitmap_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                true, false, true));
+                true, true, true));
 
         //PercentileApprox
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",

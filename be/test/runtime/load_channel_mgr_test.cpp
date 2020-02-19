@@ -32,6 +32,8 @@
 #include "runtime/descriptor_helper.h"
 #include "util/thrift_util.h"
 #include "olap/delta_writer.h"
+#include "olap/memtable_flush_executor.h"
+#include "olap/schema.h"
 #include "olap/storage_engine.h"
 
 namespace doris {
@@ -43,7 +45,9 @@ OLAPStatus close_status;
 int64_t wait_lock_time_ns;
 
 // mock
-DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* mem_tracker, StorageEngine* storage_engine) : _req(*req) {
+DeltaWriter::DeltaWriter(WriteRequest* req, MemTracker* mem_tracker,
+                         StorageEngine* storage_engine) :
+        _req(*req) {
 }
 
 DeltaWriter::~DeltaWriter() {

@@ -631,7 +631,9 @@ public class RestoreJob extends AbstractJob {
                                     schemaHash, restoreReplica.getVersion(), restoreReplica.getVersionHash(),
                                     keysType, TStorageType.COLUMN,
                                     TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
-                                    columns, bfColumns, bfFpp, null, localTbl.getCopiedIndexes());
+                                    columns, bfColumns, bfFpp, null,
+                                    localTbl.getCopiedIndexes(),
+                                    localTbl.isInMemory());
                             task.setInRestoreMode(true);
                             batchTask.addTask(task);
                         }
@@ -662,7 +664,8 @@ public class RestoreJob extends AbstractJob {
                                         restoreTbl.getId(), restorePart.getId(), index.getId(), tablet.getId(),
                                         shortKeyColumnCount, schemaHash, replica.getVersion(), replica.getVersionHash(),
                                         keysType, TStorageType.COLUMN, TStorageMedium.HDD, columns,
-                                        bfColumns, bfFpp, null, restoreTbl.getCopiedIndexes());
+                                        bfColumns, bfFpp, null, restoreTbl.getCopiedIndexes(),
+                                        restoreTbl.isInMemory());
                                 task.setInRestoreMode(true);
                                 batchTask.addTask(task);
                             }
@@ -725,7 +728,8 @@ public class RestoreJob extends AbstractJob {
                         Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
                         localPartitionInfo.addPartition(restoredPart.getId(), remoteRange,
-                                remoteDataProperty, (short) restoreReplicationNum);
+                                remoteDataProperty, (short) restoreReplicationNum,
+                                remotePartitionInfo.getIsInMemory(remotePartId));
                         localTbl.addPartition(restoredPart);
                     }
 
@@ -932,7 +936,8 @@ public class RestoreJob extends AbstractJob {
                 Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                 DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
                 localPartitionInfo.addPartition(restorePart.getId(), remoteRange,
-                        remoteDataProperty, (short) restoreReplicationNum);
+                        remoteDataProperty, (short) restoreReplicationNum,
+                        remotePartitionInfo.getIsInMemory(remotePartId));
                 localTbl.addPartition(restorePart);
 
                 // modify tablet inverted index

@@ -30,6 +30,8 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
+#include "util/condition_variable.h"
+#include "util/mutex.h"
 
 namespace doris {
 
@@ -140,7 +142,7 @@ private:
 
     // Protect task queue
     Mutex _worker_thread_lock;
-    Condition _worker_thread_condition_lock;
+    ConditionVariable _worker_thread_condition_variable;
     std::deque<TAgentTaskRequest> _tasks;
 
     uint32_t _worker_count;

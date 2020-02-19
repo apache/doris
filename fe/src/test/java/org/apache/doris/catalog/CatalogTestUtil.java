@@ -49,6 +49,7 @@ public class CatalogTestUtil {
     public static String testPartition1 = "testPartition1";
     public static long testPartitionId1 = 3;
     public static String testIndex1 = "testIndex1";
+    public static String testIndex2 = "testIndex2";
     public static long testIndexId1 = 2; // the base indexid == tableid
     public static int testSchemaHash1 = 93423942;
     public static long testBackendId1 = 5;
@@ -64,6 +65,7 @@ public class CatalogTestUtil {
     public static long testPartitionNextVersionHash = 123123123;
     public static long testRollupIndexId2 = 13;
     public static String testRollupIndex2 = "newRollupIndex";
+    public static String testRollupIndex3 = "newRollupIndex2";
     public static String testTxnLable1 = "testTxnLable1";
     public static String testTxnLable2 = "testTxnLable2";
     public static String testTxnLable3 = "testTxnLable3";

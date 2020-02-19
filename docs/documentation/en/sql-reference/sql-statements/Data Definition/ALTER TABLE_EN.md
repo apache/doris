@@ -59,7 +59,11 @@ under the License.
         grammar:
             MODIFY PARTITION partition_name SET ("key" = "value", ...)
         Description:
-            1) The storage_medium, storage_cooldown_time, and replication_num attributes of the modified partition are currently supported.
+            1) The following attributes of the modified partition are currently supported.
+                - storage_medium
+                - storage_cooldown_time
+                - replication_num 
+                — in_memory
             2) For single-partition tables, partition_name is the same as the table name.
         
     Rollup supports the following ways to create:
@@ -68,7 +72,16 @@ under the License.
             ADD ROLLUP rollup_name (column_name1, column_name2, ...)
             [FROM from_index_name]
             [PROPERTIES ("key"="value", ...)]
-        note:
+        example:
+            ADD ROLLUP r1(col1,col2) from r0
+    1.2 Batch create rollup index
+        grammar:
+            ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
+                                    [FROM from_index_name]
+                                    [PROPERTIES ("key"="value", ...)],...]
+        example：
+            ADD ROLLUP r1(col1,col2) from r0, r2(col3,col4) from r0
+    1.3 note:
             1) If from_index_name is not specified, it is created by default from base index
             2) The columns in the rollup table must be existing columns in from_index
             3) In properties, you can specify the storage format. See CREATE TABLE for details.
@@ -77,7 +90,12 @@ under the License.
         grammar:
             DROP ROLLUP rollup_name
             [PROPERTIES ("key"="value", ...)]
-        note:
+        example:
+           DROP ROLLUP r1
+    2.1 Batch Delete rollup index
+        grammar：DROP ROLLUP [rollup_name [PROPERTIES ("key"="value", ...)],...]
+        example：DROP ROLLUP r1,r2
+    2.2 note:
             1) Cannot delete base index
             2) Execute DROP ROLLUP For a period of time, the deleted rollup index can be restored by the RECOVER statement. See the RECOVER statement for details.
     
@@ -169,7 +187,7 @@ under the License.
     Bitmap index supports the following modifications:
     1. create bitmap index
         grammar:
-            ADD INDEX index_name [USING BITMAP] (column [, ...],) [COMMENT 'balabala'];
+            ADD INDEX index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
         note:
             1. only supports bitmap index for current version
             2. BITMAP index only supports apply on single column
@@ -294,6 +312,10 @@ under the License.
         If you need to add dynamic partition attributes to a table without dynamic partition attributes, you need to specify all dynamic partition attributes
     
         ALTER TABLE example_db.my_table set ("dynamic_partition. Enable "= "true", dynamic_partition. Time_unit" = "DAY", "dynamic_partition. End "= "3", "dynamic_partition. Prefix" = "p", "Dynamic_partition. Buckets" = "32");
+
+    15. Modify the in_memory property of the table
+
+        ALTER TABLE example_db.my_table set ("in_memory" = "true");
         
     [rename]
     1. Modify the table named table1 to table2

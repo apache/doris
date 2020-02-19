@@ -84,23 +84,23 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
     return Status::OK();
 }
 
-Status ColumnReader::read_page(const PagePointer& pp, OlapReaderStatistics* stats, PageHandle* handle) {
+Status ColumnReader::read_page(const PagePointer& pp, const ColumnIteratorOptions& opts, PageHandle* handle) {
     OpenedFileHandle<RandomAccessFile> file_handle;
     RETURN_IF_ERROR(FileManager::instance()->open_file(_file_name, &file_handle));
     RandomAccessFile* input_file = file_handle.file();
-    return read_page(input_file, pp, stats, handle);
+    return read_page(input_file, pp, opts, handle);
 }
 
 Status ColumnReader::read_page(RandomAccessFile* file, const PagePointer& pp,
-        OlapReaderStatistics* stats, PageHandle* handle) {
-    stats->total_pages_num++;
+        const ColumnIteratorOptions& iter_opts, PageHandle* handle) {
+    iter_opts.stats->total_pages_num++;
     auto cache = StoragePageCache::instance();
     PageCacheHandle cache_handle;
     StoragePageCache::CacheKey cache_key(file->file_name(), pp.offset);
-    if (cache->lookup(cache_key, &cache_handle)) {
+    if (iter_opts.use_page_cache && cache->lookup(cache_key, &cache_handle)) {
         // we find page in cache, use it
         *handle = PageHandle(std::move(cache_handle));
-        stats->cached_pages_num++;
+        iter_opts.stats->cached_pages_num++;
         return Status::OK();
     }
     // Now we read this from file.
@@ -114,9 +114,9 @@ Status ColumnReader::read_page(RandomAccessFile* file, const PagePointer& pp,
     std::unique_ptr<uint8_t[]> page(new uint8_t[page_size]);
     Slice page_slice(page.get(), page_size);
     {
-        SCOPED_RAW_TIMER(&stats->io_ns);
+        SCOPED_RAW_TIMER(&iter_opts.stats->io_ns);
         RETURN_IF_ERROR(file->read_at(pp.offset, page_slice));
-        stats->compressed_bytes_read += page_size;
+        iter_opts.stats->compressed_bytes_read += page_size;
     }
 
     size_t data_size = page_size - 4;
@@ -137,7 +137,7 @@ Status ColumnReader::read_page(RandomAccessFile* file, const PagePointer& pp,
 
         Slice uncompressed_page;
         {
-            SCOPED_RAW_TIMER(&stats->decompress_ns);
+            SCOPED_RAW_TIMER(&iter_opts.stats->decompress_ns);
             RETURN_IF_ERROR(decompressor.decompress_to(&uncompressed_page));
         }
 
@@ -147,13 +147,17 @@ Status ColumnReader::read_page(RandomAccessFile* file, const PagePointer& pp,
             page.reset((uint8_t*)uncompressed_page.data);
         }
         page_slice = uncompressed_page;
-        stats->uncompressed_bytes_read += page_slice.size;
+        iter_opts.stats->uncompressed_bytes_read += page_slice.size;
     }
-    // insert this into cache and return the cache handle
-    cache->insert(cache_key, page_slice, &cache_handle);
-    page.release();
-    *handle = PageHandle(std::move(cache_handle));
+    if (iter_opts.use_page_cache) {
+        // insert this into cache and return the cache handle
+        cache->insert(cache_key, page_slice, &cache_handle, _opts.cache_in_memory);
+        *handle = PageHandle(std::move(cache_handle));
+    } else {
+        *handle = PageHandle(page_slice);
+    }
 
+    page.release();
     return Status::OK();
 }
 
@@ -259,7 +263,13 @@ Status ColumnReader::_load_ordinal_index() {
     PagePointer pp = _meta.ordinal_index_page();
     PageHandle ph;
     OlapReaderStatistics stats;
-    RETURN_IF_ERROR(read_page(pp, &stats, &ph));
+    ColumnIteratorOptions opts;
+    // column index only load once, so we use global config to decide
+    if (!config::disable_storage_page_cache) {
+        opts.use_page_cache = true;
+    }
+    opts.stats = &stats;
+    RETURN_IF_ERROR(read_page(pp, opts, &ph));
 
     _ordinal_index.reset(new OrdinalPageIndex(ph.data(), _num_rows));
     RETURN_IF_ERROR(_ordinal_index->load());
@@ -270,9 +280,14 @@ Status ColumnReader::_load_zone_map_index() {
     if (_meta.has_zone_map_page()) {
         PagePointer pp = _meta.zone_map_page();
         PageHandle ph;
-        // tmp statistics
         OlapReaderStatistics stats;
-        RETURN_IF_ERROR(read_page(pp, &stats, &ph));
+        ColumnIteratorOptions opts;
+        // column index only load once, so we use global config to decide
+        if (!config::disable_storage_page_cache) {
+            opts.use_page_cache = true;
+        }
+        opts.stats = &stats;
+        RETURN_IF_ERROR(read_page(pp, opts, &ph));
         _column_zone_map.reset(new ColumnZoneMap(ph.data()));
         RETURN_IF_ERROR(_column_zone_map->load());
     } else {
@@ -285,7 +300,7 @@ Status ColumnReader::_load_bitmap_index() {
     if (_meta.has_bitmap_index()) {
         const BitmapIndexColumnPB& bitmap_index_meta = _meta.bitmap_index();
         _bitmap_index_reader.reset(new BitmapIndexReader(_file_name, bitmap_index_meta));
-        RETURN_IF_ERROR(_bitmap_index_reader->load());
+        RETURN_IF_ERROR(_bitmap_index_reader->load(_opts.cache_in_memory));
     } else {
         _bitmap_index_reader.reset(nullptr);
     }
@@ -296,7 +311,7 @@ Status ColumnReader::_load_bloom_filter_index() {
     if (_meta.has_bloom_filter_index()) {
         const BloomFilterIndexPB& bloom_filter_index_meta = _meta.bloom_filter_index();
         _bloom_filter_index_reader.reset(new BloomFilterIndexReader(_file_name, bloom_filter_index_meta));
-        RETURN_IF_ERROR(_bloom_filter_index_reader->load());
+        RETURN_IF_ERROR(_bloom_filter_index_reader->load(_opts.cache_in_memory));
     } else {
         _bloom_filter_index_reader.reset(nullptr);
     }
@@ -463,7 +478,7 @@ Status FileColumnIterator::_load_next_page(bool* eos) {
 // it ready to read
 Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, ParsedPage* page) {
     page->page_pointer = iter.page();
-    RETURN_IF_ERROR(_reader->read_page(_file, page->page_pointer, _opts.stats, &page->page_handle));
+    RETURN_IF_ERROR(_reader->read_page(_file, page->page_pointer, _opts, &page->page_handle));
     // TODO(zc): read page from file
     Slice data = page->page_handle.data();
 
@@ -505,7 +520,7 @@ Status FileColumnIterator::_read_page(const OrdinalPageIndexIterator& iter, Pars
         if (binary_dict_page_decoder->is_dict_encoding()) {
             if (_dict_decoder == nullptr) {
                 PagePointer pp = _reader->get_dict_page_pointer();
-                RETURN_IF_ERROR(_reader->read_page(_file, pp, _opts.stats, &_dict_page_handle));
+                RETURN_IF_ERROR(_reader->read_page(_file, pp, _opts, &_dict_page_handle));
 
                 _dict_decoder.reset(new BinaryPlainPageDecoder(_dict_page_handle.data()));
                 RETURN_IF_ERROR(_dict_decoder->init());

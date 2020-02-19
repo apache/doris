@@ -25,7 +25,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -50,6 +49,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -74,6 +74,7 @@ public class CreateTableStmt extends DdlStmt {
     private Map<String, String> extProperties;
     private String engineName;
     private String comment;
+    private List<AlterClause> rollupAlterClauseList;
 
     private static Set<String> engineNames;
 
@@ -112,7 +113,22 @@ public class CreateTableStmt extends DdlStmt {
                            Map<String, String> extProperties,
                            String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment);
+                distributionDesc, properties, extProperties, comment, null);
+    }
+
+    public CreateTableStmt(boolean ifNotExists,
+                           boolean isExternal,
+                           TableName tableName,
+                           List<ColumnDef> columnDefinitions,
+                           String engineName,
+                           KeysDesc keysDesc,
+                           PartitionDesc partitionDesc,
+                           DistributionDesc distributionDesc,
+                           Map<String, String> properties,
+                           Map<String, String> extProperties,
+                           String comment, List<AlterClause> ops) {
+        this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
+                distributionDesc, properties, extProperties, comment, ops);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -126,7 +142,7 @@ public class CreateTableStmt extends DdlStmt {
                            DistributionDesc distributionDesc,
                            Map<String, String> properties,
                            Map<String, String> extProperties,
-                           String comment) {
+                           String comment, List<AlterClause> rollupAlterClauseList) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -150,6 +166,7 @@ public class CreateTableStmt extends DdlStmt {
         this.comment = Strings.nullToEmpty(comment);
 
         this.tableSignature = -1;
+        this.rollupAlterClauseList = rollupAlterClauseList == null ? new ArrayList<>() : rollupAlterClauseList;
     }
 
     public void addColumnDef(ColumnDef columnDef) { columnDefs.add(columnDef); }
@@ -216,6 +233,10 @@ public class CreateTableStmt extends DdlStmt {
 
     public String getComment() {
         return comment;
+    }
+
+    public List<AlterClause> getRollupAlterClauseList() {
+        return rollupAlterClauseList;
     }
 
     public List<Index> getIndexes() {
@@ -403,43 +424,19 @@ public class CreateTableStmt extends DdlStmt {
                     throw new AnalysisException("index only support in olap engine at current version.");
                 }
                 for (String indexColName : indexDef.getColumns()) {
-                    indexColName = indexColName.trim();
                     boolean found = false;
                     for (Column column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexColName = column.getName();
-                            PrimitiveType colType = column.getDataType();
-
-                            // key columns and none/replace aggregate non-key columns support
-                            if (indexDef.getIndexType() == IndexDef.IndexType.BITMAP) {
-                                    if (!(colType == PrimitiveType.TINYINT || colType == PrimitiveType.SMALLINT
-                                                  || colType == PrimitiveType.INT || colType == PrimitiveType.BIGINT ||
-                                                  colType == PrimitiveType.CHAR || colType == PrimitiveType.VARCHAR)) {
-                                        throw new AnalysisException(colType + " is not supported in bitmap index. "
-                                                + "invalid column: " + indexColName);
-                                    } else if (column.isKey()
-                                            || column.getAggregationType() == AggregateType.NONE
-                                            || column.getAggregationType() == AggregateType.REPLACE
-                                            || column.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
-                                        found = true;
-                                        break;
-                                    } else {
-                                        // althrough the implemention supports bf for replace non-key column,
-                                        // for simplicity and unity, we don't expose that to user.
-                                        throw new AnalysisException(
-                                                "BITMAP index only used in columns of DUP_KEYS table or "
-                                                        + "key columns of UNIQUE_KEYS/AGG_KEYS table. invalid column: "
-                                                        + indexColName);
-                                    }
-                                }
-                            }
-                        }
-
-                        if (!found) {
-                            throw new AnalysisException("BITMAP column does not exist in table. invalid column: "
-                                    + indexColName);
+                            indexDef.checkColumn(column, getKeysDesc().getKeysType());
+                            found = true;
+                            break;
                         }
                     }
+                    if (!found) {
+                        throw new AnalysisException("BITMAP column does not exist in table. invalid column: "
+                                + indexColName);
+                    }
+                }
                 indexes.add(new Index(indexDef.getIndexName(), indexDef.getColumns(), indexDef.getIndexType(),
                         indexDef.getComment()));
                 distinct.add(indexDef.getIndexName());
@@ -522,6 +519,18 @@ public class CreateTableStmt extends DdlStmt {
         
         if (distributionDesc != null) {
             sb.append("\n").append(distributionDesc.toSql());
+        }
+
+        if (rollupAlterClauseList != null && rollupAlterClauseList.size() != 0) {
+            sb.append("\n rollup(");
+            StringBuilder opsSb = new StringBuilder();
+            for (int i = 0; i < rollupAlterClauseList.size(); i++) {
+                opsSb.append(rollupAlterClauseList.get(i).toSql());
+                if (i != rollupAlterClauseList.size() - 1) {
+                    opsSb.append(",");
+                }
+            }
+            sb.append(opsSb.toString().replace("ADD ROLLUP", "")).append(")");
         }
 
         // properties may contains password and other sensitive information,

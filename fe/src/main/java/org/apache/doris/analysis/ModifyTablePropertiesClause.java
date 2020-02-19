@@ -85,6 +85,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
             properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, properties.get(defaultReplicationNumName));
             properties.remove(defaultReplicationNumName);
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
+            this.needTableStable = false;
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

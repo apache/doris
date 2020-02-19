@@ -20,7 +20,6 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
-import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -75,20 +74,14 @@ public abstract class LoadScanNode extends ScanNode {
         addConjuncts(whereExpr.getConjuncts());
     }
 
-    protected void checkBitmapCompatibility(SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
-        boolean isCompatible = true;
+    protected void checkBitmapCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
         if (slotDesc.getColumn().getAggregationType() == AggregateType.BITMAP_UNION) {
-            if (!(expr instanceof FunctionCallExpr)) {
-                isCompatible = false;
-            } else {
-                FunctionCallExpr fn = (FunctionCallExpr) expr;
-                if (fn.getFn().getReturnType() != Type.BITMAP) {
-                    isCompatible = false;
-                }
+            expr.analyze(analyzer);
+            if (!expr.getType().isBitmapType()) {
+                String errorMsg = String.format("bitmap column %s require the function return type is BITMAP",
+                        slotDesc.getColumn().getName());
+                throw new AnalysisException(errorMsg);
             }
-        }
-        if (!isCompatible) {
-            throw new AnalysisException("bitmap column require the function return type is BITMAP");
         }
     }
 
