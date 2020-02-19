@@ -24,7 +24,7 @@
 namespace doris {
 
 class OutStream;
-class ReadOnlyFileStream;
+class BaseStream;
 
 namespace ser {
 
@@ -52,10 +52,10 @@ inline OLAPStatus write_var_signed(OutStream* stream, int64_t value) {
 }
 
 // 读入write_var_unsigned编码的数据
-OLAPStatus read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value);
+OLAPStatus read_var_unsigned(BaseStream* stream, int64_t* value);
 
 // 读入write_var_signed编码的数据
-inline OLAPStatus read_var_signed(ReadOnlyFileStream* stream, int64_t* value) {
+inline OLAPStatus read_var_signed(BaseStream* stream, int64_t* value) {
     OLAPStatus res = read_var_unsigned(stream, value);
 
     if (OLAP_SUCCESS == res) {
@@ -126,7 +126,7 @@ inline uint32_t percentile_bits_with_hist(uint16_t hists[65], uint16_t count, do
 uint32_t find_closet_num_bits(int64_t value);
 
 // Read n bytes in big endian order and convert to long
-OLAPStatus bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* value);
+OLAPStatus bytes_to_long_be(BaseStream* stream, int32_t n, int64_t* value);
 
 // 将位长编码为32个定长比特位之一, 返回值为0~31之间
 uint32_t encode_bit_width(uint32_t n);
@@ -144,7 +144,7 @@ uint32_t percentile_bits(int64_t* data, uint16_t count, double p);
 OLAPStatus write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t bit_width);
 
 // 读取write_ints输出的数据
-OLAPStatus read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, uint32_t bit_width);
+OLAPStatus read_ints(BaseStream* input, int64_t* data, uint32_t count, uint32_t bit_width);
 
 // Do not want to use Guava LongMath.checkedSubtract() here as it will throw
 // ArithmeticException in case of overflow

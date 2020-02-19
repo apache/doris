@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_INTEGER_READER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_RUN_LENGTH_INTEGER_READER_H
 
-#include "olap/file_stream.h"
+#include "olap/base_stream.h"
 #include "olap/rowset/run_length_integer_writer.h"
 #include "olap/stream_index_reader.h"
 #include "olap/olap_define.h"
@@ -26,12 +26,12 @@
 
 namespace doris {
 
-class ReadOnlyFileStream;
+class BaseStream;
 class PositionProvider;
 
 class RunLengthIntegerReader {
 public:
-    explicit RunLengthIntegerReader(ReadOnlyFileStream* input, bool is_singed);
+    explicit RunLengthIntegerReader(BaseStream* input, bool is_singed);
     ~RunLengthIntegerReader() {}
     inline bool has_next() const {
         return _used != _num_literals || !_input->eof();
@@ -63,7 +63,7 @@ private:
     OLAPStatus _read_direct_values(uint8_t first_byte);
     OLAPStatus _read_short_repeat_values(uint8_t first_byte);
 
-    ReadOnlyFileStream* _input;
+    BaseStream* _input;
     bool _signed;
     int64_t _literals[RunLengthIntegerWriter::MAX_SCOPE];
     int32_t _num_literals;

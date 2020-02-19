@@ -25,6 +25,7 @@
 #include <streambuf>
 #include <vector>
 
+#include "olap/base_stream.h"
 #include "olap/byte_buffer.h"
 #include "olap/compress.h"
 #include "olap/stream_index_reader.h"
@@ -35,7 +36,7 @@
 namespace doris {
 
 // 定义输入数据流接口
-class ReadOnlyFileStream {
+class ReadOnlyFileStream : public BaseStream {
 public:
     // 构造方法, 使用一组ByteBuffer创建一个InStream
     // 输入的ByteBuffer在流中的位置可以不连续,例如通过Index确定某些数据不需要

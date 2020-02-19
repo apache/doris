@@ -115,6 +115,13 @@ public:
         }
     }
 
+    uint64_t current_buffer_byte() {
+        if (_current != nullptr) {
+            return _current->position();
+        }
+        return 0;
+    }
+
 private:
     OLAPStatus _create_new_input_buffer();
     OLAPStatus _write_head(StorageByteBuffer* buf,

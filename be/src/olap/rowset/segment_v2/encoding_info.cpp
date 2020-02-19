@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/frame_of_reference_page.h"
 #include "olap/rowset/segment_v2/plain_page.h"
 #include "olap/rowset/segment_v2/rle_page.h"
+#include "olap/rowset/segment_v2/rle_v2_page.h"
 #include "gutil/strings/substitute.h"
 
 namespace doris {
@@ -76,6 +77,19 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
         *decoder = new BitShufflePageDecoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+template<FieldType type, typename CppType>
+struct TypeEncodingTraits<type, RLE_V2, CppType,
+                          typename std::enable_if<!std::is_same<CppType, Slice>::value>::type> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        *builder = new RleV2PageBuilder<type>(opts);
+        return Status::OK();
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts, PageDecoder** decoder) {
+        *decoder = new RleV2PageDecoder<type>(data, opts);
         return Status::OK();
     }
 };
@@ -193,14 +207,17 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_TINYINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_TINYINT, PLAIN_ENCODING>();
 
+    _add_map<OLAP_FIELD_TYPE_SMALLINT, RLE_V2>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_SMALLINT, PLAIN_ENCODING>();
 
+    _add_map<OLAP_FIELD_TYPE_INT, RLE_V2>();
     _add_map<OLAP_FIELD_TYPE_INT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_INT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_INT, PLAIN_ENCODING>();
 
+    _add_map<OLAP_FIELD_TYPE_BIGINT, RLE_V2>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, FOR_ENCODING, true>();
     _add_map<OLAP_FIELD_TYPE_BIGINT, PLAIN_ENCODING>();
@@ -228,10 +245,12 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_BOOL, PLAIN_ENCODING, true>();
 
+    _add_map<OLAP_FIELD_TYPE_DATE, RLE_V2>();
     _add_map<OLAP_FIELD_TYPE_DATE, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATE, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_DATE, FOR_ENCODING, true>();
 
+    _add_map<OLAP_FIELD_TYPE_DATETIME, RLE_V2>();
     _add_map<OLAP_FIELD_TYPE_DATETIME, BIT_SHUFFLE>();
     _add_map<OLAP_FIELD_TYPE_DATETIME, PLAIN_ENCODING>();
     _add_map<OLAP_FIELD_TYPE_DATETIME, FOR_ENCODING, true>();

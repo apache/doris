@@ -23,7 +23,7 @@
 
 namespace doris {
 
-RunLengthIntegerReader::RunLengthIntegerReader(ReadOnlyFileStream* input, bool is_singed)
+RunLengthIntegerReader::RunLengthIntegerReader(BaseStream* input, bool is_singed)
       : _input(input),
         _signed(is_singed),
         _num_literals(0),

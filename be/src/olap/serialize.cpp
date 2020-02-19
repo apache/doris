@@ -17,7 +17,7 @@
 
 #include "olap/serialize.h"
 
-#include "olap/file_stream.h"
+#include "olap/base_stream.h"
 #include "olap/out_stream.h"
 
 namespace doris {
@@ -38,7 +38,7 @@ OLAPStatus write_var_unsigned(OutStream* stream, int64_t value) {
     return res;
 }
 
-OLAPStatus read_var_unsigned(ReadOnlyFileStream* stream, int64_t* value) {
+OLAPStatus read_var_unsigned(BaseStream* stream, int64_t* value) {
     OLAPStatus res;
     int64_t result = 0;
     uint32_t offset = 0;
@@ -70,7 +70,7 @@ uint32_t find_closet_num_bits(int64_t value) {
     return get_closet_fixed_bits(count);
 }
 
-OLAPStatus bytes_to_long_be(ReadOnlyFileStream* stream, int32_t n, int64_t* value) {
+OLAPStatus bytes_to_long_be(BaseStream* stream, int32_t n, int64_t* value) {
     OLAPStatus res = OLAP_SUCCESS;
     int64_t out = 0;
 
@@ -208,7 +208,7 @@ OLAPStatus write_ints(OutStream* output, int64_t* data, uint32_t count, uint32_t
     return OLAP_SUCCESS;
 }
 
-OLAPStatus read_ints(ReadOnlyFileStream* input, int64_t* data, uint32_t count, uint32_t bit_width) {
+OLAPStatus read_ints(BaseStream* input, int64_t* data, uint32_t count, uint32_t bit_width) {
     OLAPStatus res = OLAP_SUCCESS;
     uint32_t bits_left = 0;
     char current = '\0';
