@@ -411,7 +411,7 @@ Status FragmentMgr::exec_plan_fragment(
 }
 
 static void* fragment_executor(void* param) {
-    ThreadPool::WorkFunction* func = (ThreadPool::WorkFunction*)param;
+    PriorityThreadPool::WorkFunction* func = (PriorityThreadPool::WorkFunction*)param;
     (*func)();
     delete func;
     return nullptr;
@@ -469,7 +469,7 @@ Status FragmentMgr::exec_plan_fragment(
         int ret = pthread_create(&id,
                        nullptr,
                        fragment_executor,
-                       new ThreadPool::WorkFunction(
+                       new PriorityThreadPool::WorkFunction(
                            std::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb)));
         if (ret != 0) {
             std::string err_msg("Could not create thread.");

@@ -46,6 +46,9 @@ public:
     // the input src's ptr need to point a BitmapValue, this function will release the
     // BitmapValue memory
     static BigIntVal bitmap_finalize(FunctionContext* ctx, const StringVal& src);
+    // Get the bitmap cardinality, the difference from bitmap_finalize method is
+    // bitmap_get_value method doesn't free memory, this function is used in analytic get_value function
+    static BigIntVal bitmap_get_value(FunctionContext* ctx, const StringVal& src);
 
     static void bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);

@@ -194,7 +194,7 @@ public class StreamLoadScanNode extends LoadScanNode {
                 expr.setType(Type.HLL);
             }
 
-            checkBitmapCompatibility(dstSlotDesc, expr);
+            checkBitmapCompatibility(analyzer, dstSlotDesc, expr);
 
             if (negative && dstSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
                 expr = new ArithmeticExpr(ArithmeticExpr.Operator.MULTIPLY, expr, new IntLiteral(-1));

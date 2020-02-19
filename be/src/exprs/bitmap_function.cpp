@@ -281,6 +281,12 @@ BigIntVal BitmapFunctions::bitmap_finalize(FunctionContext* ctx, const StringVal
     return result;
 }
 
+BigIntVal BitmapFunctions::bitmap_get_value(FunctionContext* ctx, const StringVal& src) {
+    auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+    BigIntVal result(src_bitmap->cardinality());
+    return result;
+}
+
 void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
     auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
     // zero size means the src input is a agg object
