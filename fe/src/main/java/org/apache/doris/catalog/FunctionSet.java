@@ -1161,8 +1161,10 @@ public class FunctionSet {
                 "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 "_ZN5doris15BitmapFunctions12bitmap_unionEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
                 "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16bitmap_get_valueEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                null,
                 "_ZN5doris15BitmapFunctions15bitmap_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
-                true, false, true));
+                true, true, true));
 
         //PercentileApprox
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
