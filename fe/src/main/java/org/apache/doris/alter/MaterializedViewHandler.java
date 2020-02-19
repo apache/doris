@@ -740,13 +740,13 @@ public class MaterializedViewHandler extends AlterHandler {
         return new HashMap<>(alterJobsV2);
     }
 
-    private void removeJobFromRunningQueue(RollupJobV2 rollupJobV2) {
+    private void removeJobFromRunningQueue(AlterJobV2 alterJob) {
         synchronized (tableRunningJobMap) {
-            Set<Long> runningJobIdSet = tableRunningJobMap.get(rollupJobV2.getTableId());
+            Set<Long> runningJobIdSet = tableRunningJobMap.get(alterJob.getTableId());
             if (runningJobIdSet != null) {
-                runningJobIdSet.remove(rollupJobV2.getJobId());
+                runningJobIdSet.remove(alterJob.getJobId());
                 if (runningJobIdSet.size() == 0) {
-                    tableRunningJobMap.remove(rollupJobV2.getTableId());
+                    tableRunningJobMap.remove(alterJob.getTableId());
                 }
             }
         }
@@ -838,13 +838,20 @@ public class MaterializedViewHandler extends AlterHandler {
             // ATTN(cmy): there is still a short gap between "job finish" and "table become normal",
             // so if user send next alter job right after the "job finish",
             // it may encounter "table's state not NORMAL" error.
+
             if (alterJob.isDone()) {
-                removeJobFromRunningQueue(alterJob);
-                if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
-                    changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
-                }
+                onJobDone(alterJob);
                 continue;
             }
+        }
+    }
+
+    // remove job from running queue and state map, also set table's state to NORMAL if this is
+    // the last running job of the table.
+    private void onJobDone(AlterJobV2 alterJob) {
+        removeJobFromRunningQueue(alterJob);
+        if (removeAlterJobV2FromTableNotFinalStateJobMap(alterJob)) {
+            changeTableStatus(alterJob.getDbId(), alterJob.getTableId(), OlapTableState.NORMAL);
         }
     }
 
@@ -1105,6 +1112,9 @@ public class MaterializedViewHandler extends AlterHandler {
         if (rollupJobV2List.size() != 0) {
             for (AlterJobV2 alterJobV2 : rollupJobV2List) {
                 alterJobV2.cancel("user cancelled");
+                if (alterJobV2.isDone()) {
+                    onJobDone(alterJobV2);
+                }
             }
             return;
         }
