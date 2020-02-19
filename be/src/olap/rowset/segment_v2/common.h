@@ -25,7 +25,10 @@
 namespace doris {
 namespace segment_v2 {
 
+// One segment file could store at most INT32_MAX rows,
+// but due to array type, each column could store more than INT32_MAX values.
 using rowid_t = uint32_t;
+using ordinal_t = uint64_t;
 
 } // namespace segment_v2
 } // namespace doris

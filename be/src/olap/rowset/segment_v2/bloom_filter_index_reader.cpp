@@ -23,11 +23,11 @@
 namespace doris {
 namespace segment_v2 {
 
-Status BloomFilterIndexReader::load(bool cache_in_memory) {
-    const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta.bloom_filter();
+Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory) {
+    const IndexedColumnMetaPB& bf_index_meta = _bloom_filter_index_meta->bloom_filter();
 
-    _bloom_filter_reader.reset(new IndexedColumnReader(_file_name, bf_index_meta, cache_in_memory));
-    RETURN_IF_ERROR(_bloom_filter_reader->load());
+    _bloom_filter_reader.reset(new IndexedColumnReader(_file_name, bf_index_meta));
+    RETURN_IF_ERROR(_bloom_filter_reader->load(use_page_cache, kept_in_memory));
     return Status::OK();
 }
 
@@ -48,8 +48,8 @@ Status BloomFilterIndexIterator::read_bloom_filter(rowid_t ordinal, std::unique_
     RETURN_IF_ERROR(_bloom_filter_iter.next_batch(&num_read, &column_block_view));
     DCHECK(num_to_read == num_read);
     // construct bloom filter
-    BloomFilter::create(_reader->_bloom_filter_index_meta.algorithm(), bf);
-    RETURN_IF_ERROR((*bf)->init(value.data, value.size, _reader->_bloom_filter_index_meta.hash_strategy()));
+    BloomFilter::create(_reader->_bloom_filter_index_meta->algorithm(), bf);
+    RETURN_IF_ERROR((*bf)->init(value.data, value.size, _reader->_bloom_filter_index_meta->hash_strategy()));
     _pool->clear();
     return Status::OK();
 }

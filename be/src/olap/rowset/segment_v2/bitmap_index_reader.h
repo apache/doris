@@ -41,13 +41,13 @@ class IndexedColumnIterator;
 class BitmapIndexReader {
 public:
     explicit BitmapIndexReader(const std::string& file_name,
-                               const BitmapIndexColumnPB& bitmap_index_meta)
+                               const BitmapIndexPB* bitmap_index_meta)
         : _file_name(file_name),
           _bitmap_index_meta(bitmap_index_meta){
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 
-    Status load(bool cache_in_memory);
+    Status load(bool use_page_cache, bool kept_in_memory);
 
     // create a new column iterator. Client should delete returned iterator
     Status new_iterator(BitmapIndexIterator** iterator);
@@ -65,7 +65,7 @@ private:
 
     std::string _file_name;
     const TypeInfo* _typeinfo;
-    const BitmapIndexColumnPB& _bitmap_index_meta;
+    const BitmapIndexPB* _bitmap_index_meta;
     bool _has_null = false;
     std::unique_ptr<IndexedColumnReader> _dict_column_reader;
     std::unique_ptr<IndexedColumnReader> _bitmap_column_reader;

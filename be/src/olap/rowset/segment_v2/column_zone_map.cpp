@@ -17,108 +17,123 @@
 
 #include "olap/rowset/segment_v2/column_zone_map.h"
 
+#include "olap/column_block.h"
 #include "olap/olap_define.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/rowset/segment_v2/indexed_column_reader.h"
+#include "olap/rowset/segment_v2/indexed_column_writer.h"
+#include "olap/types.h"
+#include "runtime/mem_pool.h"
+#include "runtime/mem_tracker.h"
 
 namespace doris {
 
 namespace segment_v2 {
 
-ColumnZoneMapBuilder::ColumnZoneMapBuilder(Field* field) : _field(field), _pool(&_tracker) {
-    PageBuilderOptions options;
-    options.data_page_size = 0;
-    _page_builder.reset(new BinaryPlainPageBuilder(options));
-    _zone_map.min_value = _field->allocate_value(&_pool);
-    _zone_map.max_value = _field->allocate_value(&_pool);
-    _reset_page_zone_map();
+ZoneMapIndexWriter::ZoneMapIndexWriter(Field* field) : _field(field), _pool(&_tracker) {
+    _page_zone_map.min_value = _field->allocate_value(&_pool);
+    _page_zone_map.max_value = _field->allocate_value(&_pool);
+    _reset_zone_map(&_page_zone_map);
     _segment_zone_map.min_value = _field->allocate_value(&_pool);
     _segment_zone_map.max_value = _field->allocate_value(&_pool);
-    _reset_segment_zone_map();
+    _reset_zone_map(&_segment_zone_map);
 }
 
-Status ColumnZoneMapBuilder::add(const uint8_t *vals, size_t count) {
-    if (vals != nullptr) {
-        for (int i = 0; i < count; ++i) {
-            if (_field->compare(_zone_map.min_value, (char *)vals) > 0) {
-                _field->type_info()->direct_copy(_zone_map.min_value, (const char *)vals);
-            }
-            if (_field->compare(_zone_map.max_value, (char *)vals) < 0) {
-                _field->type_info()->direct_copy(_zone_map.max_value, (const char *)vals);
-            }
-            vals +=  _field->size();
-            if (!_zone_map.has_not_null) {
-                _zone_map.has_not_null = true;
-            }
-        }
+void ZoneMapIndexWriter::add_values(const void* values, size_t count) {
+    if (count > 0) {
+        _page_zone_map.has_not_null = true;
     }
-    else {
-        if (!_zone_map.has_null) {
-            _zone_map.has_null = true;
+    const char* vals = reinterpret_cast<const char*>(values);
+    for (int i = 0; i < count; ++i) {
+        if (_field->compare(_page_zone_map.min_value, vals) > 0) {
+            _field->type_info()->direct_copy(_page_zone_map.min_value, vals);
         }
+        if (_field->compare(_page_zone_map.max_value, vals) < 0) {
+            _field->type_info()->direct_copy(_page_zone_map.max_value, vals);
+        }
+        vals +=  _field->size();
     }
-    return Status::OK();
 }
 
-void ColumnZoneMapBuilder::fill_segment_zone_map(ZoneMapPB* const to) {
-    _fill_zone_map_to_pb(_segment_zone_map, to);
-}
-
-Status ColumnZoneMapBuilder::flush() {
+Status ZoneMapIndexWriter::flush() {
     // Update segment zone map.
-    if (_field->compare(_segment_zone_map.min_value, _zone_map.min_value) > 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.min_value, _zone_map.min_value);
+    if (_field->compare(_segment_zone_map.min_value, _page_zone_map.min_value) > 0) {
+        _field->type_info()->direct_copy(_segment_zone_map.min_value, _page_zone_map.min_value);
     }
-    if (_field->compare(_segment_zone_map.max_value, _zone_map.max_value) < 0) {
-        _field->type_info()->direct_copy(_segment_zone_map.max_value, _zone_map.max_value);
+    if (_field->compare(_segment_zone_map.max_value, _page_zone_map.max_value) < 0) {
+        _field->type_info()->direct_copy(_segment_zone_map.max_value, _page_zone_map.max_value);
     }
-    if (!_segment_zone_map.has_null && _zone_map.has_null) {
+    if (_page_zone_map.has_null) {
         _segment_zone_map.has_null = true;
     }
-    if (!_segment_zone_map.has_not_null && _zone_map.has_not_null) {
+    if (_page_zone_map.has_not_null) {
         _segment_zone_map.has_not_null = true;
     }
 
-    ZoneMapPB page_zone_map;
-    _fill_zone_map_to_pb(_zone_map, &page_zone_map);
+    ZoneMapPB zone_map_pb;
+    _page_zone_map.to_proto(&zone_map_pb, _field);
+    _reset_zone_map(&_page_zone_map);
 
     std::string serialized_zone_map;
-    bool ret = page_zone_map.SerializeToString(&serialized_zone_map);
+    bool ret = zone_map_pb.SerializeToString(&serialized_zone_map);
     if (!ret) {
         return Status::InternalError("serialize zone map failed");
     }
-    Slice data(serialized_zone_map.data(), serialized_zone_map.size());
-    size_t num = 1;
-    RETURN_IF_ERROR(_page_builder->add((const uint8_t *)&data, &num));
-    // reset the variables
-    // we should allocate max varchar length and set to max for min value
-    _reset_page_zone_map();
+    _estimated_size += serialized_zone_map.size() + sizeof(uint32_t);
+    _values.push_back(std::move(serialized_zone_map));
     return Status::OK();
 }
 
-void ColumnZoneMapBuilder::_reset_zone_map(ZoneMap* zone_map) {
-    _field->set_to_max(zone_map->min_value);
-    _field->set_to_min(zone_map->max_value);
-    zone_map->has_null = false;
-    zone_map->has_not_null = false;
+Status ZoneMapIndexWriter::finish(WritableFile* file, ColumnIndexMetaPB* index_meta) {
+    index_meta->set_type(ZONE_MAP_INDEX);
+    ZoneMapIndexPB* meta = index_meta->mutable_zone_map_index();
+    // store segment zone map
+    _segment_zone_map.to_proto(meta->mutable_segment_zone_map(), _field);
+
+    // write out zone map for each data pages
+    const TypeInfo* typeinfo = get_type_info(OLAP_FIELD_TYPE_OBJECT);
+    IndexedColumnWriterOptions options;
+    options.write_ordinal_index = true;
+    options.write_value_index = false;
+    options.encoding = EncodingInfo::get_default_encoding(typeinfo, false);
+    options.compression = NO_COMPRESSION; // currently not compressed
+
+    IndexedColumnWriter writer(options, typeinfo, file);
+    RETURN_IF_ERROR(writer.init());
+
+    for (auto& value : _values) {
+        Slice value_slice(value);
+        RETURN_IF_ERROR(writer.add(&value_slice));
+    }
+    return writer.finish(meta->mutable_page_zone_maps());
 }
 
-void ColumnZoneMapBuilder::_fill_zone_map_to_pb(const ZoneMap& from, ZoneMapPB* const to) {
-    to->set_has_not_null(from.has_not_null);
-    to->set_has_null(from.has_null);
-    to->set_max(_field->to_string(from.max_value));
-    to->set_min(_field->to_string(from.min_value));
-}
+Status ZoneMapIndexReader::load(bool use_page_cache, bool kept_in_memory) {
+    IndexedColumnReader reader(_filename, _index_meta->page_zone_maps());
+    RETURN_IF_ERROR(reader.load(use_page_cache, kept_in_memory));
+    IndexedColumnIterator iter(&reader);
 
-Status ColumnZoneMap::load() {
-    BinaryPlainPageDecoder page_decoder(_data);
-    RETURN_IF_ERROR(page_decoder.init());
-    _num_pages = page_decoder.count();
-    _page_zone_maps.resize(_num_pages);
-    for (int i = 0; i < _num_pages; ++i) {
-        Slice data = page_decoder.string_at_index(i);
-        bool ret = _page_zone_maps[i].ParseFromString(std::string(data.data, data.size));
-        if (!ret) {
-            return Status::Corruption("parse zone map failed");
+    MemTracker tracker;
+    MemPool pool(&tracker);
+    _page_zone_maps.resize(reader.num_values());
+
+    // read and cache all page zone maps
+    for (int i = 0; i < reader.num_values(); ++i) {
+        Slice value;
+        uint8_t nullmap;
+        size_t num_to_read = 1;
+        ColumnBlock block(reader.type_info(), (uint8_t*) &value, &nullmap, num_to_read, &pool);
+        ColumnBlockView column_block_view(&block);
+
+        RETURN_IF_ERROR(iter.seek_to_ordinal(i));
+        size_t num_read = num_to_read;
+        RETURN_IF_ERROR(iter.next_batch(&num_read, &column_block_view));
+        DCHECK(num_to_read == num_read);
+
+        if (!_page_zone_maps[i].ParseFromArray(value.data, value.size)) {
+            return Status::Corruption("Failed to parse zone map");
         }
+        pool.clear();
     }
     return Status::OK();
 }
