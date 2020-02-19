@@ -33,7 +33,6 @@
 #include <gflags/gflags_declare.h>
 #include <gtest/gtest.h>
 
-#include <boost/bind.hpp>
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/atomicops.h"
@@ -119,9 +118,9 @@ TEST_F(ThreadPoolTest, TestSimpleTasks) {
     std::atomic<int32_t> counter(0);
     std::shared_ptr<Runnable> task(new SimpleTask(15, &counter));
 
-    ASSERT_TRUE(_pool->submit_func(boost::bind(&simple_task_method, 10, &counter)).ok());
+    ASSERT_TRUE(_pool->submit_func(std::bind(&simple_task_method, 10, &counter)).ok());
     ASSERT_TRUE(_pool->submit(task).ok());
-    ASSERT_TRUE(_pool->submit_func(boost::bind(&simple_task_method, 20, &counter)).ok());
+    ASSERT_TRUE(_pool->submit_func(std::bind(&simple_task_method, 20, &counter)).ok());
     ASSERT_TRUE(_pool->submit(task).ok());
     _pool->wait();
     ASSERT_EQ(10 + 15 + 20 + 15, counter.load());
@@ -219,16 +218,19 @@ TEST_F(ThreadPoolTest, TestThreadPoolWithNoMaxThreads) {
 TEST_F(ThreadPoolTest, TestRace) {
     alarm(60);
     auto cleanup = MakeScopedCleanup([]() {
-            alarm(0); // Disable alarm on test exit.
-            });
+        alarm(0); // Disable alarm on test exit.
+    });
     ASSERT_TRUE(rebuild_pool_with_builder(ThreadPoolBuilder(kDefaultPoolName)
-                  .set_min_threads(0)
-                  .set_max_threads(1)
-                  .set_idle_timeout(MonoDelta::FromMicroseconds(1))).ok());
+                .set_min_threads(0)
+                .set_max_threads(1)
+                .set_idle_timeout(MonoDelta::FromMicroseconds(1))).ok());
 
     for (int i = 0; i < 500; i++) {
         CountDownLatch l(1);
-        ASSERT_TRUE(_pool->submit_func(boost::bind(&CountDownLatch::count_down, &l)).ok());
+        // CountDownLatch::count_down has multiple overloaded version,
+        // so an cast is needed to use std::bind
+        ASSERT_TRUE(_pool->submit_func(
+                std::bind((void (CountDownLatch::*)())(&CountDownLatch::count_down), &l)).ok());
         l.wait();
         // Sleeping a different amount in each iteration makes it more likely to hit
         // the bug.
@@ -303,7 +305,6 @@ TEST_F(ThreadPoolTest, TestZeroQueueSize) {
     _pool->shutdown();
 }
 
-/*
 // Test that a thread pool will crash if asked to run its own blocking
 // functions in a pool thread.
 //
@@ -319,20 +320,17 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
     const char* death_msg = "called pool function that would result in deadlock";
     ASSERT_DEATH({
             ASSERT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
-            ASSERT_TRUE(_pool->submit_func(
-                    Bind(&ThreadPool::shutdown, Unretained(_pool.get()))).ok());
+            ASSERT_TRUE(_pool->submit_func(std::bind((&ThreadPool::shutdown), _pool.get())).ok());
             _pool->wait();
             }, death_msg);
 
     ASSERT_DEATH({
             ASSERT_TRUE(rebuild_pool_with_min_max(1, 1).ok());
-            ASSERT_TRUE(_pool->submit_func(
-                    Bind(&ThreadPool::ok(), Unretained(_pool.get()))).ok());
+            ASSERT_TRUE(_pool->submit_func(std::bind(&ThreadPool::wait, _pool.get())).ok());
             _pool->wait();
             }, death_msg);
 }
 #endif
-*/
 
 class SlowDestructorRunnable : public Runnable {
 public:
