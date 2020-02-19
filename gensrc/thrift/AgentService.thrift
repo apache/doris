@@ -41,6 +41,7 @@ struct TTabletSchema {
     5: required list<TColumn> columns
     6: optional double bloom_filter_fpp
     7: optional list<Descriptors.TOlapTableIndex> indexes
+    8: optional bool is_in_memory
 }
 
 // this enum stands for different storage format in src_backends
@@ -233,10 +234,17 @@ struct TRecoverTabletReq {
     4: optional Types.TVersionHash version_hash // Deprecated
 }
 
+enum TTabletMetaType {
+    PARTITIONID,
+    INMEMORY
+}
+
 struct TTabletMetaInfo {
     1: optional Types.TTabletId tablet_id
     2: optional Types.TSchemaHash schema_hash
     3: optional Types.TPartitionId partition_id
+    4: optional TTabletMetaType meta_type
+    5: optional bool is_in_memory
 }
 
 struct TUpdateTabletMetaInfoReq {

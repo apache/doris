@@ -29,15 +29,25 @@ public:
 };
 
 TEST(StoragePageCacheTest, normal) {
-    StoragePageCache cache(kNumShards * 1024);
+    StoragePageCache cache(kNumShards * 2048);
 
     StoragePageCache::CacheKey key("abc", 0);
+    StoragePageCache::CacheKey memory_key("mem", 0);
 
     char* buf = new char[1024];
+    // insert normal page
     {
         PageCacheHandle handle;
         Slice data(buf, 1024);
-        cache.insert(key, data, &handle);
+        cache.insert(key, data, &handle, false);
+
+        ASSERT_EQ(handle.data().data, buf);
+    }
+    // insert in_memory page
+    {
+        PageCacheHandle handle;
+        Slice data(buf, 1024);
+        cache.insert(memory_key, data, &handle, true);
 
         ASSERT_EQ(handle.data().data, buf);
     }
@@ -60,7 +70,7 @@ TEST(StoragePageCacheTest, normal) {
         StoragePageCache::CacheKey key("bcd", i);
         PageCacheHandle handle;
         Slice data(new char[1024], 1024);
-        cache.insert(key, data, &handle);
+        cache.insert(key, data, &handle, false);
     }
     // cache miss for eliminated key
     {
@@ -68,11 +78,17 @@ TEST(StoragePageCacheTest, normal) {
         auto found = cache.lookup(key, &handle);
         ASSERT_FALSE(found);
     }
+    // cache hit for in memory key
+    {
+        PageCacheHandle handle;
+        auto found = cache.lookup(memory_key, &handle);
+        ASSERT_TRUE(found);
+    }
 }
 
 } // namespace doris
 
 int main(int argc, char **argv) {
-    testing::InitGoogleTest(&argc, argv); 
+    testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -53,6 +53,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.task.SchemaChangeTask;
 import org.apache.doris.task.SnapshotTask;
+import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.task.UploadTask;
 import org.apache.doris.thrift.TBackend;
 import org.apache.doris.thrift.TFetchResourceResult;
@@ -78,7 +79,7 @@ import java.util.List;
 public class MasterImpl {
     private static final Logger LOG = LogManager.getLogger(MasterImpl.class);
 
-    ReportHandler reportHandler = new ReportHandler();
+    private ReportHandler reportHandler = new ReportHandler();
 
     public MasterImpl() {
         reportHandler.start();
@@ -137,7 +138,7 @@ public class MasterImpl {
                 if (taskType != TTaskType.MAKE_SNAPSHOT && taskType != TTaskType.UPLOAD
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
                         && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
-                        && taskType != TTaskType.CREATE) {
+                        && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO) {
                     return result;
                 }
             }
@@ -204,6 +205,9 @@ public class MasterImpl {
                 case ALTER:
                     finishAlterTask(task);
                     break;
+                case UPDATE_TABLET_META_INFO:
+                    finishUpdateTabletMeta(task, request);
+                    break;
                 default:
                     break;
             }
@@ -255,6 +259,23 @@ public class MasterImpl {
             }
         } finally {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CREATE, task.getSignature());
+        }
+    }
+
+    private void finishUpdateTabletMeta(AgentTask task, TFinishTaskRequest request) {
+        // if we get here, this task will be removed from AgentTaskQueue for certain.
+        // because in this function, the only problem that cause failure is meta missing.
+        // and if meta is missing, we no longer need to resend this task
+        try {
+            UpdateTabletMetaInfoTask tabletTask = (UpdateTabletMetaInfoTask) task;
+            if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
+                tabletTask.countDownToZero(task.getBackendId() + ": " + request.getTask_status().getError_msgs().toString());
+            } else {
+                tabletTask.countDownLatch(task.getBackendId(), tabletTask.getTablets());
+                LOG.debug("finish update tablet meta. tablet id: {}, be: {}", tabletTask.getTablets(), task.getBackendId());
+            }
+        } finally {
+            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.UPDATE_TABLET_META_INFO, task.getSignature());
         }
     }
     
@@ -432,7 +453,6 @@ public class MasterImpl {
         long finishVersion = finishTabletInfos.get(0).getVersion();
         long finishVersionHash = finishTabletInfos.get(0).getVersion_hash();
         long taskVersion = pushTask.getVersion();
-        long taskVersionHash = pushTask.getVersionHash();
         if (finishVersion != taskVersion) {
             LOG.debug("finish tablet version is not consistent with task. "
                     + "finish version: {}, finish version hash: {}, task: {}", 
@@ -756,8 +776,7 @@ public class MasterImpl {
     }
 
     public TMasterResult report(TReportRequest request) throws TException {
-        TMasterResult result = reportHandler.handleReport(request);
-        return result;
+        return reportHandler.handleReport(request);
     }
 
     public TFetchResourceResult fetchResource() {

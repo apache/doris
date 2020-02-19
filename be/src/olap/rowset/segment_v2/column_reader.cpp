@@ -151,7 +151,7 @@ Status ColumnReader::read_page(RandomAccessFile* file, const PagePointer& pp,
     }
     if (iter_opts.use_page_cache) {
         // insert this into cache and return the cache handle
-        cache->insert(cache_key, page_slice, &cache_handle);
+        cache->insert(cache_key, page_slice, &cache_handle, _opts.cache_in_memory);
         *handle = PageHandle(std::move(cache_handle));
     } else {
         *handle = PageHandle(page_slice);
@@ -300,7 +300,7 @@ Status ColumnReader::_load_bitmap_index() {
     if (_meta.has_bitmap_index()) {
         const BitmapIndexColumnPB& bitmap_index_meta = _meta.bitmap_index();
         _bitmap_index_reader.reset(new BitmapIndexReader(_file_name, bitmap_index_meta));
-        RETURN_IF_ERROR(_bitmap_index_reader->load());
+        RETURN_IF_ERROR(_bitmap_index_reader->load(_opts.cache_in_memory));
     } else {
         _bitmap_index_reader.reset(nullptr);
     }
@@ -311,7 +311,7 @@ Status ColumnReader::_load_bloom_filter_index() {
     if (_meta.has_bloom_filter_index()) {
         const BloomFilterIndexPB& bloom_filter_index_meta = _meta.bloom_filter_index();
         _bloom_filter_index_reader.reset(new BloomFilterIndexReader(_file_name, bloom_filter_index_meta));
-        RETURN_IF_ERROR(_bloom_filter_index_reader->load());
+        RETURN_IF_ERROR(_bloom_filter_index_reader->load(_opts.cache_in_memory));
     } else {
         _bloom_filter_index_reader.reset(nullptr);
     }

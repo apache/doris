@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -34,7 +35,6 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Table;
 
 import org.apache.logging.log4j.LogManager;
@@ -112,7 +112,7 @@ public class TabletInvertedIndex {
                              Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish,
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
-                             SetMultimap<Long, Integer> tabletWithoutPartitionId) {
+                             Set<Pair<Long, Integer>> tabletWithoutPartitionId) {
         long start = 0L;
         readLock();
         try {
@@ -121,7 +121,7 @@ public class TabletInvertedIndex {
             for (TTablet backendTablet : backendTablets.values()) {
                 for (TTabletInfo tabletInfo : backendTablet.tablet_infos) {
                     if (!tabletInfo.isSetPartition_id() || tabletInfo.getPartition_id() < 1) {
-                        tabletWithoutPartitionId.put(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash());
+                        tabletWithoutPartitionId.add(new Pair<>(tabletInfo.getTablet_id(), tabletInfo.getSchema_hash()));
                     }
                 }
             }

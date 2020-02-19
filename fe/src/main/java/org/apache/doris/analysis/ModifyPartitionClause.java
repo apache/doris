@@ -37,9 +37,10 @@ public class ModifyPartitionClause extends AlterTableClause {
     public ModifyPartitionClause(String partitionName, Map<String, String> properties) {
         this.partitionName = partitionName;
         this.properties = properties;
-        // ATTN: currently, modify partition only allow 2 kinds of operations:
+        // ATTN: currently, modify partition only allow 3 kinds of operations:
         // 1. modify replication num
         // 2. modify data property
+        // 3. modify in memory
         // And these 2 operations does not require table to be stable.
         // If other kinds of operations be added later, "needTableStable" may be changed.
         this.needTableStable = false;

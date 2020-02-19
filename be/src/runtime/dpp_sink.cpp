@@ -35,7 +35,7 @@
 #include "gen_cpp/Types_types.h"
 #include "util/countdown_latch.h"
 #include "util/debug_util.h"
-#include "util/thread_pool.hpp"
+#include "util/priority_thread_pool.hpp"
 #include "olap/field.h"
 
 namespace doris {

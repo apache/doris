@@ -17,6 +17,7 @@
 
 package org.apache.doris.utframe;
 
+import org.apache.commons.io.FileUtils;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
@@ -41,14 +42,16 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.UUID;
 
 /*
@@ -69,18 +72,19 @@ public class AnotherDemoTest {
 
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
-    private static String runningDir = "fe/mocked/AnotherDemoTest/" + UUID.randomUUID().toString() + "/";
+    private static String runningDirBase = "fe";
+    private static String runningDir = runningDirBase + "/mocked/AnotherDemoTest/" + UUID.randomUUID().toString() + "/";
 
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         // get DORIS_HOME
-        final String dorisHome = System.getenv("DORIS_HOME");
+        String dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
-            throw new EnvVarNotSetException("env DORIS_HOME is not set");
+            dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
 
-        getRandomPort();
+        getPorts();
 
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = MockedFrontend.getInstance();
@@ -111,19 +115,25 @@ public class AnotherDemoTest {
         Thread.sleep(5000);
     }
 
-    // generate all port from between 20000 ~ 30000
-    private static void getRandomPort() {
-        Random r = new Random(System.currentTimeMillis());
-        int basePort = 20000 + r.nextInt(9000);
-        fe_http_port = basePort + 1;
-        fe_rpc_port = basePort + 2;
-        fe_query_port = basePort + 3;
-        fe_edit_log_port = basePort + 4;
+    @AfterClass
+    public static void TearDown() {
+        try {
+            FileUtils.deleteDirectory(new File(runningDirBase));
+        } catch (IOException e) {
+        }
+    }
 
-        be_heartbeat_port = basePort + 5;
-        be_thrift_port = basePort + 6;
-        be_brpc_port = basePort + 7;
-        be_http_port = basePort + 8;
+    // generate all port from valid ports
+    private static void getPorts() {
+        fe_http_port = UtFrameUtils.findValidPort();
+        fe_rpc_port = UtFrameUtils.findValidPort();
+        fe_query_port = UtFrameUtils.findValidPort();
+        fe_edit_log_port = UtFrameUtils.findValidPort();
+
+        be_heartbeat_port = UtFrameUtils.findValidPort();
+        be_thrift_port = UtFrameUtils.findValidPort();
+        be_brpc_port = UtFrameUtils.findValidPort();
+        be_http_port = UtFrameUtils.findValidPort();
     }
 
     @Test

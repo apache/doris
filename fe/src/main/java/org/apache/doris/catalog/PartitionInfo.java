@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -41,16 +42,19 @@ public class PartitionInfo implements Writable {
     // true if the partition has multi partition columns
     protected boolean isMultiColumnPartition = false;
 
+    Map<Long, Boolean> idToInMemory;
+
     public PartitionInfo() {
-        // for persist
         this.idToDataProperty = new HashMap<Long, DataProperty>();
         this.idToReplicationNum = new HashMap<Long, Short>();
+        this.idToInMemory = new HashMap<>();
     }
 
     public PartitionInfo(PartitionType type) {
         this.type = type;
         this.idToDataProperty = new HashMap<Long, DataProperty>();
         this.idToReplicationNum = new HashMap<Long, Short>();
+        this.idToInMemory = new HashMap<>();
     }
 
     public PartitionType getType() {
@@ -73,14 +77,26 @@ public class PartitionInfo implements Writable {
         idToReplicationNum.put(partitionId, replicationNum);
     }
 
+    public boolean getIsInMemory(long partitionId) {
+        return idToInMemory.get(partitionId);
+    }
+
+    public void setIsInMemory(long partitionId, boolean isInMemory) {
+        idToInMemory.put(partitionId, isInMemory);
+    }
+
     public void dropPartition(long partitionId) {
         idToDataProperty.remove(partitionId);
         idToReplicationNum.remove(partitionId);
+        idToInMemory.remove(partitionId);
     }
 
-    public void addPartition(long partitionId, DataProperty dataProperty, short replicationNum) {
+    public void addPartition(long partitionId, DataProperty dataProperty,
+                             short replicationNum,
+                             boolean isInMemory) {
         idToDataProperty.put(partitionId, dataProperty);
         idToReplicationNum.put(partitionId, replicationNum);
+        idToInMemory.put(partitionId, isInMemory);
     }
 
     public static PartitionInfo read(DataInput in) throws IOException {
@@ -102,6 +118,7 @@ public class PartitionInfo implements Writable {
         Text.writeString(out, type.name());
 
         Preconditions.checkState(idToDataProperty.size() == idToReplicationNum.size());
+        Preconditions.checkState(idToInMemory.size() == idToReplicationNum.size());
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             out.writeLong(entry.getKey());
@@ -113,6 +130,7 @@ public class PartitionInfo implements Writable {
             }
 
             out.writeShort(idToReplicationNum.get(entry.getKey()));
+            out.writeBoolean(idToInMemory.get(entry.getKey()));
         }
     }
 
@@ -131,6 +149,12 @@ public class PartitionInfo implements Writable {
 
             short replicationNum = in.readShort();
             idToReplicationNum.put(partitionId, replicationNum);
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
+                idToInMemory.put(partitionId, in.readBoolean());
+            } else {
+                // for compatibility, default is false
+                idToInMemory.put(partitionId, false);
+            }
         }
     }
 
@@ -149,6 +173,7 @@ public class PartitionInfo implements Writable {
             }
             buff.append("data_property: ").append(entry.getValue().toString());
             buff.append("replica number: ").append(idToReplicationNum.get(entry.getKey()));
+            buff.append("in memory: ").append(idToInMemory.get(entry.getKey()));
         }
 
         return buff.toString();

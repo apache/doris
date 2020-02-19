@@ -73,7 +73,6 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
-
     /*
      * for upgrade alpha rowset to beta rowset, valid value: v1, v2
      * v1: alpha rowset
@@ -81,12 +80,12 @@ public class PropertyAnalyzer {
      */
     public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
 
+    public static final String PROPERTIES_INMEMORY = "in_memory";
+
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
-        DataProperty dataProperty = oldDataProperty;
-
         if (properties == null) {
-            return dataProperty;
+            return oldDataProperty;
         }
 
         TStorageMedium storageMedium = null;
@@ -114,7 +113,7 @@ public class PropertyAnalyzer {
         } // end for properties
 
         if (!hasCooldown && !hasMedium) {
-            return dataProperty;
+            return oldDataProperty;
         }
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
@@ -149,7 +148,7 @@ public class PropertyAnalyzer {
         if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {
             // check and use speciefied short key
             try {
-                shortKeyColumnCount = Short.valueOf(properties.get(PROPERTIES_SHORT_KEY));
+                shortKeyColumnCount = Short.parseShort(properties.get(PROPERTIES_SHORT_KEY));
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Short key: " + e.getMessage());
             }
@@ -246,7 +245,7 @@ public class PropertyAnalyzer {
         if (properties != null && properties.containsKey(PROPERTIES_SCHEMA_VERSION)) {
             String schemaVersionStr = properties.get(PROPERTIES_SCHEMA_VERSION);
             try {
-                schemaVersion = Integer.valueOf(schemaVersionStr);
+                schemaVersion = Integer.parseInt(schemaVersionStr);
             } catch (Exception e) {
                 throw new AnalysisException("schema version format error");
             }
@@ -373,7 +372,7 @@ public class PropertyAnalyzer {
         if (properties != null && properties.containsKey(PROPERTIES_TIMEOUT)) {
             String timeoutStr = properties.get(PROPERTIES_TIMEOUT);
             try {
-                timeout = Long.valueOf(timeoutStr);
+                timeout = Long.parseLong(timeoutStr);
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid timeout format: " + timeoutStr);
             }
@@ -389,7 +388,7 @@ public class PropertyAnalyzer {
         String storage_format = "";
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_FORMAT)) {
             storage_format = properties.get(PROPERTIES_STORAGE_FORMAT);
-            properties.remove(PROPERTIES_TIMEOUT);
+            properties.remove(PROPERTIES_STORAGE_FORMAT);
         }
         if (storage_format.equalsIgnoreCase("v1")) {
             return TStorageFormat.V1;
@@ -398,5 +397,14 @@ public class PropertyAnalyzer {
         } else {
             return TStorageFormat.DEFAULT;
         }
+    }
+
+    public static boolean analyzeInMemory(Map<String, String> properties, boolean defaultInMemory) {
+        if (properties != null && properties.containsKey(PROPERTIES_INMEMORY)) {
+            String inMemory = properties.get(PROPERTIES_INMEMORY);
+            properties.remove(PROPERTIES_INMEMORY);
+            return Boolean.parseBoolean(inMemory);
+        }
+        return defaultInMemory;
     }
 }
