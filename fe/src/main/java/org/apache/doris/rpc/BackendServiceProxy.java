@@ -17,8 +17,8 @@
 
 package org.apache.doris.rpc;
 
-import org.apache.doris.PaloFe;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.proto.PCancelPlanFragmentRequest;
 import org.apache.doris.proto.PCancelPlanFragmentResult;
 import org.apache.doris.proto.PExecPlanFragmentResult;
@@ -57,7 +57,7 @@ public class BackendServiceProxy {
     private static BackendServiceProxy INSTANCE;
 
     static {
-        int javaRuntimeVersion = PaloFe.getJavaVersionAsInteger(System.getProperty("java.version"));
+        int javaRuntimeVersion = JdkUtils.getJavaVersionAsInteger(System.getProperty("java.version"));
         JDKCompilerHelper.setCompiler(new JdkCompiler(JdkCompiler.class.getClassLoader(), String.valueOf(javaRuntimeVersion)));
     }
 
