@@ -17,10 +17,9 @@
 
 #pragma once
 
-#include <cstdint>
+#include <atomic>
 #include <memory>
 #include <vector>
-#include <utility>
 
 #include "olap/olap_define.h"
 #include "util/threadpool.h"
@@ -43,13 +42,19 @@ struct FlushStatistic {
 std::ostream& operator<<(std::ostream& os, const FlushStatistic& stat);
 
 // A thin wrapper of ThreadPoolToken to submit task.
+// For a tablet, there may be multiple memtables, which will be flushed to disk
+// one by one in the order of generation.
+// If a memtable flush fails, then:
+// 1. Immediately disallow submission of any subsequent memtable
+// 2. For the memtables that have already been submitted, there is no need to flush,
+//    because the entire job will definitely fail;
 class FlushToken {
 public:
-    explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token)
-        : _flush_status(OLAP_SUCCESS),
-          _flush_token(std::move(flush_pool_token)) {}
+    explicit FlushToken(std::unique_ptr<ThreadPoolToken> flush_pool_token) :
+            _flush_token(std::move(flush_pool_token)),
+            _flush_status(OLAP_SUCCESS) {  }
 
-    OLAPStatus submit(std::shared_ptr<MemTable> mem_table);
+    OLAPStatus submit(const std::shared_ptr<MemTable>& mem_table);
 
     // error has happpens, so we cancel this token
     // And remove all tasks in the queue.
@@ -64,8 +69,12 @@ public:
 private:
     void _flush_memtable(std::shared_ptr<MemTable> mem_table);
 
-    OLAPStatus _flush_status;
     std::unique_ptr<ThreadPoolToken> _flush_token;
+
+    // Records the current flush status of the tablet.
+    // Note: Once its value is set to Failed, it cannot return to SUCCESS.
+    std::atomic<OLAPStatus> _flush_status;
+
     FlushStatistic _stats;
 };
 

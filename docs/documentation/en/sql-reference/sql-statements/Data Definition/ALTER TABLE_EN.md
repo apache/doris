@@ -145,6 +145,7 @@ under the License.
             4) The partition column cannot be modified
             5) The following types of conversions are currently supported (accuracy loss is guaranteed by the user)
                 TINYINT/SMALLINT/INT/BIGINT is converted to TINYINT/SMALLINT/INT/BIGINT/DOUBLE.
+                TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL is converted to VARCHAR
                 Convert LARGEINT to DOUBLE
                 VARCHAR supports modification of maximum length
                 Convert VARCHAR to TINYINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE.

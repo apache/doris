@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Joiner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExprNode;
@@ -50,8 +51,6 @@ public class TupleIsNullPredicate extends Predicate {
     @Override
     protected void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
-        // analyzer = analyzer;
-        // evalCost_ = tupleIds_.size() * IS_NULL_COST;
     }
 
     @Override
@@ -155,6 +154,6 @@ public class TupleIsNullPredicate extends Predicate {
 
     @Override
     public String toSqlImpl() {
-        return "";
+        return "TupleIsNull(" + Joiner.on(",").join(tupleIds) + ")";
     }
 }

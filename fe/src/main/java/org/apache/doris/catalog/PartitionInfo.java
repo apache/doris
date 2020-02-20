@@ -23,6 +23,9 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Preconditions;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -34,6 +37,8 @@ import java.util.Map;
  * Repository of a partition's related infos
  */
 public class PartitionInfo implements Writable {
+    private static final Logger LOG = LogManager.getLogger(PartitionInfo.class);
+
     protected PartitionType type;
     // partition id -> data property
     protected Map<Long, DataProperty> idToDataProperty;
@@ -42,7 +47,7 @@ public class PartitionInfo implements Writable {
     // true if the partition has multi partition columns
     protected boolean isMultiColumnPartition = false;
 
-    Map<Long, Boolean> idToInMemory;
+    protected Map<Long, Boolean> idToInMemory;
 
     public PartitionInfo() {
         this.idToDataProperty = new HashMap<Long, DataProperty>();
@@ -118,7 +123,7 @@ public class PartitionInfo implements Writable {
         Text.writeString(out, type.name());
 
         Preconditions.checkState(idToDataProperty.size() == idToReplicationNum.size());
-        Preconditions.checkState(idToInMemory.size() == idToReplicationNum.size());
+        Preconditions.checkState(idToInMemory.keySet().equals(idToReplicationNum.keySet()));
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             out.writeLong(entry.getKey());
@@ -151,6 +156,9 @@ public class PartitionInfo implements Writable {
             idToReplicationNum.put(partitionId, replicationNum);
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
                 idToInMemory.put(partitionId, in.readBoolean());
+            } else {
+                // for compatibility, default is false
+                idToInMemory.put(partitionId, false);
             }
         }
     }
