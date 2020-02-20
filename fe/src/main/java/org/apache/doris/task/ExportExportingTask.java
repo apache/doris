@@ -257,7 +257,7 @@ public class ExportExportingTask extends MasterTask {
 
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Query");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, job.getState().toString());
-        summaryProfile.addInfoString("Doris Version", Version.PALO_BUILD_VERSION);
+        summaryProfile.addInfoString("Doris Version", Version.DORIS_BUILD_VERSION);
         summaryProfile.addInfoString(ProfileManager.USER, "xxx");
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, String.valueOf(job.getDbId()));
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, job.getSql());

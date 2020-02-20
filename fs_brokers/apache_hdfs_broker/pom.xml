@@ -258,6 +258,14 @@ under the License.
             <version>1.7.5</version>
             <scope>test</scope>
         </dependency>
+
+        <!-- support jdk9 -->
+        <dependency>
+            <groupId>javax.annotation</groupId>
+            <artifactId>javax.annotation-api</artifactId>
+            <version>1.3.2</version>
+        </dependency>
+
     </dependencies>
 
     <build>
