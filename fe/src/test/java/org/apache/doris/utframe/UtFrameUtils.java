@@ -78,7 +78,7 @@ public class UtFrameUtils {
         return statementBase;
     }
 
-    public static void createMinDorisCluster(String runningDir) throws EnvVarNotSetException, IOException,
+    public static int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         // get DORIS_HOME
         String dorisHome = System.getenv("DORIS_HOME");
@@ -91,11 +91,6 @@ public class UtFrameUtils {
         int fe_query_port = findValidPort();
         int fe_edit_log_port = findValidPort();
 
-        int be_heartbeat_port = findValidPort();
-        int be_thrift_port = findValidPort();
-        int be_brpc_port = findValidPort();
-        int be_http_port = findValidPort();
-
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = MockedFrontend.getInstance();
         Map<String, String> feConfMap = Maps.newHashMap();
@@ -107,13 +102,24 @@ public class UtFrameUtils {
         feConfMap.put("tablet_create_timeout_second", "10");
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
+        return fe_rpc_port;
+    }
+
+    public static void createMinDorisCluster(String runningDir) throws EnvVarNotSetException, IOException,
+            FeStartException, NotInitException, DdlException, InterruptedException {
+        int fe_rpc_port = startFEServer(runningDir);
+
+        int be_heartbeat_port = findValidPort();
+        int be_thrift_port = findValidPort();
+        int be_brpc_port = findValidPort();
+        int be_http_port = findValidPort();
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend("127.0.0.1",
                 be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
                 new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
                 new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
-        backend.setFeAddress(new TNetworkAddress("127.0.0.1", frontend.getRpcPort()));
+        backend.setFeAddress(new TNetworkAddress("127.0.0.1", fe_rpc_port));
         backend.start();
 
         // add be
