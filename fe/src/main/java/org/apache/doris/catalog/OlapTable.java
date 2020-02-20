@@ -388,6 +388,7 @@ public class OlapTable extends Table {
                 rangePartitionInfo.getIdToRange().put(newPartId,
                                                       rangePartitionInfo.getIdToRange().remove(entry.getValue()));
 
+                rangePartitionInfo.idToInMemory.put(newPartId, rangePartitionInfo.idToInMemory.remove(entry.getValue()));
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         } else {
@@ -397,6 +398,7 @@ public class OlapTable extends Table {
                 partitionInfo.idToDataProperty.put(newPartId, partitionInfo.idToDataProperty.remove(entry.getValue()));
                 partitionInfo.idToReplicationNum.remove(entry.getValue());
                 partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
+                partitionInfo.idToInMemory.put(newPartId, partitionInfo.idToInMemory.remove(entry.getValue()));
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         }
