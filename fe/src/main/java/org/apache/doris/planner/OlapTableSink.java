@@ -35,6 +35,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
@@ -298,7 +299,8 @@ public class OlapTableSink extends DataSink {
                 for (Tablet tablet : index.getTablets()) {
                     Multimap<Long, Long> bePathsMap = tablet.getNormalReplicaBackendPathMap();
                     if (bePathsMap.keySet().size() < quorum) {
-                        throw new UserException("tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size());
+                        throw new UserException(InternalErrorCode.REPLICA_FEW_ERR,
+                                "tablet " + tablet.getId() + " has few replicas: " + bePathsMap.keySet().size());
                     }
                     locationParam.addToTablets(new TTabletLocation(tablet.getId(), Lists.newArrayList(bePathsMap.keySet())));
                     allBePathsMap.putAll(bePathsMap);
