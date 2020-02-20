@@ -112,7 +112,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.stats = iter_opts.stats;
     opts.verify_checksum = _opts.verify_checksum;
     opts.use_page_cache = iter_opts.use_page_cache;
-    opts.cache_in_memory = _opts.cache_in_memory;
+    opts.kept_in_memory = _opts.kept_in_memory;
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }

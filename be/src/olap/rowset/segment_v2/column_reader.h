@@ -56,7 +56,7 @@ struct ColumnReaderOptions {
     // whether verify checksum when read page
     bool verify_checksum = true;
     // for in memory olap table, use DURABLE CachePriority in page cache
-    bool cache_in_memory = false;
+    bool kept_in_memory = false;
 };
 
 struct ColumnIteratorOptions {
@@ -139,10 +139,10 @@ private:
     Status _ensure_index_loaded() {
         return _load_index_once.call([this] {
             bool use_page_cache = !config::disable_storage_page_cache;
-            RETURN_IF_ERROR(_load_zone_map_index(use_page_cache, _opts.cache_in_memory));
-            RETURN_IF_ERROR(_load_ordinal_index(use_page_cache, _opts.cache_in_memory));
-            RETURN_IF_ERROR(_load_bitmap_index(use_page_cache, _opts.cache_in_memory));
-            RETURN_IF_ERROR(_load_bloom_filter_index(use_page_cache, _opts.cache_in_memory));
+            RETURN_IF_ERROR(_load_zone_map_index(use_page_cache, _opts.kept_in_memory));
+            RETURN_IF_ERROR(_load_ordinal_index(use_page_cache, _opts.kept_in_memory));
+            RETURN_IF_ERROR(_load_bitmap_index(use_page_cache, _opts.kept_in_memory));
+            RETURN_IF_ERROR(_load_bloom_filter_index(use_page_cache, _opts.kept_in_memory));
             return Status::OK();
         });
     }

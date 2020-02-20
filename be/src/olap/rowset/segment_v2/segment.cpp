@@ -171,7 +171,7 @@ Status Segment::_create_column_readers() {
         }
 
         ColumnReaderOptions opts;
-        opts.cache_in_memory = _tablet_schema->is_in_memory();
+        opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
         // pass Descriptor<RandomAccessFile>* to column reader
         RETURN_IF_ERROR(ColumnReader::create(
