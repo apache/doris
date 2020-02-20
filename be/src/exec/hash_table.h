@@ -25,17 +25,10 @@
 #include "common/logging.h"
 #include "util/hash_util.hpp"
 
-namespace llvm {
-
-class Function;
-
-}
-
 namespace doris {
 
 class Expr;
 class ExprContext;
-class LlvmCodeGen;
 class RowDescriptor;
 class Tuple;
 class TupleRow;
@@ -178,21 +171,6 @@ public:
     Iterator end() {
         return Iterator();
     }
-
-    /// Codegen for evaluating a tuple row.  Codegen'd function matches the signature
-    /// for EvalBuildRow and EvalTupleRow.
-    /// if build_row is true, the codegen uses the build_exprs, otherwise the probe_exprs
-    llvm::Function* codegen_eval_tuple_row(RuntimeState* state, bool build_row);
-
-    /// Codegen for hashing the expr values in '_expr_values_buffer'.  Function
-    /// prototype matches hash_current_row identically.
-    llvm::Function* codegen_hash_current_row(RuntimeState* state);
-
-    /// Codegen for evaluating a TupleRow and comparing equality against
-    /// '_expr_values_buffer'.  Function signature matches HashTable::Equals()
-    llvm::Function* codegen_equals(RuntimeState* state);
-
-    static const char* _s_llvm_class_name;
 
     // Dump out the entire hash table to string.  If skip_empty, empty buckets are
     // skipped.  If build_desc is non-null, the build rows will be output.  Otherwise
