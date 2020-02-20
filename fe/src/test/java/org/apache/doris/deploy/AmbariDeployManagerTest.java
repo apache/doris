@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 
+import org.apache.commons.codec.binary.Base64;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -44,7 +45,7 @@ public class AmbariDeployManagerTest {
 
         Field encodedAuthInfoF = manager.getClass().getDeclaredField("encodedAuthInfo");
         encodedAuthInfoF.setAccessible(true);
-        encodedAuthInfoF.set(manager, new sun.misc.BASE64Encoder().encode("admin:admin".getBytes()));
+        encodedAuthInfoF.set(manager, Base64.encodeBase64String("admin:admin".getBytes()));
 
         Field ambariUrlF = manager.getClass().getDeclaredField("ambariUrl");
         ambariUrlF.setAccessible(true);
