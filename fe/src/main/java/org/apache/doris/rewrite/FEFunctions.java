@@ -214,21 +214,6 @@ public class FEFunctions {
      ------------------------------------------------------------------------------
      */
 
-
-    /**
-     * Cast
-     */
-
-    @FEFunction(name = "casttoint", argTypes = { "VARCHAR"}, returnType = "INT")
-    public static IntLiteral castToInt(StringLiteral expr) throws AnalysisException {
-        return new IntLiteral(expr.getLongValue(), Type.INT);
-    }
-
-
-    /**
-     ------------------------------------------------------------------------------
-     */
-
     /**
      * Math function
      */
