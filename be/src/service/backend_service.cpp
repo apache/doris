@@ -70,12 +70,6 @@ using apache::thrift::concurrency::PosixThreadFactory;
 BackendService::BackendService(ExecEnv* exec_env) :
         _exec_env(exec_env),
         _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
-    // tcmalloc and address sanitizer can not be used together
-    if (!config::heap_profile_dir.empty()) {
-        HeapProfilerStart(config::heap_profile_dir.c_str());
-    }
-#endif
     char buf[64];
     DateTimeValue value = DateTimeValue::local_time();
     value.to_string(buf);
