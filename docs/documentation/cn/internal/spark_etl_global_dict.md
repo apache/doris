@@ -83,7 +83,7 @@
 	* 对于精确去重字段，实际值保存的值是bigint
 
 # 作业流程
-1. 提交一个spark作业，以下流程均在这个spark作业重完成
+1. 提交一个spark作业，以下流程均在这个spark作业中完成
 2. 通过spark sql切换到doris的hive db
 3. 通过spark sql创建hive_intermediate_table
 4. 通过insert overwrite select将数据写入从上游hive表写入到hive_intermediate_table
