@@ -17,16 +17,16 @@
 
 package org.apache.doris.http.action;
 
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
 import org.apache.doris.common.Version;
 import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 import io.netty.handler.codec.http.HttpMethod;
 import oshi.SystemInfo;
@@ -67,10 +67,10 @@ public class IndexAction extends WebBaseAction {
     private void appendVersionInfo(StringBuilder buffer) {
         buffer.append("<h2>Version</h2>");
         buffer.append("<pre>version info<br/>");
-        buffer.append("Version: " + Version.PALO_BUILD_VERSION + "<br/>");
-        buffer.append("Git: " + Version.PALO_BUILD_HASH + "<br/>");
-        buffer.append("Build Info: " + Version.PALO_BUILD_INFO + "<br/>");
-        buffer.append("Build Time: " + Version.PALO_BUILD_TIME + "<br/>");
+        buffer.append("Version: " + Version.DORIS_BUILD_VERSION + "<br/>");
+        buffer.append("Git: " + Version.DORIS_BUILD_HASH + "<br/>");
+        buffer.append("Build Info: " + Version.DORIS_BUILD_INFO + "<br/>");
+        buffer.append("Build Time: " + Version.DORIS_BUILD_TIME + "<br/>");
         buffer.append("</pre>");
     }
     

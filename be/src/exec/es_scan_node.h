@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef  BDG_PALO_BE_SRC_QUERY_EXEC_ES_SCAN_NODE_H
-#define  BDG_PALO_BE_SRC_QUERY_EXEC_ES_SCAN_NODE_H
+#pragma once
 
 #include <memory>
 #include <vector>
@@ -89,4 +88,3 @@ private:
 
 }
 
-#endif

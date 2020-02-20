@@ -993,5 +993,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int max_running_rollup_job_num_per_table = 1;
+
+    /*
+     * If set to true, Doris will check if the compiled and running versions of Java are compatible
+     */
+    @ConfField
+    public static boolean check_java_version = true;
 }
 
