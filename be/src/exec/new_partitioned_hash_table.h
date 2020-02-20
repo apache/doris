@@ -33,15 +33,10 @@
 #include "util/bitmap.h"
 #include "util/hash_util.hpp"
 
-namespace llvm {
-  class Function;
-}
-
 namespace doris {
 
 class Expr;
 class ExprContext;
-class LlvmCodeGen;
 class MemTracker;
 class RowDescriptor;
 class RuntimeState;
@@ -169,24 +164,6 @@ class NewPartitionedHashTableCtx {
   bool IR_ALWAYS_INLINE EvalAndHashBuild(TupleRow* row);
   bool IR_ALWAYS_INLINE EvalAndHashProbe(TupleRow* row);
 
-  /// Codegen for evaluating a tuple row. Codegen'd function matches the signature
-  /// for EvalBuildRow and EvalTupleRow.
-  /// If build_row is true, the codegen uses the build_exprs, otherwise the probe_exprs.
-  Status CodegenEvalRow(LlvmCodeGen* codegen, bool build_row, llvm::Function** fn);
-
-  /// Codegen for evaluating a TupleRow and comparing equality. Function signature
-  /// matches HashTable::Equals(). 'force_null_equality' is true if the generated
-  /// equality function should treat all NULLs as equal. See the template parameter
-  /// to HashTable::Equals().
-  Status CodegenEquals(LlvmCodeGen* codegen, bool force_null_equality,
-      llvm::Function** fn);
-
-  /// Codegen for hashing expr values. Function prototype matches HashRow identically.
-  /// Unlike HashRow(), the returned function only uses a single hash function, rather
-  /// than switching based on level_. If 'use_murmur' is true, murmur hash is used,
-  /// otherwise CRC is used if the hardware supports it (see hash-util.h).
-  Status CodegenHashRow(LlvmCodeGen* codegen, bool use_murmur, llvm::Function** fn);
-
   /// Struct that returns the number of constants replaced by ReplaceConstants().
   struct HashTableReplacedConstants {
     int stores_nulls;
@@ -195,15 +172,6 @@ class NewPartitionedHashTableCtx {
     int stores_duplicates;
     int quadratic_probing;
   };
-
-  /// Replace hash table parameters with constants in 'fn'. Updates 'replacement_counts'
-  /// with the number of replacements made. 'num_build_tuples' and 'stores_duplicates'
-  /// correspond to HashTable parameters with the same name.
-  Status ReplaceHashTableConstants(LlvmCodeGen* codegen, bool stores_duplicates,
-      int num_build_tuples, llvm::Function* fn,
-      HashTableReplacedConstants* replacement_counts);
-
-  static const char* LLVM_CLASS_NAME;
 
   /// To enable prefetching, the hash table building and probing are pipelined by the
   /// exec nodes. A set of rows in a row batch will be evaluated and hashed first and
@@ -482,11 +450,6 @@ class NewPartitionedHashTableCtx {
   /// Functions to be replaced by codegen to specialize the hash table.
   bool IR_NO_INLINE stores_nulls() const { return stores_nulls_; }
   bool IR_NO_INLINE finds_some_nulls() const { return finds_some_nulls_; }
-
-  /// Cross-compiled function to access the build/probe expression context.
-  /// Called by generated LLVM IR functions such as Equals() and EvalRow().
-  ExprContext* const* IR_ALWAYS_INLINE build_expr_evals() const;
-  ExprContext* const* IR_ALWAYS_INLINE probe_expr_evals() const;
 
   const std::vector<Expr*>& build_exprs_;
   std::vector<ExprContext*> build_expr_evals_;

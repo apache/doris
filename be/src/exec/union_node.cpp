@@ -17,7 +17,6 @@
 
 #include "exec/union_node.h"
 
-#include "codegen/llvm_codegen.h"
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 #include "runtime/row_batch.h"
@@ -29,8 +28,6 @@
 #include "gen_cpp/PlanNodes_types.h"
 
 // #include "common/names.h"
-
-using namespace llvm;
 
 namespace doris {
 
@@ -94,52 +91,6 @@ Status UnionNode::prepare(RuntimeState* state) {
         DCHECK_EQ(_child_expr_lists[i].size(), _tuple_desc->slots().size());
     }
     return Status::OK();
-}
-
-void UnionNode::codegen(RuntimeState* state) {
-#if 0
-    DCHECK(state->ShouldCodegen());
-    ExecNode::codegen(state);
-    if (IsNodeCodegenDisabled()) return;
-
-    LlvmCodeGen* codegen = state->codegen();
-    DCHECK(codegen != nullptr);
-    std::stringstream codegen_message;
-    Status codegen_status;
-    for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        if (is_child_passthrough(i)) continue;
-
-        llvm::Function* tuple_materialize_exprs_fn;
-        codegen_status = Tuple::CodegenMaterializeExprs(codegen, false, *_tuple_desc,
-                                                        _child_expr_lists[i], true, &tuple_materialize_exprs_fn);
-        if (!codegen_status.ok()) {
-            // Codegen may fail in some corner cases (e.g. we don't handle TYPE_CHAR). If this
-            // happens, abort codegen for this and the remaining children.
-            codegen_message << "Codegen failed for child: " << _children[i]->id();
-            break;
-        }
-
-        // Get a copy of the function. This function will be modified and added to the
-        // vector of functions.
-        Function* union_materialize_batch_fn =
-            codegen->GetFunction(IRFunction::UNION_MATERIALIZE_BATCH, true);
-        DCHECK(union_materialize_batch_fn != nullptr);
-
-        int replaced = codegen->ReplaceCallSites(union_materialize_batch_fn,
-                                                 tuple_materialize_exprs_fn, Tuple::MATERIALIZE_EXPRS_SYMBOL);
-        DCHECK_EQ(replaced, 1) << LlvmCodeGen::Print(union_materialize_batch_fn);
-
-        union_materialize_batch_fn = codegen->FinalizeFunction(
-            union_materialize_batch_fn);
-        DCHECK(union_materialize_batch_fn != nullptr);
-
-        // Add the function to Jit and to the vector of codegened functions.
-        codegen->AddFunctionToJit(union_materialize_batch_fn,
-                                  reinterpret_cast<void**>(&(_codegend_union_materialize_batch_fns.data()[i])));
-    }
-    runtime_profile()->AddCodegenMsg(
-        codegen_status.ok(), codegen_status, codegen_message.str());
-#endif
 }
 
 Status UnionNode::open(RuntimeState* state) {

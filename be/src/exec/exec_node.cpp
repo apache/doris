@@ -21,7 +21,6 @@
 #include <thrift/protocol/TDebugProtocol.h>
 #include <unistd.h>
 
-#include "codegen/llvm_codegen.h"
 #include "codegen/codegen_anyval.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -61,13 +60,6 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
-
-using llvm::Function;
-using llvm::PointerType;
-using llvm::Type;
-using llvm::Value;
-using llvm::LLVMContext;
-using llvm::BasicBlock;
 
 namespace doris {
 
@@ -584,118 +576,6 @@ Status ExecNode::exec_debug_action(TExecNodePhase::type phase) {
     }
 
     return Status::OK();
-}
-
-// Codegen for EvalConjuncts.  The generated signature is
-// For a node with two conjunct predicates
-// define i1 @EvalConjuncts(%"class.impala::ExprContext"** %ctxs, i32 %num_ctxs,
-//                          %"class.impala::TupleRow"* %row) #20 {
-// entry:
-//   %ctx_ptr = getelementptr %"class.impala::ExprContext"** %ctxs, i32 0
-//   %ctx = load %"class.impala::ExprContext"** %ctx_ptr
-//   %result = call i16 @Eq_StringVal_StringValWrapper3(
-//       %"class.impala::ExprContext"* %ctx, %"class.impala::TupleRow"* %row)
-//   %is_null = trunc i16 %result to i1
-//   %0 = ashr i16 %result, 8
-//   %1 = trunc i16 %0 to i8
-//   %val = trunc i8 %1 to i1
-//   %is_false = xor i1 %val, true
-//   %return_false = or i1 %is_null, %is_false
-//   br i1 %return_false, label %false, label %continue
-//
-// continue:                                         ; preds = %entry
-//   %ctx_ptr2 = getelementptr %"class.impala::ExprContext"** %ctxs, i32 1
-//   %ctx3 = load %"class.impala::ExprContext"** %ctx_ptr2
-//   %result4 = call i16 @Gt_BigIntVal_BigIntValWrapper5(
-//       %"class.impala::ExprContext"* %ctx3, %"class.impala::TupleRow"* %row)
-//   %is_null5 = trunc i16 %result4 to i1
-//   %2 = ashr i16 %result4, 8
-//   %3 = trunc i16 %2 to i8
-//   %val6 = trunc i8 %3 to i1
-//   %is_false7 = xor i1 %val6, true
-//   %return_false8 = or i1 %is_null5, %is_false7
-//   br i1 %return_false8, label %false, label %continue1
-//
-// continue1:                                        ; preds = %continue
-//   ret i1 true
-//
-// false:                                            ; preds = %continue, %entry
-//   ret i1 false
-// }
-Function* ExecNode::codegen_eval_conjuncts(
-        RuntimeState* state, const std::vector<ExprContext*>& conjunct_ctxs, const char* name) {
-    Function* conjunct_fns[conjunct_ctxs.size()];
-    for (int i = 0; i < conjunct_ctxs.size(); ++i) {
-        Status status =
-            conjunct_ctxs[i]->root()->get_codegend_compute_fn(state, &conjunct_fns[i]);
-        if (!status.ok()) {
-            VLOG_QUERY << "Could not codegen EvalConjuncts: " << status.get_error_msg();
-            return NULL;
-        }
-    }
-    LlvmCodeGen* codegen = NULL;
-    if (!state->get_codegen(&codegen).ok()) {
-        return NULL;
-    }
-
-    // Construct function signature to match
-    // bool EvalConjuncts(Expr** exprs, int num_exprs, TupleRow* row)
-    Type* tuple_row_type = codegen->get_type(TupleRow::_s_llvm_class_name);
-    Type* expr_ctx_type = codegen->get_type(ExprContext::_s_llvm_class_name);
-
-    DCHECK(tuple_row_type != NULL);
-    DCHECK(expr_ctx_type != NULL);
-
-    PointerType* tuple_row_ptr_type = PointerType::get(tuple_row_type, 0);
-    PointerType* expr_ctx_ptr_type = PointerType::get(expr_ctx_type, 0);
-
-    LlvmCodeGen::FnPrototype prototype(codegen, name, codegen->get_type(TYPE_BOOLEAN));
-    prototype.add_argument(
-        LlvmCodeGen::NamedVariable("ctxs", PointerType::get(expr_ctx_ptr_type, 0)));
-    prototype.add_argument(
-        LlvmCodeGen::NamedVariable("num_ctxs", codegen->get_type(TYPE_INT)));
-    prototype.add_argument(LlvmCodeGen::NamedVariable("row", tuple_row_ptr_type));
-
-    LlvmCodeGen::LlvmBuilder builder(codegen->context());
-    Value* args[3];
-    Function* fn = prototype.generate_prototype(&builder, args);
-    Value* ctxs_arg = args[0];
-    Value* tuple_row_arg = args[2];
-
-    if (conjunct_ctxs.size() > 0) {
-        LLVMContext& context = codegen->context();
-        BasicBlock* false_block = BasicBlock::Create(context, "false", fn);
-
-        for (int i = 0; i < conjunct_ctxs.size(); ++i) {
-            BasicBlock* true_block = BasicBlock::Create(context, "continue", fn, false_block);
-
-            Value* ctx_arg_ptr = builder.CreateConstGEP1_32(ctxs_arg, i, "ctx_ptr");
-            Value* ctx_arg = builder.CreateLoad(ctx_arg_ptr, "ctx");
-            Value* expr_args[] = { ctx_arg, tuple_row_arg };
-
-            // Call conjunct_fns[i]
-            CodegenAnyVal result = CodegenAnyVal::create_call_wrapped(
-                codegen, &builder, conjunct_ctxs[i]->root()->type(),
-                conjunct_fns[i], expr_args, "result", NULL);
-
-            // Return false if result.is_null || !result
-            Value* is_null = result.get_is_null();
-            Value* is_false = builder.CreateNot(result.get_val(), "is_false");
-            Value* return_false = builder.CreateOr(is_null, is_false, "return_false");
-            builder.CreateCondBr(return_false, false_block, true_block);
-
-            // Set insertion point for continue/end
-            builder.SetInsertPoint(true_block);
-        }
-        builder.CreateRet(codegen->true_value());
-
-        builder.SetInsertPoint(false_block);
-        builder.CreateRet(codegen->false_value());
-    } else {
-        builder.CreateRet(codegen->true_value());
-    }
-
-    return codegen->finalize_function(fn);
 }
 
 Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
