@@ -127,8 +127,6 @@ public:
         return _string_result;
     }
 
-    static const char* _s_llvm_functioncontext_name;
-
 private:
     friend class doris_udf::FunctionContext;
     friend class ExprContext;
