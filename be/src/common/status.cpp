@@ -4,12 +4,13 @@
 
 #include "common/status.h"
 
-#include "gutil/strings/fastmem.h" // for memcpy_inlined
+#include "gutil/strings/fastmem.h"    // for memcpy_inlined
+#include "gutil/strings/substitute.h" // for strings::Substitute
 
 namespace doris {
 
-inline const char* assemble_state(
-        TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2) {
+inline const char* assemble_state(TStatusCode::type code, const Slice& msg,
+                                  int16_t posix_code, const Slice& msg2) {
     DCHECK(code != TStatusCode::OK);
 
     const uint32_t len1 = msg.size;
@@ -18,7 +19,7 @@ inline const char* assemble_state(
     auto result = new char[size + 7];
     memcpy(result, &size, sizeof(size));
     result[4] = static_cast<char>(code);
-    memcpy(result + 5, &precise_code, sizeof(precise_code));
+    memcpy(result + 5, &posix_code, sizeof(posix_code));
     memcpy(result + 7, msg.data, len1);
     if (len2 > 0) {
         result[7 + len1] = ':';
@@ -28,7 +29,7 @@ inline const char* assemble_state(
     return result;
 }
 
-const char* Status::copy_state(const char* state) {
+const char* Status::_copy_state(const char* state) {
     uint32_t size;
     strings::memcpy_inlined(&size, state, sizeof(size));
     auto result = new char[size + 7];
@@ -39,9 +40,9 @@ const char* Status::copy_state(const char* state) {
 Status::Status(const TStatus& s) : _state(nullptr) {
     if (s.status_code != TStatusCode::OK) {
         if (s.error_msgs.empty()) {
-            _state = assemble_state(s.status_code, Slice(), 1, Slice());
+            _state = assemble_state(s.status_code, Slice(), -1, Slice());
         } else {
-            _state = assemble_state(s.status_code, s.error_msgs[0], 1, Slice());
+            _state = assemble_state(s.status_code, s.error_msgs[0], -1, Slice());
         }
     }
 }
@@ -50,18 +51,20 @@ Status::Status(const PStatus& s) : _state(nullptr) {
     TStatusCode::type code = (TStatusCode::type)s.status_code();
     if (code != TStatusCode::OK) {
         if (s.error_msgs_size() == 0) {
-            _state = assemble_state(code, Slice(), 1, Slice());
+            _state = assemble_state(code, Slice(), -1, Slice());
         } else {
-            _state = assemble_state(code, s.error_msgs(0), 1, Slice());
+            _state = assemble_state(code, s.error_msgs(0), -1, Slice());
         }
     }
 }
 
-Status::Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2)
-        : _state(assemble_state(code, msg, precise_code, msg2)) {
+Status::Status(TStatusCode::type code, const Slice& msg,
+               int16_t posix_code, const Slice& msg2) :
+        _state(assemble_state(code, msg, posix_code, msg2)) {
 }
 
 void Status::to_thrift(TStatus* s) const {
+    DCHECK_NOTNULL(s);
     s->error_msgs.clear();
     if (_state == nullptr) {
         s->status_code = TStatusCode::OK;
@@ -74,6 +77,7 @@ void Status::to_thrift(TStatus* s) const {
 }
 
 void Status::to_protobuf(PStatus* s) const {
+    DCHECK_NOTNULL(s);
     s->clear_error_msgs();
     if (_state == nullptr) {
         s->set_status_code((int)TStatusCode::OK);
@@ -143,11 +147,8 @@ std::string Status::code_as_string() const {
         return "Configuration error";
     case TStatusCode::INCOMPLETE:
         return "Incomplete";
-    default: {
-        char tmp[30];
-        snprintf(tmp, sizeof(tmp), "Unknown code(%d): ", static_cast<int>(code()));
-        return tmp;
-    }
+    default:
+        return strings::Substitute("Unknown code($0)", code());
     }
     return std::string();
 }
@@ -161,7 +162,7 @@ std::string Status::to_string() const {
     result.append(": ");
     Slice msg = message();
     result.append(reinterpret_cast<const char*>(msg.data), msg.size);
-    int16_t posix = precise_code();
+    int16_t posix = posix_code();
     if (posix != 1) {
         char buf[64];
         snprintf(buf, sizeof(buf), " (error %d)", posix);
@@ -184,14 +185,14 @@ Status Status::clone_and_prepend(const Slice& msg) const {
     if (ok()) {
         return *this;
     }
-    return Status(code(), msg, precise_code(), message());
+    return Status(code(), msg, posix_code(), message());
 }
 
 Status Status::clone_and_append(const Slice& msg) const {
     if (ok()) {
         return *this;
     }
-    return Status(code(), message(), precise_code(), msg);
+    return Status(code(), message(), posix_code(), msg);
 }
 
 }
