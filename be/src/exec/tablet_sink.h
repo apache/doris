@@ -199,6 +199,9 @@ private:
     std::unordered_map<int64_t, AddBatchCounter> _add_batch_counter_map;
 };
 
+// RowBuffer is used for multi-thread version of OlapTableSink, it's single-productor/single-consumer.
+// In multi-thread version, OlapTableSink will create multi RowBuffers, and create the same number threads to exec RowBuffer::consume_process.
+// Only one thread(OlapTableSink::send) exec push op, use modular hashing(node_id%buffer_num) to specify the buffer for which the row should be pushed into.
 class RowBuffer {
 public:
     RowBuffer(TupleDescriptor* tuple_desc, int64_t byte_limit, int64_t size_limit)

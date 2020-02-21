@@ -109,10 +109,12 @@ public class OlapTableSink extends DataSink {
 
         if (bufferNum > 0) {
             tSink.setBuffer_num(bufferNum);
-            if (memLimitPerBuf > 0)
+            if (memLimitPerBuf > 0) {
                 tSink.setMem_limit_per_buf(memLimitPerBuf);
-            if (sizeLimitPerBuf > 0)
+            }
+            if (sizeLimitPerBuf > 0) {
                 tSink.setSize_limit_per_buf(sizeLimitPerBuf);
+            }
         }
 
         tDataSink = new TDataSink(TDataSinkType.DATA_SPLIT_SINK);

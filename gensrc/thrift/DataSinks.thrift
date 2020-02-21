@@ -105,9 +105,9 @@ struct TOlapTableSink {
     12: required Descriptors.TOlapTableLocationParam location
     13: required Descriptors.TPaloNodesInfo nodes_info
     14: optional i64 load_channel_timeout_s // the timeout of load channels in second
-    15: optional i32 buffer_num
-    16: optional i64 mem_limit_per_buf
-    17: optional i64 size_limit_per_buf
+    15: optional i32 buffer_num // number of buffers in multi-thread version of OlapTableSink, the same number of threads
+    16: optional i64 mem_limit_per_buf // if memory limit exceeded, block the buffer push
+    17: optional i64 size_limit_per_buf // if buffer queue is full, block the buffer push
 }
 
 struct TDataSink {
