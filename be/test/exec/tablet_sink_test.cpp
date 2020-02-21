@@ -33,6 +33,10 @@
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
 #include "runtime/descriptor_helper.h"
+#include "runtime/bufferpool/reservation_tracker.h"
+#include "runtime/exec_env.h"
+#include "runtime/result_queue_mgr.h"
+#include "runtime/thread_resource_mgr.h"
 
 namespace doris {
 namespace stream_load {
@@ -45,26 +49,27 @@ public:
     virtual ~OlapTableSinkTest() { }
     void SetUp() override {
         k_add_batch_status = Status::OK();
-
-        _env._thread_mgr = new ThreadResourceMgr();
-        _env._master_info = new TMasterInfo();
-        _env._load_stream_mgr = new LoadStreamMgr();
-        _env._brpc_stub_cache = new BrpcStubCache();
+        _env = ExecEnv::GetInstance();
+        _env->_thread_mgr = new ThreadResourceMgr();
+        _env->_master_info = new TMasterInfo();
+        _env->_load_stream_mgr = new LoadStreamMgr();
+        _env->_brpc_stub_cache = new BrpcStubCache();
+        _env->_buffer_reservation = new ReservationTracker();
 
         config::tablet_writer_rpc_timeout_sec = 600;
     }
     void TearDown() override {
-        delete _env._brpc_stub_cache;
-        _env._brpc_stub_cache = nullptr;
-        delete _env._load_stream_mgr;
-        _env._load_stream_mgr = nullptr;
-        delete _env._master_info;
-        _env._master_info = nullptr;
-        delete _env._thread_mgr;
-        _env._thread_mgr = nullptr;
+        delete _env->_brpc_stub_cache;
+        _env->_brpc_stub_cache = nullptr;
+        delete _env->_load_stream_mgr;
+        _env->_load_stream_mgr = nullptr;
+        delete _env->_master_info;
+        _env->_master_info = nullptr;
+        delete _env->_thread_mgr;
+        _env->_thread_mgr = nullptr;
     }
 private:
-    ExecEnv _env;
+    ExecEnv* _env;
 };
 
 TDataSink get_data_sink(TDescriptorTable* desc_tbl) {
@@ -335,7 +340,7 @@ TEST_F(OlapTableSinkTest, normal) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
     // state._query_mem_tracker.reset(new MemTracker());
     // state._instance_mem_tracker.reset(new MemTracker(-1, "test", state._query_mem_tracker.get()));
@@ -443,7 +448,7 @@ TEST_F(OlapTableSinkTest, convert) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1024;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
@@ -570,7 +575,7 @@ TEST_F(OlapTableSinkTest, init_fail1) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
@@ -628,7 +633,7 @@ TEST_F(OlapTableSinkTest, init_fail3) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
@@ -687,7 +692,7 @@ TEST_F(OlapTableSinkTest, init_fail4) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
@@ -754,7 +759,7 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;
@@ -849,7 +854,7 @@ TEST_F(OlapTableSinkTest, decimal) {
     TUniqueId fragment_id;
     TQueryOptions query_options;
     query_options.batch_size = 1;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), &_env);
+    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
     state.init_mem_trackers(TUniqueId());
 
     ObjectPool obj_pool;

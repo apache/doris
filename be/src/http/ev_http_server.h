@@ -46,6 +46,11 @@ public:
     // callback 
     int on_header(struct evhttp_request* ev_req);
 
+    // get real port
+    int get_real_port() {
+        return _real_port;
+    }
+
 private:
     Status _bind();
     HttpHandler* _find_handler(HttpRequest* req);
@@ -55,6 +60,8 @@ private:
     std::string _host;
     int _port;
     int _num_workers;
+    // used for unittest, set port to 0, os will choose a free port;
+    int _real_port;
 
     int _server_fd = -1;
     std::vector<std::thread> _workers;
