@@ -29,6 +29,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
 #include "olap/row.h"
+#include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/result_queue_mgr.h"
@@ -41,7 +42,6 @@
 #include "util/disk_info.h"
 #include "util/cpu_info.h"
 #include "util/logging.h"
-
 
 namespace doris {
 
@@ -74,28 +74,30 @@ private:
     TDescriptorTable _t_desc_table;
     DescriptorTbl* _desc_tbl;
     TPlanNode _tnode;
-    ExecEnv _exec_env;
+    ExecEnv* _exec_env;
     RuntimeState* _state;
     MemTracker *_mem_tracker;
     RowDescriptor* _row_desc;
 }; // end class ArrowWorkFlowTest
 
 void ArrowWorkFlowTest::init() {
+    _exec_env = ExecEnv::GetInstance();
     init_desc_tbl();
     init_runtime_state();
 }
 
 void ArrowWorkFlowTest::init_runtime_state() {
     ResultQueueMgr* result_queue_mgr = new ResultQueueMgr();
-    ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
-    _exec_env._result_queue_mgr = result_queue_mgr;
-    _exec_env._thread_mgr = thread_mgr;
+    ThreadResourceMgr* thrbg56gead_mgr = new ThreadResourceMgr();
+    _exec_env->_result_queue_mgr = result_queue_mgr;
+    _exec_env->_thread_mgr = thread_mgr;
+    _exec_env->_buffer_reservation = new ReservationTracker();
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     TUniqueId query_id;
     query_id.lo = 10;
     query_id.hi = 100;
-    _state = new RuntimeState(query_id, query_options, TQueryGlobals(), &_exec_env);
+    _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
     _state->init_instance_mem_tracker();
     _mem_tracker = new MemTracker(-1, "ArrowWorkFlowTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);
