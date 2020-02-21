@@ -258,7 +258,7 @@ In some extreme cases, the image file on the disk may be damaged, but the metada
 
 2. Execute the following command to dump metadata from the Master FE memory: (hereafter called image_mem)
 ```
-curl -u $root_user:$password http://$master_hostname:8410/dump
+curl -u $root_user:$password http://$master_hostname:8030/dump
 ```
 3. Replace the image file in the `meta_dir/image` directory on the OBSERVER FE node with the image_mem file, restart the OBSERVER FE node, and verify the integrity and correctness of the image_mem file. You can check whether the DB and Table metadata are normal on the FE Web page, whether there is an exception in `fe.log`, whether it is in a normal replayed jour.
 
