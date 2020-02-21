@@ -10,7 +10,7 @@
 namespace doris {
 
 inline const char* assemble_state(TStatusCode::type code, const Slice& msg,
-                                  int16_t posix_code, const Slice& msg2) {
+                                  int16_t precise_code, const Slice& msg2) {
     DCHECK(code != TStatusCode::OK);
 
     const uint32_t len1 = msg.size;
@@ -19,7 +19,7 @@ inline const char* assemble_state(TStatusCode::type code, const Slice& msg,
     auto result = new char[size + 7];
     memcpy(result, &size, sizeof(size));
     result[4] = static_cast<char>(code);
-    memcpy(result + 5, &posix_code, sizeof(posix_code));
+    memcpy(result + 5, &precise_code, sizeof(precise_code));
     memcpy(result + 7, msg.data, len1);
     if (len2 > 0) {
         result[7 + len1] = ':';
@@ -59,8 +59,8 @@ Status::Status(const PStatus& s) : _state(nullptr) {
 }
 
 Status::Status(TStatusCode::type code, const Slice& msg,
-               int16_t posix_code, const Slice& msg2) :
-        _state(assemble_state(code, msg, posix_code, msg2)) {
+               int16_t precise_code, const Slice& msg2) :
+        _state(assemble_state(code, msg, precise_code, msg2)) {
 }
 
 void Status::to_thrift(TStatus* s) const {
@@ -162,7 +162,7 @@ std::string Status::to_string() const {
     result.append(": ");
     Slice msg = message();
     result.append(reinterpret_cast<const char*>(msg.data), msg.size);
-    int16_t posix = posix_code();
+    int16_t posix = precise_code();
     if (posix != -1) {
         char buf[64];
         snprintf(buf, sizeof(buf), " (error %d)", posix);
@@ -185,14 +185,14 @@ Status Status::clone_and_prepend(const Slice& msg) const {
     if (ok()) {
         return *this;
     }
-    return Status(code(), msg, posix_code(), message());
+    return Status(code(), msg, precise_code(), message());
 }
 
 Status Status::clone_and_append(const Slice& msg) const {
     if (ok()) {
         return *this;
     }
-    return Status(code(), message(), posix_code(), msg);
+    return Status(code(), message(), precise_code(), msg);
 }
 
 }

@@ -54,109 +54,109 @@ public:
 
     static Status OK() { return Status(); }
     static Status Cancelled(const Slice& msg,
-                            int16_t posix_code = -1,
+                            int16_t precise_code = -1,
                             const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::CANCELLED, msg, posix_code, msg2);
+        return Status(TStatusCode::CANCELLED, msg, precise_code, msg2);
     }
     static Status NotSupported(const Slice& msg,
-                               int16_t posix_code = -1,
+                               int16_t precise_code = -1,
                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::NOT_IMPLEMENTED_ERROR, msg, posix_code, msg2);
+        return Status(TStatusCode::NOT_IMPLEMENTED_ERROR, msg, precise_code, msg2);
     }
     static Status RuntimeError(const Slice& msg,
-                               int16_t posix_code = -1,
+                               int16_t precise_code = -1,
                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::RUNTIME_ERROR, msg, posix_code, msg2);
+        return Status(TStatusCode::RUNTIME_ERROR, msg, precise_code, msg2);
     }
     static Status MemoryLimitExceeded(const Slice& msg,
-                                      int16_t posix_code = -1,
+                                      int16_t precise_code = -1,
                                       const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MEM_LIMIT_EXCEEDED, msg, posix_code, msg2);
+        return Status(TStatusCode::MEM_LIMIT_EXCEEDED, msg, precise_code, msg2);
     }
     static Status InternalError(const Slice& msg,
-                               int16_t posix_code = -1,
+                               int16_t precise_code = -1,
                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INTERNAL_ERROR, msg, posix_code, msg2);
+        return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, msg2);
     }
     static Status ThriftRpcError(const Slice& msg,
-                                 int16_t posix_code = -1,
+                                 int16_t precise_code = -1,
                                  const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::THRIFT_RPC_ERROR, msg, posix_code, msg2);
+        return Status(TStatusCode::THRIFT_RPC_ERROR, msg, precise_code, msg2);
     }
     static Status TimedOut(const Slice& msg,
-                           int16_t posix_code = -1,
+                           int16_t precise_code = -1,
                            const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::TIMEOUT, msg, posix_code, msg2);
+        return Status(TStatusCode::TIMEOUT, msg, precise_code, msg2);
     }
     static Status MemoryAllocFailed(const Slice& msg,
-                                    int16_t posix_code = -1,
+                                    int16_t precise_code = -1,
                                     const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MEM_ALLOC_FAILED, msg, posix_code, msg2);
+        return Status(TStatusCode::MEM_ALLOC_FAILED, msg, precise_code, msg2);
     }
     static Status BufferAllocFailed(const Slice& msg,
-                                    int16_t posix_code = -1,
+                                    int16_t precise_code = -1,
                                     const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::BUFFER_ALLOCATION_FAILED, msg, posix_code, msg2);
+        return Status(TStatusCode::BUFFER_ALLOCATION_FAILED, msg, precise_code, msg2);
     }
     static Status MinimumReservationUnavailable(const Slice& msg,
-                                                int16_t posix_code = -1,
+                                                int16_t precise_code = -1,
                                                 const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, msg, posix_code, msg2);
+        return Status(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, msg, precise_code, msg2);
     }
     static Status PublishTimeout(const Slice& msg,
-                                 int16_t posix_code = 1,
+                                 int16_t precise_code = 1,
                                  const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::PUBLISH_TIMEOUT, msg, posix_code, msg2);
+        return Status(TStatusCode::PUBLISH_TIMEOUT, msg, precise_code, msg2);
     }
     static Status TooManyTasks(const Slice& msg,
-                               int16_t posix_code = -1,
+                               int16_t precise_code = -1,
                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::TOO_MANY_TASKS, msg, posix_code, msg2);
+        return Status(TStatusCode::TOO_MANY_TASKS, msg, precise_code, msg2);
     }
     static Status EndOfFile(const Slice& msg,
-                            int16_t posix_code = -1,
+                            int16_t precise_code = -1,
                             const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::END_OF_FILE, msg, posix_code, msg2);
+        return Status(TStatusCode::END_OF_FILE, msg, precise_code, msg2);
     }
     static Status NotFound(const Slice& msg,
-                           int16_t posix_code = -1,
+                           int16_t precise_code = -1,
                            const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::NOT_FOUND, msg, posix_code, msg2);
+        return Status(TStatusCode::NOT_FOUND, msg, precise_code, msg2);
     }
     static Status Corruption(const Slice& msg,
-                             int16_t posix_code = -1,
+                             int16_t precise_code = -1,
                              const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::CORRUPTION, msg, posix_code, msg2);
+        return Status(TStatusCode::CORRUPTION, msg, precise_code, msg2);
     }
     static Status InvalidArgument(const Slice& msg,
-                                  int16_t posix_code = -1,
+                                  int16_t precise_code = -1,
                                   const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INVALID_ARGUMENT, msg, posix_code, msg2);
+        return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
     }
     static Status IOError(const Slice& msg,
-                          int16_t posix_code = -1,
+                          int16_t precise_code = -1,
                           const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::IO_ERROR, msg, posix_code, msg2);
+        return Status(TStatusCode::IO_ERROR, msg, precise_code, msg2);
     }
     static Status AlreadyExist(const Slice& msg,
-                               int16_t posix_code = -1,
+                               int16_t precise_code = -1,
                                const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::ALREADY_EXIST, msg, posix_code, msg2);
+        return Status(TStatusCode::ALREADY_EXIST, msg, precise_code, msg2);
     }
     static Status Aborted(const Slice& msg,
-                          int16_t posix_code = -1,
+                          int16_t precise_code = -1,
                           const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::ABORTED, msg, posix_code, msg2);
+        return Status(TStatusCode::ABORTED, msg, precise_code, msg2);
     }
     static Status ServiceUnavailable(const Slice& msg,
-                                     int16_t posix_code = -1,
+                                     int16_t precise_code = -1,
                                      const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::SERVICE_UNAVAILABLE, msg, posix_code, msg2);
+        return Status(TStatusCode::SERVICE_UNAVAILABLE, msg, precise_code, msg2);
     }
     static Status Uninitialized(const Slice& msg,
-                                int16_t posix_code = -1,
+                                int16_t precise_code = -1,
                                 const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::UNINITIALIZED, msg, posix_code, msg2);
+        return Status(TStatusCode::UNINITIALIZED, msg, precise_code, msg2);
     }
 
     bool ok() const { return _state == nullptr; }
@@ -211,13 +211,13 @@ public:
         return _state == nullptr ? TStatusCode::OK : static_cast<TStatusCode::type>(_state[4]);
     }
 
-    int16_t posix_code() const {
+    int16_t precise_code() const {
         if (_state == nullptr) {
             return 0;
         }
-        int16_t posix_code;
-        memcpy(&posix_code, _state + 5, sizeof(posix_code));
-        return posix_code;
+        int16_t precise_code;
+        memcpy(&precise_code, _state + 5, sizeof(precise_code));
+        return precise_code;
     }
 
     /// Clone this status and add the specified prefix to the message.
@@ -243,14 +243,14 @@ public:
 private:
     const char* _copy_state(const char* state);
 
-    Status(TStatusCode::type code, const Slice& msg, int16_t posix_code, const Slice& msg2);
+    Status(TStatusCode::type code, const Slice& msg, int16_t precise_code, const Slice& msg2);
 
 private:
     // OK status has a nullptr _state.  Otherwise, _state is a new[] array
     // of the following form:
     //    _state[0..3] == length of message
     //    _state[4]    == code
-    //    _state[5..6] == posix_code
+    //    _state[5..6] == precise_code
     //    _state[7..]  == message
     const char* _state;
 };
