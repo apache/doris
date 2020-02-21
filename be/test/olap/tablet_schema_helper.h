@@ -31,7 +31,6 @@ TabletColumn create_int_key(int32_t id, bool is_nullable = true,
     column._col_name = std::to_string(id);
     column._type = OLAP_FIELD_TYPE_INT;
     column._is_key = true;
-    column._aggregation = OLAP_FIELD_AGGREGATION_NONE;
     column._is_nullable = is_nullable;
     column._length = 4;
     column._index_length = 4;
