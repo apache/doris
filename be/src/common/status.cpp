@@ -163,7 +163,7 @@ std::string Status::to_string() const {
     Slice msg = message();
     result.append(reinterpret_cast<const char*>(msg.data), msg.size);
     int16_t posix = posix_code();
-    if (posix != 1) {
+    if (posix != -1) {
         char buf[64];
         snprintf(buf, sizeof(buf), " (error %d)", posix);
         result.append(buf);
