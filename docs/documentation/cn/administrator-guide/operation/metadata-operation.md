@@ -258,7 +258,7 @@ FE 目前有以下几个端口
 1. 集群停止所有 Load,Create,Alter 操作
 2. 执行以下命令，从 Master FE 内存中 dump 出元数据：(下面称为 image_mem)
 ```
-curl -u $root_user:$password http://$master_hostname:8410/dump
+curl -u $root_user:$password http://$master_hostname:8030/dump
 ```
 3. 用 image_mem 文件替换掉 OBSERVER FE 节点上`meta_dir/image`目录下的 image 文件，重启 OBSERVER FE 节点，
 验证 image_mem 文件的完整性和正确性（可以在 FE Web 页面查看 DB 和 Table 的元数据是否正常，查看fe.log 是否有异常，是否在正常 replayed journal）
