@@ -29,14 +29,9 @@
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
 
-namespace llvm {
-    class Function;
-}
-
 namespace doris {
 
 class AggFnEvaluator;
-class LlvmCodeGen;
 class RowBatch;
 class RuntimeState;
 struct StringValue;
@@ -108,8 +103,6 @@ public:
     virtual Status reset(RuntimeState* state);
     // virtual void close(RuntimeState* state);
     virtual Status close(RuntimeState* state);
-
-    static const char* _s_llvm_class_name;
 
 protected:
     // Frees local allocations from _aggregate_evaluators and agg_fn_ctxs
@@ -452,20 +445,6 @@ private:
     // Calls finalizes on all tuples starting at 'it'.
     void cleanup_hash_tbl(const std::vector<doris_udf::FunctionContext*>& agg_fn_ctxs,
             PartitionedHashTable::Iterator it);
-
-    // Codegen UpdateSlot(). Returns NULL if codegen is unsuccessful.
-    // Assumes is_merge = false;
-    llvm::Function* codegen_update_slot(AggFnEvaluator* evaluator, SlotDescriptor* slot_desc);
-
-    // Codegen update_tuple(). Returns NULL if codegen is unsuccessful.
-    llvm::Function* codegen_update_tuple();
-
-    // Codegen the process row batch loop.  The loop has already been compiled to
-    // IR and loaded into the codegen object.  UpdateAggTuple has also been
-    // codegen'd to IR.  This function will modify the loop subsituting the statically
-    // compiled functions with codegen'd ones.
-    // Assumes AGGREGATED_ROWS = false.
-    llvm::Function* codegen_process_batch();
 
     // We need two buffers per partition, one for the aggregated stream and one
     // for the unaggregated stream. We need an additional buffer to read the stream

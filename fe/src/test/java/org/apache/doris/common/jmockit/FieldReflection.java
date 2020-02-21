@@ -5,14 +5,11 @@
 
 package org.apache.doris.common.jmockit;
 
-import sun.reflect.FieldAccessor;
-import sun.reflect.ReflectionFactory;
-
 import java.lang.reflect.AccessibleObject;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.lang.reflect.Type;
 import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.lang.reflect.TypeVariable;
 
 
@@ -225,7 +222,7 @@ public final class FieldReflection {
         }
         try {
             if (Modifier.isStatic(field.getModifiers()) && Modifier.isFinal(field.getModifiers())) {
-                setStaticFinalField(field, value);
+                throw new IllegalArgumentException("Do not allow to set static final field");
             } else {
                 makeAccessible(field);
                 field.set(targetObject, value);
@@ -236,6 +233,7 @@ public final class FieldReflection {
         }
     }
 
+    /*
     private static void setStaticFinalField(Field field, Object value) throws IllegalAccessException {
         if (field == null) {
             throw new IllegalStateException();
@@ -246,13 +244,14 @@ public final class FieldReflection {
         } catch (NoSuchFieldException e) {
             throw new RuntimeException(e);
         }
-
+    
         modifiersField.setAccessible(true);
         int nonFinalModifiers = modifiersField.getInt(field) - 16;
         modifiersField.setInt(field, nonFinalModifiers);
         FieldAccessor accessor = ReflectionFactory.getReflectionFactory().newFieldAccessor(field, false);
         accessor.set((Object)null, value);
     }
+    */
 
     public static Class<?> getClassType(Type declaredType) {
         while(!(declaredType instanceof Class)) {
@@ -285,3 +284,4 @@ public final class FieldReflection {
     }
 
 }
+

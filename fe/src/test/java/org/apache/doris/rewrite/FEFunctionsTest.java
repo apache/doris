@@ -290,17 +290,6 @@ public class FEFunctionsTest {
     }
 
     @Test
-    public void castToIntTest() throws AnalysisException {
-        IntLiteral actualResult =  FEFunctions.castToInt(new StringLiteral("2019"));
-        IntLiteral expectedResult = new IntLiteral(2019);
-        Assert.assertEquals(expectedResult, actualResult);
-
-        actualResult = FEFunctions.castToInt(new StringLiteral("-1970"));
-        expectedResult = new IntLiteral(-1970);
-        Assert.assertEquals(expectedResult, actualResult);
-    }
-
-    @Test
     public void floorTest() throws AnalysisException {
         IntLiteral actualResult = FEFunctions.floor(new FloatLiteral(3.3));
         IntLiteral expectedResult = new IntLiteral(3);

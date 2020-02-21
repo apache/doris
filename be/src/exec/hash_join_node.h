@@ -58,8 +58,6 @@ public:
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status close(RuntimeState* state);
 
-    static const char* _s_llvm_class_name;
-
 protected:
     void debug_string(int indentation_level, std::stringstream* out) const;
 
@@ -116,9 +114,6 @@ private:
     // byte size of result tuple row (sum of the tuple ptrs, not the tuple data).
     // This should be the same size as the probe tuple row.
     int _result_tuple_row_size;
-
-    /// llvm function for build batch
-    llvm::Function* _codegen_process_build_batch_fn;
 
     // Function declaration for codegen'd function.  Signature must match
     // HashJoinNode::ProcessBuildBatch
@@ -178,21 +173,6 @@ private:
     // This is only used for debugging and outputting the left child rows before
     // doing the join.
     std::string get_probe_row_output_string(TupleRow* probe_row);
-
-    /// Codegen function to create output row
-    llvm::Function* codegen_create_output_row(LlvmCodeGen* codegen);
-
-    /// Codegen processing build batches.  Identical signature to ProcessBuildBatch.
-    /// hash_fn is the codegen'd function for computing hashes over tuple rows in the
-    /// hash table.
-    /// Returns NULL if codegen was not possible.
-    llvm::Function* codegen_process_build_batch(RuntimeState* state, llvm::Function* hash_fn);
-
-    /// Codegen processing probe batches.  Identical signature to ProcessProbeBatch.
-    /// hash_fn is the codegen'd function for computing hashes over tuple rows in the
-    /// hash table.
-    /// Returns NULL if codegen was not possible.
-    llvm::Function* codegen_process_probe_batch(RuntimeState* state, llvm::Function* hash_fn);
 };
 
 }

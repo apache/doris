@@ -102,9 +102,9 @@ visible_functions = [
     # Timestamp functions
     [['unix_timestamp'], 'INT', [],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextE'],
-    [['unix_timestamp'], 'INT', ['DATE'],
-        '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
     [['unix_timestamp'], 'INT', ['DATETIME'],
+        '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
+    [['unix_timestamp'], 'INT', ['DATE'],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
     [['unix_timestamp'], 'INT', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
@@ -212,10 +212,10 @@ visible_functions = [
     [['str_to_date'], 'DATETIME', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions11str_to_dateEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValES6_'],
-    [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'],
+    [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE'],
-    [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'],
+    [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE'],
     [['date', 'to_date'], 'DATE', ['DATETIME'],
@@ -443,8 +443,8 @@ visible_functions = [
     [['if'], 'LARGEINT', ['BOOLEAN', 'LARGEINT', 'LARGEINT'], ''],
     [['if'], 'FLOAT', ['BOOLEAN', 'FLOAT', 'FLOAT'], ''],
     [['if'], 'DOUBLE', ['BOOLEAN', 'DOUBLE', 'DOUBLE'], ''],
-    [['if'], 'DATE', ['BOOLEAN', 'DATE', 'DATE'], ''],
     [['if'], 'DATETIME', ['BOOLEAN', 'DATETIME', 'DATETIME'], ''],
+    [['if'], 'DATE', ['BOOLEAN', 'DATE', 'DATE'], ''],
     [['if'], 'DECIMAL', ['BOOLEAN', 'DECIMAL', 'DECIMAL'], ''],
     [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -458,8 +458,8 @@ visible_functions = [
     [['nullif'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], ''],
     [['nullif'], 'FLOAT', ['FLOAT', 'FLOAT'], ''],
     [['nullif'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
-    [['nullif'], 'DATE', ['DATE', 'DATE'], ''],
     [['nullif'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
+    [['nullif'], 'DATE', ['DATE', 'DATE'], ''],
     [['nullif'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['nullif'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -488,8 +488,8 @@ visible_functions = [
     [['coalesce'], 'LARGEINT', ['LARGEINT', '...'], ''],
     [['coalesce'], 'FLOAT', ['FLOAT', '...'], ''],
     [['coalesce'], 'DOUBLE', ['DOUBLE', '...'], ''],
-    [['coalesce'], 'DATE', ['DATE', '...'], ''],
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], ''],
+    [['coalesce'], 'DATE', ['DATE', '...'], ''],
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
     [['coalesce'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.

@@ -22,6 +22,7 @@ import org.apache.doris.common.CommandLineOptions;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.Version;
+import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.http.HttpServer;
 import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
@@ -70,6 +71,7 @@ public class PaloFe {
             return;
         }
 
+
         CommandLineOptions cmdLineOpts = parseArgs(args);
         System.out.println(cmdLineOpts.toString());
 
@@ -81,6 +83,12 @@ public class PaloFe {
 
             // init config
             new Config().init(dorisHomeDir + "/conf/fe.conf");
+
+            // check it after Config is initialized, otherwise the config 'check_java_version' won't work.
+            if (!JdkUtils.checkJavaVersion()) {
+                throw new IllegalArgumentException("Java version doesn't match");
+            }
+
             Log4jConfig.initLogging();
 
             // set dns cache ttl
@@ -116,7 +124,7 @@ public class PaloFe {
             }
         } catch (Throwable e) {
             e.printStackTrace();
-            System.exit(-1);
+            return;
         }
     }
 
@@ -233,10 +241,11 @@ public class PaloFe {
 
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
         if (cmdLineOpts.isVersion()) {
-            System.out.println("Build version: " + Version.PALO_BUILD_VERSION);
-            System.out.println("Build time: " + Version.PALO_BUILD_TIME);
-            System.out.println("Build info: " + Version.PALO_BUILD_INFO);
-            System.out.println("Build hash: " + Version.PALO_BUILD_HASH);
+            System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
+            System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
+            System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
+            System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
+            System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
             BDBTool bdbTool = new BDBTool(Catalog.getCurrentCatalog().getBdbDir(), cmdLineOpts.getBdbToolOpts());
@@ -275,3 +284,4 @@ public class PaloFe {
         }
     }
 }
+

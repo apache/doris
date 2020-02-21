@@ -70,13 +70,6 @@ Status TopNNode::prepare(RuntimeState* state) {
     _tuple_row_less_than.reset(
             new TupleRowComparator(_sort_exec_exprs, _is_asc_order, _nulls_first));
 
-    if (state->codegen_level() > 0) {
-        bool success = _tuple_row_less_than->codegen(state);
-        if (success) {
-            // AddRuntimeExecOption("Codegen Enabled");
-        }
-    }
-
     _abort_on_default_limit_exceeded = _abort_on_default_limit_exceeded &&
                                        state->abort_on_default_limit_exceeded();
     _materialized_tuple_desc = _row_descriptor.tuple_descriptors()[0];
