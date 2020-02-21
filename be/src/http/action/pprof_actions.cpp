@@ -18,39 +18,40 @@
 #include "http/action/pprof_actions.h"
 
 #include <fstream>
-#include <sstream>
 #include <iostream>
 #include <mutex>
+#include <sstream>
 
-#include <gperftools/profiler.h>
 #include <gperftools/heap-profiler.h>
 #include <gperftools/malloc_extension.h>
+#include <gperftools/profiler.h>
 
 #include "common/config.h"
+#include "http/ev_http_server.h"
+#include "http/http_channel.h"
 #include "http/http_handler.h"
+#include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_response.h"
-#include "http/http_channel.h"
-#include "http/http_headers.h"
-#include "http/ev_http_server.h"
 #include "runtime/exec_env.h"
 #include "util/bfd_parser.h"
+#include "util/file_utils.h"
 
 namespace doris {
 
 // pprof default sample time in seconds.
 static const std::string SECOND_KEY = "seconds";
-static const int kPprofDefaultSampleSecs = 30; 
+static const int kPprofDefaultSampleSecs = 30;
 
 // Protect, only one thread can work
 static std::mutex kPprofActionMutex;
 
 class HeapAction : public HttpHandler {
 public:
-    HeapAction() { }
-    virtual ~HeapAction() { }
+    HeapAction() {}
+    virtual ~HeapAction() {}
 
-    virtual void handle(HttpRequest *req) override;
+    virtual void handle(HttpRequest* req) override;
 };
 
 void HeapAction::handle(HttpRequest* req) {
@@ -71,8 +72,8 @@ void HeapAction::handle(HttpRequest* req) {
 
     std::stringstream tmp_prof_file_name;
     // Build a temporary file name that is hopefully unique.
-    tmp_prof_file_name << config::pprof_profile_dir << "/heap_profile."
-        << getpid() << "." << rand();
+    tmp_prof_file_name << config::pprof_profile_dir << "/heap_profile." << getpid() << "."
+                       << rand();
 
     HeapProfilerStart(tmp_prof_file_name.str().c_str());
     // Sleep to allow for some samples to be collected.
@@ -88,10 +89,10 @@ void HeapAction::handle(HttpRequest* req) {
 
 class GrowthAction : public HttpHandler {
 public:
-    GrowthAction() { }
-    virtual ~GrowthAction() { }
+    GrowthAction() {}
+    virtual ~GrowthAction() {}
 
-    virtual void handle(HttpRequest *req) override;
+    virtual void handle(HttpRequest* req) override;
 };
 
 void GrowthAction::handle(HttpRequest* req) {
@@ -110,13 +111,13 @@ void GrowthAction::handle(HttpRequest* req) {
 
 class ProfileAction : public HttpHandler {
 public:
-    ProfileAction() { }
-    virtual ~ProfileAction() { }
+    ProfileAction() {}
+    virtual ~ProfileAction() {}
 
-    virtual void handle(HttpRequest *req) override;
+    virtual void handle(HttpRequest* req) override;
 };
 
-void ProfileAction::handle(HttpRequest *req) {
+void ProfileAction::handle(HttpRequest* req) {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     std::string str = "CPU profiling is not available with address sanitizer builds.";
     HttpChannel::send_reply(req, str);
@@ -131,8 +132,8 @@ void ProfileAction::handle(HttpRequest *req) {
 
     std::ostringstream tmp_prof_file_name;
     // Build a temporary file name that is hopefully unique.
-    tmp_prof_file_name << config::pprof_profile_dir << "/doris_profile." 
-        << getpid() << "." << rand();
+    tmp_prof_file_name << config::pprof_profile_dir << "/doris_profile." << getpid() << "."
+                       << rand();
     ProfilerStart(tmp_prof_file_name.str().c_str());
     sleep(seconds);
     ProfilerStop();
@@ -154,26 +155,24 @@ void ProfileAction::handle(HttpRequest *req) {
 
 class PmuProfileAction : public HttpHandler {
 public:
-    PmuProfileAction() { }
-    virtual ~PmuProfileAction() { }
-    virtual void handle(HttpRequest *req) override {
-    }
+    PmuProfileAction() {}
+    virtual ~PmuProfileAction() {}
+    virtual void handle(HttpRequest* req) override {}
 };
 
 class ContentionAction : public HttpHandler {
 public:
-    ContentionAction() { }
-    virtual ~ContentionAction() { }
+    ContentionAction() {}
+    virtual ~ContentionAction() {}
 
-    virtual void handle(HttpRequest *req) override {
-    }
+    virtual void handle(HttpRequest* req) override {}
 };
 
 class CmdlineAction : public HttpHandler {
 public:
-    CmdlineAction() { }
-    virtual ~CmdlineAction() { }
-    virtual void handle(HttpRequest *req) override;
+    CmdlineAction() {}
+    virtual ~CmdlineAction() {}
+    virtual void handle(HttpRequest* req) override;
 };
 
 void CmdlineAction::handle(HttpRequest* req) {
@@ -194,10 +193,10 @@ void CmdlineAction::handle(HttpRequest* req) {
 
 class SymbolAction : public HttpHandler {
 public:
-    SymbolAction(BfdParser* parser) : _parser(parser) { }
-    virtual ~SymbolAction() { }
+    SymbolAction(BfdParser* parser) : _parser(parser) {}
+    virtual ~SymbolAction() {}
 
-    virtual void handle(HttpRequest *req) override;
+    virtual void handle(HttpRequest* req) override;
 
 private:
     BfdParser* _parser;
@@ -243,18 +242,16 @@ void SymbolAction::handle(HttpRequest* req) {
 }
 
 Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server) {
-    http_server->register_handler(HttpMethod::GET, "/pprof/heap",
-                                  new HeapAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/growth",
-                                  new GrowthAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/profile",
-                                  new ProfileAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile",
-                                  new PmuProfileAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/contention",
-                                  new ContentionAction());
-    http_server->register_handler(HttpMethod::GET, "/pprof/cmdline",
-                                  new CmdlineAction());
+    if (!config::pprof_profile_dir.empty()) {
+        FileUtils::create_dir(config::pprof_profile_dir);
+    }
+
+    http_server->register_handler(HttpMethod::GET, "/pprof/heap", new HeapAction());
+    http_server->register_handler(HttpMethod::GET, "/pprof/growth", new GrowthAction());
+    http_server->register_handler(HttpMethod::GET, "/pprof/profile", new ProfileAction());
+    http_server->register_handler(HttpMethod::GET, "/pprof/pmuprofile", new PmuProfileAction());
+    http_server->register_handler(HttpMethod::GET, "/pprof/contention", new ContentionAction());
+    http_server->register_handler(HttpMethod::GET, "/pprof/cmdline", new CmdlineAction());
     auto action = new SymbolAction(exec_env->bfd_parser());
     http_server->register_handler(HttpMethod::GET, "/pprof/symbol", action);
     http_server->register_handler(HttpMethod::HEAD, "/pprof/symbol", action);
@@ -262,4 +259,4 @@ Status PprofActions::setup(ExecEnv* exec_env, EvHttpServer* http_server) {
     return Status::OK();
 }
 
-}
+} // namespace doris

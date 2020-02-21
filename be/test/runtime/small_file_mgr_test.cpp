@@ -107,7 +107,7 @@ TEST_F(SmallFileMgrTest, test_get_file) {
     // get already exist file
     std::string file_path;
     st = mgr.get_file(g_file_67890, g_md5_67890, &file_path);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
     std::stringstream expected;
     expected << g_download_path << "/" << g_file_67890 << "." << g_md5_67890;
     ASSERT_EQ(expected.str(), file_path);
@@ -115,7 +115,7 @@ TEST_F(SmallFileMgrTest, test_get_file) {
     // get ready to be downloaded file
     std::string file_path_2;
     st = mgr.get_file(g_file_12345, g_md5_12345, &file_path_2);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
     std::stringstream expected2;
     expected2 << g_download_path << "/" << g_file_12345 << "." << g_md5_12345;
     ASSERT_EQ(expected2.str(), file_path_2);
