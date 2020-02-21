@@ -18,50 +18,65 @@
 namespace cpp doris
 namespace java org.apache.doris.thrift
 
+// NOTE: Each item of StatusCode is explicitly assigned a constant value.
+// The TStatusCode struct is used in all FEs and BEs. In order to be able to
+// avoid errors when identifying status_codes in RPC during upgrading Doris
+// (update and restart the servers one by one), we must ensure that each element
+// always a fixed value.
+//
+// If each element is not explicitly assigned a constant, then the value of
+// each element will be assigned from 0 in turn, which will need us to be very
+// careful when adding and removing elements, to avoid the same element on
+// different machines to be recognized as a different value. i.e., new elements
+// can only be added to the end, and only elements at the end can be deleted.
+// Unfortunately, this implicit constraint is likely to be ignored by
+// programmers when coding, especially those who are new to Doris.
+//
+// NOTE: We use one byte in doris::Status, so the max value is 255.
 enum TStatusCode {
-    OK,
-    CANCELLED,
-    ANALYSIS_ERROR,
-    NOT_IMPLEMENTED_ERROR,
-    RUNTIME_ERROR,
-    MEM_LIMIT_EXCEEDED,
-    INTERNAL_ERROR,
-    THRIFT_RPC_ERROR,
-    TIMEOUT,
-    KUDU_NOT_ENABLED,
-    KUDU_NOT_SUPPORTED_ON_OS,
-    MEM_ALLOC_FAILED,
-    BUFFER_ALLOCATION_FAILED,
-    MINIMUM_RESERVATION_UNAVAILABLE,
-    PUBLISH_TIMEOUT,
-    LABEL_ALREADY_EXISTS,
-    TOO_MANY_TASKS,
-    ES_INTERNAL_ERROR,
-    ES_INDEX_NOT_FOUND,
-    ES_SHARD_NOT_FOUND,
-    ES_INVALID_CONTEXTID,
-    ES_INVALID_OFFSET,
-    ES_REQUEST_ERROR,
+    OK                              = 0,
+    CANCELLED                       = 1,
+    ANALYSIS_ERROR                  = 2,
+    NOT_IMPLEMENTED_ERROR           = 3,
+    RUNTIME_ERROR                   = 4,
+    MEM_LIMIT_EXCEEDED              = 5,
+    INTERNAL_ERROR                  = 6,
+    THRIFT_RPC_ERROR                = 7,
+    TIMEOUT                         = 8,
+    KUDU_NOT_ENABLED                = 9,
+    KUDU_NOT_SUPPORTED_ON_OS        = 10,
+    MEM_ALLOC_FAILED                = 11,
+    BUFFER_ALLOCATION_FAILED        = 12,
+    MINIMUM_RESERVATION_UNAVAILABLE = 13,
+    PUBLISH_TIMEOUT                 = 14,
+    LABEL_ALREADY_EXISTS            = 15,
+    TOO_MANY_TASKS                  = 16,
+    ES_INTERNAL_ERROR               = 17,
+    ES_INDEX_NOT_FOUND              = 18,
+    ES_SHARD_NOT_FOUND              = 19,
+    ES_INVALID_CONTEXTID            = 20,
+    ES_INVALID_OFFSET               = 21,
+    ES_REQUEST_ERROR                = 22,
 
-    // end of file
-    END_OF_FILE = 30,
-    NOT_FOUND = 31,
-    CORRUPTION = 32,
-    INVALID_ARGUMENT = 33,
-    IO_ERROR = 34,
-    ALREADY_EXIST = 35,
-    NETWORK_ERROR = 36,
-    ILLEGAL_STATE = 37,
-    NOT_AUTHORIZED = 38,
-    ABORTED = 39,
-    REMOTE_ERROR = 40,
+    END_OF_FILE         = 30,
+    NOT_FOUND           = 31,
+    CORRUPTION          = 32,
+    INVALID_ARGUMENT    = 33,
+    IO_ERROR            = 34,
+    ALREADY_EXIST       = 35,
+    NETWORK_ERROR       = 36,
+    ILLEGAL_STATE       = 37,
+    NOT_AUTHORIZED      = 38,
+    ABORTED             = 39,
+    REMOTE_ERROR        = 40,
     SERVICE_UNAVAILABLE = 41,
-    UNINITIALIZED = 42,
+    UNINITIALIZED       = 42,
     CONFIGURATION_ERROR = 43,
-    INCOMPLETE = 44
+    INCOMPLETE          = 44
 }
 
 struct TStatus {
   1: required TStatusCode status_code
   2: optional list<string> error_msgs
 }
+
