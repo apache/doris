@@ -17,18 +17,8 @@
 
 #include "exprs/cast_expr.h"
 
-#include "codegen/llvm_codegen.h"
 #include "codegen/codegen_anyval.h"
 #include "runtime/runtime_state.h"
-
-using llvm::BasicBlock;
-using llvm::Constant;
-using llvm::ConstantInt;
-using llvm::Function;
-using llvm::Instruction;
-using llvm::LLVMContext;
-using llvm::PHINode;
-using llvm::Value;
 
 namespace doris {
 
@@ -165,105 +155,4 @@ CAST_FROM_DOUBLE(IntVal, get_int_val)
 CAST_FROM_DOUBLE(BigIntVal, get_big_int_val)
 CAST_FROM_DOUBLE(LargeIntVal, get_large_int_val)
 CAST_FROM_DOUBLE(FloatVal, get_float_val)
-
-// IR codegen for cast expression
-//
-// define i16 @cast(%"class.doris::ExprContext"* %context,
-//                 %"class.doris::TupleRow"* %row) #20 {
-// entry:
-//   %child_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
-//                                             %"class.doris::TupleRow"* %row)
-//   %0 = extractvalue { i8, i64 } %child_val, 0
-//   %child_is_null = trunc i8 %0 to i1
-//   br i1 %child_is_null, label %ret, label %child_not_null
-// 
-// child_not_null:                                     ; preds = %entry
-//   %val = add i64 %2, %3
-//   br label %ret
-//
-// ret:                                              ; preds = %not_null_block, %null_block
-//   %ret3 = phi i1 [ false, %null_block ], [ %4, %not_null_block ]
-//   %5 = zext i1 %ret3 to i16
-//   %6 = shl i16 %5, 8
-//   %7 = or i16 0, %6
-//   ret i16 %7
-// }
-Status CastExpr::codegen_cast_fn(RuntimeState* state, llvm::Function** fn) {
-    LlvmCodeGen* codegen = NULL;
-    RETURN_IF_ERROR(state->get_codegen(&codegen));
-    Function* child_fn = NULL;
-    RETURN_IF_ERROR(_children[0]->get_codegend_compute_fn(state, &child_fn));
-
-    // Function protocol
-    Value* args[2];
-    *fn = create_ir_function_prototype(codegen, "cast", &args);
-    LLVMContext& cg_ctx = codegen->context();
-    LlvmCodeGen::LlvmBuilder builder(cg_ctx);
-
-    // Constant
-    Value* zero = ConstantInt::get(codegen->get_type(TYPE_TINYINT), 0);
-    Value* one = ConstantInt::get(codegen->get_type(TYPE_TINYINT), 1);
-
-    // Block
-    BasicBlock* entry_block = BasicBlock::Create(cg_ctx, "entry", *fn);
-    BasicBlock* child_not_null_block = BasicBlock::Create(cg_ctx, "child_not_null", *fn);
-    BasicBlock* ret_block = BasicBlock::Create(cg_ctx, "ret", *fn);
-
-    // entry block
-    builder.SetInsertPoint(entry_block);
-    CodegenAnyVal child_val = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, _children[0]->type(), child_fn, args, "child_val");
-    // if (v1.is_null) return null;
-    Value* child_is_null = child_val.get_is_null();
-    builder.CreateCondBr(child_is_null, ret_block, child_not_null_block);
-    
-    // child_not_null_block
-    builder.SetInsertPoint(child_not_null_block);
-    Value* val = NULL;
-    Instruction::CastOps cast_op = codegen->get_cast_op(_children[0]->type(), _type);
-    if (cast_op == Instruction::CastOps::CastOpsEnd) {
-        return Status::InternalError("Unknow type");
-    }
-    val = builder.CreateCast(cast_op, child_val.get_val(), codegen->get_type(_type), "val");
-    builder.CreateBr(ret_block);
-
-    // ret_block
-    builder.SetInsertPoint(ret_block);
-    PHINode* is_null_phi = builder.CreatePHI(codegen->tinyint_type(), 2, "is_null_phi");
-    is_null_phi->addIncoming(one, entry_block);
-    is_null_phi->addIncoming(zero, child_not_null_block);
-    PHINode* val_phi = builder.CreatePHI(val->getType(), 2, "val_phi");
-    Value* null = Constant::getNullValue(val->getType());
-    val_phi->addIncoming(null, entry_block);
-    val_phi->addIncoming(val, child_not_null_block);
-
-    CodegenAnyVal result = CodegenAnyVal::get_non_null_val(
-        codegen, &builder, type(), "result");
-    result.set_is_null(is_null_phi);
-    result.set_val(val_phi);
-    builder.CreateRet(result.value());
-
-    *fn = codegen->finalize_function(*fn);
-    return Status::OK();
-}
-
-#define CODEGEN_DEFINE(CLASS) \
-    Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
-        if (_ir_compute_fn != NULL) { \
-            *fn = _ir_compute_fn; \
-            return Status::OK(); \
-        } \
-        RETURN_IF_ERROR(codegen_cast_fn(state, fn)); \
-        _ir_compute_fn = *fn; \
-        return Status::OK(); \
-    }
-
-CODEGEN_DEFINE(CastBooleanExpr);
-CODEGEN_DEFINE(CastTinyIntExpr);
-CODEGEN_DEFINE(CastSmallIntExpr);
-CODEGEN_DEFINE(CastIntExpr);
-CODEGEN_DEFINE(CastBigIntExpr);
-CODEGEN_DEFINE(CastLargeIntExpr);
-CODEGEN_DEFINE(CastFloatExpr);
-CODEGEN_DEFINE(CastDoubleExpr);
 }

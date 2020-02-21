@@ -26,7 +26,6 @@ namespace doris {
 
 using doris_udf::FunctionContext;
 
-class LlvmCodeGen;
 class MemPool;
 class MemTracker;
 class ObjectPool;
@@ -126,17 +125,6 @@ class AggFn : public Expr {
   FunctionContext::TypeDesc GetOutputTypeDesc() const;
   const std::vector<FunctionContext::TypeDesc>& arg_type_descs() const {
     return arg_type_descs_;
-  }
-
-  /// Generates an IR wrapper function to call update_fn_/merge_fn_ which may either be
-  /// cross-compiled or loaded from an external library. The generated IR function is
-  /// returned in 'uda_fn'. Returns error status on failure.
-  /// TODO: implement codegen path for init, finalize, serialize functions etc.
-  Status CodegenUpdateOrMergeFunction(LlvmCodeGen* codegen, llvm::Function** uda_fn)
-      WARN_UNUSED_RESULT;
-
-  Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-      return Status::OK();
   }
 
   /// Releases all cache entries to libCache for all nodes in the expr tree.
