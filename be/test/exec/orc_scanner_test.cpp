@@ -544,6 +544,8 @@ TEST_F(OrcScannerTest, normal3) {
         node.__set_type(TTypeNodeType::SCALAR);
         TScalarType scalar_type;
         scalar_type.__set_type(TPrimitiveType::DECIMAL);
+        scalar_type.__set_precision(64);
+        scalar_type.__set_scale(64);
         node.__set_scalar_type(scalar_type);
         decimal_type.types.push_back(node);
     }
