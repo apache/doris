@@ -80,13 +80,13 @@ Doris中现有的导入方式中，针对百G级别以上的数据的批量导�
         );
 ```
 其中spark.cluster_name为用户导入使用的Spark集群名，可以通过SET PROPERTY来设置，可参考原来Hadoop集群的设置。
+property中的Spark集群设置会覆盖spark.cluster_name中对应的内容。
 各个property的含义如下:
 - spark.master是表示spark集群部署模式，支持包括yarn/standalone/local/k8s，预计先实现yarn的支持，并且使用yarn-cluster模式（yarn-client模式一般用于交互式的场景）。
 - spark.executor.cores: executor的cpu个数
 - spark.executor.memory: executor的内存大小
 - yarn.resourcemanager.address：指定yarn的resourcemanager地址
 - max_filter_ratio：指定最大过滤比例阈值
-property中Spark集群的设置会覆盖spark.cluster_name中的设置。
 
 ##### SparkLoadJob
 
