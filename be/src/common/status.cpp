@@ -40,9 +40,9 @@ const char* Status::_copy_state(const char* state) {
 Status::Status(const TStatus& s) : _state(nullptr) {
     if (s.status_code != TStatusCode::OK) {
         if (s.error_msgs.empty()) {
-            _state = assemble_state(s.status_code, Slice(), -1, Slice());
+            _state = assemble_state(s.status_code, Slice(), 1, Slice());
         } else {
-            _state = assemble_state(s.status_code, s.error_msgs[0], -1, Slice());
+            _state = assemble_state(s.status_code, s.error_msgs[0], 1, Slice());
         }
     }
 }
@@ -51,9 +51,9 @@ Status::Status(const PStatus& s) : _state(nullptr) {
     TStatusCode::type code = (TStatusCode::type)s.status_code();
     if (code != TStatusCode::OK) {
         if (s.error_msgs_size() == 0) {
-            _state = assemble_state(code, Slice(), -1, Slice());
+            _state = assemble_state(code, Slice(), 1, Slice());
         } else {
-            _state = assemble_state(code, s.error_msgs(0), -1, Slice());
+            _state = assemble_state(code, s.error_msgs(0), 1, Slice());
         }
     }
 }
@@ -163,7 +163,7 @@ std::string Status::to_string() const {
     Slice msg = message();
     result.append(reinterpret_cast<const char*>(msg.data), msg.size);
     int16_t posix = precise_code();
-    if (posix != -1) {
+    if (posix != 1) {
         char buf[64];
         snprintf(buf, sizeof(buf), " (error %d)", posix);
         result.append(buf);

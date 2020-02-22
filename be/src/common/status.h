@@ -54,52 +54,52 @@ public:
 
     static Status OK() { return Status(); }
     static Status Cancelled(const Slice& msg,
-                            int16_t precise_code = -1,
+                            int16_t precise_code = 1,
                             const Slice& msg2 = Slice()) {
         return Status(TStatusCode::CANCELLED, msg, precise_code, msg2);
     }
     static Status NotSupported(const Slice& msg,
-                               int16_t precise_code = -1,
+                               int16_t precise_code = 1,
                                const Slice& msg2 = Slice()) {
         return Status(TStatusCode::NOT_IMPLEMENTED_ERROR, msg, precise_code, msg2);
     }
     static Status RuntimeError(const Slice& msg,
-                               int16_t precise_code = -1,
+                               int16_t precise_code = 1,
                                const Slice& msg2 = Slice()) {
         return Status(TStatusCode::RUNTIME_ERROR, msg, precise_code, msg2);
     }
     static Status MemoryLimitExceeded(const Slice& msg,
-                                      int16_t precise_code = -1,
+                                      int16_t precise_code = 1,
                                       const Slice& msg2 = Slice()) {
         return Status(TStatusCode::MEM_LIMIT_EXCEEDED, msg, precise_code, msg2);
     }
     static Status InternalError(const Slice& msg,
-                               int16_t precise_code = -1,
+                               int16_t precise_code = 1,
                                const Slice& msg2 = Slice()) {
         return Status(TStatusCode::INTERNAL_ERROR, msg, precise_code, msg2);
     }
     static Status ThriftRpcError(const Slice& msg,
-                                 int16_t precise_code = -1,
+                                 int16_t precise_code = 1,
                                  const Slice& msg2 = Slice()) {
         return Status(TStatusCode::THRIFT_RPC_ERROR, msg, precise_code, msg2);
     }
     static Status TimedOut(const Slice& msg,
-                           int16_t precise_code = -1,
+                           int16_t precise_code = 1,
                            const Slice& msg2 = Slice()) {
         return Status(TStatusCode::TIMEOUT, msg, precise_code, msg2);
     }
     static Status MemoryAllocFailed(const Slice& msg,
-                                    int16_t precise_code = -1,
+                                    int16_t precise_code = 1,
                                     const Slice& msg2 = Slice()) {
         return Status(TStatusCode::MEM_ALLOC_FAILED, msg, precise_code, msg2);
     }
     static Status BufferAllocFailed(const Slice& msg,
-                                    int16_t precise_code = -1,
+                                    int16_t precise_code = 1,
                                     const Slice& msg2 = Slice()) {
         return Status(TStatusCode::BUFFER_ALLOCATION_FAILED, msg, precise_code, msg2);
     }
     static Status MinimumReservationUnavailable(const Slice& msg,
-                                                int16_t precise_code = -1,
+                                                int16_t precise_code = 1,
                                                 const Slice& msg2 = Slice()) {
         return Status(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, msg, precise_code, msg2);
     }
@@ -109,52 +109,52 @@ public:
         return Status(TStatusCode::PUBLISH_TIMEOUT, msg, precise_code, msg2);
     }
     static Status TooManyTasks(const Slice& msg,
-                               int16_t precise_code = -1,
+                               int16_t precise_code = 1,
                                const Slice& msg2 = Slice()) {
         return Status(TStatusCode::TOO_MANY_TASKS, msg, precise_code, msg2);
     }
     static Status EndOfFile(const Slice& msg,
-                            int16_t precise_code = -1,
+                            int16_t precise_code = 1,
                             const Slice& msg2 = Slice()) {
         return Status(TStatusCode::END_OF_FILE, msg, precise_code, msg2);
     }
     static Status NotFound(const Slice& msg,
-                           int16_t precise_code = -1,
+                           int16_t precise_code = 1,
                            const Slice& msg2 = Slice()) {
         return Status(TStatusCode::NOT_FOUND, msg, precise_code, msg2);
     }
     static Status Corruption(const Slice& msg,
-                             int16_t precise_code = -1,
+                             int16_t precise_code = 1,
                              const Slice& msg2 = Slice()) {
         return Status(TStatusCode::CORRUPTION, msg, precise_code, msg2);
     }
     static Status InvalidArgument(const Slice& msg,
-                                  int16_t precise_code = -1,
+                                  int16_t precise_code = 1,
                                   const Slice& msg2 = Slice()) {
         return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
     }
     static Status IOError(const Slice& msg,
-                          int16_t precise_code = -1,
+                          int16_t precise_code = 1,
                           const Slice& msg2 = Slice()) {
         return Status(TStatusCode::IO_ERROR, msg, precise_code, msg2);
     }
     static Status AlreadyExist(const Slice& msg,
-                               int16_t precise_code = -1,
+                               int16_t precise_code = 1,
                                const Slice& msg2 = Slice()) {
         return Status(TStatusCode::ALREADY_EXIST, msg, precise_code, msg2);
     }
     static Status Aborted(const Slice& msg,
-                          int16_t precise_code = -1,
+                          int16_t precise_code = 1,
                           const Slice& msg2 = Slice()) {
         return Status(TStatusCode::ABORTED, msg, precise_code, msg2);
     }
     static Status ServiceUnavailable(const Slice& msg,
-                                     int16_t precise_code = -1,
+                                     int16_t precise_code = 1,
                                      const Slice& msg2 = Slice()) {
         return Status(TStatusCode::SERVICE_UNAVAILABLE, msg, precise_code, msg2);
     }
     static Status Uninitialized(const Slice& msg,
-                                int16_t precise_code = -1,
+                                int16_t precise_code = 1,
                                 const Slice& msg2 = Slice()) {
         return Status(TStatusCode::UNINITIALIZED, msg, precise_code, msg2);
     }
@@ -256,40 +256,40 @@ private:
 };
 
 // some generally useful macros
-#define RETURN_IF_ERROR(stmt)            \
-    do {                                 \
+#define RETURN_IF_ERROR(stmt) \
+    do { \
         const Status& _status_ = (stmt); \
-        if (UNLIKELY(!_status_.ok())) {  \
-            return _status_;             \
-        }                                \
+        if (UNLIKELY(!_status_.ok())) { \
+            return _status_; \
+        } \
     } while (false)
 
-#define EXIT_IF_ERROR(stmt)                         \
-    do {                                            \
-        const Status& _status_ = (stmt);            \
-        if (UNLIKELY(!_status_.ok())) {             \
-            string msg = _status_.to_string();      \
-            LOG(ERROR) << msg;                      \
-            exit(1);                                \
-        }                                           \
+#define EXIT_IF_ERROR(stmt) \
+    do { \
+        const Status& _status_ = (stmt); \
+        if (UNLIKELY(!_status_.ok())) { \
+            string msg = _status_.to_string(); \
+            LOG(ERROR) << msg; \
+            exit(1); \
+        } \
     } while (false)
 
 /// @brief Emit a warning if @c to_call returns a bad status.
-#define WARN_IF_ERROR(to_call, warning_prefix)                          \
-    do {                                                                \
-        const Status& _s = (to_call);                                   \
-        if (UNLIKELY(!_s.ok())) {                                       \
+#define WARN_IF_ERROR(to_call, warning_prefix) \
+    do { \
+        const Status& _s = (to_call); \
+        if (UNLIKELY(!_s.ok())) { \
             LOG(WARNING) << (warning_prefix) << ": " << _s.to_string(); \
-        }                                                               \
+        } \
     } while (false);
 
-#define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix)              \
-    do {                                                                       \
-        const Status& _s = (stmt);                                             \
-        if (UNLIKELY(!_s.ok())) {                                              \
+#define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix) \
+    do { \
+        const Status& _s = (stmt); \
+        if (UNLIKELY(!_s.ok())) { \
             LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
-            return ret_code;                                                   \
-        }                                                                      \
+            return ret_code; \
+        } \
     } while (false);
 
 } // end namespace doris
