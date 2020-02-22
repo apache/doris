@@ -186,6 +186,7 @@ public class StreamLoadTask {
         partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
         strictMode = routineLoadJob.isStrictMode();
         timezone = routineLoadJob.getTimezone();
+        timeout = (int) routineLoadJob.getMaxBatchIntervalS() * 2;
     }
 
     // used for stream load
