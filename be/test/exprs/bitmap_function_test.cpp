@@ -149,14 +149,20 @@ TEST_F(BitmapFunctionsTest, bitmap_union) {
     StringVal src1 = convert_bitmap_to_string(ctx, bitmap1);
     BitmapFunctions::bitmap_union(ctx, src1, &dst);
 
-    BitmapValue bitmap2;
     StringVal src2 = convert_bitmap_to_string(ctx, bitmap1);
     BitmapFunctions::bitmap_union(ctx, src2, &dst);
+
+    BitmapValue bitmap3(2048);
+    StringVal src3 = convert_bitmap_to_string(ctx, bitmap3);
+    BitmapFunctions::bitmap_union(ctx, src3, &dst);
+
+    StringVal src4 = convert_bitmap_to_string(ctx, bitmap3);
+    BitmapFunctions::bitmap_union(ctx, src4, &dst);
 
     StringVal serialized = BitmapFunctions::bitmap_serialize(ctx, dst);
 
     BigIntVal result = BitmapFunctions::bitmap_count(ctx, serialized);
-    BigIntVal expected(1);
+    BigIntVal expected(2);
     ASSERT_EQ(expected, result);
 }
 

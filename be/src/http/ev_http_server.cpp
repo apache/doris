@@ -70,14 +70,14 @@ static int on_connection(struct evhttp_request* req, void* param) {
 }
 
 EvHttpServer::EvHttpServer(int port, int num_workers)
-        : _host("0.0.0.0"), _port(port), _num_workers(num_workers) {
+        : _host("0.0.0.0"), _port(port), _num_workers(num_workers), _real_port(0) {
     DCHECK_GT(_num_workers, 0);
     auto res = pthread_rwlock_init(&_rw_lock, nullptr);                
     DCHECK_EQ(res, 0);
 }
 
 EvHttpServer::EvHttpServer(const std::string& host, int port, int num_workers)
-        : _host(host), _port(port), _num_workers(num_workers) {
+        : _host(host), _port(port), _num_workers(num_workers), _real_port(0) {
     DCHECK_GT(_num_workers, 0);
     auto res = pthread_rwlock_init(&_rw_lock, nullptr);                
     DCHECK_EQ(res, 0);
@@ -144,6 +144,14 @@ Status EvHttpServer::_bind() {
         ss << "tcp listen failed, errno=" << errno
             << ", errmsg=" << strerror_r(errno, buf, sizeof(buf));
         return Status::InternalError(ss.str());
+    }
+    if (_port == 0) {
+        struct sockaddr_in addr; 
+        socklen_t socklen = sizeof(addr); 
+        const int rc = getsockname(_server_fd, (struct sockaddr *)&addr, &socklen);
+        if (rc == 0) {
+            _real_port = ntohs(addr.sin_port);
+        }
     }
     res = butil::make_non_blocking(_server_fd);
     if (res < 0) {
