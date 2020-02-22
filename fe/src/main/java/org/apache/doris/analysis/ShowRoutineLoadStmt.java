@@ -83,6 +83,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .add("Progress")
                     .add("ReasonOfStateChanged")
                     .add("ErrorLogUrls")
+                    .add("OtherMsg")
                     .build();
 
     private final LabelName labelName;

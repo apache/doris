@@ -172,6 +172,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
 
+    // some other msg which need to show to user;
+    protected String otherMsg = "";
     protected String pauseReason = "";
     protected String cancelReason = "";
 
@@ -313,6 +315,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public long getDbId() {
         return dbId;
+    }
+
+    public void setOtherMsg(String otherMsg) {
+        this.otherMsg = Strings.nullToEmpty(otherMsg);
     }
 
     public String getDbFullName() throws MetaNotFoundException {
@@ -1094,6 +1100,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
                     row.add("");
             }
             row.add(Joiner.on(", ").join(errorLogUrls));
+            row.add(otherMsg);
             return row;
         } finally {
             readUnlock();
