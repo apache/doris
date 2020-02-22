@@ -87,7 +87,6 @@ property中的Spark集群设置会覆盖spark.cluster_name中对应的内容。
 - spark.executor.memory: executor的内存大小
 - yarn.resourcemanager.address：指定yarn的resourcemanager地址
 - max_filter_ratio：指定最大过滤比例阈值
-property中Spark集群的设置会覆盖spark.cluster_name中的设置。
 
 ##### SparkLoadJob
 
