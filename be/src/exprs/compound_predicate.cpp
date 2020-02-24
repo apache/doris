@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "codegen/codegen_anyval.h"
 #include "util/debug_util.h"
 #include "runtime/runtime_state.h"
 
