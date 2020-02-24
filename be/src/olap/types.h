@@ -25,10 +25,13 @@
 #include <sstream>
 #include <string>
 
+#include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
+#include "olap/collection.h"
+#include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_schema.h" // for TabletColumn
 #include "olap/uint24.h"
-#include "olap/decimal12.h"
 #include "runtime/mem_pool.h"
 #include "runtime/datetime_value.h"
 #include "util/hash_util.hpp"
@@ -40,6 +43,37 @@
 namespace doris {
 
 class TypeInfo {
+public:
+    virtual inline bool equal(const void* left, const void* right) const = 0;
+    virtual inline int cmp(const void* left, const void* right) const = 0;
+
+    virtual inline void shallow_copy(void* dest, const void* src) const = 0;
+
+    virtual inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const = 0;
+
+    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
+    // It is same with deep_copy() for all type except for HLL and OBJECT type
+    virtual inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const = 0;
+
+    virtual inline void direct_copy(void* dest, const void* src) const = 0;
+
+    //convert and deep copy value from other type's source
+    virtual OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const = 0;
+
+    virtual OLAPStatus from_string(void* buf, const std::string& scan_key) const = 0;
+
+    virtual std::string to_string(const void* src) const = 0;
+
+    virtual inline void set_to_max(void* buf) const = 0;
+    virtual inline void set_to_min(void* buf) const = 0;
+
+    virtual inline uint32_t hash_code(const void* data, uint32_t seed) const = 0;
+    virtual inline const size_t size() const = 0;
+
+    virtual inline FieldType type() const = 0;
+};
+
+class ScalarTypeInfo : public TypeInfo {
 public:
     inline bool equal(const void* left, const void* right) const {
         return _equal(left, right);
@@ -68,7 +102,7 @@ public:
     }
 
     //convert and deep copy value from other type's source
-    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const{
+    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const {
         return _convert_from(dest, src, src_type, mem_pool);
     }
 
@@ -106,11 +140,56 @@ private:
     const size_t _size;
     const FieldType _field_type;
 
-    friend class TypeInfoResolver;
-    template<typename TypeTraitsClass> TypeInfo(TypeTraitsClass t);
+    friend class ScalarTypeInfoResolver;
+    template<typename TypeTraitsClass> ScalarTypeInfo(TypeTraitsClass t);
 };
 
+// TODO llj 实现
+class ListTypeInfo : public TypeInfo {
+public:
+    ListTypeInfo(TypeInfo* item_type_info) : _item_type_info(item_type_info) {}
+
+    inline bool equal(const void* left, const void* right) const;
+
+    inline int cmp(const void* left, const void* right) const;
+
+    inline void shallow_copy(void* dest, const void* src) const;
+
+    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const;
+
+    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const;
+
+    inline void direct_copy(void* dest, const void* src) const;
+
+    //convert and deep copy value from other type's source
+    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const;
+
+    OLAPStatus from_string(void* buf, const std::string& scan_key) const;
+
+    std::string to_string(const void* src) const;
+
+    inline void set_to_max(void* buf) const;
+    inline void set_to_min(void* buf) const;
+
+    inline uint32_t hash_code(const void* data, uint32_t seed) const;
+    inline const size_t size() const { return sizeof(collection); }
+
+    inline FieldType type() const { return OLAP_FIELD_TYPE_LIST; }
+
+    inline TypeInfo* item_type_info() const { return _item_type_info.get(); }
+private:
+    const TypeInfo* _item_type_info;
+};
+
+extern bool is_scalar_type(FieldType field_type);
+
+extern TypeInfo* get_scalar_type_info(FieldType field_type);
+
 extern TypeInfo* get_type_info(FieldType field_type);
+
+extern TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
+
+extern TypeInfo* get_type_info(const TabletColumn* col);
 
 // support following formats when convert varchar to date
 static const std::vector<std::string> DATE_FORMATS {
@@ -183,6 +262,9 @@ template<> struct CppTypeTraits<OLAP_FIELD_TYPE_HLL> {
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
     using CppType = Slice;
+};
+template<> struct CppTypeTraits<OLAP_FIELD_TYPE_LIST> {
+    using CppType = collection;
 };
 
 template<FieldType field_type>

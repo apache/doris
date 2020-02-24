@@ -35,15 +35,17 @@ public:
     virtual ~BitShufflePageTest() {}
 
     template<FieldType type, class PageDecoderType>
-    void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
+    void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType** ret) {
         MemTracker tracker;
         MemPool pool(&tracker);
-        uint8_t null_bitmap = 0;
-        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, 1, &pool);
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        ColumnVectorBatch::create(1, true, get_scalar_type_info(type), &cvb);
+        ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 
         size_t n = 1;
         decoder->_copy_next_values(n, column_block_view.data());
+        *ret = reinterpret_cast<typename TypeTraits<type>::CppType*>(block.cell_ptr(0));
         ASSERT_EQ(1, n);
     }
 
@@ -76,13 +78,16 @@ public:
         MemPool pool(&tracker);
 
         CppType* values = reinterpret_cast<CppType*>(pool.allocate(size * sizeof(CppType)));
-        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size)));
-        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, size, &pool);
+        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size))); // 根本就不会为空啊，
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        ColumnVectorBatch::create(size, false, get_scalar_type_info(Type), &cvb);
+        ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 
         status = page_decoder.next_batch(&size, &column_block_view);
         ASSERT_TRUE(status.ok());
 
+        CppType* values = reinterpret_cast<CppType*>(block.data());
         CppType* decoded = (CppType*)values;
         for (uint i = 0; i < size; i++) {
             if (src[i] != decoded[i]) {
@@ -96,9 +101,9 @@ public:
             int seek_off = random() % size;
             page_decoder.seek_to_position_in_page(seek_off);
             EXPECT_EQ((int32_t )(seek_off), page_decoder.current_index());
-            CppType ret;
+            CppType* ret;
             copy_one<Type, PageDecoderType>(&page_decoder, &ret);
-            EXPECT_EQ(decoded[seek_off], ret);
+            EXPECT_EQ(decoded[seek_off], *ret);
         }
     }
 

@@ -105,6 +105,12 @@ message ColumnMetaPB {
     // bloom filter index
     optional BloomFilterIndexPB bloom_filter_index = 13;
 
+    repeated ColumnMetaPB children_columns = 14;
+    repeated string children_clolumn_names = 15;
+
+    // required
+    optional uint64 orinal = 16;
+
     // // bloom filter pages for bloom filter column
     // repeated PagePointerPB bloom_filter_pages = 3;
 

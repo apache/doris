@@ -81,12 +81,12 @@ public:
     ~ColumnReader();
 
     // create a new column iterator. Client should delete returned iterator
-    Status new_iterator(ColumnIterator** iterator);
+    virtual Status new_iterator(ColumnIterator** iterator);
     // Client should delete returned iterator
     Status new_bitmap_index_iterator(BitmapIndexIterator** iterator);
 
     // Seek to the first entry in the column.
-    Status seek_to_first(OrdinalPageIndexIterator* iter);
+    virtual Status seek_to_first(OrdinalPageIndexIterator* iter);
     Status seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* iter);
 
     // read a page from file into a page handle
@@ -126,12 +126,24 @@ public:
 
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
-private:
+    // do not call this method in classes other than subclasses of ColumnReader and ColumnReader
+    virtual Status init();
+
+protected:
     ColumnReader(const ColumnReaderOptions& opts,
                  const ColumnMetaPB& meta,
                  uint64_t num_rows,
                  const std::string& file_name);
-    Status init();
+
+
+protected:
+    ColumnMetaPB _meta;
+    const TypeInfo* _type_info = nullptr; // initialized in init()
+    const EncodingInfo* _encoding_info = nullptr; // initialized in init(), used for create PageDecoder
+
+    const BlockCompressionCodec* _compress_codec = nullptr; // initialized in init()
+
+private:
 
     // Read and load necessary column indexes into memory if it hasn't been loaded.
     // May be called multiple times, subsequent calls will no op.
@@ -159,20 +171,32 @@ private:
 
 private:
     ColumnReaderOptions _opts;
-    ColumnMetaPB _meta;
     uint64_t _num_rows;
     std::string _file_name;
-
-    // initialized in init()
-    const TypeInfo* _type_info = nullptr;
-    const EncodingInfo* _encoding_info = nullptr;
-    const BlockCompressionCodec* _compress_codec = nullptr;
 
     DorisCallOnce<Status> _load_index_once;
     std::unique_ptr<ColumnZoneMap> _column_zone_map;
     std::unique_ptr<OrdinalPageIndex> _ordinal_index;
     std::unique_ptr<BitmapIndexReader> _bitmap_index_reader;
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index_reader;
+};
+
+class ListColumnReader : public ColumnReader {
+public:
+    ListColumnReader(const ColumnReaderOptions& opts,
+                     const ColumnMetaPB& meta,
+                     uint64_t num_rows,
+                     const std::string& file_name, std::unique_ptr<ColumnReader> item_reader)
+                     : ColumnReader(opts, meta, num_rows, file_name), _item_reader(std::move(item_reader)) {}
+
+    Status new_iterator(ColumnIterator** iterator) override;
+protected:
+    Status init() override ;
+
+private:
+    std::unique_ptr<ColumnReader> _item_reader;
+
+    friend class ColumnReader;
 };
 
 // Base iterator to read one column data
@@ -238,7 +262,7 @@ public:
     FileColumnIterator(ColumnReader* reader);
     ~FileColumnIterator() override;
 
-    Status init(const ColumnIteratorOptions& opts) override {
+    virtual Status init(const ColumnIteratorOptions& opts) override {
         RETURN_IF_ERROR(ColumnIterator::init(opts));
         DCHECK(_opts.file != nullptr);
         _file = _opts.file;
@@ -249,7 +273,7 @@ public:
 
     Status seek_to_ordinal(rowid_t ord_idx) override;
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override;
+    virtual Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
     rowid_t get_current_ordinal() const override { return _current_rowid; }
 
@@ -262,19 +286,29 @@ public:
 
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) override;
 
-private:
-    void _seek_to_pos_in_page(ParsedPage* page, uint32_t offset_in_page);
+protected:
     Status _load_next_page(bool* eos);
-    Status _read_page(const OrdinalPageIndexIterator& iter, ParsedPage* page);
 
-private:
-    ColumnReader* _reader;
-
+protected:
     // 1. The _page represents current page.
     // 2. We define an operation is one seek and following read,
     //    If new seek is issued, the _page will be reset.
     // 3. When _page is null, it means that this reader can not be read.
     std::unique_ptr<ParsedPage> _page;
+
+    // page indexes those are DEL_PARTIAL_SATISFIED
+    std::vector<uint32_t> _delete_partial_statisfied_pages;
+
+    ColumnReader* _reader;
+
+    // current rowid
+    rowid_t _current_rowid = 0;
+
+private:
+    void _seek_to_pos_in_page(ParsedPage* page, uint32_t offset_in_page);
+    Status _read_page(const OrdinalPageIndexIterator& iter, ParsedPage* page);
+
+private:
 
     // keep dict page decoder
     std::unique_ptr<PageDecoder> _dict_decoder;
@@ -286,23 +320,32 @@ private:
     // This value will be reset when a new seek is issued
     OrdinalPageIndexIterator _page_iter;
 
-    // current rowid
-    rowid_t _current_rowid = 0;
-
-    // page indexes those are DEL_PARTIAL_SATISFIED
-    std::vector<uint32_t> _delete_partial_statisfied_pages;
-
     RandomAccessFile* _file;
+};
+
+class ListFileColumnIterator : public FileColumnIterator {
+public:
+    explicit ListFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader);
+
+    ~ListFileColumnIterator() override;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status next_batch(size_t* n, ColumnBlockView* dst) override;
+
+private:
+    std::unique_ptr<ColumnIterator> _item_iterator;
+    std::unique_ptr<ColumnVectorBatch> _offset_batch;
 };
 
 // This iterator is used to read default value column
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-            bool is_nullable, FieldType type, size_t schema_length) : _has_default_value(has_default_value),
+            bool is_nullable, TypeInfo* type_info, size_t schema_length) : _has_default_value(has_default_value),
                                                 _default_value(default_value),
                                                 _is_nullable(is_nullable),
-                                                _type(type),
+                                                _type_info(type_info),
                                                 _schema_length(schema_length),
                                                 _is_default_value_null(false),
                                                 _type_size(0),
@@ -328,7 +371,7 @@ private:
     bool _has_default_value;
     std::string _default_value;
     bool _is_nullable;
-    FieldType _type;
+    TypeInfo* _type_info;
     size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;

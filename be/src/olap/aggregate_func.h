@@ -95,7 +95,8 @@ struct BaseAggregateFuncs {
             return;
         }
 
-        const TypeInfo* _type_info = get_type_info(field_type);
+        // TODO: support complex type.
+        const TypeInfo* _type_info = get_scalar_type_info(field_type);
         _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
     }
 

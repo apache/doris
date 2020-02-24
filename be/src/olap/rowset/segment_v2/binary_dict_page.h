@@ -28,6 +28,7 @@
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/column_block.h"
+#include "olap/column_vector.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 #include "gen_cpp/segment_v2.pb.h"
@@ -126,7 +127,8 @@ private:
     const BinaryPlainPageDecoder* _dict_decoder = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
-    faststring _code_buf;
+    // use as data buf.
+    std::unique_ptr<ColumnVectorBatch> _batch;
 };
 
 } // namespace segment_v2

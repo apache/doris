@@ -47,7 +47,7 @@ public:
                                const BloomFilterIndexPB& bloom_filter_index_meta)
         : _file_name(file_name),
           _bloom_filter_index_meta(bloom_filter_index_meta) {
-        _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
+        _typeinfo = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 
     Status load(bool cache_in_memory);

@@ -35,7 +35,8 @@ namespace segment_v2 {
 using strings::Substitute;
 
 Status IndexedColumnReader::load() {
-    _type_info = get_type_info((FieldType)_meta.data_type());
+    // IndexColumn just support scalar type.
+    _type_info = get_scalar_type_info((FieldType)_meta.data_type());
     if (_type_info == nullptr) {
         return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", _meta.data_type()));
     }

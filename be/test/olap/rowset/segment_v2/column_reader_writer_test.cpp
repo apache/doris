@@ -67,7 +67,7 @@ template<FieldType type, EncodingTypePB encoding>
 void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
     using Type = typename TypeTraits<type>::CppType;
     Type* src = (Type*)src_data;
-    const TypeInfo* type_info = get_type_info(type);
+    const TypeInfo* type_info = get_scalar_type_info(type);
 
     ColumnMetaPB meta;
 
@@ -90,26 +90,27 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             column = create_char_key(1);
         }
         std::unique_ptr<Field> field(FieldFactory::create(column));
-        ColumnWriter writer(writer_opts, std::move(field), true, wfile.get());
-        st = writer.init();
+        std::unique_ptr<ColumnWriter> writer;
+        ColumnWriter::create(writer_opts, std::move(field), true, wfile.get(), &writer);
+        st = writer->init();
         ASSERT_TRUE(st.ok()) << st.to_string();
 
         for (int i = 0; i < num_rows; ++i) {
-            st = writer.append(BitmapTest(src_is_null, i), src + i);
+            st = writer->append(BitmapTest(src_is_null, i), src + i);
             ASSERT_TRUE(st.ok());
         }
 
-        st = writer.finish();
+        st = writer->finish();
         ASSERT_TRUE(st.ok());
 
-        st = writer.write_data();
+        st = writer->write_data();
         ASSERT_TRUE(st.ok());
-        st = writer.write_ordinal_index();
+        st = writer->write_ordinal_index();
         ASSERT_TRUE(st.ok());
-        st = writer.write_zone_map();
+        st = writer->write_zone_map();
         ASSERT_TRUE(st.ok());
 
-        writer.write_meta(&meta);
+        writer->write_meta(&meta);
         ASSERT_TRUE(meta.has_zone_map_page());
 
         // close the file
@@ -142,10 +143,9 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
 
             MemTracker tracker;
             MemPool pool(&tracker);
-            Type vals[1024];
-            Type* vals_ = vals;
-            uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
+            std::unique_ptr<ColumnVectorBatch> cvb;
+            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnBlock col(cvb.get(), &pool);
 
             int idx = 0;
             while (true) {
@@ -154,15 +154,14 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
                 st = iter->next_batch(&rows_read, &dst);
                 ASSERT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
-                    ASSERT_EQ(BitmapTest(src_is_null, idx), BitmapTest(is_null, j));
-                    if (!BitmapTest(is_null, j)) {
+                    ASSERT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
+                    if (!col.is_null(j)) {
                         if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
                             Slice* src_slice = (Slice*)src_data;
-                            Slice* dst_slice = (Slice*)vals_;
                             ASSERT_EQ(src_slice[idx].to_string(),
-                                      dst_slice[j].to_string()) << "j:" << j;
+                                    reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string()) << "j:" << j;
                         } else {
-                            ASSERT_EQ(src[idx], vals[j]);
+                            ASSERT_EQ(src[idx], *reinterpret_cast<const Type*>(col.cell_ptr(j)));
                         }
                     }
                     idx++;
@@ -176,9 +175,9 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         {
             MemTracker tracker;
             MemPool pool(&tracker);
-            Type vals[1024];
-            uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
+            std::unique_ptr<ColumnVectorBatch> cvb;
+            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnBlock col(cvb.get(), &pool);
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
                 st = iter->seek_to_ordinal(rowid);
@@ -194,10 +193,10 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
                     if (!BitmapTest(is_null, j)) {
                         if (type == OLAP_FIELD_TYPE_VARCHAR || type == OLAP_FIELD_TYPE_CHAR) {
                             Slice* src_slice = (Slice*)src_data;
-                            Slice* dst_slice = (Slice*)vals;
-                            ASSERT_EQ(src_slice[idx].to_string(), dst_slice[j].to_string());
+                            ASSERT_EQ(src_slice[idx].to_string(),
+                                    reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
                         } else {
-                            ASSERT_EQ(src[idx], vals[j]);
+                            ASSERT_EQ(src[idx], *reinterpret_cast<const Type*>(col.cell_ptr(j)));
                         }
                     }
                     idx++;
@@ -210,82 +209,82 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
 }
 
 template<FieldType type>
-void test_read_default_value(string value, void* result) {
-    using Type = typename TypeTraits<type>::CppType;
-    const TypeInfo* type_info = get_type_info(type);
-    // read and check
-    {
-        TabletColumn tablet_column = create_with_default_value<type>(value);
-        DefaultValueColumnIterator iter(tablet_column.has_default_value(),
-                                        tablet_column.default_value(),
-                                        tablet_column.is_nullable(),
-                                        tablet_column.type(),
-                                        tablet_column.length());
-        ColumnIteratorOptions iter_opts;
-        auto st = iter.init(iter_opts);
-        ASSERT_TRUE(st.ok());
-        // sequence read
+void test_read_default_value(std::string value, void* result) {
+        using Type = typename TypeTraits<type>::CppType;
+        const TypeInfo* type_info = get_scalar_type_info(type);
+        // read and check
         {
-            st = iter.seek_to_first();
-            ASSERT_TRUE(st.ok()) << st.to_string();
-
-            MemTracker tracker;
-            MemPool pool(&tracker);
-            Type vals[1024];
-            Type* vals_ = vals;
-            uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
-
-            int idx = 0;
-            size_t rows_read = 1024;
-            ColumnBlockView dst(&col);
-            st = iter.next_batch(&rows_read, &dst);
+            TabletColumn tablet_column = create_with_default_value<type>(value);
+            TypeInfo* t = get_type_info(&tablet_column);
+            DefaultValueColumnIterator iter(tablet_column.has_default_value(),
+                                                   tablet_column.default_value(),
+                                                   tablet_column.is_nullable(),
+                                                   t,
+                                                   tablet_column.length());
+            ColumnIteratorOptions iter_opts;
+            auto st = iter.init(iter_opts);
             ASSERT_TRUE(st.ok());
-            for (int j = 0; j < rows_read; ++j) {
-                if (type == OLAP_FIELD_TYPE_CHAR) {
-                    Slice* dst_slice = (Slice*)vals_;
-                    ASSERT_EQ(*(string*)result, dst_slice[j].to_string()) << "j:" << j;
-                } else if (type == OLAP_FIELD_TYPE_VARCHAR
-                        || type == OLAP_FIELD_TYPE_HLL
-                        || type == OLAP_FIELD_TYPE_OBJECT) {
-                    Slice* dst_slice = (Slice*)vals_;
-                    ASSERT_EQ(value, dst_slice[j].to_string()) << "j:" << j;
-                } else {
-                    ASSERT_EQ(*(Type*)result, vals[j]);
-                }
-                idx++;
-            }
-        }
+            // sequence read
+            {
+                st = iter.seek_to_first();
+                ASSERT_TRUE(st.ok()) << st.to_string();
 
-        {
-            MemTracker tracker;
-            MemPool pool(&tracker);
-            Type vals[1024];
-            uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
+                MemTracker tracker;
+                MemPool pool(&tracker);
+                std::unique_ptr<ColumnVectorBatch> cvb;
+                ColumnVectorBatch::create(1024, true, type_info, &cvb);
+                ColumnBlock col(cvb.get(), &pool);
 
-            for (int rowid = 0; rowid < 2048; rowid += 128) {
-                st = iter.seek_to_ordinal(rowid);
-                ASSERT_TRUE(st.ok());
-
-                int idx = rowid;
+                int idx = 0;
                 size_t rows_read = 1024;
                 ColumnBlockView dst(&col);
                 st = iter.next_batch(&rows_read, &dst);
                 ASSERT_TRUE(st.ok());
                 for (int j = 0; j < rows_read; ++j) {
                     if (type == OLAP_FIELD_TYPE_CHAR) {
-                        Slice* dst_slice = (Slice*)vals;
-                        ASSERT_EQ(*(string*)result, dst_slice[j].to_string()) << "j:" << j;
+                        ASSERT_EQ(*(std::string*)result,
+                                reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string()) << "j:" << j;
                     } else if (type == OLAP_FIELD_TYPE_VARCHAR
                             || type == OLAP_FIELD_TYPE_HLL
                             || type == OLAP_FIELD_TYPE_OBJECT) {
-                        Slice* dst_slice = (Slice*)vals;
-                        ASSERT_EQ(value, dst_slice[j].to_string());
+                        ASSERT_EQ(value,
+                                reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string()) << "j:" << j;
                     } else {
-                        ASSERT_EQ(*(Type*)result, vals[j]);
+                        ASSERT_EQ(*(Type*)result, *reinterpret_cast<const Type*>(col.cell_ptr(j)));
                     }
                     idx++;
+                }
+            }
+
+            {
+                MemTracker tracker;
+                MemPool pool(&tracker);
+                std::unique_ptr<ColumnVectorBatch> cvb;
+                ColumnVectorBatch::create(1024, true, type_info, &cvb);
+                ColumnBlock col(cvb.get(), &pool);
+
+                for (int rowid = 0; rowid < 2048; rowid += 128) {
+                    st = iter.seek_to_ordinal(rowid);
+                    ASSERT_TRUE(st.ok());
+
+                    int idx = rowid; // ??
+                    size_t rows_read = 1024;
+                    ColumnBlockView dst(&col);
+                    st = iter.next_batch(&rows_read, &dst);
+                    ASSERT_TRUE(st.ok());
+                    for (int j = 0; j < rows_read; ++j) {
+                        if (type == OLAP_FIELD_TYPE_CHAR) {
+                            ASSERT_EQ(*(std::string*)result,
+                                    reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string()) << "j:" << j;
+                        } else if (type == OLAP_FIELD_TYPE_VARCHAR
+                           || type == OLAP_FIELD_TYPE_HLL
+                           || type == OLAP_FIELD_TYPE_OBJECT) {
+                            ASSERT_EQ(value, reinterpret_cast<const Slice*>(col.cell_ptr(j))->to_string());
+                        } else {
+                            ASSERT_EQ(*(Type*)result, *reinterpret_cast<const Type*>(col.cell_ptr(j)));
+                        }
+                        idx++;
+                    }
                 }
             }
         }

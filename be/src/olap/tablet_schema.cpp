@@ -308,6 +308,14 @@ OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
     }
+
+    if (_type == FieldType::OLAP_FIELD_TYPE_LIST) {
+        DCHECK(column.children_columns_size() == 1) << "LIST type has more than 1 children types.";
+        std::unique_ptr<TabletColumn> child_column = std::unique_ptr<TabletColumn>(new TabletColumn());
+        child_column->init_from_pb(column.children_columns(0));
+        add_sub_column(std::move(child_column));
+    }
+
     return OLAP_SUCCESS;
 }
 
@@ -336,6 +344,16 @@ OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
     if (_has_bitmap_index) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus TabletColumn::add_sub_column(std::unique_ptr<TabletColumn> sub_column) {
+    TabletColumn* child = dynamic_cast<TabletColumn*>(sub_column.get());
+    _sub_columns.push_back(std::move(sub_column));
+    if (child != nullptr) {
+        child->_parent = this;
+    }
+    _sub_column_count += 1;
     return OLAP_SUCCESS;
 }
 

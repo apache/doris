@@ -59,7 +59,8 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         ColumnWriterOptions opts;
         opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
         // now we create zone map for key columns
-        if (column.is_key()) {
+
+        if (column.is_key() && is_scalar_type(column.type())) {
             opts.need_zone_map = true;
         }
         if (column.is_bf_column()) {
@@ -85,9 +86,8 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
             }
         }
 
-        std::unique_ptr<Field> field(FieldFactory::create(column));
-        DCHECK(field.get() != nullptr);
-        std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, std::move(field), is_nullable, _output_file.get()));
+        std::unique_ptr<ColumnWriter> writer;
+        RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _output_file.get(), &writer));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
     }

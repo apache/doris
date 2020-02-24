@@ -51,6 +51,26 @@ public:
     FieldAggregationMethod aggregation() const { return _aggregation; }
     int precision() const { return _precision; }
     int frac() const { return _frac; }
+    /**
+     * Add a sub column.
+     */
+    OLAPStatus add_sub_column(std::unique_ptr<TabletColumn> tablet_column);
+
+    OLAPStatus add_struct_field(const std::string& field_name, std::unique_ptr<TabletColumn> tablet_column) {
+        RETURN_NOT_OK(add_sub_column(std::move(tablet_column)));
+        _field_names.push_back(field_name);
+        return OLAP_SUCCESS;
+    }
+    uint32_t get_subtype_count() const {
+        return _sub_column_count;
+    }
+    const TabletColumn* get_sub_column(uint32_t i) const {
+        return _sub_columns[i].get();
+    }
+
+    const std::string& get_field_name(uint32_t i) {
+        return _field_names[i];
+    }
 
     static std::string get_string_by_field_type(FieldType type);
     static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
@@ -83,6 +103,12 @@ private:
     std::string _referenced_column;
 
     bool _has_bitmap_index = false;
+
+    TabletColumn* _parent = nullptr;
+    std::vector<std::unique_ptr<TabletColumn>> _sub_columns;
+    std::vector<std::string> _field_names;
+    uint32_t _sub_column_count = 0;
+
 };
 
 class TabletSchema {

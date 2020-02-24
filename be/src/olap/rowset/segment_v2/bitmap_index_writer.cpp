@@ -138,7 +138,7 @@ public:
                 bitmap_sizes.push_back(bitmap_size);
             }
 
-            const TypeInfo* bitmap_typeinfo = get_type_info(OLAP_FIELD_TYPE_OBJECT);
+            const TypeInfo* bitmap_typeinfo = get_scalar_type_info(OLAP_FIELD_TYPE_OBJECT);
 
             IndexedColumnWriterOptions options;
             options.write_ordinal_index = true;

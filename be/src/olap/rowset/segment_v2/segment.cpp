@@ -83,7 +83,8 @@ Status Segment::new_iterator(const Schema& schema,
                 return Status::OK();
             }
             // TODO Logic here and the similar logic in ColumnReader::_get_filtered_pages should be unified.
-            TypeInfo* type_info = get_type_info((FieldType)c_meta.type());
+            // Now just scalar type has zone map.
+            TypeInfo* type_info = get_scalar_type_info((FieldType)c_meta.type());
             if (type_info == nullptr) {
                 return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", c_meta.type()));
             }
@@ -210,11 +211,12 @@ Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
         if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }
+        TypeInfo* type_info = get_type_info(&tablet_column);
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
                 new DefaultValueColumnIterator(tablet_column.has_default_value(),
                 tablet_column.default_value(),
                 tablet_column.is_nullable(),
-                tablet_column.type(),
+                type_info,
                 tablet_column.length()));
         ColumnIteratorOptions iter_opts;
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));

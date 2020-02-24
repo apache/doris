@@ -49,7 +49,7 @@ template<FieldType type>
 void wirte_index_file(std::string& file_name, const void* values,
                       size_t value_count, size_t null_count,
                       BitmapIndexColumnPB* bitmap_index_meta) {
-    const TypeInfo* type_info = get_type_info(type);
+    const TypeInfo* type_info = get_scalar_type_info(type);
     FileUtils::create_dir(dname);
     std::string fname = dname + "/" + file_name;
     {

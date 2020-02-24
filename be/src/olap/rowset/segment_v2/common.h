@@ -26,6 +26,7 @@ namespace doris {
 namespace segment_v2 {
 
 using rowid_t = uint32_t;
+using ordinal_t = uint64_t;
 
 } // namespace segment_v2
 } // namespace doris

@@ -164,7 +164,7 @@ TEST_F(SegmentReaderWriterTest, normal) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        ASSERT_FALSE(column_block.is_null(i));
                         ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
                     }
                 }
@@ -476,7 +476,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        ASSERT_FALSE(column_block.is_null(i));
                         ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i)) << "rid:" << rid << ", i:" << i;
                     }
                 }
@@ -535,7 +535,7 @@ TEST_F(SegmentReaderWriterTest, TestIndex) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        ASSERT_FALSE(column_block.is_null(i));
                         ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i)) << "rid:" << rid << ", i:" << i;
                     }
                 }
@@ -668,9 +668,9 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
                         if (cid == 4) {
-                            ASSERT_TRUE(BitmapTest(column_block.null_bitmap(), i));
+                            ASSERT_TRUE(column_block.is_null(i));
                         } else {
-                            ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                            ASSERT_FALSE(column_block.is_null(i));
                             ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
                         }
                     }
@@ -716,10 +716,10 @@ TEST_F(SegmentReaderWriterTest, TestDefaultValueColumn) {
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
                         if (cid == 4) {
-                            ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                            ASSERT_FALSE(column_block.is_null(i));
                             ASSERT_EQ(10086, *(int*)column_block.cell_ptr(i));
                         } else {
-                            ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                            ASSERT_FALSE(column_block.is_null(i));
                             ASSERT_EQ(rid * 10 + cid, *(int*)column_block.cell_ptr(i));
                         }
                     }
@@ -814,7 +814,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        ASSERT_FALSE(column_block.is_null(i));
                         const Slice* actual = reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
 
                         Slice expect;
@@ -916,7 +916,7 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
                     auto column_block = block.column_block(j);
                     for (int i = 0; i < rows_read; ++i) {
                         int rid = rowid + i;
-                        ASSERT_FALSE(BitmapTest(column_block.null_bitmap(), i));
+                        ASSERT_FALSE(column_block.is_null(i));
 
                         const Slice* actual = reinterpret_cast<const Slice*>(column_block.cell_ptr(i));
                         Slice expect;

@@ -22,6 +22,7 @@
 #include "common/status.h" // for Status
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
 #include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMapBuilder
+#include "olap/collection.h"
 #include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "util/bitmap.h" // for BitmapChange
@@ -60,13 +61,20 @@ class BloomFilterIndexWriter;
 // to file
 class ColumnWriter {
 public:
-    ColumnWriter(const ColumnWriterOptions& opts,
-                 std::unique_ptr<Field> field,
-                 bool is_nullable,
-                 WritableFile* output_file);
+    static Status create(const ColumnWriterOptions& opts,
+                         std::unique_ptr<Field> field,
+                         bool is_nullable,
+                         WritableFile* output_file,
+                         std::unique_ptr<ColumnWriter>* writer);
+
+    static Status create(const ColumnWriterOptions& opts,
+                         const TabletColumn* column,
+                         WritableFile* output_file,
+                         std::unique_ptr<ColumnWriter>* writer);
+
     ~ColumnWriter();
 
-    Status init();
+    virtual Status init();
 
     template<typename CellType>
     Status append(const CellType& cell) {
@@ -90,21 +98,58 @@ public:
     Status append_nulls(size_t num_rows);
     Status append(const void* data, size_t num_rows);
     Status append_nullable(const uint8_t* nullmap, const void* data, size_t num_rows);
+    Status append_nullable_by_null_signs(const bool* null_signs, const void* data, size_t num_rows) {
+        const auto* ptr = (const uint8_t*)data;
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (null_signs[i]) {
+                RETURN_IF_ERROR(append_nulls(1));
+            } else {
+                RETURN_IF_ERROR(append(ptr, 1));
+            }
+            ptr += _field->size();
+        }
+    }
 
-    uint64_t estimate_buffer_size();
+    virtual uint64_t estimate_buffer_size();
 
     // finish append data
-    Status finish();
+    virtual Status finish();
 
     // write all data into file
-    Status write_data();
-    Status write_ordinal_index();
+    virtual Status write_data();
+    virtual Status write_ordinal_index();
     Status write_zone_map();
     Status write_bitmap_index();
     Status write_bloom_filter_index();
-    void write_meta(ColumnMetaPB* meta);
+    virtual void write_meta(ColumnMetaPB* meta);
+
+protected:
+    ColumnWriter(const ColumnWriterOptions& opts,
+                 std::unique_ptr<Field> field,
+                 bool is_nullable,
+                 WritableFile* output_file);
+    // used in init() for create page builder.
+    virtual Status create_page_builder(const EncodingInfo* encoding_info, PageBuilder** page_builder);
+
+    // used for append not null data.
+    virtual Status _append_data(const uint8_t** ptr, size_t num_rows);
+
+    Status _finish_current_page();
+
+    virtual Status put_page_footer_info(faststring* header) {};
+
+    std::unique_ptr<PageBuilder> _page_builder;
+
+    std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
+
+    ColumnWriterOptions _opts;
+
+    bool _is_nullable;
+
+    rowid_t _next_rowid = 0;
 
 private:
+
     // All Pages will be organized into a linked list
     struct Page {
         int32_t first_rowid;
@@ -137,8 +182,6 @@ private:
         }
     }
 
-    Status _append_data(const uint8_t** ptr, size_t num_rows);
-    Status _finish_current_page();
     Status _write_raw_data(const std::vector<Slice>& data, size_t* bytes_written);
 
     Status _write_data_page(Page* page);
@@ -146,20 +189,15 @@ private:
     Status _write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp);
 
 private:
-    ColumnWriterOptions _opts;
-    bool _is_nullable;
     WritableFile* _output_file = nullptr;
 
     // cached generated pages,
     PageHead _pages;
     rowid_t _last_first_rowid = 0;
-    rowid_t _next_rowid = 0;
 
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
 
-    std::unique_ptr<PageBuilder> _page_builder;
-    std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
     std::unique_ptr<OrdinalPageIndexBuilder> _ordinal_index_builder;
     std::unique_ptr<ColumnZoneMapBuilder> _column_zone_map_builder;
     std::unique_ptr<Field> _field;
@@ -176,6 +214,36 @@ private:
     uint64_t _written_size = 0;
 };
 
+class ListColumnWriter : public ColumnWriter {
+    ~ListColumnWriter();
 
-}
-}
+    Status init() override ;
+
+protected:
+    // used in init() for create page builder.
+    Status create_page_builder(const EncodingInfo* encoding_info, PageBuilder** page_builder) override;
+
+    Status _append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    Status put_page_footer_info(faststring* header) override;
+
+    uint64_t estimate_buffer_size() override ;
+    Status finish() override ;
+    Status write_data() override ;
+    Status write_ordinal_index() override ;
+    void write_meta(ColumnMetaPB* meta) override;
+
+private:
+    ListColumnWriter(const ColumnWriterOptions& opts,
+                     std::unique_ptr<Field> field,
+                     bool is_nullable,
+                     WritableFile* output_file,
+                     unique_ptr<ColumnWriter> _item_writer);
+
+    unique_ptr<ColumnWriter> _item_writer;
+    ordinal_t _next_item_ordinal = 0;
+
+    friend class ColumnWriter;
+};
+}  // namespace segment_v2
+}  // namespace doris

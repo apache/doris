@@ -41,7 +41,7 @@ namespace doris {
 class Field {
 public:
     explicit Field(const TabletColumn& column)
-        : _type_info(get_type_info(column.type())),
+        : _type_info(get_type_info(&column)),
         _key_coder(get_key_coder(column.type())),
         _index_size(column.index_length()),
         _is_nullable(column.is_nullable()),
