@@ -41,9 +41,6 @@ protected:
 
     ArithmeticExpr(const TExprNode& node) : Expr(node) { }
     virtual ~ArithmeticExpr() { }
-
-    Status codegen_binary_op(
-        RuntimeState* state, llvm::Function** fn, BinaryOpType op_type);
 };
 
 class AddExpr : public ArithmeticExpr {
@@ -53,7 +50,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new AddExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -70,7 +66,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new SubExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -87,7 +82,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new MulExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -104,7 +98,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new DivExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -121,7 +114,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new ModExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -138,7 +130,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new BitAndExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -153,7 +144,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new BitOrExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -168,7 +158,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new BitXorExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
@@ -183,7 +172,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new BitNotExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
     virtual IntVal get_int_val(ExprContext* context, TupleRow*);
