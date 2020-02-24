@@ -21,10 +21,6 @@
 #include <ios>
 #include <sstream>
 
-#include <llvm/ExecutionEngine/ExecutionEngine.h>
-#include <llvm/IR/DataLayout.h>
-
-#include "codegen/llvm_codegen.h"
 #include "common/object_pool.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/descriptors.pb.h"
@@ -58,10 +54,7 @@ SlotDescriptor::SlotDescriptor(const TSlotDescriptor& tdesc)
       _slot_idx(tdesc.slotIdx),
       _slot_size(_type.get_slot_size()),
       _field_idx(-1),
-      _is_materialized(tdesc.isMaterialized),
-      _is_null_fn(NULL),
-      _set_not_null_fn(NULL),
-      _set_null_fn(NULL) {
+      _is_materialized(tdesc.isMaterialized) {
 }
 
 SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
@@ -75,10 +68,7 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
         _slot_idx(pdesc.slot_idx()),
         _slot_size(_type.get_slot_size()),
         _field_idx(-1),
-        _is_materialized(pdesc.is_materialized()),
-        _is_null_fn(NULL),
-        _set_not_null_fn(NULL),
-        _set_null_fn(NULL) {
+        _is_materialized(pdesc.is_materialized()) {
 }
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
@@ -208,8 +198,7 @@ TupleDescriptor::TupleDescriptor(const TTupleDescriptor& tdesc) :
         _num_null_bytes(tdesc.numNullBytes),
         _num_materialized_slots(0),
         _slots(),
-        _has_varlen_slots(false),
-        _llvm_struct(NULL) {
+        _has_varlen_slots(false) {
       if (false == tdesc.__isset.numNullSlots) {
         //be compatible for existing tables with no NULL value
         _num_null_slots = 0;
@@ -225,8 +214,7 @@ TupleDescriptor::TupleDescriptor(const PTupleDescriptor& pdesc)
         _num_null_bytes(pdesc.num_null_bytes()),
         _num_materialized_slots(0),
         _slots(),
-        _has_varlen_slots(false),
-        _llvm_struct(NULL) {
+        _has_varlen_slots(false) {
     if (!pdesc.has_num_null_slots()) {
         //be compatible for existing tables with no NULL value
         _num_null_slots = 0;
@@ -587,167 +575,6 @@ bool SlotDescriptor::layout_equals(const SlotDescriptor& other_desc) const {
     if (tuple_offset() != other_desc.tuple_offset()) return false;
     if (!null_indicator_offset().equals(other_desc.null_indicator_offset())) return false;
   return true;
-}
-
-// Generate function to check if a slot is null.  The resulting IR looks like:
-// (in this case the tuple contains only a nullable double)
-// define i1 @IsNull({ i8, double }* %tuple) {
-// entry:
-//   %null_byte_ptr = getelementptr inbounds { i8, double }* %tuple, i32 0, i32 0
-//   %null_byte = load i8* %null_byte_ptr
-//   %null_mask = and i8 %null_byte, 1
-//   %is_null = icmp ne i8 %null_mask, 0
-//   ret i1 %is_null
-// }
-llvm::Function* SlotDescriptor::codegen_is_null(LlvmCodeGen* codegen, llvm::StructType* tuple) {
-    if (_is_null_fn != NULL) {
-        return _is_null_fn;
-    }
-
-    llvm::PointerType* tuple_ptr_type = llvm::PointerType::get(tuple, 0);
-    LlvmCodeGen::FnPrototype prototype(codegen, "IsNull", codegen->get_type(TYPE_BOOLEAN));
-    prototype.add_argument(LlvmCodeGen::NamedVariable("tuple", tuple_ptr_type));
-
-    llvm::Value* mask = codegen->get_int_constant(TYPE_TINYINT, _null_indicator_offset.bit_mask);
-    llvm::Value* zero = codegen->get_int_constant(TYPE_TINYINT, 0);
-    int byte_offset = _null_indicator_offset.byte_offset;
-
-    LlvmCodeGen::LlvmBuilder builder(codegen->context());
-    llvm::Value* tuple_ptr = NULL;
-    llvm::Function* fn = prototype.generate_prototype(&builder, &tuple_ptr);
-
-    llvm::Value* null_byte_ptr = builder.CreateStructGEP(tuple_ptr, byte_offset, "null_byte_ptr");
-    llvm::Value* null_byte = builder.CreateLoad(null_byte_ptr, "null_byte");
-    llvm::Value* null_mask = builder.CreateAnd(null_byte, mask, "null_mask");
-    llvm::Value* is_null = builder.CreateICmpNE(null_mask, zero, "is_null");
-    builder.CreateRet(is_null);
-
-    return _is_null_fn = codegen->finalize_function(fn);
-}
-
-// Generate function to set a slot to be null or not-null.  The resulting IR
-// for SetNotNull looks like:
-// (in this case the tuple contains only a nullable double)
-// define void @SetNotNull({ i8, double }* %tuple) {
-// entry:
-//   %null_byte_ptr = getelementptr inbounds { i8, double }* %tuple, i32 0, i32 0
-//   %null_byte = load i8* %null_byte_ptr
-//   %0 = and i8 %null_byte, -2
-//   store i8 %0, i8* %null_byte_ptr
-//   ret void
-// }
-llvm::Function* SlotDescriptor::codegen_update_null(LlvmCodeGen* codegen,
-        llvm::StructType* tuple, bool set_null) {
-    if (set_null && _set_null_fn != NULL) {
-        return _set_null_fn;
-    }
-
-    if (!set_null && _set_not_null_fn != NULL) {
-        return _set_not_null_fn;
-    }
-
-    llvm::PointerType* tuple_ptr_type = llvm::PointerType::get(tuple, 0);
-    LlvmCodeGen::FnPrototype prototype(codegen, (set_null) ? "SetNull" : "SetNotNull",
-                                       codegen->void_type());
-    prototype.add_argument(LlvmCodeGen::NamedVariable("tuple", tuple_ptr_type));
-
-    LlvmCodeGen::LlvmBuilder builder(codegen->context());
-    llvm::Value* tuple_ptr = NULL;
-    llvm::Function* fn = prototype.generate_prototype(&builder, &tuple_ptr);
-
-    llvm::Value* null_byte_ptr =
-        builder.CreateStructGEP(
-            tuple_ptr, _null_indicator_offset.byte_offset, "null_byte_ptr");
-    llvm::Value* null_byte = builder.CreateLoad(null_byte_ptr, "null_byte");
-    llvm::Value* result = NULL;
-
-    if (set_null) {
-        llvm::Value* null_set = codegen->get_int_constant(
-                              TYPE_TINYINT, _null_indicator_offset.bit_mask);
-        result = builder.CreateOr(null_byte, null_set);
-    } else {
-        llvm::Value* null_clear_val =
-            codegen->get_int_constant(TYPE_TINYINT, ~_null_indicator_offset.bit_mask);
-        result = builder.CreateAnd(null_byte, null_clear_val);
-    }
-
-    builder.CreateStore(result, null_byte_ptr);
-    builder.CreateRetVoid();
-
-    fn = codegen->finalize_function(fn);
-
-    if (set_null) {
-        _set_null_fn = fn;
-    } else {
-        _set_not_null_fn = fn;
-    }
-
-    return fn;
-}
-
-// The default llvm packing is identical to what we do in the FE.  Each field is aligned
-// to begin on the size for that type.
-// TODO: Understand llvm::SetTargetData which allows you to explicitly define the packing
-// rules.
-llvm::StructType* TupleDescriptor::generate_llvm_struct(LlvmCodeGen* codegen) {
-    // If we already generated the llvm type, just return it.
-    if (_llvm_struct != NULL) {
-        return _llvm_struct;
-    }
-
-    // For each null byte, add a byte to the struct
-    std::vector<llvm::Type*> struct_fields;
-    struct_fields.resize(_num_null_bytes + _num_materialized_slots);
-
-    for (int i = 0; i < _num_null_bytes; ++i) {
-        struct_fields[i] = codegen->get_type(TYPE_TINYINT);
-    }
-
-    // Add the slot types to the struct description.
-    for (int i = 0; i < slots().size(); ++i) {
-        SlotDescriptor* slot_desc = slots()[i];
-
-        if (slot_desc->is_materialized()) {
-            slot_desc->_field_idx = slot_desc->_slot_idx + _num_null_bytes;
-            DCHECK_LT(slot_desc->field_idx(), struct_fields.size());
-            struct_fields[slot_desc->field_idx()] = codegen->get_type(slot_desc->type().type);
-        }
-    }
-
-    // Construct the struct type.
-    llvm::StructType* tuple_struct = llvm::StructType::get(
-        codegen->context(), llvm::ArrayRef<llvm::Type*>(struct_fields));
-
-    // Verify the alignment is correct.  It is essential that the layout matches
-    // identically.  If the layout does not match, return NULL indicating the
-    // struct could not be codegen'd.  This will trigger codegen for anything using
-    // the tuple to be disabled.
-    const llvm::DataLayout* data_layout = codegen->execution_engine()->getDataLayout();
-    const llvm::StructLayout* layout = data_layout->getStructLayout(tuple_struct);
-    layout = data_layout->getStructLayout(tuple_struct);
-
-    if (layout->getSizeInBytes() != byte_size()) {
-        DCHECK_EQ(layout->getSizeInBytes(), byte_size());
-        return NULL;
-    }
-
-    for (int i = 0; i < slots().size(); ++i) {
-        SlotDescriptor* slot_desc = slots()[i];
-
-        if (slot_desc->is_materialized()) {
-            int field_idx = slot_desc->field_idx();
-
-            // Verify that the byte offset in the llvm struct matches the tuple offset
-            // computed in the FE
-            if (layout->getElementOffset(field_idx) != slot_desc->tuple_offset()) {
-                DCHECK_EQ(layout->getElementOffset(field_idx), slot_desc->tuple_offset());
-                return NULL;
-            }
-        }
-    }
-
-    _llvm_struct = tuple_struct;
-    return tuple_struct;
 }
 
 std::string DescriptorTbl::debug_string() const {

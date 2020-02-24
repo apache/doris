@@ -241,14 +241,6 @@ private:
     // sends a final report.
     void update_status(const Status& status);
 
-    /// Optimizes the code-generated functions in runtime_state_->llvm_codegen().
-    /// Must be called between plan_->Prepare() and plan_->Open().
-    /// This is somewhat time consuming so we don't want it to do it in
-    /// PlanFragmentExecutor()::Prepare() to allow starting plan fragments more
-    /// quickly and in parallel (in a deep plan tree, the fragments are started
-    /// in level order).
-    void optimize_llvm_module();
-
     // Executes open() logic and returns resulting status. Does not set _status.
     // If this plan fragment has no sink, open_internal() does nothing.
     // If this plan fragment has a sink and open_internal() returns without an
