@@ -20,6 +20,7 @@
 
 #include "codegen/llvm_codegen.h"
 #include "runtime/primitive_type.h"
+#include "runtime/collection_value.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
@@ -227,6 +228,9 @@ public:
         case TYPE_DECIMALV2:
             return sizeof(doris_udf::DecimalV2Val);
 
+        case TYPE_ARRAY:
+            return sizeof(doris_udf::CollectionVal);
+
         default:
             DCHECK(false) << t;
             return 0;
@@ -254,6 +258,8 @@ public:
           return alignof(DateTimeVal);
         case TYPE_DECIMAL: return alignof(DecimalVal);
         case TYPE_DECIMALV2: return alignof(DecimalV2Val);
+        case TYPE_ARRAY: return alignof(doris_udf::CollectionVal);
+        
         default:
             DCHECK(false) << t;
             return 0;
@@ -360,6 +366,10 @@ public:
         case TYPE_DATETIME:
             reinterpret_cast<const DateTimeValue*>(slot)->to_datetime_val(
             reinterpret_cast<doris_udf::DateTimeVal*>(dst));
+            return;
+        case TYPE_ARRAY:
+            reinterpret_cast<const CollectionValue*>(slot)->to_collection_val(
+                    reinterpret_cast<CollectionVal*> (dst));
             return;
         default:
         DCHECK(false) << "NYI";

@@ -1208,8 +1208,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType), "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
         if (!Type.canCastTo(this.type, targetType)) {
-            throw new AnalysisException("type not match, originType=" + this.type
-                    + ", targeType=" + targetType);
+            throw new AnalysisException("type not match, originType=" + this.type.toSql()
+                    + ", targeType=" + targetType.toSql());
 
         }
         return uncheckedCastTo(targetType);

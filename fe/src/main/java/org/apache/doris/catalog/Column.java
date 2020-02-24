@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -41,6 +44,9 @@ import java.io.IOException;
  */
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
+
+    private static final String COLUMN_ARRAY_CHILDREN = "item";
+
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "type")
@@ -66,6 +72,8 @@ public class Column implements Writable {
     private String comment;
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
+    @SerializedName(value = "name")
+    private List<Column> children;
 
     public Column() {
         this.name = "";
@@ -73,6 +81,7 @@ public class Column implements Writable {
         this.isAggregationTypeImplicit = false;
         this.isKey = false;
         this.stats = new ColumnStats();
+        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
     }
 
     public Column(String name, PrimitiveType dataType) {
@@ -112,6 +121,10 @@ public class Column implements Writable {
         this.comment = comment;
 
         this.stats = new ColumnStats();
+
+        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+
+        createChildrenColumn(this.type, this);
     }
 
     public Column(Column column) {
@@ -124,6 +137,22 @@ public class Column implements Writable {
         this.defaultValue = column.getDefaultValue();
         this.comment = column.getComment();
         this.stats = column.getStats();
+        this.children = column.getChildren();
+    }
+
+    public void createChildrenColumn(Type type, Column column) {
+        if (type.isArrayType()) {
+            Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
+            column.addChildrenColumn(c);
+        }
+    }
+
+    public List<Column> getChildren() {
+        return children;
+    }
+
+    private void addChildrenColumn(Column column) {
+        this.children.add(column);
     }
 
     public void setName(String newName) {
@@ -236,7 +265,34 @@ public class Column implements Writable {
         tColumn.setIs_key(this.isKey);
         tColumn.setIs_allow_null(this.isAllowNull);
         tColumn.setDefault_value(this.defaultValue);
+
+        toChildrenThrift(this, tColumn);
+
         return tColumn;
+    }
+
+    private void toChildrenThrift(Column column, TColumn tColumn) {
+        if (column.type.isArrayType()) {
+            Column children = column.getChildren().get(0);
+
+            TColumn childrenTColumn = new TColumn();
+            childrenTColumn.setColumn_name(children.name);
+
+            TColumnType childrenTColumnType = new TColumnType();
+            childrenTColumnType.setType(children.getDataType().toThrift());
+            childrenTColumnType.setType(children.getDataType().toThrift());
+            childrenTColumnType.setLen(children.getStrLen());
+            childrenTColumnType.setPrecision(children.getPrecision());
+            childrenTColumnType.setScale(children.getScale());
+
+            childrenTColumnType.setIndex_len(children.getOlapColumnIndexSize());
+            childrenTColumn.setColumn_type(childrenTColumnType);
+
+
+            tColumn.children_column.add(childrenTColumn);
+
+            toChildrenThrift(children, childrenTColumn);
+        }
     }
 
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
@@ -385,6 +441,16 @@ public class Column implements Writable {
             return false;
         }
 
+        if (children.size() != other.children.size()) {
+            return false;
+        }
+
+        for (int i = 0; i < children.size(); i++) {
+            if (!children.get(i).equals(other.getChildren().get(i))) {
+                return false;
+            }
+        }
+
         return true;
     }
 
@@ -412,6 +478,12 @@ public class Column implements Writable {
         stats.write(out);
 
         Text.writeString(out, comment);
+
+        out.writeInt(children.size());
+
+        for (Column child : children) {
+            child.write(out);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -450,6 +522,18 @@ public class Column implements Writable {
             comment = Text.readString(in);
         } else {
             comment = "";
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
+            int childrenSize = in.readInt();
+
+            for (int i = 0; i < childrenSize; i++) {
+                children.add(Column.read(in));
+            }
+
+            if (type.isArrayType()) {
+                ((ArrayType)type).setItemType(children.get(0).type);
+            }
         }
     }
 

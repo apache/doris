@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
+import static org.apache.doris.catalog.AggregateType.NONE;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
@@ -306,6 +307,7 @@ public class CreateTableStmt extends DdlStmt {
         int rowLengthBytes = 0;
         boolean hasHll = false;
         boolean hasBitmap = false;
+        boolean hasNested = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             if (engineName.equals("kudu")) {
@@ -326,6 +328,12 @@ public class CreateTableStmt extends DdlStmt {
             if (columnDef.getType().isBitmapType()) {
                 if (columnDef.isKey()) {
                     throw new AnalysisException("BITMAP can't be used as keys, ");
+                }
+            }
+
+            if (columnDef.getType().isArrayType()) {
+                if (columnDef.getAggregateType() != NONE) {
+                    throw new AnalysisException("Array column can't support aggregation");
                 }
             }
 

@@ -47,6 +47,15 @@ public:
         _objects.push_back(obj);
         return t;
     }
+    
+    template <class T>
+    T* add_array(T* t) {
+        ArrayElement<T>* obj = new ArrayElement<T>(t);
+        DCHECK(obj != NULL);
+        boost::lock_guard<SpinLock> l(_lock);
+        _objects.push_back(obj);
+        return t;
+    }
 
     void clear() {
         boost::lock_guard<SpinLock> l(_lock);
@@ -75,6 +84,16 @@ private:
             delete t;
         }
 
+        T* t;
+    };
+    
+    template <class T>
+    struct ArrayElement : GenericElement {
+        ArrayElement(T* t): t(t) {};
+        ~ArrayElement() {
+            delete[] t;
+        }
+        
         T* t;
     };
 

@@ -52,11 +52,13 @@ public:
     static Tuple* create(int size, MemPool* pool) {
         // assert(size > 0);
         Tuple* result = reinterpret_cast<Tuple*>(pool->allocate(size));
+        LOG(WARNING) << "tuple create size: " << size;
         result->init(size);
         return result;
     }
 
     void init(int size) {
+        LOG(WARNING) << "tuple init size: " << size;
         bzero(this, size);
     }
 
@@ -140,6 +142,7 @@ public:
 
     void* get_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
+        LOG(WARNING) << "this is get_slot this: " <<  this <<", offset: " << offset;
         return reinterpret_cast<char*>(this) + offset;
     }
 

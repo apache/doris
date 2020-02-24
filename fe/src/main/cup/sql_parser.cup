@@ -32,6 +32,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Version;
@@ -193,7 +194,7 @@ parser code {:
 :};
 
 // Total keywords of doris
-terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
+terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, KW_ARRAY,
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
     KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
@@ -324,7 +325,7 @@ nonterminal LiteralExpr literal;
 nonterminal CaseExpr case_expr;
 nonterminal ArrayList<CaseWhenClause> case_when_clause_list;
 nonterminal FunctionParams function_params;
-nonterminal Expr function_call_expr;
+nonterminal Expr function_call_expr, array_expr;
 nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
@@ -3508,6 +3509,8 @@ type ::=
      type.setAssignedStrLenInColDefinition();
      RESULT = type;
   :}
+  | KW_ARRAY LESSTHAN type:value_type GREATERTHAN
+  {: RESULT = new ArrayType(value_type); :}
   ;
 
 opt_field_length ::=
@@ -3629,6 +3632,13 @@ function_call_expr ::=
   :}
   ;
 
+array_expr ::=
+  KW_ARRAY LPAREN function_params:params RPAREN
+  {:
+    RESULT = new FunctionCallExpr("array", params);
+  :}
+  ;
+
 exists_predicate ::=
   KW_EXISTS subquery:s
   {: RESULT = new ExistsPredicate(s, false); :}
@@ -3647,6 +3657,8 @@ non_pred_expr ::=
   :}
   | literal:l
   {: RESULT = l; :}
+  | array_expr:a
+  {: RESULT = a; :}
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l

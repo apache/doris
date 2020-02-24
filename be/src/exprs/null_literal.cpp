@@ -78,6 +78,11 @@ DecimalVal NullLiteral::get_decimal_val(ExprContext*, TupleRow*) {
 DecimalV2Val NullLiteral::get_decimalv2_val(ExprContext*, TupleRow*) {
     return DecimalV2Val::null();
 }
+
+CollectionVal NullLiteral::get_collection_val(ExprContext *context, TupleRow *) {
+    return CollectionVal::null();
+}
+
 // Generated IR for a bigint NULL literal:
 //
 // define { i8, i64 } @NullLiteral(i8* %context, %"class.impala::TupleRow"* %row) {

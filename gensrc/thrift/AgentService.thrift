@@ -31,6 +31,9 @@ struct TColumn {
     5: optional bool is_allow_null
     6: optional string default_value
     7: optional bool is_bloom_filter_column
+    // for nested type
+    // array name: value
+    8: optional list<TColumn> children_column
 }
 
 struct TTabletSchema {

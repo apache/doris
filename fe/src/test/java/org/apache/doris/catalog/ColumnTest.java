@@ -69,6 +69,10 @@ public class ColumnTest {
                                     "");
         column4.write(dos);
 
+        Column column5 = new Column("array", new ArrayType(new ArrayType(Type.INT)));
+
+        column5.write(dos);
+
         dos.flush();
         dos.close();
         
@@ -101,6 +105,19 @@ public class ColumnTest {
         Assert.assertEquals(rColumn2.toString(), column2.toString());
         Assert.assertTrue(column1.equals(column1));
         Assert.assertFalse(column1.equals(this));
+
+        Column rColumn5 = Column.read(dis);
+        Assert.assertEquals(column5.toString(), rColumn5.toString());
+        Assert.assertEquals(1, column5.getChildren().size());
+        Assert.assertEquals(1, column5.getChildren().get(0).getChildren().size());
+        Assert.assertEquals(0, column5.getChildren().get(0).getChildren().get(0).getChildren().size());
+        Assert.assertEquals(PrimitiveType.ARRAY, column5.getChildren().get(0).getDataType());
+        Assert.assertEquals(PrimitiveType.INT, column5.getChildren().get(0).getChildren().get(0).getDataType());
+        Assert.assertEquals(1, rColumn5.getChildren().size());
+        Assert.assertEquals(1, rColumn5.getChildren().get(0).getChildren().size());
+        Assert.assertEquals(0, rColumn5.getChildren().get(0).getChildren().get(0).getChildren().size());
+        Assert.assertEquals(PrimitiveType.ARRAY, rColumn5.getChildren().get(0).getDataType());
+        Assert.assertEquals(PrimitiveType.INT, rColumn5.getChildren().get(0).getChildren().get(0).getDataType());
 
         // 4. delete files
         dis.close();

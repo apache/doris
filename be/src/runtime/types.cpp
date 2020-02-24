@@ -48,6 +48,14 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx) :
         }
         break;
     }
+    case TTypeNodeType::ARRAY: {
+        DCHECK(!node.__isset.scalar_type);
+        DCHECK_LT(*idx, types.size() - 1);
+        type = TYPE_ARRAY;
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
+        break;
+    }
 #if 0 // Don't support now
     case TTypeNodeType::STRUCT:
         type = TYPE_STRUCT;
@@ -56,13 +64,6 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx) :
             children.push_back(TypeDescriptor(types, idx));
             field_names.push_back(node.struct_fields[i].name);
         }
-        break;
-    case TTypeNodeType::ARRAY:
-        DCHECK(!node.__isset.scalar_type);
-        DCHECK_LT(*idx, types.size() - 1);
-        type = TYPE_ARRAY;
-        ++(*idx);
-        children.push_back(TypeDescriptor(types, idx));
         break;
     case TTypeNodeType::MAP:
         DCHECK(!node.__isset.scalar_type);

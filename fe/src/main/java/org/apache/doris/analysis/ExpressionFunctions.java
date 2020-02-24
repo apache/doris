@@ -152,6 +152,7 @@ public enum ExpressionFunctions {
         setBuilder.add("hll_hash");
         setBuilder.add("concat_ws");
         setBuilder.add("ifnull");
+        setBuilder.add("array");
         this.nonNullResultWithNullParamFunctions = setBuilder.build();
     }
 

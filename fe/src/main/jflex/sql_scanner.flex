@@ -99,6 +99,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("as", new Integer(SqlParserSymbols.KW_AS));
         keywordMap.put("asc", new Integer(SqlParserSymbols.KW_ASC));
         keywordMap.put("authors", new Integer(SqlParserSymbols.KW_AUTHORS));
+        keywordMap.put("array", new Integer(SqlParserSymbols.KW_ARRAY));
         keywordMap.put("backend", new Integer(SqlParserSymbols.KW_BACKEND));
         keywordMap.put("backends", new Integer(SqlParserSymbols.KW_BACKENDS));
         keywordMap.put("backup", new Integer(SqlParserSymbols.KW_BACKUP));

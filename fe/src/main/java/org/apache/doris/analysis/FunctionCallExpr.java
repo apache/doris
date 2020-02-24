@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Function;
@@ -639,7 +640,22 @@ public class FunctionCallExpr extends Expr {
                 }
             }
         }
+
         this.type = fn.getReturnType();
+
+        // rewrite return type if is nested type function
+        analyzeNestedFunction();
+    }
+
+    //
+    // if return type is nested type, need to be determined the sub-element type
+    private void analyzeNestedFunction() {
+        // array
+        if ("array".equalsIgnoreCase(fnName.getFunction())) {
+            if (children.size() > 0) {
+                this.type = new ArrayType(children.get(0).getType());
+            }
+        }
     }
 
     @Override

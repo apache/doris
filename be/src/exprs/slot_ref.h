@@ -82,6 +82,7 @@ public:
     virtual doris_udf::DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
     virtual doris_udf::DecimalVal get_decimal_val(ExprContext* context, TupleRow*);
     virtual doris_udf::DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
+    virtual doris_udf::CollectionVal get_collection_val(ExprContext *context, TupleRow *);
     // virtual doris_udf::ArrayVal GetArrayVal(ExprContext* context, TupleRow*);
 
 private:

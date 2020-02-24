@@ -43,11 +43,8 @@ import java.util.List;
 public abstract class Type {
     private static final Logger LOG = LogManager.getLogger(Type.class);
 
-    // Maximum nesting depth of a type. This limit was determined experimentally by
-    // generating and scanning deeply nested Parquet and Avro files. In those experiments,
-    // we exceeded the stack space in the scanner (which uses recursion for dealing with
-    // nested types) at a nesting depth between 200 and 300 (200 worked, 300 crashed).
-    public static int MAX_NESTING_DEPTH = 100;
+    // Maximum nesting depth of a type.
+    public static int MAX_NESTING_DEPTH = 2;
 
     // Static constant types for scalar types that don't require additional information.
     public static final ScalarType INVALID = new ScalarType(PrimitiveType.INVALID_TYPE);
@@ -456,6 +453,8 @@ public abstract class Type {
                 return Type.HLL;
             case BITMAP:
                 return Type.BITMAP;
+            case ARRAY:
+                return ScalarType.createArrayType();
             default:
                 return null;
         }
@@ -905,6 +904,7 @@ public abstract class Type {
                 if (t1 == PrimitiveType.DECIMAL || t2 == PrimitiveType.DECIMAL) continue;
                 if (t1 == PrimitiveType.DECIMALV2 || t2 == PrimitiveType.DECIMALV2) continue;
                 if (t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME) continue;
+                if (t1 == PrimitiveType.ARRAY || t2 == PrimitiveType.ARRAY) continue;
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
             }
         }

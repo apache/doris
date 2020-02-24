@@ -706,6 +706,12 @@ visible_functions = [
     [['grouping_id'], 'BIGINT', ['BIGINT'],
         '_ZN5doris21GroupingSetsFunctions11grouping_idEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
     [['grouping'], 'BIGINT', ['BIGINT'], '_ZN5doris21GroupingSetsFunctions8groupingEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
+
+    # array functions
+    [['array'], 'ARRAY', ['INT', '...'],
+            '_ZN5doris19CollectionFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_6IntValE'],
+    [['array'], 'ARRAY', ['VARCHAR', '...'],
+            '_ZN5doris19CollectionFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
 ]
 
 invisible_functions = [

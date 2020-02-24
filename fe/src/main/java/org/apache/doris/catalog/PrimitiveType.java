@@ -56,6 +56,7 @@ public enum PrimitiveType {
     TIME("TIME", 8, TPrimitiveType.TIME),
     // we use OBJECT type represent BITMAP type in Backend
     BITMAP("BITMAP", 16, TPrimitiveType.OBJECT),
+    ARRAY("ARRAY", 16, TPrimitiveType.ARRAY),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY);
 
@@ -666,6 +667,10 @@ public enum PrimitiveType {
 
     public boolean isDateType() {
         return (this == DATE || this == DATETIME);
+    }
+
+    public boolean isArrayType(){
+        return this == ARRAY;
     }
 
     public boolean isStringType() {
