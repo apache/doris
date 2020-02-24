@@ -23,7 +23,7 @@
 #include "util/hash_util.hpp"
 #include "util/types.h"
 #include "common/status.h"
-#include "expr.h"
+#include "exprs/expr.h"
 
 namespace doris {
 
