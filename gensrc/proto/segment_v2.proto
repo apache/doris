@@ -54,10 +54,11 @@ enum CompressionTypePB {
 }
 
 enum PageTypePB {
-    DATA_PAGE = 0;
-    INDEX_PAGE = 1;
-    DICTIONARY_PAGE = 2;
-    SHORT_KEY_PAGE = 3;
+    UNKNOWN_PAGE_TYPE = 0;
+    DATA_PAGE = 1;
+    INDEX_PAGE = 2;
+    DICTIONARY_PAGE = 3;
+    SHORT_KEY_PAGE = 4;
 }
 
 message DataPageFooterPB {
@@ -196,10 +197,11 @@ message IndexedColumnMetaPB {
 // -------------------------------------------------------------
 
 enum ColumnIndexTypePB {
-    ORDINAL_INDEX = 0;
-    ZONE_MAP_INDEX = 1;
-    BITMAP_INDEX = 2;
-    BLOOM_FILTER_INDEX = 3;
+    UNKNOWN_INDEX_TYPE = 0;
+    ORDINAL_INDEX = 1;
+    ZONE_MAP_INDEX = 2;
+    BITMAP_INDEX = 3;
+    BLOOM_FILTER_INDEX = 4;
 }
 
 message ColumnIndexMetaPB {
