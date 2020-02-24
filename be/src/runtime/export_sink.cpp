@@ -141,12 +141,29 @@ Status ExportSink::gen_row_buffer(TupleRow* row, std::stringstream* ss) {
                 case TYPE_LARGEINT:
                     (*ss) << reinterpret_cast<PackedInt128*>(item)->value;
                     break;
-                case TYPE_FLOAT:
-                    (*ss) << *static_cast<float*>(item);
+                case TYPE_FLOAT: {
+                    char buffer[MAX_FLOAT_STR_LENGTH + 2];
+                    float float_value = *static_cast<float*>(item);
+                    buffer[0] = '\0';
+                    int length = FloatToBuffer(float_value, MAX_FLOAT_STR_LENGTH, buffer);
+                    DCHECK(length >= 0) << "gcvt float failed, float value=" << float_value;
+                    (*ss) << buffer;
                     break;
-                case TYPE_DOUBLE:
-                    (*ss) << *static_cast<double*>(item);
+                }
+                case TYPE_DOUBLE: {
+                    // To prevent loss of precision on float and double types,
+                    // they are converted to strings before output.
+                    // For example: For a double value 27361919854.929001, 
+                    // the direct output of using std::stringstream is 2.73619e+10,
+                    // and after conversion to a string, it outputs 27361919854.929001
+                    char buffer[MAX_DOUBLE_STR_LENGTH + 2];
+                    double double_value = *static_cast<double*>(item);
+                    buffer[0] = '\0';
+                    int length = DoubleToBuffer(double_value, MAX_DOUBLE_STR_LENGTH, buffer);
+                    DCHECK(length >= 0) << "gcvt double failed, double value=" << double_value;
+                    (*ss) << buffer;
                     break;
+                }
                 case TYPE_DATE:
                 case TYPE_DATETIME: {
                     char buf[64];

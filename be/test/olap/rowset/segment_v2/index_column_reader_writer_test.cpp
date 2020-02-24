@@ -72,7 +72,7 @@ void get_bitmap_reader_iter(std::string& file_name, BitmapIndexColumnPB& bitmap_
                             BitmapIndexIterator** iter) {
     file_name = dname + "/" + file_name;
     *reader = new BitmapIndexReader(file_name, bitmap_index_meta);
-    auto st = (*reader)->load();
+    auto st = (*reader)->load(true);
     ASSERT_TRUE(st.ok());
 
     st = (*reader)->new_iterator(iter);

@@ -23,7 +23,6 @@ import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -578,10 +577,6 @@ public class InsertStmt extends DdlStmt {
                 checkHllCompatibility(col, expr);
             }
 
-            if (col.getAggregationType() == AggregateType.BITMAP_UNION) {
-                checkBitmapCompatibility(col, expr);
-            }
-
             if (expr instanceof DefaultValueExpr) {
                 if (targetColumns.get(i).getDefaultValue() == null) {
                     throw new AnalysisException("Column has no default value, column=" + targetColumns.get(i).getName());
@@ -590,6 +585,10 @@ public class InsertStmt extends DdlStmt {
             }
 
             expr.analyze(analyzer);
+
+            if (col.getAggregationType() == AggregateType.BITMAP_UNION) {
+                checkBitmapCompatibility(col, expr);
+            }
 
             row.set(i, checkTypeCompatibility(col, expr));
         }
@@ -643,33 +642,10 @@ public class InsertStmt extends DdlStmt {
     }
 
     private void checkBitmapCompatibility(Column col, Expr expr) throws AnalysisException {
-        boolean isCompatible = false;
-        final String bitmapMismatchLog = "Column's type is BITMAP,"
-                + " SelectList must contains BITMAP column, or function return type must be BITMAP, " +
-                " column=" + col.getName();
-        if (expr instanceof SlotRef) {
-            final SlotRef slot = (SlotRef) expr;
-            Column column = slot.getDesc().getColumn();
-            if (column != null && column.getAggregationType() == AggregateType.BITMAP_UNION) {
-                isCompatible = true;  // select * from bitmap_table
-            } else if (slot.getDesc().getSourceExprs().size() == 1) {
-                Expr sourceExpr = slot.getDesc().getSourceExprs().get(0);
-                if (sourceExpr instanceof FunctionCallExpr) {
-                    FunctionCallExpr functionExpr = (FunctionCallExpr) sourceExpr;
-                    if (functionExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
-                        isCompatible = true; // select id, bitmap_union(id2) from bitmap_table group by id
-                    }
-                }
-            }
-        } else if (expr instanceof FunctionCallExpr) {
-            final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
-            if (functionExpr.getFn().getReturnType() == Type.BITMAP) {
-                isCompatible = true;
-            }
-        }
-
-        if (!isCompatible) {
-            throw new AnalysisException(bitmapMismatchLog);
+        String errorMsg = String.format("bitmap column %s require the function return type is BITMAP",
+                col.getName());
+        if (!expr.getType().isBitmapType()) {
+            throw new AnalysisException(errorMsg);
         }
     }
 

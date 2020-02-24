@@ -74,7 +74,8 @@ public:
     // Given hanlde will be set to valid reference.
     // This function is thread-safe, and when two clients insert two same key
     // concurrently, this function can assure that only one page is cached.
-    void insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle);
+    // The in_memory page will have higher priority.
+    void insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle, bool in_memory = false);
 private:
     StoragePageCache();
     static StoragePageCache* _s_instance;

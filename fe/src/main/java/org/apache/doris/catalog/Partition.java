@@ -141,7 +141,7 @@ public class Partition extends MetaObject implements Writable {
         this.nextVersionHash = Util.generateVersionHash();
         this.committedVersionHash = visibleVersionHash;
         LOG.info("update partition {} version for restore: visible: {}-{}, next: {}-{}",
-                visibleVersion, visibleVersionHash, nextVersion, nextVersionHash);
+                name, visibleVersion, visibleVersionHash, nextVersion, nextVersionHash);
     }
 
     public void updateVisibleVersionAndVersionHash(long visibleVersion, long visibleVersionHash) {

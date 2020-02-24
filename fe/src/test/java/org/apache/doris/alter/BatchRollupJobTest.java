@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AlterTableStmt;
+import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
@@ -29,32 +30,43 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 public class BatchRollupJobTest {
 
     private static String runningDir = "fe/mocked/BatchRollupJobTest/" + UUID.randomUUID().toString() + "/";
-
-    private static ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+    private static ConnectContext ctx;
 
     @BeforeClass
     public static void setup() throws Exception {
         UtFrameUtils.createMinDorisCluster(runningDir);
+        ctx = UtFrameUtils.createDefaultCtx();
     }
 
-    @Test
-    public void test() throws Exception {
-        System.out.println("xxx");
+    @Before
+    public void before() throws Exception {
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        alterJobs.clear();
+
         // create database db1
-        String createDbStmtStr = "create database db1;";
+        String createDbStmtStr = "create database if not exists db1;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, ctx);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
         System.out.println(Catalog.getCurrentCatalog().getDbNames());
+    }
+
+    @Test
+    public void testBatchRollup() throws Exception {
         // create table tbl1
         String createTblStmtStr1 = "create table db1.tbl1(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
@@ -96,6 +108,54 @@ public class BatchRollupJobTest {
 
         for (Partition partition : tbl.getPartitions()) {
             Assert.assertEquals(4, partition.getMaterializedIndices(IndexExtState.VISIBLE).size());
+        }
+    }
+
+    @Test
+    public void testCancelBatchRollup() throws Exception {
+        // create table tbl2
+        String createTblStmtStr1 = "create table db1.tbl2(k1 int, k2 int, k3 int) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
+
+        // batch add 3 rollups
+        String stmtStr = "alter table db1.tbl2 add rollup r1(k1) duplicate key(k1), r2(k1, k2) duplicate key(k1), r3(k2) duplicate key(k2);";
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
+        Catalog.getCurrentCatalog().getAlterInstance().processAlterTable(alterTableStmt);
+
+        Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
+        Assert.assertEquals(3, alterJobs.size());
+        List<Long> jobIds = Lists.newArrayList(alterJobs.keySet());
+
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:db1");
+        Assert.assertNotNull(db);
+        OlapTable tbl = (OlapTable) db.getTable("tbl2");
+        Assert.assertNotNull(tbl);
+
+        for (AlterJobV2 alterJobV2 : alterJobs.values()) {
+            if (alterJobV2.getType() != AlterJobV2.JobType.ROLLUP) {
+                continue;
+            }
+            while (!alterJobV2.getJobState().isFinalState()) {
+                System.out.println(
+                        "rollup job " + alterJobV2.getJobId() + " is running. state: " + alterJobV2.getJobState());
+                Thread.sleep(5000);
+            }
+            System.out.println("rollup job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
+            Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+
+            Assert.assertEquals(OlapTableState.ROLLUP, tbl.getState());
+            // cancel rest of rollup jobs
+            stmtStr = "cancel alter table rollup from db1.tbl2 (" + Joiner.on(",").join(jobIds) + ")";
+            CancelAlterTableStmt cancelStmt = (CancelAlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(stmtStr, ctx);
+            Catalog.getCurrentCatalog().cancelAlter(cancelStmt);
+
+            Assert.assertEquals(OlapTableState.NORMAL, tbl.getState());
+            break;
+        }
+
+        for (Partition partition : tbl.getPartitions()) {
+            Assert.assertEquals(2, partition.getMaterializedIndices(IndexExtState.VISIBLE).size());
         }
     }
 }

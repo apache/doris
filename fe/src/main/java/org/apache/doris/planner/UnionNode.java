@@ -19,13 +19,17 @@ package org.apache.doris.planner;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
+import com.google.common.base.Joiner;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -284,37 +288,39 @@ public class UnionNode extends PlanNode {
         msg.node_type = TPlanNodeType.UNION_NODE;
     }
 
-    /*
+
     @Override
-    protected String getNodeExplainString(String prefix, String detailPrefix,
-                                          TExplainLevel detailLevel) {
+    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder();
-        output.append(String.format("%s%s:%s\n", prefix, id_.toString(), displayName_));
         // A UnionNode may have predicates if a union is used inside an inline view,
         // and the enclosing select stmt has predicates referring to the inline view.
-        if (!conjuncts.isEmpty()) {
-            output.append(detailPrefix + "predicates: " + getExplainString(conjuncts) + "\n");
+        if (CollectionUtils.isNotEmpty(conjuncts)) {
+            output.append(prefix).append("predicates: ").append(getExplainString(conjuncts)).append("\n");
         }
-        if (!constExprLists_.isEmpty()) {
-            output.append(detailPrefix + "constant-operands=" + constExprLists_.size() + "\n");
+        if (CollectionUtils.isNotEmpty(constExprLists_)) {
+            output.append(prefix).append("constant exprs: ");
+            for(List<Expr> exprs : constExprLists_) {
+                output.append(exprs.stream().map(Expr::toSql)
+                        .collect(Collectors.joining(" | ")));
+                output.append("\n");
+            }
         }
-        if (detailLevel.ordinal() > TExplainLevel.MINIMAL.ordinal()) {
+        if (detailLevel == TExplainLevel.VERBOSE) {
             List<String> passThroughNodeIds = Lists.newArrayList();
             for (int i = 0; i < firstMaterializedChildIdx_; ++i) {
                 passThroughNodeIds.add(children.get(i).getId().toString());
             }
             if (!passThroughNodeIds.isEmpty()) {
-                String result = detailPrefix + "pass-through-operands: ";
+                String result = prefix + "pass-through-operands: ";
                 if (passThroughNodeIds.size() == children.size()) {
-                    output.append(result + "all\n");
+                    output.append(result).append("all\n");
                 } else {
-                    output.append(result + Joiner.on(",").join(passThroughNodeIds) + "\n");
+                    output.append(result).append(Joiner.on(",").join(passThroughNodeIds)).append("\n");
                 }
             }
         }
         return output.toString();
     }
-    */
 
     @Override
     public int getNumInstances() {

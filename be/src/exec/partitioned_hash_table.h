@@ -33,15 +33,10 @@
 #include "util/hash_util.hpp"
 #include "util/bit_util.h"
 
-namespace llvm {
-    class Function;
-}
-
 namespace doris {
 
 class Expr;
 class ExprContext;
-class LlvmCodeGen;
 class MemTracker;
 class MemTracker;
 class RowDescriptor;
@@ -155,24 +150,6 @@ public:
     bool IR_ALWAYS_INLINE eval_and_hash_probe(TupleRow* row, uint32_t* hash);
 
     int results_buffer_size() const { return _results_buffer_size; }
-
-    // Codegen for evaluating a tuple row.  Codegen'd function matches the signature
-    // for EvalBuildRow and EvalTupleRow.
-    // If build_row is true, the codegen uses the build_exprs, otherwise the probe_exprs.
-    llvm::Function* codegen_eval_row(RuntimeState* state, bool build_row);
-
-    // Codegen for evaluating a TupleRow and comparing equality against
-    // '_expr_values_buffer'.  Function signature matches PartitionedHashTable::equals().
-    llvm::Function* codegen_equals(RuntimeState* state);
-
-    // Codegen for hashing the expr values in '_expr_values_buffer'. Function prototype
-    // matches HashCurrentRow identically. Unlike HashCurrentRow(), the returned function
-    // only uses a single hash function, rather than switching based on _level.
-    // If 'use_murmur' is true, murmur hash is used, otherwise CRC is used if the hardware
-    // supports it (see hash-util.h).
-    llvm::Function* codegen_hash_current_row(RuntimeState* state, bool use_murmur);
-
-    static const char* _s_llvm_class_name;
 
 private:
     friend class PartitionedHashTable;

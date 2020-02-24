@@ -39,7 +39,6 @@ protected:
     virtual Status prepare(
         RuntimeState* state, const RowDescriptor& row_desc, ExprContext* ctx);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) override;
     virtual BooleanVal get_boolean_val(ExprContext* ctx, TupleRow* row);
     virtual std::string debug_string() const;
 

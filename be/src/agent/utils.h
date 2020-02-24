@@ -18,18 +18,10 @@
 #ifndef DORIS_BE_SRC_AGENT_UTILS_H
 #define DORIS_BE_SRC_AGENT_UTILS_H
 
-#include <pthread.h>
-#include <memory>
-#include "thrift/transport/TSocket.h"
-#include "thrift/transport/TTransportUtils.h"
 #include "agent/status.h"
-#include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
-#include "gen_cpp/AgentService_types.h"
+#include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/Status_types.h"
-#include "gen_cpp/Types_types.h"
-#include "olap/olap_define.h"
 #include "runtime/client_cache.h"
 
 namespace doris {
@@ -38,7 +30,7 @@ class MasterServerClient {
 public:
     MasterServerClient(const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
     virtual ~MasterServerClient() {};
-    
+
     // Reprot finished task to the master server
     //
     // Input parameters:
@@ -47,7 +39,7 @@ public:
     // Output parameters:
     // * result: The result of report task
     virtual AgentStatus finish_task(const TFinishTaskRequest& request, TMasterResult* result);
-    
+
     // Report tasks/olap tablet/disk state to the master server
     //
     // Input parameters:
@@ -58,11 +50,12 @@ public:
     virtual AgentStatus report(const TReportRequest& request, TMasterResult* result);
 
 private:
-    const TMasterInfo& _master_info;
-
-    FrontendServiceClientCache* _client_cache;
     DISALLOW_COPY_AND_ASSIGN(MasterServerClient);
-};  // class MasterServerClient
+
+    // Not ownder. Reference to the ExecEnv::_master_info
+    const TMasterInfo& _master_info;
+    FrontendServiceClientCache* _client_cache;
+};
 
 class AgentUtils {
 public:

@@ -26,8 +26,12 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
@@ -42,15 +46,17 @@ import com.google.common.collect.Maps;
 
 import java.io.IOException;
 import java.io.StringReader;
+import java.net.ServerSocket;
+import java.nio.channels.SocketChannel;
+import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 
 public class UtFrameUtils {
-
     // Help to create a mocked ConnectContext.
-    public static ConnectContext createDefaultCtx() {
-        ConnectContext ctx = new ConnectContext();
+    public static ConnectContext createDefaultCtx() throws IOException {
+        SocketChannel channel = SocketChannel.open();
+        ConnectContext ctx = new ConnectContext(channel);
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setQualifiedUser(PaloAuth.ROOT_USER);
@@ -72,25 +78,18 @@ public class UtFrameUtils {
         return statementBase;
     }
 
-    public static void createMinDorisCluster(String runningDir) throws EnvVarNotSetException, IOException,
+    public static int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         // get DORIS_HOME
-        final String dorisHome = System.getenv("DORIS_HOME");
+        String dorisHome = System.getenv("DORIS_HOME");
         if (Strings.isNullOrEmpty(dorisHome)) {
-            throw new EnvVarNotSetException("env DORIS_HOME is not set");
+            dorisHome = Files.createTempDirectory("DORIS_HOME").toAbsolutePath().toString();
         }
 
-        Random r = new Random(System.currentTimeMillis());
-        int basePort = 20000 + r.nextInt(9000);
-        int fe_http_port = basePort + 1;
-        int fe_rpc_port = basePort + 2;
-        int fe_query_port = basePort + 3;
-        int fe_edit_log_port = basePort + 4;
-
-        int be_heartbeat_port = basePort + 5;
-        int be_thrift_port = basePort + 6;
-        int be_brpc_port = basePort + 7;
-        int be_http_port = basePort + 8;
+        int fe_http_port = findValidPort();
+        int fe_rpc_port = findValidPort();
+        int fe_query_port = findValidPort();
+        int fe_edit_log_port = findValidPort();
 
         // start fe in "DORIS_HOME/fe/mocked/"
         MockedFrontend frontend = MockedFrontend.getInstance();
@@ -103,13 +102,24 @@ public class UtFrameUtils {
         feConfMap.put("tablet_create_timeout_second", "10");
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
+        return fe_rpc_port;
+    }
+
+    public static void createMinDorisCluster(String runningDir) throws EnvVarNotSetException, IOException,
+            FeStartException, NotInitException, DdlException, InterruptedException {
+        int fe_rpc_port = startFEServer(runningDir);
+
+        int be_heartbeat_port = findValidPort();
+        int be_thrift_port = findValidPort();
+        int be_brpc_port = findValidPort();
+        int be_http_port = findValidPort();
 
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend("127.0.0.1",
                 be_heartbeat_port, be_thrift_port, be_brpc_port, be_http_port,
                 new DefaultHeartbeatServiceImpl(be_thrift_port, be_http_port, be_brpc_port),
                 new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
-        backend.setFeAddress(new TNetworkAddress("127.0.0.1", frontend.getRpcPort()));
+        backend.setFeAddress(new TNetworkAddress("127.0.0.1", fe_rpc_port));
         backend.start();
 
         // add be
@@ -119,5 +129,35 @@ public class UtFrameUtils {
 
         // sleep to wait first heartbeat
         Thread.sleep(6000);
+    }
+
+    public static int findValidPort() {
+        ServerSocket socket = null;
+        try {
+            socket = new ServerSocket(0);
+            socket.setReuseAddress(true);
+            return socket.getLocalPort();
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
+        } finally {
+            if (socket != null) {
+                try {
+                    socket.close();
+                } catch (Exception e) {
+                }
+            }
+        }
+    }
+
+    public static String getSQLPlanOrErrorMsg(ConnectContext ctx, String queryStr) throws Exception {
+        ctx.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, queryStr);
+        stmtExecutor.execute();
+        if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+            Planner planner = stmtExecutor.planner();
+            return planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
+        } else {
+            return ctx.getState().getErrorMessage();
+        }
     }
 }

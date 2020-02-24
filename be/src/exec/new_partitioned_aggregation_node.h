@@ -30,19 +30,11 @@
 #include "runtime/mem_pool.h"
 #include "runtime/string_value.h"
 
-namespace llvm {
-// class BasicBlock;
-class Function;
-// class Value;
-}
-
 namespace doris {
 
 class AggFn;
 class NewAggFnEvaluator;
 class CodegenAnyVal;
-//class LlvmCodeGen;
-//class LlvmBuilder;
 class RowBatch;
 class RuntimeState;
 struct StringValue;
@@ -138,8 +130,6 @@ class NewPartitionedAggregationNode : public ExecNode {
   virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
   virtual Status reset(RuntimeState* state);
   virtual Status close(RuntimeState* state);
-
-  static const char* LLVM_CLASS_NAME;
 
  protected:
   /// Frees local allocations from aggregate_evals_ and agg_fn_evals
@@ -680,37 +670,6 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// Calls finalizes on all tuples starting at 'it'.
   void CleanupHashTbl(const std::vector<NewAggFnEvaluator*>& agg_fn_evals,
       NewPartitionedHashTable::Iterator it);
-
-  /// Codegen UpdateSlot(). Returns non-OK status if codegen is unsuccessful.
-  /// Assumes is_merge = false;
-//  Status CodegenUpdateSlot(LlvmCodeGen* codegen, NewAggFnEvaluator* evaluator,
-//      int evaluator_idx, SlotDescriptor* slot_desc, llvm::Function** fn);
-
-  /// Codegen a call to a function implementing the UDA interface with input values
-  /// from 'input_vals'. 'dst_val' should contain the previous value of the aggregate
-  /// function, and 'updated_dst_val' is set to the new value after the Update or Merge
-  /// operation is applied. The instruction sequence for the UDA call is inserted at
-  /// the insert position of 'builder'.
-//  Status CodegenCallUda(LlvmCodeGen* codegen, LlvmBuilder* builder,
-//      NewAggFnEvaluator* evaluator, llvm::Value* agg_fn_ctx_arg,
-//      const std::vector<CodegenAnyVal>& input_vals, const CodegenAnyVal& dst_val,
-//      CodegenAnyVal* updated_dst_val);
-
-  /// Codegen UpdateTuple(). Returns non-OK status if codegen is unsuccessful.
-//  Status CodegenUpdateTuple(LlvmCodeGen* codegen, llvm::Function** fn);
-
-  /// Codegen the non-streaming process row batch loop. The loop has already been
-  /// compiled to IR and loaded into the codegen object. UpdateAggTuple has also been
-  /// codegen'd to IR. This function will modify the loop subsituting the statically
-  /// compiled functions with codegen'd ones. 'process_batch_fn_' or
-  /// 'process_batch_no_grouping_fn_' will be updated with the codegened function
-  /// depending on whether this is a grouping or non-grouping aggregation.
-  /// Assumes AGGREGATED_ROWS = false.
-//  Status CodegenProcessBatch(LlvmCodeGen* codegen);
-
-  /// Codegen the materialization loop for streaming preaggregations.
-  /// 'process_batch_streaming_fn_' will be updated with the codegened function.
-//  Status CodegenProcessBatchStreaming(LlvmCodeGen* codegen);
 
     /// Compute minimum buffer reservation for grouping aggregations.
     /// We need one buffer per partition, which is used either as the write buffer for the

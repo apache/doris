@@ -33,10 +33,6 @@
 #include "service/backend_options.h"
 #include "util/uid_util.h" // for print_id
 
-namespace llvm {
-class Function;
-}
-
 namespace doris {
 
 class Expr;
@@ -133,14 +129,6 @@ public:
     // close() on the children. To ensure that close() is called on the entire plan tree,
     // each implementation should start out by calling the default implementation.
     virtual Status close(RuntimeState* state);
-
-    llvm::Function* codegen_eval_conjuncts(
-        RuntimeState* state, const std::vector<ExprContext*>& conjunct_ctxs, const char* name);
-
-    llvm::Function* codegen_eval_conjuncts(
-            RuntimeState* state, const std::vector<ExprContext*>& conjunct_ctxs) {
-        return codegen_eval_conjuncts(state, conjunct_ctxs, "EvalConjuncts");
-    }
 
     // Creates exec node tree from list of nodes contained in plan via depth-first
     // traversal. All nodes are placed in pool.

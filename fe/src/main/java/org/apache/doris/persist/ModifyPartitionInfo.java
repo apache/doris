@@ -17,7 +17,9 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 
 import java.io.DataInput;
@@ -31,18 +33,21 @@ public class ModifyPartitionInfo implements Writable {
     private long partitionId;
     private DataProperty dataProperty;
     private short replicationNum;
+    private boolean isInMemory;
 
     public ModifyPartitionInfo() {
         // for persist
     }
 
     public ModifyPartitionInfo(long dbId, long tableId, long partitionId,
-                               DataProperty dataProperty, short replicationNum) {
+                               DataProperty dataProperty, short replicationNum,
+                               boolean isInMemory) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.dataProperty = dataProperty;
         this.replicationNum = replicationNum;
+        this.isInMemory = isInMemory;
     }
 
     public long getDbId() {
@@ -65,6 +70,10 @@ public class ModifyPartitionInfo implements Writable {
         return replicationNum;
     }
 
+    public boolean isInMemory() {
+        return isInMemory;
+    }
+
     public static ModifyPartitionInfo read(DataInput in) throws IOException {
         ModifyPartitionInfo info = new ModifyPartitionInfo();
         info.readFields(in);
@@ -85,6 +94,7 @@ public class ModifyPartitionInfo implements Writable {
         }
 
         out.writeShort(replicationNum);
+        out.writeBoolean(isInMemory);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -100,6 +110,9 @@ public class ModifyPartitionInfo implements Writable {
         }
 
         replicationNum = in.readShort();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
+            isInMemory = in.readBoolean();
+        }
     }
 
 }

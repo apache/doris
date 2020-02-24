@@ -166,13 +166,9 @@ Status SmallFileMgr::_download_file(
     HttpClient client;
 
     std::stringstream url_ss;
-#ifndef BE_TEST
     TMasterInfo* master_info = _exec_env->master_info();
     url_ss << master_info->network_address.hostname << ":" << master_info->http_port << "/api/get_small_file?"
         << "file_id=" << file_id << "&token=" << master_info->token;
-#else
-    url_ss << "127.0.0.1:29997/api/get_small_file?file_id=" << file_id;
-#endif
 
     std::string url = url_ss.str();
 

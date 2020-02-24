@@ -244,8 +244,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
         case TPrimitiveType::VARCHAR:
         case TPrimitiveType::HLL:
             return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
-        case TPrimitiveType::DECIMAL:    
-        case TPrimitiveType::DECIMALV2:    
+        case TPrimitiveType::DECIMAL:
+        case TPrimitiveType::DECIMALV2:
             return 12; // use 12 bytes in olap engine.
         default:
             OLAP_LOG_WARNING("unknown field type. [type=%d]", type);
@@ -253,7 +253,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     }
 }
 
-TabletColumn::TabletColumn() {}
+TabletColumn::TabletColumn() :
+    _aggregation(OLAP_FIELD_AGGREGATION_NONE) {}
 
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
     _aggregation = agg;
@@ -268,13 +269,13 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, boo
 }
 
 OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
-    _unique_id = column.unique_id(); 
+    _unique_id = column.unique_id();
     _col_name = column.name();
     _type = TabletColumn::get_field_type_by_string(column.type());
     _is_key = column.is_key();
     _is_nullable = column.is_nullable();
 
-    _has_default_value = column.has_default_value(); 
+    _has_default_value = column.has_default_value();
     if (_has_default_value) {
         _default_value = column.default_value();
     }
@@ -364,11 +365,12 @@ OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _next_column_unique_id = schema.next_column_unique_id();
     if (schema.has_bf_fpp()) {
         _has_bf_fpp = true;
-        _bf_fpp = schema.bf_fpp(); 
+        _bf_fpp = schema.bf_fpp();
     } else {
         _has_bf_fpp = false;
         _bf_fpp = BLOOM_FILTER_DEFAULT_FPP;
     }
+    _is_in_memory = schema.is_in_memory();
     return OLAP_SUCCESS;
 }
 
@@ -385,6 +387,7 @@ OLAPStatus TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
         tablet_meta_pb->set_bf_fpp(_bf_fpp);
     }
     tablet_meta_pb->set_next_column_unique_id(_next_column_unique_id);
+    tablet_meta_pb->set_is_in_memory(_is_in_memory);
 
     return OLAP_SUCCESS;
 }

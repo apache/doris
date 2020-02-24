@@ -50,10 +50,9 @@ DeltaWriter::~DeltaWriter() {
         return;
     }
 
-    if (_flush_handler != nullptr) {
+    if (_flush_token != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
-        _flush_handler->cancel();
-        _flush_handler->wait();
+        _flush_token->cancel();
     }
 
     if (_tablet != nullptr) {
@@ -150,8 +149,7 @@ OLAPStatus DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_handler(
-            _tablet->data_dir()->path_hash(), &_flush_handler));
+    RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(&_flush_token));
 
     _is_init = true;
     return OLAP_SUCCESS;
@@ -175,7 +173,7 @@ OLAPStatus DeltaWriter::write(Tuple* tuple) {
 }
 
 OLAPStatus DeltaWriter::_flush_memtable_async() {
-    return _flush_handler->submit(_mem_table);
+    return _flush_token->submit(_mem_table);
 }
 
 OLAPStatus DeltaWriter::flush_memtable_and_wait() {
@@ -190,7 +188,7 @@ OLAPStatus DeltaWriter::flush_memtable_and_wait() {
         // this means there should be at least one memtable in flush queue.
     }
     // wait all memtables in flush queue to be flushed.
-    RETURN_NOT_OK(_flush_handler->wait());
+    RETURN_NOT_OK(_flush_token->wait());
     return OLAP_SUCCESS;
 }
 
@@ -218,7 +216,7 @@ OLAPStatus DeltaWriter::close() {
 OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     DCHECK(_is_init) << "delta writer is supposed be to initialized before close_wait() being called";
     // return error if previous flush failed
-    RETURN_NOT_OK(_flush_handler->wait());
+    RETURN_NOT_OK(_flush_token->wait());
     DCHECK_EQ(_mem_tracker->consumption(), 0);
 
     // use rowset meta manager to save meta
@@ -268,7 +266,7 @@ OLAPStatus DeltaWriter::close_wait(google::protobuf::RepeatedPtrField<PTabletInf
 
     _delta_written_success = true;
 
-    const FlushStatistic& stat = _flush_handler->get_stats();
+    const FlushStatistic& stat = _flush_token->get_stats();
     LOG(INFO) << "close delta writer for tablet: " << _tablet->tablet_id() << ", stats: " << stat;
     return OLAP_SUCCESS;
 }
@@ -278,10 +276,9 @@ OLAPStatus DeltaWriter::cancel() {
         return OLAP_SUCCESS;
     }
     _mem_table.reset();
-    if (_flush_handler != nullptr) {
+    if (_flush_token != nullptr) {
         // cancel and wait all memtables in flush queue to be finished
-        _flush_handler->cancel();
-        _flush_handler->wait();
+        _flush_token->cancel();
     }
     DCHECK_EQ(_mem_tracker->consumption(), 0);
     return OLAP_SUCCESS;

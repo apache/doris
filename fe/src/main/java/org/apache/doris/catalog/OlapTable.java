@@ -72,6 +72,7 @@ import java.util.zip.Adler32;
 
 /**
  * Internal representation of tableFamilyGroup-related metadata. A OlaptableFamilyGroup contains several tableFamily.
+ * Note: when you add a new olap table property, you should modify TableProperty class
  */
 public class OlapTable extends Table {
     private static final Logger LOG = LogManager.getLogger(OlapTable.class);
@@ -181,12 +182,8 @@ public class OlapTable extends Table {
         this.bfFpp = 0;
 
         this.colocateGroup = null;
-        
-        if (indexes == null) {
-            this.indexes = null;
-        } else {
-            this.indexes = indexes;
-        }
+
+        this.indexes = indexes;
 
         this.tableProperty = null;
     }
@@ -391,6 +388,7 @@ public class OlapTable extends Table {
                 rangePartitionInfo.getIdToRange().put(newPartId,
                                                       rangePartitionInfo.getIdToRange().remove(entry.getValue()));
 
+                rangePartitionInfo.idToInMemory.put(newPartId, rangePartitionInfo.idToInMemory.remove(entry.getValue()));
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         } else {
@@ -400,6 +398,7 @@ public class OlapTable extends Table {
                 partitionInfo.idToDataProperty.put(newPartId, partitionInfo.idToDataProperty.remove(entry.getValue()));
                 partitionInfo.idToReplicationNum.remove(entry.getValue());
                 partitionInfo.idToReplicationNum.put(newPartId, (short) restoreReplicationNum);
+                partitionInfo.idToInMemory.put(newPartId, partitionInfo.idToInMemory.remove(entry.getValue()));
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
             }
         }
@@ -457,9 +456,7 @@ public class OlapTable extends Table {
     }
 
     public Map<Long, List<Column>> getCopiedIndexIdToSchema() {
-        Map<Long, List<Column>> copiedIndexIdToSchema = new HashMap<Long, List<Column>>();
-        copiedIndexIdToSchema.putAll(indexIdToSchema);
-        return copiedIndexIdToSchema;
+        return new HashMap<>(indexIdToSchema);
     }
 
     public List<Column> getSchemaByIndexId(Long indexId) {
@@ -492,9 +489,7 @@ public class OlapTable extends Table {
     }
 
     public Map<Long, Integer> getCopiedIndexIdToSchemaHash() {
-        Map<Long, Integer> copiedIndexIdToSchemaHash = new HashMap<Long, Integer>();
-        copiedIndexIdToSchemaHash.putAll(indexIdToSchemaHash);
-        return copiedIndexIdToSchemaHash;
+        return new HashMap<>(indexIdToSchemaHash);
     }
 
     public int getSchemaHashByIndexId(Long indexId) {
@@ -510,9 +505,7 @@ public class OlapTable extends Table {
     }
 
     public Map<Long, Short> getCopiedIndexIdToShortKeyColumnCount() {
-        Map<Long, Short> copiedIndexIdToShortKeyColumnCount = new HashMap<Long, Short>();
-        copiedIndexIdToShortKeyColumnCount.putAll(indexIdToShortKeyColumnCount);
-        return copiedIndexIdToShortKeyColumnCount;
+        return new HashMap<>(indexIdToShortKeyColumnCount);
     }
 
     public short getShortKeyColumnCountByIndexId(Long indexId) {
@@ -528,9 +521,7 @@ public class OlapTable extends Table {
     }
 
     public Map<Long, TStorageType> getCopiedIndexIdToStorageType() {
-        Map<Long, TStorageType> copiedIndexIdToStorageType = new HashMap<Long, TStorageType>();
-        copiedIndexIdToStorageType.putAll(indexIdToStorageType);
-        return copiedIndexIdToStorageType;
+        return new HashMap<>(indexIdToStorageType);
     }
 
     public void setStorageTypeToIndex(Long indexId, TStorageType storageType) {
@@ -593,7 +584,8 @@ public class OlapTable extends Table {
                 Catalog.getCurrentRecycleBin().recyclePartition(dbId, id, partition,
                                           rangePartitionInfo.getRange(partition.getId()),
                                           rangePartitionInfo.getDataProperty(partition.getId()),
-                                          rangePartitionInfo.getReplicationNum(partition.getId()));
+                                          rangePartitionInfo.getReplicationNum(partition.getId()),
+                                          rangePartitionInfo.getIsInMemory(partition.getId()));
             }
 
             // drop partition info
@@ -679,7 +671,7 @@ public class OlapTable extends Table {
     public long getRowCount() {
         long rowCount = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += ((Partition) entry.getValue()).getBaseIndex().getRowCount();
+            rowCount += entry.getValue().getBaseIndex().getRowCount();
         }
         return rowCount;
     }
@@ -709,8 +701,7 @@ public class OlapTable extends Table {
             alterClauses.add(addRollupClause);
         }
 
-        AlterTableStmt alterTableStmt = new AlterTableStmt(new TableName(dbName, name), alterClauses);
-        return alterTableStmt;
+        return new AlterTableStmt(new TableName(dbName, name), alterClauses);
     }
 
     @Override
@@ -1017,11 +1008,7 @@ public class OlapTable extends Table {
         if (this == table) {
             return true;
         }
-        if (!(table instanceof OlapTable)) {
-            return false;
-        }
-
-        return true;
+        return table instanceof OlapTable;
     }
 
     public OlapTable selectiveCopy(Collection<String> reservedPartNames, boolean resetState, IndexExtState extState) {
@@ -1079,15 +1066,17 @@ public class OlapTable extends Table {
 
         DataProperty dataProperty = partitionInfo.getDataProperty(oldPartition.getId());
         short replicationNum = partitionInfo.getReplicationNum(oldPartition.getId());
+        boolean isInMemory = partitionInfo.getIsInMemory(oldPartition.getId());
 
         if (partitionInfo.getType() == PartitionType.RANGE) {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             Range<PartitionKey> range = rangePartitionInfo.getRange(oldPartition.getId());
             rangePartitionInfo.dropPartition(oldPartition.getId());
-            rangePartitionInfo.addPartition(newPartition.getId(), range, dataProperty, replicationNum);
+            rangePartitionInfo.addPartition(newPartition.getId(), range, dataProperty,
+                    replicationNum, isInMemory);
         } else {
             partitionInfo.dropPartition(oldPartition.getId());
-            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicationNum);
+            partitionInfo.addPartition(newPartition.getId(), dataProperty, replicationNum, isInMemory);
         }
 
         return oldPartition;
@@ -1217,5 +1206,20 @@ public class OlapTable extends Table {
             return tableProperty.getReplicationNum();
         }
         return null;
+    }
+
+    public Boolean isInMemory() {
+        if (tableProperty != null) {
+            return tableProperty.IsInMemory();
+        }
+        return false;
+    }
+
+    public void setIsInMemory(boolean isInMemory) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY, Boolean.valueOf(isInMemory).toString());
+        tableProperty.buildInMemory();
     }
 }

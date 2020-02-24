@@ -139,8 +139,6 @@ namespace config {
 
     // If non-zero, Doris will output memory usage every log_mem_usage_interval'th fragment completion.
     CONF_Int32(log_mem_usage_interval, "0");
-    // if non-empty, enable heap profiling and output to specified directory.
-    CONF_String(heap_profile_dir, "");
 
     // cgroups allocated for doris
     CONF_String(doris_cgroups, "");
@@ -230,6 +228,8 @@ namespace config {
 
     // Cache for stoage page size
     CONF_String(storage_page_cache_limit, "20G");
+    // whether to disable page cache feature in storage
+    CONF_Bool(disable_storage_page_cache, "false");
 
     // be policy
     CONF_Int64(base_compaction_start_hour, "20");

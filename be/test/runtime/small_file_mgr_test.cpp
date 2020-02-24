@@ -27,6 +27,8 @@
 #include "http/http_channel.h"
 #include "http/http_handler.h"
 #include "http/http_request.h"
+#include "gen_cpp/HeartbeatService_types.h"
+#include "runtime/exec_env.h"
 
 
 int main(int argc, char* argv[]);
@@ -76,6 +78,7 @@ public:
 
 static SmallFileMgrTestHandler s_test_handler = SmallFileMgrTestHandler();
 static EvHttpServer* s_server = nullptr;
+static int real_port = 0;
 
 class SmallFileMgrTest: public testing::Test {
 public:
@@ -83,9 +86,11 @@ public:
     virtual ~SmallFileMgrTest() { }
 
     static void SetUpTestCase() {
-        s_server = new EvHttpServer(29997);
+        s_server = new EvHttpServer(0);
         s_server->register_handler(GET, "/api/get_small_file", &s_test_handler);
         s_server->start();
+        real_port = s_server->get_real_port();
+        ASSERT_NE(0, real_port);
     }
 
     static void TearDownTestCase() {
@@ -100,14 +105,21 @@ public:
 };
 
 TEST_F(SmallFileMgrTest, test_get_file) {
-    SmallFileMgr mgr(nullptr, g_download_path);
+    TNetworkAddress addr;
+    addr.__set_hostname("http://127.0.0.1");
+    TMasterInfo info;
+    info.__set_network_address(addr);
+    info.__set_http_port(real_port);
+    ExecEnv* env = ExecEnv::GetInstance();
+    env->_master_info = &info;
+    SmallFileMgr mgr(env, g_download_path);
     Status st = mgr.init();
     ASSERT_TRUE(st.ok());
 
     // get already exist file
     std::string file_path;
     st = mgr.get_file(g_file_67890, g_md5_67890, &file_path);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
     std::stringstream expected;
     expected << g_download_path << "/" << g_file_67890 << "." << g_md5_67890;
     ASSERT_EQ(expected.str(), file_path);
@@ -115,7 +127,7 @@ TEST_F(SmallFileMgrTest, test_get_file) {
     // get ready to be downloaded file
     std::string file_path_2;
     st = mgr.get_file(g_file_12345, g_md5_12345, &file_path_2);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(st.ok()) << st.to_string();
     std::stringstream expected2;
     expected2 << g_download_path << "/" << g_file_12345 << "." << g_md5_12345;
     ASSERT_EQ(expected2.str(), file_path_2);

@@ -258,6 +258,13 @@ Syntax:
                       [PROPERTIES ("key"="value", ...)],...)
     ```
 
+    5) if you want to use the inmemory table feature, specify it in properties
+
+        ```
+        PROPERTIES (
+           "in_memory"="true"
+        )   
+        ```
 ## example
 
 1. Create an olap table, distributed by hash, with aggregation type.
@@ -543,6 +550,24 @@ Syntax:
     r3(event_day)
     )
     PROPERTIES("replication_num" = "3");
+```
+
+12. Create a inmemory table:
+
+```
+    CREATE TABLE example_db.table_hash
+    (
+    k1 TINYINT,
+    k2 DECIMAL(10, 2) DEFAULT "10.5",
+    v1 CHAR(10) REPLACE,
+    v2 INT SUM,
+    INDEX k1_idx (k1) USING BITMAP COMMENT 'xxxxxx'
+    )
+    ENGINE=olap
+    AGGREGATE KEY(k1, k2)
+    COMMENT "my first doris table"
+    DISTRIBUTED BY HASH(k1) BUCKETS 32
+    PROPERTIES ("in_memory"="true");
 ```
 
 ## keyword

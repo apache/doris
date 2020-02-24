@@ -30,6 +30,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/options.h"
 #include "olap/row.h"
+#include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory_scratch_sink.h"
 #include "runtime/mem_tracker.h"
@@ -87,7 +88,7 @@ public:
 
 private:
     ObjectPool _obj_pool;
-    ExecEnv _exec_env;
+    ExecEnv* _exec_env;
     // std::vector<TExpr> _exprs;
     TDescriptorTable _t_desc_table;
     RuntimeState* _state;
@@ -101,6 +102,7 @@ private:
 
 
 void MemoryScratchSinkTest::init() {
+    _exec_env = ExecEnv::GetInstance();
     init_desc_tbl();
     init_runtime_state();
 }
@@ -108,14 +110,15 @@ void MemoryScratchSinkTest::init() {
 void MemoryScratchSinkTest::init_runtime_state() {
     ResultQueueMgr* result_queue_mgr = new ResultQueueMgr();
     ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
-    _exec_env._result_queue_mgr = result_queue_mgr;
-    _exec_env._thread_mgr = thread_mgr;
+    _exec_env->_result_queue_mgr = result_queue_mgr;
+    _exec_env->_thread_mgr = thread_mgr;
+    _exec_env->_buffer_reservation = new ReservationTracker();
     TQueryOptions query_options;
     query_options.batch_size = 1024;
     TUniqueId query_id;
     query_id.lo = 10;
     query_id.hi = 100;
-    _state = new RuntimeState(query_id, query_options, TQueryGlobals(), &_exec_env);
+    _state = new RuntimeState(query_id, query_options, TQueryGlobals(), _exec_env);
     _state->init_instance_mem_tracker();
     _mem_tracker = new MemTracker(-1, "MemoryScratchSinkTest", _state->instance_mem_tracker());
     _state->set_desc_tbl(_desc_tbl);

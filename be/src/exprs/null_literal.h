@@ -21,10 +21,6 @@
 #include "common/object_pool.h"
 #include "exprs/expr.h"
 
-namespace llvm {
-class Function;
-}
-
 namespace doris {
 
 class TExprNode;
@@ -36,7 +32,6 @@ public:
         return pool->add(new NullLiteral(*this));
     }
     // NullLiteral(PrimitiveType type);
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext*, TupleRow*);
     virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext*, TupleRow*);
     virtual doris_udf::SmallIntVal get_small_int_val(ExprContext*, TupleRow*);

@@ -24,7 +24,6 @@
 #include <utility>
 #include <string>
 
-#include "codegen/llvm_codegen.h"
 #include "common/logging.h"
 #include "exprs/expr.h"
 #include "exprs/binary_predicate.h"
@@ -36,14 +35,11 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
-#include "util/thread_pool.hpp"
 #include "util/debug_util.h"
 #include "util/priority_thread_pool.hpp"
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
 #include <boost/variant.hpp>
-
-using llvm::Function;
 
 namespace doris {
 
@@ -177,17 +173,6 @@ Status OlapScanNode::prepare(RuntimeState* state) {
         }
 
         _string_slots.push_back(slots[i]);
-    }
-
-    if (state->codegen_level() > 0) {
-        LlvmCodeGen* codegen = NULL;
-        RETURN_IF_ERROR(state->get_codegen(&codegen));
-        Function* codegen_eval_conjuncts_fn = codegen_eval_conjuncts(state, _conjunct_ctxs);
-        if (codegen_eval_conjuncts_fn != NULL) {
-            codegen->add_function_to_jit(codegen_eval_conjuncts_fn,
-                                         reinterpret_cast<void**>(&_eval_conjuncts_fn));
-            // AddRuntimeExecOption("Probe Side Codegen Enabled");
-        }
     }
 
     _runtime_state = state;

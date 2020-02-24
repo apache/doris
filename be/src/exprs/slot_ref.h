@@ -68,7 +68,6 @@ public:
     inline NullIndicatorOffset null_indicator_offset() const {
         return _null_indicator_offset;
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) override;
 
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
     virtual doris_udf::TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);

@@ -1721,7 +1721,7 @@ opt_engine ::=
 
 opt_key_value_map ::=
     {:
-    RESULT = null;
+    RESULT = Maps.newHashMap();
     :}
     | LPAREN key_value_map:map RPAREN
     {:
@@ -4499,6 +4499,8 @@ keyword ::=
     | KW_GROUPING:id
     {: RESULT = id; :}
     | KW_DYNAMIC:id
+    {: RESULT = id; :}
+    | time_unit:id
     {: RESULT = id; :}
     ;
 

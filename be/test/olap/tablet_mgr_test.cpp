@@ -85,7 +85,6 @@ public:
         if (boost::filesystem::exists(_engine_data_path)) {
             ASSERT_TRUE(boost::filesystem::remove_all(_engine_data_path));
         }
-        _tablet_mgr.clear();
     }
 
 private:

@@ -18,6 +18,7 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.proto.PCancelPlanFragmentRequest;
 import org.apache.doris.proto.PCancelPlanFragmentResult;
 import org.apache.doris.proto.PExecPlanFragmentResult;
@@ -31,6 +32,8 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.baidu.bjf.remoting.protobuf.utils.JDKCompilerHelper;
+import com.baidu.bjf.remoting.protobuf.utils.compiler.JdkCompiler;
 import com.baidu.jprotobuf.pbrpc.client.ProtobufRpcProxy;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClient;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClientOptions;
@@ -52,6 +55,11 @@ public class BackendServiceProxy {
     private Map<TNetworkAddress, PBackendService> serviceMap;
 
     private static BackendServiceProxy INSTANCE;
+
+    static {
+        int javaRuntimeVersion = JdkUtils.getJavaVersionAsInteger(System.getProperty("java.version"));
+        JDKCompilerHelper.setCompiler(new JdkCompiler(JdkCompiler.class.getClassLoader(), String.valueOf(javaRuntimeVersion)));
+    }
 
     public BackendServiceProxy() {
         final RpcClientOptions rpcOptions = new RpcClientOptions();

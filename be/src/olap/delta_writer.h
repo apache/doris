@@ -24,7 +24,7 @@
 
 namespace doris {
 
-class FlushHandler;
+class FlushToken;
 class MemTable;
 class MemTracker;
 class Schema;
@@ -106,7 +106,7 @@ private:
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;
-    std::shared_ptr<FlushHandler> _flush_handler;
+    std::unique_ptr<FlushToken> _flush_token;
     std::unique_ptr<MemTracker> _mem_tracker;
 };
 

@@ -315,6 +315,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
+            iter_opts.use_page_cache = _opts.use_page_cache;
             iter_opts.file = _file_handle.file();
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
@@ -347,7 +348,7 @@ int compare_row_with_lhs_columns(const LhsRowType& lhs, const RhsRowType& rhs) {
     return 0;
 }
 
-// look up one key to get its ordinal at which can get data. 
+// look up one key to get its ordinal at which can get data.
 // 'upper_bound' is defined the max ordinal the function will search.
 // We use upper_bound to reduce search times.
 // If we find a valid ordinal, it will be set in rowid and with Status::OK()
