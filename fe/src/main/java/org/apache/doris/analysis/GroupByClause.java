@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
@@ -185,10 +186,8 @@ public class GroupByClause implements ParseNode {
                                 + groupingExpr.toSql());
             }
 
-            if (groupingExpr.type.isHllType()) {
-                throw new AnalysisException(
-                        "GROUP BY expression must not contain hll column: "
-                                + groupingExpr.toSql());
+            if (groupingExpr.type.isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
         }
 
