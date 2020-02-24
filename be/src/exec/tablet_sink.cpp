@@ -79,7 +79,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _add_batch_request.set_index_id(_index_id);
     _add_batch_request.set_sender_id(_parent->_sender_id);
 
-    _rpc_timeout_ms = config::tablet_writer_rpc_timeout_sec * 1000;
+    _rpc_timeout_ms = state->query_options().query_timeout * 1000;
     return Status::OK();
 }
 
