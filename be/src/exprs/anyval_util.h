@@ -18,12 +18,12 @@
 #ifndef DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
 #define DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
 
-#include "codegen/llvm_codegen.h"
 #include "runtime/primitive_type.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
 #include "common/status.h"
+#include "exprs/expr.h"
 
 namespace doris {
 

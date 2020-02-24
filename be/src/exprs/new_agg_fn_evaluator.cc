@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "codegen/llvm_codegen.h"
 #include "common/logging.h"
 #include "exprs/aggregate_functions.h"
 #include "exprs/agg_fn.h"
@@ -41,7 +40,6 @@
 
 using namespace doris;
 using namespace doris_udf;
-using namespace llvm;
 using std::move;
 
 // typedef for builtin aggregate functions. Unfortunately, these type defs don't
@@ -89,7 +87,6 @@ typedef StringVal (*SerializeFn)(FunctionContext*, const StringVal&);
 typedef AnyVal (*GetValueFn)(FunctionContext*, const AnyVal&);
 typedef AnyVal (*FinalizeFn)(FunctionContext*, const AnyVal&);
 
-const char* NewAggFnEvaluator::LLVM_CLASS_NAME = "class.impala::NewAggFnEvaluator";
 const int DEFAULT_MULTI_DISTINCT_COUNT_STRING_BUFFER_SIZE = 1024;
 
 NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, MemTracker* tracker, bool is_clone)

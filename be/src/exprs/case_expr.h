@@ -22,10 +22,6 @@
 #include "expr.h"
 #include "common/object_pool.h"
 
-namespace llvm {
-class Function;
-}
-
 namespace doris {
 
 class TExprNode;
@@ -36,7 +32,6 @@ public:
     virtual Expr* clone(ObjectPool* pool) const override { 
         return pool->add(new CaseExpr(*this)); 
     }
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) override;
     virtual BooleanVal get_boolean_val(ExprContext* ctx, TupleRow* row);
     virtual TinyIntVal get_tiny_int_val(ExprContext* ctx, TupleRow* row);
     virtual SmallIntVal get_small_int_val(ExprContext* ctx, TupleRow* row);

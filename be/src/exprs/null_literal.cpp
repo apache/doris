@@ -17,14 +17,9 @@
 
 #include "null_literal.h"
 
-#include "codegen/llvm_codegen.h"
 #include "codegen/codegen_anyval.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/runtime_state.h"
-
-using llvm::BasicBlock;
-using llvm::Function;
-using llvm::Value;
 
 namespace doris {
 
@@ -77,32 +72,6 @@ DecimalVal NullLiteral::get_decimal_val(ExprContext*, TupleRow*) {
 
 DecimalV2Val NullLiteral::get_decimalv2_val(ExprContext*, TupleRow*) {
     return DecimalV2Val::null();
-}
-// Generated IR for a bigint NULL literal:
-//
-// define { i8, i64 } @NullLiteral(i8* %context, %"class.impala::TupleRow"* %row) {
-// entry:
-//   ret { i8, i64 } { i8 1, i64 0 }
-// }
-Status NullLiteral::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-    if (_ir_compute_fn != NULL) {
-        *fn = _ir_compute_fn;
-        return Status::OK();
-    }
-
-    DCHECK_EQ(get_num_children(), 0);
-    LlvmCodeGen* codegen = NULL;
-    RETURN_IF_ERROR(state->get_codegen(&codegen));
-    Value* args[2];
-    *fn = create_ir_function_prototype(codegen, "NullLiteral", &args);
-    BasicBlock* entry_block = BasicBlock::Create(codegen->context(), "entry", *fn);
-    LlvmCodeGen::LlvmBuilder builder(entry_block);
-
-    Value* v = CodegenAnyVal::get_null_val(codegen, type());
-    builder.CreateRet(v);
-    *fn = codegen->finalize_function(*fn);
-    _ir_compute_fn = *fn;
-    return Status::OK();
 }
 
 }

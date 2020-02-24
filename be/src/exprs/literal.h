@@ -33,8 +33,6 @@ public:
         return pool->add(new Literal(*this));
     }
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
-
     virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
     virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*);
     virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*);
