@@ -28,8 +28,6 @@ public:
     CastExpr(const TExprNode& node) : Expr(node) { }
     virtual ~CastExpr() { }
     static Expr* from_thrift(const TExprNode& node);
-protected:
-    Status codegen_cast_fn(RuntimeState* state, llvm::Function** fn);
 };
 
 #define CAST_EXPR_DEFINE(CLASS) \
@@ -40,7 +38,6 @@ protected:
         virtual Expr* clone(ObjectPool* pool) const override { \
             return pool->add(new CLASS(*this)); \
         } \
-        virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn); \
         virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow*); \
         virtual TinyIntVal get_tiny_int_val(ExprContext* context, TupleRow*); \
         virtual SmallIntVal get_small_int_val(ExprContext* context, TupleRow*); \

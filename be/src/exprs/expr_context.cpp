@@ -33,8 +33,6 @@
 
 namespace doris {
 
-const char* ExprContext::_s_llvm_class_name = "class.doris::ExprContext";
-
 ExprContext::ExprContext(Expr* root) :
         _fn_contexts_ptr(NULL),
         _root(root),

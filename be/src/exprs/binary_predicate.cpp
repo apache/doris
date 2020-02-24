@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "codegen/llvm_codegen.h"
 #include "codegen/codegen_anyval.h"
 #include "util/debug_util.h"
 #include "gen_cpp/Exprs_types.h"
@@ -28,15 +27,6 @@
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
-
-using llvm::BasicBlock;
-using llvm::CmpInst;
-using llvm::Constant;
-using llvm::ConstantInt;
-using llvm::Function;
-using llvm::LLVMContext;
-using llvm::PHINode;
-using llvm::Value;
 
 namespace doris {
 
@@ -278,114 +268,6 @@ std::string BinaryPredicate::debug_string() const {
     return out.str();
 }
 
-// IR codegen for compound add predicates.  Compound predicate has non trivial
-// null handling as well as many branches so this is pretty complicated.  The IR
-// for x && y is:
-//
-// define i16 @Add(%"class.doris::ExprContext"* %context,
-//                 %"class.doris::TupleRow"* %row) #20 {
-// entry:
-//   %lhs_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
-//                                             %"class.doris::TupleRow"* %row)
-//   %0 = extractvalue { i8, i64 } %lhs_val, 0
-//   %lhs_is_null = trunc i8 %0 to i1
-//   br i1 %lhs_is_null, label %null, label %lhs_not_null
-//
-// lhs_not_null:                                     ; preds = %entry
-//   %rhs_val = call { i8, i64 } @get_slot_ref(%"class.doris::ExprContext"* %context,
-//                                             %"class.doris::TupleRow"* %row)
-//   %1 = extractvalue { i8, i64 } %lhs_val, 0
-//   %rhs_is_null = trunc i8 %1 to i1
-//   br i1 %rhs_is_null, label %null, label %rhs_not_null
-//
-// rhs_not_null:                                     ; preds = %entry
-//   %2 = extractvalue { i8, i64 } %lhs_val, 1
-//   %3 = extractvalue { i8, i64 } %rhs_val, 1
-//   %val = add i64 %2, %3
-//   br label %ret
-//
-// ret:                                              ; preds = %not_null_block, %null_block
-//   %ret3 = phi i1 [ false, %null_block ], [ %4, %not_null_block ]
-//   %5 = zext i1 %ret3 to i16
-//   %6 = shl i16 %5, 8
-//   %7 = or i16 0, %6
-//   ret i16 %7
-// }
-Status BinaryPredicate::codegen_compare_fn(
-        RuntimeState* state, llvm::Function** fn, CmpInst::Predicate pred) {
-    LlvmCodeGen* codegen = NULL;
-    RETURN_IF_ERROR(state->get_codegen(&codegen));
-    Function* lhs_fn = NULL;
-    RETURN_IF_ERROR(_children[0]->get_codegend_compute_fn(state, &lhs_fn));
-    Function* rhs_fn = NULL;
-    RETURN_IF_ERROR(_children[1]->get_codegend_compute_fn(state, &rhs_fn));
-
-    // Function protocol
-    Value* args[2];
-    *fn = create_ir_function_prototype(codegen, "compare", &args);
-    LLVMContext& cg_ctx = codegen->context();
-    LlvmCodeGen::LlvmBuilder builder(cg_ctx);
-
-    // Constant
-    Value* zero = ConstantInt::get(codegen->get_type(TYPE_TINYINT), 0);
-    Value* one = ConstantInt::get(codegen->get_type(TYPE_TINYINT), 1);
-
-    // Block
-    BasicBlock* entry_block = BasicBlock::Create(cg_ctx, "entry", *fn);
-    BasicBlock* lhs_not_null_block = BasicBlock::Create(cg_ctx, "lhs_not_null", *fn);
-    BasicBlock* compute_block = BasicBlock::Create(cg_ctx, "compute", *fn);
-    BasicBlock* null_block = BasicBlock::Create(cg_ctx, "null", *fn);
-    BasicBlock* ret_block = BasicBlock::Create(cg_ctx, "ret", *fn);
-
-    // entry block
-    builder.SetInsertPoint(entry_block);
-    CodegenAnyVal lhs_val = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, _children[0]->type(), lhs_fn, args, "lhs_val");
-    // if (v1.is_null) return null;
-    Value* lhs_is_null = lhs_val.get_is_null();
-    builder.CreateCondBr(lhs_is_null, null_block, lhs_not_null_block);
-
-    // lhs_not_null_block
-    builder.SetInsertPoint(lhs_not_null_block);
-    CodegenAnyVal rhs_val = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, _children[1]->type(), rhs_fn, args, "rhs_val");
-    Value* rhs_is_null = rhs_val.get_is_null();
-    builder.CreateCondBr(rhs_is_null, null_block, compute_block);
-
-    // compute_block
-    builder.SetInsertPoint(compute_block);
-    Value* val = NULL;
-    if (_children[0]->type().type == TYPE_DOUBLE || _children[0]->type().type == TYPE_FLOAT) {
-        val = builder.CreateFCmp(pred, lhs_val.get_val(), rhs_val.get_val(), "val");
-    } else {
-        val = builder.CreateICmp(pred, lhs_val.get_val(), rhs_val.get_val(), "val");
-    }
-    builder.CreateBr(ret_block);
-
-    // null block
-    builder.SetInsertPoint(null_block);
-    builder.CreateBr(ret_block);
-
-    // ret block
-    builder.SetInsertPoint(ret_block);
-    PHINode* is_null_phi = builder.CreatePHI(codegen->tinyint_type(), 2, "is_null_phi");
-    is_null_phi->addIncoming(one, null_block);
-    is_null_phi->addIncoming(zero, compute_block);
-    PHINode* val_phi = builder.CreatePHI(val->getType(), 2, "val_phi");
-    Value* null = Constant::getNullValue(val->getType());
-    val_phi->addIncoming(null, null_block);
-    val_phi->addIncoming(val, compute_block);
-
-    CodegenAnyVal result = CodegenAnyVal::get_non_null_val(
-        codegen, &builder, type(), "result");
-    result.set_is_null(is_null_phi);
-    result.set_val(val_phi);
-    builder.CreateRet(result.value());
-
-    *fn = codegen->finalize_function(*fn);
-    return Status::OK();
-}
-
 #define BINARY_PRED_FN(CLASS, TYPE, FN, OP, LLVM_PRED) \
     BooleanVal CLASS::get_boolean_val(ExprContext* ctx, TupleRow* row) { \
         TYPE v1 = _children[0]->FN(ctx, row); \
@@ -397,15 +279,6 @@ Status BinaryPredicate::codegen_compare_fn(
             return BooleanVal::null(); \
         } \
         return BooleanVal(v1.val OP v2.val); \
-    } \
-    Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
-        if (_ir_compute_fn != NULL) { \
-            *fn = _ir_compute_fn; \
-            return Status::OK(); \
-        } \
-        RETURN_IF_ERROR(codegen_compare_fn(state, fn, LLVM_PRED)); \
-        _ir_compute_fn = *fn; \
-        return Status::OK(); \
     }
 
 // add '/**/' to pass codestyle check of cooder
@@ -448,9 +321,6 @@ BINARY_PRED_FLOAT_FNS(DoubleVal, get_double_val);
         DORIS_TYPE pv1 = DORIS_TYPE::FROM_FUNC(v1); \
         DORIS_TYPE pv2 = DORIS_TYPE::FROM_FUNC(v2); \
         return BooleanVal(pv1 OP pv2); \
-    } \
-    Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
-        return get_codegend_compute_fn_wrapper(state, fn); \
     }
 
 
@@ -476,15 +346,6 @@ COMPLICATE_BINARY_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Value, from
             return BooleanVal::null(); \
         } \
         return BooleanVal(v1.packed_time OP v2.packed_time); \
-    } \
-    Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
-        if (_ir_compute_fn != NULL) { \
-            *fn = _ir_compute_fn; \
-            return Status::OK(); \
-        } \
-        RETURN_IF_ERROR(codegen_compare_fn(state, fn , LLVM_PRED)); \
-        _ir_compute_fn = *fn; \
-        return Status::OK(); \
     }
 
 #define DATETIME_BINARY_PRED_FNS() \
@@ -510,9 +371,6 @@ DATETIME_BINARY_PRED_FNS()
         StringValue pv1 = StringValue::from_string_val(v1); \
         StringValue pv2 = StringValue::from_string_val(v2); \
         return BooleanVal(pv1 OP pv2); \
-    } \
-    Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
-        return get_codegend_compute_fn_wrapper(state, fn); \
     }
 
 #define STRING_BINARY_PRED_FNS() \
@@ -539,10 +397,6 @@ BooleanVal EqStringValPred::get_boolean_val(ExprContext* ctx, TupleRow* row) {
     return BooleanVal(string_compare((char*)v1.ptr, v1.len, (char*)v2.ptr, v2.len, v1.len) == 0);
 }
 
-Status EqStringValPred::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-    return get_codegend_compute_fn_wrapper(state, fn);
-}
-
 #define BINARY_PRED_FOR_NULL_FN(CLASS, TYPE, FN, OP, LLVM_PRED) \
     BooleanVal CLASS::get_boolean_val(ExprContext* ctx, TupleRow* row) { \
         TYPE v1 = _children[0]->FN(ctx, row); \
@@ -553,15 +407,6 @@ Status EqStringValPred::get_codegend_compute_fn(RuntimeState* state, llvm::Funct
             return BooleanVal(false); \
         } \
         return BooleanVal(v1.val OP v2.val); \
-    } \
-    Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
-        if (_ir_compute_fn != NULL) { \
-            *fn = _ir_compute_fn; \
-            return Status::OK(); \
-        } \
-        RETURN_IF_ERROR(codegen_compare_fn(state, fn, LLVM_PRED)); \
-        _ir_compute_fn = *fn; \
-        return Status::OK(); \
     }
 
 // add '/**/' to pass codestyle check of cooder
@@ -594,11 +439,7 @@ BINARY_PRED_FOR_NULL_FLOAT_FNS(DoubleVal, get_double_val);
         DORIS_TYPE pv1 = DORIS_TYPE::FROM_FUNC(v1); \
         DORIS_TYPE pv2 = DORIS_TYPE::FROM_FUNC(v2); \
         return BooleanVal(pv1 OP pv2); \
-    } \
-    Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
-        return get_codegend_compute_fn_wrapper(state, fn); \
     }
-
 
 #define COMPLICATE_BINARY_FOR_NULL_PRED_FNS(TYPE, FN, DORIS_TYPE, FROM_FUNC) \
     COMPLICATE_BINARY_FOR_NULL_PRED_FN(EqForNull##TYPE##Pred, TYPE, FN, DORIS_TYPE, FROM_FUNC, ==)
@@ -616,15 +457,6 @@ COMPLICATE_BINARY_FOR_NULL_PRED_FNS(DecimalV2Val, get_decimalv2_val, DecimalV2Va
             return BooleanVal(false); \
         } \
         return BooleanVal(v1.packed_time OP v2.packed_time); \
-    } \
-    Status CLASS::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) { \
-        if (_ir_compute_fn != NULL) { \
-            *fn = _ir_compute_fn; \
-            return Status::OK(); \
-        } \
-        RETURN_IF_ERROR(codegen_compare_fn(state, fn , LLVM_PRED)); \
-        _ir_compute_fn = *fn; \
-        return Status::OK(); \
     }
 
 #define DATETIME_BINARY_FOR_NULL_PRED_FNS() \
@@ -646,103 +478,5 @@ BooleanVal EqForNullStringValPred::get_boolean_val(ExprContext* ctx, TupleRow* r
     }
     return BooleanVal(string_compare((char*)v1.ptr, v1.len, (char*)v2.ptr, v2.len, v1.len) == 0);
 }
-
-Status EqForNullStringValPred::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-    return get_codegend_compute_fn_wrapper(state, fn);
-}
-
-#if 0
-Status EqStringValPred::get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-    LlvmCodeGen* codegen = NULL;
-    RETURN_IF_ERROR(state->get_codegen(&codegen));
-    Function* lhs_fn = NULL;
-    RETURN_IF_ERROR(_children[0]->get_codegend_compute_fn(state, &lhs_fn));
-    Function* rhs_fn = NULL;
-    RETURN_IF_ERROR(_children[1]->get_codegend_compute_fn(state, &rhs_fn));
-
-    // Function protocol
-    Value* args[2];
-    *fn = create_ir_function_prototype(codegen, "compare", &args);
-    LLVMContext& cg_ctx = codegen->context();
-    LlvmCodeGen::LlvmBuilder builder(cg_ctx);
-
-    // Constant
-    Value* zero = ConstantInt::get(codegen->get_type(TYPE_TINYINT), 0);
-    Value* one = ConstantInt::get(codegen->get_type(TYPE_TINYINT), 1);
-    Value* false_val = ConstantInt::get(llvm::Type::getInt1Ty(cg_ctx), 0);
-    // Value* true_val = ConstantInt::get(llvm::Type::getInt1Ty(cg_ctx), 1);
-
-    // Block
-    BasicBlock* entry_block = BasicBlock::Create(cg_ctx, "entry", *fn);
-    BasicBlock* lhs_not_null_block = BasicBlock::Create(cg_ctx, "lhs_not_null", *fn);
-    BasicBlock* rhs_not_null_block = BasicBlock::Create(cg_ctx, "rhs_not_null", *fn);
-    BasicBlock* length_equal_block = BasicBlock::Create(cg_ctx, "length_equal", *fn);
-    BasicBlock* null_block = BasicBlock::Create(cg_ctx, "null", *fn);
-    BasicBlock* false_block = BasicBlock::Create(cg_ctx, "false", *fn);
-    BasicBlock* ret_block = BasicBlock::Create(cg_ctx, "ret", *fn);
-
-    // entry block
-    builder.SetInsertPoint(entry_block);
-    CodegenAnyVal lhs_val = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, _children[0]->type(), lhs_fn, args, "lhs_val");
-    // if (v1.is_null) return null;
-    Value* lhs_is_null = lhs_val.get_is_null();
-    builder.CreateCondBr(lhs_is_null, null_block, lhs_not_null_block);
-
-    // lhs_not_null_block
-    builder.SetInsertPoint(lhs_not_null_block);
-    CodegenAnyVal rhs_val = CodegenAnyVal::create_call_wrapped(
-        codegen, &builder, _children[1]->type(), rhs_fn, args, "rhs_val");
-    Value* rhs_is_null = rhs_val.get_is_null();
-    builder.CreateCondBr(rhs_is_null, null_block, rhs_not_null_block);
-
-    // rhs_not_null_block
-    builder.SetInsertPoint(rhs_not_null_block);
-    Value* lhs_len = lhs_val.get_len();
-    Value* rhs_len = rhs_val.get_len();
-    // if (v1.len != v2.len)
-    Value* len_eq = builder.CreateICmpEQ(lhs_len, rhs_len, "len_eq");
-    builder.CreateCondBr(len_eq, length_equal_block, false_block);
-
-    // length_equal_block
-    builder.SetInsertPoint(length_equal_block);
-    Function* compare_fn = codegen->get_function(IRFunction::IR_STRING_COMPARE);
-    Value* compare_args[4] = {lhs_val.get_ptr(), lhs_len, lhs_val.get_ptr(), lhs_len};
-    Value* compare_res = builder.CreateCall(compare_fn, compare_args, "compare_res");
-    Value* int_zero = ConstantInt::get(codegen->get_type(TYPE_INT), 0);
-    Value* val = builder.CreateICmpEQ(compare_res, int_zero, "val");
-    builder.CreateBr(ret_block);
-
-    // null block
-    builder.SetInsertPoint(null_block);
-    builder.CreateBr(ret_block);
-
-    // false block
-    builder.SetInsertPoint(false_block);
-    builder.CreateBr(ret_block);
-
-    // ret block
-    builder.SetInsertPoint(ret_block);
-    PHINode* is_null_phi = builder.CreatePHI(codegen->tinyint_type(), 3, "is_null_phi");
-    is_null_phi->addIncoming(one, null_block);
-    is_null_phi->addIncoming(zero, false_block);
-    is_null_phi->addIncoming(zero, length_equal_block);
-    PHINode* val_phi = builder.CreatePHI(val->getType(), 3, "val_phi");
-    Value* null = Constant::getNullValue(val->getType());
-    val_phi->addIncoming(null, null_block);
-    val_phi->addIncoming(false_val, false_block);
-    val_phi->addIncoming(val, length_equal_block);
-
-    CodegenAnyVal result = CodegenAnyVal::get_non_null_val(
-        codegen, &builder, type(), "result");
-    result.set_is_null(is_null_phi);
-    result.set_val(val_phi);
-    builder.CreateRet(result.value());
-
-    *fn = codegen->finalize_function(*fn);
-    return Status::OK();
-}
-
-#endif
 
 }

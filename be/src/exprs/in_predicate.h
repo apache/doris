@@ -47,10 +47,6 @@ public:
 
     virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) override {
-        return get_codegend_compute_fn_wrapper(state, fn);
-    }
-
     // this function add one item in hashset, not add to children.
     // if add to children, when List is long, copy is a expensive op.
     void insert(void* value);

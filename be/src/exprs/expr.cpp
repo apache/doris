@@ -20,10 +20,8 @@
 #include <sstream>
 #include <vector>
 #include <thrift/protocol/TDebugProtocol.h>
-#include <llvm/Support/InstIterator.h>
 
 #include "codegen/codegen_anyval.h"
-#include "codegen/llvm_codegen.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/anyval_util.h"
@@ -54,15 +52,9 @@
 #include "gen_cpp/Exprs_types.h"
 #include "gen_cpp/PaloService_types.h"
 
-using llvm::Function;
-using llvm::Instruction;
-using llvm::CallInst;
-using llvm::ConstantInt;
-using llvm::Value;
 using std::vector;
 namespace doris {
 
-const char* Expr::_s_llvm_class_name = "class.doris::Expr";
 const char* Expr::_s_get_constant_symbol_prefix = "_ZN4doris4Expr12get_constant";
 
 template<class T>
@@ -101,7 +93,6 @@ Expr::Expr(const Expr& expr)
         _output_column(expr._output_column),
         _fn(expr._fn),
         _fn_context_index(expr._fn_context_index),
-        _ir_compute_fn(expr._ir_compute_fn),
         _constant_val(expr._constant_val),
         _vector_compute_fn(expr._vector_compute_fn) {
 }
@@ -113,8 +104,7 @@ Expr::Expr(const TypeDescriptor& type) :
         _type(type),
         _output_scale(-1),
         _output_column(-1),
-        _fn_context_index(-1),
-        _ir_compute_fn(NULL) {
+        _fn_context_index(-1) {
     switch (_type.type) {
     case TYPE_BOOLEAN:
         _node_type = (TExprNodeType::BOOL_LITERAL);
@@ -170,8 +160,7 @@ Expr::Expr(const TypeDescriptor& type, bool is_slotref) :
         _type(type),
         _output_scale(-1),
         _output_column(-1),
-        _fn_context_index(-1),
-        _ir_compute_fn(NULL) {
+        _fn_context_index(-1) {
     if (is_slotref) {
         _node_type = (TExprNodeType::SLOT_REF);
     } else {
@@ -232,8 +221,7 @@ Expr::Expr(const TExprNode& node) :
         _type(TypeDescriptor::from_thrift(node.type)),
         _output_scale(node.output_scale),
         _output_column(node.__isset.output_column ? node.output_column : -1),
-        _fn_context_index(-1),
-        _ir_compute_fn(NULL) {
+        _fn_context_index(-1) {
     if (node.__isset.fn) {
         _fn = node.fn;
     }
@@ -248,8 +236,7 @@ Expr::Expr(const TExprNode& node, bool is_slotref) :
         _type(TypeDescriptor::from_thrift(node.type)),
         _output_scale(node.output_scale),
         _output_column(node.__isset.output_column ? node.output_column : -1),
-        _fn_context_index(-1),
-        _ir_compute_fn(NULL) {
+        _fn_context_index(-1) {
     if (node.__isset.fn) {
         _fn = node.fn;
     }
@@ -641,7 +628,7 @@ std::string Expr::debug_string() const {
         out << " opcode=" << _opcode;
     }
 
-    out << " codegen=" << (_ir_compute_fn == NULL ? "false" : "true");
+    out << " codegen=" << "false";
 
     if (!_children.empty()) {
         out << " children=" << debug_string(_children);
@@ -860,131 +847,6 @@ Status Expr::get_fn_context_error(ExprContext* ctx) {
             return Status::InternalError(fn_ctx->error_msg());
         }
     }
-    return Status::OK();
-}
-
-llvm::Function* Expr::create_ir_function_prototype(
-        LlvmCodeGen* codegen, const std::string& name, llvm::Value* (*args)[2]) {
-    llvm::Type* return_type = CodegenAnyVal::get_lowered_type(codegen, type());
-    LlvmCodeGen::FnPrototype prototype(codegen, name, return_type);
-    prototype.add_argument(
-        LlvmCodeGen::NamedVariable(
-            "context", codegen->get_ptr_type(ExprContext::_s_llvm_class_name)));
-    prototype.add_argument(
-        LlvmCodeGen::NamedVariable("row", codegen->get_ptr_type(TupleRow::_s_llvm_class_name)));
-    llvm::Function* function = prototype.generate_prototype(NULL, args[0]);
-    DCHECK(function != NULL);
-    return function;
-}
-
-llvm::Function* Expr::get_static_get_val_wrapper(
-        const TypeDescriptor& type, LlvmCodeGen* codegen) {
-    switch (type.type) {
-    case TYPE_BOOLEAN:
-        return codegen->get_function(IRFunction::EXPR_GET_BOOLEAN_VAL);
-    case TYPE_TINYINT:
-        return codegen->get_function(IRFunction::EXPR_GET_TINYINT_VAL);
-    case TYPE_SMALLINT:
-        return codegen->get_function(IRFunction::EXPR_GET_SMALLINT_VAL);
-    case TYPE_INT:
-        return codegen->get_function(IRFunction::EXPR_GET_INT_VAL);
-    case TYPE_BIGINT:
-        return codegen->get_function(IRFunction::EXPR_GET_BIGINT_VAL);
-    case TYPE_LARGEINT:
-        return codegen->get_function(IRFunction::EXPR_GET_LARGEINT_VAL);
-    case TYPE_FLOAT:
-        return codegen->get_function(IRFunction::EXPR_GET_FLOAT_VAL);
-    case TYPE_DOUBLE:
-        return codegen->get_function(IRFunction::EXPR_GET_DOUBLE_VAL);
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-        return codegen->get_function(IRFunction::EXPR_GET_STRING_VAL);
-    case TYPE_DATE:
-    case TYPE_DATETIME:
-        return codegen->get_function(IRFunction::EXPR_GET_DATETIME_VAL);
-    case TYPE_DECIMAL:
-        return codegen->get_function(IRFunction::EXPR_GET_DECIMAL_VAL);
-    default:
-        DCHECK(false) << "Invalid type: " << type.debug_string();
-        return NULL;
-    }
-}
-
-Value* Expr::get_ir_constant(LlvmCodeGen* codegen, ExprConstant c, int i) {
-    switch (c) {
-    case RETURN_TYPE_SIZE:
-        DCHECK_EQ(i, -1);
-        return ConstantInt::get(codegen->get_type(TYPE_INT), _type.get_byte_size());
-    case ARG_TYPE_SIZE:
-        DCHECK_GE(i, 0);
-        DCHECK_LT(i, _children.size());
-        return ConstantInt::get(
-            codegen->get_type(TYPE_INT), _children[i]->_type.get_byte_size());
-    default:
-        CHECK(false) << "NYI";
-        return NULL;
-    }
-}
-
-int Expr::inline_constants(LlvmCodeGen* codegen, Function* fn) {
-    int replaced = 0;
-    for (llvm::inst_iterator iter = llvm::inst_begin(fn), end = llvm::inst_end(fn);
-            iter != end;) {
-        // Increment iter now so we don't mess it up modifying the instrunction below
-        Instruction* instr = &*(iter++);
-
-        // Look for call instructions
-        if (!llvm::isa<CallInst>(instr)) {
-            continue;
-        }
-        CallInst* call_instr = llvm::cast<CallInst>(instr);
-        Function* called_fn = call_instr->getCalledFunction();
-
-        // Look for call to Expr::GetConstant()
-        if (called_fn == NULL ||
-            called_fn->getName().find(_s_get_constant_symbol_prefix) == std::string::npos) {
-            continue;
-        }
-
-        // 'c' and 'i' arguments must be constant
-        ConstantInt* c_arg = llvm::dyn_cast<ConstantInt>(call_instr->getArgOperand(1));
-        ConstantInt* i_arg = llvm::dyn_cast<ConstantInt>(call_instr->getArgOperand(2));
-        DCHECK(c_arg != NULL) << "Non-constant 'c' argument to Expr::GetConstant()";
-        DCHECK(i_arg != NULL) << "Non-constant 'i' argument to Expr::GetConstant()";
-
-        // Replace the called function with the appropriate constant
-        ExprConstant c_val = static_cast<ExprConstant>(c_arg->getSExtValue());
-        int i_val = static_cast<int>(i_arg->getSExtValue());
-        call_instr->replaceAllUsesWith(get_ir_constant(codegen, c_val, i_val));
-        call_instr->eraseFromParent();
-        ++replaced;
-    }
-    return replaced;
-}
-
-Status Expr::get_codegend_compute_fn_wrapper(RuntimeState* state, llvm::Function** fn) {
-    if (_ir_compute_fn != NULL) {
-        *fn = _ir_compute_fn;
-        return Status::OK();
-    }
-    LlvmCodeGen* codegen = NULL;
-    RETURN_IF_ERROR(state->get_codegen(&codegen));
-    llvm::Function* static_getval_fn = get_static_get_val_wrapper(type(), codegen);
-
-    // Call it passing this as the additional first argument.
-    llvm::Value* args[2];
-    _ir_compute_fn = create_ir_function_prototype(codegen, "codegen_compute_fn_wrapper", &args);
-    llvm::BasicBlock* entry_block =
-        llvm::BasicBlock::Create(codegen->context(), "entry", _ir_compute_fn);
-    LlvmCodeGen::LlvmBuilder builder(entry_block);
-    llvm::Value* this_ptr =
-        codegen->cast_ptr_to_llvm_ptr(codegen->get_ptr_type(Expr::_s_llvm_class_name), this);
-    llvm::Value* compute_fn_args[] = { this_ptr, args[0], args[1] };
-    llvm::Value* ret = CodegenAnyVal::create_call(
-        codegen, &builder, static_getval_fn, compute_fn_args, "ret", NULL);
-    builder.CreateRet(ret);
-    _ir_compute_fn = codegen->finalize_function(_ir_compute_fn);
-    *fn = _ir_compute_fn;
     return Status::OK();
 }
 

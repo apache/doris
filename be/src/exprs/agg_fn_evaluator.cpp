@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "codegen/llvm_codegen.h"
 #include "common/logging.h"
 #include "exec/aggregation_node.h"
 #include "exprs/aggregate_functions.h"

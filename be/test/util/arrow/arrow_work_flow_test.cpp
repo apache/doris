@@ -88,7 +88,7 @@ void ArrowWorkFlowTest::init() {
 
 void ArrowWorkFlowTest::init_runtime_state() {
     ResultQueueMgr* result_queue_mgr = new ResultQueueMgr();
-    ThreadResourceMgr* thrbg56gead_mgr = new ThreadResourceMgr();
+    ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
     _exec_env->_result_queue_mgr = result_queue_mgr;
     _exec_env->_thread_mgr = thread_mgr;
     _exec_env->_buffer_reservation = new ReservationTracker();

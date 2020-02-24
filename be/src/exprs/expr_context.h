@@ -150,8 +150,6 @@ public:
     static void free_local_allocations(const std::vector<ExprContext*>& ctxs);
     static void free_local_allocations(const std::vector<FunctionContext*>& ctxs);
 
-    static const char* _s_llvm_class_name;
-
     bool opened() {
        return _opened; 
     }
