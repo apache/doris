@@ -57,6 +57,11 @@ public:
     int length() const {
         return _pos - _buf;
     }
+    
+    void open_dynamic_mode();
+    
+    void close_dynamic_mode();
+    
 private:
     int reserve(int size);
 
@@ -64,6 +69,9 @@ private:
     char* _buf;
     int _buf_size;
     char _default_buf[4096];
+    
+    int _dynamic_mode;
+    char* _len_pos;
 };
 
 }

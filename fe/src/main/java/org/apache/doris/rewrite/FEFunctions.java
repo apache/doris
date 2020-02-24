@@ -17,6 +17,7 @@
 
 package org.apache.doris.rewrite;
 
+import org.apache.doris.analysis.ArrayLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -432,4 +433,20 @@ public class FEFunctions {
         return first instanceof NullLiteral ? second : first;
     }
 
+    /**
+     ------------------------------------------------------------------------------
+     */
+
+    /**
+     * Nest type function
+     */
+    @FEFunction(name = "array", argTypes = {"INT"}, returnType = "ARRAY")
+    public static LiteralExpr arrayInt(LiteralExpr... exprs) throws AnalysisException {
+        return new ArrayLiteral(exprs);
+    }
+
+    @FEFunction(name = "array", argTypes = {"VARCHAR"}, returnType = "ARRAY")
+    public static LiteralExpr array(StringLiteral... exprs) throws AnalysisException {
+        return new ArrayLiteral(exprs);
+    }
 }

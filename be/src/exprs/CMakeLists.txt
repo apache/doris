@@ -53,6 +53,7 @@ add_library(Exprs
   scalar_fn_call.cpp
   slot_ref.cpp
   string_functions.cpp
+  collection_functions.cpp        
   timestamp_functions.cpp
   timezone_db.cpp
   tuple_is_null_predicate.cpp

@@ -20,6 +20,7 @@
 
 #include "runtime/raw_value.h"
 #include "runtime/string_value.hpp"
+#include "runtime/collection_value.h"
 #include "runtime/tuple.h"
 #include "olap/utils.h"
 #include "util/types.h"
@@ -300,7 +301,32 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
         } else {
             dest->ptr = src->ptr;
         }
+        break;
+    }
+    case TYPE_ARRAY: {
+        DCHECK_EQ(type.children.size(), 1);
+        
+        const CollectionValue* src = reinterpret_cast<const CollectionValue*>(value);
+        CollectionValue* val = reinterpret_cast<CollectionValue*>(dst);
 
+        if (pool != NULL) {
+            auto children_type = type.children.at(0);
+            CollectionValue::init_collection(pool, src->size(), children_type, val);
+            CollectionIterator src_iter = src->iterator(&children_type);
+            CollectionIterator val_iter = val->iterator(&children_type);
+
+            val->deep_copy_bitmap(src);
+            
+            while (src_iter.has_next() && val_iter.has_next()) {
+
+                // write children 
+                write(src_iter.value(), val_iter.value(), children_type, pool);
+                src_iter.next();
+                val_iter.next();
+            }
+        } else {
+            val->shallow_copy(src);
+        }
         break;
     }
 

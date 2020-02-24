@@ -44,6 +44,7 @@ struct DateTimeVal;
 struct DecimalVal;
 struct DecimalV2Val;
 struct HllVal;
+struct CollectionVal;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -786,6 +787,33 @@ struct HllVal : public StringVal {
     void agg_merge(const HllVal &other);
 };
 
+struct CollectionVal : public AnyVal {
+    // collection size
+    int length;
+    // null bitmap
+    uint8_t* null_bitmap_data;
+    // data(include null)
+    // TYPE_INT: bool
+    // TYPE_TINYINT: int8_t
+    // TYPE_SMALLINT: int16_t
+    // TYPE_INT: int32_t
+    // TYPE_BIGINT: int64_t
+    // TYPE_CHAR/VARCHAR/OBJECT: StringValue 
+    void* data;
+
+    CollectionVal() : length(0), null_bitmap_data(NULL), data(NULL) {};
+
+//    CollectionVal(CollectionVal& col) : length(col.length), null_bitmap_data(col.null_bitmap_data), data(col.data) {};
+
+    CollectionVal(int len, uint8_t* null_bitmap, void* data) : length(len), null_bitmap_data(null_bitmap),
+                                                               data(NULL) {};
+    
+    static CollectionVal null() {
+        CollectionVal val;
+        val.is_null = true;
+        return val;
+    }
+};
 
 typedef uint8_t* BufferVal;
 }
@@ -804,5 +832,6 @@ using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::HllVal;
 using doris_udf::FunctionContext;
+using doris_udf::CollectionVal;
 
 #endif

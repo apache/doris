@@ -68,6 +68,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
         TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
+        TYPE_STRING_MAP.put(PrimitiveType.ARRAY, "Array<%s>");
     }
     
     private static class CmdWorker extends Thread {
@@ -234,6 +235,9 @@ public class Util {
                         typeString = String.format(
                                 TYPE_STRING_MAP.get(dataType), column.getPrecision(), 
                                 column.getScale());
+                        break;
+                    case ARRAY:
+                        typeString = column.getOriginType().toSql();
                         break;
                     default:
                         typeString = TYPE_STRING_MAP.get(dataType);

@@ -141,6 +141,9 @@ public class ScalarType extends Type {
                 return DEFAULT_DECIMALV2;
             case LARGEINT:
                 return LARGEINT;
+            case ARRAY:
+                // can't static, because the same array may cause circular dependency
+                return new ArrayType();
             default:
                 LOG.warn("type={}", type);
                 Preconditions.checkState(false);
@@ -188,6 +191,8 @@ public class ScalarType extends Type {
                 return (ScalarType) createDecimalV2Type();
             case "LARGEINT":
                 return LARGEINT;
+            case "ARRAY":
+                return createArrayType();
             default:
                 LOG.warn("type={}", type);
                 Preconditions.checkState(false);
@@ -272,6 +277,14 @@ public class ScalarType extends Type {
         return type;
     }
 
+    public static ScalarType createArrayType() {
+        return new ArrayType();
+    }
+
+    public static ScalarType createArrayType(Type type) {
+        return new ArrayType(type);
+    }
+
     public static ScalarType createVarcharType() {
         return DEFAULT_VARCHAR;
     }
@@ -342,6 +355,9 @@ public class ScalarType extends Type {
             case DATETIME:
             case HLL:
             case BITMAP:
+                stringBuilder.append(type.toString().toLowerCase());
+                break;
+            case ARRAY:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;
             default:

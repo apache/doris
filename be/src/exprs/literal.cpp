@@ -22,6 +22,7 @@
 #include "gen_cpp/Exprs_types.h"
 #include "util/string_parser.hpp"
 #include "runtime/runtime_state.h"
+#include "runtime/collection_value.h"
 
 namespace doris {
 
@@ -97,6 +98,11 @@ Literal::Literal(const TExprNode& node) :
         DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
         DCHECK(node.__isset.decimal_literal);
         _value.decimalv2_val = DecimalV2Value(node.decimal_literal.value);
+        break;
+    }
+    case TYPE_ARRAY: {
+        DCHECK_EQ(node.node_type, TExprNodeType::ARRAY_LITERAL);
+        // init in prepare
         break;
     }
     default: 
@@ -175,4 +181,32 @@ StringVal Literal::get_string_val(ExprContext* context, TupleRow* row) {
     return str_val;
 }
 
+CollectionVal Literal::get_collection_val(ExprContext *context, TupleRow *) {
+    DCHECK(_type.is_collection_type());
+    CollectionVal val;
+    _value.collection_val.to_collection_val(&val);
+    return val;
+}
+
+
+Status Literal::prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                                  ExprContext* context) {
+    RETURN_IF_ERROR(Expr::prepare(state, row_desc, context));
+    
+    if (type().type == TYPE_ARRAY) {
+        DCHECK_EQ(type().children.size(), 1) << "array children type not 1";
+
+        TypeDescriptor td = type().children.at(0);
+        RETURN_IF_ERROR(CollectionValue::init_collection(state->obj_pool(), get_num_children(), td.type,
+                                                             &_value.collection_val));
+
+        for (int i = 0; i < get_num_children(); ++i) {
+            Expr* children = get_child(i);
+            RETURN_IF_ERROR(_value.collection_val.set(i, children->type(),
+                                                      children->get_const_val(context)));
+        }
+    }
+    
+    return Status::OK();
+}
 }

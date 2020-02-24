@@ -27,15 +27,47 @@ import com.google.common.base.Strings;
 /**
  * Describes an ARRAY type.
  */
-public class ArrayType extends Type {
-    private final Type itemType;
+public class ArrayType extends ScalarType {
+    private Type itemType;
+
+    public ArrayType() {
+        super(PrimitiveType.ARRAY);
+        this.itemType = NULL;
+    }
 
     public ArrayType(Type itemType) {
+        super(PrimitiveType.ARRAY);
+        this.itemType = itemType;
+    }
+
+    public void setItemType(Type itemType) {
         this.itemType = itemType;
     }
 
     public Type getItemType() {
         return itemType;
+    }
+
+    @Override
+    public PrimitiveType getPrimitiveType() {
+        return PrimitiveType.ARRAY;
+    }
+
+    @Override
+    public boolean matchesType(Type t) {
+        if (equals(t)) {
+            return true;
+        }
+
+        if (!t.isArrayType()) {
+            return false;
+        }
+
+        if (itemType.isNull()) {
+            return true;
+        }
+
+        return itemType.matchesType(((ArrayType) t).itemType);
     }
 
     @Override
@@ -51,8 +83,10 @@ public class ArrayType extends Type {
         if (!(other instanceof ArrayType)) {
             return false;
         }
-        ArrayType otherArrayType = (ArrayType) other;
-        return otherArrayType.itemType.equals(itemType);
+
+        return true;
+//        ArrayType otherArrayType = (ArrayType) other;
+//        return otherArrayType.itemType.equals(itemType);
     }
 
     @Override
@@ -77,5 +111,4 @@ public class ArrayType extends Type {
         return String.format("%sARRAY<%s>", leftPadding, structStr);
     }
 }
-
 

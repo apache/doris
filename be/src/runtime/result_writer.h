@@ -30,6 +30,7 @@ class ExprContext;
 class MysqlRowBuffer;
 class BufferControlBlock;
 class RuntimeState;
+class TypeDescriptor;
 
 //convert the row batch to mysql protol row
 class ResultWriter {
@@ -46,6 +47,8 @@ private:
     // convert one tuple row
     Status add_one_row(TupleRow* row);
 
+    int add_row_value(int index, const TypeDescriptor& type, void* item);
+    
     // The expressions that are run to create tuples to be written to hbase.
     BufferControlBlock* _sinker;
     const std::vector<ExprContext*>& _output_expr_ctxs;
