@@ -3551,7 +3551,7 @@ public class Catalog {
             DataProperty dataProperty = null;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                        DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+                        DataProperty.DEFAULT_DATA_PROPERTY);
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -3659,7 +3659,7 @@ public class Catalog {
                 try {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
-                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_DATA_PROPERTY);
                     DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties);
 
                     if (properties != null && !properties.isEmpty()) {
@@ -4603,7 +4603,7 @@ public class Catalog {
                                 && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
                             partitionInfo.setDataProperty(partition.getId(),
-                                    DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+                                    DataProperty.DEFAULT_DATA_PROPERTY);
                             storageMediumMap.put(partitionId, TStorageMedium.HDD);
                             LOG.debug("partition[{}-{}-{}] storage medium changed from SSD to HDD",
                                     dbId, tableId, partitionId);
@@ -4612,7 +4612,7 @@ public class Catalog {
                             ModifyPartitionInfo info =
                                     new ModifyPartitionInfo(db.getId(), olapTable.getId(),
                                             partition.getId(),
-                                            DataProperty.DEFAULT_HDD_DATA_PROPERTY,
+                                            DataProperty.DEFAULT_DATA_PROPERTY,
                                             (short) -1,
                                             partitionInfo.getIsInMemory(partition.getId()));
                             editLog.logModifyPartition(info);

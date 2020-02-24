@@ -204,7 +204,7 @@ Syntax:
             )
         ```
 
-        storage_medium:         SSD or HDD
+        storage_medium:         SSD or HDD, The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD.
         storage_cooldown_time:  If storage_medium is SSD, data will be automatically moved to HDD   when timeout.
                                 Default is 7 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
