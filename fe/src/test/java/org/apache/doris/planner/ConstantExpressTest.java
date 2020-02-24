@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.utframe;
+package org.apache.doris.planner;
 
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;

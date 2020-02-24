@@ -15,25 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.utframe;
+package org.apache.doris.planner;
+
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.UUID;
 
-public class BitmapFunctionTest {
+public class QueryPlanTest {
     // use a unique dir so that it won't be conflict with other unit test which
     // may also start a Mocked Frontend
-    private static String runningDir = "fe/mocked/BitmapFunctionTest/" + UUID.randomUUID().toString() + "/";
+    private static String runningDir = "fe/mocked/QueryPlanTest/" + UUID.randomUUID().toString() + "/";
 
     private static ConnectContext connectContext;
+
     @BeforeClass
     public static void beforeClass() throws Exception {
         UtFrameUtils.createMinDorisCluster(runningDir);
@@ -44,20 +48,8 @@ public class BitmapFunctionTest {
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
-        // create table
-        String createTblStmtStr = "CREATE TABLE test.bitmap_table (\n" +
-                "  `id` int(11) NULL COMMENT \"\",\n" +
-                "  `id2` bitmap bitmap_union NULL\n" +
-                ") ENGINE=OLAP\n" +
-                "AGGREGATE KEY(`id`)\n" +
-                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
-                "PROPERTIES (\n" +
-                " \"replication_num\" = \"1\"\n" +
-                ");";
-        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, connectContext);
-        Catalog.getCurrentCatalog().createTable(createTableStmt);
 
-        createTblStmtStr = "CREATE TABLE test.bitmap_table_2 (\n" +
+        createTable("CREATE TABLE test.bitmap_table (\n" +
                 "  `id` int(11) NULL COMMENT \"\",\n" +
                 "  `id2` bitmap bitmap_union NULL\n" +
                 ") ENGINE=OLAP\n" +
@@ -65,8 +57,31 @@ public class BitmapFunctionTest {
                 "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\"\n" +
-                ");";
-        createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr, connectContext);
+                ");");
+
+        createTable("CREATE TABLE test.bitmap_table_2 (\n" +
+                "  `id` int(11) NULL COMMENT \"\",\n" +
+                "  `id2` bitmap bitmap_union NULL\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`id`)\n" +
+                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\"\n" +
+                ");");
+
+        createTable("CREATE TABLE test.hll_table (\n" +
+                "  `id` int(11) NULL COMMENT \"\",\n" +
+                "  `id2` hll hll_union NULL\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`id`)\n" +
+                "DISTRIBUTED BY HASH(`id`) BUCKETS 1\n" +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\"\n" +
+                ");");
+    }
+
+    private static void createTable(String sql) throws Exception {
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
@@ -104,5 +119,117 @@ public class BitmapFunctionTest {
         queryStr = "explain insert into test.bitmap_table select id, id from test.bitmap_table_2;";
         String errorMsg = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(errorMsg.contains("bitmap column id2 require the function return type is BITMAP"));
+    }
+
+    private static void testBitmapQueryPlan(String sql, String result) throws Exception {
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains(result));
+    }
+
+    @Test
+    public void testBitmapQuery() throws Exception {
+        testBitmapQueryPlan(
+                "select * from test.bitmap_table;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testBitmapQueryPlan(
+                "select count(id2) from test.bitmap_table;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testBitmapQueryPlan(
+                "select group_concat(id2) from test.bitmap_table;",
+                "group_concat requires first parameter to be of type STRING: group_concat(`id2`)"
+        );
+
+        testBitmapQueryPlan(
+                "select sum(id2) from test.bitmap_table;",
+                "sum requires a numeric parameter: sum(`id2`)"
+        );
+
+        testBitmapQueryPlan(
+                "select avg(id2) from test.bitmap_table;",
+                "avg requires a numeric parameter: avg(`id2`)"
+        );
+
+        testBitmapQueryPlan(
+                "select max(id2) from test.bitmap_table;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testBitmapQueryPlan(
+                "select min(id2) from test.bitmap_table;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testBitmapQueryPlan(
+                "select count(*) from test.bitmap_table group by id2;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testBitmapQueryPlan(
+                "select count(*) from test.bitmap_table where id2 = 1;",
+                "type not match, originType=BITMAP, targeType=DOUBLE"
+        );
+
+    }
+
+    private static void testHLLQueryPlan(String sql, String result) throws Exception {
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains(result));
+    }
+
+    @Test
+    public void testHLLTypeQuery() throws Exception {
+        testHLLQueryPlan(
+                "select * from test.hll_table;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testHLLQueryPlan(
+                "select count(id2) from test.hll_table;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testHLLQueryPlan(
+                "select group_concat(id2) from test.hll_table;",
+                "group_concat requires first parameter to be of type STRING: group_concat(`id2`)"
+        );
+
+        testHLLQueryPlan(
+                "select sum(id2) from test.hll_table;",
+                "sum requires a numeric parameter: sum(`id2`)"
+        );
+
+        testHLLQueryPlan(
+                "select avg(id2) from test.hll_table;",
+                "avg requires a numeric parameter: avg(`id2`)"
+        );
+
+        testHLLQueryPlan(
+                "select max(id2) from test.hll_table;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testHLLQueryPlan(
+                "select min(id2) from test.hll_table;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testHLLQueryPlan(
+                "select min(id2) from test.hll_table;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testHLLQueryPlan(
+                "select count(*) from test.hll_table group by id2;",
+                Type.OnlyMetricTypeErrorMsg
+        );
+
+        testHLLQueryPlan(
+                "select count(*) from test.hll_table where id2 = 1",
+                "type not match, originType=HLL, targeType=DOUBLE"
+        );
     }
 }

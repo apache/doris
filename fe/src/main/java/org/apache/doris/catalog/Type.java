@@ -189,6 +189,19 @@ public abstract class Type {
         return isScalarType(PrimitiveType.VARCHAR) || isScalarType(PrimitiveType.CHAR);
     }
 
+    // only metric types have the following constraint:
+    // 1. don't support as key column
+    // 2. don't support filter
+    // 3. don't support group by
+    // 4. don't support index
+    public boolean isOnlyMetricType() {
+        return isScalarType(PrimitiveType.HLL) || isScalarType(PrimitiveType.BITMAP);
+    }
+
+    public static final String OnlyMetricTypeErrorMsg =
+            "Doris hll and bitmap column must use with specific function, and don't support filter or group by." +
+                    "please run 'help hll' or 'help bitmap' in your mysql client.";
+
     public boolean isHllType() {
         return isScalarType(PrimitiveType.HLL);
     }

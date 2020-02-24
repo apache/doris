@@ -789,12 +789,10 @@ public class SelectStmt extends QueryStmt {
     private void expandStar(TableName tblName, TupleDescriptor desc) throws AnalysisException {
         for (Column col : desc.getTable().getBaseSchema()) {
             if (col.getDataType() == PrimitiveType.HLL && !fromInsert) {
-                throw new AnalysisException(
-                        "hll only use in HLL_UNION_AGG or HLL_CARDINALITY , HLL_HASH and so on.");
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
             if (col.getAggregationType() == AggregateType.BITMAP_UNION && !fromInsert) {
-                throw new AnalysisException(
-                        "BITMAP_UNION agg column only use in TO_BITMAP or BITMAP_UNION , BITMAP_COUNT and so on.");
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
             }
             resultExprs.add(new SlotRef(tblName, col.getName()));
             colLabels.add(col.getName());
