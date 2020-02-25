@@ -44,6 +44,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.commons.io.FileUtils;
+
+import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
 import java.net.ServerSocket;
@@ -131,6 +134,13 @@ public class UtFrameUtils {
 
         // sleep to wait first heartbeat
         Thread.sleep(6000);
+    }
+
+    public static void cleanDorisFeDir(String baseDir) {
+        try {
+            FileUtils.deleteDirectory(new File(baseDir));
+        } catch (IOException e) {
+        }
     }
 
     public static int findValidPort() {

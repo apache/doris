@@ -417,6 +417,10 @@ public class MaterializedViewSelector {
                     SlotRef slotRef = (SlotRef) aggChild0;
                     Preconditions.checkState(slotRef.getColumnName() != null);
                     Table table = slotRef.getDesc().getParent().getTable();
+                    /* If this column come from subquery, the parent table will be null
+                     * For example: select k1 from (select name as k1 from tableA) A
+                     * The parent table of k1 column in outer query is null.
+                     */
                     if (table == null) {
                         continue;
                     }
@@ -426,9 +430,8 @@ public class MaterializedViewSelector {
                     SlotRef slotRef = (SlotRef) aggChild0.getChild(0);
                     Preconditions.checkState(slotRef.getColumnName() != null);
                     Table table = slotRef.getDesc().getParent().getTable();
-                    /* If this column come from subquery, the parent table will be null
-                     * For example: select k1 from (select name as k1 from tableA) A
-                     * The parent table of k1 column in outer query is null.
+                    /*
+                     * Same as above
                      */
                     if (table == null) {
                         continue;
