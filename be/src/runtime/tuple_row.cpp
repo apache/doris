@@ -20,7 +20,6 @@
 #include <sstream>
 
 namespace doris {
-const char* TupleRow::_s_llvm_class_name = "class.doris::TupleRow";
 
 std::string TupleRow::to_string(const RowDescriptor& d) {
     std::stringstream out;

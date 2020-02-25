@@ -24,8 +24,6 @@
 
 namespace doris {
 
-const char* DecimalV2Value::_s_llvm_class_name = "class.doris::DecimalV2Value";
-
 static inline int128_t abs(const int128_t& x) { return (x < 0) ? -x : x; }
 
 // x>=0 && y>=0

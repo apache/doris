@@ -23,7 +23,6 @@
 #include <thrift/protocol/TDebugProtocol.h>
 #include <gperftools/profiler.h>
 
-#include "codegen/codegen_anyval.h"
 #include "exec/hash_table.hpp"
 #include "exprs/agg_fn_evaluator.h"
 #include "exprs/expr.h"

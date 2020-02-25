@@ -34,7 +34,6 @@ namespace doris {
 const int MemPool::INITIAL_CHUNK_SIZE;
 const int MemPool::MAX_CHUNK_SIZE;
 
-const char* MemPool::LLVM_CLASS_NAME = "class.doris::MemPool";
 const int MemPool::DEFAULT_ALIGNMENT;
 uint32_t MemPool::k_zero_length_region_ alignas(std::max_align_t) = MEM_POOL_POISON;
 

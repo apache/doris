@@ -17,7 +17,6 @@
 
 #include "exprs/cast_expr.h"
 
-#include "codegen/codegen_anyval.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {

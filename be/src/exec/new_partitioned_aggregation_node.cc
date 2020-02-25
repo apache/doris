@@ -22,7 +22,6 @@
 #include <set>
 #include <sstream>
 
-//#include "codegen/codegen_anyval.h"
 #include "exec/new_partitioned_hash_table.h"
 #include "exec/new_partitioned_hash_table.inline.h"
 #include "exprs/new_agg_fn_evaluator.h"

@@ -174,9 +174,6 @@ public:
         return reinterpret_cast<DecimalV2Value*>(reinterpret_cast<char*>(this) + offset);
     }
 
-    // For C++/IR interop, we need to be able to look up types by name.
-    static const char* _s_llvm_class_name;
-
     void* get_data() { return this; }
 
     std::string to_string(const TupleDescriptor& d) const;
