@@ -18,13 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -795,14 +793,8 @@ public class SelectStmt extends QueryStmt {
      * Expand "*" for a particular tuple descriptor by appending
      * refs for each column to selectListExprs.
      */
-    private void expandStar(TableName tblName, TupleDescriptor desc) throws AnalysisException {
+    private void expandStar(TableName tblName, TupleDescriptor desc) {
         for (Column col : desc.getTable().getBaseSchema()) {
-            if (col.getDataType() == PrimitiveType.HLL && !fromInsert) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-            }
-            if (col.getAggregationType() == AggregateType.BITMAP_UNION && !fromInsert) {
-                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-            }
             resultExprs.add(new SlotRef(tblName, col.getName()));
             colLabels.add(col.getName());
         }
