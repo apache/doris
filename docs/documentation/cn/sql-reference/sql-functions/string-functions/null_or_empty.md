@@ -41,7 +41,6 @@ MySQL [(none)]> select null_or_empty("");
 +-------------------+
 |                 1 |
 +-------------------+
-1 row in set (1.84 sec)
 
 MySQL [(none)]> select null_or_empty("a");
 +--------------------+
