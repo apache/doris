@@ -92,7 +92,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
     用于指定在查询执行过程中，各个节点传输的单个数据包的行数。默认一个数据包的行数为 1024 行，即源端节点每产生 1024 行数据后，打包发给目的节点。
     
-    较大的行数，会在扫描大数据量场景下提升查询的吞吐，但在可能会在小查询场景下增加查询延迟。同时，也会增加查询的内存开销。建议设置范围 1024 至 4096。
+    较大的行数，会在扫描大数据量场景下提升查询的吞吐，但可能会在小查询场景下增加查询延迟。同时，也会增加查询的内存开销。建议设置范围 1024 至 4096。
     
 * `character_set_client`
 
@@ -164,7 +164,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     
     当前受该参数影响的命令如下：
     
-    1. `SHOW FRONTEND;`
+    1. `SHOW FRONTENDS;`
 
         转发到 Master 可以查看最后一次心跳信息。
     
@@ -172,7 +172,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 
         转发到 Master 可以查看启动时间、最后一次心跳信息、磁盘容量信息。
         
-    3. `SHOW BROKERS;`
+    3. `SHOW BROKER;`
 
         转发到 Master 可以查看启动时间、最后一次心跳信息。
         
@@ -199,7 +199,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
     默认情况下，只有在查询发生错误时，BE 才会发送 profile 给 FE，用于查看错误。正常结束的查询不会发送 profile。发送 profile 会产生一定的网络开销，对高并发查询场景不利。
     当用户希望对一个查询的 profile 进行分析时，可以将这个变量设为 true 后，发送查询。查询结束后，可以通过在当前连接的 FE 的 web 页面查看到 profile：
     
-    `fe_host:fe_http:port/query`
+    `fe_host:fe_http_port/query`
     
     其中会显示最近100条，开启 `is_report_success` 的查询的 profile。
     
