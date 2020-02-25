@@ -34,15 +34,8 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/types.h"
 
-namespace llvm {
-class Function;
-class PointerType;
-class StructType;
-};
-
 namespace doris {
 
-class LlvmCodeGen;
 class ObjectPool;
 class TDescriptorTable;
 class TSlotDescriptor;
@@ -54,12 +47,6 @@ class SchemaScanner;
 class OlapTableSchemaParam;
 class PTupleDescriptor;
 class PSlotDescriptor;
-
-struct LlvmTupleStruct {
-    llvm::StructType* tuple_struct;
-    llvm::PointerType* tuple_ptr;
-    std::vector<int> indices;
-};
 
 // Location information for null indicator bit for particular slot.
 // For non-nullable slots, the byte_offset will be 0 and the bit_mask will be 0.
@@ -136,14 +123,6 @@ public:
 
     std::string debug_string() const;
 
-    // Codegen for: bool IsNull(Tuple* tuple)
-    // The codegen function is cached.
-    llvm::Function* codegen_is_null(LlvmCodeGen*, llvm::StructType* tuple);
-
-    // Codegen for: void SetNull(Tuple* tuple) / SetNotNull
-    // The codegen function is cached.
-    llvm::Function* codegen_update_null(LlvmCodeGen*, llvm::StructType* tuple, bool set_null);
-
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
@@ -171,11 +150,6 @@ private:
     int _field_idx;
 
     const bool _is_materialized;
-
-    // Cached codegen'd functions
-    llvm::Function* _is_null_fn;
-    llvm::Function* _set_not_null_fn;
-    llvm::Function* _set_null_fn;
 
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
@@ -347,19 +321,6 @@ public:
 
     void to_protobuf(PTupleDescriptor* ptuple) const;
 
-    // Creates a typed struct description for llvm.  The layout of the struct is computed
-    // by the FE which includes the order of the fields in the resulting struct.
-    // Returns the struct type or NULL if the type could not be created.
-    // For example, the aggregation tuple for this query: select count(*), min(int_col_a)
-    // would map to:
-    // struct Tuple {
-    //   int8_t   null_byte;
-    //   int32_t  min_a;
-    //   int64_t  count_val;
-    // };
-    // The resulting struct definition is cached.
-    llvm::StructType* generate_llvm_struct(LlvmCodeGen* codegen);
-
 private:
     friend class DescriptorTbl;
     friend class SchemaScanner;
@@ -379,8 +340,6 @@ private:
     // Provide quick way to check if there are variable length slots.
     // True if _string_slots or _collection_slots have entries.
     bool _has_varlen_slots;
-
-    llvm::StructType* _llvm_struct; // cache for the llvm struct type for this tuple desc
 
     TupleDescriptor(const TTupleDescriptor& tdesc);
     TupleDescriptor(const PTupleDescriptor& tdesc);

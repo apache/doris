@@ -17,7 +17,6 @@
 
 #include "exprs/case_expr.h"
 
-#include "codegen/codegen_anyval.h"
 #include "exprs/anyval_util.h"
 #include "runtime/runtime_state.h"
 #include "gen_cpp/Exprs_types.h"

@@ -29,8 +29,6 @@
 
 namespace doris {
 
-const char* Tuple::_s_llvm_class_name = "class.doris::Tuple";
-
 int64_t Tuple::total_byte_size(const TupleDescriptor& desc) const {
     int64_t result = desc.byte_size();
     if (!desc.has_varlen_slots()) {

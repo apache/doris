@@ -19,7 +19,6 @@
 
 #include <string>
 
-#include "codegen/codegen_anyval.h"
 #include "gen_cpp/Exprs_types.h"
 #include "util/string_parser.hpp"
 #include "runtime/runtime_state.h"
