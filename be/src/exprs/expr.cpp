@@ -21,7 +21,6 @@
 #include <vector>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "codegen/codegen_anyval.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exprs/anyval_util.h"
