@@ -746,7 +746,7 @@ TEST_F(OrcScannerTest, normal3) {
     bool eof = false;
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
-                "(0.123456789 1.12 -1.1234500000 0.12345 0 1 2020-01-14 22:12:19)");
+                "(0.123456789 1.12 -1.1234500000 0.12345 0.000 1 2020-01-14 22:12:19)");
     scanner.close();
 }
 
