@@ -37,7 +37,6 @@
 #include "common/daemon.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "codegen/llvm_codegen.h"
 #include "runtime/exec_env.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
@@ -155,8 +154,6 @@ int main(int argc, char** argv) {
         LOG(FATAL) << "All disks are broken, exit.";
         exit(-1);
     }
-
-    doris::LlvmCodeGen::initialize_llvm();
 
     // initilize libcurl here to avoid concurrent initialization
     auto curl_ret = curl_global_init(CURL_GLOBAL_ALL);

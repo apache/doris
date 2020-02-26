@@ -19,7 +19,6 @@
 
 #include <vector>
 
-#include "codegen/codegen_anyval.h"
 #include "exprs/anyval_util.h"
 #include "exprs/expr_context.h"
 #include "runtime/user_function_cache.h"

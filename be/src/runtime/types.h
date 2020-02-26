@@ -28,13 +28,7 @@
 #include "common/config.h"
 #include "olap/hll.h"
 
-namespace llvm {
-class ConstantStruct;
-}
-
 namespace doris {
-
-class LlvmCodeGen;
 
 // Describes a type. Includes the enum, children types, and any type-specific metadata
 // (e.g. precision and scale for decimals).
@@ -299,10 +293,6 @@ struct TypeDescriptor {
         return 16;
     }
 
-    /// Returns the IR version of this ColumnType. Only implemented for scalar types. LLVM
-    /// optimizer can pull out fields of the returned ConstantStruct for constant folding.
-    llvm::ConstantStruct* to_ir(LlvmCodeGen* codegen) const;
-
     std::string debug_string() const;
 
 private:
@@ -317,8 +307,6 @@ private:
     /// Recursive implementation of ToThrift() that populates 'thrift_type' with the
     /// TTypeNodes for this type and its children.
     void to_thrift(TTypeDesc* thrift_type) const;
-
-    static const char* s_llvm_class_name;
 };
 
 std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type);
