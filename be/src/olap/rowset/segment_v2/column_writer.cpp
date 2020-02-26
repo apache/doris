@@ -19,21 +19,21 @@
 
 #include <cstddef>
 
-#include "common/logging.h" // for LOG
-#include "env/env.h" // for LOG
-#include "gutil/strings/substitute.h" // for Substitute
+#include "common/logging.h"
+#include "env/env.h"
+#include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
-#include "olap/rowset/segment_v2/column_zone_map.h"
-#include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
-#include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions
-#include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexBuilder
-#include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
-#include "olap/rowset/segment_v2/page_io.h"
-#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
-#include "util/faststring.h" // for fastring
-#include "util/rle_encoding.h" // for RleEncoder
+#include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/rowset/segment_v2/options.h"
+#include "olap/rowset/segment_v2/ordinal_page_index.h"
+#include "olap/rowset/segment_v2/page_builder.h"
+#include "olap/rowset/segment_v2/page_io.h"
+#include "olap/rowset/segment_v2/zone_map_index.h"
 #include "util/block_compression.h"
+#include "util/faststring.h"
+#include "util/rle_encoding.h"
 
 namespace doris {
 namespace segment_v2 {

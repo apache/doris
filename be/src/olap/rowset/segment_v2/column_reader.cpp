@@ -81,6 +81,9 @@ Status ColumnReader::init() {
         case BLOOM_FILTER_INDEX:
             _bf_index_meta = &index_meta.bloom_filter_index();
             break;
+        default:
+            return Status::Corruption(Substitute(
+                    "Bad file $0: invalid column index type $1", _file_name, index_meta.type()));
         }
     }
     if (_ordinal_index_meta == nullptr) {
