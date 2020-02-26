@@ -28,6 +28,7 @@ under the License.
     2. Baidu AFS：百度内部的 afs，仅限于百度内部使用。
     3. Baidu Object Storage(BOS)：百度对象存储。仅限百度内部用户、公有云用户或其他可以访问 BOS 的用户使用。
     4. Apache HDFS：社区版本 hdfs。
+    5. Amazon S3：Amazon对象存储。
 
 语法：
 
@@ -145,6 +146,13 @@ under the License.
             dfs.namenode.rpc-address.xxx.nn：指定 namenode 的rpc地址信息。其中 nn 表示 dfs.ha.namenodes.xxx 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"
             dfs.client.failover.proxy.provider：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
 
+        4. Amazon S3
+
+            需提供：
+            fs.s3a.access.key：AmazonS3的access key
+            fs.s3a.secret.key：AmazonS3的secret key
+            fs.s3a.endpoint：AmazonS3的endpoint 
+        
     4. opt_properties
 
         用于指定一些特殊参数。
@@ -375,7 +383,23 @@ under the License.
         INTO TABLE `my_table`
         where k1 > k2
         )
-     
+
+    11. 从 AmazonS3 导入Parquet文件中数据，指定 FORMAT 为parquet，默认是通过文件后缀判断：
+        
+        LOAD LABEL example_db.label11
+        (
+        DATA INFILE("s3a://my_bucket/input/file")
+        INTO TABLE `my_table`
+        FORMAT AS "parquet"
+        (k1, k2, k3)
+        )
+        WITH BROKER my_s3a_broker
+        (
+        "fs.s3a.access.key" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "fs.s3a.secret.key" = "yyyyyyyyyyyyyyyyyyyy",
+        "fs.s3a.endpoint" = "s3.amazonaws.com"
+        )
+         
 ## keyword
 
     BROKER,LOAD

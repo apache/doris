@@ -61,7 +61,10 @@ public class FileSystemManager {
 
     private static Logger logger = Logger
             .getLogger(FileSystemManager.class.getName());
-    private static final String HDFS_SCHEME = "hdfs://";
+    // supported scheme
+    private static final String HDFS_SCHEME = "hdfs";
+    private static final String S3A_SCHEME = "s3a";
+
     private static final String HDFS_UGI_CONF = "hadoop.job.ugi";
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
@@ -81,7 +84,12 @@ public class FileSystemManager {
     private static final String DEFAULT_DFS_CLIENT_FAILOVER_PROXY_PROVIDER =
             "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider";
     private static final String FS_DEFAULTFS_KEY = "fs.defaultFS";
-    
+
+    // arguments for s3a
+    private static String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
+    private static String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
+    private static String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
+
     private ScheduledExecutorService handleManagementPool = Executors.newScheduledThreadPool(2);
     
     private int readBufferSize = 128 << 10; // 128k
@@ -120,18 +128,46 @@ public class FileSystemManager {
     /**
      * visible for test
      * 
+     * @param path
+     * @param properties
+     * @return BrokerFileSystem with different FileSystem based on scheme
+     * @throws URISyntaxException 
+     * @throws Exception 
+     */
+    public BrokerFileSystem getFileSystem(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        String scheme = pathUri.getUri().getScheme();
+        if (Strings.isNullOrEmpty(scheme)) {
+            throw  new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
+                    "invalid path. scheme is null");
+        }
+        BrokerFileSystem brokerFileSystem = null;
+        if (scheme.equals(HDFS_SCHEME)) {
+            brokerFileSystem = getDistributedFileSystem(path, properties);
+        } else if (scheme.equals(S3A_SCHEME)) {
+            brokerFileSystem = getS3AFileSystem(path, properties);
+        } else {
+            throw  new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
+                    "invalid path. scheme is not supported");
+        }
+        return brokerFileSystem;
+    }
+
+    /**
+     * visible for test
+     *
      * file system handle is cached, the identity is host + username_password
      * it will have safety problem if only hostname is used because one user may specify username and password
      * and then access hdfs, another user may not specify username and password but could also access data
      * @param path
      * @param properties
      * @return
-     * @throws URISyntaxException 
-     * @throws Exception 
+     * @throws URISyntaxException
+     * @throws Exception
      */
-    public BrokerFileSystem getFileSystem(String path, Map<String, String> properties) {
+    public BrokerFileSystem getDistributedFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
-        String host = HDFS_SCHEME + pathUri.getAuthority();
+        String host = HDFS_SCHEME + "://" + pathUri.getAuthority();
         if (Strings.isNullOrEmpty(pathUri.getAuthority())) {
             if (properties.containsKey(FS_DEFAULTFS_KEY)) {
                 host = properties.get(FS_DEFAULTFS_KEY);
@@ -146,12 +182,12 @@ public class FileSystemManager {
         String password = properties.getOrDefault(PASSWORD_KEY, "");
         String dfsNameServices = properties.getOrDefault(DFS_NAMESERVICES_KEY, "");
         String authentication = properties.getOrDefault(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
-            AUTHENTICATION_SIMPLE);
+                AUTHENTICATION_SIMPLE);
         if (Strings.isNullOrEmpty(authentication) || (!authentication.equals(AUTHENTICATION_SIMPLE)
-            && !authentication.equals(AUTHENTICATION_KERBEROS))) {
+                && !authentication.equals(AUTHENTICATION_KERBEROS))) {
             logger.warn("invalid authentication:" + authentication);
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                "invalid authentication:" + authentication);
+                    "invalid authentication:" + authentication);
         }
         String hdfsUgi = username + "," + password;
         FileSystemIdentity fileSystemIdentity = null;
@@ -292,7 +328,7 @@ public class FileSystemManager {
                     }
                     if (properties.containsKey(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN)) {
                         conf.set(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN,
-                            properties.get(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN));
+                                properties.get(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN));
                     }
                 }
 
@@ -307,7 +343,58 @@ public class FileSystemManager {
             fileSystem.getLock().unlock();
         }
     }
-    
+
+    /**
+     * visible for test
+     *
+     * file system handle is cached, the identity is host + accessKey_secretKey
+     * @param path
+     * @param properties
+     * @return
+     * @throws URISyntaxException
+     * @throws Exception
+     */
+    public BrokerFileSystem getS3AFileSystem(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        String accessKey = properties.containsKey(FS_S3A_ACCESS_KEY) ? properties.get(FS_S3A_ACCESS_KEY) : "";
+        String secretKey = properties.containsKey(FS_S3A_SECRET_KEY) ? properties.get(FS_S3A_SECRET_KEY) : "";
+        String endpoint = properties.containsKey(FS_S3A_ENDPOINT) ? properties.get(FS_S3A_ENDPOINT) : "";
+        String host = S3A_SCHEME + "://" + endpoint;
+        String s3aUgi = accessKey + "," + secretKey;
+        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, s3aUgi);
+        BrokerFileSystem fileSystem = null;
+        cachedFileSystem.putIfAbsent(fileSystemIdentity, new BrokerFileSystem(fileSystemIdentity));
+        fileSystem = cachedFileSystem.get(fileSystemIdentity);
+        if (fileSystem == null) {
+            // it means it is removed concurrently by checker thread
+            return null;
+        }
+        fileSystem.getLock().lock();
+        try {
+            if (!cachedFileSystem.containsKey(fileSystemIdentity)) {
+                // this means the file system is closed by file system checker thread
+                // it is a corner case
+                return null;
+            }
+            if (fileSystem.getDFSFileSystem() == null) {
+                logger.info("could not find file system for path " + path + " create a new one");
+                // create a new filesystem
+                Configuration conf = new Configuration();
+                conf.set(FS_S3A_ACCESS_KEY, accessKey);
+                conf.set(FS_S3A_SECRET_KEY, secretKey);
+                conf.set(FS_S3A_ENDPOINT, endpoint);
+                FileSystem s3AFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                fileSystem.setFileSystem(s3AFileSystem);
+            }
+            return fileSystem;
+        } catch (Exception e) {
+            logger.error("errors while connect to " + path, e);
+            throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
+        } finally {
+            fileSystem.getLock().unlock();
+        }
+    }
+
     public List<TBrokerFileStatus> listPath(String path, boolean fileNameOnly, Map<String, String> properties) {
         List<TBrokerFileStatus> resultFileStatus = null;
         WildcardURI pathUri = new WildcardURI(path);
@@ -511,7 +598,7 @@ public class FileSystemManager {
             long currentStreamOffset;
             try {
                 currentStreamOffset = fsDataOutputStream.getPos();
-            } catch (IOException e) {
+            } catch (Exception e) {
                 logger.error("errors while get file pos from output stream", e);
                 throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                         "errors while get file pos from output stream");
