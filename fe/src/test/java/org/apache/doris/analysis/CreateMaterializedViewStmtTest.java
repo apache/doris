@@ -18,7 +18,9 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -42,15 +44,12 @@ public class CreateMaterializedViewStmtTest {
     private ExprSubstitutionMap exprSubstitutionMap;
     @Mocked
     private ConnectContext connectContext;
+    @Mocked
+    private Config config;
 
     @Before
     public void initTest() {
-        new Expectations() {
-            {
-                connectContext.getSessionVariable().getTestMaterializedView();
-                result = true;
-            }
-        };
+        Deencapsulation.setField(Config.class, "enable_materialized_view", true);
     }
 
     @Test
