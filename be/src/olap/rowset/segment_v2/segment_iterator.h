@@ -27,8 +27,6 @@
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
-#include "olap/rowset/segment_v2/column_zone_map.h"
-#include "olap/rowset/segment_v2/ordinal_page_index.h"
 #include "olap/olap_cond.h"
 #include "util/file_cache.h"
 

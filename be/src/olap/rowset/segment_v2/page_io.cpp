@@ -81,6 +81,9 @@ Status PageIO::write_page(WritableFile* file,
     case SHORT_KEY_PAGE:
         CHECK(footer.has_short_key_page_footer());
         break;
+    default:
+        CHECK(false) << "Invalid page footer type: " << footer.type();
+        break;
     }
 
     std::string footer_buf; // serialized footer + footer size

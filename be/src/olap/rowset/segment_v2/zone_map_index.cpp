@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/column_zone_map.h"
+#include "olap/rowset/segment_v2/zone_map_index.h"
 
 #include "olap/column_block.h"
 #include "olap/olap_define.h"

@@ -21,7 +21,6 @@
 #include "env/env.h" // for RandomAccessFile
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
-#include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer

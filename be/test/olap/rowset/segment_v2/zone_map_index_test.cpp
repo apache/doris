@@ -16,11 +16,12 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include <string>
+
 #include <memory>
+#include <string>
 
 #include "env/env.h"
-#include "olap/rowset/segment_v2/column_zone_map.h"
+#include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema_helper.h"
 #include "util/file_utils.h"
 
@@ -29,7 +30,7 @@ namespace segment_v2 {
 
 class ColumnZoneMapTest : public testing::Test {
 public:
-    const std::string kTestDir = "./ut_dir/column_zone_map_test";
+    const std::string kTestDir = "./ut_dir/zone_map_index_test";
 
     void SetUp() override {
         if (FileUtils::check_exist(kTestDir)) {
