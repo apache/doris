@@ -498,7 +498,6 @@ set(WL_END_GROUP "-Wl,--end-group")
 set(DORIS_LINK_LIBS
     ${WL_START_GROUP}
     Agent
-    CodeGen
     Common
     Env
     Exec
@@ -622,7 +621,6 @@ if (${MAKE_TEST} STREQUAL "ON")
 endif ()
 
 add_subdirectory(${SRC_DIR}/agent)
-add_subdirectory(${SRC_DIR}/codegen)
 add_subdirectory(${SRC_DIR}/common)
 add_subdirectory(${SRC_DIR}/env)
 add_subdirectory(${SRC_DIR}/exec)
