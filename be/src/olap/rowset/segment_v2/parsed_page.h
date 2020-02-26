@@ -60,7 +60,7 @@ struct ParsedPage {
         RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
         RETURN_IF_ERROR(page->data_decoder->init());
 
-        page->first_rowid = footer.first_ordinal();
+        page->first_ordinal = footer.first_ordinal();
         page->num_rows = footer.num_values();
         page->page_pointer = page_pointer;
         page->page_index = page_index;
@@ -80,8 +80,8 @@ struct ParsedPage {
     RleDecoder<bool> null_decoder;
     PageDecoder* data_decoder = nullptr;
 
-    // first rowid for this page
-    ordinal_t first_rowid = 0;
+    // ordinal of the first value in this page
+    ordinal_t first_ordinal = 0;
     // number of rows including nulls and not-nulls
     ordinal_t num_rows = 0;
 
@@ -92,7 +92,7 @@ struct ParsedPage {
     // this means next row we will read
     ordinal_t offset_in_page = 0;
 
-    bool contains(ordinal_t rid) { return rid >= first_rowid && rid < (first_rowid + num_rows); }
+    bool contains(ordinal_t ord) { return ord >= first_ordinal && ord < (first_ordinal + num_rows); }
     bool has_remaining() const { return offset_in_page < num_rows; }
     size_t remaining() const { return num_rows - offset_in_page; }
 

@@ -205,7 +205,7 @@ public:
     // Entry 0 is the first entry written to the column.
     // If provided seek point is past the end of the file,
     // then returns false.
-    virtual Status seek_to_ordinal(ordinal_t rid) = 0;
+    virtual Status seek_to_ordinal(ordinal_t ord) = 0;
 
     // After one seek, we can call this function many times to read data
     // into ColumnBlockView. when read string type data, memory will allocated
@@ -252,11 +252,11 @@ public:
 
     Status seek_to_first() override;
 
-    Status seek_to_ordinal(ordinal_t rid) override;
+    Status seek_to_ordinal(ordinal_t ord) override;
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
-    ordinal_t get_current_ordinal() const override { return _current_rowid; }
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
     // get row ranges by zone map
     // - cond_column is user's query predicate
@@ -291,8 +291,8 @@ private:
     // This value will be reset when a new seek is issued
     OrdinalPageIndexIterator _page_iter;
 
-    // current rowid
-    ordinal_t _current_rowid = 0;
+    // current value ordinal
+    ordinal_t _current_ordinal = 0;
 
     // page indexes those are DEL_PARTIAL_SATISFIED
     std::vector<uint32_t> _delete_partial_statisfied_pages;

@@ -298,18 +298,18 @@ Status FileColumnIterator::seek_to_first() {
     RETURN_IF_ERROR(_read_data_page(_page_iter));
 
     _seek_to_pos_in_page(_page.get(), 0);
-    _current_rowid = 0;
+    _current_ordinal = 0;
     return Status::OK();
 }
 
-Status FileColumnIterator::seek_to_ordinal(ordinal_t rid) {
+Status FileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     // if current page contains this row, we don't need to seek
-    if (_page == nullptr || !_page->contains(rid)) {
-        RETURN_IF_ERROR(_reader->seek_at_or_before(rid, &_page_iter));
+    if (_page == nullptr || !_page->contains(ord)) {
+        RETURN_IF_ERROR(_reader->seek_at_or_before(ord, &_page_iter));
         RETURN_IF_ERROR(_read_data_page(_page_iter));
     }
-    _seek_to_pos_in_page(_page.get(), rid - _page->first_rowid);
-    _current_rowid = rid;
+    _seek_to_pos_in_page(_page.get(), ord - _page->first_ordinal);
+    _current_ordinal = ord;
     return Status::OK();
 }
 
@@ -386,7 +386,7 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
                 nrows_to_read -= this_run;
                 _page->offset_in_page += this_run;
                 dst->advance(this_run);
-                _current_rowid += this_run;
+                _current_ordinal += this_run;
             }
         } else {
             RETURN_IF_ERROR(_page->data_decoder->next_batch(&nrows_to_read, dst));
@@ -398,7 +398,7 @@ Status FileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
 
             _page->offset_in_page += nrows_to_read;
             dst->advance(nrows_to_read);
-            _current_rowid += nrows_to_read;
+            _current_ordinal += nrows_to_read;
         }
         remaining -= nrows_in_page;
     }

@@ -120,7 +120,7 @@ Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {
 
     // it's ok to seek past the last value
     if (idx == _reader->num_values()) {
-        _current_rowid = idx;
+        _current_ordinal = idx;
         _seeked = true;
         return Status::OK();
     }
@@ -138,11 +138,11 @@ Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {
         }
     }
 
-    ordinal_t offset_in_page = idx - _data_page->first_rowid;
+    ordinal_t offset_in_page = idx - _data_page->first_ordinal;
     RETURN_IF_ERROR(_data_page->data_decoder->seek_to_position_in_page(offset_in_page));
     DCHECK(offset_in_page == _data_page->data_decoder->current_index());
     _data_page->offset_in_page = offset_in_page;
-    _current_rowid = idx;
+    _current_ordinal = idx;
     _seeked = true;
     return Status::OK();
 }
@@ -182,15 +182,15 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     // seek inside data page
     RETURN_IF_ERROR(_data_page->data_decoder->seek_at_or_after_value(key, exact_match));
     _data_page->offset_in_page = _data_page->data_decoder->current_index();
-    _current_rowid = _data_page->first_rowid + _data_page->offset_in_page;
-    DCHECK(_data_page->contains(_current_rowid));
+    _current_ordinal = _data_page->first_ordinal + _data_page->offset_in_page;
+    DCHECK(_data_page->contains(_current_ordinal));
     _seeked = true;
     return Status::OK();
 }
 
 Status IndexedColumnIterator::next_batch(size_t* n, ColumnBlockView* column_view) {
     DCHECK(_seeked);
-    if (_current_rowid == _reader->num_values()) {
+    if (_current_ordinal == _reader->num_values()) {
         *n = 0;
         return Status::OK();
     }
@@ -215,7 +215,7 @@ Status IndexedColumnIterator::next_batch(size_t* n, ColumnBlockView* column_view
         DCHECK(rows_to_read == rows_read);
 
         _data_page->offset_in_page += rows_read;
-        _current_rowid += rows_read;
+        _current_ordinal += rows_read;
         column_view->advance(rows_read);
         remaining -= rows_read;
     }

@@ -39,8 +39,8 @@ Status PageIO::compress_page_body(const BlockCompressionCodec* codec,
                                   double min_space_saving,
                                   const std::vector<Slice>& body,
                                   OwnedSlice* compressed_body) {
-    if (codec != nullptr) {
-        size_t uncompressed_size = Slice::compute_total_size(body);
+    size_t uncompressed_size = Slice::compute_total_size(body);
+    if (codec != nullptr && uncompressed_size > 0) {
         size_t max_compressed_size = codec->max_compressed_len(uncompressed_size);
         faststring buf;
         buf.resize(max_compressed_size);

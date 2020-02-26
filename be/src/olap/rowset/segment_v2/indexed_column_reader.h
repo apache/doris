@@ -124,7 +124,7 @@ public:
     // Get the ordinal index that the iterator is currently pointed to.
     ordinal_t get_current_ordinal() const {
         DCHECK(_seeked);
-        return _current_rowid;
+        return _current_ordinal;
     }
 
     // After one seek, we can only call this function once to read data
@@ -143,10 +143,10 @@ private:
     bool _seeked = false;
     // current in-use index iterator, could be `&_ordinal_iter` or `&_value_iter` or null
     IndexPageIterator* _current_iter = nullptr;
-    // seeked data page, containing value at `_current_rowid`
+    // seeked data page, containing value at `_current_ordinal`
     std::unique_ptr<ParsedPage> _data_page;
     // next_batch() will read from this position
-    ordinal_t _current_rowid = 0;
+    ordinal_t _current_ordinal = 0;
     // open file handle
     OpenedFileHandle<RandomAccessFile> _file_handle;
     // file to read
