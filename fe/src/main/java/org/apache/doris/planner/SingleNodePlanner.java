@@ -1580,6 +1580,11 @@ public class SingleNodePlanner {
         // If it is a union or other same operation, there are only two possibilities,
         // one is the root node, and the other is a distinct node in front, so the setOperationDistinctPlan will
         // be aggregate node, if this is a mixed operation
+        // e.g. :
+        // a union b -> setOperationDistinctPlan == null
+        // a union b union all c -> setOperationDistinctPlan == null -> setOperationDistinctPlan == AggregationNode
+        // a union all b except c -> setOperationDistinctPlan == null -> setOperationDistinctPlan == UnionNode
+        // a union b except c -> setOperationDistinctPlan == null -> setOperationDistinctPlan == AggregationNode
         if (setOperationDistinctPlan != null && setOperationDistinctPlan instanceof SetOperationNode) {
             Preconditions.checkState(!setOperationDistinctPlan.getClass().equals(setOpNode.getClass()));
             setOpNode.addChild(setOperationDistinctPlan, setOperationStmt.getResultExprs());
@@ -1587,7 +1592,8 @@ public class SingleNodePlanner {
             Preconditions.checkState(setOperationStmt.hasDistinctOps());
             Preconditions.checkState(setOperationDistinctPlan instanceof AggregationNode);
             setOpNode.addChild(setOperationDistinctPlan,
-                    setOperationStmt.getDistinctAggInfo().getGroupingExprs());        }
+                    setOperationStmt.getDistinctAggInfo().getGroupingExprs());
+        }
         setOpNode.init(analyzer);
         return setOpNode;
     }
@@ -1697,9 +1703,11 @@ public class SingleNodePlanner {
         return result;
     }
 
-    // create partial plan  for example: a union b intersect c
-    // first partial plan is a union b as a result d,
+    // create the partial plan, or example: a union b intersect c
+    // the first partial plan is a union b as a result d,
     // the second partial plan d intersect c
+    // notice that when query is a union b the union operation is in right-hand child(b),
+    // while the left-hand child(a)'s operation is null
     private PlanNode createPartialSetOperationPlan(Analyzer analyzer, SetOperationStmt setOperationStmt,
                                                    List<SetOperationStmt.SetOperand> setOperands,
                                                    PlanNode setOperationDistinctPlan, long defaultOrderByLimit)
@@ -1708,6 +1716,7 @@ public class SingleNodePlanner {
         boolean hasAllOps = false;
         List<SetOperationStmt.SetOperand> allOps = new ArrayList<>();
         List<SetOperationStmt.SetOperand> distinctOps = new ArrayList<>();
+        SetOperationStmt.Operation operation = null;
         for (SetOperationStmt.SetOperand op: setOperands) {
             if (op.getQualifier() == SetOperationStmt.Qualifier.DISTINCT) {
                 hasDistinctOps = true;
@@ -1717,19 +1726,30 @@ public class SingleNodePlanner {
                 hasAllOps = true;
                 allOps.add(op);
             }
+            if (operation == null || operation == op.getOperation()) {
+                operation = op.getOperation();
+            } else {
+                operation = null;
+            }
         }
-        // create DISTINCT tree
-        if (hasDistinctOps) {
+        Preconditions.checkNotNull(operation, "invalid operation.");
+        if (operation == SetOperationStmt.Operation.INTERSECT || operation == SetOperationStmt.Operation.EXCEPT) {
             setOperationDistinctPlan = createSetOperationPlan(
-                    analyzer, setOperationStmt, distinctOps, setOperationDistinctPlan, defaultOrderByLimit);
-            setOperationDistinctPlan = new AggregationNode(ctx_.getNextNodeId(), setOperationDistinctPlan,
-                    setOperationStmt.getDistinctAggInfo());
-            setOperationDistinctPlan.init(analyzer);
-        }
-        // create ALL tree
-        if (hasAllOps) {
-            setOperationDistinctPlan = createSetOperationPlan(analyzer, setOperationStmt, allOps,
-                    setOperationDistinctPlan, defaultOrderByLimit);
+                    analyzer, setOperationStmt, setOperands, setOperationDistinctPlan, defaultOrderByLimit);
+        } else {
+            // create DISTINCT tree
+            if (hasDistinctOps) {
+                setOperationDistinctPlan = createSetOperationPlan(
+                        analyzer, setOperationStmt, distinctOps, setOperationDistinctPlan, defaultOrderByLimit);
+                setOperationDistinctPlan = new AggregationNode(ctx_.getNextNodeId(), setOperationDistinctPlan,
+                        setOperationStmt.getDistinctAggInfo());
+                setOperationDistinctPlan.init(analyzer);
+            }
+            // create ALL tree
+            if (hasAllOps) {
+                setOperationDistinctPlan = createSetOperationPlan(analyzer, setOperationStmt, allOps,
+                        setOperationDistinctPlan, defaultOrderByLimit);
+            }
         }
         return setOperationDistinctPlan;
     }
