@@ -172,7 +172,7 @@ build_openssl() {
     CFLAGS="-fPIC" \
     LIBDIR="lib" \
     ./Configure --prefix=$TP_INSTALL_DIR -zlib -shared ${OPENSSL_PLATFORM}
-    make && make install
+    make -j$PARALLEL && make install
     if [ -f $TP_INSTALL_DIR/lib64/libcrypto.a ]; then
         mkdir -p $TP_INSTALL_DIR/lib && \
         cp $TP_INSTALL_DIR/lib64/libcrypto.a $TP_INSTALL_DIR/lib/libcrypto.a && \
@@ -238,11 +238,6 @@ build_llvm() {
         cp -rf $TP_SOURCE_DIR/$COMPILER_RT_SOURCE $TP_SOURCE_DIR/$LLVM_SOURCE/projects/compiler-rt
     fi
 
-    if [ ! -f $CMAKE_CMD ]; then
-        echo "cmake executable does not exit"
-        exit 1
-    fi
-
     cd $TP_SOURCE_DIR
     mkdir llvm-build -p && cd llvm-build
     rm -rf CMakeCache.txt CMakeFiles/
@@ -270,10 +265,6 @@ build_protobuf() {
 # gflags
 build_gflags() {
     check_if_source_exist $GFLAGS_SOURCE
-    if [ ! -f $CMAKE_CMD ]; then
-        echo "cmake executable does not exit"
-        exit 1
-    fi
 
     cd $TP_SOURCE_DIR/$GFLAGS_SOURCE
     mkdir build -p && cd build
@@ -302,10 +293,6 @@ build_glog() {
 # gtest
 build_gtest() {
     check_if_source_exist $GTEST_SOURCE
-    if [ ! -f $CMAKE_CMD ]; then
-        echo "cmake executable does not exit"
-        exit 1
-    fi
 
     cd $TP_SOURCE_DIR/$GTEST_SOURCE
     mkdir build -p && cd build
@@ -446,10 +433,6 @@ build_boost() {
 build_mysql() {
     check_if_source_exist $MYSQL_SOURCE
     check_if_source_exist $BOOST_FOR_MYSQL_SOURCE
-    if [ ! -f $CMAKE_CMD ]; then
-        echo "cmake executable does not exit"
-        exit 1
-    fi
 
     cd $TP_SOURCE_DIR/$MYSQL_SOURCE
 
@@ -490,10 +473,6 @@ build_leveldb() {
 # brpc
 build_brpc() {
     check_if_source_exist $BRPC_SOURCE
-    if [ ! -f $CMAKE_CMD ]; then
-        echo "cmake executable does not exit"
-        exit 1
-    fi
 
     cd $TP_SOURCE_DIR/$BRPC_SOURCE
     mkdir build -p && cd build
