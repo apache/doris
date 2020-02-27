@@ -176,7 +176,12 @@ public class ConnectScheduler {
                 ConnectProcessor processor = new ConnectProcessor(context);
                 processor.loop();
             } catch (Exception e) {
-                LOG.warn("connect processor exception because ", e);
+                // for unauthrorized access such lvs probe request, may cause exception, just log it in debug level
+                if (context.getCurrentUserIdentity() != null) {
+                    LOG.warn("connect processor exception because ", e);
+                } else {
+                    LOG.debug("connect processor exception because ", e);
+                }
             } finally {
                 unregisterConnection(context);
                 context.cleanup();
