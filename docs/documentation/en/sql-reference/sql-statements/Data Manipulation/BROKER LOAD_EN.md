@@ -171,7 +171,7 @@ under the License.
 
         timezone: Specify time zones for functions affected by time zones, such as strftime/alignment_timestamp/from_unixtime, etc. See the documentation for details. If not specified, use the "Asia/Shanghai" time zone.
 
-        *If BROKER LOAD data is large, we can use multi-thread mode to improve load speed. You can specify the following parameters:
+        \*If BROKER LOAD data is large, we can use multi-thread mode to improve load speed. You can specify the following parameters:
         buffer_num:         number of buffers in multi-thread, the same number of threads
         mem_limit_per_buf:  the memory limit of one buffer
         size_limit_per_buf: the max number of rows in one buffer

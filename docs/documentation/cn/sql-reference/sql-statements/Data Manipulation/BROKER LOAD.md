@@ -158,7 +158,7 @@ under the License.
         strict mode：     是否对数据进行严格限制。默认为 false。
         timezone:         指定某些受时区影响的函数的时区，如 strftime/alignment_timestamp/from_unixtime 等等，具体请查阅 [时区] 文档。如果不指定，则使用 "Asia/Shanghai" 时区。
 
-        *针对数据量较大的BROKER LOAD，可以使用多线程模式提高导入速度，通过设置如下参数：
+        \*针对数据量较大的BROKER LOAD，可以使用多线程模式提高导入速度，通过设置如下参数：
         buffer_num:         多线程模式使用的buffer数目和线程数目
         mem_limit_per_buf:  每个buffer可以使用的最大内存
         size_limit_per_buf: 每个buffer可容纳的数据条数
