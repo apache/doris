@@ -18,7 +18,6 @@
 #pragma once
 
 #include "olap/column_block.h" // for ColumnBlockView
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "common/status.h" // for Status
 
 namespace doris {

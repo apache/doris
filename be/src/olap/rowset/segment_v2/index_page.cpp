@@ -20,7 +20,6 @@
 #include <string>
 
 #include "common/logging.h"
-#include "olap/key_coder.h"
 #include "util/coding.h"
 
 namespace doris {
@@ -38,17 +37,15 @@ bool IndexPageBuilder::is_full() const {
     return _buffer.size()  + 16 > _index_page_size;
 }
 
-Slice IndexPageBuilder::finish() {
+void IndexPageBuilder::finish(OwnedSlice* body, PageFooterPB* footer) {
     DCHECK(!_finished) << "already called finish()";
-    IndexPageFooterPB footer;
-    footer.set_num_entries(_count);
-    footer.set_type(_is_leaf ? IndexPageFooterPB::LEAF : IndexPageFooterPB::INTERNAL);
+    *body = _buffer.build();
 
-    std::string footer_buf;
-    footer.SerializeToString(&footer_buf);
-    _buffer.append(footer_buf);
-    put_fixed32_le(&_buffer, footer_buf.size());
-    return Slice(_buffer);
+    footer->set_type(INDEX_PAGE);
+    footer->set_uncompressed_size(body->slice().get_size());
+    footer->mutable_index_page_footer()->set_num_entries(_count);
+    footer->mutable_index_page_footer()->set_type(
+            _is_leaf ? IndexPageFooterPB::LEAF : IndexPageFooterPB::INTERNAL);
 }
 
 Status IndexPageBuilder::get_first_key(Slice* key) const {
@@ -65,15 +62,11 @@ Status IndexPageBuilder::get_first_key(Slice* key) const {
 
 ///////////////////////////////////////////////////////////////////////////////
 
-Status IndexPageReader::parse(const Slice& data) {
-    size_t buffer_len = data.size;
-    const uint8_t* buffer = (uint8_t*)data.data;
-    size_t footer_size = decode_fixed32_le(buffer + buffer_len - 4);
-    std::string footer_buf(data.data + buffer_len - 4 - footer_size, footer_size);
-    _footer.ParseFromString(footer_buf);
+Status IndexPageReader::parse(const Slice& body, const IndexPageFooterPB& footer) {
+    _footer = footer;
     size_t num_entries = _footer.num_entries();
 
-    Slice input(data);
+    Slice input(body);
     for (int i = 0; i < num_entries; ++i) {
         Slice key;
         PagePointer value;

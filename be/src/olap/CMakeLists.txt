@@ -93,18 +93,18 @@ add_library(Olap STATIC
     rowset/segment_v2/indexed_column_reader.cpp
     rowset/segment_v2/indexed_column_writer.cpp
     rowset/segment_v2/ordinal_page_index.cpp
-    rowset/segment_v2/page_compression.cpp
+    rowset/segment_v2/page_io.cpp
     rowset/segment_v2/binary_dict_page.cpp
     rowset/segment_v2/binary_prefix_page.cpp
     rowset/segment_v2/segment.cpp
     rowset/segment_v2/segment_iterator.cpp
     rowset/segment_v2/empty_segment_iterator.cpp
     rowset/segment_v2/segment_writer.cpp
-    rowset/segment_v2/column_zone_map.cpp
     rowset/segment_v2/block_split_bloom_filter.cpp
     rowset/segment_v2/bloom_filter_index_reader.cpp
     rowset/segment_v2/bloom_filter_index_writer.cpp
     rowset/segment_v2/bloom_filter.cpp
+    rowset/segment_v2/zone_map_index.cpp
     task/engine_batch_load_task.cpp
     task/engine_checksum_task.cpp
     task/engine_clone_task.cpp

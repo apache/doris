@@ -35,20 +35,25 @@ public:
 TEST_F(ShortKeyIndexTest, buider) {
     ShortKeyIndexBuilder builder(0, 1024);
 
+    int num_items = 0;
     for (int i = 1000; i < 10000; i += 2) {
         builder.add_item(std::to_string(i));
+        num_items++;
     }
     std::vector<Slice> slices;
-    auto st = builder.finalize(10000, 9000 * 1024, &slices);
+    segment_v2::PageFooterPB footer;
+    auto st = builder.finalize(9000 * 1024, &slices, &footer);
     ASSERT_TRUE(st.ok());
+    ASSERT_EQ(segment_v2::SHORT_KEY_PAGE, footer.type());
+    ASSERT_EQ(num_items, footer.short_key_page_footer().num_items());
     
     std::string buf;
     for (auto& slice : slices) {
         buf.append(slice.data, slice.size);
     }
 
-    ShortKeyIndexDecoder decoder(buf);
-    st = decoder.parse();
+    ShortKeyIndexDecoder decoder;
+    st = decoder.parse(buf, footer.short_key_page_footer());
     ASSERT_TRUE(st.ok());
 
     // find 1499
