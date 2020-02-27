@@ -159,12 +159,12 @@ std::string DiskInfo::debug_string() {
 
 Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
                                   std::set<std::string>* devices) {
-    std::vector<std::string> abs_paths;
+    std::vector<std::string> real_paths;
     for (auto& path : paths) {
         std::string p;
         WARN_IF_ERROR(FileUtils::canonicalize(path, &p),
                       "canonicalize path " + path + " failed, skip disk monitoring of this path");
-        abs_paths.emplace_back(std::move(p));
+        real_paths.emplace_back(std::move(p));
     }
 
     FILE* fp = fopen("/proc/mounts", "r");
@@ -180,7 +180,7 @@ Status DiskInfo::get_disk_devices(const std::vector<std::string>& paths,
     Status status;
     char* line_ptr = 0;
     size_t line_buf_size = 0;
-    for (auto& path : abs_paths) {
+    for (auto& path : real_paths) {
         size_t max_mount_size = 0;
         std::string match_dev;
         rewind(fp);
