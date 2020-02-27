@@ -138,8 +138,8 @@ public class FileSystemManager {
         WildcardURI pathUri = new WildcardURI(path);
         String scheme = pathUri.getUri().getScheme();
         if (Strings.isNullOrEmpty(scheme)) {
-            throw  new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
-                    "invalid path. scheme is null");
+            throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
+                "invalid path. scheme is null");
         }
         BrokerFileSystem brokerFileSystem = null;
         if (scheme.equals(HDFS_SCHEME)) {
@@ -147,8 +147,8 @@ public class FileSystemManager {
         } else if (scheme.equals(S3A_SCHEME)) {
             brokerFileSystem = getS3AFileSystem(path, properties);
         } else {
-            throw  new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
-                    "invalid path. scheme is not supported");
+            throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
+                "invalid path. scheme is not supported");
         }
         return brokerFileSystem;
     }
@@ -182,12 +182,12 @@ public class FileSystemManager {
         String password = properties.getOrDefault(PASSWORD_KEY, "");
         String dfsNameServices = properties.getOrDefault(DFS_NAMESERVICES_KEY, "");
         String authentication = properties.getOrDefault(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
-                AUTHENTICATION_SIMPLE);
+            AUTHENTICATION_SIMPLE);
         if (Strings.isNullOrEmpty(authentication) || (!authentication.equals(AUTHENTICATION_SIMPLE)
-                && !authentication.equals(AUTHENTICATION_KERBEROS))) {
+            && !authentication.equals(AUTHENTICATION_KERBEROS))) {
             logger.warn("invalid authentication:" + authentication);
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                    "invalid authentication:" + authentication);
+                "invalid authentication:" + authentication);
         }
         String hdfsUgi = username + "," + password;
         FileSystemIdentity fileSystemIdentity = null;
@@ -328,7 +328,7 @@ public class FileSystemManager {
                     }
                     if (properties.containsKey(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN)) {
                         conf.set(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN,
-                                properties.get(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN));
+                            properties.get(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN));
                     }
                 }
 
@@ -356,9 +356,9 @@ public class FileSystemManager {
      */
     public BrokerFileSystem getS3AFileSystem(String path, Map<String, String> properties) {
         WildcardURI pathUri = new WildcardURI(path);
-        String accessKey = properties.containsKey(FS_S3A_ACCESS_KEY) ? properties.get(FS_S3A_ACCESS_KEY) : "";
-        String secretKey = properties.containsKey(FS_S3A_SECRET_KEY) ? properties.get(FS_S3A_SECRET_KEY) : "";
-        String endpoint = properties.containsKey(FS_S3A_ENDPOINT) ? properties.get(FS_S3A_ENDPOINT) : "";
+        String accessKey = properties.getOrDefault(FS_S3A_ACCESS_KEY, "");
+        String secretKey = properties.getOrDefault(FS_S3A_SECRET_KEY, "");
+        String endpoint = properties.getOrDefault(FS_S3A_ENDPOINT, "");
         String host = S3A_SCHEME + "://" + endpoint;
         String s3aUgi = accessKey + "," + secretKey;
         FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(host, s3aUgi);
@@ -598,7 +598,7 @@ public class FileSystemManager {
             long currentStreamOffset;
             try {
                 currentStreamOffset = fsDataOutputStream.getPos();
-            } catch (Exception e) {
+            } catch (IOException e) {
                 logger.error("errors while get file pos from output stream", e);
                 throw new BrokerException(TBrokerOperationStatusCode.TARGET_STORAGE_SERVICE_ERROR,
                         "errors while get file pos from output stream");
