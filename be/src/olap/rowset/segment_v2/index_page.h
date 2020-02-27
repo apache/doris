@@ -31,22 +31,18 @@
 namespace doris {
 namespace segment_v2 {
 
-class IndexPageIterator; // forward decl.
-
 // IndexPage is the building block for IndexedColumn's ordinal index and value index.
 // It is used to guide searching for a particular key to the data page containing it.
 // We use the same general format for all index pages, regardless of the data type and node type (leaf or internal)
-//   IndexPage := IndexEntry^NumEntry, IndexPageFooterPB, IndexPageFooterPBSize(4)
-//   IndexEntry := IndexKey, PagePointer
-//   IndexKey := KeyLength(vint32), KeyData(KeyLength bytes)
-//   PagePointer := PageOffset(vint64), PageSize(vint32)
+//   IndexPageBody := IndexEntry^NumEntry
+//   IndexEntry := KeyLength(vint), Byte^KeyLength, PageOffset(vlong), PageSize(vint)
 //
 // IndexPageFooterPB records NumEntry and type (leaf/internal) of the index page.
 // For leaf, IndexKey records the first/smallest key of the data page PagePointer points to.
 // For internal, IndexKey records the first/smallest key of the next-level index page PagePointer points to.
 //
 // All keys are treated as binary string and compared with memcpy. Keys of other data type are encoded first by
-// KeyCoder, e.g., ordinal index's original key type is uint32_t but is encoded to binary string.
+// KeyCoder, e.g., ordinal index's original key type is uint64_t but is encoded to binary string.
 class IndexPageBuilder {
 public:
     explicit IndexPageBuilder(size_t index_page_size, bool is_leaf)
@@ -59,7 +55,7 @@ public:
 
     size_t count() const { return _count; }
 
-    Slice finish();
+    void finish(OwnedSlice* body, PageFooterPB* footer);
 
     uint64_t size() {
         return _buffer.size();
@@ -87,9 +83,9 @@ private:
 class IndexPageIterator;
 class IndexPageReader {
 public:
-    IndexPageReader() : _parsed(false) {};
+    IndexPageReader() : _parsed(false) {}
 
-    Status parse(const Slice& data);
+    Status parse(const Slice& body, const IndexPageFooterPB& footer);
 
     inline size_t count() const {
         DCHECK(_parsed);

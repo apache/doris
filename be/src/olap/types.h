@@ -150,6 +150,10 @@ template<> struct CppTypeTraits<OLAP_FIELD_TYPE_BIGINT> {
     using CppType = int64_t;
     using UnsignedCppType = uint64_t;
 };
+template<> struct CppTypeTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT> {
+    using CppType = uint64_t;
+    using UnsignedCppType = uint64_t;
+};
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_LARGEINT> {
     using CppType = int128_t;
     using UnsignedCppType = unsigned int128_t;

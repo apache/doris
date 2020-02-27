@@ -47,7 +47,7 @@ public:
 
     virtual Status flush() = 0;
 
-    virtual Status finish(WritableFile* file, BloomFilterIndexPB* meta) = 0;
+    virtual Status finish(WritableFile* file, ColumnIndexMetaPB* index_meta) = 0;
 
     virtual uint64_t size() = 0;
 private:

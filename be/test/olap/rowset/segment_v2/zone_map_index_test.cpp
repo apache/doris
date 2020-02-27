@@ -16,41 +16,70 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include <memory>
 
-#include "olap/rowset/segment_v2/column_zone_map.h"
+#include <memory>
+#include <string>
+
+#include "env/env.h"
+#include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema_helper.h"
+#include "util/file_utils.h"
 
 namespace doris {
 namespace segment_v2 {
 
 class ColumnZoneMapTest : public testing::Test {
 public:
-    void test_string(Field* field) {
-        ColumnZoneMapBuilder builder(field);
+    const std::string kTestDir = "./ut_dir/zone_map_index_test";
+
+    void SetUp() override {
+        if (FileUtils::check_exist(kTestDir)) {
+            ASSERT_TRUE(FileUtils::remove_all(kTestDir).ok());
+        }
+        ASSERT_TRUE(FileUtils::create_dir(kTestDir).ok());
+    }
+    void TearDown() override {
+        if (FileUtils::check_exist(kTestDir)) {
+            ASSERT_TRUE(FileUtils::remove_all(kTestDir).ok());
+        }
+    }
+
+    void test_string(std::string testname, Field* field) {
+        std::string filename = kTestDir + "/" + testname;
+
+        ZoneMapIndexWriter builder(field);
         std::vector<std::string> values1 = {"aaaa", "bbbb", "cccc", "dddd", "eeee", "ffff"};
         for (auto& value : values1) {
             Slice slice(value);
-            builder.add((const uint8_t*)&slice, 1);
+            builder.add_values((const uint8_t*)&slice, 1);
         }
         builder.flush();
         std::vector<std::string> values2 = {"aaaaa", "bbbbb", "ccccc", "ddddd", "eeeee", "fffff"};
         for (auto& value : values2) {
             Slice slice(value);
-            builder.add((const uint8_t*)&slice, 1);
+            builder.add_values((const uint8_t*)&slice, 1);
         }
-        builder.add(nullptr, 1);
+        builder.add_nulls(1);
         builder.flush();
         for (int i = 0; i < 6; ++i) {
-            builder.add(nullptr, 1);
+            builder.add_nulls(1);
         }
         builder.flush();
-        OwnedSlice zone_map_page = builder.finish();
-        ColumnZoneMap column_zone_map(zone_map_page.slice());
-        Status status = column_zone_map.load();
+        // write out zone map index
+        ColumnIndexMetaPB index_meta;
+        {
+            std::unique_ptr<WritableFile> out_file;
+            ASSERT_TRUE(Env::Default()->new_writable_file(filename, &out_file).ok());
+            ASSERT_TRUE(builder.finish(out_file.get(), &index_meta).ok());
+            ASSERT_EQ(ZONE_MAP_INDEX, index_meta.type());
+        }
+
+
+        ZoneMapIndexReader column_zone_map(filename, &index_meta.zone_map_index());
+        Status status = column_zone_map.load(true, false);
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(3, column_zone_map.num_pages());
-        const std::vector<ZoneMapPB>& zone_maps = column_zone_map.get_column_zone_map();
+        const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
         ASSERT_EQ(3, zone_maps.size());
         ASSERT_EQ("aaaa", zone_maps[0].min());
         ASSERT_EQ("ffff", zone_maps[0].max());
@@ -69,31 +98,39 @@ public:
 
 // Test for int
 TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
+    std::string filename = kTestDir + "/NormalTestIntPage";
+
     TabletColumn int_column = create_int_key(0);
     Field* field = FieldFactory::create(int_column);
 
-    ColumnZoneMapBuilder builder(field);
+    ZoneMapIndexWriter builder(field);
     std::vector<int> values1 = {1, 10, 11, 20, 21, 22};
     for (auto value : values1) {
-        builder.add((const uint8_t*)&value, 1);
+        builder.add_values((const uint8_t*)&value, 1);
     }
     builder.flush();
     std::vector<int> values2 = {2, 12, 31, 23, 21, 22};
     for (auto value : values2) {
-        builder.add((const uint8_t*)&value, 1);
+        builder.add_values((const uint8_t*)&value, 1);
     }
-    builder.add(nullptr, 1);
+    builder.add_nulls(1);
     builder.flush();
-    for (int i = 0; i < 6; ++i) {
-        builder.add(nullptr, 1);
+    builder.add_nulls(6);
+    builder.flush();
+    // write out zone map index
+    ColumnIndexMetaPB index_meta;
+    {
+        std::unique_ptr<WritableFile> out_file;
+        ASSERT_TRUE(Env::Default()->new_writable_file(filename, &out_file).ok());
+        ASSERT_TRUE(builder.finish(out_file.get(), &index_meta).ok());
+        ASSERT_EQ(ZONE_MAP_INDEX, index_meta.type());
     }
-    builder.flush();
-    OwnedSlice zone_map_page = builder.finish();
-    ColumnZoneMap column_zone_map(zone_map_page.slice());
-    Status status = column_zone_map.load();
+
+    ZoneMapIndexReader column_zone_map(filename, &index_meta.zone_map_index());
+    Status status = column_zone_map.load(true, false);
     ASSERT_TRUE(status.ok());
     ASSERT_EQ(3, column_zone_map.num_pages());
-    const std::vector<ZoneMapPB>& zone_maps = column_zone_map.get_column_zone_map();
+    const std::vector<ZoneMapPB>& zone_maps = column_zone_map.page_zone_maps();
     ASSERT_EQ(3, zone_maps.size());
 
     ASSERT_EQ(std::to_string(1), zone_maps[0].min());
@@ -114,14 +151,14 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 TEST_F(ColumnZoneMapTest, NormalTestVarcharPage) {
     TabletColumn varchar_column = create_varchar_key(0);
     Field* field = FieldFactory::create(varchar_column);
-    test_string(field);
+    test_string("NormalTestVarcharPage", field);
 }
 
 // Test for string
 TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
     TabletColumn char_column = create_char_key(0);
     Field* field = FieldFactory::create(char_column);
-    test_string(field);
+    test_string("NormalTestCharPage", field);
 }
 
 }
