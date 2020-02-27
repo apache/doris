@@ -1,11 +1,15 @@
 package org.apache.doris.analysis;
 
+import java.io.File;
 import java.util.UUID;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
+
+import org.apache.commons.io.FileUtils;
+import org.junit.AfterClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
@@ -15,6 +19,11 @@ public class SelectStmtTest {
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
+
+    @AfterClass
+    public static void afterClass() throws Exception {
+        FileUtils.deleteDirectory(new File(runningDir));
+    }
 
     @Test
     public void testGroupingSets() throws Exception {
@@ -41,11 +50,6 @@ public class SelectStmtTest {
         String selectStmtStr4 = "select k1,k4+k4,MAX(k4+k4) from db1.tbl1 GROUP BY GROUPING sets ((k1,k4),(k1),(k4),()"
                 + ");";
         UtFrameUtils.parseAndAnalyzeStmt(selectStmtStr4, ctx);
-
-
-
-
-
     }
 
 
