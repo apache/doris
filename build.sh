@@ -148,7 +148,7 @@ cd ${DORIS_HOME}/gensrc
 if [ ${CLEAN} -eq 1 ]; then
    make clean
 fi
-make
+make -j${PARALLEL}
 cd ${DORIS_HOME}
 
 # Clean and build Backend
@@ -169,7 +169,7 @@ fi
 # Build docs, should be built before Frontend
 echo "Build docs"
 cd ${DORIS_HOME}/docs
-make clean && make
+make clean && make -j${PARALLEL}
 cd ${DORIS_HOME}
 
 # Clean and build Frontend
