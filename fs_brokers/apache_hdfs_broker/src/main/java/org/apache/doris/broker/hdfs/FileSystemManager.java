@@ -86,9 +86,9 @@ public class FileSystemManager {
     private static final String FS_DEFAULTFS_KEY = "fs.defaultFS";
 
     // arguments for s3a
-    private static String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
-    private static String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
-    private static String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
+    private static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
+    private static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
+    private static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
 
     private ScheduledExecutorService handleManagementPool = Executors.newScheduledThreadPool(2);
     
