@@ -67,12 +67,6 @@ public:
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
-    // for ut
-    // this function should be called after finalize
-    bool has_bf_index(uint32_t col_id) const {
-        return _footer.columns(col_id).has_bloom_filter_index();
-    }
-
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();

@@ -104,10 +104,12 @@ public:
         return Status::OK();
     }
 
-    Status finish(WritableFile* file, BloomFilterIndexPB* meta) override {
+    Status finish(WritableFile* file, ColumnIndexMetaPB* index_meta) override {
         if (_values.size() > 0) {
             RETURN_IF_ERROR(flush());
         }
+        index_meta->set_type(BLOOM_FILTER_INDEX);
+        BloomFilterIndexPB* meta = index_meta->mutable_bloom_filter_index();
         meta->set_hash_strategy(_bf_options.strategy);
         meta->set_algorithm(BLOCK_BLOOM_FILTER);
 
@@ -118,7 +120,7 @@ public:
         options.write_value_index = false;
         options.encoding = PLAIN_ENCODING;
         IndexedColumnWriter bf_writer(options, bf_typeinfo, file);
-        bf_writer.init();
+        RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
             bf_writer.add(&data);

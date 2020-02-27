@@ -21,8 +21,7 @@
 
 #include "common/status.h" // for Status
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
-#include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMapBuilder
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
+#include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h" // for OwnedSlice
@@ -36,8 +35,10 @@ class BlockCompressionCodec;
 namespace segment_v2 {
 
 struct ColumnWriterOptions {
-    EncodingTypePB encoding_type = DEFAULT_ENCODING;
-    CompressionTypePB compression_type = segment_v2::CompressionTypePB::LZ4F;
+    // input and output parameter:
+    // - input: column_id/unique_id/type/length/encoding/compression/is_nullable members
+    // - output: encoding/indexes/dict_page members
+    ColumnMetaPB* meta;
     size_t data_page_size = 64 * 1024;
     // store compressed page only when space saving is above the threshold.
     // space saving = 1 - compressed_size / uncompressed_size
@@ -50,9 +51,10 @@ struct ColumnWriterOptions {
 class BitmapIndexWriter;
 class EncodingInfo;
 class NullBitmapBuilder;
-class OrdinalPageIndexBuilder;
+class OrdinalIndexWriter;
 class PageBuilder;
 class BloomFilterIndexWriter;
+class ZoneMapIndexWriter;
 
 // Encode one column's data into some memory slice.
 // Because some columns would be stored in a file, we should wait
@@ -62,7 +64,6 @@ class ColumnWriter {
 public:
     ColumnWriter(const ColumnWriterOptions& opts,
                  std::unique_ptr<Field> field,
-                 bool is_nullable,
                  WritableFile* output_file);
     ~ColumnWriter();
 
@@ -102,19 +103,17 @@ public:
     Status write_zone_map();
     Status write_bitmap_index();
     Status write_bloom_filter_index();
-    void write_meta(ColumnMetaPB* meta);
 
 private:
     // All Pages will be organized into a linked list
     struct Page {
-        int32_t first_rowid;
-        int32_t num_rows;
         // the data vector may contain:
-        //     1. one OwnedSlice if the data is compressed
-        //     2. one OwnedSlice if the data is not compressed and is not nullable
-        //     3. two OwnedSlice if the data is not compressed and is nullable
+        //     1. one OwnedSlice if the page body is compressed
+        //     2. one OwnedSlice if the page body is not compressed and doesn't have nullmap
+        //     3. two OwnedSlice if the page body is not compressed and has nullmap
         // use vector for easier management for lifetime of OwnedSlice
         std::vector<OwnedSlice> data;
+        PageFooterPB footer;
         Page* next = nullptr;
     };
 
@@ -135,45 +134,37 @@ private:
         for (auto& data_slice : page->data) {
             _data_size += data_slice.slice().size;
         }
+        // estimate (page footer + footer size + checksum) took 20 bytes
+        _data_size += 20;
     }
 
     Status _append_data(const uint8_t** ptr, size_t num_rows);
     Status _finish_current_page();
-    Status _write_raw_data(const std::vector<Slice>& data, size_t* bytes_written);
-
     Status _write_data_page(Page* page);
-    Status _compress_and_write_page(std::vector<Slice>* origin_data, PagePointer* pp);
-    Status _write_physical_page(std::vector<Slice>* origin_data, PagePointer* pp);
 
 private:
     ColumnWriterOptions _opts;
+    std::unique_ptr<Field> _field;
+    WritableFile* _output_file;
     bool _is_nullable;
-    WritableFile* _output_file = nullptr;
+    // total size of data page list
+    uint64_t _data_size;
 
     // cached generated pages,
     PageHead _pages;
-    rowid_t _last_first_rowid = 0;
-    rowid_t _next_rowid = 0;
+    ordinal_t _first_rowid = 0;
+    ordinal_t _next_rowid = 0;
 
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
 
     std::unique_ptr<PageBuilder> _page_builder;
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
-    std::unique_ptr<OrdinalPageIndexBuilder> _ordinal_index_builder;
-    std::unique_ptr<ColumnZoneMapBuilder> _column_zone_map_builder;
-    std::unique_ptr<Field> _field;
+
+    std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
+    std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
     std::unique_ptr<BitmapIndexWriter> _bitmap_index_builder;
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
-    BitmapIndexColumnPB _bitmap_index_meta;
-    BloomFilterIndexPB _bloom_filter_index_meta;
-
-    PagePointer _ordinal_index_pp;
-    PagePointer _zone_map_pp;
-    PagePointer _dict_page_pp;
-    // the total data size of page list
-    uint64_t _data_size;
-    uint64_t _written_size = 0;
 };
 
 

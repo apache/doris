@@ -47,34 +47,34 @@ class IndexedColumnIterator;
 class IndexedColumnReader {
 public:
     explicit IndexedColumnReader(const std::string& file_name,
-                                 const IndexedColumnMetaPB& meta,
-                                 const bool cache_in_memory)
-        : _file_name(file_name), _meta(meta), _cache_in_memory(cache_in_memory) {};
+                                 const IndexedColumnMetaPB& meta)
+        : _file_name(file_name), _meta(meta) {};
 
-    Status load();
+    Status load(bool use_page_cache, bool kept_in_memory);
 
-    // read a page from file into a page handle
-    // use file(usually is RandomAccessFile*) to read page
-    Status read_page(RandomAccessFile* file, const PagePointer& pp, PageHandle* handle) const;
+    // read a page specified by `pp' from `file' into `handle'
+    Status read_page(RandomAccessFile* file, const PagePointer& pp,
+                     PageHandle* handle, Slice* body, PageFooterPB* footer) const;
 
     int64_t num_values() const { return _num_values; }
-
     const EncodingInfo* encoding_info() const { return _encoding_info; }
-
     const TypeInfo* type_info() const { return _type_info; }
-
     bool support_ordinal_seek() const { return _meta.has_ordinal_index_meta(); }
-
     bool support_value_seek() const { return _meta.has_value_index_meta(); }
 
 private:
+    Status load_index_page(RandomAccessFile* file,
+                           const PagePointerPB& pp,
+                           PageHandle* handle,
+                           IndexPageReader* reader);
+
     friend class IndexedColumnIterator;
 
     std::string _file_name;
     IndexedColumnMetaPB _meta;
-    // if _cache_in_memory is true, we will use DURABLE CachePriority in page cache,
-    // otherwise we use NORMAL CachePriority
-    bool _cache_in_memory;
+
+    bool _use_page_cache;
+    bool _kept_in_memory;
     int64_t _num_values = 0;
     // whether this column contains any index page.
     // could be false when the column contains only one data page.
@@ -86,7 +86,6 @@ private:
     PageHandle _ordinal_index_page_handle;
     PageHandle _value_index_page_handle;
 
-    bool _verify_checksum = true;
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
@@ -109,7 +108,7 @@ public:
     // Seek to the given ordinal entry. Entry 0 is the first entry.
     // Return NotFound if provided seek point is past the end.
     // Return NotSupported for column without ordinal index.
-    Status seek_to_ordinal(rowid_t idx);
+    Status seek_to_ordinal(ordinal_t idx);
 
     // Seek the index to the given key, or to the index entry immediately
     // before it. Then seek the data block to the value matching value or to
@@ -123,14 +122,17 @@ public:
     Status seek_at_or_after(const void* key, bool* exact_match);
 
     // Get the ordinal index that the iterator is currently pointed to.
-    rowid_t get_current_ordinal() const;
+    ordinal_t get_current_ordinal() const {
+        DCHECK(_seeked);
+        return _current_ordinal;
+    }
 
     // After one seek, we can only call this function once to read data
     // into ColumnBlock. when read string type data, memory will allocated
     // from Arena
     Status next_batch(size_t* n, ColumnBlockView* column_view);
 private:
-    Status _read_data_page(const PagePointer& page_pointer, ParsedPage* page);
+    Status _read_data_page(const PagePointer& pp);
 
     const IndexedColumnReader* _reader;
     // iterator for ordinal index page
@@ -141,10 +143,10 @@ private:
     bool _seeked = false;
     // current in-use index iterator, could be `&_ordinal_iter` or `&_value_iter` or null
     IndexPageIterator* _current_iter = nullptr;
-    // seeked data page, containing value at `_current_rowid`
+    // seeked data page, containing value at `_current_ordinal`
     std::unique_ptr<ParsedPage> _data_page;
     // next_batch() will read from this position
-    rowid_t _current_rowid = 0;
+    ordinal_t _current_ordinal = 0;
     // open file handle
     OpenedFileHandle<RandomAccessFile> _file_handle;
     // file to read

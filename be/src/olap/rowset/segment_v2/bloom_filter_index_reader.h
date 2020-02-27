@@ -44,13 +44,13 @@ class BloomFilter;
 class BloomFilterIndexReader {
 public:
     explicit BloomFilterIndexReader(const std::string& file_name,
-                               const BloomFilterIndexPB& bloom_filter_index_meta)
+                               const BloomFilterIndexPB* bloom_filter_index_meta)
         : _file_name(file_name),
           _bloom_filter_index_meta(bloom_filter_index_meta) {
         _typeinfo = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
     }
 
-    Status load(bool cache_in_memory);
+    Status load(bool use_page_cache, bool kept_in_memory);
 
     // create a new column iterator.
     Status new_iterator(std::unique_ptr<BloomFilterIndexIterator>* iterator);
@@ -64,7 +64,7 @@ private:
 
     std::string _file_name;
     const TypeInfo* _typeinfo;
-    BloomFilterIndexPB _bloom_filter_index_meta;
+    const BloomFilterIndexPB* _bloom_filter_index_meta;
     std::unique_ptr<IndexedColumnReader> _bloom_filter_reader;
 };
 

@@ -100,8 +100,11 @@ public:
         _rid += count;
     }
 
-    Status finish(WritableFile* file, BitmapIndexColumnPB* meta) override {
-        meta->set_bitmap_type(BitmapIndexColumnPB::ROARING_BITMAP);
+    Status finish(WritableFile* file, ColumnIndexMetaPB* index_meta) override {
+        index_meta->set_type(BITMAP_INDEX);
+        BitmapIndexPB* meta = index_meta->mutable_bitmap_index();
+
+        meta->set_bitmap_type(BitmapIndexPB::ROARING_BITMAP);
         meta->set_has_null(!_null_bitmap.isEmpty());
 
         {   // write dictionary

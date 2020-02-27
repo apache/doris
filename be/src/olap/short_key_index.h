@@ -107,17 +107,12 @@ void encode_key(std::string* buf, const RowType& row, size_t num_keys) {
     }
 }
 
-// Used to encode a segment short key indices to binary format. This version
+// Encode a segment short key indices to one ShortKeyPage. This version
 // only accepts binary key, client should assure that input key is sorted,
-// otherwise error could happens. This builder would arrange data in following
-// format.
-//      index = encoded_keys + encoded_offsets + footer + footer_size + checksum
-//      encoded_keys = binary_key + [, ...]
-//      encoded_offsets = encoded_offset + [, ...]
-//      encoded_offset = variant32
-//      footer = ShortKeyFooterPB
-//      footer_size = fixed32
-//      checksum = fixed32
+// otherwise error could happens. This builder would arrange the page body in the
+// following format:
+//      ShortKeyPageBody := KeyContent^NumEntry, KeyOffset(vint)^NumEntry
+//      NumEntry, KeyBytes, OffsetBytes is stored in ShortKeyFooterPB
 // Usage:
 //      ShortKeyIndexBuilder builder(segment_id, num_rows_per_block);
 //      builder.add_item(key1);
@@ -132,26 +127,25 @@ void encode_key(std::string* buf, const RowType& row, size_t num_keys) {
 //    more than short key
 class ShortKeyIndexBuilder {
 public:
-    ShortKeyIndexBuilder(uint32_t segment_id,
-                         uint32_t num_rows_per_block) {
-        _footer.set_segment_id(segment_id);
-        _footer.set_num_rows_per_block(num_rows_per_block);
+    ShortKeyIndexBuilder(uint32_t segment_id, uint32_t num_rows_per_block) :
+            _segment_id(segment_id), _num_rows_per_block(num_rows_per_block), _num_items(0) {
     }
 
     Status add_item(const Slice& key);
 
     uint64_t size() {
-        return _key_buf.size() + _offset_buf.size() + _footer_buf.size();
+        return _key_buf.size() + _offset_buf.size();
     }
 
-    Status finalize(uint32_t segment_size, uint32_t num_rows, std::vector<Slice>* slices);
+    Status finalize(uint32_t num_rows, std::vector<Slice>* body, segment_v2::PageFooterPB* footer);
 
 private:
-    segment_v2::ShortKeyFooterPB _footer;
+    uint32_t _segment_id;
+    uint32_t _num_rows_per_block;
+    uint32_t _num_items;
 
     faststring _key_buf;
     faststring _offset_buf;
-    std::string _footer_buf;
 };
 
 class ShortKeyIndexDecoder;
@@ -214,40 +208,54 @@ private:
 
 // Used to decode short key to header and encoded index data.
 // Usage:
-//      MemIndex index;
-//      ShortKeyIndexDecoder decoder(slice)
-//      decoder.parse();
+//      ShortKeyIndexDecoder decoder;
+//      decoder.parse(body, footer);
 //      auto iter = decoder.lower_bound(key);
 class ShortKeyIndexDecoder {
 public:
-    // Client should assure that data is available when this class
-    // is used.
-    ShortKeyIndexDecoder(const Slice& data) : _data(data) { }
+    ShortKeyIndexDecoder() : _parsed(false) {}
 
-    Status parse();
+    // client should assure that body is available when this class is used
+    Status parse(const Slice& body, const segment_v2::ShortKeyFooterPB& footer);
 
-    ShortKeyIndexIterator begin() const { return {this, 0}; }
-    ShortKeyIndexIterator end() const { return {this, num_items()}; }
+    ShortKeyIndexIterator begin() const {
+        DCHECK(_parsed);
+        return {this, 0};
+    }
+
+    ShortKeyIndexIterator end() const {
+        DCHECK(_parsed);
+        return {this, num_items()};
+    }
 
     // Return an iterator which locates at the first item who is
     // equal with or greater than the given key.
     // NOTE: If one key is the prefix of other key, this funciton thinks
     // that longer key is greater than the shorter key.
     ShortKeyIndexIterator lower_bound(const Slice& key) const {
+        DCHECK(_parsed);
         return seek<true>(key);
     }
 
     // Return the iterator which locates the first item greater than the
     // input key.
     ShortKeyIndexIterator upper_bound(const Slice& key) const {
+        DCHECK(_parsed);
         return seek<false>(key);
     }
 
-    uint32_t num_items() const { return _footer.num_items(); }
+    uint32_t num_items() const {
+        DCHECK(_parsed);
+        return _footer.num_items();
+    }
 
-    uint32_t num_rows_per_block() const { return _footer.num_rows_per_block(); }
+    uint32_t num_rows_per_block() const {
+        DCHECK(_parsed);
+        return _footer.num_rows_per_block();
+    }
 
     Slice key(ssize_t ordinal) const {
+        DCHECK(_parsed);
         DCHECK(ordinal >= 0 && ordinal < num_items());
         return {_key_data.data + _offsets[ordinal], _offsets[ordinal + 1] - _offsets[ordinal]};
     }
@@ -266,7 +274,7 @@ private:
     }
 
 private:
-    Slice _data;
+    bool _parsed;
 
     // All following fields are only valid after parse has been executed successfully
     segment_v2::ShortKeyFooterPB _footer;

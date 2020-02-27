@@ -19,18 +19,18 @@
 
 #include <string>
 
+#include "common/logging.h"
 #include "env/env.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "olap/rowset/segment_v2/page_builder.h"
-#include "olap/rowset/segment_v2/page_compression.h"
+#include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/key_coder.h"
 #include "olap/types.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
-#include "util/crc32c.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -55,6 +55,10 @@ IndexedColumnWriter::~IndexedColumnWriter() = default;
 Status IndexedColumnWriter::init() {
     const EncodingInfo* encoding_info;
     RETURN_IF_ERROR(EncodingInfo::get(_typeinfo, _options.encoding, &encoding_info));
+    _options.encoding = encoding_info->encoding();
+    // should store more concrete encoding type instead of DEFAULT_ENCODING
+    // because the default encoding of a data type can be changed in the future
+    DCHECK_NE(_options.encoding, DEFAULT_ENCODING);
 
     PageBuilder* data_page_builder;
     RETURN_IF_ERROR(encoding_info->create_page_builder(PageBuilderOptions(), &data_page_builder));
@@ -89,31 +93,31 @@ Status IndexedColumnWriter::add(const void* value) {
 }
 
 Status IndexedColumnWriter::_finish_current_data_page() {
-    const uint32_t page_row_count = _data_page_builder->count();
-
-    if (page_row_count == 0) {
+    auto num_values_in_page = _data_page_builder->count();
+    if (num_values_in_page == 0) {
         return Status::OK();
     }
+    ordinal_t first_ordinal = _num_values -  num_values_in_page;
 
-    uint32_t first_rowid = _num_values - page_row_count;
-    faststring page_header;
-    put_varint32(&page_header, first_rowid);
-    put_varint32(&page_header, page_row_count);
-
-    OwnedSlice page_data = _data_page_builder->finish();
+    // IndexedColumn doesn't have NULLs, thus data page body only contains encoded values
+    OwnedSlice page_body = _data_page_builder->finish();
     _data_page_builder->reset();
 
-    return _append_data_page({Slice(page_header), page_data.slice()}, first_rowid);
-}
+    PageFooterPB footer;
+    footer.set_type(DATA_PAGE);
+    footer.set_uncompressed_size(page_body.slice().get_size());
+    footer.mutable_data_page_footer()->set_first_ordinal(first_ordinal);
+    footer.mutable_data_page_footer()->set_num_values(num_values_in_page);
+    footer.mutable_data_page_footer()->set_nullmap_size(0);
 
-Status IndexedColumnWriter::_append_data_page(const std::vector<Slice>& data_page, rowid_t first_rowid) {
-    RETURN_IF_ERROR(_append_page(data_page, &_last_data_page));
+    RETURN_IF_ERROR(PageIO::compress_and_write_page(
+            _compress_codec, _options.compression_min_space_saving, _file, { page_body.slice() },
+            footer, &_last_data_page));
     _num_data_pages++;
 
     if (_options.write_ordinal_index) {
         std::string key;
-        KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_INT>::full_encode_ascending(
-            &first_rowid, &key);
+        KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::full_encode_ascending(&first_ordinal, &key);
         _ordinal_index_builder->add(key, _last_data_page);
     }
 
@@ -124,31 +128,6 @@ Status IndexedColumnWriter::_append_data_page(const std::vector<Slice>& data_pag
         _value_index_builder->add(key, _last_data_page);
         // TODO record last key in short separate key optimize
     }
-    return Status::OK();
-}
-
-Status IndexedColumnWriter::_append_page(const std::vector<Slice>& page, PagePointer* pp) {
-    std::vector<Slice> output_page;
-
-    // Put compressor out of if block, because we will use compressor's
-    // content until this function finished.
-    PageCompressor compressor(_compress_codec);
-    if (_compress_codec != nullptr) {
-        RETURN_IF_ERROR(compressor.compress(page, &output_page));
-    } else {
-        output_page = page;
-    }
-
-    // checksum
-    uint8_t checksum_buf[sizeof(uint32_t)];
-    uint32_t checksum = crc32c::Value(output_page);
-    encode_fixed32_le(checksum_buf, checksum);
-    output_page.emplace_back(checksum_buf, sizeof(uint32_t));
-
-    // append to file
-    pp->offset = _file->size();
-    RETURN_IF_ERROR(_file->appendv(&output_page[0], output_page.size()));
-    pp->size = _file->size() - pp->offset;
     return Status::OK();
 }
 
@@ -174,9 +153,14 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
         meta->set_is_root_data_page(true);
         _last_data_page.to_proto(meta->mutable_root_page());
     } else {
-        Slice root_page = index_builder->finish();
+        OwnedSlice page_body;
+        PageFooterPB page_footer;
+        index_builder->finish(&page_body, &page_footer);
+
         PagePointer pp;
-        RETURN_IF_ERROR(_append_page({root_page}, &pp));
+        RETURN_IF_ERROR(PageIO::compress_and_write_page(
+                _compress_codec, _options.compression_min_space_saving, _file,
+                { page_body.slice() }, page_footer, &pp));
 
         meta->set_is_root_data_page(false);
         pp.to_proto(meta->mutable_root_page());
