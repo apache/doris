@@ -153,7 +153,7 @@ under the License.
             dfs.namenode.rpc-address.xxx.nn: Specify RPC address information for namenode, where NN denotes the name of the namenode configured in dfs.ha.namenodes.xxxx, such as: "dfs.namenode.rpc-address.my_ha.my_nn"= "host:port"
             dfs.client.failover.proxy.provider: Specify the provider that client connects to namenode by default: org. apache. hadoop. hdfs. server. namenode. ha. Configured Failover ProxyProvider.
 
-    4. opt_properties
+    5. opt_properties
 
         Used to specify some special parameters. 
         Syntax: 
@@ -171,7 +171,12 @@ under the License.
 
         timezone: Specify time zones for functions affected by time zones, such as strftime/alignment_timestamp/from_unixtime, etc. See the documentation for details. If not specified, use the "Asia/Shanghai" time zone.
 
-    5. Load data format sample
+        *If BROKER LOAD data is large, we can use multi-thread mode to improve load speed. You can specify the following parameters:
+        buffer_num:         number of buffers in multi-thread, the same number of threads
+        mem_limit_per_buf:  the memory limit of one buffer
+        size_limit_per_buf: the max number of rows in one buffer
+
+    6. Load data format sample
 
         Integer（TINYINT/SMALLINT/INT/BIGINT/LARGEINT）: 1, 1000, 1234
         Float（FLOAT/DOUBLE/DECIMAL）: 1.1, 0.23, .356
@@ -392,6 +397,33 @@ under the License.
         INTO TABLE `my_table`
         where k1 > k2
         );
+
+    11. Use multi-thread mode
+
+        LOAD LABEL example_db.label11
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        )
+        WITH BROKER my_hdfs_broker
+        (
+        "username" = "hdfs_user",
+        "password" = "hdfs_passwd"
+        )
+        PROPERTIES
+        (
+        "buffer_num"="5", 
+        "mem_limit_per_buf"="5368709120", 
+        "size_limit_per_buf"="31457280"
+        );
+
+        Parameter configuration references：
+        1. buffer_num, we use modular hashing(node_id%buffer_num) to distribute the rows，so buffer_num should less than or equal to BE number.
+        2. mem_limit_per_buf，the memory limit of one buffer.
+        3. size_limit_per_buf，cause we use ring buffer which requires fix-sized memory(size_limit_per_buf * 32B), size_limit_per_buf shouldn't be set too large. This configuration is usually not the performance bottleneck.
+        The multi-thread mode requires more memory. 
+        The theoretical estimate formula: Mem=buffer_num*(size_limit_per_buf*32+mem_limit_per_buf)
+        Please set properly parameters based on BE memory usage.
      
 ## keyword
 

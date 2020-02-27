@@ -145,7 +145,7 @@ under the License.
             dfs.namenode.rpc-address.xxx.nn：指定 namenode 的rpc地址信息。其中 nn 表示 dfs.ha.namenodes.xxx 中配置的 namenode 的名字，如："dfs.namenode.rpc-address.my_ha.my_nn" = "host:port"
             dfs.client.failover.proxy.provider：指定 client 连接 namenode 的 provider，默认为：org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider
 
-    4. opt_properties
+    5. opt_properties
 
         用于指定一些特殊参数。
         语法：
@@ -158,7 +158,12 @@ under the License.
         strict mode：     是否对数据进行严格限制。默认为 false。
         timezone:         指定某些受时区影响的函数的时区，如 strftime/alignment_timestamp/from_unixtime 等等，具体请查阅 [时区] 文档。如果不指定，则使用 "Asia/Shanghai" 时区。
 
-    5. 导入数据格式样例
+        *针对数据量较大的BROKER LOAD，可以使用多线程模式提高导入速度，通过设置如下参数：
+        buffer_num:         多线程模式使用的buffer数目和线程数目
+        mem_limit_per_buf:  每个buffer可以使用的最大内存
+        size_limit_per_buf: 每个buffer可容纳的数据条数
+
+    6. 导入数据格式样例
 
         整型类（TINYINT/SMALLINT/INT/BIGINT/LARGEINT）：1, 1000, 1234
         浮点类（FLOAT/DOUBLE/DECIMAL）：1.1, 0.23, .356
@@ -375,7 +380,32 @@ under the License.
         INTO TABLE `my_table`
         where k1 > k2
         )
-     
+    
+    11. 使用多线程模式的导入
+
+        LOAD LABEL example_db.label11
+        (
+        DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+        INTO TABLE `my_table`
+        )
+        WITH BROKER my_hdfs_broker
+        (
+        "username" = "hdfs_user",
+        "password" = "hdfs_passwd"
+        )
+        PROPERTIES
+        (
+        "buffer_num"="5", 
+        "mem_limit_per_buf"="5368709120", 
+        "size_limit_per_buf"="31457280"
+        );
+
+        多线程模式的参数设置参考：
+        1. buffer_num，多线程模式下，一条数据根据该条将发送至的node_id进行hash，因此buffer与线程数量设定应小于等于BE node数量。
+        2. mem_limit_per_buf，每个buffer能使用的最大内存。
+        3. size_limit_per_buf，由于使用ring buffer，所以buffer的元数据内存占用是固定的,为size_limit_per_buf * 32B。因此size_limit_per_buf不宜设置过大，通常这个配置项不会造成性能瓶颈。
+        多线程模式将使用更多的内存，估算公式为Mem=buffer_num*(size_limit_per_buf*32+mem_limit_per_buf)。请针对BE内存使用情况，合理设置多线程模式的参数。
+
 ## keyword
 
     BROKER,LOAD
