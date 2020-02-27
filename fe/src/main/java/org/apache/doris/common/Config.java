@@ -999,5 +999,11 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean check_java_version = true;
+
+    /*
+     * control materialized view
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_materialized_view = false;
 }
 

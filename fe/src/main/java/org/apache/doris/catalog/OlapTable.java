@@ -289,6 +289,10 @@ public class OlapTable extends Table {
     public void rebuildFullSchema() {
         fullSchema.clear();
         nameToColumn.clear();
+        for (Column baseColumn : indexIdToSchema.get(baseIndexId)) {
+            fullSchema.add(baseColumn);
+            nameToColumn.put(baseColumn.getName(), baseColumn);
+        }
         for (List<Column> columns : indexIdToSchema.values()) {
             for (Column column : columns) {
                 if (!nameToColumn.containsKey(column.getName())) {
@@ -329,6 +333,16 @@ public class OlapTable extends Table {
             }
         }
         return null;
+    }
+
+    public Map<Long, List<Column>> getVisibleIndexIdToSchema() {
+        Map<Long, List<Column>> visibleMVs = Maps.newHashMap();
+        Partition partition = idToPartition.values().stream().findFirst().get();
+        List<MaterializedIndex> mvs = partition.getMaterializedIndices(IndexExtState.VISIBLE);
+        for (MaterializedIndex mv : mvs) {
+            visibleMVs.put(mv.getId(), indexIdToSchema.get(mv.getId()));
+        }
+        return visibleMVs;
     }
 
     // this is only for schema change.
@@ -1002,6 +1016,11 @@ public class OlapTable extends Table {
                 tableProperty = TableProperty.read(in);
             }
         }
+
+        // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
+        // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
+        // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
+        rebuildFullSchema();
     }
 
     public boolean equals(Table table) {

@@ -26,8 +26,15 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.thrift.TStorageType;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -71,8 +78,15 @@ public class TableTest {
         columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
         columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
 
-        Table table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
-                                     new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        OlapTable table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
+                                                  new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        List<Column> column = Lists.newArrayList();
+        short schemaHash = 1;
+        table1.setIndexSchemaInfo(new Long(1), "test", column, 1, 1, schemaHash);
+        Deencapsulation.setField(table1, "baseIndexId", 1);
+        Map<Long, TStorageType> indexIdToStorageType = Maps.newHashMap();
+        indexIdToStorageType.put(new Long(1), TStorageType.COLUMN);
+        Deencapsulation.setField(table1, "indexIdToStorageType", indexIdToStorageType);
         table1.write(dos);
         dos.flush();
         dos.close();
