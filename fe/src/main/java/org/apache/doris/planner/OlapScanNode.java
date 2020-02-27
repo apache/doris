@@ -443,6 +443,13 @@ public class OlapScanNode extends ScanNode {
             localBeId = Catalog.getCurrentSystemInfo().getBackendIdByHost(FrontendOptions.getLocalHostAddress());
         }
 
+        /**
+         * Reset the tablet and scan range info before compute it.
+         * The old rollup selector has computed tablet and scan range info.
+         * Then the new mv selector maybe compute tablet and scan range info again sometimes.
+         * So, we need to reset those info in here.
+         */
+        resetTabletAndScanRangeInfo();
         for (Long partitionId : selectedPartitionIds) {
             final Partition partition = olapTable.getPartition(partitionId);
             final MaterializedIndex selectedTable = partition.getIndex(selectedIndexId);
@@ -469,6 +476,17 @@ public class OlapScanNode extends ScanNode {
             selectedTabletsNum += tablets.size();
             addScanRangeLocations(partition, selectedTable, tablets, localBeId);
         }
+    }
+
+    private void resetTabletAndScanRangeInfo() {
+        scanTabletIds = Lists.newArrayList();
+        tabletId2BucketSeq = Maps.newHashMap();
+        bucketSeq2locations = ArrayListMultimap.create();
+        totalTabletsNum = 0;
+        selectedTabletsNum = 0;
+        cardinality = 0;
+        totalBytes = 0;
+        result = Lists.newArrayList();
     }
 
     /**
