@@ -35,8 +35,10 @@ import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.DataStreamSink;
+import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
+import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
@@ -45,6 +47,7 @@ import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ResultSink;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.PExecPlanFragmentResult;
 import org.apache.doris.proto.PPlanFragmentCancelReason;
@@ -804,6 +807,63 @@ public class Coordinator {
                 return true;
             } else {
                 return containsUnionNode(child);
+            }
+        }
+        return false;
+    }
+
+    // estimate if this fragment contains IntersectNode
+    private boolean containsIntersectNode(PlanNode node) {
+        if (node instanceof IntersectNode) {
+            return true;
+        }
+
+        for (PlanNode child : node.getChildren()) {
+            if (child instanceof ExchangeNode) {
+                // Ignore other fragment's node
+                continue;
+            } else if (child instanceof IntersectNode) {
+                return true;
+            } else {
+                return containsIntersectNode(child);
+            }
+        }
+        return false;
+    }
+
+    // estimate if this fragment contains ExceptNode
+    private boolean containsExceptNode(PlanNode node) {
+        if (node instanceof ExceptNode) {
+            return true;
+        }
+
+        for (PlanNode child : node.getChildren()) {
+            if (child instanceof ExchangeNode) {
+                // Ignore other fragment's node
+                continue;
+            } else if (child instanceof ExceptNode) {
+                return true;
+            } else {
+                return containsExceptNode(child);
+            }
+        }
+        return false;
+    }
+
+    // estimate if this fragment contains SetOperationNode
+    private boolean containsSetOperationNode(PlanNode node) {
+        if (node instanceof SetOperationNode) {
+            return true;
+        }
+
+        for (PlanNode child : node.getChildren()) {
+            if (child instanceof ExchangeNode) {
+                // Ignore other fragment's node
+                continue;
+            } else if (child instanceof SetOperationNode) {
+                return true;
+            } else {
+                return containsSetOperationNode(child);
             }
         }
         return false;

@@ -24,18 +24,18 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
-public class UnionNode extends SetOperationNode {
-    protected UnionNode(PlanNodeId id, TupleId tupleId) {
-        super(id, tupleId, "UNION");
+public class IntersectNode extends SetOperationNode {
+    protected IntersectNode(PlanNodeId id, TupleId tupleId) {
+        super(id, tupleId, "INTERSECT");
     }
 
-    protected UnionNode(PlanNodeId id, TupleId tupleId,
-                        List<Expr> setOpResultExprs, boolean isInSubplan) {
-        super(id, tupleId, "UNION", setOpResultExprs, isInSubplan);
+    protected IntersectNode(PlanNodeId id, TupleId tupleId,
+                            List<Expr> setOpResultExprs, boolean isInSubplan) {
+        super(id, tupleId, "INTERSECT", setOpResultExprs, isInSubplan);
     }
 
     @Override
     protected void toThrift(TPlanNode msg) {
-        toThrift(msg, TPlanNodeType.UNION_NODE);
+        toThrift(msg, TPlanNodeType.INTERSECT_NODE);
     }
 }

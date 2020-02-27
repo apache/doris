@@ -31,6 +31,7 @@ public class ConstantExpressTest {
     private static String runningDir = "fe/mocked/ConstantExpressTest/" + UUID.randomUUID().toString() + "/";
 
     private static ConnectContext connectContext;
+
     @BeforeClass
     public static void beforeClass() throws Exception {
         UtFrameUtils.startFEServer(runningDir);
@@ -40,7 +41,7 @@ public class ConstantExpressTest {
     private static void testConstantExpressResult(String sql, String result) throws Exception {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains("constant exprs: "+result));
+        Assert.assertTrue(explainString.contains("constant exprs: \n         " + result));
     }
 
     @Test
