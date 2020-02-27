@@ -59,6 +59,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * Representation of a single select block, including GROUP BY, ORDER BY and HAVING
@@ -66,6 +67,7 @@ import java.util.Set;
  */
 public class SelectStmt extends QueryStmt {
     private final static Logger LOG = LogManager.getLogger(SelectStmt.class);
+    private UUID id = UUID.randomUUID();
 
     // ///////////////////////////////////////
     // BEGIN: Members that need to be reset()
@@ -137,6 +139,7 @@ public class SelectStmt extends QueryStmt {
 
     protected SelectStmt(SelectStmt other) {
         super(other);
+        this.id = other.id;
         selectList = other.selectList.clone();
         fromClause_ = other.fromClause_.clone();
         whereClause = (other.whereClause != null) ? other.whereClause.clone() : null;
@@ -176,6 +179,10 @@ public class SelectStmt extends QueryStmt {
     @Override
     public QueryStmt clone() {
         return new SelectStmt(this);
+    }
+
+    public UUID getId() {
+        return id;
     }
 
     /**
@@ -1430,5 +1437,21 @@ public class SelectStmt extends QueryStmt {
             }
         }
         return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return id.hashCode();
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (obj == null) {
+            return false;
+        }
+        if (!(obj instanceof SelectStmt)) {
+            return false;
+        }
+        return this.id.equals(((SelectStmt) obj).id);
     }
 }

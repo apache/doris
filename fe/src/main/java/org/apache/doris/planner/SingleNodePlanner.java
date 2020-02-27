@@ -69,6 +69,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Constructs a non-executable single-node plan from an analyzed parse tree.
@@ -81,6 +82,7 @@ public class SingleNodePlanner {
 
     private final PlannerContext ctx_;
     private final ArrayList<ScanNode> scanNodes = Lists.newArrayList();
+    private Map<UUID, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
 
     public SingleNodePlanner(PlannerContext ctx) {
         ctx_ = ctx;
@@ -408,7 +410,7 @@ public class SingleNodePlanner {
             }
 
             boolean valueColumnValidate = true;
-            List<Expr> allConjuncts = analyzer.getAllConjunt(selectStmt.getTableRefs().get(0).getId());
+            List<Expr> allConjuncts = analyzer.getAllConjuncts(selectStmt.getTableRefs().get(0).getId());
             List<SlotId> conjunctSlotIds = Lists.newArrayList();
             if (allConjuncts != null) {
                 for (Expr conjunct : allConjuncts) {
@@ -677,7 +679,7 @@ public class SingleNodePlanner {
         // create left-deep sequence of binary hash joins; assign node ids as we go along
         TableRef tblRef = selectStmt.getTableRefs().get(0);
         materializeTableResultForCrossJoinOrCountStar(tblRef, analyzer);
-        PlanNode root = createTableRefNode(analyzer, tblRef);
+        PlanNode root = createTableRefNode(analyzer, tblRef, selectStmt);
         // to change the inner contains analytic function
         // selectStmt.seondSubstituteInlineViewExprs(analyzer.getChangeResSmap());
 
@@ -698,7 +700,7 @@ public class SingleNodePlanner {
         for (int i = 1; i < selectStmt.getTableRefs().size(); ++i) {
             TableRef outerRef = selectStmt.getTableRefs().get(i - 1);
             TableRef innerRef = selectStmt.getTableRefs().get(i);
-            root = createJoinNode(analyzer, root, outerRef, innerRef);
+            root = createJoinNode(analyzer, root, outerRef, innerRef, selectStmt);
             // Have the build side of a join copy data to a compact representation
             // in the tuple buffer.
             root.getChildren().get(1).setCompactData(true);
@@ -747,6 +749,39 @@ public class SingleNodePlanner {
         root = new RepeatNode(ctx_.getNextNodeId(), root, groupingInfo, groupByClause);
         root.init(analyzer);
         return root;
+    }
+
+    public void selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer) throws UserException {
+        if (queryStmt instanceof SelectStmt) {
+            SelectStmt selectStmt = (SelectStmt) queryStmt;
+            for (TableRef tableRef : selectStmt.getTableRefs()) {
+                if (tableRef instanceof InlineViewRef) {
+                    selectMaterializedView(((InlineViewRef) tableRef).getViewStmt(), analyzer);
+                }
+            }
+            List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getId());
+            if (scanNodeList == null) {
+                return;
+            }
+            MaterializedViewSelector materializedViewSelector = new MaterializedViewSelector(selectStmt, analyzer);
+            for (ScanNode scanNode : scanNodeList) {
+                if (!(scanNode instanceof OlapScanNode)) {
+                    continue;
+                }
+                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector.selectBestMV
+                        (olapScanNode);
+                olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(), bestIndexInfo.isPreAggregation(),
+                        bestIndexInfo.getReasonOfDisable());
+            }
+
+        } else {
+            Preconditions.checkState(queryStmt instanceof SetOperationStmt);
+            SetOperationStmt unionStmt = (SetOperationStmt) queryStmt;
+            for (SetOperationStmt.SetOperand unionOperand : unionStmt.getOperands()) {
+                selectMaterializedView(unionOperand.getQueryStmt(), analyzer);
+            }
+        }
     }
 
     /**
@@ -1279,7 +1314,7 @@ public class SingleNodePlanner {
     /**
      * Create node for scanning all data files of a particular table.
      */
-    private PlanNode createScanNode(Analyzer analyzer, TableRef tblRef)
+    private PlanNode createScanNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException {
         ScanNode scanNode = null;
 
@@ -1328,6 +1363,12 @@ public class SingleNodePlanner {
         analyzer.materializeSlots(scanNode.getConjuncts());
 
         scanNodes.add(scanNode);
+        List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getId());
+        if (scanNodeList == null) {
+            scanNodeList = Lists.newArrayList();
+            selectStmtToScanNodes.put(selectStmt.getId(), scanNodeList);
+        }
+        scanNodeList.add(scanNode);
         return scanNode;
     }
 
@@ -1402,12 +1443,13 @@ public class SingleNodePlanner {
      * as well as regular conjuncts. Calls init() on the new join node.
      * Throws if the JoinNode.init() fails.
      */
-    private PlanNode createJoinNode(Analyzer analyzer, PlanNode outer, TableRef outerRef, TableRef innerRef)
+    private PlanNode createJoinNode(Analyzer analyzer, PlanNode outer, TableRef outerRef, TableRef innerRef,
+            SelectStmt selectStmt)
             throws UserException, AnalysisException {
         materializeTableResultForCrossJoinOrCountStar(innerRef, analyzer);
         // the rows coming from the build node only need to have space for the tuple
         // materialized by that node
-        PlanNode inner = createTableRefNode(analyzer, innerRef);
+        PlanNode inner = createTableRefNode(analyzer, innerRef, selectStmt);
 
         List<Expr> eqJoinConjuncts = Lists.newArrayList();
         Reference<String> errMsg = new Reference<String>();
@@ -1464,10 +1506,10 @@ public class SingleNodePlanner {
      * Throws if a PlanNode.init() failed or if planning of the given
      * table ref is not implemented.
      */
-    private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef)
+    private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException, AnalysisException {
         if (tblRef instanceof BaseTableRef) {
-            return createScanNode(analyzer, tblRef);
+            return createScanNode(analyzer, tblRef, selectStmt);
         }
         if (tblRef instanceof InlineViewRef) {
             return createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
