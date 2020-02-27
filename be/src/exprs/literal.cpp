@@ -196,13 +196,13 @@ Status Literal::prepare(RuntimeState* state, const RowDescriptor& row_desc,
     if (type().type == TYPE_ARRAY) {
         DCHECK_EQ(type().children.size(), 1) << "array children type not 1";
 
-        TypeDescriptor td = type().children.at(0);
-        RETURN_IF_ERROR(CollectionValue::init_collection(state->obj_pool(), get_num_children(), td.type,
+        auto td = type().children.at(0).type;
+        RETURN_IF_ERROR(CollectionValue::init_collection(state->obj_pool(), get_num_children(), td,
                                                              &_value.collection_val));
 
         for (int i = 0; i < get_num_children(); ++i) {
             Expr* children = get_child(i);
-            RETURN_IF_ERROR(_value.collection_val.set(i, children->type(),
+            RETURN_IF_ERROR(_value.collection_val.set(i, td,
                                                       children->get_const_val(context)));
         }
     }

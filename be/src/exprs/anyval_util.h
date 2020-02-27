@@ -302,6 +302,8 @@ public:
 
     static FunctionContext::TypeDesc column_type_to_type_desc(const TypeDescriptor& type);
 
+    static PrimitiveType function_type_to_primitive_type(const FunctionContext::Type& type);
+
     // Utility to put val into an AnyVal struct
     static void set_any_val(const void* slot, const TypeDescriptor& type, doris_udf::AnyVal* dst) {
         if (slot == NULL) {

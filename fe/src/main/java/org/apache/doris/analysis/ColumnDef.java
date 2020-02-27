@@ -166,6 +166,12 @@ public class ColumnDef {
             defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
         }
 
+        if (type.getPrimitiveType() == PrimitiveType.ARRAY) {
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Array type column default value just support null");
+            }
+        }
+
         // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
         // If defalut value is not set, we set it NULL
         if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
@@ -228,6 +234,8 @@ public class ColumnDef {
                 }
                 break;
             case BITMAP:
+                break;
+            case ARRAY:
                 break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);

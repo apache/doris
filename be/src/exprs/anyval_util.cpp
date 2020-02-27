@@ -97,6 +97,8 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
 
     case TYPE_DATETIME:
         return pool->add(new DateTimeVal);
+    case TYPE_ARRAY:
+        return pool->add(new CollectionVal);        
     default:
         DCHECK(false) << "Unsupported type: " << type.type;
         return NULL;
@@ -164,10 +166,64 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
     case TYPE_NULL:
         out.type = FunctionContext::TYPE_NULL;
         break;
+    case TYPE_ARRAY: {
+        out.type = FunctionContext::TYPE_ARRAY;
+        for (auto&& t : type.children) {
+            out.children.push_back(column_type_to_type_desc(t));
+        }
+    }
+        break;
     default:
         DCHECK(false) << "Unknown type: " << type;
     }
     return out;
+}
+
+PrimitiveType AnyValUtil::function_type_to_primitive_type(const FunctionContext::Type& type) {
+    switch (type) {
+        case FunctionContext::INVALID_TYPE:
+            return INVALID_TYPE;
+        case FunctionContext::TYPE_NULL:
+            return TYPE_NULL;
+        case FunctionContext::TYPE_BOOLEAN:
+            return TYPE_BOOLEAN;
+        case FunctionContext::TYPE_TINYINT:
+            return TYPE_TINYINT;
+        case FunctionContext::TYPE_SMALLINT:
+            return TYPE_SMALLINT;
+        case FunctionContext::TYPE_INT:
+            return TYPE_INT;
+        case FunctionContext::TYPE_BIGINT:
+            return TYPE_BIGINT;
+        case FunctionContext::TYPE_LARGEINT:
+            return TYPE_LARGEINT;
+        case FunctionContext::TYPE_FLOAT:
+            return TYPE_FLOAT;
+        case FunctionContext::TYPE_DOUBLE:
+            // maybe time!
+            return TYPE_DOUBLE;
+        case FunctionContext::TYPE_DECIMAL:
+            return TYPE_DECIMAL;
+        case FunctionContext::TYPE_DATE:
+            return TYPE_DATE;
+        case FunctionContext::TYPE_DATETIME:
+            return TYPE_DATETIME;
+        case FunctionContext::TYPE_CHAR:
+            return TYPE_CHAR;
+        case FunctionContext::TYPE_VARCHAR:
+            return TYPE_VARCHAR;
+        case FunctionContext::TYPE_HLL:
+            return TYPE_HLL;
+        case FunctionContext::TYPE_DECIMALV2:
+            return TYPE_DECIMALV2;
+        case FunctionContext::TYPE_OBJECT:
+            return TYPE_OBJECT;
+        case FunctionContext::TYPE_ARRAY:
+            return TYPE_ARRAY;
+
+        default:
+            return INVALID_TYPE;
+    }
 }
 
 }

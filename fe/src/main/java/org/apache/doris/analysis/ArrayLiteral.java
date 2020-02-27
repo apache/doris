@@ -33,9 +33,8 @@ import org.apache.doris.thrift.TExprNodeType;
 
 public class ArrayLiteral extends LiteralExpr {
 
-//    private List<LiteralExpr> values = new LinkedList<>();
-
     public ArrayLiteral() {
+        this.type = new ArrayType(Type.NULL);
         children = new ArrayList<>();
     }
 
@@ -71,7 +70,7 @@ public class ArrayLiteral extends LiteralExpr {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.toSqlImpl()));
 
-        return "array(" + StringUtils.join(list, ", ") + ")";
+        return "ARRAY(" + StringUtils.join(list, ", ") + ")";
     }
 
     @Override
@@ -79,7 +78,7 @@ public class ArrayLiteral extends LiteralExpr {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(((LiteralExpr) v).getStringValue()));
 
-        return "array[" + StringUtils.join(list, ", ") + "]";
+        return "ARRAY[" + StringUtils.join(list, ", ") + "]";
     }
 
     @Override

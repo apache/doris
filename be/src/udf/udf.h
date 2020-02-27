@@ -20,6 +20,7 @@
 
 #include <boost/cstdint.hpp>
 #include <string.h>
+#include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
 // contains the types that need to be used and the FunctionContext object. The context
@@ -75,7 +76,8 @@ public:
         TYPE_STRING,
         TYPE_FIXED_BUFFER,
         TYPE_DECIMALV2,
-        TYPE_OBJECT
+        TYPE_OBJECT,
+        TYPE_ARRAY,
     };
 
     struct TypeDesc {
@@ -87,6 +89,9 @@ public:
 
         /// Only valid if type == TYPE_FIXED_BUFFER || type == TYPE_VARCHAR
         int len;
+
+        // only vaild if type == TYPE_ARRAY
+        std::vector<TypeDesc> children;
     };
 
     struct UniqueId {
@@ -790,8 +795,8 @@ struct HllVal : public StringVal {
 struct CollectionVal : public AnyVal {
     // collection size
     int length;
-    // null bitmap
-    uint8_t* null_bitmap_data;
+    // null signs
+    bool* null_signs;
     // data(include null)
     // TYPE_INT: bool
     // TYPE_TINYINT: int8_t
@@ -801,11 +806,9 @@ struct CollectionVal : public AnyVal {
     // TYPE_CHAR/VARCHAR/OBJECT: StringValue 
     void* data;
 
-    CollectionVal() : length(0), null_bitmap_data(NULL), data(NULL) {};
-
-//    CollectionVal(CollectionVal& col) : length(col.length), null_bitmap_data(col.null_bitmap_data), data(col.data) {};
-
-    CollectionVal(int len, uint8_t* null_bitmap, void* data) : length(len), null_bitmap_data(null_bitmap),
+    CollectionVal() : length(0), null_signs(NULL), data(NULL) {};
+    
+    CollectionVal(int len, bool* null_signs, void* data) : length(len), null_signs(null_signs),
                                                                data(NULL) {};
     
     static CollectionVal null() {

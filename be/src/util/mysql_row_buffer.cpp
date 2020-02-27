@@ -26,10 +26,7 @@
 
 namespace doris {
 
-#define DYNAMIC_MODE(stmt)      \
-    if (_dynamic_mode == 0) {   \
-        stmt;                   \
-    }
+#define NOT_DYNAMIC_MODE  (_dynamic_mode == 0)           
                             
 // the first byte:
 // <= 250: length
@@ -135,15 +132,24 @@ int MysqlRowBuffer::push_tinyint(int8_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_TINYINT_WIDTH + 2, "%d", data);
+    int size_bytes = 0;
+    if (NOT_DYNAMIC_MODE) {
+        size_bytes = 1;
+    }
+    
+    int length = snprintf(_pos + size_bytes, MAX_TINYINT_WIDTH + 2, "%d", data);
 
     if (length < 0) {
         LOG(ERROR) << "snprintf failed. data = " << data;
         return length;
     }
 
-    DYNAMIC_MODE(int1store(_pos, length));
-    _pos += length + 1;
+    if (NOT_DYNAMIC_MODE) {
+        int1store(_pos, length);
+        _pos += size_bytes;
+    }
+    
+    _pos += length;
     return 0;
 }
 
@@ -156,15 +162,23 @@ int MysqlRowBuffer::push_smallint(int16_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_SMALLINT_WIDTH + 2, "%d", data);
+    int size_bytes = 0;
+    if (NOT_DYNAMIC_MODE) {
+        size_bytes = 1;
+    }
+    
+    int length = snprintf(_pos + size_bytes, MAX_SMALLINT_WIDTH + 2, "%d", data);
 
     if (length < 0) {
         LOG(ERROR) << "snprintf failed. data = " << data;
         return length;
     }
 
-    DYNAMIC_MODE(int1store(_pos, length));
-    _pos += length + 1;
+    if (NOT_DYNAMIC_MODE) {
+        int1store(_pos, length);
+        _pos += size_bytes;
+    }
+    _pos += length;
     return 0;
 }
 
@@ -177,15 +191,23 @@ int MysqlRowBuffer::push_int(int32_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_INT_WIDTH + 2, "%d", data);
+    int size_bytes = 0;
+    if (NOT_DYNAMIC_MODE) {
+        size_bytes = 1;
+    }
+
+    int length = snprintf(_pos + size_bytes, MAX_INT_WIDTH + 2, "%d", data);
 
     if (length < 0) {
         LOG(ERROR) << "snprintf failed. data = " << data;
         return length;
     }
 
-    DYNAMIC_MODE(int1store(_pos, length));
-    _pos += length + 1;
+    if (NOT_DYNAMIC_MODE) {
+        int1store(_pos, length);
+        _pos += size_bytes;
+    }
+    _pos += length;
     return 0;
 }
 
@@ -198,15 +220,23 @@ int MysqlRowBuffer::push_bigint(int64_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_BIGINT_WIDTH + 2, "%ld", data);
+    int size_bytes = 0;
+    if (NOT_DYNAMIC_MODE) {
+        size_bytes = 1;
+    }
+
+    int length = snprintf(_pos + size_bytes, MAX_BIGINT_WIDTH + 2, "%ld", data);
 
     if (length < 0) {
         LOG(ERROR) << "snprintf failed. data = " << data;
         return length;
     }
 
-    DYNAMIC_MODE(int1store(_pos, length));
-    _pos += length + 1;
+    if (NOT_DYNAMIC_MODE) {
+        int1store(_pos, length);
+        _pos += size_bytes;
+    }
+    _pos += length;
     return 0;
 }
 
@@ -219,15 +249,23 @@ int MysqlRowBuffer::push_unsigned_bigint(uint64_t data) {
         return ret;
     }
 
-    int length = snprintf(_pos + 1, MAX_BIGINT_WIDTH + 3, "%ld", data);
+    int size_bytes = 0;
+    if (NOT_DYNAMIC_MODE) {
+        size_bytes = 1;
+    }
+
+    int length = snprintf(_pos + size_bytes, MAX_BIGINT_WIDTH + 3, "%ld", data);
 
     if (length < 0) {
         LOG(ERROR) << "snprintf failed. data = " << data;
         return length;
     }
 
-    DYNAMIC_MODE(int1store(_pos, length));
-    _pos += length + 1;
+    if (NOT_DYNAMIC_MODE) {
+        int1store(_pos, length);
+        _pos += size_bytes;
+    }
+    _pos += length;
     return 0;
 }
 
@@ -240,15 +278,23 @@ int MysqlRowBuffer::push_float(float data) {
         return ret;
     }
 
-    int length = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, _pos + 1);
+    int size_bytes = 0;
+    if (NOT_DYNAMIC_MODE) {
+        size_bytes = 1;
+    }
+
+    int length = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, _pos + size_bytes);
 
     if (length < 0) {
         LOG(ERROR) << "gcvt float failed. data = " << data;
         return length;
     }
 
-    DYNAMIC_MODE(int1store(_pos, length));
-    _pos += length + 1;
+    if (NOT_DYNAMIC_MODE) {
+        int1store(_pos, length);
+        _pos += size_bytes;
+    }
+    _pos += length;
     return 0;
 }
 
@@ -261,15 +307,23 @@ int MysqlRowBuffer::push_double(double data) {
         return ret;
     }
 
-    int length = DoubleToBuffer(data, MAX_DOUBLE_STR_LENGTH + 2, _pos + 1);
+    int size_bytes = 0;
+    if (NOT_DYNAMIC_MODE) {
+        size_bytes = 1;
+    }
+
+    int length = DoubleToBuffer(data, MAX_DOUBLE_STR_LENGTH + 2, _pos + size_bytes);
 
     if (length < 0) {
         LOG(ERROR) << "gcvt double failed. data = " << data;
         return length;
     }
 
-    DYNAMIC_MODE(int1store(_pos, length));
-    _pos += length + 1;
+    if (NOT_DYNAMIC_MODE) {
+        int1store(_pos, length);
+        _pos += size_bytes;
+    }
+    _pos += length;
     return 0;
 }
 
@@ -287,13 +341,20 @@ int MysqlRowBuffer::push_string(const char* str, int length) {
         return ret;
     }
 
-    DYNAMIC_MODE(_pos =  pack_vlen(_pos, length));
+    if (NOT_DYNAMIC_MODE) {
+        _pos =  pack_vlen(_pos, length);
+    }
     memcpy(_pos, str, length);
     _pos += length;
     return 0;
 }
 
 int MysqlRowBuffer::push_null() {
+    if (!NOT_DYNAMIC_MODE) {
+        // dynamic mode not write 
+        return 0;
+    }
+        
     int ret = reserve(1);
 
     if (0 != ret) {
@@ -301,7 +362,7 @@ int MysqlRowBuffer::push_null() {
         return ret;
     }
 
-    DYNAMIC_MODE(int1store(_pos, 251));
+    int1store(_pos, 251);    
     _pos += 1;
     return 0;
 }

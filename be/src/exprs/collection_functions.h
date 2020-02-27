@@ -28,8 +28,6 @@ class CollectionFunctions {
 public:
     static void init();
 
-    static CollectionVal array(FunctionContext* context);
-    
     static CollectionVal array(FunctionContext* context, int num_children, const IntVal* values);
 
     static CollectionVal array(FunctionContext* context, int num_children, const StringVal* values);

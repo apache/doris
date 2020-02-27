@@ -221,6 +221,12 @@ public enum ExpressionFunctions {
             } else {
                 throw new IllegalArgumentException("Doris does't support type:" + argType);
             }
+
+            // if args all is NullLiteral
+            if (args.size() == args.stream().filter(e -> e instanceof NullLiteral).count()) {
+                exprs = new NullLiteral[args.size()];
+            }
+
             args.toArray(exprs);
             return exprs;
         }

@@ -33,35 +33,35 @@ class CollectionIterator;
 class CollectionValue {
 
 public:
-    CollectionValue() : length(0), null_bitmap_data(NULL), data(NULL) {};
+    CollectionValue() : _length(0), _null_signs(NULL), _data(NULL) {};
 
-    CollectionValue(int len, uint8_t* null_bitmap, void* data) : length(len), null_bitmap_data(null_bitmap),
-                                                                 data(data) {};
+    CollectionValue(int len, bool* null_signs, void* data) : _length(len), _null_signs(null_signs),
+                                                                 _data(data) {};
 
     void to_collection_val(CollectionVal* collectionVal) const;
     
-    int size() const { return length; }
+    int size() const { return _length; }
     
     void shallow_copy(const CollectionValue* other); 
     
     void deep_copy_bitmap(const CollectionValue* other);
 
-    CollectionIterator iterator(const TypeDescriptor* children_type) const;
+    CollectionIterator iterator(const PrimitiveType& children_type) const;
     
-    Status set(const int& i, const TypeDescriptor& type, const AnyVal* value);
+    Status set(const int& i, const PrimitiveType& type, const AnyVal* value);
     
     static Status init_collection(ObjectPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val);
 
-    static Status init_collection(MemPool* pool, const int& size, const TypeDescriptor& child_type, CollectionValue* val);
+    static Status init_collection(MemPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val);
 
     static Status init_collection(FunctionContext* context, const int& size, const PrimitiveType& child_type, CollectionValue* val);
     
     static CollectionValue from_collection_val(const CollectionVal& val);
 
-public:
-    int length;
-    // null bitmap
-    uint8_t* null_bitmap_data;
+private:
+    int _length;
+    // null signs
+    bool* _null_signs;
     // data(include null)
     // TYPE_INT: bool
     // TYPE_TINYINT: int8_t
@@ -69,18 +69,20 @@ public:
     // TYPE_INT: int32_t
     // TYPE_BIGINT: int64_t
     // TYPE_CHAR/VARCHAR/OBJECT: StringValue 
-    void* data;
+    void* _data;
     
     friend CollectionIterator;
 };
 
 
 class CollectionIterator {
+private:
+    CollectionIterator(const PrimitiveType& children_type, const CollectionValue* data);
+
 public:
-    CollectionIterator(const TypeDescriptor* children_type, const CollectionValue* data);
 
     bool seek(int n) {
-        if (n >= _data->length){
+        if (n >= _data->size()){
             return false;
         }
 
@@ -89,11 +91,11 @@ public:
     }
 
     bool has_next() {
-        return _offset < _data->length;
+        return _offset < _data->size();
     }
 
     bool next() {
-        if (_offset < _data->length) {
+        if (_offset < _data->size()) {
             _offset ++;
             return true;
         }
@@ -101,6 +103,8 @@ public:
         return false;
     }
 
+    bool is_null();
+    
     void* value();
 
     void value(AnyVal* dest);
@@ -108,8 +112,10 @@ public:
 private:
     size_t _offset;
     int _type_size;
-    const TypeDescriptor* _type;
+    const PrimitiveType _type;
     const CollectionValue* _data;
+    
+    friend CollectionValue;
 };
 
 }

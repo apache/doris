@@ -18,9 +18,9 @@
 package org.apache.doris.analysis;
 
 import static org.apache.doris.catalog.AggregateType.BITMAP_UNION;
-import static org.apache.doris.catalog.AggregateType.NONE;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
@@ -353,7 +353,12 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             if (columnDef.getType().isArrayType()) {
-                if (columnDef.getAggregateType() != NONE) {
+                ArrayType tp =  (ArrayType) columnDef.getType();
+                if (!PrimitiveType.INT.equals(tp.getItemType().getPrimitiveType()) &&
+                        !PrimitiveType.VARCHAR.equals(tp.getItemType().getPrimitiveType())) {
+                    throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
+                }
+                if (columnDef.getAggregateType() != null) {
                     throw new AnalysisException("Array column can't support aggregation");
                 }
             }

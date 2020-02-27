@@ -32,6 +32,8 @@ int sizeof_type(const PrimitiveType &type) {
         case TYPE_CHAR:
         case TYPE_VARCHAR:
             return sizeof(StringValue);
+        case TYPE_NULL:
+            return 0;
         default:
             DCHECK(false) << "Type not implemented: " << type;
             break;
@@ -40,24 +42,38 @@ int sizeof_type(const PrimitiveType &type) {
     return 0;
 }
 
+Status type_check(const PrimitiveType& type) {
+    switch (type) {
+        case TYPE_INT:
+        case TYPE_CHAR:
+        case TYPE_VARCHAR:
+        case TYPE_NULL:
+            break;
+        default:
+            return Status::InvalidArgument("Type not implemented: " + type);
+    }
+    
+    return Status::OK();
+}
+
 
 void CollectionValue::to_collection_val(CollectionVal* collectionVal) const {
-    collectionVal->length = length;
-    collectionVal->data = data;
-    collectionVal->null_bitmap_data = null_bitmap_data;
+    collectionVal->length = _length;
+    collectionVal->data = _data;
+    collectionVal->null_signs = _null_signs;
 }
 
 void CollectionValue::shallow_copy(const CollectionValue *value) {
-    length = value->length;
-    null_bitmap_data = value->null_bitmap_data;
-    data = value->data;
+    _length = value->_length;
+    _null_signs = value->_null_signs;
+    _data = value->_data;
 }
 
 void CollectionValue::deep_copy_bitmap(const CollectionValue *other) {
-    memcpy(null_bitmap_data, other->null_bitmap_data, BitmapSize(other->length));
+    memcpy(_null_signs, other->_null_signs, other->size());
 }
 
-CollectionIterator CollectionValue::iterator(const TypeDescriptor* children_type) const {
+CollectionIterator CollectionValue::iterator(const PrimitiveType& children_type) const {
     return CollectionIterator(children_type, this);
 }
 
@@ -67,30 +83,36 @@ Status CollectionValue::init_collection(ObjectPool* pool, const int& size,
     if (val == NULL) {
         return Status::InvalidArgument("collection value is null");
     }
+    
+    RETURN_IF_ERROR(type_check(child_type));
 
     if (size == 0) {
         return Status::OK();
     }
 
-    val->length = size;
-    val->null_bitmap_data = pool->add_array(new uint8_t[BitmapSize(size)]);
-    val->data = pool->add_array(new uint8_t[size * sizeof_type(child_type)]);
+    val->_length = size;
+    val->_null_signs = pool->add_array(new bool[size] {0});
+    val->_data = pool->add_array(new uint8_t[size * sizeof_type(child_type)]);
     return Status::OK();
 }
 
 Status
-CollectionValue::init_collection(MemPool* pool, const int& size, const TypeDescriptor& child_type, CollectionValue* val) {
+CollectionValue::init_collection(MemPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val) {
     if (val == NULL) {
         return Status::InvalidArgument("collection value is null");
     }
-    
+
+    RETURN_IF_ERROR(type_check(child_type));
+
     if (size == 0) {
         return Status::OK();
     }
 
-    val->length = size;
-    val->null_bitmap_data = pool->allocate(BitmapSize(size) * sizeof(uint8_t));
-    val->data = pool->allocate(sizeof_type(child_type.type) * size);
+    val->_length = size;
+    val->_null_signs = (bool*) pool->allocate(size * sizeof(bool));
+    memset(val->_null_signs, 0, size);
+    
+    val->_data = pool->allocate(sizeof_type(child_type) * size);
     return Status::OK();
 }
 
@@ -99,34 +121,40 @@ Status CollectionValue::init_collection(FunctionContext* context, const int& siz
     if (val == NULL) {
         return Status::InvalidArgument("collection value is null");
     }
-    
+
+    RETURN_IF_ERROR(type_check(child_type));
+
     if (size == 0) {
         return Status::OK();
     }
     
-    val->length = size;
-    val->null_bitmap_data = context->allocate(BitmapSize(size) * sizeof(uint8_t));
-    val->data = context->allocate(sizeof_type(child_type) * size);
+    val->_length = size;
+    val->_null_signs = (bool*) context->allocate(size * sizeof(bool));
+    memset(val->_null_signs, 0, size);
+
+    val->_data = context->allocate(sizeof_type(child_type) * size);
     return Status::OK();
 }
 
 
 CollectionValue CollectionValue::from_collection_val(const CollectionVal &val) {
-    return CollectionValue(val.length, val.null_bitmap_data, val.data);
+    return CollectionValue(val.length, val.null_signs, val.data);
 }
 
-Status CollectionValue::set(const int& i, const TypeDescriptor& type, const AnyVal* value) {
-    CollectionIterator iter(&type, this);
+Status CollectionValue::set(const int& i, const PrimitiveType& type, const AnyVal* value) {
+    RETURN_IF_ERROR(type_check(type));
+
+    CollectionIterator iter(type, this);
     if (!iter.seek(i)) {
-        return Status::InvalidArgument("over of array size");
+        return Status::InvalidArgument("over of collection size");
     }
 
     if (value->is_null) {
-        BitmapChange(null_bitmap_data, i, true);
+        *(_null_signs + i) = true;
         return Status::OK();
     }
 
-    switch (type.type) {
+    switch (type) {
         case TYPE_INT:
             *reinterpret_cast<int32_t*>(iter.value()) = reinterpret_cast<const IntVal*>(value)->val;
             break;
@@ -139,34 +167,38 @@ Status CollectionValue::set(const int& i, const TypeDescriptor& type, const AnyV
             break;
         }
         default:
-            DCHECK(false) << "Type not implemented: " << type.type;
-            break;
+            DCHECK(false) << "Type not implemented: " << type;
+            return Status::InvalidArgument("Type not implemented");       
     }
 
     return Status::OK();
 }
-
+~
 /**
  * ----------- Collection Iterator -------- 
  */
-CollectionIterator::CollectionIterator(const TypeDescriptor* children_type,
+CollectionIterator::CollectionIterator(const PrimitiveType& children_type,
                                              const CollectionValue* data) : _offset(0),
                                                                           _type(children_type),
                                                                           _data(data) {
-    _type_size = sizeof_type(children_type->type);
+    _type_size = sizeof_type(children_type);
 }
 
 
 void* CollectionIterator::value() {
-    if(BitmapTest(_data->null_bitmap_data, _offset)) {
+    if (is_null()) {
         return nullptr;
     }
-    return ((char *)_data->data) + _offset * _type_size;
+    return ((char *)_data->_data) + _offset * _type_size;
 }
 
+bool CollectionIterator::is_null() {
+    return *(_data->_null_signs + _offset);
+}
 
 void CollectionIterator::value(AnyVal* dest) {
-    AnyValUtil::set_any_val(value(), *_type, dest);
+    TypeDescriptor td(_type);
+    AnyValUtil::set_any_val(value(), td, dest);
 }
 
 }

@@ -169,10 +169,10 @@ int ResultWriter::add_row_value(int index, const TypeDescriptor& type, void* ite
         }
         
         case TYPE_ARRAY: {
-            auto children_type = type.children[0];
+            auto children_type = type.children[0].type;
             auto collection_value = (const CollectionValue*) (item);
 
-            CollectionIterator iter = collection_value->iterator(&children_type);
+            CollectionIterator iter = collection_value->iterator(children_type);
 
             _row_buffer->open_dynamic_mode();
             
@@ -215,126 +215,6 @@ Status ResultWriter::add_one_row(TupleRow* row) {
         void* item = _output_expr_ctxs[i]->get_value(row);
 
         buf_ret = add_row_value(i, _output_expr_ctxs[i]->root()->type(), item);
-   /*
-        if (NULL == item) {
-            buf_ret = _row_buffer->push_null();
-            continue;
-        }
-
-        switch (_output_expr_ctxs[i]->root()->type().type) {
-        case TYPE_BOOLEAN:
-        case TYPE_TINYINT:
-            buf_ret = _row_buffer->push_tinyint(*static_cast<int8_t*>(item));
-            break;
-
-        case TYPE_SMALLINT:
-            buf_ret = _row_buffer->push_smallint(*static_cast<int16_t*>(item));
-            break;
-
-        case TYPE_INT:
-            buf_ret = _row_buffer->push_int(*static_cast<int32_t*>(item));
-            break;
-
-        case TYPE_BIGINT:
-            buf_ret = _row_buffer->push_bigint(*static_cast<int64_t*>(item));
-            break;
-
-        case TYPE_LARGEINT: {
-            char buf[48];
-            int len = 48;
-            char* v = LargeIntValue::to_string(
-                reinterpret_cast<const PackedInt128*>(item)->value, buf, &len);
-            buf_ret = _row_buffer->push_string(v, len);
-            break;
-        }
-
-        case TYPE_FLOAT:
-            buf_ret = _row_buffer->push_float(*static_cast<float*>(item));
-            break;
-
-        case TYPE_DOUBLE:
-            buf_ret = _row_buffer->push_double(*static_cast<double*>(item));
-            break;
-
-        case TYPE_TIME: {
-            double time = *static_cast<double *>(item);
-            std::string time_str = time_str_from_double(time);
-            buf_ret = _row_buffer->push_string(time_str.c_str(), time_str.size());
-            break;
-        }
-
-        case TYPE_DATE:
-        case TYPE_DATETIME: {
-            char buf[64];
-            const DateTimeValue* time_val = (const DateTimeValue*)(item);
-            // TODO(zhaochun), this function has core risk
-            char* pos = time_val->to_string(buf);
-            buf_ret = _row_buffer->push_string(buf, pos - buf - 1);
-            break;
-        }
-
-        case TYPE_HLL:
-        case TYPE_OBJECT: {
-            buf_ret = _row_buffer->push_null();
-            break;
-        }
-
-        case TYPE_VARCHAR:
-        case TYPE_CHAR: {
-            const StringValue* string_val = (const StringValue*)(item);
-
-            if (string_val->ptr == NULL) {
-                if (string_val->len == 0) {
-                    // 0x01 is a magic num, not usefull actually, just for present ""
-                    char* tmp_val = reinterpret_cast<char*>(0x01);
-                    buf_ret = _row_buffer->push_string(tmp_val, string_val->len);
-                } else {
-                    buf_ret = _row_buffer->push_null();
-                }
-            } else {
-                buf_ret = _row_buffer->push_string(string_val->ptr, string_val->len);
-            }
-
-            break;
-        }
-
-        case TYPE_DECIMAL: {
-            const DecimalValue* decimal_val = reinterpret_cast<const DecimalValue*>(item);
-            std::string decimal_str;
-            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-
-            if (output_scale > 0 && output_scale <= 30) {
-                decimal_str = decimal_val->to_string(output_scale);
-            } else {
-                decimal_str = decimal_val->to_string();
-            }
-
-            buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
-            break;
-        }
-
-        case TYPE_DECIMALV2: {
-            DecimalV2Value decimal_val(reinterpret_cast<const PackedInt128*>(item)->value);
-            std::string decimal_str;
-            int output_scale = _output_expr_ctxs[i]->root()->output_scale();
-
-            if (output_scale > 0 && output_scale <= 30) {
-                decimal_str = decimal_val.to_string(output_scale);
-            } else {
-                decimal_str = decimal_val.to_string();
-            }
-
-            buf_ret = _row_buffer->push_string(decimal_str.c_str(), decimal_str.length());
-            break;
-        }
-
-        default:
-            LOG(WARNING) << "can't convert this type to mysql type. type = " <<
-                         _output_expr_ctxs[i]->root()->type();
-            buf_ret = -1;
-            break;
-        }
-        */
     }
 
     if (0 != buf_ret) {

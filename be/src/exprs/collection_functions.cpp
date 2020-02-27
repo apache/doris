@@ -18,39 +18,26 @@
 #include "exprs/collection_functions.h"
 #include "runtime/collection_value.h"
 
+#include "common/logging.h"
+
 namespace doris {
 
 void CollectionFunctions::init() { }
 
-CollectionVal CollectionFunctions::array(FunctionContext *context) {
-    return CollectionVal(0, nullptr, nullptr);
+#define ARRAY_FUNCTION(TYPE, PRIMARY_TYPE)    \
+CollectionVal CollectionFunctions::array(FunctionContext *context, int num_children, const TYPE *values) {  \
+    DCHECK_EQ(context->get_return_type().children.size(), 1);                                                 \       
+    CollectionValue v;                                                                                        \
+    CollectionValue::init_collection(context, num_children, PRIMARY_TYPE, &v);                                  \
+    for (int i = 0; i < num_children; ++i) {                                                                  \
+        v.set(i, PRIMARY_TYPE, values + i);                                                                     \
+    }                                                                                                         \
+    CollectionVal ret;                                                                                        \
+    v.to_collection_val(&ret);                                                                                \
+    return ret;                                                                                               \
 }
 
-CollectionVal CollectionFunctions::array(FunctionContext *context, int num_children, const IntVal *values) {
-    CollectionValue v;
-    TypeDescriptor td(TYPE_INT);
-    v.init_collection(context, num_children, TYPE_INT, &v);
-    for (int i = 0; i < num_children; ++i) {
-        v.set(i, td, values + i);
-    }
-    
-    CollectionVal ret;
-    v.to_collection_val(&ret);
-    return ret;
-}
-
-
-CollectionVal CollectionFunctions::array(FunctionContext* context, int num_children, const StringVal *values) {
-    CollectionValue v;
-    TypeDescriptor td(TYPE_VARCHAR);
-    v.init_collection(context, num_children, TYPE_VARCHAR, &v);
-    for (int i = 0; i < num_children; ++i) {
-        v.set(i, td, values + i);
-    }
-    
-    CollectionVal ret;
-    v.to_collection_val(&ret);
-    return ret;
-}
+ARRAY_FUNCTION(IntVal, TYPE_INT);
+ARRAY_FUNCTION(StringVal, TYPE_VARCHAR);
 
 }

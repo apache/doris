@@ -720,6 +720,8 @@ visible_functions = [
     [['grouping'], 'BIGINT', ['BIGINT'], '_ZN5doris21GroupingSetsFunctions8groupingEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
 
     # array functions
+    [['array'], 'ARRAY', [],
+     '_ZN5doris19CollectionFunctions5arrayEPN9doris_udf15FunctionContextE'],
     [['array'], 'ARRAY', ['INT', '...'],
             '_ZN5doris19CollectionFunctions5arrayEPN9doris_udf15FunctionContextEiPKNS1_6IntValE'],
     [['array'], 'ARRAY', ['VARCHAR', '...'],

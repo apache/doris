@@ -3726,6 +3726,10 @@ array_expr ::=
   {:
     RESULT = new FunctionCallExpr("array", params);
   :}
+  | KW_ARRAY LPAREN RPAREN
+  {:
+    RESULT = new ArrayLiteral();
+  :}
   ;
 
 exists_predicate ::=
