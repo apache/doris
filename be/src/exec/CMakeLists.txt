@@ -71,6 +71,8 @@ set(EXEC_FILES
     spill_sort_node.cc
     union_node.cpp
     union_node_ir.cpp
+    intersect_node.cpp
+    except_node.cpp
     repeat_node.cpp
     schema_scanner.cpp
     schema_scan_node.cpp
