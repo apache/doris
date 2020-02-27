@@ -1063,23 +1063,16 @@ public class Analyzer {
         return uniqueTableAliasSet_;
     }
 
-    public List<Expr> getAllConjunt(TupleId id) {
+    public List<Expr> getAllConjuncts(TupleId id) {
         List<ExprId> conjunctIds = tuplePredicates.get(id);
         if (conjunctIds == null) {
             return null;
         }
         List<Expr> result = Lists.newArrayList();
-        List<ExprId> ojClauseConjuncts = null;
         for (ExprId conjunctId : conjunctIds) {
             Expr e = globalState.conjuncts.get(conjunctId);
             Preconditions.checkState(e != null);
-            if (ojClauseConjuncts != null) {
-                if (ojClauseConjuncts.contains(conjunctId)) {
-                    result.add(e);
-                }
-            } else {
-                result.add(e);
-            }
+            result.add(e);
         }
         return result;
     }

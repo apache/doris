@@ -158,6 +158,8 @@ public class Planner {
         // TupleDescriptor.avgSerializedSize
         analyzer.getDescTbl().computeMemLayout();
         singleNodePlan.finalize(analyzer);
+        // materialized view selector
+        singleNodePlanner.selectMaterializedView(queryStmt, analyzer);
         if (queryOptions.num_nodes == 1) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);

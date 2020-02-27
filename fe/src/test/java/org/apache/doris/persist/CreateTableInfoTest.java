@@ -24,6 +24,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.catalog.ScalarType;
@@ -44,6 +45,10 @@ import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.thrift.TStorageType;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 public class CreateTableInfoTest {
     private Catalog catalog;
@@ -89,6 +94,13 @@ public class CreateTableInfoTest {
         Partition partition = new Partition(20000L, "table", index, distributionInfo);
         OlapTable table = new OlapTable(1000L, "table", columns, KeysType.AGG_KEYS, 
                                         new SinglePartitionInfo(), distributionInfo);
+        List<Column> column = Lists.newArrayList();
+        short schemaHash = 1;
+        table.setIndexSchemaInfo(new Long(1), "test", column, 1, 1, schemaHash);
+        Deencapsulation.setField(table, "baseIndexId", 1);
+        Map<Long, TStorageType> indexIdToStorageType = Maps.newHashMap();
+        indexIdToStorageType.put(new Long(1), TStorageType.COLUMN);
+        Deencapsulation.setField(table, "indexIdToStorageType", indexIdToStorageType);
         table.addPartition(partition);
         CreateTableInfo info = new CreateTableInfo("db1", table);
         info.write(dos);
