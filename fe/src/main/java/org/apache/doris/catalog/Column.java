@@ -72,7 +72,7 @@ public class Column implements Writable {
     private String comment;
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
-    @SerializedName(value = "name")
+    @SerializedName(value = "children")
     private List<Column> children;
 
     public Column() {
@@ -486,10 +486,12 @@ public class Column implements Writable {
 
         Text.writeString(out, comment);
 
-        out.writeInt(children.size());
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
+            out.writeInt(children.size());
 
-        for (Column child : children) {
-            child.write(out);
+            for (Column child : children) {
+                child.write(out);
+            }
         }
     }
 
@@ -531,7 +533,7 @@ public class Column implements Writable {
             comment = "";
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
             int childrenSize = in.readInt();
 
             for (int i = 0; i < childrenSize; i++) {

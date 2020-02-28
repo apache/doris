@@ -173,7 +173,6 @@ Status CollectionValue::set(const int& i, const PrimitiveType& type, const AnyVa
 
     return Status::OK();
 }
-~
 /**
  * ----------- Collection Iterator -------- 
  */

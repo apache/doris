@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.junit.Assert;
@@ -44,6 +45,7 @@ public class ColumnTest {
 
         FakeCatalog.setCatalog(catalog);
         FakeCatalog.setMetaVersion(FeConstants.meta_version);
+        FakeCatalog.setMetaVersion(FeMetaVersion.VERSION_74);
     }
 
     @Test

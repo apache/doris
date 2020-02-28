@@ -71,7 +71,7 @@ public class TypeDef implements ParseNode {
     }
 
     if (type.isArrayType()) {
-      if (FeMetaVersion.VERSION_CURRENT < FeMetaVersion.VERSION_72) {
+      if (FeMetaVersion.VERSION_CURRENT < FeMetaVersion.VERSION_74) {
         throw new AnalysisException("Unsupported data type: " + type.toSql());
       }
 

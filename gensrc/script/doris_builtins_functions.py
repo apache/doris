@@ -741,7 +741,8 @@ non_null_result_with_null_param_functions = [
     'concat_ws',
     'ifnull',
     'null_or_empty',
-    'coalesce'
+    'coalesce',
+    'array'
 ]
 
 invisible_functions = [

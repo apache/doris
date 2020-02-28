@@ -110,5 +110,11 @@ public class ArrayType extends ScalarType {
         structStr = structStr.substring(lpad);
         return String.format("%sARRAY<%s>", leftPadding, structStr);
     }
+
+
+    @Override
+    public String toString() {
+        return toSql(0);
+    }
 }
 
