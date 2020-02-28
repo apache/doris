@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -48,6 +49,7 @@ public class MaterializedViewFunctionTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
+        FeConstants.default_scheduler_interval_millisecond = 10;
         UtFrameUtils.createMinDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withEnableMV().withDatabase(HR_DB_NAME).useDatabase(HR_DB_NAME);
