@@ -110,10 +110,6 @@ public:
     // this is a producer function. After scan, it will notify the perform_path_gc function to gc
     void perform_path_scan();
 
-    // this function is a consumer function
-    // this function will collect garbage paths scaned by last function
-    void perform_path_gc();
-
     void perform_path_gc_by_rowsetid();
 
     OLAPStatus remove_old_meta_and_files();
