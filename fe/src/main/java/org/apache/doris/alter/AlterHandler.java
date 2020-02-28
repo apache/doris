@@ -66,8 +66,7 @@ public abstract class AlterHandler extends MasterDaemon {
     protected ConcurrentMap<Long, AlterJobV2> alterJobsV2 = Maps.newConcurrentMap();
     
     /*
-     * lock to perform atomic ope
-     * rations.
+     * lock to perform atomic operations.
      * eg.
      *  When job is finished, it will be moved from alterJobs to finishedOrCancelledAlterJobs,
      *  and this requires atomic operations. So the lock must be held to do this operations.
