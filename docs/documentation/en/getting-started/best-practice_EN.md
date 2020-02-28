@@ -89,11 +89,11 @@ In order to adapt to the front-end business, business side often does not distin
 
 In the process of using Star Schema, users are advised to use Star Schema to distinguish dimension tables from indicator tables as much as possible. Frequently updated dimension tables can also be placed in MySQL external tables. If there are only a few updates, they can be placed directly in Doris. When storing dimension tables in Doris, more copies of dimension tables can be set up to improve Join's performance.
 
-### 1.3 Partitions and Barrels
+### 1.3 Partitioning and Bucketing 
 
 Doris supports two-level partitioned storage. The first layer is RANGE partition and the second layer is HASH bucket.
 
-1.3.1. RANGE分区(partition)
+1.3.1. RANGE Partitioning
 
 The RANGE partition is used to divide data into different intervals, which can be logically understood as dividing the original table into multiple sub-tables. In business, most users will choose to partition on time, which has the following advantages:
 
@@ -101,7 +101,7 @@ The RANGE partition is used to divide data into different intervals, which can b
 * Availability of Doris Hierarchical Storage (SSD + SATA)
 * Delete data by partition more quickly
 
-1.3.2. HASH分桶(bucket)
+1.3.2. Hash Bucketing
 
 The data is divided into different buckets according to the hash value.
 
@@ -124,7 +124,7 @@ Rollup can essentially be understood as a physical index of the original table. 
 
 Rollup can be considered in the following cases:
 
-1.5.1. Base Table 中数据聚合度不高。
+1.5.1. Low ratio of data aggregation in the Base Table
 
 This is usually due to the fact that Base Table has more differentiated fields. At this point, you can consider selecting some columns and establishing Rollup.
 
@@ -158,7 +158,7 @@ ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLIC
 
 ## 2 Schema Change
 
-Doris中目前进行 Schema Change 的方式有三种：Sorted Schema Change，Direct Schema Change, Linked Schema Change。
+There are three Schema Change in doris：Sorted Schema Change，Direct Schema Change, Linked Schema Change。
 
 2.1. Sorted Schema Change
 
@@ -175,7 +175,7 @@ ALTER TABLE site_visit DROP COLUMN city;
 ALTER TABLE site_visit MODIFY COLUMN username varchar(64);
 ```
 
-2.3. Linked Schema Change: 无需转换数据，直接完成。例如加列操作。
+2.3. Linked Schema Change: No need to transform data, for example add columns.
 
 ```
 ALTER TABLE site_visit ADD COLUMN click bigint SUM default '0';
