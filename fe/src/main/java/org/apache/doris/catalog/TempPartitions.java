@@ -124,6 +124,8 @@ public class TempPartitions implements Writable {
         if (partitionInfo != null) {
             out.writeBoolean(true);
             partitionInfo.write(out);
+        } else {
+            out.writeBoolean(false);
         }
     }
 

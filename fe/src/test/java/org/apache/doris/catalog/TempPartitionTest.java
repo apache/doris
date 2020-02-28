@@ -59,7 +59,8 @@ import java.util.UUID;
 
 public class TempPartitionTest {
 
-    private static String fileName = "./TempPartitionTest";
+    private static String tempPartitionFile = "./TempPartitionTest";
+    private static String tblFile = "./tblFile";
     private static String runningDir = "fe/mocked/TempPartitionTest/" + UUID.randomUUID().toString() + "/";
 
     private static ConnectContext ctx;
@@ -73,9 +74,11 @@ public class TempPartitionTest {
     @AfterClass
     public static void tearDown() {
         File file = new File(runningDir);
-        // file.delete();
-        File file2 = new File(fileName);
         file.delete();
+        File file2 = new File(tempPartitionFile);
+        file2.delete();
+        File file3 = new File(tblFile);
+        file3.delete();
     }
 
     @Before
@@ -218,6 +221,8 @@ public class TempPartitionTest {
         Database db2 = Catalog.getCurrentCatalog().getDb("default_cluster:db2");
         OlapTable tbl2 = (OlapTable) db2.getTable("tbl2");
 
+        testSerializeOlapTable(tbl2);
+
         Map<String, Long> originPartitionTabletIds = Maps.newHashMap();
         getPartitionNameToTabletIdMap("db2.tbl2", false, originPartitionTabletIds);
         Assert.assertEquals(3, originPartitionTabletIds.keySet().size());
@@ -255,6 +260,8 @@ public class TempPartitionTest {
 
         System.out.println("partition tablets: " + originPartitionTabletIds);
         System.out.println("temp partition tablets: " + tempPartitionTabletIds);
+
+        testSerializeOlapTable(tbl2);
 
         // drop non exist temp partition
         stmtStr = "alter table db2.tbl2 drop temporary partition tp4;";
@@ -477,29 +484,6 @@ public class TempPartitionTest {
         Assert.assertEquals(3, p2.getDistributionInfo().getBucketNum());
     }
 
-    private void testSerializeTempPartitions(TempPartitions tempPartitionsInstance) throws IOException, AnalysisException {
-        MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_74);
-        metaContext.setThreadLocalInfo();
-
-        // 1. Write objects to file
-        File file = new File(fileName);
-        file.createNewFile();
-        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
-    
-        tempPartitionsInstance.write(out);
-        out.flush();
-        out.close();
-    
-        // 2. Read objects from file
-        DataInputStream in = new DataInputStream(new FileInputStream(file));
-    
-        TempPartitions readTempPartition = TempPartitions.read(in);
-        List<Partition> partitions = readTempPartition.getAllPartitions();
-        Assert.assertEquals(1, partitions.size());
-        Assert.assertEquals(2, partitions.get(0).getMaterializedIndices(IndexExtState.VISIBLE).size());
-    }
-
     @Test
     public void testForStrictRangeCheck() throws Exception {
         // create database db3
@@ -570,5 +554,51 @@ public class TempPartitionTest {
         // now base range is [min, 10), [50, 60) -> p1,tp5
         checkShowPartitionsResultNum("db3.tbl3", false, 2);
         checkShowPartitionsResultNum("db3.tbl3", true, 0);
+    }
+    
+    private void testSerializeOlapTable(OlapTable tbl) throws IOException, AnalysisException {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_74);
+        metaContext.setThreadLocalInfo();
+
+        // 1. Write objects to file
+        File file = new File(tempPartitionFile);
+        file.createNewFile();
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+
+        tbl.write(out);
+        out.flush();
+        out.close();
+
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(new FileInputStream(file));
+
+        OlapTable readTbl = (OlapTable) Table.read(in);
+        Assert.assertEquals(tbl.getId(), readTbl.getId());
+        Assert.assertEquals(tbl.getAllTempPartitions().size(), readTbl.getAllTempPartitions().size());
+        file.delete();
+    }
+
+    private void testSerializeTempPartitions(TempPartitions tempPartitionsInstance) throws IOException, AnalysisException {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_74);
+        metaContext.setThreadLocalInfo();
+
+        // 1. Write objects to file
+        File file = new File(tempPartitionFile);
+        file.createNewFile();
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+    
+        tempPartitionsInstance.write(out);
+        out.flush();
+        out.close();
+    
+        // 2. Read objects from file
+        DataInputStream in = new DataInputStream(new FileInputStream(file));
+    
+        TempPartitions readTempPartition = TempPartitions.read(in);
+        List<Partition> partitions = readTempPartition.getAllPartitions();
+        Assert.assertEquals(1, partitions.size());
+        Assert.assertEquals(2, partitions.get(0).getMaterializedIndices(IndexExtState.VISIBLE).size());
     }
 }

@@ -84,7 +84,7 @@ public abstract class AlterHandler extends MasterDaemon {
     }
     
     public AlterHandler(String name) {
-        super(name, 10);
+        super(name, 10000);
     }
 
     protected void addAlterJobV2(AlterJobV2 alterJob) {
