@@ -445,7 +445,6 @@ public class MaterializedViewSelector {
                                         table.getName());
                 } else if ((aggChild0 instanceof CastExpr) && (aggChild0.getChild(0) instanceof SlotRef)) {
                     SlotRef slotRef = (SlotRef) aggChild0.getChild(0);
-                    Preconditions.checkState(slotRef.getColumnName() != null);
                     Table table = slotRef.getDesc().getParent().getTable();
                     /*
                      * Same as above
@@ -453,6 +452,7 @@ public class MaterializedViewSelector {
                     if (table == null) {
                         continue;
                     }
+                    Preconditions.checkState(slotRef.getColumnName() != null);
                     addAggregatedColumn(slotRef.getColumnName(), aggExpr.getFnName().getFunction(),
                                         table.getName());
                 } else {

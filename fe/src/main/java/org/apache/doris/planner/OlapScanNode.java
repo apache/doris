@@ -85,6 +85,17 @@ public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
 
     private List<TScanRangeLocations> result = new ArrayList<>();
+    /*
+     * When the field value is ON, the storage engine can return the data directly without pre-aggregation.
+     * When the field value is OFF, the storage engine needs to aggregate the data before returning to scan node.
+     * For example:
+     * Aggregate table: k1, k2, v1 sum
+     * Query1: select k1 , k2 from table
+     * This query can scan data directly so the filed value is OFF.
+     * Query2: select k1, min(v1) from table group by k1
+     * This aggregation function in query is min which different from the schema.
+     * So the data stored in storage engine need to be merged firstly before returning to scan node.
+     */
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
     private boolean canTurnOnPreAggr = true;
