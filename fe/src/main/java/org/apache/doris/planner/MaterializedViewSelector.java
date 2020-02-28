@@ -432,7 +432,6 @@ public class MaterializedViewSelector {
                 Expr aggChild0 = aggExpr.getChild(0);
                 if (aggChild0 instanceof SlotRef) {
                     SlotRef slotRef = (SlotRef) aggChild0;
-                    Preconditions.checkState(slotRef.getColumnName() != null);
                     Table table = slotRef.getDesc().getParent().getTable();
                     /* If this column come from subquery, the parent table will be null
                      * For example: select k1 from (select name as k1 from tableA) A
@@ -441,6 +440,7 @@ public class MaterializedViewSelector {
                     if (table == null) {
                         continue;
                     }
+                    Preconditions.checkState(slotRef.getColumnName() != null);
                     addAggregatedColumn(slotRef.getColumnName(), aggExpr.getFnName().getFunction(),
                                         table.getName());
                 } else if ((aggChild0 instanceof CastExpr) && (aggChild0.getChild(0) instanceof SlotRef)) {
