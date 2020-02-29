@@ -148,7 +148,8 @@ cd ${DORIS_HOME}/gensrc
 if [ ${CLEAN} -eq 1 ]; then
    make clean
 fi
-make -j${PARALLEL}
+# DO NOT using parallel make(-j) for gensrc
+make
 cd ${DORIS_HOME}
 
 # Clean and build Backend
