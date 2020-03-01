@@ -36,7 +36,7 @@ public:
         if (metric != metrics.end()) {
             metric->second.set_value(val);
         }
-    }   
+    }
 
     IntGauge* set_key(const std::string& key) {
         metrics.emplace(key, IntGauge());
@@ -141,7 +141,7 @@ public:
 
     // the max compaction score of all tablets.
     // Record base and cumulative scores separately, because
-    // we need to get the larger of the two. 
+    // we need to get the larger of the two.
     static IntGauge tablet_cumulative_max_compaction_score;
     static IntGauge tablet_base_max_compaction_score;
 
@@ -152,6 +152,19 @@ public:
     static IntGauge max_disk_io_util_percent;
     static IntGauge max_network_send_bytes_rate;
     static IntGauge max_network_receive_bytes_rate;
+
+    // Metrics related with BlockManager
+    static IntCounter readable_blocks_total;
+    static IntCounter writable_blocks_total;
+    static IntCounter blocks_created_total;
+    static IntCounter blocks_deleted_total;
+    static IntCounter bytes_read_total;
+    static IntCounter bytes_written_total;
+    static IntCounter disk_sync_total;
+    static IntGauge blocks_open_reading;
+    static IntGauge blocks_open_writing;
+
+    static IntCounter blocks_push_remote_duration_us;
 
     ~DorisMetrics();
     // call before calling metrics
