@@ -1026,7 +1026,7 @@ public class MaterializedViewHandler extends AlterHandler {
             throws DdlException, AnalysisException {
 
         if (olapTable.existTempPartitions()) {
-            throw new DdlException("Can not alter table when there is temp partitions in table");
+            throw new DdlException("Can not alter table when there are temp partitions in table");
         }
 
         Optional<AlterClause> alterClauseOptional = alterClauses.stream().findAny();

@@ -95,11 +95,7 @@ public class TempPartitions implements Writable {
     }
 
     public boolean hasPartition(String partName) {
-        if (partName == null) {
-            return !idToPartition.isEmpty();
-        } else {
-            return nameToPartition.containsKey(partName);
-        }
+        return nameToPartition.containsKey(partName);
     }
 
     public boolean isEmpty() {

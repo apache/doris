@@ -1332,7 +1332,7 @@ public class SchemaChangeHandler extends AlterHandler {
             throws UserException {
 
         if (olapTable.existTempPartitions()) {
-            throw new DdlException("Can not alter table when there is temp partitions in table");
+            throw new DdlException("Can not alter table when there are temp partitions in table");
         }
 
         // index id -> index schema

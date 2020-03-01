@@ -1275,7 +1275,7 @@ public class OlapTable extends Table {
     }
 
     // if includeTempPartition is true, check if temp partition with given name exist,
-    // if includeTempPartition is false, check if temp partition with given name exist.
+    // if includeTempPartition is false, check if normal partition with given name exist.
     // return true if exist, otherwise, return false;
     public boolean checkPartitionNameExist(String partitionName, boolean isTempPartition) {
         if (isTempPartition) {

@@ -82,8 +82,8 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
-    private static final String PROPERTIES_STRICT_RANGE = "strict_range";
-    private static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
+    public static final String PROPERTIES_STRICT_RANGE = "strict_range";
+    public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -402,29 +402,12 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static boolean analyzeInMemory(Map<String, String> properties, boolean defaultInMemory) {
-        if (properties != null && properties.containsKey(PROPERTIES_INMEMORY)) {
-            String inMemory = properties.get(PROPERTIES_INMEMORY);
-            properties.remove(PROPERTIES_INMEMORY);
-            return Boolean.parseBoolean(inMemory);
-        }
-        return defaultInMemory;
-    }
-
-    public static boolean analyzeStrictRange(Map<String, String> properties, boolean defaultVal) {
-        if (properties != null && properties.containsKey(PROPERTIES_STRICT_RANGE)) {
-            String inMemory = properties.get(PROPERTIES_STRICT_RANGE);
-            properties.remove(PROPERTIES_STRICT_RANGE);
-            return Boolean.parseBoolean(inMemory);
-        }
-        return defaultVal;
-    }
-
-    public static boolean analyzeUseTempPartitionName(Map<String, String> properties, boolean defaultVal) {
-        if (properties != null && properties.containsKey(PROPERTIES_USE_TEMP_PARTITION_NAME)) {
-            String inMemory = properties.get(PROPERTIES_USE_TEMP_PARTITION_NAME);
-            properties.remove(PROPERTIES_USE_TEMP_PARTITION_NAME);
-            return Boolean.parseBoolean(inMemory);
+    // analyze common boolean properties, such as "in_memory" = "false"
+    public static boolean analyzeBooleanProp(Map<String, String> properties, String propKey, boolean defaultVal) {
+        if (properties != null && properties.containsKey(propKey)) {
+            String val = properties.get(propKey);
+            properties.remove(propKey);
+            return Boolean.parseBoolean(val);
         }
         return defaultVal;
     }

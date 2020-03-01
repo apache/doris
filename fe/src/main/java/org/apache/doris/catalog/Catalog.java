@@ -3061,7 +3061,7 @@ public class Catalog {
                 }
 
                 // check partition name
-                if (olapTable.checkPartitionNameExist(partitionName, true)) {
+                if (olapTable.checkPartitionNameExist(partitionName)) {
                     if (singlePartitionDesc.isSetIfNotExists()) {
                         LOG.info("add partition[{}] which already exists", partitionName);
                         return;
@@ -3294,7 +3294,8 @@ public class Catalog {
         }
 
         // 3. in memory
-        boolean isInMemory = PropertyAnalyzer.analyzeInMemory(properties, partitionInfo.getIsInMemory(partition.getId()));
+        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
 
         // check if has other undefined properties
         if (properties != null && !properties.isEmpty()) {
@@ -3579,7 +3580,7 @@ public class Catalog {
         }
 
         // set in memory
-        boolean isInMemory = PropertyAnalyzer.analyzeInMemory(properties, false);
+        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         olapTable.setIsInMemory(isInMemory);
 
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {

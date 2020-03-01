@@ -85,8 +85,9 @@ public class ReplacePartitionClause extends AlterTableClause {
             throw new AnalysisException("No temp partition specified");
         }
 
-        this.isStrictRange = PropertyAnalyzer.analyzeStrictRange(properties, true);
-        this.useTempPartitionName = PropertyAnalyzer.analyzeUseTempPartitionName(properties, false);
+        this.isStrictRange = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
+        this.useTempPartitionName = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, false);
 
         if (properties != null && !properties.isEmpty()) {
             throw new AnalysisException("Unknown properties: " + properties.keySet());
