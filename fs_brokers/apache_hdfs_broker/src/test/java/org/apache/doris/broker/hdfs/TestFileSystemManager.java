@@ -200,4 +200,15 @@ public class TestFileSystemManager extends TestCase {
         isPathExist = fileSystemManager.checkPathExist(tempFile2, properties);
         assertFalse(isPathExist);
     }
+
+    @Test
+    public void testGetFileSystemForS3aScheme() throws IOException {
+        Map<String, String> properties = new HashMap<String, String>();
+        properties.put("fs.s3a.access.key", "accessKey");
+        properties.put("fs.s3a.secret.key", "secretKey");
+        properties.put("fs.s3a.endpoint", "s3.test.com");
+        BrokerFileSystem fs = fileSystemManager.getFileSystem("s3a://testbucket/data/abc/logs", properties);
+        assertNotNull(fs);
+        fs.getDFSFileSystem().close();
+    }
 }
