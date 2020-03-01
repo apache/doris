@@ -171,6 +171,11 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     public void processCreateMaterializedView(CreateMaterializedViewStmt addMVClause, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
+
+        if (olapTable.existTempPartitions()) {
+            throw new DdlException("Can not alter table when there are temp partitions in table");
+        }
+
         // Step1.1: semantic analysis
         // TODO(ML): support the materialized view as base index
         if (!addMVClause.getBaseIndexName().equals(olapTable.getName())) {
@@ -1019,6 +1024,11 @@ public class MaterializedViewHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
+
+        if (olapTable.existTempPartitions()) {
+            throw new DdlException("Can not alter table when there are temp partitions in table");
+        }
+
         Optional<AlterClause> alterClauseOptional = alterClauses.stream().findAny();
         if (alterClauseOptional.isPresent()) {
             if (alterClauseOptional.get() instanceof AddRollupClause) {

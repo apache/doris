@@ -23,6 +23,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -76,9 +77,19 @@ public class UtFrameUtils {
         System.out.println("begin to parse stmt: " + originStmt);
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
-
-        StatementBase statementBase = (StatementBase) parser.parse().value;
         Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
+        StatementBase statementBase = null;
+        try {
+            statementBase = (StatementBase) parser.parse().value;
+        } catch (AnalysisException e) {
+            String errorMessage = parser.getErrorMsg(originStmt);
+            System.err.println("parse failed: " + errorMessage);
+            if (errorMessage == null) {
+                throw e;
+            } else {
+                throw new AnalysisException(errorMessage, e);
+            }
+        }
         statementBase.analyze(analyzer);
         return statementBase;
     }

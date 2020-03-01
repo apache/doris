@@ -17,9 +17,6 @@
 
 package org.apache.doris.clone;
 
-import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
-import com.google.common.collect.Sets;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
@@ -43,7 +40,13 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -200,7 +203,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
                         // only support single column partition now
                         try {
-                            RangePartitionInfo.checkRangeIntersect(partitionKeyRange, addPartitionKeyRange);
+                            RangeUtils.checkRangeIntersect(partitionKeyRange, addPartitionKeyRange);
                         } catch (DdlException e) {
                             isPartitionExists = true;
                             if (addPartitionKeyRange.equals(partitionKeyRange)) {
@@ -231,7 +234,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     DistributionDesc distributionDesc = new HashDistributionDesc(dynamicPartitionProperty.getBuckets(), distColumnNames);
 
                     // add partition according to partition desc and distribution desc
-                    addPartitionClauses.add(new AddPartitionClause(rangePartitionDesc, distributionDesc, null));
+                    addPartitionClauses.add(new AddPartitionClause(rangePartitionDesc, distributionDesc, null, false));
                 }
                 tableName = olapTable.getName();
             } finally {

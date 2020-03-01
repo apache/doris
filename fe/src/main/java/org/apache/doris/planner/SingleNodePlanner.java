@@ -448,7 +448,7 @@ public class SingleNodePlanner {
                                 && child.getChild(0).getType().isNumericType()) {
                             returnColumns.add(((SlotRef) child.getChild(0)).getDesc().getColumn());
                         } else {
-                            turnOffReason = "aggExpr.getChild(0)[aggExpr.getChild(0).toSql()] is not Numeric CastExpr";
+                            turnOffReason = "aggExpr.getChild(0)[" + aggExpr.getChild(0).toSql()+ "] is not Numeric CastExpr";
                             aggExprValidate = false;
                             break;
                         }
