@@ -120,7 +120,7 @@ public class SingleRangePartitionDesc {
         versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
 
         // analyze in memory
-        isInMemory = PropertyAnalyzer.analyzeInMemory(properties, false);
+        isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
 
         if (otherProperties == null) {
             // check unknown properties

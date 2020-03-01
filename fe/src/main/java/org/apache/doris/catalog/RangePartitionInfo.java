@@ -21,9 +21,9 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.BoundType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 
@@ -35,11 +35,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class RangePartitionInfo extends PartitionInfo {
     private static final Logger LOG = LogManager.getLogger(RangePartitionInfo.class);
@@ -47,12 +47,6 @@ public class RangePartitionInfo extends PartitionInfo {
     private List<Column> partitionColumns;
     // partition id -> partition range
     private Map<Long, Range<PartitionKey>> idToRange;
-
-    private static final Comparator<Map.Entry<Long, Range<PartitionKey>>> RANGE_MAP_ENTRY_COMPARATOR;
-
-    static {
-        RANGE_MAP_ENTRY_COMPARATOR = Comparator.comparing(o -> o.getValue().lowerEndpoint());
-    }
 
     public RangePartitionInfo() {
         // for persist
@@ -103,9 +97,7 @@ public class RangePartitionInfo extends PartitionInfo {
             throws AnalysisException, DdlException {
         Range<PartitionKey> newRange = null;
         // generate and sort the existing ranges
-        List<Map.Entry<Long, Range<PartitionKey>>> sortedRanges = new ArrayList<Map.Entry<Long, Range<PartitionKey>>>(
-                this.idToRange.entrySet());
-        Collections.sort(sortedRanges, RANGE_MAP_ENTRY_COMPARATOR);
+        List<Map.Entry<Long, Range<PartitionKey>>> sortedRanges = getSortedRangeMap();
 
         // create upper values for new range
         PartitionKey newRangeUpper = null;
@@ -159,17 +151,9 @@ public class RangePartitionInfo extends PartitionInfo {
 
         if (currentRange != null) {
             // check if range intersected
-            checkRangeIntersect(newRange, currentRange);
+            RangeUtils.checkRangeIntersect(newRange, currentRange);
         }
         return newRange;
-    }
-
-    public static void checkRangeIntersect(Range<PartitionKey> range1, Range<PartitionKey> range2) throws DdlException {
-        if (range2.isConnected(range1)) {
-            if (!range2.intersection(range1).isEmpty()) {
-                throw new DdlException("Range " + range1 + " is intersected with range: " + range2);
-            }
-        }
     }
 
     public Range<PartitionKey> handleNewSinglePartitionDesc(SingleRangePartitionDesc desc, 
@@ -220,80 +204,19 @@ public class RangePartitionInfo extends PartitionInfo {
 
     public List<Map.Entry<Long, Range<PartitionKey>>> getSortedRangeMap() {
         List<Map.Entry<Long, Range<PartitionKey>>> sortedList = Lists.newArrayList(this.idToRange.entrySet());
-        Collections.sort(sortedList, RANGE_MAP_ENTRY_COMPARATOR);
+        Collections.sort(sortedList, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
         return sortedList;
     }
 
-    public static void writeRange(DataOutput out, Range<PartitionKey> range) throws IOException {
-        boolean hasLowerBound = false;
-        boolean hasUpperBound = false;
-
-        // write lower bound if lower bound exists
-        hasLowerBound = range.hasLowerBound();
-        out.writeBoolean(hasLowerBound);
-        if (hasLowerBound) {
-            PartitionKey lowerBound = range.lowerEndpoint();
-            out.writeBoolean(range.lowerBoundType() == BoundType.CLOSED);
-            lowerBound.write(out);
+    // get a sorted range list, exclude partitions which ids are in 'excludePartitionIds'
+    public List<Range<PartitionKey>> getRangeList(Set<Long> excludePartitionIds) {
+        List<Range<PartitionKey>> resultList = Lists.newArrayList();
+        for (Map.Entry<Long, Range<PartitionKey>> entry : idToRange.entrySet()) {
+            if (!excludePartitionIds.contains(entry.getKey())) {
+                resultList.add(entry.getValue());
+            }
         }
-
-        // write upper bound if upper bound exists
-        hasUpperBound = range.hasUpperBound();
-        out.writeBoolean(hasUpperBound);
-        if (hasUpperBound) {
-            PartitionKey upperBound = range.upperEndpoint();
-            out.writeBoolean(range.upperBoundType() == BoundType.CLOSED);
-            upperBound.write(out);
-        }
-    }
-
-    public static Range<PartitionKey> readRange(DataInput in) throws IOException {
-        boolean hasLowerBound = false;
-        boolean hasUpperBound = false;
-        boolean lowerBoundClosed = false;
-        boolean upperBoundClosed = false;
-        PartitionKey lowerBound = null;
-        PartitionKey upperBound = null;
-
-        hasLowerBound = in.readBoolean();
-        if (hasLowerBound) {
-            lowerBoundClosed = in.readBoolean();
-            lowerBound = PartitionKey.read(in);
-        }
-
-        hasUpperBound = in.readBoolean();
-        if (hasUpperBound) {
-            upperBoundClosed = in.readBoolean();
-            upperBound = PartitionKey.read(in);
-        }
-
-        // Totally 9 cases. Both lower bound and upper bound could be open, closed or not exist
-        if (hasLowerBound && lowerBoundClosed && hasUpperBound && upperBoundClosed) {
-            return Range.closed(lowerBound, upperBound);
-        }
-        if (hasLowerBound && lowerBoundClosed && hasUpperBound && !upperBoundClosed) {
-            return Range.closedOpen(lowerBound, upperBound);
-        }
-        if (hasLowerBound && !lowerBoundClosed && hasUpperBound && upperBoundClosed) {
-            return Range.openClosed(lowerBound, upperBound);
-        }
-        if (hasLowerBound && !lowerBoundClosed && hasUpperBound && !upperBoundClosed) {
-            return Range.open(lowerBound, upperBound);
-        }
-        if (hasLowerBound && lowerBoundClosed && !hasUpperBound) {
-            return Range.atLeast(lowerBound);
-        }
-        if (hasLowerBound && !lowerBoundClosed && !hasUpperBound) {
-            return Range.greaterThan(lowerBound);
-        }
-        if (!hasLowerBound && hasUpperBound && upperBoundClosed) {
-            return Range.atMost(upperBound);
-        }
-        if (!hasLowerBound && hasUpperBound && !upperBoundClosed) {
-            return Range.lessThan(upperBound);
-        }
-        // Neither lower bound nor upper bound exists, return null. This means just one partition
-        return null;
+        return resultList;
     }
 
     public boolean checkRange(Range<PartitionKey> newRange) {
@@ -327,7 +250,7 @@ public class RangePartitionInfo extends PartitionInfo {
         out.writeInt(idToRange.size());
         for (Map.Entry<Long, Range<PartitionKey>> entry : idToRange.entrySet()) {
             out.writeLong(entry.getKey());
-            RangePartitionInfo.writeRange(out, entry.getValue());
+            RangeUtils.writeRange(out, entry.getValue());
         }
     }
 
@@ -345,7 +268,7 @@ public class RangePartitionInfo extends PartitionInfo {
         counter = in.readInt();
         for (int i = 0; i < counter; i++) {
             long partitionId = in.readLong();
-            Range<PartitionKey> range = RangePartitionInfo.readRange(in);
+            Range<PartitionKey> range = RangeUtils.readRange(in);
             idToRange.put(partitionId, range);
         }
     }
@@ -367,7 +290,7 @@ public class RangePartitionInfo extends PartitionInfo {
         // sort range
         List<Map.Entry<Long, Range<PartitionKey>>> entries =
                 new ArrayList<Map.Entry<Long, Range<PartitionKey>>>(this.idToRange.entrySet());
-        Collections.sort(entries, RANGE_MAP_ENTRY_COMPARATOR);
+        Collections.sort(entries, RangeUtils.RANGE_MAP_ENTRY_COMPARATOR);
 
         idx = 0;
         for (Map.Entry<Long, Range<PartitionKey>> entry : entries) {

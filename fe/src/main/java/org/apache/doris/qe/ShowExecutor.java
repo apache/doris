@@ -1215,12 +1215,17 @@ public class ShowExecutor {
                 }
                 boolean stop = false;
                 Collection<Partition> partitions = new ArrayList<Partition>();
-                List<String> partitionNames = showStmt.getPartitionNames();
                 if (showStmt.hasPartition()) {
-                    for (Partition partition : olapTable.getPartitions()) {
-                        if (partitionNames.contains(partition.getName())) {
-                            partitions.add(partition);
+                    List<String> partitionNames = showStmt.getPartitionNames();
+                    for (String partName : partitionNames) {
+                        Partition partition = olapTable.getPartition(partName);
+                        if (partition == null) {
+                            partition = olapTable.getPartition(partName, true);
                         }
+                        if (partition == null) {
+                            throw new AnalysisException("Unknown partition: " + partName);
+                        }
+                        partitions.add(partition);
                     }
                 } else {
                     partitions = olapTable.getPartitions();

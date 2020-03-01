@@ -19,8 +19,10 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,7 +36,7 @@ import java.util.Map.Entry;
 /**
  * The OlapTraditional table is a materialized table which stored as rowcolumnar file or columnar file
  */
-public class MaterializedIndex extends MetaObject implements Writable {
+public class MaterializedIndex extends MetaObject implements Writable, GsonPostProcessable {
     public enum IndexState {
         NORMAL,
         @Deprecated
@@ -54,17 +56,22 @@ public class MaterializedIndex extends MetaObject implements Writable {
         SHADOW // index state in SHADOW
     }
 
+    @SerializedName(value = "id")
     private long id;
-
+    @SerializedName(value = "state")
     private IndexState state;
+    @SerializedName(value = "rowCount")
     private long rowCount;
 
     private Map<Long, Tablet> idToTablets;
+    @SerializedName(value = "tablets")
     // this is for keeping tablet order
     private List<Tablet> tablets;
 
     // for push after rollup index finished
+    @SerializedName(value = "rollupIndexId")
     private long rollupIndexId;
+    @SerializedName(value = "rollupFinishedVersion")
     private long rollupFinishedVersion;
 
     public MaterializedIndex() {
@@ -279,5 +286,13 @@ public class MaterializedIndex extends MetaObject implements Writable {
         buffer.append("rollup finished version: ").append(rollupFinishedVersion).append("; ");
 
         return buffer.toString();
+    }
+
+    @Override
+    public void gsonPostProcess() {
+        // build "idToTablets" from "tablets"
+        for (Tablet tablet : tablets) {
+            idToTablets.put(tablet.getId(), tablet);
+        }
     }
 }

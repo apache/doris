@@ -28,6 +28,7 @@ import org.apache.doris.meta.MetaContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.kudu.client.shaded.com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
@@ -57,21 +58,26 @@ public class Partition extends MetaObject implements Writable {
         SCHEMA_CHANGE
     }
 
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "name")
     private String name;
+    @SerializedName(value = "state")
     private PartitionState state;
-
+    @SerializedName(value = "baseIndex")
     private MaterializedIndex baseIndex;
     /*
      * Visible rollup indexes are indexes which are visible to user.
      * User can do query on them, show them in related 'show' stmt.
      */
+    @SerializedName(value = "idToVisibleRollupIndex")
     private Map<Long, MaterializedIndex> idToVisibleRollupIndex = Maps.newHashMap();
     /*
      * Shadow indexes are indexes which are not visible to user.
      * Query will not run on these shadow indexes, and user can not see them neither.
      * But load process will load data into these shadow indexes.
      */
+    @SerializedName(value = "idToShadowIndex")
     private Map<Long, MaterializedIndex> idToShadowIndex = Maps.newHashMap();
 
     /*
@@ -81,12 +87,17 @@ public class Partition extends MetaObject implements Writable {
      */
 
     // not have committedVersion because committedVersion = nextVersion - 1
+    @SerializedName(value = "committedVersionHash")
     private long committedVersionHash;
+    @SerializedName(value = "visibleVersion")
     private long visibleVersion;
+    @SerializedName(value = "visibleVersionHash")
     private long visibleVersionHash;
+    @SerializedName(value = "nextVersion")
     private long nextVersion;
+    @SerializedName(value = "nextVersionHash")
     private long nextVersionHash;
-
+    @SerializedName(value = "distributionInfo")
     private DistributionInfo distributionInfo;
 
     private Partition() {

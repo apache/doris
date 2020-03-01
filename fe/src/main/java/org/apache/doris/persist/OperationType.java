@@ -43,6 +43,7 @@ public class OperationType {
     public static final short OP_RESTORE_JOB = 117;
     public static final short OP_TRUNCATE_TABLE = 118;
     public static final short OP_MODIFY_VIEW_DEF = 119;
+    public static final short OP_REPLACE_TEMP_PARTITION = 210;
 
     // 20~29 120~129 220~229 ...
     public static final short OP_START_ROLLUP = 20;

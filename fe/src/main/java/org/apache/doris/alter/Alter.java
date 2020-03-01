@@ -39,6 +39,7 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
+import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRenameClause;
@@ -244,8 +245,8 @@ public class Alter {
             } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddMaterializedView
                     && !hasPartition && !hasRename && !hasModifyProp) {
                 hasDropRollup = true;
-            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
-                    && !hasPartition && !hasRename && !hasModifyProp) {
+            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddMaterializedView
+                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
                 hasPartition = true;
             } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
                     && !hasPartition && !hasRename && !hasModifyProp) {
@@ -258,6 +259,9 @@ public class Alter {
                     && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename
                     && !hasModifyProp) {
                 hasRename = true;
+            } else if (alterClause instanceof ReplacePartitionClause && !hasSchemaChange && !hasAddMaterializedView
+                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
+                hasPartition = true;
             } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasAddMaterializedView
                     && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
                 Map<String, String> properties = alterClause.getProperties();
@@ -314,12 +318,16 @@ public class Alter {
                 materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
             } else if (hasPartition) {
                 Preconditions.checkState(alterClauses.size() == 1);
+                // when this is a dynamic partition table, do not allow doing partition operation.
+                // TODO(cmy): although some of operation can be done with dynamic partition,
+                // but currently we check it strictly to avoid some unexpected exception.
+                DynamicPartitionUtil.checkAlterAllowed(olapTable);
                 AlterClause alterClause = alterClauses.get(0);
                 if (alterClause instanceof DropPartitionClause) {
-                    DynamicPartitionUtil.checkAlterAllowed(olapTable);
                     Catalog.getInstance().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
+                } else if (alterClause instanceof ReplacePartitionClause) {
+                    Catalog.getCurrentCatalog().replaceTempPartition(db, tableName, (ReplacePartitionClause) alterClause);
                 } else if (alterClause instanceof ModifyPartitionClause) {
-                    DynamicPartitionUtil.checkAlterAllowed(olapTable);
                     ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                     Map<String, String> properties = clause.getProperties();
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
@@ -329,6 +337,7 @@ public class Alter {
                         Catalog.getInstance().modifyPartition(db, olapTable, partitionName, properties);
                     }
                 } else {
+                    // add (temp) partition
                     needSynchronized = true;
                 }
             } else if (hasRename) {
