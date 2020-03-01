@@ -22,7 +22,7 @@ import com.google.common.base.Stopwatch;
 public class BrokerPerfMonitor {
 
     public static Stopwatch startWatch() {
-        Stopwatch stopwatch = new Stopwatch();
+        Stopwatch stopwatch = Stopwatch.createUnstarted();
         stopwatch.start();
         return stopwatch;
     }
