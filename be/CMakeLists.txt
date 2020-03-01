@@ -362,6 +362,7 @@ set(DORIS_LINK_LIBS
     Gutil
     Olap
     Rowset
+    OlapFs
     Runtime
     Service
     Udf
