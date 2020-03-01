@@ -63,6 +63,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.TableInfo;
@@ -172,8 +173,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_DROP_PARTITION: {
-                data = new DropPartitionInfo();
-                ((DropPartitionInfo) data).readFields(in);
+                data = DropPartitionInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -514,6 +514,11 @@ public class JournalEntity implements Writable {
             case OperationType.OP_MODIFY_IN_MEMORY:
             case OperationType.OP_MODIFY_REPLICATION_NUM: {
                 data = ModifyTablePropertyOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_REPLACE_TEMP_PARTITION: {
+                data = ReplacePartitionOperationLog.read(in);
                 isRead = true;
                 break;
             }

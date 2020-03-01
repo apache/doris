@@ -1155,7 +1155,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     abstract String customPropertiesJsonToString();
 
-
     public boolean needRemove() {
         if (!isFinal()) {
             return false;

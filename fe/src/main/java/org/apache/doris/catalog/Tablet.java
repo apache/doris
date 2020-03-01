@@ -30,6 +30,7 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,12 +64,15 @@ public class Tablet extends MetaObject implements Writable {
         NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
     }
 
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "replicas")
     private List<Replica> replicas;
-
+    @SerializedName(value = "checkedVersion")
     private long checkedVersion;
+    @SerializedName(value = "checkedVersionHash")
     private long checkedVersionHash;
-
+    @SerializedName(value = "isConsistent")
     private boolean isConsistent;
 
     // last time that the tablet checker checks this tablet.

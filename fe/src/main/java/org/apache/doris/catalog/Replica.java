@@ -21,6 +21,8 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
+import com.google.gson.annotations.SerializedName;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -64,21 +66,31 @@ public class Replica implements Writable {
         SCHEMA_ERROR // replica's schema hash does not equal to index's schema hash
     }
     
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "backendId")
     private long backendId;
+    @SerializedName(value = "version")
     private long version;
+    @SerializedName(value = "versionHash")
     private long versionHash;
     private int schemaHash = -1;
-
+    @SerializedName(value = "dataSize")
     private long dataSize = 0;
+    @SerializedName(value = "rowCount")
     private long rowCount = 0;
+    @SerializedName(value = "state")
     private ReplicaState state;
     
+    @SerializedName(value = "lastFailedVersion")
     private long lastFailedVersion = -1L;
+    @SerializedName(value = "lastFailedVersionHash")
     private long lastFailedVersionHash = 0L;
     // not serialized, not very important
     private long lastFailedTimestamp = 0;
+    @SerializedName(value = "lastSuccessVersion")
     private long lastSuccessVersion = -1L;
+    @SerializedName(value = "lastSuccessVersionHash")
     private long lastSuccessVersionHash = 0L;
 
 	private AtomicLong versionCount = new AtomicLong(-1);

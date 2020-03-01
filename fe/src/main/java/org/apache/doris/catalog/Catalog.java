@@ -65,6 +65,7 @@ import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.RecoverDbStmt;
 import org.apache.doris.analysis.RecoverPartitionStmt;
 import org.apache.doris.analysis.RecoverTableStmt;
+import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
@@ -164,6 +165,7 @@ import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
@@ -1435,7 +1437,9 @@ public class Catalog {
 
                 OlapTable olapTable = (OlapTable) table;
                 long tableId = olapTable.getId();
-                for (Partition partition : olapTable.getPartitions()) {
+                List<Partition> allPartitions = Lists.newArrayList(olapTable.getPartitions());
+                allPartitions.addAll(olapTable.getAllTempPartitions());
+                for (Partition partition : allPartitions) {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
                             partitionId).getStorageMedium();
@@ -2895,6 +2899,7 @@ public class Catalog {
     public void addPartition(Database db, String tableName, AddPartitionClause addPartitionClause) throws DdlException {
         SingleRangePartitionDesc singlePartitionDesc = addPartitionClause.getSingeRangePartitionDesc();
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
+        boolean isTempPartition = addPartitionClause.isTempPartition();
 
         DistributionInfo distributionInfo = null;
         OlapTable olapTable = null;
@@ -2931,8 +2936,12 @@ public class Catalog {
                 throw new DdlException("Only support adding partition to range partitioned table");
             }
 
+            if (isTempPartition) {
+                partitionInfo = olapTable.getTempPartitonRangeInfo();
+            }
+
             // check partition name
-            if (olapTable.getPartition(partitionName) != null) {
+            if (olapTable.checkPartitionNameExist(partitionName)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
                     LOG.info("add partition[{}] which already exists", partitionName);
                     return;
@@ -2950,6 +2959,7 @@ public class Catalog {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_INMEMORY, olapTable.isInMemory().toString());
             }
+
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), properties);
             rangePartitionInfo.checkAndCreateRange(singlePartitionDesc);
@@ -3009,7 +3019,7 @@ public class Catalog {
         Preconditions.checkNotNull(indexIdToStorageType);
         Preconditions.checkNotNull(indexIdToSchema);
 
-        // create partition without lock
+        // create partition outside db lock
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
         Preconditions.checkNotNull(dataProperty);
 
@@ -3045,17 +3055,15 @@ public class Catalog {
                     throw new DdlException("Table[" + tableName + "] is not OLAP table");
                 }
 
-                // check partition type
                 olapTable = (OlapTable) table;
-                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                if (partitionInfo.getType() != PartitionType.RANGE) {
-                    throw new DdlException("Only support adding partition to range partitioned table");
+                if (olapTable.getState() != OlapTableState.NORMAL) {
+                    throw new DdlException("Table[" + tableName + "]'s state is not NORMAL");
                 }
 
                 // check partition name
-                if (olapTable.getPartition(partitionName) != null) {
+                if (olapTable.checkPartitionNameExist(partitionName)) {
                     if (singlePartitionDesc.isSetIfNotExists()) {
-                        LOG.debug("add partition[{}] which already exists", partitionName);
+                        LOG.info("add partition[{}] which already exists", partitionName);
                         return;
                     } else {
                         ErrorReport.reportDdlException(ErrorCode.ERR_SAME_NAME_PARTITION, partitionName);
@@ -3087,19 +3095,34 @@ public class Catalog {
                     throw new DdlException("Table[" + tableName + "]'s meta has been changed. try again.");
                 }
 
+                // check partition type
+                PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+                if (isTempPartition) {
+                    partitionInfo = olapTable.getTempPartitonRangeInfo();
+                }
+                if (partitionInfo.getType() != PartitionType.RANGE) {
+                    throw new DdlException("Only support adding partition to range partitioned table");
+                }
+
                 // update partition info
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
                 rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId);
 
-                olapTable.addPartition(partition);
+                if (isTempPartition) {
+                    olapTable.addTempPartition(partition);
+                } else {
+                    olapTable.addPartition(partition);
+                }
+
                 // log
                 PartitionPersistInfo info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                         rangePartitionInfo.getRange(partitionId), dataProperty,
                         rangePartitionInfo.getReplicationNum(partitionId),
-                        rangePartitionInfo.getIsInMemory(partitionId));
+                        rangePartitionInfo.getIsInMemory(partitionId),
+                        isTempPartition);
                 editLog.logAddPartition(info);
 
-                LOG.info("succeed in creating partition[{}]", partitionId);
+                LOG.info("succeed in creating partition[{}], temp: {}", partitionId, isTempPartition);
             } finally {
                 db.writeUnlock();
             }
@@ -3117,8 +3140,15 @@ public class Catalog {
         try {
             OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
             Partition partition = info.getPartition();
-            olapTable.addPartition(partition);
+
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            if (info.isTempPartition()) {
+                partitionInfo = olapTable.getTempPartitonRangeInfo();
+                olapTable.addTempPartition(partition);
+            } else {
+                olapTable.addPartition(partition);
+            }
+
             ((RangePartitionInfo) partitionInfo).unprotectHandleNewSinglePartitionDesc(partition.getId(),
                     info.getRange(), info.getDataProperty(), info.getReplicationNum(),
                     info.isInMemory());
@@ -3146,18 +3176,16 @@ public class Catalog {
     }
 
     public void dropPartition(Database db, OlapTable olapTable, DropPartitionClause clause) throws DdlException {
-        DynamicPartitionUtil.checkAlterAllowed(olapTable);
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
 
         String partitionName = clause.getPartitionName();
+        boolean isTempPartition = clause.isTempPartition();
 
         if (olapTable.getState() != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + olapTable.getName() + "]'s state is not NORMAL");
         }
 
-        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        Partition partition = olapTable.getPartition(partitionName);
-        if (partition == null) {
+        if (!olapTable.checkPartitionNameExist(partitionName, isTempPartition)) {
             if (clause.isSetIfExists()) {
                 LOG.info("drop partition[{}] which does not exist", partitionName);
                 return;
@@ -3166,20 +3194,28 @@ public class Catalog {
             }
         }
 
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() != PartitionType.RANGE) {
-            String errMsg = "Alter table [" + olapTable.getName() + "] failed. Not a partitioned table";
-            LOG.warn(errMsg);
-            throw new DdlException(errMsg);
+            throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
         }
 
+        if (isTempPartition) {
+            partitionInfo = olapTable.getTempPartitonRangeInfo();
+        }
+
+
         // drop
-        olapTable.dropPartition(db.getId(), partitionName);
+        if (isTempPartition) {
+            olapTable.dropTempPartition(partitionName, true);
+        } else {
+            olapTable.dropPartition(db.getId(), partitionName);
+        }
 
         // log
-        DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName);
+        DropPartitionInfo info = new DropPartitionInfo(db.getId(), olapTable.getId(), partitionName, isTempPartition);
         editLog.logDropPartition(info);
 
-        LOG.info("succeed in droping partition[{}]", partition.getId());
+        LOG.info("succeed in droping partition[{}]", partitionName);
     }
 
     public void replayDropPartition(DropPartitionInfo info) {
@@ -3187,7 +3223,11 @@ public class Catalog {
         db.writeLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(info.getTableId());
-            olapTable.dropPartition(info.getDbId(), info.getPartitionName());
+            if (info.isTempPartition()) {
+                olapTable.dropTempPartition(info.getPartitionName(), true);
+            } else {
+                olapTable.dropPartition(info.getDbId(), info.getPartitionName());
+            }
         } finally {
             db.writeUnlock();
         }
@@ -3254,7 +3294,8 @@ public class Catalog {
         }
 
         // 3. in memory
-        boolean isInMemory = PropertyAnalyzer.analyzeInMemory(properties, partitionInfo.getIsInMemory(partition.getId()));
+        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties,
+                PropertyAnalyzer.PROPERTIES_INMEMORY, partitionInfo.getIsInMemory(partition.getId()));
 
         // check if has other undefined properties
         if (properties != null && !properties.isEmpty()) {
@@ -3539,7 +3580,7 @@ public class Catalog {
         }
 
         // set in memory
-        boolean isInMemory = PropertyAnalyzer.analyzeInMemory(properties, false);
+        boolean isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
         olapTable.setIsInMemory(isInMemory);
 
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
@@ -5128,7 +5169,7 @@ public class Catalog {
         }
 
         // check if name is already used
-        if (table.getPartition(newPartitionName) != null) {
+        if (table.checkPartitionNameExist(newPartitionName)) {
             throw new DdlException("Partition name[" + newPartitionName + "] is already used");
         }
 
@@ -6115,6 +6156,9 @@ public class Catalog {
      * 1. using the same schema to create new table(partitions)
      * 2. use the new created table(partitions) to replace the old ones.
      * 
+     * if no partition specified, it will truncate all partitions of this table, including all temp partitions,
+     * otherwise, it will only truncate those specified partitions.
+     * 
      */
     public void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException {
         TableRef tblRef = truncateTableStmt.getTblRef();
@@ -6128,6 +6172,7 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbTbl.getDb());
         }
 
+        boolean truncateEntireTable = tblRef.getPartitions() == null || tblRef.getPartitions().isEmpty();
         db.readLock();
         try {
             Table table = db.getTable(dbTbl.getTbl());
@@ -6144,7 +6189,7 @@ public class Catalog {
                 throw new DdlException("Table' state is not NORMAL: " + olapTable.getState());
             }
             
-            if (tblRef.getPartitions() != null && !tblRef.getPartitions().isEmpty()) {
+            if (!truncateEntireTable) {
                 for (String partName: tblRef.getPartitions()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
@@ -6160,7 +6205,6 @@ public class Catalog {
             }
             
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), true, IndexExtState.VISIBLE);
-
         } finally {
             db.readUnlock();
         }
@@ -6254,10 +6298,11 @@ public class Catalog {
             }
 
             // replace
-            truncateTableInternal(olapTable, newPartitions);
+            truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
 
             // write edit log
-            TruncateTableInfo info = new TruncateTableInfo(db.getId(), olapTable.getId(), newPartitions);
+            TruncateTableInfo info = new TruncateTableInfo(db.getId(), olapTable.getId(), newPartitions,
+                    truncateEntireTable);
             editLog.logTruncateTable(info);
         } finally {
             db.writeUnlock();
@@ -6267,7 +6312,7 @@ public class Catalog {
                 tblRef.getName().toSql(), tblRef.getPartitions());
     }
 
-    private void truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions) {
+    private void truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions, boolean isEntireTable) {
         // use new partitions to replace the old ones.
         Set<Long> oldTabletIds = Sets.newHashSet();
         for (Partition newPartition : newPartitions) {
@@ -6278,6 +6323,11 @@ public class Catalog {
                     oldTabletIds.add(t.getId());
                 });
             }
+        }
+
+        if (isEntireTable) {
+            // drop all temp partitions
+            olapTable.dropAllTempPartitions();
         }
 
         // remove the tablets in old partitions
@@ -6291,7 +6341,7 @@ public class Catalog {
         db.writeLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(info.getTblId());
-            truncateTableInternal(olapTable, info.getPartitions());
+            truncateTableInternal(olapTable, info.getPartitions(), info.isEntireTable());
 
             if (!Catalog.isCheckpointThread()) {
                 // add tablet to inverted index
@@ -6407,6 +6457,73 @@ public class Catalog {
             OlapTable tbl = (OlapTable) db.getTable(tableInfo.getTableId());
             tbl.convertRandomDistributionToHashDistribution();
             LOG.info("replay modify distribution type of table: " + tbl.getName());
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    /*
+     * The entry of replacing partitions with temp partitions.
+     */
+    public void replaceTempPartition(Database db, String tableName, ReplacePartitionClause clause) throws DdlException {
+        List<String> partitionNames = clause.getPartitionNames();
+        List<String> tempPartitonNames = clause.getTempPartitionNames();
+        boolean isStrictRange = clause.isStrictRange();
+        boolean useTempPartitionName = clause.useTempPartitionName();
+        db.writeLock();
+        try {
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+            }
+
+            if (table.getType() != TableType.OLAP) {
+                throw new DdlException("Table[" + tableName + "] is not OLAP table");
+            }
+
+            OlapTable olapTable = (OlapTable) table;
+            // check partition exist
+            for (String partName : partitionNames) {
+                if (!olapTable.checkPartitionNameExist(partName, false)) {
+                    throw new DdlException("Partition[" + partName + "] does not exist");
+                }
+            }
+            for (String partName : tempPartitonNames) {
+                if (!olapTable.checkPartitionNameExist(partName, true)) {
+                    throw new DdlException("Temp partition[" + partName + "] does not exist");
+                }
+            }
+
+            olapTable.replaceTempPartitions(partitionNames, tempPartitonNames, isStrictRange, useTempPartitionName);
+
+            // write log
+            ReplacePartitionOperationLog info = new ReplacePartitionOperationLog(db.getId(), olapTable.getId(),
+                    partitionNames, tempPartitonNames, isStrictRange, useTempPartitionName);
+            editLog.logReplaceTempPartition(info);
+            LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
+                    clause.getPartitionNames(), clause.getTempPartitionNames(), tableName);
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    public void replayReplaceTempPartition(ReplacePartitionOperationLog replaceTempPartitionLog) {
+        Database db = getDb(replaceTempPartitionLog.getDbId());
+        if (db == null) {
+            return;
+        }
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(replaceTempPartitionLog.getTblId());
+            if (olapTable == null) {
+                return;
+            }
+            olapTable.replaceTempPartitions(replaceTempPartitionLog.getPartitions(),
+                    replaceTempPartitionLog.getTempPartitions(),
+                    replaceTempPartitionLog.isStrictRange(),
+                    replaceTempPartitionLog.useTempPartitionName());
+        } catch (DdlException e) {
+            LOG.warn("should not happen. {}", e);
         } finally {
             db.writeUnlock();
         }

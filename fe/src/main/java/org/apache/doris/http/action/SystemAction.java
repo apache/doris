@@ -18,6 +18,7 @@
 package org.apache.doris.http.action;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.proc.ProcDirInterface;
@@ -86,6 +87,7 @@ public class SystemAction extends WebBaseAction {
             context.setCatalog(Catalog.getCurrentCatalog());
             context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             context.setQualifiedUser(PaloAuth.ADMIN_USER);
+            context.setCurrentUserIdentity(UserIdentity.ADMIN);
             MasterOpExecutor masterOpExecutor = new MasterOpExecutor(showProcStmt, context,
                     RedirectStatus.FORWARD_NO_SYNC);
             try {
