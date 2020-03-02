@@ -20,6 +20,7 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -130,10 +131,15 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 // allocate failed, push it back to the queue to wait next scheduling
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
             }
+        } catch (UserException e) {
+            routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).
+                    updateState(JobState.PAUSED,
+                    new ErrorReason(e.getErrorCode(), e.getMessage()), false);
+            throw e;
         } catch (Exception e) {
             // exception happens, PAUSE the job
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).updateState(JobState.PAUSED,
-                    "failed to allocate task: " + e.getMessage(), false);
+                    new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR, "failed to allocate task: " + e.getMessage()), false);
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId()).add("error_msg",
                     "allocate task encounter exception: " + e.getMessage()).build());
             throw e;
@@ -152,7 +158,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // set BE id to -1 to release the BE slot
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).updateState(JobState.PAUSED,
-                    "failed to allocate task: " + e.getMessage(), false);
+                    new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR,
+                            "failed to allocate task for txn: " + e.getMessage()), false);
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId()).add("error_msg",
                     "begin task txn encounter exception: " + e.getMessage()).build());
             throw e;
@@ -167,13 +174,17 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // set BE id to -1 to release the BE slot
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
-                    .updateState(JobState.STOPPED, "meta not found: " + e.getMessage(), false);
+                    .updateState(JobState.STOPPED,
+                            new ErrorReason(InternalErrorCode.META_NOT_FOUND_ERR, "meta not found: " + e.getMessage()),
+                            false);
             throw e;
         } catch (UserException e) {
             // set BE id to -1 to release the BE slot
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
-                    .updateState(JobState.PAUSED, "failed to create task: " + e.getMessage(), false);
+                    .updateState(JobState.PAUSED,
+                            new ErrorReason(e.getErrorCode(),
+                                    "failed to create task: " + e.getMessage()), false);
             throw e;
         }
 

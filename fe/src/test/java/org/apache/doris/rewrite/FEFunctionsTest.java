@@ -17,11 +17,6 @@
 
 package org.apache.doris.rewrite;
 
-import static org.junit.Assert.fail;
-
-import mockit.Expectations;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.FloatLiteral;
@@ -30,8 +25,8 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-
 import org.apache.doris.common.util.TimeUtils;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Rule;
@@ -41,6 +36,10 @@ import org.junit.rules.ExpectedException;
 import java.time.ZoneId;
 import java.util.Locale;
 import java.util.TimeZone;
+
+import mockit.Expectations;
+import mockit.Mocked;
+import static org.junit.Assert.fail;
 
 public class FEFunctionsTest {
 
@@ -212,37 +211,38 @@ public class FEFunctionsTest {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%D"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%D not supported in date format string");
+            Assert.assertEquals(e.getMessage(),
+                    "errCode = 2, detailMessage = %D not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%U"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%U not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %U not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%u"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%u not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %u not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%V"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%V not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %V not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%w"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%w not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %w not supported in date format string");
         }
         try {
             FEFunctions.dateParse(new StringLiteral("2013-05-17"), new StringLiteral("%X"));
             fail("Junit test dateParse fail");
         } catch (AnalysisException e) {
-            Assert.assertEquals(e.getMessage(), "%X not supported in date format string");
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = %X not supported in date format string");
         }
     }
 
