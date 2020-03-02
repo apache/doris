@@ -32,7 +32,6 @@ import org.apache.doris.http.HttpAuthManager;
 import org.apache.doris.http.HttpAuthManager.SessionValue;
 import org.apache.doris.http.UnauthorizedException;
 import org.apache.doris.http.rest.RestBaseResult;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;

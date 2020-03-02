@@ -42,7 +42,7 @@ under the License.
 |sijie	|sijie	|Sijie Guo	|
 |zshao	|zshao	|Zheng Shao|
 
-## Committers (11)
+## Committers (13)
 
 |Apache ID|Github Username	|Public Name|
 |--------|-----------|----------|
@@ -57,3 +57,5 @@ under the License.
 |zshao	|zshao	|Zheng Shao|
 |kangkaisen|kangkaisen|Kaisen Kang|
 |lingmiao|EmmyMiao87|Ling Miao|
+|gaodayue|gaodayue|Dayue Gao|
+|liuhangyuan|HangyuanLiu|Hangyuan Liu|
