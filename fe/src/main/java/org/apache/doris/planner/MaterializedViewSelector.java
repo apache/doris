@@ -302,6 +302,8 @@ public class MaterializedViewSelector {
                 mv index (k1, k2)
             This kind of index is SPJG which same as select k1, k2 from aggregate_table group by k1, k2.
             It also need to check the grouping column using following steps.
+
+            ISSUE-3016, MaterializedViewFunctionTest: testDeduplicateQueryInAgg
              */
             if (indexNonAggregatedColumnNames.size() == candidateIndexSchema.size() && keysType == KeysType.DUP_KEYS) {
                 continue;
