@@ -15,21 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common;
+package org.apache.doris.load.routineload;
 
-/**
- * Exception for meta info is null, like db table partition tablet replica job
- */
-public class MetaNotFoundException extends UserException {
-    public MetaNotFoundException(String msg) {
-        super(msg);
+import org.apache.doris.common.InternalErrorCode;
+
+public class ErrorReason {
+    private InternalErrorCode code;
+    private String msg;
+
+    public ErrorReason(InternalErrorCode errCode, String msg) {
+        this.code = errCode;
+        this.msg = msg;
     }
 
-    public MetaNotFoundException(InternalErrorCode errcode, String msg) {
-        super(errcode, msg);
+    public InternalErrorCode getCode() {
+        return code;
     }
 
-    public MetaNotFoundException(String msg, Throwable e) {
-        super(msg, e);
+    public void setCode(InternalErrorCode code) {
+        this.code = code;
+    }
+
+    public String getMsg() {
+        return msg;
+    }
+
+    public void setMsg(String msg) {
+        this.msg = msg;
+    }
+
+    @Override
+    public String toString() {
+        return "ErrorReason{" + "code=" + code + ", msg='" + msg + '\'' + '}';
     }
 }

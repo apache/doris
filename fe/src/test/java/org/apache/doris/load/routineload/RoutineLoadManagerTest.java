@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -94,7 +95,7 @@ public class RoutineLoadManagerTest {
                                                                                 typeName, customProperties);
 
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, "default_cluster", 1L, 1L,
-                serverAddress, topicName);
+                3L, serverAddress, topicName);
 
         new MockUp<KafkaRoutineLoadJob>() {
             @Mock
@@ -191,8 +192,7 @@ public class RoutineLoadManagerTest {
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, "default_cluster", 1L, 1L,
-                serverAddress,
-                topicName);
+                3L, serverAddress,topicName);
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
 
@@ -200,7 +200,7 @@ public class RoutineLoadManagerTest {
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
         List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
         KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName, "default_cluster",
-                1L, 1L, serverAddress, topicName);
+                1L, 1L, 3L, serverAddress, topicName);
         routineLoadJobList.add(kafkaRoutineLoadJobWithSameName);
         nameToRoutineLoadJob.put(jobName, routineLoadJobList);
         dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
@@ -222,7 +222,7 @@ public class RoutineLoadManagerTest {
         String topicName = "topic1";
         String serverAddress = "http://127.0.0.1:8080";
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, jobName, "default_cluster", 1L, 1L,
-                serverAddress, topicName);
+                3L, serverAddress, topicName);
 
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
 
@@ -238,7 +238,7 @@ public class RoutineLoadManagerTest {
         Map<String, List<RoutineLoadJob>> nameToRoutineLoadJob = Maps.newConcurrentMap();
         List<RoutineLoadJob> routineLoadJobList = Lists.newArrayList();
         KafkaRoutineLoadJob kafkaRoutineLoadJobWithSameName = new KafkaRoutineLoadJob(1L, jobName, "default_cluster",
-                1L, 1L, serverAddress, topicName);
+                1L, 1L, 3L, serverAddress, topicName);
         Deencapsulation.setField(kafkaRoutineLoadJobWithSameName, "state", RoutineLoadJob.JobState.STOPPED);
         routineLoadJobList.add(kafkaRoutineLoadJobWithSameName);
         nameToRoutineLoadJob.put(jobName, routineLoadJobList);
@@ -579,6 +579,10 @@ public class RoutineLoadManagerTest {
         dbToNameToRoutineLoadJob.put(1L, nameToRoutineLoadJob);
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
 
+        Map<Long, RoutineLoadJob> idToRoutineLoadJob = Maps.newConcurrentMap();
+        idToRoutineLoadJob.put(routineLoadJob.getId(), routineLoadJob);
+        Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
+
         new Expectations() {
             {
                 pauseRoutineLoadStmt.getDbFullName();
@@ -605,6 +609,22 @@ public class RoutineLoadManagerTest {
         routineLoadManager.pauseRoutineLoadJob(pauseRoutineLoadStmt);
 
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+
+        // 第一次自动恢复
+        for (int i = 0; i < 3; i++) {
+            Deencapsulation.setField(routineLoadJob, "pauseReason",
+                    new ErrorReason(InternalErrorCode.REPLICA_FEW_ERR, ""));
+            routineLoadManager.updateRoutineLoadJob();
+            Assert.assertEquals(RoutineLoadJob.JobState.NEED_SCHEDULE, routineLoadJob.getState());
+            Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
+            boolean autoResumeLock = Deencapsulation.getField(routineLoadJob, "autoResumeLock");
+            Assert.assertEquals(autoResumeLock, false);
+        }
+        // 第四次自动恢复 就会锁定
+        routineLoadManager.updateRoutineLoadJob();
+        Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
+        boolean autoResumeLock = Deencapsulation.getField(routineLoadJob, "autoResumeLock");
+        Assert.assertEquals(autoResumeLock, true);
     }
 
     @Test

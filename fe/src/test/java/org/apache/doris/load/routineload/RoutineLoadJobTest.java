@@ -23,6 +23,7 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.KafkaUtil;
@@ -173,13 +174,13 @@ public class RoutineLoadJobTest {
     public void testGetShowInfo(@Mocked KafkaProgress kafkaProgress) {
         RoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob();
         Deencapsulation.setField(routineLoadJob, "state", RoutineLoadJob.JobState.PAUSED);
-        Deencapsulation.setField(routineLoadJob, "pauseReason",
-                                 TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
+        ErrorReason errorReason = new ErrorReason(InternalErrorCode.INTERNAL_ERR, TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString());
+        Deencapsulation.setField(routineLoadJob, "pauseReason", errorReason);
         Deencapsulation.setField(routineLoadJob, "progress", kafkaProgress);
 
         List<String> showInfo = routineLoadJob.getShowInfo();
         Assert.assertEquals(true, showInfo.stream().filter(entity -> !Strings.isNullOrEmpty(entity))
-                .anyMatch(entity -> entity.equals(TransactionState.TxnStatusChangeReason.OFFSET_OUT_OF_RANGE.toString())));
+                .anyMatch(entity -> entity.equals(errorReason.toString())));
     }
 
     @Test
