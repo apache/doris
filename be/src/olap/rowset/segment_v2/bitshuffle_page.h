@@ -334,6 +334,10 @@ public:
     }
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override {
+        return next_batch(n, dst, true);
+    }
+
+    Status next_batch(size_t* n, ColumnBlockView* dst, bool forward_index) {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
@@ -343,9 +347,15 @@ public:
         size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elements - _cur_index));
         _copy_next_values(max_fetch, dst->data());
         *n = max_fetch;
-        _cur_index += max_fetch;
+        if (forward_index) {
+            _cur_index += max_fetch;
+        }
 
         return Status::OK();
+    }
+
+    Status peek_next_batch(size_t *n, ColumnBlockView* dst) override {
+        return next_batch(n, dst, false);
     }
 
     size_t count() const override {

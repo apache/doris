@@ -80,15 +80,23 @@ public:
         ASSERT_EQ(slices.size(), page_decoder.count());
 
         //check values
+<<<<<<< HEAD
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
         TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
+=======
+        MemTracker tracker;
+        MemPool pool(&tracker);
+        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+>>>>>>> Restructure storage type to support list type.
         size_t size = slices.size();
-        Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
-        ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, size, &pool);
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        ColumnVectorBatch::create(size, false, type_info, &cvb);
+        ColumnBlock column_block(cvb.get(), &pool);
         ColumnBlockView block_view(&column_block);
 
         status = page_decoder.next_batch(&size, &block_view);
+        Slice* values = reinterpret_cast<Slice*>(column_block.data());
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(slices.size(), size);
         ASSERT_EQ("Individual", values[0].to_string());
@@ -170,12 +178,22 @@ public:
             ASSERT_TRUE(status.ok());
 
             //check values
+<<<<<<< HEAD
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
             TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
             Slice* values = reinterpret_cast<Slice*>(pool.allocate(sizeof(Slice)));
             ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, 1, &pool);
+=======
+            MemTracker tracker;
+            MemPool pool(&tracker);
+            TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
+            std::unique_ptr<ColumnVectorBatch> cvb;
+            ColumnVectorBatch::create(1, false, type_info, &cvb);
+            ColumnBlock column_block(cvb.get(), &pool);
+>>>>>>> Restructure storage type to support list type.
             ColumnBlockView block_view(&column_block);
+            Slice* values = reinterpret_cast<Slice*>(column_block.data());
 
             size_t num = 1;
             size_t pos = random() % (page_start_ids[slice_index + 1] - page_start_ids[slice_index]);

@@ -35,7 +35,7 @@ public:
 
 template<FieldType field_type>
 void common_test(typename TypeTraits<field_type>::CppType src_val) {
-    TypeInfo* type = get_type_info(field_type);
+    TypeInfo* type = get_scalar_type_info(field_type);
 
     ASSERT_EQ(field_type, type->type());
     ASSERT_EQ(sizeof(src_val), type->size());

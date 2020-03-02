@@ -197,6 +197,15 @@ Status BinaryDictPageDecoder::init() {
     _encoding_type = static_cast<EncodingTypePB>(type);
     _data.remove_prefix(BINARY_DICT_PAGE_HEADER_SIZE);
     if (_encoding_type == DICT_ENCODING) {
+        // copy the codewords into a temporary buffer first
+        // And then copy the strings corresponding to the codewords to the destination buffer
+        TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_INT);
+
+        RETURN_IF_ERROR(ColumnVectorBatch::create(
+                1024,
+                false,
+                type_info,
+                &_batch));
         _data_page_decoder.reset(new BitShufflePageDecoder<OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
@@ -235,17 +244,13 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, ColumnBlockView* dst) {
         return Status::OK();
     }
     Slice* out = reinterpret_cast<Slice*>(dst->data());
-    _code_buf.resize((*n) * sizeof(int32_t));
+    _batch->resize(*n);
 
-    // copy the codewords into a temporary buffer first
-    // And then copy the strings corresponding to the codewords to the destination buffer
-    TypeInfo *type_info = get_type_info(OLAP_FIELD_TYPE_INT);
-    // the data in page is not null
-    ColumnBlock column_block(type_info, _code_buf.data(), nullptr, *n, dst->column_block()->pool());
+    ColumnBlock column_block(_batch.get(), dst->column_block()->pool());
     ColumnBlockView tmp_block_view(&column_block);
     RETURN_IF_ERROR(_data_page_decoder->next_batch(n, &tmp_block_view));
     for (int i = 0; i < *n; ++i) {
-        int32_t codeword = *reinterpret_cast<int32_t*>(&_code_buf[i * sizeof(int32_t)]);
+        int32_t codeword = *reinterpret_cast<const int32_t*>(column_block.cell_ptr(i));
         // get the string from the dict decoder
         Slice element = _dict_decoder->string_at_index(codeword);
         if (element.size > 0) {

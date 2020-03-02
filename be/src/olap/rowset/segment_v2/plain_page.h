@@ -195,7 +195,11 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t *n, ColumnBlockView *dst) override {
+    Status next_batch(size_t* n, ColumnBlockView* dst) override {
+        return next_batch(n, dst, true);
+    }
+
+    Status next_batch(size_t *n, ColumnBlockView *dst, bool forward_index) {
         DCHECK(_parsed);
 
         if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
@@ -207,9 +211,15 @@ public:
         memcpy(dst->data(),
                &_data[PLAIN_PAGE_HEADER_SIZE + _cur_idx * SIZE_OF_TYPE],
                max_fetch * SIZE_OF_TYPE);
-        _cur_idx += max_fetch;
+        if (forward_index) {
+            _cur_idx += max_fetch;
+        }
         *n = max_fetch;
         return Status::OK();
+    }
+
+    Status peek_next_batch(size_t *n, ColumnBlockView* dst) override {
+        return next_batch(n, dst, false);
     }
 
     size_t count() const override {

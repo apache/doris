@@ -151,6 +151,12 @@ message ColumnMetaPB {
     repeated ColumnIndexMetaPB indexes = 8;
     // pointer to dictionary page when using DICT_ENCODING
     optional PagePointerPB dict_page = 9;
+
+    repeated ColumnMetaPB children_columns = 10;
+    repeated string children_clolumn_names = 11;
+
+    // required
+    optional uint64 orinal = 12;
 }
 
 message SegmentFooterPB {

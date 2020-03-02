@@ -71,8 +71,8 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         opts.need_bloom_filter = column.is_bf_column();
         opts.need_bitmap_index = column.has_bitmap_index();
 
-        std::unique_ptr<ColumnWriter> writer(
-                new ColumnWriter(opts, std::move(field), _wblock));
+        std::unique_ptr<ColumnWriter> writer;
+        RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _wblock, &writer));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
     }

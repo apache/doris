@@ -77,13 +77,69 @@ private:
     RleEncoder<bool> _rle_encoder;
 };
 
+Status ColumnWriter::create(const ColumnWriterOptions& opts,
+                            std::unique_ptr<Field> field,
+                            fs::WritableBlock* output_file,
+                            std::unique_ptr<ColumnWriter>* writer) {
+
+    if (is_scalar_type(field->type())) {
+        std::unique_ptr<ColumnWriter> writer_local =
+                std::unique_ptr<ColumnWriter>(new ColumnWriter(opts, std::move(field), output_file));
+        *writer = std::move(writer_local);
+        return Status::OK();
+    } else {
+        return Status::NotSupported("unsupported type for ColumnWriter: " + std::to_string(field->type()));
+    }
+}
+Status ColumnWriter::create(const ColumnWriterOptions& opts,
+                            const TabletColumn* column,
+                            fs::WritableBlock* _wblock,
+                            std::unique_ptr<ColumnWriter>* writer) {
+    std::unique_ptr<Field> field(FieldFactory::create(*column));
+    DCHECK(field.get() != nullptr);
+    if (is_scalar_type(column->type())) {
+        RETURN_IF_ERROR(ColumnWriter::create(opts, std::move(field), _wblock, writer));
+        return Status::OK();
+    } else {
+        switch(field->type()) {
+            case FieldType::OLAP_FIELD_TYPE_LIST: {
+                DCHECK(column->get_subtype_count() == 1);
+                const TabletColumn& item_meta = column->get_sub_column(0);
+
+                ColumnWriterOptions item_options; // use default options.
+                item_options.meta = opts.meta->add_children_columns();
+                opts.meta->set_column_id(0);
+                opts.meta->set_unique_id(item_meta.unique_id());
+                opts.meta->set_type(field->type());
+                opts.meta->set_length(item_meta.length());
+                opts.meta->set_encoding(DEFAULT_ENCODING);
+                opts.meta->set_compression(LZ4F);
+                opts.meta->set_is_nullable(item_meta.is_nullable());
+
+                std::unique_ptr<ColumnWriter> item_writer;
+                RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_meta, _wblock, &item_writer));
+                std::unique_ptr<ColumnWriter> writer_local =
+                        std::unique_ptr<ColumnWriter>(
+                                new ListColumnWriter(opts,
+                                                         std::move(field),
+                                                         _wblock,
+                                                         std::move(item_writer)));
+                *writer = std::move(writer_local);
+                return Status::OK();
+            }
+            default:
+                return Status::NotSupported("unsupported type for ColumnWriter: " + std::to_string(field->type()));
+        }
+    }
+}
+
 ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
                            std::unique_ptr<Field> field,
                            fs::WritableBlock* wblock) :
         _opts(opts),
+        _is_nullable(_opts.meta->is_nullable()),
         _field(std::move(field)),
         _wblock(wblock),
-        _is_nullable(_opts.meta->is_nullable()),
         _data_size(0) {
     // these opts.meta fields should be set by client
     DCHECK(opts.meta->has_column_id());
@@ -106,6 +162,22 @@ ColumnWriter::~ColumnWriter() {
     }
 }
 
+Status ColumnWriter::create_page_builder(const EncodingInfo* encoding_info, PageBuilder** page_builder) {
+    // create page builder
+    PageBuilder* local = nullptr;
+    PageBuilderOptions opts;
+    opts.data_page_size = _opts.data_page_size;
+    RETURN_IF_ERROR(encoding_info->create_page_builder(opts, &local));
+    if (local == nullptr) {
+        return Status::NotSupported(
+                Substitute("Failed to create page builder for type $0 and encoding $1",
+                           _field->type(), _opts.meta->encoding()));
+    } else {
+        *page_builder = local;
+        return Status::OK();
+    }
+}
+
 Status ColumnWriter::init() {
     RETURN_IF_ERROR(EncodingInfo::get(_field->type_info(), _opts.meta->encoding(), &_encoding_info));
     _opts.meta->set_encoding(_encoding_info->encoding());
@@ -115,16 +187,8 @@ Status ColumnWriter::init() {
 
     RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), &_compress_codec));
 
-    // create page builder
     PageBuilder* page_builder = nullptr;
-    PageBuilderOptions opts;
-    opts.data_page_size = _opts.data_page_size;
-    RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
-    if (page_builder == nullptr) {
-        return Status::NotSupported(
-            Substitute("Failed to create page builder for type $0 and encoding $1",
-                       _field->type(), _opts.meta->encoding()));
-    }
+    RETURN_IF_ERROR(create_page_builder(_encoding_info, &page_builder));
     _page_builder.reset(page_builder);
     // create ordinal builder
     _ordinal_index_builder.reset(new OrdinalIndexWriter());
@@ -225,6 +289,19 @@ Status ColumnWriter::append_nullable(
     return Status::OK();
 }
 
+Status ColumnWriter::append_nullable_by_null_signs(const bool* null_signs, const void* data, size_t num_rows) {
+    const auto* ptr = (const uint8_t*)data;
+    for (size_t i = 0; i < num_rows; ++i) {
+        if (null_signs[i]) {
+            RETURN_IF_ERROR(append_nulls(1));
+        } else {
+            RETURN_IF_ERROR(append(ptr, 1));
+        }
+        ptr += _field->size();
+    }
+    return Status::OK();
+}
+
 uint64_t ColumnWriter::estimate_buffer_size() {
     uint64_t size = _data_size;
     size += _page_builder->size();
@@ -245,7 +322,9 @@ uint64_t ColumnWriter::estimate_buffer_size() {
 }
 
 Status ColumnWriter::finish() {
-    return _finish_current_page();
+    RETURN_IF_ERROR(_finish_current_page());
+    _opts.meta->set_orinal(_next_rowid);
+    return Status::OK();
 }
 
 Status ColumnWriter::write_data() {
@@ -346,6 +425,7 @@ Status ColumnWriter::_finish_current_page() {
     data_page_footer->set_first_ordinal(_first_rowid);
     data_page_footer->set_num_values(_next_rowid - _first_rowid);
     data_page_footer->set_nullmap_size(nullmap.slice().size);
+    RETURN_IF_ERROR(put_page_footer_info(data_page_footer));
 
     // trying to compress page body
     OwnedSlice compressed_body;
@@ -365,5 +445,104 @@ Status ColumnWriter::_finish_current_page() {
     return Status::OK();
 }
 
+////////////////////////////////////////////////////////////////////////////////
+
+ListColumnWriter::ListColumnWriter(const ColumnWriterOptions& opts,
+                         std::unique_ptr<Field> field,
+                                   fs::WritableBlock* output_file,
+                         std::unique_ptr<ColumnWriter> item_writer):
+        ColumnWriter(opts, std::move(field), output_file), _item_writer(std::move(item_writer)) {}
+
+Status ListColumnWriter::create_page_builder(const EncodingInfo* encoding_info, PageBuilder** page_builder) {
+    PageBuilder* local = nullptr;
+    PageBuilderOptions opts;
+    opts.data_page_size = _opts.data_page_size;
+    TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    const EncodingInfo* used_encoding_info;
+    RETURN_IF_ERROR(EncodingInfo::get(bigint_type_info, _opts.meta->encoding(), &used_encoding_info));
+
+    RETURN_IF_ERROR(used_encoding_info->create_page_builder(opts, &local));
+    if (local == nullptr) {
+        return Status::NotSupported(
+                Substitute("Failed to create page builder for type LIST encoding $0",
+                           _opts.meta->encoding()));
+    } else {
+        *page_builder = local;
+        return Status::OK();
+    }
 }
+ListColumnWriter::~ListColumnWriter() = default;
+
+Status ListColumnWriter::init() {
+    if (_opts.need_zone_map) {
+        return Status::NotSupported("unsupported zone map for list");
+    }
+
+    if (_opts.need_bitmap_index) {
+        return Status::NotSupported("unsupported bitmap for list");
+    }
+
+    if (_opts.need_bloom_filter) {
+        return Status::NotSupported("unsupported bloom filter for list");
+    }
+
+    RETURN_IF_ERROR(ColumnWriter::init());
+    RETURN_IF_ERROR(_item_writer->init());
+    return Status::OK();
+}
+
+Status ListColumnWriter::put_page_footer_info(DataPageFooterPB* footer) {
+    footer->set_next_array_item_ordinal(_next_item_ordinal);
+    return Status::OK();
+}
+
+// Now we can only write data one by one.
+Status ListColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
+    size_t remaining = num_rows;
+    const collection* col_cursor = reinterpret_cast<const collection*>(*ptr);
+    while (remaining > 0) {
+        size_t num_written = 1;
+        RETURN_IF_ERROR(_page_builder->add(reinterpret_cast<const uint8_t*>(&_next_item_ordinal), &num_written));
+
+        remaining -= num_written;
+        _next_rowid += num_written;
+        col_cursor += num_written;
+        if (_is_nullable) {
+            _null_bitmap_builder->add_run(false, num_written);
+        }
+        bool is_page_full = num_written < 1;
+        if (is_page_full) { // 没有写出数据
+            RETURN_IF_ERROR(_finish_current_page());
+        }  else {
+            // write child item.
+            _item_writer->append_nullable_by_null_signs(col_cursor->null_signs, col_cursor->data, col_cursor->length);
+            _next_item_ordinal += col_cursor->length;
+        }
+    }
+    return Status::OK();
+}
+
+uint64_t ListColumnWriter::estimate_buffer_size() {
+    return ColumnWriter::estimate_buffer_size() + _item_writer->estimate_buffer_size();
+}
+
+Status ListColumnWriter::finish() {
+    RETURN_IF_ERROR(ColumnWriter::finish());
+    RETURN_IF_ERROR(_item_writer->finish());
+    return Status::OK();
+}
+
+Status ListColumnWriter::write_data() {
+    RETURN_IF_ERROR(ColumnWriter::write_data());
+    RETURN_IF_ERROR(_item_writer->write_data());
+    return Status::OK();
+}
+
+Status ListColumnWriter::write_ordinal_index() {
+    RETURN_IF_ERROR(ColumnWriter::write_ordinal_index());
+    RETURN_IF_ERROR(_item_writer->write_ordinal_index());
+    return Status::OK();
+}
+
+} // namespace segment_v2 end
 }

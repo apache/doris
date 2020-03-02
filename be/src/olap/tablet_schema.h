@@ -52,6 +52,30 @@ public:
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() { return _visible; }
+    /**
+     * Add a sub column.
+     */
+    void add_sub_column(TabletColumn& sub_column);
+
+    OLAPStatus add_struct_field(const std::string& field_name, TabletColumn& tablet_column) {
+        OLAPStatus sc_status = add_sub_column(tablet_column);
+        if (sc_status != OLAP_SUCCESS) {
+            return sc_status;
+        }
+        _field_names.push_back(field_name);
+        return OLAP_SUCCESS;
+    }
+    uint32_t get_subtype_count() const {
+        return _sub_column_count;
+    }
+    const TabletColumn& get_sub_column(uint32_t i) const {
+        return _sub_columns[i];
+    }
+
+    const std::string& get_field_name(uint32_t i) {
+        return _field_names[i];
+    }
+>>>>>>> Restructure storage type to support list type.
 
     friend bool operator==(const TabletColumn& a, const TabletColumn& b);
     friend bool operator!=(const TabletColumn& a, const TabletColumn& b);
@@ -88,6 +112,11 @@ private:
 
     bool _has_bitmap_index = false;
     bool _visible = true;
+
+    TabletColumn* _parent = nullptr;
+    std::vector<TabletColumn> _sub_columns;
+    std::vector<std::string> _field_names;
+    uint32_t _sub_column_count = 0;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);

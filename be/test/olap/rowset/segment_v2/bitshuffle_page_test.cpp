@@ -36,15 +36,24 @@ public:
 
     template<FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
+<<<<<<< HEAD
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
         uint8_t null_bitmap = 0;
         ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, 1, &pool);
+=======
+        MemTracker tracker;
+        MemPool pool(&tracker);
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        ColumnVectorBatch::create(1, true, get_scalar_type_info(type), &cvb);
+        ColumnBlock block(cvb.get(), &pool);
+>>>>>>> Restructure storage type to support list type.
         ColumnBlockView column_block_view(&block);
 
         size_t n = 1;
         decoder->_copy_next_values(n, column_block_view.data());
         ASSERT_EQ(1, n);
+        *ret = *reinterpret_cast<const typename TypeTraits<type>::CppType*>(block.cell_ptr(0));
     }
 
     template <FieldType Type, class PageBuilderType, class PageDecoderType>
@@ -75,14 +84,15 @@ public:
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
 
-        CppType* values = reinterpret_cast<CppType*>(pool.allocate(size * sizeof(CppType)));
-        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size)));
-        ColumnBlock block(get_type_info(Type), (uint8_t*)values, null_bitmap, size, &pool);
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        ColumnVectorBatch::create(size, false, get_scalar_type_info(Type), &cvb);
+        ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 
         status = page_decoder.next_batch(&size, &column_block_view);
         ASSERT_TRUE(status.ok());
 
+        CppType* values = reinterpret_cast<CppType*>(block.data());
         CppType* decoded = (CppType*)values;
         for (uint i = 0; i < size; i++) {
             if (src[i] != decoded[i]) {

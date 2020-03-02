@@ -25,10 +25,13 @@
 #include <sstream>
 #include <string>
 
+#include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
+#include "olap/collection.h"
+#include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_schema.h" // for TabletColumn
 #include "olap/uint24.h"
-#include "olap/decimal12.h"
 #include "runtime/mem_pool.h"
 #include "runtime/datetime_value.h"
 #include "util/hash_util.hpp"
@@ -38,53 +41,85 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
+class TabletColumn;
 
 class TypeInfo {
 public:
-    inline bool equal(const void* left, const void* right) const {
+    virtual bool equal(const void* left, const void* right) const = 0;
+    virtual int cmp(const void* left, const void* right) const = 0;
+
+    virtual void shallow_copy(void* dest, const void* src) const = 0;
+
+    virtual void deep_copy(void* dest, const void* src, MemPool* mem_pool) const = 0;
+
+    // See copy_row_in_memtable() in olap/row.h, will be removed in future.
+    // It is same with deep_copy() for all type except for HLL and OBJECT type
+    virtual void copy_object(void* dest, const void* src, MemPool* mem_pool) const = 0;
+
+    virtual void direct_copy(void* dest, const void* src) const = 0;
+
+    //convert and deep copy value from other type's source
+    virtual OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const = 0;
+
+    virtual OLAPStatus from_string(void* buf, const std::string& scan_key) const = 0;
+
+    virtual std::string to_string(const void* src) const = 0;
+
+    virtual void set_to_max(void* buf) const = 0;
+    virtual void set_to_min(void* buf) const = 0;
+
+    virtual uint32_t hash_code(const void* data, uint32_t seed) const = 0;
+    virtual const size_t size() const = 0;
+
+    virtual FieldType type() const = 0;
+};
+
+class ScalarTypeInfo : public TypeInfo {
+public:
+    inline bool equal(const void* left, const void* right) const override {
         return _equal(left, right);
     }
 
-    inline int cmp(const void* left, const void* right) const {
+    inline int cmp(const void* left, const void* right) const override {
         return _cmp(left, right);
     }
 
-    inline void shallow_copy(void* dest, const void* src) const {
+    inline void shallow_copy(void* dest, const void* src) const override {
         _shallow_copy(dest, src);
     }
 
-    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
+    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         _deep_copy(dest, src, mem_pool);
     }
 
     // See copy_row_in_memtable() in olap/row.h, will be removed in future.
     // It is same with deep_copy() for all type except for HLL and OBJECT type
-    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const {
+    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
         _copy_object(dest, src, mem_pool);
     }
 
-    inline void direct_copy(void* dest, const void* src) const {
+    inline void direct_copy(void* dest, const void* src) const override {
         _direct_copy(dest, src);
     }
 
     //convert and deep copy value from other type's source
-    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const{
+    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const override {
         return _convert_from(dest, src, src_type, mem_pool);
     }
 
-    OLAPStatus from_string(void* buf, const std::string& scan_key) const {
+    OLAPStatus from_string(void* buf, const std::string& scan_key) const override {
         return _from_string(buf, scan_key);
     }
 
-    std::string to_string(const void* src) const { return _to_string(src); }
+    std::string to_string(const void* src) const override { return _to_string(src); }
 
-    inline void set_to_max(void* buf) const { _set_to_max(buf); }
-    inline void set_to_min(void* buf) const { _set_to_min(buf); }
+    inline void set_to_max(void* buf) const override { _set_to_max(buf); }
+    inline void set_to_min(void* buf) const override { _set_to_min(buf); }
 
-    inline uint32_t hash_code(const void* data, uint32_t seed) const { return _hash_code(data, seed); }
-    inline const size_t size() const { return _size; }
+    inline uint32_t hash_code(const void* data, uint32_t seed) const override { return _hash_code(data, seed); }
+    inline const size_t size() const override { return _size; }
 
-    inline FieldType type() const { return _field_type; }
+    inline FieldType type() const override { return _field_type; }
 private:
     bool (*_equal)(const void* left, const void* right);
     int (*_cmp)(const void* left, const void* right);
@@ -106,11 +141,159 @@ private:
     const size_t _size;
     const FieldType _field_type;
 
-    friend class TypeInfoResolver;
-    template<typename TypeTraitsClass> TypeInfo(TypeTraitsClass t);
+    friend class ScalarTypeInfoResolver;
+    template<typename TypeTraitsClass> ScalarTypeInfo(TypeTraitsClass t);
 };
 
+class ListTypeInfo : public TypeInfo {
+public:
+    explicit ListTypeInfo(TypeInfo* item_type_info)
+    : _item_type_info(item_type_info), _item_size(item_type_info->size()) {
+    }
+
+    inline bool equal(const void* left, const void* right) const override {
+        auto l_value = reinterpret_cast<const collection*>(left);
+        auto r_value = reinterpret_cast<const collection*>(right);
+        if (l_value->length != r_value->length) {
+            return false;
+        }
+        size_t len = l_value->length;
+
+        for (size_t i = 0; i < len; ++i){
+            if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size, (uint8_t*)(r_value->data) + i * _item_size)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    inline int cmp(const void* left, const void* right) const override {
+        auto l_value = reinterpret_cast<const collection*>(left);
+        auto r_value = reinterpret_cast<const collection*>(right);
+        size_t l_length = l_value->length;
+        size_t r_length = r_value->length;
+        size_t cur = 0;
+        while (cur < l_length && cur < r_length) {
+            int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size, (uint8_t*)(r_value->data) + cur * _item_size);
+            if (result != 0) {
+                return result;
+            }
+            ++cur;
+        }
+        if (l_length < r_length) {
+            return -1;
+        } else if (l_length > r_length) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    inline void shallow_copy(void* dest, const void* src) const override {
+        *reinterpret_cast<collection*>(dest) = *reinterpret_cast<const collection*>(src);
+    }
+
+    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
+        auto dest_value = reinterpret_cast<collection*>(dest);
+        auto src_value = reinterpret_cast<const collection*>(src);
+
+        dest_value->length = src_value->length;
+
+        size_t item_size = src_value->length * _item_size;
+        size_t nulls_size = dest_value->length;
+        dest_value->data = mem_pool->allocate(item_size + nulls_size);
+        dest_value->null_signs = reinterpret_cast<bool*>(dest_value->data) + item_size;
+
+        // copy item
+        for (size_t i = 0; i < src_value->length; ++i) {
+            _item_type_info->deep_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size, mem_pool);
+        }
+        // copy null_signs
+        memory_copy(dest_value->null_signs, src_value->null_signs, sizeof(bool) * src_value->length);
+    }
+
+    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
+        deep_copy(dest, src, mem_pool);
+    }
+
+    // TODO llj 疑惑，我direct_copy可以保证collection的长度够用，但如何保证item的长度够用?
+    inline void direct_copy(void* dest, const void* src) const override {
+        auto dest_value = reinterpret_cast<collection*>(dest);
+        auto src_value = reinterpret_cast<const collection*>(src);
+
+        dest_value->length = src_value->length;
+
+        // direct opy item
+        for (size_t i = 0; i < src_value->length; ++i) {
+            _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size);
+        }
+        // direct copy null_signs
+        memory_copy(dest_value->null_signs, src_value->null_signs, src_value->length);
+    }
+
+    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const override {
+        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    }
+
+    OLAPStatus from_string(void* buf, const std::string& scan_key) const {
+        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    }
+
+    std::string to_string(const void* src) const override {
+        auto src_value = reinterpret_cast<const collection*>(src);
+        std::string result = "[";
+
+        for (size_t i = 0; i< src_value->length; ++i) {
+            std::string item = _item_type_info->to_string((uint8_t*)(src_value->data) + i * _item_size);
+            result += item;
+            if (i != src_value->length - 1) {
+                result += ", ";
+            }
+        }
+        result += "]";
+        return result;
+    }
+
+    inline void set_to_max(void* buf) const override {
+        DCHECK(false) << "set_to_max of list is not implemented.";
+    }
+
+    inline void set_to_min(void* buf) const override {
+        DCHECK(false) << "set_to_min of list is not implemented.";
+    }
+
+    inline uint32_t hash_code(const void* data, uint32_t seed) const override {
+        auto value = reinterpret_cast<const collection*>(data);
+        uint32_t result = HashUtil::hash(&(value->length), sizeof(size_t), seed);
+        for (size_t i = 0; i < value->length; ++i) {
+            if (value->null_signs[i]) {
+                result = seed * result;
+            } else {
+                result = seed * result + _item_type_info->hash_code((uint8_t*)(value->data) + i * _item_size, seed);
+            }
+        }
+        return result;
+    }
+
+    inline const size_t size() const override { return sizeof(collection); }
+
+    inline FieldType type() const override { return OLAP_FIELD_TYPE_LIST; }
+
+    inline const TypeInfo* item_type_info() const { return _item_type_info; }
+private:
+    const TypeInfo* _item_type_info;
+    const size_t _item_size;
+};
+
+extern bool is_scalar_type(FieldType field_type);
+
+extern TypeInfo* get_scalar_type_info(FieldType field_type);
+
 extern TypeInfo* get_type_info(FieldType field_type);
+
+extern TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb);
+
+extern TypeInfo* get_type_info(const TabletColumn* col);
 
 // support following formats when convert varchar to date
 static const std::vector<std::string> DATE_FORMATS {
@@ -187,6 +370,9 @@ template<> struct CppTypeTraits<OLAP_FIELD_TYPE_HLL> {
 };
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
     using CppType = Slice;
+};
+template<> struct CppTypeTraits<OLAP_FIELD_TYPE_LIST> {
+    using CppType = collection;
 };
 
 template<FieldType field_type>

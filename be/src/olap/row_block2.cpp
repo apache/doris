@@ -29,31 +29,21 @@ namespace doris {
 RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
         : _schema(schema),
           _capacity(capacity),
-          _column_datas(_schema.num_columns(), nullptr),
-          _column_null_bitmaps(_schema.num_columns(), nullptr),
+          _column_vector_batches(_schema.num_columns()),
           _tracker(new MemTracker(-1, "RowBlockV2")),
-          _pool(new MemPool(_tracker.get())),
-          _selection_vector(nullptr) {
-    auto bitmap_size = BitmapSize(capacity);
+          _pool(new MemPool(_tracker.get())),      _selection_vector(nullptr) {
     for (auto cid : _schema.column_ids()) {
-        size_t data_size = _schema.column(cid)->type_info()->size() * _capacity;
-        _column_datas[cid] = new uint8_t[data_size];
-
-        if (_schema.column(cid)->is_nullable()) {
-            _column_null_bitmaps[cid] = new uint8_t[bitmap_size];
-        }
+        ColumnVectorBatch::create(
+                _capacity,
+                _schema.column(cid)->is_nullable(),
+                _schema.column(cid)->type_info(),
+                &_column_vector_batches[cid]);
     }
     _selection_vector = new uint16_t[_capacity];
     clear();
 }
 
 RowBlockV2::~RowBlockV2() {
-    for (auto data : _column_datas) {
-        delete[] data;
-    }
-    for (auto null_bitmap : _column_null_bitmaps) {
-        delete[] null_bitmap;
-    }
     delete[] _selection_vector;
 }
 
@@ -64,7 +54,7 @@ Status RowBlockV2::convert_to_row_block(RowCursor* helper, RowBlock* dst) {
             for (uint16_t i = 0; i < _selected_size; ++i) {
                 uint16_t row_idx = _selection_vector[i];
                 dst->get_row(i, helper);
-                bool is_null = BitmapTest(_column_null_bitmaps[cid], row_idx);
+                bool is_null = column_block(cid).is_null(row_idx);
                 if (is_null) {
                     helper->set_null(cid);
                 } else {

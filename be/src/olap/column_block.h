@@ -19,6 +19,7 @@
 
 #include <cstdint>
 
+#include "olap/column_vector.h"
 #include "olap/types.h"
 #include "util/bitmap.h"
 
@@ -32,30 +33,31 @@ class ColumnBlockCell;
 // It doesn't own any data, user should keep the life of input data.
 class ColumnBlock {
 public:
-    ColumnBlock(const TypeInfo* type_info, uint8_t* data, uint8_t* null_bitmap,
-                size_t nrows, MemPool* pool)
-        : _type_info(type_info), _data(data), _null_bitmap(null_bitmap),
-          _nrows(nrows), _delete_state(DEL_NOT_SATISFIED), _pool(pool) { }
+    ColumnBlock(ColumnVectorBatch* batch, MemPool* pool)
+        : _batch(batch), _delete_state(DEL_NOT_SATISFIED), _pool(pool) { }
 
-    const TypeInfo* type_info() const { return _type_info; }
-    uint8_t* data() const { return _data; }
-    uint8_t* null_bitmap() const { return _null_bitmap; }
-    bool is_nullable() const { return _null_bitmap != nullptr; }
+    const TypeInfo* type_info() const { return _batch->type_info(); }
+    uint8_t* data() const { return _batch->data(); }
+    bool is_nullable() const { return _batch->is_nullable(); }
     MemPool* pool() const { return _pool; }
-    const uint8_t* cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
-    uint8_t* mutable_cell_ptr(size_t idx) const { return _data + idx * _type_info->size(); }
+    const uint8_t* cell_ptr(size_t idx) const { return _batch->cell_ptr(idx); }
+    uint8_t* mutable_cell_ptr(size_t idx) const { return _batch->mutable_cell_ptr(idx); }
     bool is_null(size_t idx) const {
-        return is_nullable() && BitmapTest(_null_bitmap, idx);
+        return _batch->is_null_at(idx);
     }
     void set_is_null(size_t idx, bool is_null) const {
-        if (is_nullable()) {
-            BitmapChange(_null_bitmap, idx, is_null);
-        }
+        _batch->set_is_null(idx, is_null);
     }
+
+    void set_null_bits(size_t offset, size_t num_rows, bool val) const {
+        _batch->set_null_bits(offset, num_rows, val);
+    }
+
+    ColumnVectorBatch* vector_batch() const { return _batch; }
 
     ColumnBlockCell cell(size_t idx) const;
 
-    size_t nrows() const { return _nrows; }
+    size_t nrows() const { return _batch->get_capacity(); }
 
     void set_delete_state(DelCondSatisfied delete_state) {
         _delete_state = delete_state;
@@ -64,10 +66,7 @@ public:
     DelCondSatisfied delete_state() const { return _delete_state; }
 
 private:
-    const TypeInfo* _type_info;
-    uint8_t* _data;
-    uint8_t* _null_bitmap;
-    size_t _nrows;
+    ColumnVectorBatch* _batch;
     DelCondSatisfied _delete_state;
     MemPool* _pool;
 };
@@ -101,10 +100,12 @@ public:
     const TypeInfo* type_info() const { return _block->type_info(); }
     MemPool* pool() const { return _block->pool(); }
     void set_null_bits(size_t num_rows, bool val) {
-        BitmapChangeBits(_block->null_bitmap(), _row_offset, num_rows, val);
+        _block->set_null_bits(_row_offset, num_rows, val);
     }
     bool is_nullable() const { return _block->is_nullable(); }
     uint8_t* data() const { return _block->mutable_cell_ptr(_row_offset); }
+    size_t current_offset() { return _row_offset; }
+
 private:
     ColumnBlock* _block;
     size_t _row_offset;

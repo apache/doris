@@ -81,6 +81,11 @@ public:
     // allocated in the column_vector_view's mem_pool.
     virtual Status next_batch(size_t* n, ColumnBlockView* dst) = 0;
 
+    // Same as `next_batch` except for not adding index
+    virtual Status peek_next_batch(size_t *n, ColumnBlockView* dst) {
+        return Status::NotSupported("peek_next_batch");
+    }
+
     // Return the number of elements in this page.
     virtual size_t count() const = 0;
 

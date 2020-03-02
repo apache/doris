@@ -23,6 +23,7 @@
 #include "gen_cpp/segment_v2.pb.h" // for EncodingTypePB
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
+#include "olap/tablet_schema.h" // for TabletColumn
 #include "util/bitmap.h" // for BitmapChange
 #include "util/slice.h" // for OwnedSlice
 
@@ -65,12 +66,20 @@ class ZoneMapIndexWriter;
 // to file
 class ColumnWriter {
 public:
-    ColumnWriter(const ColumnWriterOptions& opts,
-                 std::unique_ptr<Field> field,
-                 fs::WritableBlock* output_file);
-    ~ColumnWriter();
 
-    Status init();
+    static Status create(const ColumnWriterOptions& opts,
+                         std::unique_ptr<Field> field,
+                         fs::WritableBlock* output_file,
+                         std::unique_ptr<ColumnWriter>* writer);
+
+    static Status create(const ColumnWriterOptions& opts,
+                         const TabletColumn* column,
+                         fs::WritableBlock* _wblock,
+                         std::unique_ptr<ColumnWriter>* writer);
+
+    virtual ~ColumnWriter();
+
+    virtual Status init();
 
     template<typename CellType>
     Status append(const CellType& cell) {
@@ -94,18 +103,43 @@ public:
     Status append_nulls(size_t num_rows);
     Status append(const void* data, size_t num_rows);
     Status append_nullable(const uint8_t* nullmap, const void* data, size_t num_rows);
+    Status append_nullable_by_null_signs(const bool* null_signs, const void* data, size_t num_rows);
 
-    uint64_t estimate_buffer_size();
+    virtual uint64_t estimate_buffer_size();
 
     // finish append data
-    Status finish();
+    virtual Status finish();
 
     // write all data into file
-    Status write_data();
-    Status write_ordinal_index();
+    virtual Status write_data();
+    virtual Status write_ordinal_index();
     Status write_zone_map();
     Status write_bitmap_index();
     Status write_bloom_filter_index();
+
+protected:
+    ColumnWriter(const ColumnWriterOptions& opts,
+                 std::unique_ptr<Field> field,
+                 fs::WritableBlock* output_file);
+    // used in init() for create page builder.
+    virtual Status create_page_builder(const EncodingInfo* encoding_info, PageBuilder** page_builder);
+
+    // used for append not null data.
+    virtual Status _append_data(const uint8_t** ptr, size_t num_rows);
+
+    Status _finish_current_page();
+
+    virtual Status put_page_footer_info(DataPageFooterPB* header) { return Status::OK(); };
+
+    std::unique_ptr<PageBuilder> _page_builder;
+
+    std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
+
+    ColumnWriterOptions _opts;
+
+    bool _is_nullable;
+
+    ordinal_t _next_rowid = 0;
 
 private:
     // All Pages will be organized into a linked list
@@ -141,28 +175,21 @@ private:
         _data_size += 20;
     }
 
-    Status _append_data(const uint8_t** ptr, size_t num_rows);
-    Status _finish_current_page();
     Status _write_data_page(Page* page);
 
 private:
-    ColumnWriterOptions _opts;
     std::unique_ptr<Field> _field;
     fs::WritableBlock* _wblock = nullptr;
-    bool _is_nullable;
     // total size of data page list
     uint64_t _data_size;
 
     // cached generated pages,
     PageHead _pages;
     ordinal_t _first_rowid = 0;
-    ordinal_t _next_rowid = 0;
+
 
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
-
-    std::unique_ptr<PageBuilder> _page_builder;
-    std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
 
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
     std::unique_ptr<ZoneMapIndexWriter> _zone_map_index_builder;
@@ -170,6 +197,35 @@ private:
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 };
 
+class ListColumnWriter : public ColumnWriter {
+public:
+    ~ListColumnWriter() override;
 
-}
-}
+    Status init() override ;
+
+protected:
+    // used in init() for create page builder.
+    Status create_page_builder(const EncodingInfo* encoding_info, PageBuilder** page_builder) override;
+
+    Status _append_data(const uint8_t** ptr, size_t num_rows) override;
+
+    Status put_page_footer_info(DataPageFooterPB* header) override;
+
+    uint64_t estimate_buffer_size() override ;
+    Status finish() override ;
+    Status write_data() override ;
+    Status write_ordinal_index() override ;
+
+private:
+    ListColumnWriter(const ColumnWriterOptions& opts,
+                     std::unique_ptr<Field> field,
+                     fs::WritableBlock* output_file,
+                     std::unique_ptr<ColumnWriter> item_writer);
+
+    std::unique_ptr<ColumnWriter> _item_writer;
+    ordinal_t _next_item_ordinal = 0;
+
+    friend class ColumnWriter;
+};
+}  // namespace segment_v2
+}  // namespace doris

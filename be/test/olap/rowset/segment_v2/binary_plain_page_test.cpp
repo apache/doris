@@ -72,12 +72,13 @@ public:
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
         size_t size = 3;
-        Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
-        uint8_t* null_bitmap = reinterpret_cast<uint8_t*>(pool.allocate(BitmapSize(size)));
-        ColumnBlock block(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values, null_bitmap, size, &pool);
+        std::unique_ptr<ColumnVectorBatch> cvb;
+        ColumnVectorBatch::create(size, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR), &cvb);
+        ColumnBlock block(cvb.get(), &pool);
         ColumnBlockView column_block_view(&block);
 
         status = page_decoder.next_batch(&size, &column_block_view);
+        Slice* values = reinterpret_cast<Slice*>(block.data());
         ASSERT_TRUE(status.ok());
 
         Slice* value = reinterpret_cast<Slice*>(values);
@@ -86,13 +87,15 @@ public:
         ASSERT_EQ (",", value[1].to_string());
         ASSERT_EQ ("Doris", value[2].to_string());
         
-        Slice* values2 = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
-        ColumnBlock block2(get_type_info(OLAP_FIELD_TYPE_VARCHAR), (uint8_t*)values2, null_bitmap, 1, &pool);
+        std::unique_ptr<ColumnVectorBatch> cvb2;
+        ColumnVectorBatch::create(1, true, get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR), &cvb2);
+        ColumnBlock block2(cvb2.get(), &pool);
         ColumnBlockView column_block_view2(&block2);
 
         size_t fetch_num = 1;
         page_decoder.seek_to_position_in_page(2);
         status = page_decoder.next_batch(&fetch_num, &column_block_view2);
+        Slice* values2 = reinterpret_cast<Slice*>(block2.data());
         ASSERT_TRUE(status.ok());
         Slice* value2 = reinterpret_cast<Slice*>(values2);
         ASSERT_EQ (1, fetch_num);

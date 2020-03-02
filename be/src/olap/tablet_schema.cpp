@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <vector>
-
 #include "olap/tablet_schema.h"
 
 namespace doris {
@@ -311,6 +309,12 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_visible()) {
         _visible = column.visible();
     }
+    if (_type == FieldType::OLAP_FIELD_TYPE_LIST) {
+        DCHECK(column.children_columns_size() == 1) << "LIST type has more than 1 children types.";
+        TabletColumn child_column;
+        child_column.init_from_pb(column.children_columns(0));
+        add_sub_column(child_column);
+    }
 }
 
 void TabletColumn::to_schema_pb(ColumnPB* column) {
@@ -339,6 +343,12 @@ void TabletColumn::to_schema_pb(ColumnPB* column) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
     column->set_visible(_visible);
+}
+
+void TabletColumn::add_sub_column(TabletColumn& sub_column) {
+    _sub_columns.push_back(sub_column);
+    sub_column._parent = this;
+    _sub_column_count += 1;
 }
 
 void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
