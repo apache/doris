@@ -174,7 +174,7 @@ Authentication information is usually provided as a Key-Value in the Property Ma
     
     * `hadoop.security.authentication`: Specify the authentication method as kerberos.
     * `kerberos_principal`： Specify the principal of kerberos.
-    * `kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.径。
+    * `kerberos_keytab`: Specify the path to the keytab file for kerberos. The file must be an absolute path to a file on the server where the broker process is located. And can be accessed by the Broker process.
     * `kerberos_keytab_content`: Specify the content of the keytab file in kerberos after base64 encoding. You can choose one of these with `kerberos_keytab` configuration.
 
     Examples are as follows：
