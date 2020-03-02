@@ -328,7 +328,7 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
             CollectionIterator src_iter = src->iterator(children_type);
             CollectionIterator val_iter = val->iterator(children_type);
 
-            val->deep_copy_bitmap(src);
+            val->copy_null_signs(src);
             
             while (src_iter.has_next() && val_iter.has_next()) {
                 if (!src_iter.is_null()) {

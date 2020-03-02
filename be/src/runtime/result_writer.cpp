@@ -60,10 +60,9 @@ Status ResultWriter::init(RuntimeState* state) {
 int ResultWriter::add_row_value(int index, const TypeDescriptor& type, void* item) {
     int buf_ret = 0;
 
-    if (NULL == item) {
+    if (item == nullptr) {
         return _row_buffer->push_null();
     }
-
 
     switch (type.type) {
         case TYPE_BOOLEAN:

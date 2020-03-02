@@ -28,6 +28,9 @@ class CollectionFunctions {
 public:
     static void init();
 
+    /**
+     * array construct functions, create array with the children values
+     */
     static CollectionVal array(FunctionContext* context, int num_children, const IntVal* values);
 
     static CollectionVal array(FunctionContext* context, int num_children, const StringVal* values);

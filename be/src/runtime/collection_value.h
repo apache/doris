@@ -30,32 +30,52 @@ using doris_udf::AnyVal;
 
 class CollectionIterator;
 
+/**
+ * The format of array-typed slot.
+ * The collection's sub-element type just support: 
+ * - INT32
+ * - CHAR
+ * - VARCHAR
+ * - NULL
+ * 
+ * A new collection need initialization memory before used
+ */
 class CollectionValue {
 
 public:
     CollectionValue() : _length(0), _null_signs(NULL), _data(NULL) {};
 
     CollectionValue(int len, bool* null_signs, void* data) : _length(len), _null_signs(null_signs),
-                                                                 _data(data) {};
+                                                             _data(data) {};
 
     void to_collection_val(CollectionVal* collectionVal) const;
-    
+
     int size() const { return _length; }
-    
-    void shallow_copy(const CollectionValue* other); 
-    
-    void deep_copy_bitmap(const CollectionValue* other);
+
+    void shallow_copy(const CollectionValue* other);
+
+    void copy_null_signs(const CollectionValue* other);
 
     CollectionIterator iterator(const PrimitiveType& children_type) const;
-    
+
+    /**
+     * just shallow copy sub-elment value
+     * For special type, will shared actual value's memory, like StringValue.
+     */
     Status set(const int& i, const PrimitiveType& type, const AnyVal* value);
-    
-    static Status init_collection(ObjectPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val);
 
-    static Status init_collection(MemPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val);
+    /**
+     * init collection, will alloc (children Type's size + 1) * (children Nums) memory  
+     */
+    static Status
+    init_collection(ObjectPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val);
 
-    static Status init_collection(FunctionContext* context, const int& size, const PrimitiveType& child_type, CollectionValue* val);
-    
+    static Status
+    init_collection(MemPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val);
+
+    static Status
+    init_collection(FunctionContext* context, const int& size, const PrimitiveType& child_type, CollectionValue* val);
+
     static CollectionValue from_collection_val(const CollectionVal& val);
 
 private:
@@ -70,11 +90,13 @@ private:
     // TYPE_BIGINT: int64_t
     // TYPE_CHAR/VARCHAR/OBJECT: StringValue 
     void* _data;
-    
+
     friend CollectionIterator;
 };
 
-
+/**
+ * Collection's Iterator, support read collection by special type
+ */
 class CollectionIterator {
 private:
     CollectionIterator(const PrimitiveType& children_type, const CollectionValue* data);
@@ -82,7 +104,7 @@ private:
 public:
 
     bool seek(int n) {
-        if (n >= _data->size()){
+        if (n >= _data->size()) {
             return false;
         }
 
@@ -96,7 +118,7 @@ public:
 
     bool next() {
         if (_offset < _data->size()) {
-            _offset ++;
+            _offset++;
             return true;
         }
 
@@ -104,7 +126,7 @@ public:
     }
 
     bool is_null();
-    
+
     void* value();
 
     void value(AnyVal* dest);
@@ -114,7 +136,7 @@ private:
     int _type_size;
     const PrimitiveType _type;
     const CollectionValue* _data;
-    
+
     friend CollectionValue;
 };
 

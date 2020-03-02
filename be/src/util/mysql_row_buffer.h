@@ -57,9 +57,32 @@ public:
     int length() const {
         return _pos - _buf;
     }
-    
+
+    /**
+     * Why?
+     * Because the Nested-Type's data need pushed multiple times, but mysql protocal don't support nested type and each 
+     * push will decide a column data.  
+     * 
+     * How?
+     * Dynamic mode allow we can push data in a column multiple times, and allow recursive push. 
+     * NOTE:Need to ensure the open() and close() appear in pairs
+     * 
+     * the code:
+     *     mrb.push_smallint(120);
+     *     mrb.push_int(-30000);
+     *     mrb.push_bigint(900000);
+     * 
+     * In normal mode, the buffer contains three column:
+     *  1-'5'-3-'120'-6-'-30000' 
+     *
+     * Same code in dynamic mode, the buffer contains a column:
+     *  254-48-'5'-'120'-'-30000'
+     */
     void open_dynamic_mode();
     
+    /**
+     * NOTE:Need to ensure the open() and close() appear in pairs
+     */
     void close_dynamic_mode();
     
 private:

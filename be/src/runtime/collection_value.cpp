@@ -25,7 +25,7 @@
 
 namespace doris {
 
-int sizeof_type(const PrimitiveType &type) {
+int sizeof_type(const PrimitiveType& type) {
     switch (type) {
         case TYPE_INT:
             return sizeof(int32_t);
@@ -52,7 +52,7 @@ Status type_check(const PrimitiveType& type) {
         default:
             return Status::InvalidArgument("Type not implemented: " + type);
     }
-    
+
     return Status::OK();
 }
 
@@ -63,13 +63,13 @@ void CollectionValue::to_collection_val(CollectionVal* collectionVal) const {
     collectionVal->null_signs = _null_signs;
 }
 
-void CollectionValue::shallow_copy(const CollectionValue *value) {
+void CollectionValue::shallow_copy(const CollectionValue* value) {
     _length = value->_length;
     _null_signs = value->_null_signs;
     _data = value->_data;
 }
 
-void CollectionValue::deep_copy_bitmap(const CollectionValue *other) {
+void CollectionValue::copy_null_signs(const CollectionValue* other) {
     memcpy(_null_signs, other->_null_signs, other->size());
 }
 
@@ -79,11 +79,11 @@ CollectionIterator CollectionValue::iterator(const PrimitiveType& children_type)
 
 
 Status CollectionValue::init_collection(ObjectPool* pool, const int& size,
-                                            const PrimitiveType& child_type, CollectionValue* val) {
-    if (val == NULL) {
+                                        const PrimitiveType& child_type, CollectionValue* val) {
+    if (val == nullptr) {
         return Status::InvalidArgument("collection value is null");
     }
-    
+
     RETURN_IF_ERROR(type_check(child_type));
 
     if (size == 0) {
@@ -91,14 +91,15 @@ Status CollectionValue::init_collection(ObjectPool* pool, const int& size,
     }
 
     val->_length = size;
-    val->_null_signs = pool->add_array(new bool[size] {0});
+    val->_null_signs = pool->add_array(new bool[size]{0});
     val->_data = pool->add_array(new uint8_t[size * sizeof_type(child_type)]);
     return Status::OK();
 }
 
 Status
-CollectionValue::init_collection(MemPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val) {
-    if (val == NULL) {
+CollectionValue::init_collection(MemPool* pool, const int& size, const PrimitiveType& child_type,
+                                 CollectionValue* val) {
+    if (val == nullptr) {
         return Status::InvalidArgument("collection value is null");
     }
 
@@ -111,14 +112,14 @@ CollectionValue::init_collection(MemPool* pool, const int& size, const Primitive
     val->_length = size;
     val->_null_signs = (bool*) pool->allocate(size * sizeof(bool));
     memset(val->_null_signs, 0, size);
-    
+
     val->_data = pool->allocate(sizeof_type(child_type) * size);
     return Status::OK();
 }
 
 Status CollectionValue::init_collection(FunctionContext* context, const int& size, const PrimitiveType& child_type,
                                         CollectionValue* val) {
-    if (val == NULL) {
+    if (val == nullptr) {
         return Status::InvalidArgument("collection value is null");
     }
 
@@ -127,7 +128,7 @@ Status CollectionValue::init_collection(FunctionContext* context, const int& siz
     if (size == 0) {
         return Status::OK();
     }
-    
+
     val->_length = size;
     val->_null_signs = (bool*) context->allocate(size * sizeof(bool));
     memset(val->_null_signs, 0, size);
@@ -137,7 +138,7 @@ Status CollectionValue::init_collection(FunctionContext* context, const int& siz
 }
 
 
-CollectionValue CollectionValue::from_collection_val(const CollectionVal &val) {
+CollectionValue CollectionValue::from_collection_val(const CollectionVal& val) {
     return CollectionValue(val.length, val.null_signs, val.data);
 }
 
@@ -168,27 +169,27 @@ Status CollectionValue::set(const int& i, const PrimitiveType& type, const AnyVa
         }
         default:
             DCHECK(false) << "Type not implemented: " << type;
-            return Status::InvalidArgument("Type not implemented");       
+            return Status::InvalidArgument("Type not implemented");
     }
 
     return Status::OK();
 }
+
 /**
  * ----------- Collection Iterator -------- 
  */
 CollectionIterator::CollectionIterator(const PrimitiveType& children_type,
-                                             const CollectionValue* data) : _offset(0),
-                                                                          _type(children_type),
-                                                                          _data(data) {
+                                       const CollectionValue* data) : _offset(0),
+                                                                      _type(children_type),
+                                                                      _data(data) {
     _type_size = sizeof_type(children_type);
 }
-
 
 void* CollectionIterator::value() {
     if (is_null()) {
         return nullptr;
     }
-    return ((char *)_data->_data) + _offset * _type_size;
+    return ((char*) _data->_data) + _offset * _type_size;
 }
 
 bool CollectionIterator::is_null() {

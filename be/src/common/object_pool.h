@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_COMMON_COMMON_OBJECT_POOL_H
 #define DORIS_BE_SRC_COMMON_COMMON_OBJECT_POOL_H
 
+#include <mutex>
 #include <vector>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/locks.hpp>
@@ -52,7 +53,7 @@ public:
     T* add_array(T* t) {
         ArrayElement<T>* obj = new ArrayElement<T>(t);
         DCHECK(obj != NULL);
-        boost::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<SpinLock> l(_lock);
         _objects.push_back(obj);
         return t;
     }
