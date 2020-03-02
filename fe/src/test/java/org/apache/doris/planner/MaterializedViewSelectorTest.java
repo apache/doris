@@ -27,6 +27,8 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -35,6 +37,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.lang3.builder.ToStringExclude;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -231,7 +234,8 @@ public class MaterializedViewSelectorTest {
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
         Deencapsulation.setField(selector, "isSPJQuery", false);
-        Deencapsulation.invoke(selector, "checkGrouping", tableAColumnNames, candidateIndexIdToSchema);
+        Deencapsulation.invoke(selector, "checkGrouping", tableAColumnNames, candidateIndexIdToSchema,
+                KeysType.DUP_KEYS);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(1)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(2)));
@@ -318,37 +322,50 @@ public class MaterializedViewSelectorTest {
     }
 
     @Test
-    public void testCompensateIndex(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer) {
+    public void testCompensateIndex(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
+            @Injectable OlapTable table) {
         Map<Long, List<Column>> candidateIndexIdToSchema = Maps.newHashMap();
         Map<Long, List<Column>> allVisibleIndexes = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
-        Column index1Column1 = new Column("c2", Type.INT, true, null, true, "", "");
+        Column index1Column1 = new Column("c2", Type.INT, true, AggregateType.SUM, true, "", "");
         index1Columns.add(index1Column1);
         allVisibleIndexes.put(new Long(1), index1Columns);
         List<Column> index2Columns = Lists.newArrayList();
         Column index2Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index2Columns.add(index2Column1);
-        Column index2Column2 = new Column("c2", Type.INT, false, AggregateType.NONE, true, "", "");
+        Column index2Column2 = new Column("c2", Type.INT, false, AggregateType.SUM, true, "", "");
         index2Columns.add(index2Column2);
         allVisibleIndexes.put(new Long(2), index2Columns);
         List<Column> index3Columns = Lists.newArrayList();
-        Column index3Column1 = new Column("C2", Type.INT, true, null, true, "", "");
+        Column index3Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index3Columns.add(index3Column1);
-        Column index3Column2 = new Column("c1", Type.INT, false, AggregateType.SUM, true, "", "");
+        Column index3Column2 = new Column("c3", Type.INT, false, AggregateType.SUM, true, "", "");
         index3Columns.add(index3Column2);
         allVisibleIndexes.put(new Long(3), index3Columns);
+        List<Column> keyColumns = Lists.newArrayList();
+        keyColumns.add(index2Column1);
         new Expectations() {
             {
                 selectStmt.getAggInfo();
                 result = null;
                 selectStmt.getResultExprs();
                 result = Lists.newArrayList();
+                table.getBaseIndexId();
+                result = -1L;
+                table.getKeyColumnsByIndexId(-1L);
+                result = keyColumns;
+                table.getKeyColumnsByIndexId(1L);
+                result = Lists.newArrayList();
+                table.getKeyColumnsByIndexId(2L);
+                result = keyColumns;
+                table.getKeyColumnsByIndexId(3L);
+                result = keyColumns;
             }
         };
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
-        Deencapsulation.invoke(selector, "compensateIndex", candidateIndexIdToSchema,
-                               allVisibleIndexes, 2);
+        Deencapsulation.invoke(selector, "compensateCandidateIndex", candidateIndexIdToSchema,
+                               allVisibleIndexes, table);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(2)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(3)));

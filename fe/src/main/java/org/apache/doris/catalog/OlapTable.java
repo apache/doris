@@ -345,12 +345,16 @@ public class OlapTable extends Table {
 
     public Map<Long, List<Column>> getVisibleIndexIdToSchema() {
         Map<Long, List<Column>> visibleMVs = Maps.newHashMap();
-        Partition partition = idToPartition.values().stream().findFirst().get();
-        List<MaterializedIndex> mvs = partition.getMaterializedIndices(IndexExtState.VISIBLE);
+        List<MaterializedIndex> mvs = getVisibleIndex();
         for (MaterializedIndex mv : mvs) {
             visibleMVs.put(mv.getId(), indexIdToSchema.get(mv.getId()));
         }
         return visibleMVs;
+    }
+
+    public List<MaterializedIndex> getVisibleIndex() {
+        Partition partition = idToPartition.values().stream().findFirst().get();
+        return partition.getMaterializedIndices(IndexExtState.VISIBLE);
     }
 
     // this is only for schema change.

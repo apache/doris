@@ -361,9 +361,11 @@ public class Config extends ConfigBase {
     public static int max_layout_length_per_row = 100000; // 100k
 
     /*
-     * Load checker's running interval.
-     * A load job will transfer its state from PENDING to ETL to LOADING to FINISHED.
-     * So a load job will cost at least 3 check intervals to finish.
+     * The load scheduler running interval.
+     * A load job will transfer its state from PENDING to LOADING to FINISHED.
+     * The load scheduler will transfer load job from PENDING to LOADING
+     *      while the txn callback will transfer load job from LOADING to FINISHED.
+     * So a load job will cost at most one interval to finish when the concurrency has not reached the upper limit.
      */
     @ConfField public static int load_checker_interval_second = 5;
 

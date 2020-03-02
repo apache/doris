@@ -44,6 +44,9 @@ public class FeConstants {
     // set to true to skip some step when running FE unit test
     public static boolean runningUnitTest = false;
 
+    // default scheduler interval is 10 seconds
+    public static int default_scheduler_interval_millisecond = 10000;
+
     // general model
     // Current meta data version. Use this version to write journals and image
     public static int meta_version = FeMetaVersion.VERSION_CURRENT;

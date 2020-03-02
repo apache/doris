@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -48,6 +49,8 @@ public class MaterializedViewFunctionTest {
 
     @BeforeClass
     public static void beforeClass() throws Exception {
+        FeConstants.default_scheduler_interval_millisecond = 10;
+        FeConstants.runningUnitTest = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withEnableMV().withDatabase(HR_DB_NAME).useDatabase(HR_DB_NAME);
@@ -56,11 +59,13 @@ public class MaterializedViewFunctionTest {
     @Before
     public void beforeMethod() throws Exception {
         String createTableSQL = "create table " + HR_DB_NAME + "." + EMPS_TABLE_NAME + " (empid int, name varchar, "
-                + "deptno int, salary int, commission int) "
+                + "deptno int, salary int, commission int) partition by range (empid) "
+                + "(partition p1 values less than MAXVALUE) "
                 + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
         createTableSQL = "create table " + HR_DB_NAME + "." + DEPTS_TABLE_NAME
-                + " (deptno int, name varchar, cost int) "
+                + " (deptno int, name varchar, cost int) partition by range (deptno) "
+                + "(partition p1 values less than MAXVALUE) "
                 + "distributed by hash(deptno) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
     }
@@ -567,5 +572,16 @@ public class MaterializedViewFunctionTest {
         String query = "select empid, deptno from " + EMPS_TABLE_NAME + " where empid >1 union select empid," +
                 " deptno from " + EMPS_TABLE_NAME + " where empid <0;";
         dorisAssert.withMaterializedView(createEmpsMVSQL).query(query).explainContains(QUERY_USE_EMPS_MV, 2);
+    }
+
+    @Test
+    public void testDeduplicateQueryInAgg() throws Exception {
+        String aggregateTable = "create table agg_table (k1 int, k2 int, v1 bigint sum) aggregate key (k1, k2) "
+                + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        dorisAssert.withTable(aggregateTable);
+        String createRollupSQL = "alter table agg_table add rollup old_key (k1, k2) "
+                + "properties ('replication_num' = '1');";
+        String query = "select k1, k2 from agg_table;";
+        dorisAssert.withRollup(createRollupSQL).query(query).explainContains("OFF", "old_key");
     }
 }
