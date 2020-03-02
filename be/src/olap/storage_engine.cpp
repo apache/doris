@@ -257,7 +257,7 @@ OLAPStatus StorageEngine::get_all_data_dir_info(vector<DataDirInfo>* data_dir_in
     MonotonicStopWatch timer;
     timer.start();
 
-    // 1. update avaiable capacity of each data dir
+    // 1. update available capacity of each data dir
     // get all root path info and construct a path map.
     // path -> DataDirInfo
     std::map<std::string, DataDirInfo> path_map;
@@ -553,7 +553,7 @@ OLAPStatus StorageEngine::_start_trash_sweep(double* usage) {
             continue;
         }
 
-        double curr_usage = (double) (info.capacity - info.available) / info.capacity;
+        double curr_usage = (double) (info.disk_capacity - info.available) / info.disk_capacity;
         *usage = *usage > curr_usage ? *usage : curr_usage;
 
         OLAPStatus curr_res = OLAP_SUCCESS;
