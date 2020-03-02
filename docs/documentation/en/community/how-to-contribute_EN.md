@@ -31,7 +31,7 @@ Any questions, you can contact us to get timely answers, including Wechat, Gitte
 
 For the first time in Doris community, you can:
 
-* 关注 [Doris Github](https://github.com/apache/incubator-doris)
+* Follow [Doris Github](https://github.com/apache/incubator-doris)
 * Subscribe to our [mailing list] (./subscribe-mail-list.md);
 * Join Doris Wechat Group (add micro-signal: morningman-cmy, note: join Doris Group) and ask questions at any time.
 * Enter Doris's [Gitter] (./gitter.md) chat room;
@@ -47,7 +47,7 @@ As you can see from [GitHub] (https://github.com/apache/incubator-doris), Apache
 | [Frontend daemon (FE)] (https://github.com/apache/incubator-doris) | consists of a query coordinator and a metadata manager | Java|
 | [Backend daemon (BE)] (https://github.com/apache/incubator-doris) | Responsible for storing data and executing query fragments | C++|
 | [Broker] (https://github.com/apache/incubator-doris) | Read HDFS data to Doris | Java|
-| [Website](https://github.com/apache/incubator-doris-website) | Doris 网站 | Markdown |
+| [Website](https://github.com/apache/incubator-doris-website) | Doris Website | Markdown |
 + [Github Wiki] (https://github.com/apache/incubator-doris/wiki); Doris Github Wiki; Markdown_;
 | Doris Runtime Help Document | Online Help Manual at Doris Runtime | Markdown|
 

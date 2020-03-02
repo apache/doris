@@ -177,7 +177,7 @@ sub   4096R/0E8182E6 2018-12-06
 xxx-yy is the user ID.
 
 ```
-gpg --armor --output public-key.txt --export [用户ID]
+gpg --armor --output public-key.txt --export [UserID]
 ```
 
 ```
@@ -220,7 +220,7 @@ Because the public key server has no checking mechanism, anyone can upload the p
 Fingerprint parameter generates public key fingerprints:
 
 ```
-gpg --fingerprint [用户ID]
+gpg --fingerprint [UserID]
 ```
 
 ```
@@ -635,7 +635,7 @@ https://www.apache.org/dist/incubator/doris/0.9.0-incubating/
 
 http://www.apache.org/dyn/closer.cgi/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz
 
-源码包（source package）:
+Source package:
 http://www.apache.org/dyn/closer.cgi/incubator/doris/0.9.0-incubating/apache-doris-0.9.0-incubating-src.tar.gz
 
 ASC:
