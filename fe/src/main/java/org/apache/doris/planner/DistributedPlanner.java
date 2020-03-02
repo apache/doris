@@ -671,7 +671,8 @@ public class DistributedPlanner {
             setOperationNode.addChild(null);
             // Connect the unpartitioned child fragments to SetOperationNode via a random exchange.
             connectChildFragment(setOperationNode, i, setOperationFragment, childFragment);
-            childFragment.setOutputPartition(DataPartition.RANDOM);
+            childFragment.setOutputPartition(
+                    DataPartition.hashPartitioned(setOperationNode.getMaterializedResultExprLists_().get(i)));
         }
         setOperationNode.init(ctx_.getRootAnalyzer());
         return setOperationFragment;

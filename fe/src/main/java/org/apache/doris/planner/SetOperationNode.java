@@ -54,7 +54,7 @@ import com.google.common.collect.Lists;
 public abstract class SetOperationNode extends PlanNode {
     private final static Logger LOG = LoggerFactory.getLogger(SetOperationNode.class);
 
-    // List of set operation result exprs of the originating UnionStmt. Used for
+    // List of set operation result exprs of the originating SetOperationStmt. Used for
     // determining passthrough-compatibility of children.
     protected List<Expr> setOpResultExprs_;
 
@@ -112,6 +112,14 @@ public abstract class SetOperationNode extends PlanNode {
     public void addChild(PlanNode node, List<Expr> resultExprs) {
         super.addChild(node);
         resultExprLists_.add(resultExprs);
+    }
+
+    public List<List<Expr>> getMaterializedResultExprLists_() {
+        return materializedResultExprLists_;
+    }
+
+    public List<List<Expr>> getMaterializedConstExprLists_() {
+        return materializedConstExprLists_;
     }
 
     @Override
