@@ -43,6 +43,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -85,6 +86,23 @@ public class OlapScanNode extends ScanNode {
     private static final Logger LOG = LogManager.getLogger(OlapScanNode.class);
 
     private List<TScanRangeLocations> result = new ArrayList<>();
+    /*
+     * When the field value is ON, the storage engine can return the data directly without pre-aggregation.
+     * When the field value is OFF, the storage engine needs to aggregate the data before returning to scan node.
+     * For example:
+     * Aggregate table: k1, k2, v1 sum
+     * Field value is ON
+     * Query1: select k1, sum(v1) from table group by k1
+     * This aggregation function in query is same as the schema.
+     * So the field value is ON while the query can scan data directly.
+     *
+     * Field value is OFF
+     * Query1: select k1 , k2 from table
+     * This aggregation info is null.
+     * Query2: select k1, min(v1) from table group by k1
+     * This aggregation function in query is min which different from the schema.
+     * So the data stored in storage engine need to be merged firstly before returning to scan node.
+     */
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
     private boolean canTurnOnPreAggr = true;
@@ -416,7 +434,9 @@ public class OlapScanNode extends ScanNode {
         selectedPartitionNum = selectedPartitionIds.size();
         LOG.debug("partition prune cost: {} ms, partitions: {}",
                   (System.currentTimeMillis() - start), selectedPartitionIds);
-        if (selectedPartitionIds.size() == 0) {
+        // The fe unit test need to check the selected index id without any data.
+        // So the step2 needs to be continued although selectedPartitionIds is 0.
+        if (selectedPartitionIds.size() == 0 && !FeConstants.runningUnitTest) {
             return;
         }
 

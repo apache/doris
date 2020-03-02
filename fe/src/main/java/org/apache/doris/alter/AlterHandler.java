@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
@@ -83,7 +84,7 @@ public abstract class AlterHandler extends MasterDaemon {
     }
     
     public AlterHandler(String name) {
-        super(name, 10000);
+        super(name, FeConstants.default_scheduler_interval_millisecond);
     }
 
     protected void addAlterJobV2(AlterJobV2 alterJob) {

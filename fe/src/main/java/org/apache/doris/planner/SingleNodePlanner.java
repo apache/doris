@@ -54,6 +54,7 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 
@@ -769,6 +770,9 @@ public class SingleNodePlanner {
                     continue;
                 }
                 OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                if (olapScanNode.getSelectedPartitionIds().size() == 0 && !FeConstants.runningUnitTest) {
+                    continue;
+                }
                 MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector.selectBestMV
                         (olapScanNode);
                 olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(), bestIndexInfo.isPreAggregation(),
