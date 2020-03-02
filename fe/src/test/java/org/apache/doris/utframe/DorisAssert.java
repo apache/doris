@@ -18,10 +18,13 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.analysis.AlterClause;
+import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
@@ -82,19 +85,34 @@ public class DorisAssert {
         CreateMaterializedViewStmt createMaterializedViewStmt =
                 (CreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
         Catalog.getCurrentCatalog().createMaterializedView(createMaterializedViewStmt);
+        checkAlterJob();
+        // waiting table state to normal
+        Thread.sleep(100);
+        return this;
+    }
+
+    // Add rollup
+    public DorisAssert withRollup(String sql) throws Exception {
+        AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        Catalog.getCurrentCatalog().alterTable(alterTableStmt);
+        checkAlterJob();
+        // waiting table state to normal
+        Thread.sleep(100);
+        return this;
+    }
+
+    private void checkAlterJob() throws InterruptedException {
         // check alter job
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getRollupHandler().getAlterJobsV2();
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
-                System.out.println("alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
+                System.out.println("alter job " + alterJobV2.getDbId()
+                        + " is running. state: " + alterJobV2.getJobState());
                 Thread.sleep(100);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
         }
-        // waiting table state to normal
-        Thread.sleep(100);
-        return this;
     }
 
     public QueryAssert query(String sql) {

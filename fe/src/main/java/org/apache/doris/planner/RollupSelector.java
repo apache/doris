@@ -65,14 +65,10 @@ public final class RollupSelector {
     public long selectBestRollup(
             Collection<Long> partitionIds, List<Expr> conjuncts, boolean isPreAggregation)
             throws UserException {
-        Preconditions.checkArgument(partitionIds != null && !partitionIds.isEmpty(),
-                "Paritition can't be null or empty.");
+        Preconditions.checkArgument(partitionIds != null , "Paritition can't be null.");
         // Get first partition to select best prefix index rollups, because MaterializedIndex ids in one rollup's partitions are all same.
         final List<Long> bestPrefixIndexRollups =
-                selectBestPrefixIndexRollup(
-                        table.getPartition(partitionIds.iterator().next()),
-                        conjuncts,
-                        isPreAggregation);
+                selectBestPrefixIndexRollup(conjuncts, isPreAggregation);
         return selectBestRowCountRollup(bestPrefixIndexRollups, partitionIds);
     }
 
@@ -121,8 +117,7 @@ public final class RollupSelector {
         return selectedIndexId;
     }
 
-    private List<Long> selectBestPrefixIndexRollup(
-            Partition partition, List<Expr> conjuncts, boolean isPreAggregation) throws UserException {
+    private List<Long> selectBestPrefixIndexRollup(List<Expr> conjuncts, boolean isPreAggregation) throws UserException {
 
         final List<String> outputColumns = Lists.newArrayList();
         for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
@@ -130,12 +125,12 @@ public final class RollupSelector {
             outputColumns.add(col.getName());
         }
 
-        final List<MaterializedIndex> rollups = partition.getMaterializedIndices(IndexExtState.VISIBLE);
+        final List<MaterializedIndex> rollups = table.getVisibleIndex();
         LOG.debug("num of rollup(base included): {}, pre aggr: {}", rollups.size(), isPreAggregation);
 
         // 1. find all rollup indexes which contains all tuple columns
         final List<MaterializedIndex> rollupsContainsOutput = Lists.newArrayList();
-        final List<Column> baseTableColumns = table.getKeyColumnsByIndexId(partition.getBaseIndex().getId());
+        final List<Column> baseTableColumns = table.getKeyColumnsByIndexId(table.getBaseIndexId());
         for (MaterializedIndex rollup : rollups) {
             final Set<String> rollupColumns = Sets.newHashSet();
             table.getSchemaByIndexId(rollup.getId())
