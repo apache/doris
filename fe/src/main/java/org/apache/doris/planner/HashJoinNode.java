@@ -277,7 +277,7 @@ public class HashJoinNode extends PlanNode {
         output.append(detailPrefix + "colocate: " + isColocate + (isColocate? "" : ", reason: " + colocateReason) + "\n");
 
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-            output.append(eqJoinPredicate.toSql() +  "\n");
+            output.append(detailPrefix).append("equal join conjunct: ").append(eqJoinPredicate.toSql() +  "\n");
         }
         if (!otherJoinConjuncts.isEmpty()) {
             output.append(detailPrefix + "other join predicates: ").append(

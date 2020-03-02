@@ -649,7 +649,9 @@ public class SetOperationStmt extends QueryStmt {
             if (isAnalyzed()) {
                 return;
             }
-            if (qualifier_ == Qualifier.ALL && operation != Operation.UNION) {
+            // Oracle and ms-SQLServer do not support INTERSECT ALL and EXCEPT ALL, postgres support it,
+            // but it is very ambiguous
+            if (qualifier_ == Qualifier.ALL && (operation == Operation.EXCEPT || operation == Operation.INTERSECT)) {
                 throw new AnalysisException("INTERSECT and EXCEPT does not support ALL qualifier.");
             }
             analyzer = new Analyzer(parent);
