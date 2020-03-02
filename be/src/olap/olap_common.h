@@ -56,14 +56,15 @@ enum CompactionType {
 
 struct DataDirInfo {
     DataDirInfo():
-            capacity(1),
+            path_hash(0),
+            disk_capacity(1),
             available(0),
             data_used_capacity(0),
             is_used(false) { }
 
     std::string path;
     size_t path_hash;
-    int64_t capacity;                  // 总空间，单位字节
+    int64_t disk_capacity;             // actual disk capacity
     int64_t available;                 // 可用空间，单位字节
     int64_t data_used_capacity;
     bool is_used;                       // 是否可用标识
