@@ -57,3 +57,5 @@ under the License.
 |zshao	|zshao	|Zheng Shao|
 |kangkaisen|kangkaisen|Kaisen Kang|
 |lingmiao|EmmyMiao87|Ling Miao|
+|gaodayue|gaodayue|Dayue Gao|
+|liuhangyuan|HangyuanLiu|Hangyuan Liu|

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -133,6 +134,11 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private void computeObjectChecksum() throws IOException, NoSuchAlgorithmException {
+        if (FeConstants.runningUnitTest) {
+            // skip checking checksum when running ut
+            checksum = "";
+            return;
+        }
         URL url = new URL(objectFile);
         URLConnection urlConnection = url.openConnection();
         InputStream inputStream = urlConnection.getInputStream();
