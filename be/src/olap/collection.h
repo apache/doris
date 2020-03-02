@@ -26,7 +26,7 @@ struct collection {
     size_t length;
     // null bitmap
     bool* null_signs;
-    // 子元素数据数据
+    // child column data
     void* data;
 
     collection(size_t length ) : length(length), null_signs(nullptr), data(nullptr) {}
@@ -42,13 +42,6 @@ struct collection {
         data = value.data;
     }
 
-    bool operator==(const collection& y) const ;
-    bool operator!=(const collection& value) const ;
-    bool operator<(const collection& value) const ;
-    bool operator<=(const collection& value) const ;
-    bool operator>(const collection& value) const ;
-    bool operator>=(const collection& value) const;
-    int32_t cmp(const collection& other) const;
 };
 
 }  // namespace doris

@@ -144,34 +144,143 @@ private:
     template<typename TypeTraitsClass> ScalarTypeInfo(TypeTraitsClass t);
 };
 
-// TODO llj 实现
 class ListTypeInfo : public TypeInfo {
 public:
-    ListTypeInfo(TypeInfo* item_type_info) : _item_type_info(item_type_info) {}
+    ListTypeInfo(TypeInfo* item_type_info) : _item_type_info(item_type_info), _item_size(item_type_info->size()) {}
 
-    inline bool equal(const void* left, const void* right) const;
+    inline bool equal(const void* left, const void* right) const {
+        collection* l_value = reinterpret_cast<const collection*>(left);
+        collection* r_value = reinterpret_cast<const collection*>(right);
+        if (l_value->length != r_value->length) {
+            return false;
+        }
+        size_t len = l_value->length;
 
-    inline int cmp(const void* left, const void* right) const;
+        ItemCppType* l_item = reinterpret_cast<ItemCppType*>(l_value->data());
+        ItemCppType* r_item = reinterpret_cast<ItemCppType*>(r_value->data());
+        for (size_t i = 0; i < len; ++i){
+            if (!_item_type_info->equal(l_item[i], r_item[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
 
-    inline void shallow_copy(void* dest, const void* src) const;
+    inline int cmp(const void* left, const void* right) const {
+        collection* l_value = reinterpret_cast<const collection*>(left);
+        collection* r_value = reinterpret_cast<const collection*>(right);
+        size_t l_length = l_value->length;
+        size_t r_length = r_value->length;
+        size_t cur = 0;
+        ItemCppType* l_item = reinterpret_cast<ItemCppType*>(l_value->data());
+        ItemCppType* r_item = reinterpret_cast<ItemCppType*>(r_value->data());
+        while (cur < l_length && cur < r_length) {
+            int result = _item_type_info->cmp(l_item[cur], r_item[cur])
+            if (result != 0) {
+                return result;
+            }
+            ++cur;
+        }
+        if (l_length < r_length) {
+            return -1;
+        } else if (l_length > r_length) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
 
-    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const;
+    inline void shallow_copy(void* dest, const void* src) const {
+        *reinterpret_cast<collection*>(dest) = *reinterpret_cast<const collection*>(src);
+    }
 
-    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const;
+    inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
+        auto dest_value = reinterpret_cast<collection*>(dest);
+        auto src_value = reinterpret_cast<const collection*>(src);
 
-    inline void direct_copy(void* dest, const void* src) const;
+        dest_value->length = src_value->length;
 
-    //convert and deep copy value from other type's source
-    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const;
+        size_t item_size = src_value->length * _item_size;
+        size_t nulls_size = dest_value->length;
+        dest_value->data = mem_pool->allocate(item_size + nulls_size);
+        dest_value->null_signs = dest_value->data + item_size;
+        auto dest_item = reinterpret_cast<ItemCppType*>(dest_value->data());
+        auto src_item = reinterpret_cast<ItemCppType*>(src_value->data());
 
-    OLAPStatus from_string(void* buf, const std::string& scan_key) const;
+        // copy item
+        for (size_t i = 0; i < src_value->length, i ++) {
+            _item_type_info->deep_copy(dest_item[i], src_item[i], mem_pool);
+        }
+        // copy null_signs
+        memory_copy(dest_value->null_signs, src_value->null_signs, sizeof(bool) * src_value->length);
+    }
 
-    std::string to_string(const void* src) const;
+    inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const {
+        deep_copy(dest, src, mem_pool);
+    }
 
-    inline void set_to_max(void* buf) const;
-    inline void set_to_min(void* buf) const;
+    // TODO llj 疑惑，我direct_copy可以保证collection的长度够用，但如何保证item的长度够用?
+    inline void direct_copy(void* dest, const void* src) const {
+        auto dest_value = reinterpret_cast<collection*>(dest);
+        auto src_value = reinterpret_cast<const collection*>(src);
 
-    inline uint32_t hash_code(const void* data, uint32_t seed) const;
+        dest_value->length = src_value->length;
+
+        auto dest_item = reinterpret_cast<ItemCppType*>(dest_value->data());
+        auto src_item = reinterpret_cast<ItemCppType*>(src_value->data());
+
+        // direct opy item
+        for (size_t i = 0; i < src_value->length, i ++) {
+            _item_type_info->direct_copy(dest_item[i], src_item[i], mem_pool);
+        }
+        // direct copy null_signs
+        memory_copy(dest_value->null_signs, src_value->null_signs, sizeof(bool) * src_value->length);
+    }
+
+    OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const {
+        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    }
+
+    OLAPStatus from_string(void* buf, const std::string& scan_key) const {
+        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    }
+
+    std::string to_string(const void* src) const {
+        auto src_value = reinterpret_cast<collection*>(src);
+        std::string result = "[";
+
+        for (size_t i = 0; i< src_value->length; ++i) {
+            std::string item = _item_type_info->to_string(src_value->data + i * _item_size);
+            result += item;
+            if (i != src_value->length - 1) {
+                result += ", "
+            }
+        }
+        result += "]";
+        return result;
+    }
+
+    inline void set_to_max(void* buf) const {
+        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    }
+
+    inline void set_to_min(void* buf) const {
+        return OLAPStatus::OLAP_ERR_FUNC_NOT_IMPLEMENTED;
+    }
+
+    inline uint32_t hash_code(const void* data, uint32_t seed) const {
+        auto value = reinterpret_cast<collection*>(data);
+        uint32_t result = HashUtil::hash(&(value->length), sizeof(size_t), seed);
+        for (size_t i = 0; i < value->length; ++i) {
+            if (value->null_signs[i]) {
+                result = seed * result;
+            } else {
+                result = seed * result + _item_type_info->hash_code(value->data)
+            }
+        }
+        return result;
+    }
+
     inline const size_t size() const { return sizeof(collection); }
 
     inline FieldType type() const { return OLAP_FIELD_TYPE_LIST; }
@@ -179,6 +288,8 @@ public:
     inline TypeInfo* item_type_info() const { return _item_type_info.get(); }
 private:
     const TypeInfo* _item_type_info;
+    const size_t _item_size;
+    using ItemCppType = typename CppTypeTraits<_item_type_info->type()>::CppType;
 };
 
 extern bool is_scalar_type(FieldType field_type);
