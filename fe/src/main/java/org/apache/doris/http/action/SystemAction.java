@@ -18,7 +18,6 @@
 package org.apache.doris.http.action;
 
 import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.proc.ProcDirInterface;
