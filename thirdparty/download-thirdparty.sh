@@ -279,6 +279,14 @@ if test "x$PATCH_COMPILER_RT" == "xtrue"; then
     echo "Finished patching $COMPILER_RT_SOURCE"
 fi
 
+cd $TP_SOURCE_DIR/$COMPILER_RT_SOURCE
+if [ ! -f $PATCHED_MARK ]; then
+    patch -p0 < $TP_PATCH_DIR/compiler-rt_libc.patch
+    touch $PATCHED_MARK
+fi
+cd -
+echo "Finished patching $COMPILER_RT_SOURCE"
+
 # patch to llvm to support aarch64 platform
 cd $TP_SOURCE_DIR/$LLVM_SOURCE
 if [ ! -f $PATCHED_MARK ]; then
