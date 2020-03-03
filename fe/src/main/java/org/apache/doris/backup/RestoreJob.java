@@ -417,7 +417,7 @@ public class RestoreJob extends AbstractJob {
         }
         Preconditions.checkNotNull(backupMeta);
 
-        // Set all restored tbls‘ state to RESTORE
+        // Set all restored tbls' state to RESTORE
         // Table's origin state must be NORMAL and does not have unfinished load job.
         db.writeLock();
         try {
@@ -436,6 +436,11 @@ public class RestoreJob extends AbstractJob {
                 if (olapTbl.getState() != OlapTableState.NORMAL) {
                     status = new Status(ErrCode.COMMON_ERROR,
                             "Table " + tbl.getName() + "'s state is not NORMAL: " + olapTbl.getState().name());
+                    return;
+                }
+
+                if (olapTbl.existTempPartitions()) {
+                    status = new Status(ErrCode.COMMON_ERROR, "Do not support restoring table with temp partitions");
                     return;
                 }
                 

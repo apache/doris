@@ -371,7 +371,7 @@ public class DataSplitSink extends DataSink {
                 for (Column col : rangePartitionInfo.getPartitionColumns()) {
                     partitionExprs.add(exprByCol.get(col.getName()));
                 }
-                for (Partition part : tbl.getPartitions()) {
+                for (Partition part : tbl.getAllPartitions()) {
                     if (targetPartitionIds != null && !targetPartitionIds.contains(part.getId())) {
                         continue;
                     }

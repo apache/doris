@@ -52,7 +52,7 @@ public class CreateRoutineLoadStmtTest {
         String kafkaPartitionString = "1,2,3";
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
-        PartitionNames partitionNames = new PartitionNames(partitionNameString);
+        PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
         ColumnSeparator columnSeparator = new ColumnSeparator(",");
 
         // duplicate load property
@@ -99,7 +99,7 @@ public class CreateRoutineLoadStmtTest {
         String timeZone = "8:00";
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
-        PartitionNames partitionNames = new PartitionNames(partitionNameString);
+        PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
         ColumnSeparator columnSeparator = new ColumnSeparator(",");
 
         // duplicate load property

@@ -592,6 +592,16 @@ public class OlapTable extends Table {
         return idToPartition.values();
     }
 
+    public Collection<Partition> getTempPartitions() {
+        return tempPartitions.getAllPartitions();
+    }
+
+    public Collection<Partition> getAllPartitions() {
+        List<Partition> partitions = Lists.newArrayList(idToPartition.values());
+        partitions.addAll(tempPartitions.getAllPartitions());
+        return partitions;
+    }
+
     public Partition getPartition(long partitionId) {
         return idToPartition.get(partitionId);
     }
@@ -994,7 +1004,7 @@ public class OlapTable extends Table {
         return table instanceof OlapTable;
     }
 
-    public OlapTable selectiveCopy(Collection<String> reservedPartNames, boolean resetState, IndexExtState extState) {
+    public OlapTable selectiveCopy(Collection<String> reservedPartitions, boolean resetState, IndexExtState extState) {
         OlapTable copied = new OlapTable();
         if (!DeepCopy.copy(this, copied, OlapTable.class)) {
             LOG.warn("failed to copy olap table: " + getName());
@@ -1027,7 +1037,7 @@ public class OlapTable extends Table {
             }
         }
 
-        if (reservedPartNames == null || reservedPartNames.isEmpty()) {
+        if (reservedPartitions == null || reservedPartitions.isEmpty()) {
             // reserve all
             return copied;
         }
@@ -1036,7 +1046,7 @@ public class OlapTable extends Table {
         partNames.addAll(copied.getPartitionNames());
         
         for (String partName : partNames) {
-            if (!reservedPartNames.contains(partName)) {
+            if (!reservedPartitions.contains(partName)) {
                 copied.dropPartitionForBackup(partName);
             }
         }
@@ -1077,7 +1087,7 @@ public class OlapTable extends Table {
 
     public long getDataSize() {
         long dataSize = 0;
-        for (Partition partition : getPartitions()) {
+        for (Partition partition : getAllPartitions()) {
             dataSize += partition.getDataSize();
         }
         return dataSize;

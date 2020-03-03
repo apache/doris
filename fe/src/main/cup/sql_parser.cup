@@ -333,7 +333,8 @@ nonterminal ArrayList<Expr> expr_list, values, row_value, opt_values;
 nonterminal ArrayList<Expr> func_arg_list;
 nonterminal ArrayList<Expr> expr_pipe_list;
 nonterminal String select_alias, opt_table_alias;
-nonterminal ArrayList<String> ident_list, opt_using_partition;
+nonterminal ArrayList<String> ident_list;
+nonterminal PartitionNames opt_partition_names, partition_names;
 nonterminal ClusterName cluster_name;
 nonterminal ClusterName des_cluster_name;
 nonterminal TableName table_name;
@@ -380,9 +381,6 @@ nonterminal Qualifier opt_set_qualifier;
 nonterminal Operation set_op;
 nonterminal ArrayList<String> opt_common_hints;
 
-nonterminal ArrayList<PartitionName> opt_partition_name_list, partition_name_list;
-nonterminal PartitionName partition_name;
-
 // Set type
 nonterminal SetType option_type, opt_var_type, var_ident_type;
 
@@ -428,7 +426,6 @@ nonterminal BrokerDesc opt_broker;
 nonterminal List<String> opt_col_list, col_list, opt_dup_keys, opt_columns_from_path;
 nonterminal List<ColWithComment> opt_col_with_comment_list, col_with_comment_list;
 nonterminal ColWithComment col_with_comment;
-nonterminal List<String> opt_partitions, partitions;
 nonterminal List<Expr> opt_col_mapping_list;
 nonterminal ColumnSeparator opt_field_term, column_separator;
 nonterminal String opt_user_role;
@@ -440,7 +437,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_super_user, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -459,7 +456,7 @@ nonterminal String keyword, ident, ident_or_text, variable_name, text_or_passwor
         charset_name_or_default, old_or_new_charset_name_or_default, opt_collate,
         collation_name_or_default, type_func_name_keyword, type_function_name, opt_file_format, time_unit;
 
-nonterminal String opt_db, opt_partition_name, procedure_or_function, opt_comment, opt_engine;
+nonterminal String opt_db, procedure_or_function, opt_comment, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
@@ -490,6 +487,10 @@ precedence left LPAREN, RPAREN;
 // Support chaining of timestamp arithmetic exprs.
 precedence left KW_INTERVAL;
 precedence left KW_OVER;
+precedence left KW_PARTITION;
+precedence left KW_PARTITIONS;
+precedence right KW_TEMPORARY;
+
 start with stmts;
 
 stmts ::=
@@ -854,7 +855,7 @@ alter_table_clause ::=
     {:
         RESULT = new ModifyPartitionClause(partitionName, properties);
     :}
-    | KW_REPLACE opt_partitions:partitions KW_WITH KW_TEMPORARY opt_partitions:tempPartitions opt_properties:properties
+    | KW_REPLACE opt_partition_names:partitions KW_WITH opt_partition_names:tempPartitions opt_properties:properties
     {:
         RESULT = new ReplacePartitionClause(partitions, tempPartitions, properties);
     :}
@@ -1139,13 +1140,11 @@ help_stmt ::=
 
 // Export statement
 export_stmt ::=
-    // KW_EXPORT KW_TABLE table_name:tblName opt_using_partition:partitions
     KW_EXPORT KW_TABLE base_table_ref:tblRef
     KW_TO STRING_LITERAL:path
     opt_properties:properties
     opt_broker:broker
     {:
-        // RESULT = new ExportStmt(tblName, partitions, path, properties, broker);
         RESULT = new ExportStmt(tblRef, path, properties, broker);
     :}
     ;
@@ -1189,7 +1188,7 @@ data_desc ::=
     KW_DATA KW_INFILE LPAREN string_list:files RPAREN
     opt_negative:isNeg
     KW_INTO KW_TABLE ident:tableName
-    opt_partitions:partitionNames
+    opt_partition_names:partitionNames
     opt_field_term:colSep
     opt_file_format:fileFormat
     opt_col_list:colList
@@ -1199,24 +1198,6 @@ data_desc ::=
     {:
         RESULT = new DataDescription(tableName, partitionNames, files, colList, colSep, fileFormat,
         columnsFromPath, isNeg, colMappingList, whereExpr);
-    :}
-    ;
-
-opt_partitions ::=
-    /* Empty */
-    {:
-        RESULT = null;
-    :}
-    | KW_PARTITION LPAREN ident_list:partitionNames RPAREN
-    {:
-        RESULT = partitionNames;
-    :}
-    ;
-
-partitions ::=
-    KW_PARTITION LPAREN ident_list:partitionNames RPAREN
-    {:
-        RESULT = partitionNames;
     :}
     ;
 
@@ -1384,19 +1365,19 @@ opt_load_property_list ::=
 load_property ::=
     column_separator:colSep
     {:
-      RESULT = colSep;
+        RESULT = colSep;
     :}
     | import_columns_stmt:columnsInfo
     {:
-      RESULT = columnsInfo;
+        RESULT = columnsInfo;
     :}
     | import_where_stmt:wherePredicate
     {:
-      RESULT = wherePredicate;
+        RESULT = wherePredicate;
     :}
-    | partitions:partitionNames
+    | partition_names:partitionNames
     {:
-      RESULT = new PartitionNames(partitionNames);
+        RESULT = partitionNames;
     :}
     ;
 
@@ -2135,7 +2116,7 @@ show_param ::=
     {:
         RESULT = new ShowTabletStmt(null, tabletId);
     :}
-    | KW_TABLET KW_FROM table_name:dbTblName opt_partitions:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    | KW_TABLET KW_FROM table_name:dbTblName opt_partition_names:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowTabletStmt(dbTblName, -1L, partitionNames, parser.where, orderByClause, limitClause);
     :}
@@ -2234,17 +2215,6 @@ opt_db ::=
     | from_or_in ident:db
     {:
         RESULT = db;
-    :}
-    ;
-
-opt_partition_name ::=
-    /* empty */
-    {:
-        RESULT = null;
-    :}
-    | KW_PARTITION ident:partitionName
-    {:
-        RESULT = partitionName;
     :}
     ;
 
@@ -2431,9 +2401,9 @@ cancel_param ::=
 
 // Delete stmt
 delete_stmt ::=
-    KW_DELETE KW_FROM table_name:table opt_partition_name:partition where_clause:wherePredicate
+    KW_DELETE KW_FROM table_name:table opt_partition_names:partitionNames where_clause:wherePredicate
     {:
-        RESULT = new DeleteStmt(table, partition, wherePredicate);
+        RESULT = new DeleteStmt(table, partitionNames, wherePredicate);
     :}
     ;
 
@@ -2658,9 +2628,9 @@ insert_stmt ::=
     ;
 
 insert_target ::=
-    table_name:tbl opt_using_partition:partitions
+    table_name:tbl opt_partition_names:partitionNames
     {:
-        RESULT = new InsertTarget(tbl, partitions);
+        RESULT = new InsertTarget(tbl, partitionNames);
     :}
     ;
 
@@ -2701,48 +2671,6 @@ restore_stmt ::=
     opt_properties:properties
     {:
         RESULT = new RestoreStmt(label, repoName, tbls, properties);
-    :}
-    ;
-
-opt_partition_name_list ::=
-	/* Empty */
-	{:
-		RESULT = Lists.newArrayList();
-	:}
-	| LPAREN partition_name_list:list RPAREN
-	{:
-		RESULT = list;
-	:}
-	;
-
-partition_name_list ::=
-    partition_name:partitionName
-    {:
-        RESULT = Lists.newArrayList(partitionName);
-    :}
-    | partition_name_list:list COMMA partition_name:partitionName
-    {:
-        list.add(partitionName);
-        RESULT = list;
-    :}
-    ;
-
-partition_name ::=
-    ident:tbl
-    {:
-        RESULT = new PartitionName(tbl, null, null, null);
-    :}
-    | ident:tbl KW_AS ident:newTbl
-    {:
-        RESULT = new PartitionName(tbl, newTbl, null, null);
-    :}
-    | ident:tbl DOT ident:partition
-    {:
-        RESULT = new PartitionName(tbl, null, partition, null);
-    :}
-    | ident:tbl DOT ident:partition KW_AS ident:newTbl DOT ident:newPartition
-    {:
-        RESULT = new PartitionName(tbl, newTbl, partition, newPartition);
     :}
     ;
 
@@ -3309,9 +3237,9 @@ base_table_ref_list ::=
   ;
 
 base_table_ref ::=
-    table_name:name opt_using_partition:parts opt_table_alias:alias opt_common_hints:common_hints
+    table_name:name opt_partition_names:partitionNames opt_table_alias:alias opt_common_hints:commonHints
     {:
-        RESULT = new TableRef(name, alias, parts, common_hints);
+        RESULT = new TableRef(name, alias, partitionNames, commonHints);
     :}
     ;
 
@@ -3349,16 +3277,63 @@ opt_table_alias ::=
     :}
     ;
 
-opt_using_partition ::=
+opt_partition_names ::=
     /* empty */
     {:
         RESULT = null;
     :}
-    | KW_PARTITION LPAREN ident_list:partitions RPAREN
+    | partition_names:partitionNames
     {:
-        RESULT = partitions;
+        RESULT = partitionNames;
     :}
     ;
+
+partition_names ::=
+    KW_PARTITION LPAREN ident_list:partitions RPAREN
+    {:
+        RESULT = new PartitionNames(false, partitions);  
+    :}
+    | KW_TEMPORARY KW_PARTITION LPAREN ident_list:partitions RPAREN
+    {:
+        RESULT = new PartitionNames(true, partitions);  
+    :}
+    | KW_PARTITIONS LPAREN ident_list:partitions RPAREN
+    {:
+        RESULT = new PartitionNames(false, partitions);  
+    :}
+    | KW_TEMPORARY KW_PARTITIONS LPAREN ident_list:partitions RPAREN
+    {:
+        RESULT = new PartitionNames(true, partitions);  
+    :}
+    | KW_PARTITION ident:partName
+    {:
+        RESULT = new PartitionNames(false, Lists.newArrayList(partName));
+    :}
+    | KW_TEMPORARY KW_PARTITION ident:partName
+    {:
+        RESULT = new PartitionNames(true, Lists.newArrayList(partName));
+    :}
+    ;
+
+
+// partition_names ::=
+//     opt_tmp:isTemp KW_PARTITION LPAREN ident_list:partitions RPAREN
+//     {:
+//         RESULT = new PartitionNames(isTemp, partitions);
+//     :}
+//     | opt_tmp:isTemp KW_PARTITIONS LPAREN ident_list:partitions RPAREN
+//     {:
+//         RESULT = new PartitionNames(isTemp, partitions);
+//     :}
+//     | opt_tmp:isTemp KW_PARTITION ident:partName
+//     {:
+//         RESULT = new PartitionNames(isTemp, Lists.newArrayList(partName));
+//     :}
+//     | opt_tmp:isTemp KW_PARTITIONS ident:partName
+//     {:
+//         RESULT = new PartitionNames(isTemp, Lists.newArrayList(partName));
+//     :}
+//     ; 
 
 join_operator ::=
   opt_inner KW_JOIN

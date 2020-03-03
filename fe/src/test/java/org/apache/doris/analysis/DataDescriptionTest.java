@@ -94,7 +94,7 @@ public class DataDescriptionTest {
                 desc.toString());
 
         // with partition
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+        desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                                   Lists.newArrayList("abc.txt"),
                                                   null, null, null, false, null);
         desc.analyze("testDb");
@@ -106,7 +106,7 @@ public class DataDescriptionTest {
         params.add(new SlotRef(null, "k2"));
         BinaryPredicate predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), 
                 new FunctionCallExpr("alignment_timestamp", params));
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+        desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                                   Lists.newArrayList("abc.txt"),
                                                   Lists.newArrayList("k2", "k3"), null, null, false, Lists
                                                           .newArrayList((Expr) predicate));
@@ -121,7 +121,7 @@ public class DataDescriptionTest {
         params.add(new StringLiteral("10"));
         predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                 new FunctionCallExpr("replace_value", params));
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+        desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                                   Lists.newArrayList("abc.txt"),
                                                   Lists.newArrayList("k2", "k3"), null, null,
                                                   false, Lists.newArrayList((Expr) predicate));
@@ -136,7 +136,7 @@ public class DataDescriptionTest {
         params.add(new NullLiteral());
         predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                 new FunctionCallExpr("replace_value", params));
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+        desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                                   Lists.newArrayList("abc.txt"),
                                                   Lists.newArrayList("k2", "k3"), null, null, false, Lists
                                                           .newArrayList((Expr) predicate));

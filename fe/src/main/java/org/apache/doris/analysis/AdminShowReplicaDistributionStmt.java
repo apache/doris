@@ -67,8 +67,12 @@ public class AdminShowReplicaDistributionStmt extends ShowStmt {
 
         tblRef.getName().setDb(dbName);
 
-        if (tblRef.getPartitions() != null && !tblRef.getPartitions().isEmpty()) {
-            partitions.addAll(tblRef.getPartitions());
+        PartitionNames partitionNames = tblRef.getPartitionNames();
+        if (partitionNames != null) {
+            if (partitionNames.isTemp()) {
+                throw new AnalysisException("Do not support showing replica distribution of temporary partitions");
+            }
+            partitions.addAll(partitionNames.getPartitionNames());
         }
     }
 

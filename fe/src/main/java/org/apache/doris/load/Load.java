@@ -35,6 +35,7 @@ import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -309,8 +310,8 @@ public class Load {
             formatType = params.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
         }
 
-        DataDescription dataDescription = new DataDescription(tableName, partitionNames, filePaths,
-                columnNames, columnSeparator, formatType, false, null);
+        DataDescription dataDescription = new DataDescription(tableName, new PartitionNames(false, partitionNames),
+                filePaths, columnNames, columnSeparator, formatType, false, null);
         dataDescription.setLineDelimiter(lineDelimiter);
         dataDescription.setBeAddr(beAddr);
         // parse hll param pair
@@ -633,7 +634,6 @@ public class Load {
 
             // check partition
             if (dataDescription.getPartitionNames() != null &&
-                    !dataDescription.getPartitionNames().isEmpty() &&
                     ((OlapTable) table).getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
@@ -802,19 +802,19 @@ public class Load {
 
             // partitions of this source
             OlapTable olapTable = (OlapTable) table;
-            List<String> partitionNames = dataDescription.getPartitionNames();
-            if (partitionNames == null || partitionNames.isEmpty()) {
-                partitionNames = new ArrayList<String>();
+            PartitionNames partitionNames = dataDescription.getPartitionNames();
+            if (partitionNames == null) {
                 for (Partition partition : olapTable.getPartitions()) {
-                    partitionNames.add(partition.getName());
+                    sourcePartitionIds.add(partition.getId());
                 }
-            }
-            for (String partitionName : partitionNames) {
-                Partition partition = olapTable.getPartition(partitionName);
-                if (partition == null) {
-                    throw new DdlException("Partition [" + partitionName + "] does not exist");
+            } else {
+                for (String partitionName : partitionNames.getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(partitionName, partitionNames.isTemp());
+                    if (partition == null) {
+                        throw new DdlException("Partition [" + partitionName + "] does not exist");
+                    }
+                    sourcePartitionIds.add(partition.getId());
                 }
-                sourcePartitionIds.add(partition.getId());
             }
         } finally {
             db.readUnlock();

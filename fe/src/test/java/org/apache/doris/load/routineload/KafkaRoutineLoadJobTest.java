@@ -89,7 +89,7 @@ public class KafkaRoutineLoadJobTest {
     public void init() {
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
-        partitionNames = new PartitionNames(partitionNameString);
+        partitionNames = new PartitionNames(false, partitionNameString);
     }
 
     @Test

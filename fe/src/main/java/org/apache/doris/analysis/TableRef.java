@@ -17,18 +17,22 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.rewrite.ExprRewriter;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,7 +75,7 @@ import java.util.Set;
 public class TableRef implements ParseNode, Writable {
     private static final Logger LOG = LogManager.getLogger(TableRef.class);
     protected TableName name;
-    private List<String> partitions = null;
+    private PartitionNames partitionNames = null;
 
     // Legal aliases of this table ref. Contains the explicit alias as its sole element if
     // there is one. Otherwise, contains the two implicit aliases. Implicit aliases are set
@@ -135,11 +139,11 @@ public class TableRef implements ParseNode, Writable {
         this(name, alias, null);
     }
 
-    public TableRef(TableName name, String alias, List<String> partitions) {
-        this(name, alias, partitions, null);
+    public TableRef(TableName name, String alias, PartitionNames partitionNames) {
+        this(name, alias, partitionNames, null);
     }
 
-    public TableRef(TableName name, String alias, List<String> partitions, ArrayList<String> commonHints) {
+    public TableRef(TableName name, String alias, PartitionNames partitionNames, ArrayList<String> commonHints) {
         this.name = name;
         if (alias != null) {
             aliases_ = new String[] { alias };
@@ -147,7 +151,7 @@ public class TableRef implements ParseNode, Writable {
         } else {
             hasExplicitAlias_ = false;
         }
-        this.partitions = partitions;
+        this.partitionNames = partitionNames;
         this.commonHints = commonHints;
         isAnalyzed = false;
     }
@@ -164,8 +168,7 @@ public class TableRef implements ParseNode, Writable {
         sortHints =
                 (other.sortHints != null) ? Lists.newArrayList(other.sortHints) : null;
         onClause = (other.onClause != null) ? other.onClause.clone().reset() : null;
-        partitions =
-                (other.partitions != null) ? Lists.newArrayList(other.partitions) : null;
+        partitionNames = (other.partitionNames != null) ? new PartitionNames(other.partitionNames) : null;
         commonHints = other.commonHints;
 
         usingColNames =
@@ -180,8 +183,8 @@ public class TableRef implements ParseNode, Writable {
         desc = other.desc;
     }
 
-    public List<String> getPartitions() {
-        return partitions;
+    public PartitionNames getPartitionNames() {
+        return partitionNames;
     }
 
     @Override
@@ -676,9 +679,8 @@ public class TableRef implements ParseNode, Writable {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append(name);
-        if (partitions != null && !partitions.isEmpty()) {
-            sb.append(" PARTITIONS(");
-            sb.append(Joiner.on(", ").join(partitions)).append(")");
+        if (partitionNames != null) {
+            sb.append(partitionNames.toSql());
         }
         if (aliases_ != null && aliases_.length > 0) {
             sb.append(" AS ").append(aliases_[0]);
@@ -689,14 +691,11 @@ public class TableRef implements ParseNode, Writable {
     @Override
     public void write(DataOutput out) throws IOException {
         name.write(out);
-        if (partitions == null) {
+        if (partitionNames == null) {
             out.writeBoolean(false);
         } else {
             out.writeBoolean(true);
-            out.writeInt(partitions.size());
-            for (String partName : partitions) {
-                Text.writeString(out, partName);
-            }
+            partitionNames.write(out);
         }
         
         if (hasExplicitAlias()) {
@@ -711,11 +710,16 @@ public class TableRef implements ParseNode, Writable {
         name = new TableName();
         name.readFields(in);
         if (in.readBoolean()) {
-            partitions = Lists.newArrayList();
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                String partName = Text.readString(in);
-                partitions.add(partName);
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_75) {
+                List<String> partitions = Lists.newArrayList();
+                int size = in.readInt();
+                for (int i = 0; i < size; i++) {
+                    String partName = Text.readString(in);
+                    partitions.add(partName);
+                }
+                partitionNames = new PartitionNames(false, partitions);
+            } else {
+                partitionNames = PartitionNames.read(in);
             }
         }
 

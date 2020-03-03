@@ -4324,9 +4324,14 @@ public class Catalog {
             }
         } else if (table.getType() == TableType.ELASTICSEARCH) {
             esStateStore.deRegisterTable(tableId);
+        } else if (table.getType() == TableType.OLAP) {
+            // drop all temp partitions of this table, so that there is no temp partitions in recycle bin,
+            // which make things easier.
+            ((OlapTable) table).dropAllTempPartitions();
         }
 
         db.dropTable(table.getName());
+
         Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table);
 
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
@@ -6158,7 +6163,7 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbTbl.getDb());
         }
 
-        boolean truncateEntireTable = tblRef.getPartitions() == null || tblRef.getPartitions().isEmpty();
+        boolean truncateEntireTable = tblRef.getPartitionNames() == null;
         db.readLock();
         try {
             Table table = db.getTable(dbTbl.getTbl());
@@ -6176,7 +6181,7 @@ public class Catalog {
             }
             
             if (!truncateEntireTable) {
-                for (String partName: tblRef.getPartitions()) {
+                for (String partName : tblRef.getPartitionNames().getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         throw new DdlException("Partition " + partName + " does not exist");
@@ -6292,7 +6297,7 @@ public class Catalog {
         }
         
         LOG.info("finished to truncate table {}, partitions: {}",
-                tblRef.getName().toSql(), tblRef.getPartitions());
+                tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 
     private void truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions, boolean isEntireTable) {
