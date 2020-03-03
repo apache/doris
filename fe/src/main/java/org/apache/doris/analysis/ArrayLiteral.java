@@ -27,7 +27,6 @@ import java.util.List;
 import org.apache.commons.lang.StringUtils;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -51,8 +50,6 @@ public class ArrayLiteral extends LiteralExpr {
 
     protected ArrayLiteral(ArrayLiteral other) {
         super(other);
-        this.type = other.type;
-        this.children.addAll(other.children);
     }
 
     @Override
@@ -82,29 +79,34 @@ public class ArrayLiteral extends LiteralExpr {
     }
 
     @Override
-    protected void treeToThriftHelper(TExpr container) {
-        super.treeToThriftHelper(container);
-
-//        for (LiteralExpr expr: values) {
-//            expr.treeToThriftHelper(container);
-//        }
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.ARRAY_LITERAL;
-//        msg.num_children = values.size();
         msg.setChild_type(((ArrayType) type).getItemType().getPrimitiveType().toThrift());
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
+        out.writeInt(children.size());
+        for (Expr e : children) {
+            Expr.writeTo(e, out);
+        }
     }
 
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
+        int size = in.readInt();
+        children = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            children.add(Expr.readIn(in));
+        }
+    }
+
+    public static ArrayLiteral read(DataInput in) throws IOException {
+        ArrayLiteral literal = new ArrayLiteral();
+        literal.readFields(in);
+        return literal;
     }
 
     @Override

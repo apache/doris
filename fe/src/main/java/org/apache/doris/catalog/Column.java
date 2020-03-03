@@ -22,6 +22,7 @@ import java.util.List;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -486,7 +487,8 @@ public class Column implements Writable {
 
         Text.writeString(out, comment);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
+        if (Config.array_type_enable) {
             out.writeInt(children.size());
 
             for (Column child : children) {
@@ -533,7 +535,8 @@ public class Column implements Writable {
             comment = "";
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
+//        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
+        if (Config.array_type_enable) {
             int childrenSize = in.readInt();
 
             for (int i = 0; i < childrenSize; i++) {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
@@ -45,7 +46,7 @@ public class ColumnTest {
 
         FakeCatalog.setCatalog(catalog);
         FakeCatalog.setMetaVersion(FeConstants.meta_version);
-        FakeCatalog.setMetaVersion(FeMetaVersion.VERSION_74);
+        Config.array_type_enable = true;
     }
 
     @Test

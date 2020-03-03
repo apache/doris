@@ -176,15 +176,24 @@ int ResultWriter::add_row_value(int index, const TypeDescriptor& type, void* ite
             _row_buffer->open_dynamic_mode();
             
             buf_ret = _row_buffer->push_string("[", 1);
-            if (iter.has_next() && !buf_ret) {
-                buf_ret = add_row_value(index, children_type, iter.value());
-                iter.next();
-            }
 
+            int begin = 0;
             while(iter.has_next() && !buf_ret) {
-                buf_ret = _row_buffer->push_string(", ", 2);
+                if (begin != 0) {
+                    buf_ret = _row_buffer->push_string(", ", 2);    
+                }
+
+                if (children_type == TYPE_CHAR || children_type == TYPE_VARCHAR) {
+                    buf_ret = _row_buffer->push_string("'", 1);
+                }
+
                 buf_ret = add_row_value(index, children_type, iter.value());
+
+                if (children_type == TYPE_CHAR || children_type == TYPE_VARCHAR) {
+                    buf_ret = _row_buffer->push_string("'", 1);
+                }
                 iter.next();
+                begin++;
             }
 
             if (!buf_ret) {

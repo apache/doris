@@ -22,7 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Config;
 
 import com.google.common.base.Preconditions;
 
@@ -71,7 +71,7 @@ public class TypeDef implements ParseNode {
     }
 
     if (type.isArrayType()) {
-      if (FeMetaVersion.VERSION_CURRENT < FeMetaVersion.VERSION_74) {
+      if (!Config.array_type_enable) {
         throw new AnalysisException("Unsupported data type: " + type.toSql());
       }
 

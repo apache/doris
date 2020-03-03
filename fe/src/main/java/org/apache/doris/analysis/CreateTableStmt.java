@@ -354,9 +354,9 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             if (columnDef.getType().isArrayType()) {
-                ArrayType tp =  (ArrayType) columnDef.getType();
-                if (!PrimitiveType.INT.equals(tp.getItemType().getPrimitiveType()) &&
-                        !PrimitiveType.VARCHAR.equals(tp.getItemType().getPrimitiveType())) {
+                ArrayType tp = (ArrayType) columnDef.getType();
+                if (tp.getItemType().getPrimitiveType() != PrimitiveType.INT &&
+                        tp.getItemType().getPrimitiveType() != PrimitiveType.VARCHAR) {
                     throw new AnalysisException("Array column just support INT/VARCHAR sub-type");
                 }
                 if (columnDef.getAggregateType() != null) {

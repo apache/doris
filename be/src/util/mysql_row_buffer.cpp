@@ -26,7 +26,8 @@
 
 namespace doris {
 
-#define NOT_DYNAMIC_MODE  (_dynamic_mode == 0)           
+#define NOT_DYNAMIC_MODE  (_dynamic_mode == 0)
+#define DYNAMIC_MODE (_dynamic_mode != 0)
                             
 // the first byte:
 // <= 250: length
@@ -72,7 +73,7 @@ MysqlRowBuffer::~MysqlRowBuffer() {
 }
 
 void MysqlRowBuffer::open_dynamic_mode() {
-    if (_dynamic_mode == 0) {
+    if (NOT_DYNAMIC_MODE) {
         *_pos++ = 254;
         // write length when dynamic mode close
         _len_pos = _pos;
@@ -84,7 +85,7 @@ void MysqlRowBuffer::open_dynamic_mode() {
 void MysqlRowBuffer::close_dynamic_mode() {
     _dynamic_mode--;
 
-    if (_dynamic_mode == 0) {
+    if (NOT_DYNAMIC_MODE) {
         int8store(_len_pos, _pos - _len_pos - 8);
         _len_pos = nullptr;
     }
@@ -132,10 +133,7 @@ int MysqlRowBuffer::push_tinyint(int8_t data) {
         return ret;
     }
 
-    int size_bytes = 0;
-    if (NOT_DYNAMIC_MODE) {
-        size_bytes = 1;
-    }
+    int size_bytes = DYNAMIC_MODE ? 0 : 1;
     
     int length = snprintf(_pos + size_bytes, MAX_TINYINT_WIDTH + 2, "%d", data);
 
@@ -162,10 +160,7 @@ int MysqlRowBuffer::push_smallint(int16_t data) {
         return ret;
     }
 
-    int size_bytes = 0;
-    if (NOT_DYNAMIC_MODE) {
-        size_bytes = 1;
-    }
+    int size_bytes = DYNAMIC_MODE ? 0 : 1;
     
     int length = snprintf(_pos + size_bytes, MAX_SMALLINT_WIDTH + 2, "%d", data);
 
@@ -191,10 +186,7 @@ int MysqlRowBuffer::push_int(int32_t data) {
         return ret;
     }
 
-    int size_bytes = 0;
-    if (NOT_DYNAMIC_MODE) {
-        size_bytes = 1;
-    }
+    int size_bytes = DYNAMIC_MODE ? 0 : 1;
 
     int length = snprintf(_pos + size_bytes, MAX_INT_WIDTH + 2, "%d", data);
 
@@ -220,10 +212,7 @@ int MysqlRowBuffer::push_bigint(int64_t data) {
         return ret;
     }
 
-    int size_bytes = 0;
-    if (NOT_DYNAMIC_MODE) {
-        size_bytes = 1;
-    }
+    int size_bytes = DYNAMIC_MODE ? 0 : 1;
 
     int length = snprintf(_pos + size_bytes, MAX_BIGINT_WIDTH + 2, "%ld", data);
 
@@ -249,10 +238,7 @@ int MysqlRowBuffer::push_unsigned_bigint(uint64_t data) {
         return ret;
     }
 
-    int size_bytes = 0;
-    if (NOT_DYNAMIC_MODE) {
-        size_bytes = 1;
-    }
+    int size_bytes = DYNAMIC_MODE ? 0 : 1;
 
     int length = snprintf(_pos + size_bytes, MAX_BIGINT_WIDTH + 3, "%ld", data);
 
@@ -278,10 +264,7 @@ int MysqlRowBuffer::push_float(float data) {
         return ret;
     }
 
-    int size_bytes = 0;
-    if (NOT_DYNAMIC_MODE) {
-        size_bytes = 1;
-    }
+    int size_bytes = DYNAMIC_MODE ? 0 : 1;
 
     int length = FloatToBuffer(data, MAX_FLOAT_STR_LENGTH + 2, _pos + size_bytes);
 
@@ -307,10 +290,7 @@ int MysqlRowBuffer::push_double(double data) {
         return ret;
     }
 
-    int size_bytes = 0;
-    if (NOT_DYNAMIC_MODE) {
-        size_bytes = 1;
-    }
+    int size_bytes = DYNAMIC_MODE ? 0 : 1;
 
     int length = DoubleToBuffer(data, MAX_DOUBLE_STR_LENGTH + 2, _pos + size_bytes);
 
