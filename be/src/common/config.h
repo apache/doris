@@ -499,8 +499,8 @@ namespace config {
     CONF_String(default_rowset_type, "ALPHA");
     CONF_String(compaction_rowset_type, "ALPHA");
 
-    // brpc config
-    CONF_Int64(brpc_max_body_size, "67108864")
+    // brpc config, 200M
+    CONF_Int64(brpc_max_body_size, "209715200")
 
     // max number of txns in txn manager
     // this is a self protection to avoid too many txns saving in manager
