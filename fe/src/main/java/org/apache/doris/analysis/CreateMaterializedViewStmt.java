@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -65,6 +66,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     private List<MVColumnItem> mvColumnItemList = Lists.newArrayList();
     private String baseIndexName;
     private String dbName;
+    private KeysType mvKeysType = KeysType.DUP_KEYS;
 
     public CreateMaterializedViewStmt(String mvName, SelectStmt selectStmt,
                                       Map<String, String> properties) {
@@ -93,6 +95,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return dbName;
     }
 
+    public KeysType getMVKeysType() {
+        return mvKeysType;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         // TODO(ml): remove it
@@ -110,12 +116,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                                 + selectStmt.getWhereClause().toSql());
         }
         if (selectStmt.getGroupByClause() != null) {
-            // TODO(ml): The metadata in fe does not support the deduplicate mv in base table
-            //           which keys type is duplicated.
-            if (selectStmt.getGroupByClause().getGroupingExprs().size() ==
-                    selectStmt.getSelectList().getItems().size()) {
-                throw new AnalysisException("The deduplicate materialized view is not yet supported");
-            }
+            mvKeysType = KeysType.AGG_KEYS;
         }
         if (selectStmt.getHavingPred() != null) {
             throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
@@ -188,6 +189,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                                         + "Error function: " + functionCallExpr.toSqlImpl());
                 }
                 meetAggregate = true;
+                mvKeysType = KeysType.AGG_KEYS;
                 // check duplicate value
                 String columnName = slotRef.getColumnName().toLowerCase();
                 if (mvKeyColumnNameSet.contains(columnName)) {
@@ -230,10 +232,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     private void analyzeOrderByClause() throws AnalysisException {
         if (selectStmt.getOrderByElements() == null) {
             /**
-             * Materialized view includes the aggregation functions.
+             * The keys type of Materialized view is aggregation.
              * All of group by columns are keys of materialized view.
              */
-            if (beginIndexOfAggregation != -1) {
+            if (mvKeysType == KeysType.AGG_KEYS) {
                 for (MVColumnItem mvColumnItem : mvColumnItemList) {
                     if (mvColumnItem.getAggregationType() != null) {
                         break;
@@ -242,6 +244,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 }
                 return;
             }
+
             /**
              * There is no aggregation function in materialized view.
              * Supplement key of MV columns

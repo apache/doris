@@ -17,11 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.AddRollupClause;
-import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
@@ -89,18 +85,11 @@ public class OlapTable extends Table {
     }
 
     private OlapTableState state;
-    // index id -> table's schema
-    private Map<Long, List<Column>> indexIdToSchema;
-    // index id -> table's schema version
-    private Map<Long, Integer> indexIdToSchemaVersion;
-    // index id -> table's schema hash
-    private Map<Long, Integer> indexIdToSchemaHash;
-    // index id -> table's short key column count
-    private Map<Long, Short> indexIdToShortKeyColumnCount;
-    // index id -> table's storage type
-    private Map<Long, TStorageType> indexIdToStorageType;
+
+    // index id -> index meta
+    private Map<Long, MaterializedIndexMeta> indexIdToMeta = Maps.newHashMap();
     // index name -> index id
-    private Map<String, Long> indexNameToId;
+    private Map<String, Long> indexNameToId = Maps.newHashMap();
 
     private KeysType keysType;
     private PartitionInfo partitionInfo;
@@ -133,12 +122,12 @@ public class OlapTable extends Table {
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
-        this.indexIdToSchema = new HashMap<Long, List<Column>>();
-        this.indexIdToSchemaHash = new HashMap<Long, Integer>();
-        this.indexIdToSchemaVersion = new HashMap<Long, Integer>();
-
-        this.indexIdToShortKeyColumnCount = new HashMap<Long, Short>();
-        this.indexIdToStorageType = new HashMap<Long, TStorageType>();
+//        this.indexIdToSchema = new HashMap<Long, List<Column>>();
+//        this.indexIdToSchemaHash = new HashMap<Long, Integer>();
+//        this.indexIdToSchemaVersion = new HashMap<Long, Integer>();
+//
+//        this.indexIdToShortKeyColumnCount = new HashMap<Long, Short>();
+//        this.indexIdToStorageType = new HashMap<Long, TStorageType>();
 
         this.indexNameToId = new HashMap<String, Long>();
 
@@ -165,13 +154,6 @@ public class OlapTable extends Table {
         super(id, tableName, TableType.OLAP, baseSchema);
 
         this.state = OlapTableState.NORMAL;
-
-        this.indexIdToSchema = new HashMap<Long, List<Column>>();
-        this.indexIdToSchemaHash = new HashMap<Long, Integer>();
-        this.indexIdToSchemaVersion = new HashMap<Long, Integer>();
-
-        this.indexIdToShortKeyColumnCount = new HashMap<Long, Short>();
-        this.indexIdToStorageType = new HashMap<Long, TStorageType>();
 
         this.indexNameToId = new HashMap<String, Long>();
 
@@ -271,25 +253,34 @@ public class OlapTable extends Table {
         return indexNameToId.containsKey(indexName);
     }
 
-    /*
-     * Set index schema info for specified index.
-     */
-    public void setIndexSchemaInfo(Long indexId, String indexName, List<Column> schema, int schemaVersion,
-                                   int schemaHash, short shortKeyColumnCount) {
+    public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
+            short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
+        // Nullable when meta comes from schema change
         if (indexName == null) {
-            Preconditions.checkState(indexNameToId.containsValue(indexId));
-        } else {
-            indexNameToId.put(indexName, indexId);
+            MaterializedIndexMeta oldIndexMeta = indexIdToMeta.get(indexId);
+            Preconditions.checkState(oldIndexMeta != null);
+            indexName = oldIndexMeta.getIndexName();
+            Preconditions.checkState(indexName != null);
         }
-        indexIdToSchema.put(indexId, schema);
-        indexIdToSchemaVersion.put(indexId, schemaVersion);
-        indexIdToSchemaHash.put(indexId, schemaHash);
-        indexIdToShortKeyColumnCount.put(indexId, shortKeyColumnCount);
-    }
+        // Nullable when meta is less then VERSION_74
+        if (keysType == null) {
+            keysType = this.keysType;
+        }
+        // Nullable when meta comes from schema change
+        if (storageType == null) {
+            MaterializedIndexMeta oldIndexMeta = indexIdToMeta.get(indexId);
+            Preconditions.checkState(oldIndexMeta != null);
+            storageType = oldIndexMeta.getStorageType();
+            Preconditions.checkState(storageType != null);
+        } else {
+            // The new storage type must be TStorageType.COLUMN
+            Preconditions.checkState(storageType == TStorageType.COLUMN);
+        }
 
-    public void setIndexStorageType(Long indexId, TStorageType newStorageType) {
-        Preconditions.checkState(newStorageType == TStorageType.COLUMN);
-        indexIdToStorageType.put(indexId, newStorageType);
+        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, indexName, schema, schemaVersion,
+                schemaHash, shortKeyColumnCount, storageType, keysType);
+        indexIdToMeta.put(indexId, indexMeta);
+        indexNameToId.put(indexName, indexId);
     }
 
     // rebuild the full schema of table
@@ -297,12 +288,12 @@ public class OlapTable extends Table {
     public void rebuildFullSchema() {
         fullSchema.clear();
         nameToColumn.clear();
-        for (Column baseColumn : indexIdToSchema.get(baseIndexId)) {
+        for (Column baseColumn : indexIdToMeta.get(baseIndexId).getSchema()) {
             fullSchema.add(baseColumn);
             nameToColumn.put(baseColumn.getName(), baseColumn);
         }
-        for (List<Column> columns : indexIdToSchema.values()) {
-            for (Column column : columns) {
+        for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
+            for (Column column : indexMeta.getSchema()) {
                 if (!nameToColumn.containsKey(column.getName())) {
                     fullSchema.add(column);
                     nameToColumn.put(column.getName(), column);
@@ -318,11 +309,7 @@ public class OlapTable extends Table {
         }
 
         long indexId = this.indexNameToId.remove(indexName);
-        indexIdToSchema.remove(indexId);
-        indexIdToSchemaVersion.remove(indexId);
-        indexIdToSchemaHash.remove(indexId);
-        indexIdToShortKeyColumnCount.remove(indexId);
-        indexIdToStorageType.remove(indexId);
+        this.indexIdToMeta.remove(indexId);
         return true;
     }
 
@@ -343,11 +330,11 @@ public class OlapTable extends Table {
         return null;
     }
 
-    public Map<Long, List<Column>> getVisibleIndexIdToSchema() {
-        Map<Long, List<Column>> visibleMVs = Maps.newHashMap();
+    public Map<Long, MaterializedIndexMeta> getVisibleIndexIdToSchema() {
+        Map<Long, MaterializedIndexMeta> visibleMVs = Maps.newHashMap();
         List<MaterializedIndex> mvs = getVisibleIndex();
         for (MaterializedIndex mv : mvs) {
-            visibleMVs.put(mv.getId(), indexIdToSchema.get(mv.getId()));
+            visibleMVs.put(mv.getId(), indexIdToMeta.get(mv.getId()));
         }
         return visibleMVs;
     }
@@ -364,7 +351,7 @@ public class OlapTable extends Table {
     }
 
     public void renameColumnNamePrefix(long idxId) {
-        List<Column> columns = indexIdToSchema.get(idxId);
+        List<Column> columns = indexIdToMeta.get(idxId).getSchema();
         for (Column column : columns) {
             column.setName(Column.removeNamePrefix(column.getName()));
         }
@@ -387,11 +374,7 @@ public class OlapTable extends Table {
                 // base index
                 baseIndexId = newIdxId;
             }
-            indexIdToSchema.put(newIdxId, indexIdToSchema.remove(entry.getKey()));
-            indexIdToSchemaHash.put(newIdxId, indexIdToSchemaHash.remove(entry.getKey()));
-            indexIdToSchemaVersion.put(newIdxId, indexIdToSchemaVersion.remove(entry.getKey()));
-            indexIdToShortKeyColumnCount.put(newIdxId, indexIdToShortKeyColumnCount.remove(entry.getKey()));
-            indexIdToStorageType.put(newIdxId, indexIdToStorageType.remove(entry.getKey()));
+            indexIdToMeta.put(newIdxId, indexIdToMeta.remove(entry.getKey()));
             indexNameToId.put(entry.getValue(), newIdxId);
         }
 
@@ -435,7 +418,7 @@ public class OlapTable extends Table {
             for (Map.Entry<Long, String> entry2 : origIdxIdToName.entrySet()) {
                 MaterializedIndex idx = partition.getIndex(entry2.getKey());
                 long newIdxId = indexNameToId.get(entry2.getValue());
-                int schemaHash = indexIdToSchemaHash.get(newIdxId);
+                int schemaHash = indexIdToMeta.get(newIdxId).getSchemaHash();
                 idx.setIdForRestore(newIdxId);
                 if (newIdxId != baseIndexId) {
                     // not base table, reset
@@ -476,17 +459,39 @@ public class OlapTable extends Table {
         return Status.OK;
     }
 
-    // schema
-    public Map<Long, List<Column>> getIndexIdToSchema() {
-        return indexIdToSchema;
+    public Map<Long, MaterializedIndexMeta> getIndexIdToMeta() {
+        return indexIdToMeta;
     }
 
-    public Map<Long, List<Column>> getCopiedIndexIdToSchema() {
-        return new HashMap<>(indexIdToSchema);
+    public Map<Long, MaterializedIndexMeta> getCopiedIndexIdToMeta() {
+        return new HashMap<>(indexIdToMeta);
+    }
+
+    public MaterializedIndexMeta getIndexMetaByIndexId(long indexId) {
+        return indexIdToMeta.get(indexId);
+    }
+
+    public List<Long> getIndexIdListExceptBaseIndex() {
+        List<Long> result = Lists.newArrayList();
+        for (Long indexId : indexIdToMeta.keySet()) {
+            if (indexId != baseIndexId) {
+                result.add(indexId);
+            }
+        }
+        return result;
+    }
+
+    // schema
+    public Map<Long, List<Column>> getIndexIdToSchema() {
+        Map<Long, List<Column>> result = Maps.newHashMap();
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            result.put(entry.getKey(), entry.getValue().getSchema());
+        }
+        return result;
     }
 
     public List<Column> getSchemaByIndexId(Long indexId) {
-        return indexIdToSchema.get(indexId);
+        return indexIdToMeta.get(indexId).getSchema();
     }
 
     public List<Column> getKeyColumnsByIndexId(Long indexId) {
@@ -501,61 +506,25 @@ public class OlapTable extends Table {
         return keyColumns;
     }
 
-    // schema version
-    public int getSchemaVersionByIndexId(Long indexId) {
-        if (indexIdToSchemaVersion.containsKey(indexId)) {
-            return indexIdToSchemaVersion.get(indexId);
-        }
-        return -1;
-    }
-
     // schemaHash
     public Map<Long, Integer> getIndexIdToSchemaHash() {
-        return indexIdToSchemaHash;
-    }
-
-    public Map<Long, Integer> getCopiedIndexIdToSchemaHash() {
-        return new HashMap<>(indexIdToSchemaHash);
+        Map<Long, Integer> result = Maps.newHashMap();
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : indexIdToMeta.entrySet()) {
+            result.put(entry.getKey(), entry.getValue().getSchemaHash());
+        }
+        return result;
     }
 
     public int getSchemaHashByIndexId(Long indexId) {
-        if (indexIdToSchemaHash.containsKey(indexId)) {
-            return indexIdToSchemaHash.get(indexId);
+        MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+        if (indexMeta == null) {
+            return -1;
         }
-        return -1;
-    }
-
-    // short key
-    public Map<Long, Short> getIndexIdToShortKeyColumnCount() {
-        return indexIdToShortKeyColumnCount;
-    }
-
-    public Map<Long, Short> getCopiedIndexIdToShortKeyColumnCount() {
-        return new HashMap<>(indexIdToShortKeyColumnCount);
-    }
-
-    public short getShortKeyColumnCountByIndexId(Long indexId) {
-        if (indexIdToShortKeyColumnCount.containsKey(indexId)) {
-            return indexIdToShortKeyColumnCount.get(indexId);
-        }
-        return (short) -1;
-    }
-
-    // storage type
-    public Map<Long, TStorageType> getIndexIdToStorageType() {
-        return indexIdToStorageType;
-    }
-
-    public Map<Long, TStorageType> getCopiedIndexIdToStorageType() {
-        return new HashMap<>(indexIdToStorageType);
-    }
-
-    public void setStorageTypeToIndex(Long indexId, TStorageType storageType) {
-        indexIdToStorageType.put(indexId, storageType);
+        return indexMeta.getSchemaHash();
     }
 
     public TStorageType getStorageTypeByIndexId(Long indexId) {
-        return indexIdToStorageType.get(indexId);
+        return indexIdToMeta.get(indexId).getStorageType();
     }
 
     public KeysType getKeysType() {
@@ -710,34 +679,6 @@ public class OlapTable extends Table {
         return rowCount;
     }
 
-    public AlterTableStmt toAddRollupStmt(String dbName, Collection<Long> indexIds) {
-        List<AlterClause> alterClauses = Lists.newArrayList();
-        for (Map.Entry<String, Long> entry : indexNameToId.entrySet()) {
-            String indexName = entry.getKey();
-            long indexId = entry.getValue();
-            if (!indexIds.contains(indexId)) {
-                continue;
-            }
-
-            // cols
-            List<String> columnNames = Lists.newArrayList();
-            for (Column column : indexIdToSchema.get(indexId)) {
-                columnNames.add(column.getName());
-            }
-            
-            // properties
-            Map<String, String> properties = Maps.newHashMap();
-            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE, indexIdToStorageType.get(indexId).name());
-            properties.put(PropertyAnalyzer.PROPERTIES_SHORT_KEY, indexIdToShortKeyColumnCount.get(indexId).toString());
-            properties.put(PropertyAnalyzer.PROPERTIES_SCHEMA_VERSION, indexIdToSchemaVersion.get(indexId).toString());
-
-            AddRollupClause addRollupClause = new AddRollupClause(indexName, columnNames, null, null, properties);
-            alterClauses.add(addRollupClause);
-        }
-
-        return new AlterTableStmt(new TableName(dbName, name), alterClauses);
-    }
-
     @Override
     public CreateTableStmt toCreateTableStmt(String dbName) {
         throw new RuntimeException("Don't support anymore");
@@ -763,15 +704,16 @@ public class OlapTable extends Table {
                 long indexId = indexNameToId.get(indexName);
                 adler32.update(indexName.getBytes(charsetName));
                 LOG.debug("signature. index name: {}", indexName);
+                MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
                 // schema hash
-                adler32.update(indexIdToSchemaHash.get(indexId));
-                LOG.debug("signature. index schema hash: {}", indexIdToSchemaHash.get(indexId));
+                adler32.update(indexMeta.getSchemaHash());
+                LOG.debug("signature. index schema hash: {}", indexMeta.getSchemaHash());
                 // short key column count
-                adler32.update(indexIdToShortKeyColumnCount.get(indexId));
-                LOG.debug("signature. index short key: {}", indexIdToShortKeyColumnCount.get(indexId));
+                adler32.update(indexMeta.getShortKeyColumnCount());
+                LOG.debug("signature. index short key: {}", indexMeta.getShortKeyColumnCount());
                 // storage type
-                adler32.update(indexIdToStorageType.get(indexId).name().getBytes(charsetName));
-                LOG.debug("signature. index storage type: {}", indexIdToStorageType.get(indexId));
+                adler32.update(indexMeta.getStorageType().name().getBytes(charsetName));
+                LOG.debug("signature. index storage type: {}", indexMeta.getStorageType());
             }
 
             // bloom filter
@@ -861,23 +803,7 @@ public class OlapTable extends Table {
             long indexId = entry.getValue();
             Text.writeString(out, indexName);
             out.writeLong(indexId);
-            // schema
-            out.writeInt(indexIdToSchema.get(indexId).size());
-            for (Column column : indexIdToSchema.get(indexId)) {
-                column.write(out);
-            }
-
-            // storage type
-            Text.writeString(out, indexIdToStorageType.get(indexId).name());
-
-            // indices's schema version
-            out.writeInt(indexIdToSchemaVersion.get(indexId));
-
-            // indices's schema hash
-            out.writeInt(indexIdToSchemaHash.get(indexId));
-
-            // indices's short key column count
-            out.writeShort(indexIdToShortKeyColumnCount.get(indexId));
+            indexIdToMeta.get(indexId).write(out);
         }
 
         Text.writeString(out, keysType.name());
@@ -941,32 +867,42 @@ public class OlapTable extends Table {
 
         // indices's schema
         int counter = in.readInt();
+        // tmp index meta list
+        List<MaterializedIndexMeta> tmpIndexMetaList = Lists.newArrayList();
         for (int i = 0; i < counter; i++) {
             String indexName = Text.readString(in);
             long indexId = in.readLong();
             this.indexNameToId.put(indexName, indexId);
 
-            // schema
-            int colCount = in.readInt();
-            List<Column> schema = new LinkedList<Column>();
-            for (int j = 0; j < colCount; j++) {
-                Column column = Column.read(in);
-                schema.add(column);
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_75) {
+                // schema
+                int colCount = in.readInt();
+                List<Column> schema = new LinkedList<Column>();
+                for (int j = 0; j < colCount; j++) {
+                    Column column = Column.read(in);
+                    schema.add(column);
+                }
+
+                // storage type
+                TStorageType storageType = TStorageType.valueOf(Text.readString(in));
+
+                // indices's schema version
+                int schemaVersion = in.readInt();
+
+                // indices's schema hash
+                int schemaHash = in.readInt();
+
+                // indices's short key column count
+                short shortKeyColumnCount = in.readShort();
+
+                // The keys type in here is incorrect
+                MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, indexName, schema,
+                        schemaVersion, schemaHash, shortKeyColumnCount, storageType, KeysType.AGG_KEYS);
+                tmpIndexMetaList.add(indexMeta);
+            } else {
+                MaterializedIndexMeta indexMeta = MaterializedIndexMeta.read(in);
+                indexIdToMeta.put(indexId, indexMeta);
             }
-            this.indexIdToSchema.put(indexId, schema);
-
-            // storage type
-            TStorageType type = TStorageType.valueOf(Text.readString(in));
-            this.indexIdToStorageType.put(indexId, type);
-
-            // indices's schema version
-            this.indexIdToSchemaVersion.put(indexId, in.readInt());
-
-            // indices's schema hash
-            this.indexIdToSchemaHash.put(indexId, in.readInt());
-
-            // indices's short key column count
-            this.indexIdToShortKeyColumnCount.put(indexId, in.readShort());
         }
 
         // partition and distribution info
@@ -974,6 +910,12 @@ public class OlapTable extends Table {
             keysType = KeysType.valueOf(Text.readString(in));
         } else {
             keysType = KeysType.AGG_KEYS;
+        }
+
+        // add the correct keys type in tmp index meta
+        for (MaterializedIndexMeta indexMeta : tmpIndexMetaList) {
+            indexMeta.setKeysType(keysType);
+            indexIdToMeta.put(indexMeta.getIndexId(), indexMeta);
         }
 
         PartitionType partType = PartitionType.valueOf(Text.readString(in));
@@ -1210,7 +1152,7 @@ public class OlapTable extends Table {
 
     @Override
     public List<Column> getBaseSchema() {
-        return indexIdToSchema.get(baseIndexId);
+        return getSchemaByIndexId(baseIndexId);
     }
 
     public int getKeysNum() {
@@ -1225,7 +1167,7 @@ public class OlapTable extends Table {
 
     public boolean convertRandomDistributionToHashDistribution() {
         boolean hasChanged = false;
-        List<Column> baseSchema = indexIdToSchema.get(baseIndexId);
+        List<Column> baseSchema = getBaseSchema();
         if (defaultDistributionInfo.getType() == DistributionInfoType.RANDOM) {
             defaultDistributionInfo = ((RandomDistributionInfo) defaultDistributionInfo).toHashDistributionInfo(baseSchema);
             hasChanged = true;

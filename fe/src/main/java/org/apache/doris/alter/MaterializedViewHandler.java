@@ -194,8 +194,8 @@ public class MaterializedViewHandler extends AlterHandler {
         List<Column> mvColumns = checkAndPrepareMaterializedView(addMVClause, olapTable);
 
         // Step2: create mv job
-        RollupJobV2 rollupJobV2 = createMaterializedViewJob(mvIndexName, baseIndexName, mvColumns,
-                addMVClause.getProperties(), olapTable, db, baseIndexId);
+        RollupJobV2 rollupJobV2 = createMaterializedViewJob(mvIndexName, baseIndexName, mvColumns, addMVClause
+                .getProperties(), olapTable, db, baseIndexId, addMVClause.getMVKeysType());
 
         addAlterJobV2(rollupJobV2);
 
@@ -260,7 +260,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
                 // step 3 create rollup job
                 RollupJobV2 alterJobV2 = createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema, addRollupClause.getProperties(),
-                        olapTable, db, baseIndexId);
+                        olapTable, db, baseIndexId, null);
 
                 rollupNameJobMap.put(addRollupClause.getRollupName(), alterJobV2);
                 logJobIdSet.add(alterJobV2.getJobId());
@@ -308,11 +308,13 @@ public class MaterializedViewHandler extends AlterHandler {
      * @throws AnalysisException
      */
     private RollupJobV2 createMaterializedViewJob(String mvName, String baseIndexName,
-                                           List<Column> mvColumns, Map<String, String> properties,
-                                           OlapTable olapTable, Database db, long baseIndexId)
+                                           List<Column> mvColumns, Map<String, String> properties, OlapTable
+            olapTable, Database db, long baseIndexId, KeysType mvKeysType)
             throws DdlException, AnalysisException {
-        // assign rollup index's key type, same as base index's
-        KeysType mvKeysType = olapTable.getKeysType();
+        if (mvKeysType == null) {
+            // assign rollup index's key type, same as base index's
+            mvKeysType = olapTable.getKeysType();
+        }
         // get rollup schema hash
         int mvSchemaHash = Util.schemaHash(0 /* init schema version */, mvColumns, olapTable.getCopiedBfColumns(),
                                            olapTable.getBfFpp());

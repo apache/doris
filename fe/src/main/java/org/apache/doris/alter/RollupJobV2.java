@@ -281,9 +281,8 @@ public class RollupJobV2 extends AlterJobV2 {
             partition.createRollupIndex(rollupIndex);
         }
 
-        tbl.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
-                rollupSchemaHash, rollupShortKeyColumnCount);
-        tbl.setStorageTypeToIndex(rollupIndexId, TStorageType.COLUMN);
+        tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
+                rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType);
     }
 
     /*
