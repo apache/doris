@@ -40,7 +40,8 @@ import java.util.Map.Entry;
 //      LOAD LABEL load_label
 //          (data_desc, ...)
 //          [BY cluster]
-//      [PROPERTIES (key1=value1, )]
+//          [data_processor_desc]
+//          [PROPERTIES (key1=value1, )]
 //
 //      load_label:
 //          db_name.label_name
@@ -53,6 +54,10 @@ import java.util.Map.Entry;
 //          [COLUMNS TERMINATED BY separator ]
 //          [(col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xx))]
+//
+//     data_processor_desc:
+//          WITH BROKER|CLUSTER name
+//          (key2=value2, ...)
 public class LoadStmt extends DdlStmt {
     public static final String TIMEOUT_PROPERTY = "timeout";
     public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
@@ -78,7 +83,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_FORMAT_TYPE = "format";
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
-    private final BrokerDesc brokerDesc;
+    private final DataProcessorDesc dataProcessorDesc;
     private final String cluster;
     private final Map<String, String> properties;
     private String user;
@@ -98,10 +103,10 @@ public class LoadStmt extends DdlStmt {
             .build();
     
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    BrokerDesc brokerDesc, String cluster, Map<String, String> properties) {
+                    DataProcessorDesc dataProcessorDesc, String cluster, Map<String, String> properties) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
-        this.brokerDesc = brokerDesc;
+        this.dataProcessorDesc = dataProcessorDesc;
         this.cluster = cluster;
         this.properties = properties;
         this.user = null;
@@ -115,8 +120,15 @@ public class LoadStmt extends DdlStmt {
         return dataDescriptions;
     }
 
+    public DataProcessorDesc getDataProcessorDesc() {
+        return dataProcessorDesc;
+    }
+
     public BrokerDesc getBrokerDesc() {
-        return brokerDesc;
+        if (dataProcessorDesc instanceof BrokerDesc) {
+            return (BrokerDesc) dataProcessorDesc;
+        }
+        return null;
     }
 
     public String getCluster() {
@@ -224,10 +236,14 @@ public class LoadStmt extends DdlStmt {
             throw new AnalysisException("No data file in load statement.");
         }
         for (DataDescription dataDescription : dataDescriptions) {
-            if (brokerDesc == null) {
+            if (dataProcessorDesc == null) {
                 dataDescription.setIsHadoopLoad(true);
             }
             dataDescription.analyze(label.getDbName());
+        }
+
+        if (dataProcessorDesc != null) {
+            dataProcessorDesc.analyze();
         }
         
         try {
@@ -242,7 +258,7 @@ public class LoadStmt extends DdlStmt {
 
     @Override
     public boolean needAuditEncryption() {
-        if (brokerDesc != null) {
+        if (dataProcessorDesc != null) {
             return true;
         }
         return false;
@@ -269,9 +285,17 @@ public class LoadStmt extends DdlStmt {
             sb.append("'");
         }
 
-        if (brokerDesc != null) {
-            sb.append("\n WITH BROKER '").append(brokerDesc.getName()).append("' (");
-            sb.append(new PrintableMap<String, String>(brokerDesc.getProperties(), "=", true, false, true));
+        if (dataProcessorDesc != null) {
+            sb.append("\n WITH ");
+            if (dataProcessorDesc instanceof BrokerDesc) {
+                sb.append("BROKER");
+            } else if (dataProcessorDesc instanceof EtlClusterDesc) {
+                sb.append("CLUSTER");
+            } else {
+                sb.append("UNKNOWN");
+            }
+            sb.append(" '").append(dataProcessorDesc.getName()).append("' (");
+            sb.append(new PrintableMap<String, String>(dataProcessorDesc.getProperties(), "=", true, false, true));
             sb.append(")");
         }
 
