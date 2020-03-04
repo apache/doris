@@ -23,12 +23,15 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.qe.ConnectContext;
-
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
+
+import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.File;
 import java.util.UUID;
 
 public class QueryPlanTest {
@@ -78,6 +81,52 @@ public class QueryPlanTest {
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\"\n" +
                 ");");
+        
+        createTable("CREATE TABLE test.`bigtable` (\n" +
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" + 
+                "  `k2` smallint(6) NULL COMMENT \"\",\n" + 
+                "  `k3` int(11) NULL COMMENT \"\",\n" + 
+                "  `k4` bigint(20) NULL COMMENT \"\",\n" + 
+                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" + 
+                "  `k6` char(5) NULL COMMENT \"\",\n" + 
+                "  `k10` date NULL COMMENT \"\",\n" + 
+                "  `k11` datetime NULL COMMENT \"\",\n" + 
+                "  `k7` varchar(20) NULL COMMENT \"\",\n" + 
+                "  `k8` double MAX NULL COMMENT \"\",\n" + 
+                "  `k9` float SUM NULL COMMENT \"\"\n" + 
+                ") ENGINE=OLAP\n" + 
+                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" + 
+                "COMMENT \"OLAP\"\n" + 
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" + 
+                "PROPERTIES (\n" + 
+                "\"replication_num\" = \"1\"\n" + 
+                ");");
+        
+        createTable("CREATE TABLE test.`baseall` (\n" + 
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" + 
+                "  `k2` smallint(6) NULL COMMENT \"\",\n" + 
+                "  `k3` int(11) NULL COMMENT \"\",\n" + 
+                "  `k4` bigint(20) NULL COMMENT \"\",\n" + 
+                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" + 
+                "  `k6` char(5) NULL COMMENT \"\",\n" + 
+                "  `k10` date NULL COMMENT \"\",\n" + 
+                "  `k11` datetime NULL COMMENT \"\",\n" + 
+                "  `k7` varchar(20) NULL COMMENT \"\",\n" + 
+                "  `k8` double MAX NULL COMMENT \"\",\n" + 
+                "  `k9` float SUM NULL COMMENT \"\"\n" + 
+                ") ENGINE=OLAP\n" + 
+                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" + 
+                "COMMENT \"OLAP\"\n" + 
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" + 
+                "PROPERTIES (\n" + 
+                "\"replication_num\" = \"1\"\n" + 
+                ");");
+    }
+
+    @AfterClass
+    public static void tearDown() {
+        File file = new File(runningDir);
+        file.delete();
     }
 
     private static void createTable(String sql) throws Exception {
@@ -231,5 +280,13 @@ public class QueryPlanTest {
                 "select count(*) from test.hll_table where id2 = 1",
                 "type not match, originType=HLL, targeType=DOUBLE"
         );
+    }
+
+    @Test
+    public void testTypeCast() throws Exception {
+        // cmy: this test may sometimes failed in our daily test env, so I add a case here.
+        String sql = "select * from test.baseall a where k1 in (select k1 from test.bigtable b where k2 > 0 and k1 = 1);";
+        UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertEquals(MysqlStateType.EOF, connectContext.getState().getStateType());
     }
 }
