@@ -399,6 +399,29 @@ under the License.
         "fs.s3a.secret.key" = "yyyyyyyyyyyyyyyyyyyy",
         "fs.s3a.endpoint" = "s3.amazonaws.com"
         )
+
+    12. 提取文件路径中的时间分区字段，并且时间包含 %3A (在 hdfs 路径中，不允许有 ':'，所有 ':' 会由 %3A 替换)
+
+        假设有如下文件：
+
+        /user/data/data_time=2020-02-17 00%3A00%3A00/test.txt
+        /user/data/data_time=2020-02-18 00%3A00%3A00/test.txt
+
+        表结构为：
+        data_time DATETIME,
+        k2        INT,
+        k3        INT
+
+        LOAD LABEL example_db.label12
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt") 
+         INTO TABLE `tbl12`
+         COLUMNS TERMINATED BY ","
+         (k2,k3)
+         COLUMNS FROM PATH AS (data_time)
+         SET (data_time=str_to_date(data_time, '%Y-%m-%d %H%%3A%i%%3A%s'))
+        ) 
+        WITH BROKER "hdfs" ("username"="user", "password"="pass");
          
 ## keyword
 
