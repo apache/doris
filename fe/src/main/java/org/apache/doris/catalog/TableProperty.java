@@ -24,6 +24,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -43,7 +44,7 @@ public class TableProperty implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    private DynamicPartitionProperty dynamicPartitionProperty;
+    private DynamicPartitionProperty dynamicPartitionProperty = new DynamicPartitionProperty(Maps.newHashMap());
     // table's default replication num
     private Short replicationNum = FeConstants.default_replication_num;
 
@@ -51,7 +52,6 @@ public class TableProperty implements Writable {
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
-        dynamicPartitionProperty = null;
     }
 
     public static boolean isSamePrefixProperties(Map<String, String> properties, String prefix) {
@@ -91,9 +91,8 @@ public class TableProperty implements Writable {
     }
 
     public TableProperty buildReplicationNum() {
-        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            replicationNum = Short.valueOf(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-        }
+        replicationNum = Short.parseShort(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                String.valueOf(FeConstants.default_replication_num)));
         return this;
     }
 
