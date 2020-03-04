@@ -523,7 +523,8 @@ public class FileSystemManager {
                         "errors while get file pos from output stream");
             }
             if (currentStreamOffset != offset) {
-                logger.warn("invalid offset, current read offset is "
+                // it's ok, when reading some format like parquet, it is not a sequential read
+                logger.debug("invalid offset, current read offset is "
                         + currentStreamOffset + " is not equal to request offset "
                         + offset + " seek to it");
                 try {
