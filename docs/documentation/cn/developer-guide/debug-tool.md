@@ -239,7 +239,7 @@ pprof --svg --seconds=60 http://be_host:be_webport/pprof/profile > be.svg
 
 ### perf + flamegragh
 
-这个是相当通用的一种CPU分析方式，相比于`pprof`，这中方式必须要求能够登陆到分析对象的物理机上。但是相比于pprof只能定时采点，perf是能够通过不同的事件来完成堆栈信息采集的。具体的的使用方式如下：
+这个是相当通用的一种CPU分析方式，相比于`pprof`，这种方式必须要求能够登陆到分析对象的物理机上。但是相比于pprof只能定时采点，perf是能够通过不同的事件来完成堆栈信息采集的。具体的的使用方式如下：
 
 ```
 perf record -g -p be_pid -- sleep 60

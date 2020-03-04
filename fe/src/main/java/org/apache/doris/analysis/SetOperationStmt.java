@@ -187,11 +187,6 @@ public class SetOperationStmt extends QueryStmt {
         super.analyze(analyzer);
         Preconditions.checkState(operands.size() > 0);
 
-        for (SetOperand op : operands) {
-            if (op.getOperation() != null && op.getOperation() != Operation.UNION) {
-                throw new AnalysisException("INTERSECT/EXCEPT is not implemented yet.");
-            }
-        }
         // Propagates DISTINCT from left to right,
         propagateDistinct();
 
@@ -281,29 +276,28 @@ public class SetOperationStmt extends QueryStmt {
             allOperands_.add(operands.get(0));
             return;
         }
-
         // find index of first ALL operand
-        int firstUnionAllIdx = operands.size();
+        int firstAllIdx = operands.size();
         for (int i = 1; i < operands.size(); ++i) {
             SetOperand operand = operands.get(i);
             if (operand.getQualifier() == Qualifier.ALL) {
-                firstUnionAllIdx = (i == 1 ? 0 : i);
+                firstAllIdx = (i == 1 ? 0 : i);
                 break;
             }
         }
         // operands[0] is always implicitly ALL, so operands[1] can't be the
         // first one
-        Preconditions.checkState(firstUnionAllIdx != 1);
+        Preconditions.checkState(firstAllIdx != 1);
 
         // unnest DISTINCT operands
         Preconditions.checkState(distinctOperands_.isEmpty());
-        for (int i = 0; i < firstUnionAllIdx; ++i) {
+        for (int i = 0; i < firstAllIdx; ++i) {
             unnestOperand(distinctOperands_, Qualifier.DISTINCT, operands.get(i));
         }
 
         // unnest ALL operands
         Preconditions.checkState(allOperands_.isEmpty());
-        for (int i = firstUnionAllIdx; i < operands.size(); ++i) {
+        for (int i = firstAllIdx; i < operands.size(); ++i) {
             unnestOperand(allOperands_, Qualifier.ALL, operands.get(i));
         }
 
@@ -330,7 +324,16 @@ public class SetOperationStmt extends QueryStmt {
 
         Preconditions.checkState(queryStmt instanceof SetOperationStmt);
         SetOperationStmt setOperationStmt = (SetOperationStmt) queryStmt;
-        if (setOperationStmt.hasLimit() || setOperationStmt.hasOffset()) {
+        boolean mixed = false;
+        if (operand.getOperation() != null) {
+            for (int i = 1; i < setOperationStmt.operands.size(); ++i) {
+                if (operand.getOperation() != setOperationStmt.operands.get(i).getOperation()) {
+                    mixed = true;
+                    break;
+                }
+            }
+        }
+        if (setOperationStmt.hasLimit() || setOperationStmt.hasOffset() || mixed) {
             // we must preserve the nested SetOps
             target.add(operand);
         } else if (targetQualifier == Qualifier.DISTINCT || !setOperationStmt.hasDistinctOps()) {
@@ -643,7 +646,14 @@ public class SetOperationStmt extends QueryStmt {
         }
 
         public void analyze(Analyzer parent) throws AnalysisException, UserException {
-            if (isAnalyzed()) return;
+            if (isAnalyzed()) {
+                return;
+            }
+            // Oracle and ms-SQLServer do not support INTERSECT ALL and EXCEPT ALL, postgres support it,
+            // but it is very ambiguous
+            if (qualifier_ == Qualifier.ALL && (operation == Operation.EXCEPT || operation == Operation.INTERSECT)) {
+                throw new AnalysisException("INTERSECT and EXCEPT does not support ALL qualifier.");
+            }
             analyzer = new Analyzer(parent);
             queryStmt.analyze(analyzer);
         }

@@ -6,6 +6,7 @@ Administrator Guide
     :hidden:
 
     load-data/index
+    alter-table/index 
     http-actions/index
     operation/index
     config/index

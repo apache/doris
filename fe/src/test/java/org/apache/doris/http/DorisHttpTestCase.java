@@ -17,10 +17,6 @@
 
 package org.apache.doris.http;
 
-import mockit.Expectations;
-import mockit.Mock;
-import mockit.MockUp;
-import mockit.Mocked;
 import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Catalog;
@@ -52,9 +48,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
-import okhttp3.Credentials;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
+
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -66,7 +60,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+
 import junit.framework.AssertionFailedError;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import okhttp3.Credentials;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
 
 abstract public class DorisHttpTestCase {
 

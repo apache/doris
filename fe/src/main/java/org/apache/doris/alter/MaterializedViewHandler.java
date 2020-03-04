@@ -45,6 +45,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -59,7 +60,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
+import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -85,6 +86,7 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class MaterializedViewHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(MaterializedViewHandler.class);
+    public static final String NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX = "__v2_";
 
     public MaterializedViewHandler() {
         super("materialized view");
@@ -169,6 +171,11 @@ public class MaterializedViewHandler extends AlterHandler {
      */
     public void processCreateMaterializedView(CreateMaterializedViewStmt addMVClause, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
+
+        if (olapTable.existTempPartitions()) {
+            throw new DdlException("Can not alter table when there are temp partitions in table");
+        }
+
         // Step1.1: semantic analysis
         // TODO(ML): support the materialized view as base index
         if (!addMVClause.getBaseIndexName().equals(olapTable.getName())) {
@@ -325,7 +332,7 @@ public class MaterializedViewHandler extends AlterHandler {
                                             baseIndexId, mvIndexId, baseIndexName, mvName,
                                             mvColumns, baseSchemaHash, mvSchemaHash,
                                             mvKeysType, mvShortKeyColumnCount);
-        String newStorageFormatIndexName = "__v2_" + olapTable.getName();
+        String newStorageFormatIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
         if (mvName.equals(newStorageFormatIndexName)) {
             mvJob.setStorageFormat(TStorageFormat.V2);
         }
@@ -440,7 +447,7 @@ public class MaterializedViewHandler extends AlterHandler {
         String rollupIndexName = addRollupClause.getRollupName();
         List<String> rollupColumnNames = addRollupClause.getColumnNames();
         if (changeStorageFormat) {
-            String newStorageFormatIndexName = "__v2_" + olapTable.getName();
+            String newStorageFormatIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
             rollupIndexName = newStorageFormatIndexName;
             List<Column> columns = olapTable.getSchemaByIndexId(baseIndexId);
             // create the same schema as base table
@@ -465,10 +472,14 @@ public class MaterializedViewHandler extends AlterHandler {
         boolean hasKey = false;
         boolean meetReplaceValue = false;
         KeysType keysType = olapTable.getKeysType();
+        Map<String, Column> baseColumnNameToColumn = Maps.newHashMap();
+        for (Column column : olapTable.getSchemaByIndexId(baseIndexId)) {
+            baseColumnNameToColumn.put(column.getName(), column);
+        }
         if (keysType.isAggregationFamily()) {
             int keysNumOfRollup = 0;
             for (String columnName : rollupColumnNames) {
-                Column oneColumn = olapTable.getColumn(columnName);
+                Column oneColumn = baseColumnNameToColumn.get(columnName);
                 if (oneColumn == null) {
                     throw new DdlException("Column[" + columnName + "] does not exist");
                 }
@@ -503,69 +514,41 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
             }
         } else if (KeysType.DUP_KEYS == keysType) {
-            /*
-             * eg.
-             * Base Table's schema is (k1,k2,k3,k4,k5) dup key (k1,k2,k3).
-             * The following rollup is allowed:
-             * 1. (k1) dup key (k1)
-             * 2. (k2,k3) dup key (k2)
-             * 3. (k1,k2,k3) dup key (k1,k2)
-             *
-             * The following rollup is forbidden:
-             * 1. (k1) dup key (k2)
-             * 2. (k2,k3) dup key (k3,k2)
-             * 3. (k1,k2,k3) dup key (k2,k3)
-             */
+            // supplement the duplicate key
             if (addRollupClause.getDupKeys() == null || addRollupClause.getDupKeys().isEmpty()) {
-                // user does not specify duplicate key for rollup,
-                // use base table's duplicate key.
-                // so we should check if rollup columns contains all base table's duplicate key.
-                List<Column> baseIdxCols = olapTable.getSchemaByIndexId(baseIndexId);
-                Set<String> baseIdxKeyColNames = Sets.newHashSet();
-                for (Column baseCol : baseIdxCols) {
-                    if (baseCol.isKey()) {
-                        baseIdxKeyColNames.add(baseCol.getName());
+                int keyStorageLayoutBytes = 0;
+                for (int i = 0; i < rollupColumnNames.size(); i++) {
+                    String columnName = rollupColumnNames.get(i);
+                    Column baseColumn = baseColumnNameToColumn.get(columnName);
+                    if (baseColumn == null) {
+                        throw new DdlException("Column[" + columnName + "] does not exist in base index");
+                    }
+                    keyStorageLayoutBytes += baseColumn.getType().getStorageLayoutBytes();
+                    Column rollupColumn = new Column(baseColumn);
+                    if ((i + 1) <= FeConstants.shortkey_max_column_count
+                            || keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes) {
+                        rollupColumn.setIsKey(true);
+                        rollupColumn.setAggregationType(null, false);
                     } else {
-                        break;
+                        rollupColumn.setIsKey(false);
+                        rollupColumn.setAggregationType(AggregateType.NONE, true);
                     }
-                }
-
-                boolean found = false;
-                for (String baseIdxKeyColName : baseIdxKeyColNames) {
-                    found = false;
-                    for (String rollupColName : rollupColumnNames) {
-                        if (rollupColName.equalsIgnoreCase(baseIdxKeyColName)) {
-                            found = true;
-                            break;
-                        }
-                    }
-                    if (!found) {
-                        throw new DdlException("Rollup should contains all base table's duplicate keys if "
-                                                       + "no duplicate key is specified: " + baseIdxKeyColName);
-                    }
-                }
-
-                // check (a)(b)
-                for (String columnName : rollupColumnNames) {
-                    Column oneColumn = olapTable.getColumn(columnName);
-                    if (oneColumn == null) {
-                        throw new DdlException("Column[" + columnName + "] does not exist");
-                    }
-                    if (oneColumn.isKey() && meetValue) {
-                        throw new DdlException("Invalid column order. key should before all values: " + columnName);
-                    }
-                    if (oneColumn.isKey()) {
-                        hasKey = true;
-                    } else {
-                        meetValue = true;
-                    }
-                    rollupSchema.add(oneColumn);
-                }
-
-                if (!hasKey) {
-                    throw new DdlException("No key column is found");
+                    rollupSchema.add(rollupColumn);
                 }
             } else {
+                /*
+                 * eg.
+                * Base Table's schema is (k1,k2,k3,k4,k5) dup key (k1,k2,k3).
+                * The following rollup is allowed:
+                * 1. (k1) dup key (k1)
+                * 2. (k2,k3) dup key (k2)
+                * 3. (k1,k2,k3) dup key (k1,k2)
+                *
+                * The following rollup is forbidden:
+                * 1. (k1) dup key (k2)
+                * 2. (k2,k3) dup key (k3,k2)
+                * 3. (k1,k2,k3) dup key (k2,k3)
+                */
                 // user specify the duplicate keys for rollup index
                 List<String> dupKeys = addRollupClause.getDupKeys();
                 if (dupKeys.size() > rollupColumnNames.size()) {
@@ -583,7 +566,8 @@ public class MaterializedViewHandler extends AlterHandler {
                         isKey = true;
                     }
 
-                    if (olapTable.getColumn(rollupColName) == null) {
+                    Column baseColumn = baseColumnNameToColumn.get(rollupColName);
+                    if (baseColumn == null) {
                         throw new DdlException("Column[" + rollupColName + "] does not exist");
                     }
 
@@ -591,7 +575,7 @@ public class MaterializedViewHandler extends AlterHandler {
                         throw new DdlException("Invalid column order. key should before all values: " + rollupColName);
                     }
 
-                    Column oneColumn = new Column(olapTable.getColumn(rollupColName));
+                    Column oneColumn = new Column(baseColumn);
                     if (isKey) {
                         hasKey = true;
                         oneColumn.setIsKey(true);
@@ -1040,6 +1024,11 @@ public class MaterializedViewHandler extends AlterHandler {
     @Override
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws DdlException, AnalysisException {
+
+        if (olapTable.existTempPartitions()) {
+            throw new DdlException("Can not alter table when there are temp partitions in table");
+        }
+
         Optional<AlterClause> alterClauseOptional = alterClauses.stream().findAny();
         if (alterClauseOptional.isPresent()) {
             if (alterClauseOptional.get() instanceof AddRollupClause) {

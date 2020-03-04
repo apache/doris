@@ -516,6 +516,8 @@ visible_functions = [
         '_ZN5doris15StringFunctions9ends_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['starts_with'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris15StringFunctions11starts_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
+    [['null_or_empty'], 'BOOLEAN', ['VARCHAR'],
+        '_ZN5doris15StringFunctions13null_or_emptyEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['space'], 'VARCHAR', ['INT'],
         '_ZN5doris15StringFunctions5spaceEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
     [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'],
@@ -727,7 +729,8 @@ non_null_result_with_null_param_functions = [
     'if',
     'hll_hash',
     'concat_ws',
-    'ifnull'
+    'ifnull',
+    'null_or_empty'
 ]
 
 invisible_functions = [

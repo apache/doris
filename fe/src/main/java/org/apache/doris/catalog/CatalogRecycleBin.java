@@ -27,6 +27,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -44,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -211,7 +213,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private void onEraseOlapTable(OlapTable olapTable) {
         // inverted index
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        for (Partition partition : olapTable.getPartitions()) {
+        Collection<Partition> allPartitions = olapTable.getPartitions();
+        allPartitions.addAll(olapTable.getAllTempPartitions());
+        for (Partition partition : allPartitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
                     invertedIndex.deleteTablet(tablet.getId());
@@ -512,7 +516,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         Map<Long, Range<PartitionKey>> idToRangeMap = partitionInfo.getIdToRange();
         try {
             for (Range<PartitionKey> existRange : idToRangeMap.values()) {
-                RangePartitionInfo.checkRangeIntersect(recoverRange, existRange);
+                RangeUtils.checkRangeIntersect(recoverRange, existRange);
             }
         } catch (DdlException e) {
             throw new DdlException("Can not recover partition[" + partitionName + "]. " + e.getMessage());
@@ -862,7 +866,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             out.writeLong(dbId);
             out.writeLong(tableId);
             partition.write(out);
-            RangePartitionInfo.writeRange(out, range);
+            RangeUtils.writeRange(out, range);
             dataProperty.write(out);
             out.writeShort(replicationNum);
             out.writeBoolean(isInMemory);
@@ -872,7 +876,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
             dbId = in.readLong();
             tableId = in.readLong();
             partition = Partition.read(in);
-            range = RangePartitionInfo.readRange(in);
+            range = RangeUtils.readRange(in);
             dataProperty = DataProperty.read(in);
             replicationNum = in.readShort();
             if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {

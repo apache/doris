@@ -92,6 +92,6 @@ Because the file meta-information and content are stored in FE memory. So by def
 
 	> If you need to upload more files or increase the size limit of a single file, you can modify the `max_small_file_size_bytes` and `max_small_file_number` parameters by using the `ADMIN SET CONFIG` command. However, the increase in the number and size of files will lead to an increase in FE memory usage.
 
-2. BE 配置
+2. BE configuration
 
 * `Small_file_dir`: The path used to store files downloaded from FE by default is in the `lib/small_files/` directory of the BE runtime directory.

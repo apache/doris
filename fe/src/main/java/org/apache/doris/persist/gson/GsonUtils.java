@@ -17,6 +17,9 @@
 
 package org.apache.doris.persist.gson;
 
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.ScalarType;
 
 import com.google.common.base.Preconditions;
@@ -27,7 +30,6 @@ import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Table;
-import com.google.common.reflect.TypeToken;
 import com.google.gson.ExclusionStrategy;
 import com.google.gson.FieldAttributes;
 import com.google.gson.Gson;
@@ -40,8 +42,14 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParseException;
 import com.google.gson.JsonSerializationContext;
 import com.google.gson.JsonSerializer;
+import com.google.gson.TypeAdapter;
+import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -72,6 +80,12 @@ public class GsonUtils {
             // TODO: register other sub type after Doris support more types.
             .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName());
 
+    // runtime adapter for class "DistributionInfo"
+    private static RuntimeTypeAdapterFactory<DistributionInfo> distributionInfoTypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(DistributionInfo.class, "clazz")
+            .registerSubtype(HashDistributionInfo.class, HashDistributionInfo.class.getSimpleName())
+            .registerSubtype(RandomDistributionInfo.class, RandomDistributionInfo.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
@@ -79,7 +93,9 @@ public class GsonUtils {
             .enableComplexMapKeySerialization()
             .registerTypeHierarchyAdapter(Table.class, new GuavaTableAdapter())
             .registerTypeHierarchyAdapter(Multimap.class, new GuavaMultimapAdapter())
-            .registerTypeAdapterFactory(columnTypeAdapterFactory);
+            .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
+            .registerTypeAdapterFactory(columnTypeAdapterFactory)
+            .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory);
 
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
@@ -224,7 +240,7 @@ public class GsonUtils {
         private static final Type asMapReturnType = getAsMapMethod().getGenericReturnType();
 
         private static Type asMapType(Type multimapType) {
-            return TypeToken.of(multimapType).resolveType(asMapReturnType).getType();
+            return com.google.common.reflect.TypeToken.of(multimapType).resolveType(asMapReturnType).getType();
         }
 
         private static Method getAsMapMethod() {
@@ -280,4 +296,30 @@ public class GsonUtils {
             return map;
         }
     }
+
+    public static class PostProcessTypeAdapterFactory implements TypeAdapterFactory {
+
+        public PostProcessTypeAdapterFactory() {
+        }
+
+        @Override
+        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
+            TypeAdapter<T> delegate = gson.getDelegateAdapter(this, type);
+
+            return new TypeAdapter<T>() {
+                public void write(JsonWriter out, T value) throws IOException {
+                    delegate.write(out, value);
+                }
+
+                public T read(JsonReader reader) throws IOException {
+                    T obj = delegate.read(reader);
+                    if (obj instanceof GsonPostProcessable) {
+                        ((GsonPostProcessable) obj).gsonPostProcess();
+                    }
+                    return obj;
+                }
+            };
+        }
+    }
+
 }

@@ -1,4 +1,4 @@
-<!-- 
+<!--
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -34,7 +34,7 @@ under the License.
 
 ## 原理
 
-```              
+```
          +---------+
          |  Client |
          +----+----+
@@ -87,13 +87,13 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 * columns_mapping
 
     `columns_mapping` 主要用于指定表结构和 message 中的列映射关系，以及一些列的转换。如果不指定，Doris 会默认 message 中的列和表结构的列按顺序一一对应。虽然在正常情况下，如果源数据正好一一对应，则不指定也可以进行正常的数据导入。但是我们依然强烈建议用户**显式的指定列映射关系**。这样当表结构发生变化（比如增加一个 nullable 的列），或者源文件发生变化（比如增加了一列）时，导入任务依然可以继续进行。否则，当发生上述变动后，因为列映射关系不再一一对应，导入将报错。
-    
+
     在 `columns_mapping` 中我们同样可以使用一些内置函数进行列的转换。但需要注意函数参数对应的实际列类型。举例说明：
-    
+
     假设用户需要导入只包含 `k1` 一列的表，列类型为 `int`。并且需要将源文件中的 null 值转换为 0。该功能可以通过 `ifnull` 函数实现。正确是的使用方式如下：
-    
+
     `COLUMNS (xx, k1=ifnull(xx, "3"))`
-    
+
     注意这里我们使用 `"3"` 而不是 `3`，虽然 `k1` 的类型为 `int`。因为对于导入任务来说，源数据中的列类型都为 `varchar`，所以这里 `xx` 虚拟列的类型也为 `varchar`。所以我们需要使用 `"3"` 来进行对应的匹配，否则 `ifnull` 函数无法找到参数为 `(varchar, int)` 的函数签名，将出现错误。
 
     再举例，假设用户需要导入只包含 `k1` 一列的表，列类型为 `int`。并且需要将源文件中的对应列进行处理：将负数转换为正数，而将正数乘以 100。这个功能可以通过 `case when` 函数实现，正确写法应如下：
@@ -109,43 +109,43 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 * desired\_concurrent\_number
 
     `desired_concurrent_number` 用于指定一个例行作业期望的并发度。即一个作业，最多有多少 task 同时在执行。对于 Kafka 导入而言，当前的实际并发度计算如下：
-    
+
     ```
     Min(partition num, desired_concurrent_number, alive_backend_num, Config.max_routine_load_task_concurrrent_num)
     ```
-    
+
     其中 `Config.max_routine_load_task_concurrrent_num` 是系统的一个默认的最大并发数限制。这是一个 FE 配置，可以通过改配置调整。默认为 5。
 
     其中 partition num 指订阅的 Kafka topic 的 partition 数量。`alive_backend_num` 是当前正常的 BE 节点数。
-    
+
 * max\_batch\_interval/max\_batch\_rows/max\_batch\_size
 
     这三个参数用于控制单个任务的执行时间。其中任意一个阈值达到，则任务结束。其中 `max_batch_rows` 用于记录从 Kafka 中读取到的数据行数。`max_batch_size` 用于记录从 Kafka 中读取到的数据量，单位是字节。目前一个任务的消费速率大约为 5-10MB/s。
-    
+
     那么假设一行数据 500B，用户希望每 100MB 或 10 秒为一个 task。100MB 的预期处理时间是 10-20 秒，对应的行数约为 200000 行。则一个合理的配置为：
-    
+
     ```
     "max_batch_interval" = "10",
     "max_batch_rows" = "200000",
     "max_batch_size" = "104857600"
     ```
-    
+
     以上示例中的参数也是这些配置的默认参数。
-    
+
 * max\_error\_number
 
     `max_error_number` 用于控制错误率。在错误率过高的时候，作业会自动暂停。因为整个作业是面向数据流的，且由于数据流的无边界性，我们无法像其他导入任务一样，通过一个错误比例来计算错误率。因此这里提供了一种新的计算方式，来计算数据流中的错误比例。
-    
+
     我们设定了一个采样窗口。窗口的大小为 `max_batch_rows * 10`。在一个采样窗口内，如果错误行数超过 `max_error_number`，则作业被暂停。如果没有超过，则下一个窗口重新开始计算错误行数。
-    
+
     我们假设 `max_batch_rows` 为 200000，则窗口大小为 2000000。设 `max_error_number` 为 20000，即用户预期每 2000000 行的错误行为 20000。即错误率为 1%。但是因为不是每批次任务正好消费 200000 行，所以窗口的实际范围是 [2000000, 2200000]，即有 10% 的统计误差。
-    
+
     错误行不包括通过 where 条件过滤掉的行。但是包括没有对应的 Doris 表中的分区的行。
-    
+
 * data\_source\_properties
 
     `data_source_properties` 中可以指定消费具体的 Kakfa partition。如果不指定，则默认消费所订阅的 topic 的所有 partition。
-    
+
     注意，当显式的指定了 partition，则导入作业不会再动态的检测 Kafka partition 的变化。如果没有指定，则会根据 kafka partition 的变化，动态调整需要消费的 partition。
 
 * strict\_mode
@@ -157,7 +157,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
     1. 对于列类型转换来说，如果 strict mode 为true，则错误的数据将被 filter。这里的错误数据是指：原始数据并不为空值，在参与列类型转换后结果为空值的这一类数据。
 
     2. 对于导入的某列由函数变换生成时，strict mode 对其不产生影响。
-    
+
     3. 对于导入的某列类型包含范围限制的，如果原始数据能正常通过类型转换，但无法通过范围限制的，strict mode 对其也不产生影响。例如：如果类型是 decimal(1,0), 原始数据为 10，则属于可以通过类型转换但不在列声明的范围内。这种数据 strict 对其不产生影响。
 
 #### strict mode 与 source data 的导入关系
@@ -174,7 +174,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 |not null    | 1                   | 1               | true or false      | correct data|
 
 这里以列类型为 Decimal(1,0) 举例
- 
+
 >注：当表中的列允许导入空值时
 
 |source data | source data example | string to int   | strict_mode        | result|
@@ -185,7 +185,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 |not null    | 1 or 10             | 1               | true or false      | correct data|
 
 > 注意：10 虽然是一个超过范围的值，但是因为其类型符合 decimal的要求，所以 strict mode对其不产生影响。10 最后会在其他 ETL 处理流程中被过滤。但不会被 strict mode 过滤。
-    
+
 #### 访问 SSL 认证的 Kafka 集群
 
 访问 SSL 认证的 Kafka 集群需要用户提供用于认证 Kafka Broker 公钥的证书文件（ca.pem）。如果 Kafka 集群同时开启了客户端认证，则还需提供客户端的公钥（client.pem）、密钥文件（client.key），以及密钥密码。这里所需的文件需要先通过 `CREAE FILE` 命令上传到 Doris 中，**并且 catalog 名称为 `kafka`**。`CREATE FILE` 命令的具体帮助可以参见 `HELP CREATE FILE;`。这里给出示例：
@@ -219,7 +219,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
     ```
 
 > Doris 通过 Kafka 的 C++ API `librdkafka` 来访问 Kafka 集群。`librdkafka` 所支持的参数可以参阅
-> 
+>
 > `https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md`
 
 
@@ -232,7 +232,7 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 只能查看当前正在运行中的任务，已结束和未开始的任务无法查看。
 
 ### 作业控制
-    
+
 用户可以通过 `STOP/PAUSE/RESUME` 三个命令来控制作业的停止，暂停和重启。可以通过 `HELP STOP ROUTINE LOAD;`, `HELP PAUSE ROUTINE LOAD;` 以及 `HELP RESUME ROUTINE LOAD;` 三个命令查看帮助和示例。
 
 ## 其他说明
@@ -255,10 +255,10 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 
     当用户在创建例行导入声明的 `kafka_topic` 在kafka集群中不存在时。
 
-    * 如果用户 kafka 集群的 broker 设置了 `auto.create.topics.enable = true`，则 `kafka_topic` 会先被自动创建，自动创建的 partition 个数是由**用户方的kafka集群**中的 broker 配置 `num.partitions` 决定的。例行作业会正常的不断读取该 topic 的数据。   
+    * 如果用户 kafka 集群的 broker 设置了 `auto.create.topics.enable = true`，则 `kafka_topic` 会先被自动创建，自动创建的 partition 个数是由**用户方的kafka集群**中的 broker 配置 `num.partitions` 决定的。例行作业会正常的不断读取该 topic 的数据。
     * 如果用户 kafka 集群的 broker 设置了 `auto.create.topics.enable = false`, 则 topic 不会被自动创建，例行作业会在没有读取任何数据之前就被暂停，状态为 `PAUSED`。
 
-    所以，如果用户希望当 kafka topic 不存在的时候，被例行作业自动创建的话，只需要将**用户方的kafka集群**中的 broker 设置 `auto.create.topics.enable = true` 即可。 
+    所以，如果用户希望当 kafka topic 不存在的时候，被例行作业自动创建的话，只需要将**用户方的kafka集群**中的 broker 设置 `auto.create.topics.enable = true` 即可。
 
 ## 相关参数
 
@@ -283,4 +283,10 @@ FE 中的 JobScheduler 根据汇报结果，继续生成后续新的 Task，或�
 5. push\_write\_mbytes\_per\_sec
 
     BE 配置项。默认为 10，即 10MB/s。该参数为导入通用参数，不限于例行导入作业。该参数限制了导入数据写入磁盘的速度。对于 SSD 等高性能存储设备，可以适当增加这个限速。
+
+6. max\_tolerable\_backend\_down\_num
+    FE 配置项，默认值是0。在满足某些条件下，Doris可PAUSED的任务重新调度，即变成RUNNING。该参数为0代表只有所有BE节点是alive状态才允许重新调度。
+
+7. period\_of\_auto\_resume\_min
+    FE 配置项，默认是5分钟。Doris重新调度，只会在5分钟这个周期内，最多尝试3次. 如果3次都失败则锁定当前任务，后续不在进行调度。但可通过人为干预，进行手动恢复。
 

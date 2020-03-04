@@ -3,6 +3,7 @@ package org.apache.doris.persist.gson;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils.HiddenAnnotationExclusionStrategy;
+import org.apache.doris.persist.gson.GsonUtils.PostProcessTypeAdapterFactory;
 
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
@@ -33,6 +34,8 @@ import java.util.Map;
  * User need to create a RuntimeTypeAdapterFactory for ParentClass and
  * register 2 derived classes to the factory. And then register the factory
  * to the GsonBuilder to create GSON instance.
+ * 
+ * 
  * 
  */
 public class GsonDerivedClassSerializationTest {
@@ -66,14 +69,22 @@ public class GsonDerivedClassSerializationTest {
         }
     }
 
-    public static class ChildClassA extends ParentClass {
+    public static class ChildClassA extends ParentClass implements GsonPostProcessable {
         @SerializedName(value = "tag")
         public String tagA;
+
+        public String postTagA;
 
         public ChildClassA(int flag, String tag) {
             // pass "ChildClassA.class.getSimpleName()" to field "clazz"
             super(flag, ChildClassA.class.getSimpleName());
             this.tagA = tag;
+        }
+
+        @Override
+        public void gsonPostProcess() {
+            this.postTagA = "after post";
+
         }
     }
 
@@ -123,6 +134,7 @@ public class GsonDerivedClassSerializationTest {
             .enableComplexMapKeySerialization()
             // register the RuntimeTypeAdapterFactory
             .registerTypeAdapterFactory(runtimeTypeAdapterFactory)
+            .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .create();
 
     @Test
@@ -143,6 +155,7 @@ public class GsonDerivedClassSerializationTest {
         Assert.assertTrue(parentClass instanceof ChildClassA);
         Assert.assertEquals(1, ((ChildClassA) parentClass).flag);
         Assert.assertEquals("A", ((ChildClassA) parentClass).tagA);
+        Assert.assertEquals("after post", ((ChildClassA) parentClass).postTagA);
     }
 
     @Test

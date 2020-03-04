@@ -19,9 +19,9 @@
 
 #include "env/env.h" // Env
 #include "olap/row.h" // ContiguousRow
-#include "olap/row_block.h" // RowBlock
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/page_io.h"
 #include "olap/short_key_index.h"
 #include "util/crc32c.h"
 
@@ -48,16 +48,20 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
 
     uint32_t column_id = 0;
     for (auto& column : _tablet_schema->columns()) {
-        ColumnMetaPB* column_meta = _footer.add_columns();
-        // TODO(zc): Do we need this column_id??
-        column_meta->set_column_id(column_id++);
-        column_meta->set_unique_id(column.unique_id());
-        bool is_nullable = column.is_nullable();
-        column_meta->set_is_nullable(is_nullable);
-        column_meta->set_length(column.length());
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        DCHECK(field.get() != nullptr);
 
         ColumnWriterOptions opts;
-        opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
+        opts.meta = _footer.add_columns();
+        // TODO(zc): Do we need this column_id??
+        opts.meta->set_column_id(column_id++);
+        opts.meta->set_unique_id(column.unique_id());
+        opts.meta->set_type(field->type());
+        opts.meta->set_length(column.length());
+        opts.meta->set_encoding(DEFAULT_ENCODING);
+        opts.meta->set_compression(LZ4F);
+        opts.meta->set_is_nullable(column.is_nullable());
+
         // now we create zone map for key columns
         if (column.is_key()) {
             opts.need_zone_map = true;
@@ -85,9 +89,8 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
             }
         }
 
-        std::unique_ptr<Field> field(FieldFactory::create(column));
-        DCHECK(field.get() != nullptr);
-        std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, std::move(field), is_nullable, _output_file.get()));
+        std::unique_ptr<ColumnWriter> writer(
+                new ColumnWriter(opts, std::move(field), _output_file.get()));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
     }
@@ -179,25 +182,18 @@ Status SegmentWriter::_write_bloom_filter_index() {
 }
 
 Status SegmentWriter::_write_short_key_index() {
-    std::vector<Slice> slices;
-    // TODO(zc): we should get segment_size
-    RETURN_IF_ERROR(_index_builder->finalize(_row_count * 100, _row_count, &slices));
-
-    uint64_t offset = _output_file->size();
-    RETURN_IF_ERROR(_write_raw_data(slices));
-    uint32_t written_bytes = _output_file->size() - offset;
-
-    _footer.mutable_short_key_index_page()->set_offset(offset);
-    _footer.mutable_short_key_index_page()->set_size(written_bytes);
+    std::vector<Slice> body;
+    PageFooterPB footer;
+    RETURN_IF_ERROR(_index_builder->finalize(_row_count, &body, &footer));
+    PagePointer pp;
+    // short key index page is not compressed right now
+    RETURN_IF_ERROR(PageIO::write_page(_output_file.get(), body, footer, &pp));
+    pp.to_proto(_footer.mutable_short_key_index_page());
     return Status::OK();
 }
 
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
-    // collect all
-    for (int i = 0; i < _column_writers.size(); ++i) {
-        _column_writers[i]->write_meta(_footer.mutable_columns(i));
-    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;

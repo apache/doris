@@ -21,8 +21,6 @@
 
 #include "gen_cpp/Exprs_types.h"
 
-using llvm::Function;
-
 namespace doris {
 
 TupleIsNullPredicate::TupleIsNullPredicate(const TExprNode& node) : 
@@ -53,11 +51,6 @@ BooleanVal TupleIsNullPredicate::get_boolean_val(ExprContext* ctx, TupleRow* row
         count += row->get_tuple(_tuple_idxs[i]) == NULL;
     }
     return BooleanVal(!_tuple_idxs.empty() && count == _tuple_idxs.size());
-}
-
-Status TupleIsNullPredicate::get_codegend_compute_fn(
-        RuntimeState* state, llvm::Function** fn) {
-    return get_codegend_compute_fn_wrapper(state, fn);
 }
 
 std::string TupleIsNullPredicate::debug_string() const {

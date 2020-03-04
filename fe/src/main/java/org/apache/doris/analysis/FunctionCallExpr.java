@@ -225,8 +225,6 @@ public class FunctionCallExpr extends Expr {
         Preconditions.checkNotNull(fn);
         return fn instanceof AggregateFunction
             && ((AggregateFunction) fn).returnsNonNullOnEmpty();
-              //  && !isAnalyticFnCall
-              //  && ((BuiltinAggregateFunction) fn).op().returnsNonNullOnEmpty();
     }
 
     public boolean isDistinct() {
@@ -278,10 +276,9 @@ public class FunctionCallExpr extends Expr {
                         "COUNT must have DISTINCT for multiple arguments: " + this.toSql());
             }
 
-            for (int i = 0; i < children.size(); i++) {
-                if (children.get(i).type.isHllType()) {
-                    throw new AnalysisException(
-                            "hll only use in HLL_UNION_AGG or HLL_CARDINALITY , HLL_HASH and so on.");
+            for (Expr child : children) {
+                if (child.type.isOnlyMetricType()) {
+                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
                 }
             }
             return;
@@ -303,21 +300,11 @@ public class FunctionCallExpr extends Expr {
                          "group_concat requires first parameter to be of type STRING: " + this.toSql());
             }
 
-            if (arg0.type.isHllType()) {
-                throw new AnalysisException(
-                         "group_concat requires first parameter can't be of type HLL: " + this.toSql());
-            }
-
             if (children.size() == 2) {
                 Expr arg1 = getChild(1);
                 if (!arg1.type.isStringType() && !arg1.type.isNull()) {
                     throw new AnalysisException(
                             "group_concat requires second parameter to be of type STRING: " + this.toSql());
-                }
-
-                if (arg0.type.isHllType()) {
-                    throw new AnalysisException(
-                            "group_concat requires second parameter can't be of type HLL: " + this.toSql());
                 }
             }
             return;
@@ -326,7 +313,7 @@ public class FunctionCallExpr extends Expr {
         if (fnName.getFunction().equalsIgnoreCase("lag")
                 || fnName.getFunction().equalsIgnoreCase("lead")) {
             if (!isAnalyticFnCall) {
-                new AnalysisException(fnName.getFunction() + " only used in analytic function");
+                throw new AnalysisException(fnName.getFunction() + " only used in analytic function");
             } else {
                 if (children.size() > 2) {
                     if (!getChild(2).isConstant()) {
@@ -346,7 +333,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("last_value")
                 || fnName.getFunction().equalsIgnoreCase("first_value_rewrite")) {
             if (!isAnalyticFnCall) {
-                new AnalysisException(fnName.getFunction() + " only used in analytic function");
+                throw new AnalysisException(fnName.getFunction() + " only used in analytic function");
             }
         }
 
@@ -359,11 +346,11 @@ public class FunctionCallExpr extends Expr {
         // SUM and AVG cannot be applied to non-numeric types
         if ((fnName.getFunction().equalsIgnoreCase("sum")
                 || fnName.getFunction().equalsIgnoreCase("avg"))
-                && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isHllType())) {
+                && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isOnlyMetricType())) {
             throw new AnalysisException(fnName.getFunction() + " requires a numeric parameter: " + this.toSql());
         }
         if (fnName.getFunction().equalsIgnoreCase("sum_distinct")
-                && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isHllType())) {
+                && ((!arg.type.isNumericType() && !arg.type.isNull()) || arg.type.isOnlyMetricType())) {
             throw new AnalysisException(
                     "SUM_DISTINCT requires a numeric parameter: " + this.toSql());
         }
@@ -373,9 +360,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("DISTINCT_PC")
                 || fnName.getFunction().equalsIgnoreCase("DISTINCT_PCSA")
                 || fnName.getFunction().equalsIgnoreCase("NDV"))
-                && arg.type.isHllType()) {
-            throw new AnalysisException(
-                    "hll only use in HLL_UNION_AGG or HLL_CARDINALITY , HLL_HASH and so on.");
+                && arg.type.isOnlyMetricType()) {
+            throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
         }
 
         if ((fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_INT) && !arg.type.isInteger32Type())) {
@@ -446,7 +432,6 @@ public class FunctionCallExpr extends Expr {
                             + this.toSql());
                 }
             }
-            return;
         }
     }
 
@@ -656,7 +641,6 @@ public class FunctionCallExpr extends Expr {
         // Inherit the function object from 'agg'.
         result.fn = agg.fn;
         result.type = agg.type;
-        // Preconditions.checkState(!result.type.isWildcardDecimal());
         return result;
     }
 
@@ -711,7 +695,7 @@ public class FunctionCallExpr extends Expr {
         return super.isConstantImpl();
     }
 
-    static boolean isNondeterministicBuiltinFnName(String fnName) {
+    private static boolean isNondeterministicBuiltinFnName(String fnName) {
         if (fnName.equalsIgnoreCase("rand") || fnName.equalsIgnoreCase("random")
                 || fnName.equalsIgnoreCase("uuid")) {
             return true;

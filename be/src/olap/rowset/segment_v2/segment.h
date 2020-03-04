@@ -26,7 +26,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "olap/iterators.h"
-#include "olap/rowset/segment_v2/common.h" // rowid_t
+#include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -141,8 +141,8 @@ private:
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
-    // used to store short key index
-    faststring _sk_index_buf;
+    // used to hold short key index page in memory
+    PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
 };

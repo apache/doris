@@ -78,7 +78,7 @@ BE pulls data from Broker and imports it into the system after transforming the 
 
 ### Create a load
 
-Broker load 创建导入语句
+Broker load create a data load job
 
 Grammar:
 
@@ -211,7 +211,7 @@ The following is a detailed explanation of some parameters of the import operati
 
 + strict\_mode
 
-	Broker load 导入可以开启 strict mode 模式。开启方式为 ```properties ("strict_mode" = "true")``` 。默认的 strict mode 为关闭。
+	Broker load can use `strict mode`. Use ```properties ("strict_mode" = "true")```  to enable `strict mode`, default is false
 
 	The strict mode means that the column type conversion in the import process is strictly filtered. The strategy of strict filtering is as follows:
 
@@ -229,7 +229,7 @@ Here's an example of a column type TinyInt
 
 |source data | source data example | string to int   | strict_mode        | result|
 |------------|---------------------|-----------------|--------------------|---------|
-|空值        | \N                  | N/A             | true or false      | NULL|
+|null        | \N                  | N/A             | true or false      | NULL|
 |not null    | aaa or 2000         | NULL            | true               | invalid data(filtered)|
 |not null    | aaa                 | NULL            | false              | NULL|
 |not null    | 1                   | 1               | true or false      | correct data|
@@ -240,7 +240,7 @@ Here's an example of column type Decimal (1,0)
 
 |source data | source data example | string to int   | strict_mode        | result|
 |------------|---------------------|-----------------|--------------------|--------|
-|空值        | \N                  | N/A             | true or false      | NULL|
+|null        | \N                  | N/A             | true or false      | NULL|
 |not null    | aaa                 | NULL            | true               | invalid data(filtered)|
 |not null    | aaa                 | NULL            | false              | NULL|
 |not null    | 1 or 10             | 1               | true or false      | correct data|
@@ -396,7 +396,7 @@ We will only discuss the case of a single BE. If the user cluster has more than 
 		```
 		Modify the configuration in fe.conf
 		
-		max_broker_concurrency = BE 个数
+		max_broker_concurrency = BE number
 		The amount of data processed by a single BE for the current import task = the original file size / max_broker_concurrency
 		Max_bytes_per_broker_scanner >= the amount of data processed by a single BE of the current import task
 		
@@ -464,10 +464,10 @@ Cluster situation: The number of BEs in the cluster is about 3, and the Broker n
 
 ## Common Questions
 
-* 导入报错：`Scan bytes per broker scanner exceed limit:xxx`
+* failed with : `Scan bytes per broker scanner exceed limit:xxx`
 
 	Refer to the Best Practices section of the document to modify the FE configuration items `max_bytes_per_broker_scanner` and `max_broker_concurrency'.`
 
-* 导入报错：`failed to send batch` 或 `TabletWriter add batch with unknown id`
+*  failed with ：`failed to send batch` or `TabletWriter add batch with unknown id`
 
 	Refer to **General System Configuration** in **BE Configuration** in the Import Manual (./load-manual.md), and modify `tablet_writer_rpc_timeout_sec` and `streaming_load_rpc_max_alive_time_sec` appropriately.

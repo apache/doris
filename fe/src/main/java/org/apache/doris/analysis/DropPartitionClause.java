@@ -29,10 +29,13 @@ import java.util.Map;
 public class DropPartitionClause extends AlterTableClause {
     private boolean ifExists;
     private String partitionName;
+    // true if this is to drop a temp partition
+    private boolean isTempPartition;
 
-    public DropPartitionClause(boolean ifExists, String partitionName) {
+    public DropPartitionClause(boolean ifExists, String partitionName, boolean isTempPartition) {
         this.ifExists = ifExists;
         this.partitionName = partitionName;
+        this.isTempPartition = isTempPartition;
         this.needTableStable = false;
     }
 
@@ -42,6 +45,10 @@ public class DropPartitionClause extends AlterTableClause {
 
     public String getPartitionName() {
         return partitionName;
+    }
+
+    public boolean isTempPartition() {
+        return isTempPartition;
     }
 
     @Override

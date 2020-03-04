@@ -46,8 +46,10 @@ enum TPlanNodeType {
   UNION_NODE,
   ES_SCAN_NODE,
   ES_HTTP_SCAN_NODE,
-  REPEAT_NODE
-  ASSERT_NUM_ROWS_NODE
+  REPEAT_NODE,
+  ASSERT_NUM_ROWS_NODE,
+  INTERSECT_NODE,
+  EXCEPT_NODE
 }
 
 // phases of an execution node
@@ -546,6 +548,31 @@ struct TUnionNode {
     4: required i64 first_materialized_child_idx
 }
 
+struct TIntersectNode {
+    // A IntersectNode materializes all const/result exprs into this tuple.
+    1: required Types.TTupleId tuple_id
+    // List or expr lists materialized by this node.
+    // There is one list of exprs per query stmt feeding into this union node.
+    2: required list<list<Exprs.TExpr>> result_expr_lists
+    // Separate list of expr lists coming from a constant select stmts.
+    3: required list<list<Exprs.TExpr>> const_expr_lists
+    // Index of the first child that needs to be materialized.
+    4: required i64 first_materialized_child_idx
+}
+
+struct TExceptNode {
+    // A ExceptNode materializes all const/result exprs into this tuple.
+    1: required Types.TTupleId tuple_id
+    // List or expr lists materialized by this node.
+    // There is one list of exprs per query stmt feeding into this union node.
+    2: required list<list<Exprs.TExpr>> result_expr_lists
+    // Separate list of expr lists coming from a constant select stmts.
+    3: required list<list<Exprs.TExpr>> const_expr_lists
+    // Index of the first child that needs to be materialized.
+    4: required i64 first_materialized_child_idx
+}
+
+
 struct TExchangeNode {
   // The ExchangeNode's input rows form a prefix of the output rows it produces;
   // this describes the composition of that prefix
@@ -629,6 +656,8 @@ struct TPlanNode {
   30: optional TEsScanNode es_scan_node
   31: optional TRepeatNode repeat_node
   32: optional TAssertNumRowsNode assert_num_rows_node
+  33: optional TIntersectNode intersect_node
+  34: optional TExceptNode except_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

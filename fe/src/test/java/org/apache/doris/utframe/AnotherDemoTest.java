@@ -117,10 +117,7 @@ public class AnotherDemoTest {
 
     @AfterClass
     public static void TearDown() {
-        try {
-            FileUtils.deleteDirectory(new File(runningDirBase));
-        } catch (IOException e) {
-        }
+        UtFrameUtils.cleanDorisFeDir(runningDirBase);
     }
 
     // generate all port from valid ports

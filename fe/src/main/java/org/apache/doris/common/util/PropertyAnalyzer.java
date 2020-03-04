@@ -28,9 +28,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
-import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -81,6 +81,9 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
+
+    public static final String PROPERTIES_STRICT_RANGE = "strict_range";
+    public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
@@ -399,12 +402,13 @@ public class PropertyAnalyzer {
         }
     }
 
-    public static boolean analyzeInMemory(Map<String, String> properties, boolean defaultInMemory) {
-        if (properties != null && properties.containsKey(PROPERTIES_INMEMORY)) {
-            String inMemory = properties.get(PROPERTIES_INMEMORY);
-            properties.remove(PROPERTIES_INMEMORY);
-            return Boolean.parseBoolean(inMemory);
+    // analyze common boolean properties, such as "in_memory" = "false"
+    public static boolean analyzeBooleanProp(Map<String, String> properties, String propKey, boolean defaultVal) {
+        if (properties != null && properties.containsKey(propKey)) {
+            String val = properties.get(propKey);
+            properties.remove(propKey);
+            return Boolean.parseBoolean(val);
         }
-        return defaultInMemory;
+        return defaultVal;
     }
 }

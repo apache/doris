@@ -319,9 +319,6 @@ public:
         return _value == 0;
     }
 
-    // For C++/IR interop, we need to be able to look up types by name.
-    static const char* _s_llvm_class_name;
-
 private:
 
     int128_t _value;

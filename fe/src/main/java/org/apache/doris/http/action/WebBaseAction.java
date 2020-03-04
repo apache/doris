@@ -36,6 +36,7 @@ import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 
@@ -190,6 +191,8 @@ public class WebBaseAction extends BaseAction {
                 ctx.setQualifiedUser(sessionValue.currentUser.getQualifiedUser());
                 ctx.setRemoteIP(request.getHostString());
                 ctx.setCurrentUserIdentity(sessionValue.currentUser);
+                ctx.setCatalog(Catalog.getCurrentCatalog());
+                ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
                 ctx.setThreadLocalInfo();
                 return true;
             }

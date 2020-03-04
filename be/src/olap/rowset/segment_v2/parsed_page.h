@@ -17,47 +17,88 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/page_decoder.h" // for PagePointer
-#include "util/rle_encoding.h" // for RleDecoder
+#include <memory>
+
+#include "common/status.h"
+#include "gen_cpp/segment_v2.pb.h"
+#include "olap/rowset/segment_v2/common.h"
+#include "olap/rowset/segment_v2/encoding_info.h"
+#include "olap/rowset/segment_v2/options.h"
+#include "olap/rowset/segment_v2/page_decoder.h"
+#include "olap/rowset/segment_v2/page_handle.h"
+#include "util/rle_encoding.h"
 
 namespace doris {
 namespace segment_v2 {
-
-class PageHandle;	
-struct PagePointer;
 
 // This contains information when one page is loaded, and ready for read
 // This struct can be reused, client should call reset first before reusing
 // this object
 struct ParsedPage {
-    ParsedPage() { }
+
+    static Status create(PageHandle handle,
+                         const Slice& body,
+                         const DataPageFooterPB& footer,
+                         const EncodingInfo* encoding,
+                         const PagePointer& page_pointer,
+                         uint32_t page_index,
+                         std::unique_ptr<ParsedPage>* result) {
+        std::unique_ptr<ParsedPage> page(new ParsedPage);
+        page->page_handle = std::move(handle);
+
+        auto null_size = footer.nullmap_size();
+        page->has_null = null_size > 0;
+        page->null_bitmap = Slice(body.data + body.size - null_size, null_size);
+
+        if (page->has_null) {
+            page->null_decoder = RleDecoder<bool>(
+                    (const uint8_t*) page->null_bitmap.data, null_size, 1);
+        }
+
+        Slice data_slice(body.data, body.size - null_size);
+        PageDecoderOptions opts;
+        RETURN_IF_ERROR(encoding->create_page_decoder(data_slice, opts, &page->data_decoder));
+        RETURN_IF_ERROR(page->data_decoder->init());
+
+        page->first_ordinal = footer.first_ordinal();
+        page->num_rows = footer.num_values();
+        page->page_pointer = page_pointer;
+        page->page_index = page_index;
+
+        *result = std::move(page);
+        return Status::OK();
+    }
+
     ~ParsedPage() {
         delete data_decoder;
     }
 
-    PagePointer page_pointer;
     PageHandle page_handle;
 
+    bool has_null;
     Slice null_bitmap;
     RleDecoder<bool> null_decoder;
     PageDecoder* data_decoder = nullptr;
 
-    // first rowid for this page
-    rowid_t first_rowid = 0;
-
+    // ordinal of the first value in this page
+    ordinal_t first_ordinal = 0;
     // number of rows including nulls and not-nulls
-    uint32_t num_rows = 0;
+    ordinal_t num_rows = 0;
+
+    PagePointer page_pointer;
+    uint32_t page_index = 0;
 
     // current offset when read this page
     // this means next row we will read
-    uint32_t offset_in_page = 0;
+    ordinal_t offset_in_page = 0;
 
-    uint32_t page_index = 0;
-
-    bool contains(rowid_t rid) { return rid >= first_rowid && rid < (first_rowid + num_rows); }
-    rowid_t last_rowid() { return first_rowid + num_rows - 1; }
+    bool contains(ordinal_t ord) { return ord >= first_ordinal && ord < (first_ordinal + num_rows); }
     bool has_remaining() const { return offset_in_page < num_rows; }
     size_t remaining() const { return num_rows - offset_in_page; }
+
+private:
+    // client should use create() factory method
+    ParsedPage() = default;
 };
 
 }

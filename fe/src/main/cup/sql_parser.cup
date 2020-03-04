@@ -226,7 +226,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STRING,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
-    KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TERMINATED, KW_THAN, KW_THEN, KW_TIME, KW_TIMESTAMP, KW_TINYINT,
+    KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
     KW_TO, KW_TRANSACTION, KW_TRIGGERS, KW_TRIM, KW_TRUE, KW_TRUNCATE, KW_TYPE, KW_TYPES,
     KW_UNCOMMITTED, KW_UNBOUNDED, KW_UNION, KW_UNIQUE, KW_UNSIGNED, KW_USE, KW_USER, KW_USING,
     KW_VALUE, KW_VALUES, KW_VARCHAR, KW_VARIABLES, KW_VIEW, KW_MATERIALIZED,
@@ -435,6 +435,8 @@ nonterminal IndexDef.IndexType opt_index_type;
 
 nonterminal ShowAlterStmt.AlterType opt_alter_type;
 nonterminal Boolean opt_builtin;
+
+nonterminal Boolean opt_tmp;
 
 precedence left KW_FULL, KW_MERGE;
 precedence left DOT;
@@ -807,17 +809,21 @@ alter_table_clause ::=
     {:
         RESULT = new ModifyTablePropertiesClause(properties);
     :}
-    | KW_ADD single_range_partition_desc:desc opt_distribution:distribution opt_properties:properties
+    | KW_ADD opt_tmp:isTempPartition single_range_partition_desc:desc opt_distribution:distribution opt_properties:properties
     {:
-        RESULT = new AddPartitionClause(desc, distribution, properties);
+        RESULT = new AddPartitionClause(desc, distribution, properties, isTempPartition);
     :}
-    | KW_DROP KW_PARTITION opt_if_exists:ifExists ident:partitionName
+    | KW_DROP opt_tmp:isTempPartition KW_PARTITION opt_if_exists:ifExists ident:partitionName
     {:
-        RESULT = new DropPartitionClause(ifExists, partitionName);
+        RESULT = new DropPartitionClause(ifExists, partitionName, isTempPartition);
     :}
     | KW_MODIFY KW_PARTITION ident:partitionName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         RESULT = new ModifyPartitionClause(partitionName, properties);
+    :}
+    | KW_REPLACE opt_partitions:partitions KW_WITH KW_TEMPORARY opt_partitions:tempPartitions opt_properties:properties
+    {:
+        RESULT = new ReplacePartitionClause(partitions, tempPartitions, properties);
     :}
     | KW_RENAME ident:newTableName
     {:
@@ -2088,9 +2094,9 @@ show_param ::=
     {:
         RESULT = new ShowDataStmt(dbTblName.getDb(), dbTblName.getTbl());
     :}
-	| KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
+	| opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
-        RESULT = new ShowPartitionsStmt(tblName, parser.where, orderByClause, limitClause);
+        RESULT = new ShowPartitionsStmt(tblName, parser.where, orderByClause, limitClause, tmp);
     :}
     | KW_TABLET INTEGER_LITERAL:tabletId
     {:
@@ -2167,6 +2173,17 @@ show_param ::=
     | KW_TRANSACTION opt_db:dbName opt_wild_where
     {:
         RESULT = new ShowTransactionStmt(dbName, parser.where);
+    :}
+    ;
+
+opt_tmp ::=
+    /* empty */
+    {:
+        RESULT = false;
+    :}
+    | KW_TEMPORARY
+    {:
+        RESULT = true;
     :}
     ;
 
@@ -4440,6 +4457,8 @@ keyword ::=
     | KW_STRING:id
     {: RESULT = id; :}
     | KW_TABLES:id
+    {: RESULT = id; :}
+    | KW_TEMPORARY:id
     {: RESULT = id; :}
     | KW_THAN:id
     {: RESULT = id; :}

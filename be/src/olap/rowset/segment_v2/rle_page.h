@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions/PageDecoderOptions
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder

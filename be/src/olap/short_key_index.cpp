@@ -28,89 +28,63 @@ namespace doris {
 
 Status ShortKeyIndexBuilder::add_item(const Slice& key) {
     put_varint32(&_offset_buf, _key_buf.size());
-    _footer.set_num_items(_footer.num_items() + 1);
     _key_buf.append(key.data, key.size);
+    _num_items++;
     return Status::OK();
 }
 
-Status ShortKeyIndexBuilder::finalize(uint32_t segment_bytes,
-                                      uint32_t num_segment_rows,
-                                      std::vector<Slice>* slices) {
-    _footer.set_num_segment_rows(num_segment_rows);
-    _footer.set_segment_bytes(segment_bytes);
-    _footer.set_key_bytes(_key_buf.size());
-    _footer.set_offset_bytes(_offset_buf.size());
+Status ShortKeyIndexBuilder::finalize(uint32_t num_segment_rows,
+                                      std::vector<Slice>* body,
+                                      segment_v2::PageFooterPB* page_footer) {
+    page_footer->set_type(segment_v2::SHORT_KEY_PAGE);
+    page_footer->set_uncompressed_size(_key_buf.size() + _offset_buf.size());
 
-    // encode header
-    if (!_footer.SerializeToString(&_footer_buf)) {
-        return Status::InternalError("Failed to serialize index footer");
-    }
+    segment_v2::ShortKeyFooterPB* footer = page_footer->mutable_short_key_page_footer();
+    footer->set_num_items(_num_items);
+    footer->set_key_bytes(_key_buf.size());
+    footer->set_offset_bytes(_offset_buf.size());
+    footer->set_segment_id(_segment_id);
+    footer->set_num_rows_per_block(_num_rows_per_block);
+    footer->set_num_segment_rows(num_segment_rows);
 
-    put_fixed32_le(&_footer_buf, _footer_buf.size());
-    // TODO(zc): checksum
-    uint32_t checksum = 0;
-    put_fixed32_le(&_footer_buf, checksum);
-
-    slices->emplace_back(_key_buf);
-    slices->emplace_back(_offset_buf);
-    slices->emplace_back(_footer_buf);
+    body->emplace_back(_key_buf);
+    body->emplace_back(_offset_buf);
     return Status::OK();
 }
 
-Status ShortKeyIndexDecoder::parse() {
-    Slice data = _data;
+Status ShortKeyIndexDecoder::parse(const Slice& body, const segment_v2::ShortKeyFooterPB& footer) {
+    _footer = footer;
 
-    // 1. parse footer, get checksum and footer length
-    if (data.size < 2 * sizeof(uint32_t)) {
+    // check if body size match footer's information
+    if (body.size != (_footer.key_bytes() + _footer.offset_bytes())) {
         return Status::Corruption(
-            Substitute("Short key is too short, need=$0 vs real=$1",
-                       2 * sizeof(uint32_t), data.size));
-    }
-    size_t offset = data.size - 2 * sizeof(uint32_t);
-    uint32_t footer_length = decode_fixed32_le((uint8_t*)data.data + offset);
-    uint32_t checksum = decode_fixed32_le((uint8_t*)data.data + offset + 4);
-    // TODO(zc): do checksum
-    if (checksum != 0) {
-        return Status::Corruption(
-            Substitute("Checksum not match, need=$0 vs read=$1", 0, checksum));
-    }
-    // move offset to parse footer
-    offset -= footer_length;
-    std::string footer_buf(data.data + offset, footer_length);
-    if (!_footer.ParseFromString(footer_buf)) {
-        return Status::Corruption("Fail to parse index footer from string");
-    }
-
-    // check if real data size match footer's content
-    if (offset != _footer.key_bytes() + _footer.offset_bytes()) {
-        return Status::Corruption(
-            Substitute("Index size not match, need=$0, real=$1",
-                       _footer.key_bytes() + _footer.offset_bytes(), offset));
+                Substitute("Index size not match, need=$0, real=$1",
+                           _footer.key_bytes() + _footer.offset_bytes(), body.size));
     }
 
     // set index buffer
-    _key_data = Slice(_data.data, _footer.key_bytes());
-    
+    _key_data = Slice(body.data, _footer.key_bytes());
+
     // parse offset information
-    Slice offset_slice(_data.data + _footer.key_bytes(), _footer.offset_bytes());
+    Slice offset_slice(body.data + _footer.key_bytes(), _footer.offset_bytes());
     // +1 for record total length
     _offsets.resize(_footer.num_items() + 1);
-    _offsets[_footer.num_items()] = _footer.key_bytes();
     for (uint32_t i = 0; i < _footer.num_items(); ++i) {
         uint32_t offset = 0;
         if (!get_varint32(&offset_slice, &offset)) {
             return Status::Corruption("Fail to get varint from index offset buffer");
         }
         DCHECK(offset <= _footer.key_bytes())
-            << "Offset is larger than total bytes, offset=" << offset
-            << ", key_bytes=" << _footer.key_bytes();
+                        << "Offset is larger than total bytes, offset=" << offset
+                        << ", key_bytes=" << _footer.key_bytes();
         _offsets[i] = offset;
     }
+    _offsets[_footer.num_items()] = _footer.key_bytes();
 
     if (offset_slice.size != 0) {
         return Status::Corruption("Still has data after parse all key offset");
     }
-
+    _parsed = true;
     return Status::OK();
 }
 

@@ -454,8 +454,6 @@ public:
 
     void set_type(int type);
 
-    static const char* _s_llvm_class_name;
-
 private:
     // Used to make sure sizeof DateTimeValue
     friend class UnusedClass;

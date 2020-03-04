@@ -47,6 +47,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Root of the expr node hierarchy.
@@ -1105,6 +1106,13 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         for (Expr child : children) {
             child.getIds(tupleIds, slotIds);
+        }
+    }
+
+    public void getTableNameToColumnNames(Map<String, Set<String>> tableNameToColumnNames) {
+        Preconditions.checkState(tableNameToColumnNames != null);
+        for (Expr child : children) {
+            child.getTableNameToColumnNames(tableNameToColumnNames);
         }
     }
 

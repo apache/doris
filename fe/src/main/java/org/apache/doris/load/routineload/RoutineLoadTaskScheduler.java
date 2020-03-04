@@ -20,6 +20,7 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -130,10 +131,15 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 // allocate failed, push it back to the queue to wait next scheduling
                 needScheduleTasksQueue.put(routineLoadTaskInfo);
             }
+        } catch (UserException e) {
+            routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).
+                    updateState(JobState.PAUSED,
+                    new ErrorReason(e.getErrorCode(), e.getMessage()), false);
+            throw e;
         } catch (Exception e) {
             // exception happens, PAUSE the job
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).updateState(JobState.PAUSED,
-                    "failed to allocate task: " + e.getMessage(), false);
+                    new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR, "failed to allocate task: " + e.getMessage()), false);
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId()).add("error_msg",
                     "allocate task encounter exception: " + e.getMessage()).build());
             throw e;
@@ -152,7 +158,8 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // set BE id to -1 to release the BE slot
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).updateState(JobState.PAUSED,
-                    "failed to allocate task: " + e.getMessage(), false);
+                    new ErrorReason(InternalErrorCode.CREATE_TASKS_ERR,
+                            "failed to allocate task for txn: " + e.getMessage()), false);
             LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_TASK, routineLoadTaskInfo.getId()).add("error_msg",
                     "begin task txn encounter exception: " + e.getMessage()).build());
             throw e;
@@ -167,20 +174,34 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // set BE id to -1 to release the BE slot
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
-                    .updateState(JobState.STOPPED, "meta not found: " + e.getMessage(), false);
+                    .updateState(JobState.STOPPED,
+                            new ErrorReason(InternalErrorCode.META_NOT_FOUND_ERR, "meta not found: " + e.getMessage()),
+                            false);
             throw e;
         } catch (UserException e) {
             // set BE id to -1 to release the BE slot
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
-                    .updateState(JobState.PAUSED, "failed to create task: " + e.getMessage(), false);
+                    .updateState(JobState.PAUSED,
+                            new ErrorReason(e.getErrorCode(),
+                                    "failed to create task: " + e.getMessage()), false);
             throw e;
         }
 
-        if (!submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask)) {
-            // submit failed. push it back to the queue to wait next scheduling
-            routineLoadTaskInfo.setBeId(-1);
-            needScheduleTasksQueue.put(routineLoadTaskInfo);
+        try {
+            submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask);
+        } catch (LoadException e) {
+            // submit task failed (such as TOO_MANY_TASKS error), but txn has already begun.
+            // Here we will still set the ExecuteStartTime of this task, which means
+            // we "assume" that this task has been successfully submitted.
+            // And this task will then be aborted because of a timeout.
+            // In this way, we can prevent the entire job from being paused due to submit errors,
+            // and we can also relieve the pressure on BE by waiting for the timeout period.
+            LOG.warn("failed to submit routine load task {} to BE: {}",
+                    DebugUtil.printId(routineLoadTaskInfo.getId()),
+                    routineLoadTaskInfo.getBeId());
+            routineLoadManager.getJob(routineLoadTaskInfo.getJobId()).setOtherMsg(e.getMessage());
+            // fall through to set ExecuteStartTime
         }
 
         // set the executeStartTimeMs of task
@@ -208,32 +229,28 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         LOG.debug("total tasks num in routine load task queue: {}", needScheduleTasksQueue.size());
     }
 
-    private boolean submitTask(long beId, TRoutineLoadTask tTask) {
+    private void submitTask(long beId, TRoutineLoadTask tTask) throws LoadException {
         Backend backend = Catalog.getCurrentSystemInfo().getBackend(beId);
         if (backend == null) {
-            LOG.warn("failed to send tasks to backend {} because not exist", beId);
-            return false;
+            throw new LoadException("failed to send tasks to backend " + beId + " because not exist");
         }
 
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+
         boolean ok = false;
         BackendService.Client client = null;
         try {
             client = ClientPool.backendPool.borrowObject(address);
             TStatus tStatus = client.submit_routine_load_task(Lists.newArrayList(tTask));
             ok = true;
-
-            if (tStatus.getStatus_code() == TStatusCode.OK) {
-                LOG.debug("send routine load task {} to BE: {}", DebugUtil.printId(tTask.id), beId);
-                return true;
-            } else {
-                LOG.info("failed to submit task {}, BE: {}, error code: {}",
-                        DebugUtil.printId(tTask.getId()), beId, tStatus.getStatus_code());
-                return false;
+           
+            if (tStatus.getStatus_code() != TStatusCode.OK) {
+                throw new LoadException("failed to submit task. error code: " + tStatus.getStatus_code()
+                        + ", msg: " + (tStatus.getError_msgsSize() > 0 ? tStatus.getError_msgs().get(0) : "NaN"));
             }
+            LOG.debug("send routine load task {} to BE: {}", DebugUtil.printId(tTask.id), beId);
         } catch (Exception e) {
-            LOG.warn("task send error. backend[{}]", beId, e);
-            return false;
+            throw new LoadException("failed to send task: " + e.getMessage(), e);
         } finally {
             if (ok) {
                 ClientPool.backendPool.returnObject(address, client);
@@ -241,7 +258,6 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 ClientPool.backendPool.invalidateObject(address, client);
             }
         }
-
     }
 
     // try to allocate a task to BE which has idle slot.

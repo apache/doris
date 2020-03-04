@@ -206,8 +206,8 @@ public class DistributedPlanner {
             result = createSelectNodeFragment((SelectNode) root, childFragments);
         } else if (root instanceof OlapRewriteNode) {
             result = createOlapRewriteNodeFragment((OlapRewriteNode) root, childFragments);
-        } else if (root instanceof UnionNode) {
-            result = createUnionNodeFragment((UnionNode) root, childFragments, fragments);
+        } else if (root instanceof SetOperationNode) {
+            result = createSetOperationNodeFragment((SetOperationNode) root, childFragments, fragments);
         } else if (root instanceof MergeNode) {
             result = createMergeNodeFragment((MergeNode) root, childFragments, fragments);
         } else if (root instanceof AggregationNode) {
@@ -604,16 +604,16 @@ public class DistributedPlanner {
      *   into the UnionNode. All unpartitioned child fragments are connected to the
      *   UnionNode via a RANDOM exchange, and remain unchanged otherwise.
      */
-    private PlanFragment createUnionNodeFragment(
-            UnionNode unionNode, ArrayList<PlanFragment> childFragments, ArrayList<PlanFragment> fragments)
-            throws UserException {
-        Preconditions.checkState(unionNode.getChildren().size() == childFragments.size());
+    private PlanFragment createSetOperationNodeFragment(
+            SetOperationNode setOperationNode, ArrayList<PlanFragment> childFragments,
+            ArrayList<PlanFragment> fragments) throws UserException {
+        Preconditions.checkState(setOperationNode.getChildren().size() == childFragments.size());
 
         // A UnionNode could have no children or constant selects if all of its operands
         // were dropped because of constant predicates that evaluated to false.
-        if (unionNode.getChildren().isEmpty()) {
+        if (setOperationNode.getChildren().isEmpty()) {
             return new PlanFragment(
-                    ctx_.getNextFragmentId(), unionNode, DataPartition.UNPARTITIONED);
+                    ctx_.getNextFragmentId(), setOperationNode, DataPartition.UNPARTITIONED);
         }
 
         Preconditions.checkState(!childFragments.isEmpty());
@@ -624,28 +624,29 @@ public class DistributedPlanner {
 
         // remove all children to avoid them being tagged with the wrong
         // fragment (in the PlanFragment c'tor; we haven't created ExchangeNodes yet)
-        unionNode.clearChildren();
+        setOperationNode.clearChildren();
 
         // If all child fragments are unpartitioned, return a single unpartitioned fragment
         // with a UnionNode that merges all child fragments.
         if (numUnpartitionedChildFragments == childFragments.size()) {
-            PlanFragment unionFragment = new PlanFragment(
-                    ctx_.getNextFragmentId(), unionNode, DataPartition.UNPARTITIONED);
+            PlanFragment setOperationFragment = new PlanFragment(
+                    ctx_.getNextFragmentId(), setOperationNode, DataPartition.UNPARTITIONED);
             // Absorb the plan trees of all childFragments into unionNode
             // and fix up the fragment tree in the process.
             for (int i = 0; i < childFragments.size(); ++i) {
-                unionNode.addChild(childFragments.get(i).getPlanRoot());
-                unionFragment.setFragmentInPlanTree(unionNode.getChild(i));
-                unionFragment.addChildren(childFragments.get(i).getChildren());
+                setOperationNode.addChild(childFragments.get(i).getPlanRoot());
+                setOperationFragment.setFragmentInPlanTree(setOperationNode.getChild(i));
+                setOperationFragment.addChildren(childFragments.get(i).getChildren());
             }
-            unionNode.init(ctx_.getRootAnalyzer());
+            setOperationNode.init(ctx_.getRootAnalyzer());
             // All child fragments have been absorbed into unionFragment.
             fragments.removeAll(childFragments);
-            return unionFragment;
+            return setOperationFragment;
         }
 
         // There is at least one partitioned child fragment.
-        PlanFragment unionFragment = new PlanFragment(ctx_.getNextFragmentId(), unionNode, DataPartition.RANDOM);
+        PlanFragment setOperationFragment = new PlanFragment(ctx_.getNextFragmentId(), setOperationNode,
+                DataPartition.RANDOM);
         for (int i = 0; i < childFragments.size(); ++i) {
             PlanFragment childFragment = childFragments.get(i);
             /* if (childFragment.isPartitioned() && childFragment.getPlanRoot().getNumInstances() > 1) {
@@ -667,13 +668,14 @@ public class DistributedPlanner {
             // the degree of concurrency.
             // chenhao16 add
             // dummy entry for subsequent addition of the ExchangeNode
-            unionNode.addChild(null);
-            // Connect the unpartitioned child fragments to unionNode via a random exchange.
-            connectChildFragment(unionNode, i, unionFragment, childFragment);
-            childFragment.setOutputPartition(DataPartition.RANDOM);
+            setOperationNode.addChild(null);
+            // Connect the unpartitioned child fragments to SetOperationNode via a random exchange.
+            connectChildFragment(setOperationNode, i, setOperationFragment, childFragment);
+            childFragment.setOutputPartition(
+                    DataPartition.hashPartitioned(setOperationNode.getMaterializedResultExprLists_().get(i)));
         }
-        unionNode.init(ctx_.getRootAnalyzer());
-        return unionFragment;
+        setOperationNode.init(ctx_.getRootAnalyzer());
+        return setOperationFragment;
     }
 
     /**

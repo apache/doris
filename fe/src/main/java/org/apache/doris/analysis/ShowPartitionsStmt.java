@@ -63,13 +63,15 @@ public class ShowPartitionsStmt extends ShowStmt {
     private Expr whereClause;
     private List<OrderByElement> orderByElements;
     private LimitElement limitElement;
+    private boolean isTempPartition = false;
+
     private List<OrderByPair> orderByPairs;
     private Map<String, Expr> filterMap;
 
     private ProcNodeInterface node;
 
     public ShowPartitionsStmt(TableName tableName, Expr whereClause, List<OrderByElement> orderByElements,
-                              LimitElement limitElement) {
+            LimitElement limitElement, boolean isTempPartition) {
         this.dbName = tableName.getDb();
         this.tableName = tableName.getTbl();
         this.whereClause = whereClause;
@@ -78,22 +80,7 @@ public class ShowPartitionsStmt extends ShowStmt {
         if (whereClause != null) {
             this.filterMap = new HashMap<>();
         }
-    }
-
-    public String getDbName() {
-        return dbName;
-    }
-
-    public String getTableName() {
-        return tableName;
-    }
-
-    public Expr getWhereClause() {
-        return whereClause;
-    }
-
-    public List<OrderByElement> getOrderByElements() {
-        return orderByElements;
+        this.isTempPartition = isTempPartition;
     }
 
     public List<OrderByPair> getOrderByPairs() {
@@ -140,7 +127,11 @@ public class ShowPartitionsStmt extends ShowStmt {
             stringBuilder.append("/dbs/");
             stringBuilder.append(db.getId());
             stringBuilder.append("/").append(table.getId());
-            stringBuilder.append("/").append("partitions");
+            if (isTempPartition) {
+                stringBuilder.append("/temp_partitions");
+            } else {
+                stringBuilder.append("/partitions");
+            }
 
             LOG.debug("process SHOW PROC '{}';", stringBuilder.toString());
 
