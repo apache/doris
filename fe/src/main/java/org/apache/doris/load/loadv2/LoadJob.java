@@ -29,6 +29,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -369,7 +370,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
      * @throws AnalysisException there are error params in job
      * @throws DuplicatedRequestException 
      */
-    public void execute() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+    public void execute() throws LabelAlreadyUsedException, BeginTransactionException,
+            AnalysisException, DuplicatedRequestException, LoadException {
         writeLock();
         try {
             unprotectedExecute();
@@ -378,8 +380,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    public void unprotectedExecute()
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
+    public void unprotectedExecute() throws LabelAlreadyUsedException, AnalysisException,
+            BeginTransactionException, DuplicatedRequestException, LoadException {
         // check if job state is pending
         if (state != JobState.PENDING) {
             return;
@@ -387,7 +389,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // the limit of job will be restrict when begin txn
         beginTxn();
         unprotectedExecuteJob();
-        unprotectedUpdateState(JobState.LOADING);
+
+        if (jobType == EtlJobType.SPARK) {
+            unprotectedUpdateState(JobState.ETL);
+        } else {
+            unprotectedUpdateState(JobState.LOADING);
+        }
     }
 
     public void processTimeout() {
@@ -410,7 +417,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         }
     }
 
-    protected void unprotectedExecuteJob() {
+    protected void unprotectedExecuteJob() throws LoadException {
     }
 
     /**
@@ -434,6 +441,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             case UNKNOWN:
                 executeUnknown();
                 break;
+            case ETL:
+                executeEtl();
+                break;
             case LOADING:
                 executeLoad();
                 break;
@@ -453,6 +463,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // can be remove due to label expiration so soon as possible
         finishTimestamp = createTimestamp;
         state = JobState.UNKNOWN;
+    }
+
+    private void executeEtl() {
+        // etlStartTime?
+        state = JobState.ETL;
     }
 
     private void executeLoad() {
@@ -745,6 +760,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         EtlJobType type = EtlJobType.valueOf(Text.readString(in));
         if (type == EtlJobType.BROKER) {
             job = new BrokerLoadJob();
+        } else if (type == EtlJobType.SPARK) {
+            job = new SparkLoadJob();
         } else if (type == EtlJobType.INSERT) {
             job = new InsertLoadJob();
         } else if (type == EtlJobType.MINI) {

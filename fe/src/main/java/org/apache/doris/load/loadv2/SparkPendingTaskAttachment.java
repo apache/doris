@@ -15,32 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+package org.apache.doris.load.loadv2;
 
-import org.apache.doris.load.EtlJobType;
+import org.apache.spark.launcher.SparkAppHandle;
 
-import java.io.DataInput;
-import java.io.IOException;
-import java.util.Map;
+public class SparkPendingTaskAttachment extends TaskAttachment {
+    private SparkAppHandle handle;
+    private String appId;
 
-// Broker descriptor
-public class BrokerDesc extends DataProcessorDesc {
-    private BrokerDesc() {
-        this(null, null);
+    public SparkPendingTaskAttachment(long taskId) {
+        super(taskId);
     }
 
-    public BrokerDesc(String name, Map<String, String> properties) {
-        super(name, properties);
+    public SparkAppHandle getHandle() {
+        return handle;
     }
 
-    @Override
-    public EtlJobType getEtlJobType() {
-        return EtlJobType.BROKER;
+    public String getAppId() {
+        return appId;
     }
 
-    public static BrokerDesc read(DataInput in) throws IOException {
-        BrokerDesc brokerDesc = new BrokerDesc();
-        brokerDesc.readFields(in);
-        return brokerDesc;
+    public void setHandle(SparkAppHandle handle) {
+        this.handle = handle;
+    }
+
+    public void setAppId(String appId) {
+        this.appId = appId;
     }
 }

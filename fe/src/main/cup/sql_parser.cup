@@ -391,8 +391,8 @@ nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
 nonterminal String opt_with_label;
 nonterminal String opt_system;
-nonterminal String opt_cluster;
 nonterminal BrokerDesc opt_broker;
+nonterminal DataProcessorDesc opt_data_processor;
 nonterminal List<String> opt_col_list, col_list, opt_dup_keys, opt_columns_from_path;
 nonterminal List<ColWithComment> opt_col_with_comment_list, col_with_comment_list;
 nonterminal ColWithComment col_with_comment;
@@ -1121,11 +1121,11 @@ export_stmt ::=
 load_stmt ::=
     KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
-    opt_broker:broker
+    opt_data_processor:dataProcessor
     opt_system:system
     opt_properties:properties
     {:
-        RESULT = new LoadStmt(label, dataDescList, broker, system, properties);
+        RESULT = new LoadStmt(label, dataDescList, dataProcessor, system, properties);
     :}
     ;
 
@@ -1312,13 +1312,18 @@ opt_broker ::=
     :}
     ;
 
-opt_cluster ::=
+opt_data_processor ::=
+    opt_broker:broker
     {:
-        RESULT = null;
+        RESULT = broker;
     :}
-    | KW_BY ident_or_text:cluster
+    | KW_WITH KW_CLUSTER ident_or_text:name
     {:
-        RESULT = cluster;
+        RESULT = new EtlClusterDesc(name, null);
+    :}
+    | KW_WITH KW_CLUSTER ident_or_text:name LPAREN key_value_map:properties RPAREN
+    {:
+        RESULT = new EtlClusterDesc(name, properties);
     :}
     ;
 

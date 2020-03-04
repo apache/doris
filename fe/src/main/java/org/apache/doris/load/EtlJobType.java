@@ -22,5 +22,6 @@ public enum EtlJobType {
     MINI,
     INSERT,
     BROKER,
-    DELETE
+    DELETE,
+    SPARK
 }
