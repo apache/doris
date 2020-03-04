@@ -26,7 +26,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
 import java.net.URISyntaxException;
-import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
@@ -48,8 +47,12 @@ public class WildcardURI {
 
     public WildcardURI(String path) {
         try {
+            // 1. call URLEncoder.encode to encode all special character, like /, *, [, %
+            // 2. recover the : and /
+            // 3. the space(" ") will be encoded to "+", we have to change it to "%20"
+            // example can be found in WildcardURITest.java
             String encodedPath = URLEncoder.encode(path, StandardCharsets.UTF_8.toString()).replaceAll("%3A",
-                    ":").replaceAll("%2F", "/");
+                    ":").replaceAll("%2F", "/").replaceAll("\\+", "%20");
             uri = new URI(encodedPath);
             uri.normalize();
         } catch (UnsupportedEncodingException | URISyntaxException e) {
@@ -64,17 +67,11 @@ public class WildcardURI {
         return uri;
     }
 
-    public String getPath() {
-        try {
-            return URLDecoder.decode(uri.getPath(), StandardCharsets.UTF_8.toString());
-        } catch (UnsupportedEncodingException e) {
-            logger.warn("failed to get path: " + uri.getPath(), e);
-            throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
-                    e, "failed to get path {} ", uri.getPath());
-        }
-    }
-
     public String getAuthority() {
         return uri.getAuthority();
+    }
+
+    public String getPath() {
+        return uri.getPath();
     }
 }
