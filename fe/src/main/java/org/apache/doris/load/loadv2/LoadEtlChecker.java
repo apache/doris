@@ -19,31 +19,29 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.MasterDaemon;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- * LoadTimeoutChecker will try to cancel the timeout load jobs.
- * And it will not handle the job which the corresponding transaction is started.
- * For those jobs, global transaction manager cancel the corresponding job while aborting the timeout transaction.
+ * LoadEtlChecker will update etl status for jobs that have etl state.
+ * Now only for SparkLoadJob
  */
-public class LoadTimeoutChecker extends MasterDaemon {
-    private static final Logger LOG = LogManager.getLogger(LoadTimeoutChecker.class);
+public class LoadEtlChecker extends MasterDaemon {
+    private static final Logger LOG = LogManager.getLogger(LoadEtlChecker.class);
 
     private LoadManager loadManager;
 
-    public LoadTimeoutChecker(LoadManager loadManager) {
-        super("Load job timeout checker", Config.load_checker_interval_second * 1000);
+    public LoadEtlChecker(LoadManager loadManager) {
+        super("Load etl checker", Config.load_checker_interval_second * 1000);
         this.loadManager = loadManager;
     }
 
     @Override
     protected void runAfterCatalogReady() {
         try {
-            loadManager.processTimeoutJobs();
+            loadManager.processEtlStateJobs();
         } catch (Throwable e) {
-            LOG.warn("Failed to process one round of LoadTimeoutChecker with error message {}", e.getMessage(), e);
+            LOG.warn("Failed to process one round of LoadEtlChecker with error message {}", e.getMessage(), e);
         }
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import static org.apache.doris.load.FailMsg.CancelType.LOAD_RUN_FAIL;
+import static org.apache.doris.load.FailMsg.CancelType.ETL_RUN_FAIL;
 
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.LoadStmt;
@@ -103,19 +104,22 @@ public class LoadManager implements Writable{
         writeLock();
         try {
             checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-            if (stmt.getBrokerDesc() == null) {
-                throw new DdlException("LoadManager only support the broker load.");
+            if (stmt.getDataProcessorDesc() == null) {
+                throw new DdlException("LoadManager only support the broker and spark load.");
             }
             if (loadJobScheduler.isQueueFull()) {
                 throw new DdlException("There are more then " + Config.desired_max_waiting_jobs + " load jobs in waiting queue, "
                                                + "please retry later.");
             }
-            loadJob = BrokerLoadJob.fromLoadStmt(stmt, originStmt);
+
+            loadJob = BulkLoadJob.fromLoadStmt(stmt, originStmt);
             createLoadJob(loadJob);
         } finally {
             writeUnlock();
         }
-        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+        if (!(loadJob instanceof SparkLoadJob)) {
+            Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+        }
 
         // The job must be submitted after edit log.
         // It guarantee that load job has not been changed before edit log.
@@ -379,6 +383,34 @@ public class LoadManager implements Writable{
         idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
     }
 
+    // only for those jobs which have etl state, like SparkLoadJob
+    public void processEtlStateJobs() {
+        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.ETL))
+                .forEach(job -> {
+                    try {
+                        ((SparkLoadJob) job).updateEtlStatus();
+                    } catch (UserException e) {
+                        job.cancelJobWithoutCheck(new FailMsg(ETL_RUN_FAIL, e.getMessage()), true, false);
+                    } catch (Exception e) {
+                        LOG.warn("update load job etl status fail. error: {}", e);
+                    }
+                });
+    }
+
+    // only for those jobs which load by PushTask
+    public void processLoadingStateJobs() {
+        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.LOADING))
+                .forEach(job -> {
+                    try {
+                        ((SparkLoadJob) job).updateLoadingStatus();
+                    } catch (UserException e) {
+                        job.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), true, false);
+                    } catch (Exception e) {
+                        LOG.warn("update load job loading status fail. error: {}", e);
+                    }
+                });
+    }
+
     /**
      * This method will return the jobs info which can meet the condition of input param.
      * @param dbId used to filter jobs which belong to this db
@@ -527,7 +559,6 @@ public class LoadManager implements Writable{
      *
      * @param dbId
      * @param label
-     * @param requestId: the uuid of each txn request from BE
      * @throws LabelAlreadyUsedException throw exception when label has been used by an unfinished job.
      */
     private void checkLabelUsed(long dbId, String label)

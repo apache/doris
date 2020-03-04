@@ -123,7 +123,7 @@ public class BrokerFileGroupAggInfo implements Writable {
     private Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToFileGroups = Maps.newHashMap();
     // auxiliary structure, tbl id -> set of partition ids.
     // used to exam the overlapping partitions of same table.
-    private Map<Long, Set<Long>> tableIdToPartitioIds = Maps.newHashMap();
+    private Map<Long, Set<Long>> tableIdToPartitionIds = Maps.newHashMap();
 
     // this inner class This class is used to distinguish different combinations of table and partitions
     public static class FileGroupAggKey {
@@ -178,8 +178,8 @@ public class BrokerFileGroupAggInfo implements Writable {
         List<BrokerFileGroup> fileGroupList = aggKeyToFileGroups.get(fileGroupAggKey);
         if (fileGroupList == null) {
             // check if there are overlapping partitions of same table
-            if (tableIdToPartitioIds.containsKey(fileGroup.getTableId()) 
-                    && tableIdToPartitioIds.get(fileGroup.getTableId()).stream().anyMatch(id -> fileGroup.getPartitionIds().contains(id))) {
+            if (tableIdToPartitionIds.containsKey(fileGroup.getTableId())
+                    && tableIdToPartitionIds.get(fileGroup.getTableId()).stream().anyMatch(id -> fileGroup.getPartitionIds().contains(id))) {
                 throw new DdlException("There are overlapping partitions of same table in data descrition of load job stmt");
             }
             
@@ -190,10 +190,10 @@ public class BrokerFileGroupAggInfo implements Writable {
         fileGroupList.add(fileGroup);
 
         // update tableIdToPartitioIds
-        Set<Long> partitionIds = tableIdToPartitioIds.get(fileGroup.getTableId());
+        Set<Long> partitionIds = tableIdToPartitionIds.get(fileGroup.getTableId());
         if (partitionIds == null) {
             partitionIds = Sets.newHashSet();
-            tableIdToPartitioIds.put(fileGroup.getTableId(), partitionIds);
+            tableIdToPartitionIds.put(fileGroup.getTableId(), partitionIds);
         }
         if (fileGroup.getPartitionIds() != null) {
             partitionIds.addAll(fileGroup.getPartitionIds());
