@@ -132,7 +132,7 @@ Status ExecEnv::_init_mem_tracker() {
     std::stringstream ss;
     // --mem_limit="" means no memory limit
     bytes_limit = ParseUtil::parse_mem_spec(config::mem_limit, &is_percent);
-    if (bytes_limit < 0) {
+    if (bytes_limit <= 0) {
         ss << "Failed to parse mem limit from '" + config::mem_limit + "'.";
         return Status::InternalError(ss.str());
     }
@@ -161,18 +161,22 @@ Status ExecEnv::_init_mem_tracker() {
 
     _init_buffer_pool(config::min_buffer_size, buffer_pool_limit, clean_pages_limit);
 
-    // Limit of 0 means no memory limit.
-    if (bytes_limit > 0) {
-        _mem_tracker = new MemTracker(bytes_limit);
-    }
-
     if (bytes_limit > MemInfo::physical_mem()) {
         LOG(WARNING) << "Memory limit "
                      << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
                      << " exceeds physical memory of "
                      << PrettyPrinter::print(MemInfo::physical_mem(),
-                                             TUnit::BYTES);
+                                             TUnit::BYTES)
+                     << ". Using physical memory instead";
+        bytes_limit = MemInfo::physical_mem();
     }
+
+    if (bytes_limit <= 0) {
+        ss << "Invalid mem limit: " << bytes_limit;
+        return Status::InternalError(ss.str());
+    }
+
+    _mem_tracker = new MemTracker(bytes_limit);
 
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
