@@ -21,9 +21,22 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.doris.analysis.*;
-import org.apache.doris.catalog.*;
-import org.apache.doris.common.*;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.EtlClusterDesc;
+import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.catalog.AuthorizationInfo;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -290,7 +303,7 @@ public abstract class BulkLoadJob extends LoadJob {
     public void readFields(DataInput in, BrokerDesc brokerDesc) throws IOException {
         super.readFields(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_73) {
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_75) {
             brokerDesc = BrokerDesc.read(in);
         }
 

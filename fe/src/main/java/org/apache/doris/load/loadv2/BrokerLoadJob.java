@@ -318,7 +318,7 @@ public class BrokerLoadJob extends BulkLoadJob {
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in, brokerDesc);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_73) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_75) {
             brokerDesc = BrokerDesc.read(in);
         }
     }
