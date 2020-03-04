@@ -17,12 +17,14 @@
 
 package org.apache.doris.catalog;
 
-import com.google.gson.annotations.SerializedName;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -42,15 +44,14 @@ public class TableProperty implements Writable {
     private Map<String, String> properties;
 
     private DynamicPartitionProperty dynamicPartitionProperty;
-
-    private Short replicationNum;
+    // table's default replication num
+    private Short replicationNum = FeConstants.default_replication_num;
 
     private boolean isInMemory = false;
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
         dynamicPartitionProperty = null;
-        replicationNum = null;
     }
 
     public static boolean isSamePrefixProperties(Map<String, String> properties, String prefix) {
