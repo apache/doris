@@ -342,7 +342,7 @@ int MysqlRowBuffer::push_null() {
         return ret;
     }
 
-    int1store(_pos, 251);    
+    int1store(_pos, 251);
     _pos += 1;
     return 0;
 }
