@@ -140,7 +140,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected String clusterName;
     protected long dbId;
     protected long tableId;
-    protected long replicationNum;
     // this code is used to verify be task request
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
@@ -234,14 +233,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     }
 
     public RoutineLoadJob(Long id, String name, String clusterName,
-            long dbId, long tableId, long replicationNum,
-            LoadDataSourceType dataSourceType) {
+            long dbId, long tableId, LoadDataSourceType dataSourceType) {
         this(id, dataSourceType);
         this.name = name;
         this.clusterName = clusterName;
         this.dbId = dbId;
         this.tableId = tableId;
-        this.replicationNum = replicationNum;
         this.authCode = 0;
 
         if (ConnectContext.get() != null) {

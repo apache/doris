@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DeepCopy;
@@ -1247,11 +1248,11 @@ public class OlapTable extends Table {
         tableProperty.buildReplicationNum();
     }
 
-    public Short getReplicationNum() {
+    public Short getDefaultReplicationNum() {
         if (tableProperty != null) {
             return tableProperty.getReplicationNum();
         }
-        return null;
+        return FeConstants.default_replication_num;
     }
 
     public Boolean isInMemory() {
