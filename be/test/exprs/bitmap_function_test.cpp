@@ -138,6 +138,9 @@ TEST_F(BitmapFunctionsTest, bitmap_get_value) {
 
     BigIntVal finalize_result = BitmapFunctions::bitmap_finalize(ctx, dst);
     ASSERT_EQ(result, finalize_result);
+
+    BigIntVal null_bitmap = BitmapFunctions::bitmap_get_value(ctx, StringVal::null());
+    ASSERT_EQ(BigIntVal(0), null_bitmap);
 }
 
 
@@ -159,6 +162,9 @@ TEST_F(BitmapFunctionsTest, bitmap_union) {
     StringVal src4 = convert_bitmap_to_string(ctx, bitmap3);
     BitmapFunctions::bitmap_union(ctx, src4, &dst);
 
+    StringVal src5 = StringVal::null();
+    BitmapFunctions::bitmap_union(ctx, src5, &dst);
+
     StringVal serialized = BitmapFunctions::bitmap_serialize(ctx, dst);
 
     BigIntVal result = BitmapFunctions::bitmap_count(ctx, serialized);
@@ -175,6 +181,9 @@ TEST_F(BitmapFunctionsTest, bitmap_count) {
     BigIntVal result = BitmapFunctions::bitmap_count(ctx, bitmap_str);
     BigIntVal expected(3);
     ASSERT_EQ(expected, result);
+
+    BigIntVal null_bitmap = BitmapFunctions::bitmap_count(ctx, StringVal::null());
+    ASSERT_EQ(BigIntVal(0), null_bitmap);
 }
 
 template<typename ValType, typename ValueType>
