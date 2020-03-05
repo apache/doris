@@ -1108,6 +1108,7 @@ bool DateTimeValue::from_date_format_str(
     bool strict_week_number_year_type = false;
     int strict_week_number_year = -1;
     bool usa_time = false;
+
     while (ptr < end && val < val_end) {
         // Skip space character
         while (val < val_end && isspace(*val)) {
@@ -1353,6 +1354,12 @@ bool DateTimeValue::from_date_format_str(
                 while (val < val_end && isdigit(*val)) {
                     val++;
                 }
+                break;
+            case '%': // %%, escape the %
+                if ('%' != *val) {
+                    return false;
+                }
+                val++;
                 break;
             default:
                 return false;
