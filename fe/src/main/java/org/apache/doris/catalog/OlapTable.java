@@ -510,7 +510,6 @@ public class OlapTable extends Table {
     public TStorageType getStorageTypeByIndexId(Long indexId) {
         MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
         if (indexMeta == null) {
-            LOG.warn("There is no index meta by index id {}. Using column storage type instead.", indexId);
             return TStorageType.COLUMN;
         }
         return indexMeta.getStorageType();

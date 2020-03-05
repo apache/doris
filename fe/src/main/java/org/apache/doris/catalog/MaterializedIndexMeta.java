@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Preconditions;
@@ -102,37 +103,46 @@ public class MaterializedIndexMeta implements Writable {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(indexId);
-        Text.writeString(out, indexName);
-        out.writeInt(schema.size());
-        for (Column column : schema) {
-            column.write(out);
+    public boolean equals(Object obj) {
+        if (!(obj instanceof MaterializedIndexMeta)) {
+            return false;
         }
-        out.writeInt(schemaVersion);
-        out.writeInt(schemaHash);
-        out.writeShort(shortKeyColumnCount);
-        Text.writeString(out, storageType.name());
-        Text.writeString(out, keysType.name());
+        MaterializedIndexMeta indexMeta = (MaterializedIndexMeta) obj;
+        if (indexMeta.indexId != this.indexId) {
+            return false;
+        }
+        if (!indexMeta.indexName.equals(this.indexName)) {
+            return false;
+        }
+        if (indexMeta.schema.size() != this.schema.size() || !indexMeta.schema.containsAll(this.schema)) {
+            return false;
+        }
+        if (indexMeta.schemaVersion != this.schemaVersion) {
+            return false;
+        }
+        if (indexMeta.schemaHash != this.schemaHash) {
+            return false;
+        }
+        if (indexMeta.shortKeyColumnCount != this.shortKeyColumnCount) {
+            return false;
+        }
+        if (indexMeta.storageType != this.storageType) {
+            return false;
+        }
+        if (indexMeta.keysType != this.keysType) {
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
     public static MaterializedIndexMeta read(DataInput in) throws IOException {
-        long indexId = in.readLong();
-        String indexName = Text.readString(in);
-        int schemaSize = in.readInt();
-        List<Column> schema = Lists.newArrayList();
-        for (int i = 0; i < schemaSize; i++) {
-            Column column = Column.read(in);
-            schema.add(column);
-        }
-        int schemaVersion = in.readInt();
-        int schemaHash = in.readInt();
-        short shortKeyColumnCount = in .readShort();
-        TStorageType storageType = TStorageType.valueOf(Text.readString(in));
-        KeysType keysType = KeysType.valueOf(Text.readString(in));
-        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, indexName, schema,
-                 schemaVersion, schemaHash, shortKeyColumnCount, storageType, keysType);
-        return indexMeta;
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, MaterializedIndexMeta.class);
     }
 
 }
