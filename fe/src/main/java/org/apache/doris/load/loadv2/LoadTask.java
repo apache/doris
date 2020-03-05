@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -64,6 +65,9 @@ public abstract class LoadTask extends MasterTask {
                 callback.onTaskFailed(signature, failMsg);
             }
         }
+    }
+
+    public void init() throws LoadException {
     }
 
     /**

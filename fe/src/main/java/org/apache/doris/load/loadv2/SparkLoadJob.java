@@ -18,9 +18,12 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.EtlClusterDesc;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.load.EtlJobType;
 import org.apache.logging.log4j.LogManager;
@@ -59,6 +62,10 @@ public class SparkLoadJob extends BulkLoadJob {
         this.jobType = EtlJobType.SPARK;
     }
 
+    public String getBitmapDataHiveTable() {
+        return bitmapDataHiveTable;
+    }
+
     @Override
     protected void setJobProperties(Map<String, String> properties) throws DdlException {
         super.setJobProperties(properties);
@@ -69,6 +76,15 @@ public class SparkLoadJob extends BulkLoadJob {
                 bitmapDataHiveTable = properties.get(BITMAP_DATA_PROPERTY);
             }
         }
+    }
+
+    @Override
+    protected void unprotectedExecuteJob() throws LoadException {
+        LoadTask task = new SparkLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
+                                                 etlClusterDesc);
+        task.init();
+        idToTasks.put(task.getSignature(), task);
+        Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
     }
 
     @Override

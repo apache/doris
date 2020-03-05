@@ -208,6 +208,10 @@ public class BrokerFileGroup implements Writable {
         return columnExprList;
     }
 
+    public List<String> getFileFieldNames() {
+        return fileFieldNames;
+    }
+
     public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
         return columnToHadoopFunction;
     }

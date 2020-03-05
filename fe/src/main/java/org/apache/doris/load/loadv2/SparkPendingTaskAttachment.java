@@ -17,13 +17,29 @@
 
 package org.apache.doris.load.loadv2;
 
-// JobState will be persisted in meta data by name, so the order of these state is not important
-public enum JobState {
-    UNKNOWN, // this is only for ISSUE #2354
-    PENDING, // init state
-    ETL,     // etl for data partition, sort and aggregation
-    LOADING, // job is running
-    COMMITTED, // transaction is committed but not visible
-    FINISHED, // transaction is visible and job is finished
-    CANCELLED // transaction is aborted and job is cancelled
+import org.apache.spark.launcher.SparkAppHandle;
+
+public class SparkPendingTaskAttachment extends TaskAttachment {
+    private SparkAppHandle handle;
+    private String appId;
+
+    public SparkPendingTaskAttachment(long taskId) {
+        super(taskId);
+    }
+
+    public SparkAppHandle getHandle() {
+        return handle;
+    }
+
+    public String getAppId() {
+        return appId;
+    }
+
+    public void setHandle(SparkAppHandle handle) {
+        this.handle = handle;
+    }
+
+    public void setAppId(String appId) {
+        this.appId = appId;
+    }
 }
