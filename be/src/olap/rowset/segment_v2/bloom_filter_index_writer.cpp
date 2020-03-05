@@ -86,7 +86,7 @@ public:
                     _values.insert(new_value);
                 } else if (_is_int128()) {
                     PackedInt128 new_value;
-                    new_value.value = *v;
+                    memcpy(&new_value.value, v, sizeof(PackedInt128));
                     _values.insert((*reinterpret_cast<CppType*>(&new_value)));
                 } else {
                     _values.insert(*v);
