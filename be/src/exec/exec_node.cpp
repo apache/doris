@@ -48,6 +48,8 @@
 #include "exec/analytic_eval_node.h"
 #include "exec/select_node.h"
 #include "exec/union_node.h"
+#include "exec/intersect_node.h"
+#include "exec/except_node.h"
 #include "exec/repeat_node.h"
 #include "exec/assert_num_rows_node.h"
 #include "runtime/exec_env.h"
@@ -439,6 +441,14 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::UNION_NODE:
         *node = pool->add(new UnionNode(pool, tnode, descs));
         return Status::OK();
+
+    case TPlanNodeType::INTERSECT_NODE:
+        *node = pool->add(new IntersectNode(pool, tnode, descs));
+        return Status::OK();
+
+    // case TPlanNodeType::EXCEPT_NODE:
+    //     *node = pool->add(new ExceptNode(pool, tnode, descs));
+    //     return Status::OK();
 
     case TPlanNodeType::BROKER_SCAN_NODE:
         *node = pool->add(new BrokerScanNode(pool, tnode, descs));
