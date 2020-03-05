@@ -2952,8 +2952,8 @@ public class Catalog {
 
             Map<String, String> properties = singlePartitionDesc.getProperties();
             // partition properties should inherit table properties
-            Short replicationNum = olapTable.getReplicationNum();
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && replicationNum != null) {
+            Short replicationNum = olapTable.getDefaultReplicationNum();
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
@@ -4030,11 +4030,9 @@ public class Catalog {
             }
 
             // 7. replicationNum
-            Short replicationNum = olapTable.getReplicationNum();
-            if (replicationNum != null) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
-                sb.append(replicationNum).append("\"");
-            }
+            Short replicationNum = olapTable.getDefaultReplicationNum();
+            sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
+            sb.append(replicationNum).append("\"");
 
             // 8. in memory
             sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
