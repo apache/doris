@@ -18,6 +18,15 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.thrift.TStorageType;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -27,17 +36,6 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
-import org.apache.doris.common.jmockit.Deencapsulation;
-import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.thrift.TStorageType;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
 
 public class TableTest {
     private FakeCatalog fakeCatalog;
@@ -61,8 +59,9 @@ public class TableTest {
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
         List<Column> columns = new ArrayList<Column>();
-        columns.add(new Column("column2", 
-                        ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", ""));
+        Column column2 = new Column("column2",
+                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+        columns.add(column2);
         columns.add(new Column("column3", 
                         ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
         columns.add(new Column("column4", 
@@ -80,13 +79,13 @@ public class TableTest {
 
         OlapTable table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
                                                   new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        short shortKeyColumnCount = 1;
+        table1.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
         List<Column> column = Lists.newArrayList();
-        short schemaHash = 1;
-        table1.setIndexSchemaInfo(new Long(1), "test", column, 1, 1, schemaHash);
-        Deencapsulation.setField(table1, "baseIndexId", 1);
-        Map<Long, TStorageType> indexIdToStorageType = Maps.newHashMap();
-        indexIdToStorageType.put(new Long(1), TStorageType.COLUMN);
-        Deencapsulation.setField(table1, "indexIdToStorageType", indexIdToStorageType);
+        column.add(column2);
+
+        table1.setIndexMeta(new Long(2), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
+        Deencapsulation.setField(table1, "baseIndexId", 1000);
         table1.write(dos);
         dos.flush();
         dos.close();
@@ -97,6 +96,7 @@ public class TableTest {
         Table rFamily1 = Table.read(dis);
         Assert.assertTrue(table1.equals(rFamily1));
         Assert.assertEquals(table1.getCreateTime(), rFamily1.getCreateTime());
+        Assert.assertEquals(table1.getIndexMetaByIndexId(2).getKeysType(), KeysType.AGG_KEYS);
         
         // 3. delete files
         dis.close();

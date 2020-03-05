@@ -18,6 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -31,6 +33,8 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.validation.constraints.AssertTrue;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -53,7 +57,7 @@ public class CreateMaterializedViewStmtTest {
     }
 
     @Test
-    public void testFunctionColumnInSelectClause(@Injectable ArithmeticExpr arithmeticExpr) {
+    public void testFunctionColumnInSelectClause(@Injectable ArithmeticExpr arithmeticExpr) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem = new SelectListItem(arithmeticExpr, null);
         selectList.addItem(selectListItem);
@@ -295,8 +299,6 @@ public class CreateMaterializedViewStmtTest {
                 result = slotRef2;
                 selectStmt.getGroupByClause();
                 result = groupByClause;
-                groupByClause.getGroupingExprs();
-                result = groupByList;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -396,8 +398,6 @@ public class CreateMaterializedViewStmtTest {
                 result = functionChild0;
                 selectStmt.getGroupByClause();
                 result = groupByClause;
-                groupByClause.getGroupingExprs();
-                result = groupByList;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -476,8 +476,6 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName5;
                 selectStmt.getGroupByClause();
                 result = groupByClause;
-                groupByClause.getGroupingExprs();
-                result = groupByList;
             }
         };
 
@@ -520,8 +518,7 @@ public class CreateMaterializedViewStmtTest {
     @Test
     public void testMVColumnsWithoutOrderbyWithoutAggregation(@Injectable SlotRef slotRef1,
             @Injectable SlotRef slotRef2, @Injectable SlotRef slotRef3, @Injectable SlotRef slotRef4,
-            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt,
-            @Injectable GroupByClause groupByClause) throws UserException {
+            @Injectable TableRef tableRef, @Injectable SelectStmt selectStmt) throws UserException {
         SelectList selectList = new SelectList();
         SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
         selectList.addItem(selectListItem1);
@@ -537,10 +534,6 @@ public class CreateMaterializedViewStmtTest {
         final String columnName3 = "k3";
         final String columnName4 = "v1";
 
-        List<Expr> groupByList = Lists.newArrayList();
-        groupByList.add(slotRef1);
-        groupByList.add(slotRef2);
-        groupByList.add(slotRef3);
         new Expectations() {
             {
                 analyzer.getClusterName();
@@ -577,9 +570,7 @@ public class CreateMaterializedViewStmtTest {
                 slotRef4.getType().getStorageLayoutBytes();
                 result = 4;
                 selectStmt.getGroupByClause();
-                result = groupByClause;
-                groupByClause.getGroupingExprs();
-                result = groupByList;
+                result = null;
             }
         };
 
@@ -669,8 +660,6 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName3;
                 selectStmt.getGroupByClause();
                 result = groupByClause;
-                groupByClause.getGroupingExprs();
-                result = groupByList;
             }
         };
 
@@ -694,6 +683,7 @@ public class CreateMaterializedViewStmtTest {
             Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
             Assert.assertEquals(columnName3, mvColumn2.getName());
             Assert.assertEquals(AggregateType.SUM, mvColumn2.getAggregationType());
+            Assert.assertEquals(KeysType.AGG_KEYS, createMaterializedViewStmt.getMVKeysType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
         }
@@ -726,17 +716,22 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName1;
                 selectStmt.getGroupByClause();
                 result = groupByClause;
-                groupByClause.getGroupingExprs();
-                result = groupByList;
+                selectStmt.getHavingPred();
+                result = null;
+                selectStmt.getLimit();
+                result = -1;
             }
         };
 
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
         try {
             createMaterializedViewStmt.analyze(analyzer);
-            Assert.fail();
+            Assert.assertTrue(KeysType.AGG_KEYS == createMaterializedViewStmt.getMVKeysType());
+            List<MVColumnItem> mvSchema = createMaterializedViewStmt.getMVColumnItemList();
+            Assert.assertEquals(1, mvSchema.size());
+            Assert.assertTrue(mvSchema.get(0).isKey());
         } catch (UserException e) {
-            System.out.print(e.getMessage());
+            Assert.fail(e.getMessage());
         }
 
     }

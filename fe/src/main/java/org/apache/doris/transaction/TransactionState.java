@@ -452,7 +452,7 @@ public class TransactionState implements Writable {
         }
         // always rewrite the index ids
         indexIds.clear();
-        for (Long indexId : table.getIndexIdToSchema().keySet()) {
+        for (Long indexId : table.getIndexIdToMeta().keySet()) {
             indexIds.add(indexId);
         }
     }

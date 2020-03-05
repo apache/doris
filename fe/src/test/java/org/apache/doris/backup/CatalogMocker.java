@@ -17,7 +17,6 @@
 
 package org.apache.doris.backup;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Catalog;
@@ -63,6 +62,8 @@ import com.google.common.collect.Range;
 
 import java.util.List;
 import java.util.Map;
+
+import mockit.Expectations;
 
 public class CatalogMocker {
     // user
@@ -255,8 +256,8 @@ public class CatalogMocker {
         tablet0.addReplica(replica1);
         tablet0.addReplica(replica2);
 
-        olapTable.setIndexSchemaInfo(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1);
-        olapTable.setStorageTypeToIndex(TEST_TBL_ID, TStorageType.COLUMN);
+        olapTable.setIndexMeta(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
         olapTable.addPartition(partition);
         db.createTable(olapTable);
 
@@ -340,8 +341,8 @@ public class CatalogMocker {
         baseTabletP2.addReplica(replica8);
 
 
-        olapTable2.setIndexSchemaInfo(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1);
-        olapTable2.setStorageTypeToIndex(TEST_TBL2_ID, TStorageType.COLUMN);
+        olapTable2.setIndexMeta(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA, 0, SCHEMA_HASH, (short) 1,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
         olapTable2.addPartition(partition1);
         olapTable2.addPartition(partition2);
 
@@ -378,9 +379,8 @@ public class CatalogMocker {
 
         partition2.createRollupIndex(rollupIndexP2);
 
-        olapTable2.setIndexSchemaInfo(TEST_ROLLUP_ID, TEST_ROLLUP_NAME, TEST_ROLLUP_SCHEMA, 0, ROLLUP_SCHEMA_HASH,
-                                      (short) 1);
-        olapTable2.setStorageTypeToIndex(TEST_ROLLUP_ID, TStorageType.COLUMN);
+        olapTable2.setIndexMeta(TEST_ROLLUP_ID, TEST_ROLLUP_NAME, TEST_ROLLUP_SCHEMA, 0, ROLLUP_SCHEMA_HASH,
+                                      (short) 1, TStorageType.COLUMN, KeysType.AGG_KEYS);
         db.createTable(olapTable2);
 
         return db;

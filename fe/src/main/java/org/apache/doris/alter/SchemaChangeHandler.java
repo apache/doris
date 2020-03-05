@@ -42,6 +42,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -241,12 +242,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // if not specify rollup index, column should be dropped from both base and rollup indexes.
             List<Long> indexIds = new ArrayList<Long>();
             indexIds.add(baseIndexId);
-            for (long indexId : olapTable.getIndexIdToSchema().keySet()) {
-                if (indexId == baseIndexId) {
-                    continue;
-                }
-                indexIds.add(indexId);
-            }
+            indexIds.addAll(olapTable.getIndexIdListExceptBaseIndex());
 
             // find column in base index and remove it
             List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
@@ -1070,16 +1066,17 @@ public class SchemaChangeHandler extends AlterHandler {
          */
         for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
             long originIndexId = entry.getKey();
+            MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(originIndexId);
             // 1. get new schema version/schema version hash, short key column count
-            int currentSchemaVersion = olapTable.getSchemaVersionByIndexId(originIndexId);
+            int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
             int newSchemaVersion = currentSchemaVersion + 1;
             // generate schema hash for new index has to generate a new schema hash not equal to current schema hash
-            int currentSchemaHash = olapTable.getSchemaHashByIndexId(originIndexId);
+            int currentSchemaHash = currentIndexMeta.getSchemaHash();
             int newSchemaHash = Util.generateSchemaHash();
             while (currentSchemaHash == newSchemaHash) {
                 newSchemaHash = Util.generateSchemaHash();
             }
-            String newIndexName = SHADOW_NAME_PRFIX + olapTable.getIndexNameById(originIndexId);
+            String newIndexName = SHADOW_NAME_PRFIX + currentIndexMeta.getIndexName();
             short newShortKeyColumnCount = indexIdToShortKeyColumnCount.get(originIndexId);
             long shadowIndexId = catalog.getNextId();
 

@@ -84,8 +84,8 @@ public final class RollupSelector {
                 selectedIndexId = indexId;
             } else if (rowCount == minRowCount) {
                 // check column number, select one minimum column number
-                int selectedColumnSize = table.getIndexIdToSchema().get(selectedIndexId).size();
-                int currColumnSize = table.getIndexIdToSchema().get(indexId).size();
+                int selectedColumnSize = table.getSchemaByIndexId(selectedIndexId).size();
+                int currColumnSize = table.getSchemaByIndexId(indexId).size();
                 if (currColumnSize < selectedColumnSize) {
                     selectedIndexId = indexId;
                 }
