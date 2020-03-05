@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.thrift.TFileFormatType;
@@ -195,7 +196,7 @@ public class StreamLoadTask {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {
-            columnsStmt = (ImportColumnsStmt) parser.parse().value;
+            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getSingleStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
             throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
@@ -223,7 +224,7 @@ public class StreamLoadTask {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(whereSQL)));
         ImportWhereStmt whereStmt;
         try {
-            whereStmt = (ImportWhereStmt) parser.parse().value;
+            whereStmt = (ImportWhereStmt) SqlParserUtils.getSingleStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing where header, sql={}", whereSQL, e);
             throw new AnalysisException("failed to parsing where header, maybe contain unsupported character");

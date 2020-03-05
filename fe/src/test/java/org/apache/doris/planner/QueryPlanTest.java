@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.qe.ConnectContext;
@@ -32,6 +33,7 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.io.File;
+import java.util.List;
 import java.util.UUID;
 
 public class QueryPlanTest {
@@ -288,5 +290,24 @@ public class QueryPlanTest {
         String sql = "select * from test.baseall a where k1 in (select k1 from test.bigtable b where k2 > 0 and k1 = 1);";
         UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertEquals(MysqlStateType.EOF, connectContext.getState().getStateType());
+        
+        sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
+        List<StatementBase> stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        Assert.assertEquals(2, stmts.size());
+    }
+
+    @Test
+    public void testMultiStmts() throws Exception {
+        String sql = "SHOW VARIABLES LIKE 'lower_case_%'; SHOW VARIABLES LIKE 'sql_mode'";
+        List<StatementBase>stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        Assert.assertEquals(2, stmts.size());
+        
+        sql = "SHOW VARIABLES LIKE 'lower_case_%';;;";
+        stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        Assert.assertEquals(4, stmts.size());
+
+        sql = "SHOW VARIABLES LIKE 'lower_case_%'";
+        stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        Assert.assertEquals(1, stmts.size());
     }
 }

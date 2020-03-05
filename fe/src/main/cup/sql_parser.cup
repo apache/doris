@@ -132,25 +132,53 @@ parser code {:
         if (errorToken == null || stmt == null) {
             return null;
         }
-        String[] lines = stmt.split("\n");
+        String[] lines = stmt.split("\n", -1);
         StringBuffer result = new StringBuffer();
-        result.append(getErrorTypeMessage(errorToken.sym) + " at:\n");
+        result.append(getErrorTypeMessage(errorToken.sym) + " in line ");
+        result.append(errorToken.left);
+        result.append(":\n");
 
-        // print lines up to and including the one with the error
-        for (int i = 0; i < errorToken.left; ++i) {
-            result.append(lines[i]);
+        // errorToken_.left is the line number of error.
+        // errorToken_.right is the column number of the error.
+        // index is start from 0, so "minus 1" is the real error line idx
+        String errorLine = lines[errorToken.left - 1];
+        // If the error is that additional tokens are expected past the end,
+        // errorToken_.right will be past the end of the string.
+        int lastCharIndex = Math.min(errorLine.length(), errorToken.right);
+        int maxPrintLength = 60;
+        int errorLoc = 0;
+        if (errorLine.length() <= maxPrintLength) {
+            // The line is short. Print the entire line.
+            result.append(errorLine);
             result.append('\n');
+            errorLoc = errorToken.right;
+        } else {
+            // The line is too long. Print maxPrintLength/2 characters before the error and
+            // after the error.
+            int contextLength = maxPrintLength / 2 - 3;
+            String leftSubStr;
+            if (errorToken.right > maxPrintLength / 2) {
+                leftSubStr = "..." + errorLine.substring(errorToken.right - contextLength,
+                        lastCharIndex);
+            } else {
+                leftSubStr = errorLine.substring(0, errorToken.right);
+            }
+            errorLoc = leftSubStr.length();
+            result.append(leftSubStr);
+            if (errorLine.length() - errorToken.right > maxPrintLength / 2) {
+                result.append(errorLine.substring(errorToken.right,
+                            errorToken.right + contextLength) + "...");
+            } else {
+                result.append(errorLine.substring(lastCharIndex));
+            }
+            result.append("\n");
         }
+
         // print error indicator
-        for (int i = 0; i < errorToken.right - 1; ++i) {
+        for (int i = 0; i < errorLoc - 1; ++i) {
             result.append(' ');
         }
         result.append("^\n");
-        // print remaining lines
-        for (int i = errorToken.left; i < lines.length; ++i) {
-            result.append(lines[i]);
-            result.append('\n');
-        }
 
         // only report encountered and expected tokens for syntax errors
         if (errorToken.sym == SqlParserSymbols.UNMATCHED_STRING_LITERAL ||
@@ -162,10 +190,13 @@ parser code {:
         result.append("Encountered: ");
         String lastToken = SqlScanner.tokenIdMap.get(Integer.valueOf(errorToken.sym));
         if (lastToken != null) {
-        	result.append(lastToken);
+            result.append(lastToken);
+        } else if (SqlScanner.isKeyword((String) errorToken.value)) {
+            result.append("A reserved word cannot be used as an identifier: ").append((String) errorToken.value);
         } else {
-        	result.append("Unknown last token with id: " + errorToken.sym);
+            result.append("Unknown last token with id: " + errorToken.sym);
         }
+
         // Append expected tokens
         result.append('\n');
         result.append("Expected: ");
@@ -173,23 +204,24 @@ parser code {:
         Integer tokenId = null;
         for (int i = 0; i < expectedTokenIds.size(); ++i) {
             tokenId = expectedTokenIds.get(i);
-             // keywords hints
+            // keywords hints
             if (SqlScanner.isKeyword(lastToken) && tokenId.intValue() == SqlParserSymbols.IDENT) {
-            	result.append(String.format("%s is keyword, maybe `%s`", lastToken, lastToken) + ", ");
-            	continue;
+                result.append(String.format("%s is keyword, maybe `%s`", lastToken, lastToken) + ", ");
+                continue;
             }
 
-			if (reportExpectedToken(tokenId)) {
+            if (reportExpectedToken(tokenId)) {
                 expectedToken = SqlScanner.tokenIdMap.get(tokenId);
                 result.append(expectedToken + ", ");
             }
         }
         // remove trailing ", "
-        result.delete(result.length()-2, result.length());
+        result.delete(result.length() - 2, result.length());
         result.append('\n');
 
         return result.toString();
     }
+
 :};
 
 // Total keywords of doris
@@ -247,7 +279,8 @@ terminal String UNMATCHED_STRING_LITERAL;
 terminal String COMMENTED_PLAN_HINTS;
 
 // Statement that the result of this parser.
-nonterminal StatementBase query, stmt, show_stmt, show_param, help_stmt, load_stmt,
+nonterminal List<StatementBase> stmts;
+nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt,
     describe_stmt, alter_stmt,
@@ -457,24 +490,25 @@ precedence left LPAREN, RPAREN;
 // Support chaining of timestamp arithmetic exprs.
 precedence left KW_INTERVAL;
 precedence left KW_OVER;
-start with query;
+start with stmts;
 
-query ::=
+stmts ::=
     stmt:stmt
     {:
-        RESULT = stmt;
+        RESULT = Lists.newArrayList(stmt);
     :}
-    | stmt:stmt SEMICOLON
+    | stmts:stmts SEMICOLON stmt:stmt
     {:
-        RESULT = stmt;
+        stmts.add(stmt);
+        RESULT = stmts;
     :}
     | import_columns_stmt:stmt
     {:
-        RESULT = stmt;
+        RESULT = Lists.newArrayList(stmt);
     :}
     | import_where_stmt:stmt
     {:
-        RESULT = stmt;
+        RESULT = Lists.newArrayList(stmt);
     :}
     ;
 

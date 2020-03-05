@@ -760,6 +760,11 @@ public class MaterializedViewHandler extends AlterHandler {
 
     private void changeTableStatus(long dbId, long tableId, OlapTableState olapTableState) {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
+        if (db == null) {
+            LOG.warn("db {} has been dropped when changing table {} status after rollup job done",
+                    dbId, tableId);
+            return;
+        }
         db.writeLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
