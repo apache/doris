@@ -392,6 +392,29 @@ under the License.
         INTO TABLE `my_table`
         where k1 > k2
         );
+
+    11. Extract date partition fields in file paths, and date time include %3A (in hdfs path, all ':' will be replaced by '%3A')
+
+        Assume we have files:
+
+        /user/data/data_time=2020-02-17 00%3A00%3A00/test.txt
+        /user/data/data_time=2020-02-18 00%3A00%3A00/test.txt
+
+        Table schema is:
+        data_time DATETIME,
+        k2        INT,
+        k3        INT
+
+        LOAD LABEL example_db.label12
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt") 
+         INTO TABLE `tbl12`
+         COLUMNS TERMINATED BY ","
+         (k2,k3)
+         COLUMNS FROM PATH AS (data_time)
+         SET (data_time=str_to_date(data_time, '%Y-%m-%d %H%%3A%i%%3A%s'))
+        ) 
+        WITH BROKER "hdfs" ("username"="user", "password"="pass");
      
 ## keyword
 
