@@ -50,6 +50,21 @@ public enum KeysType {
         }
     }
 
+    public static KeysType fromThrift(TKeysType tKeysType) {
+        switch (tKeysType) {
+            case PRIMARY_KEYS:
+                return KeysType.PRIMARY_KEYS;
+            case DUP_KEYS:
+                return KeysType.DUP_KEYS;
+            case UNIQUE_KEYS:
+                return KeysType.UNIQUE_KEYS;
+            case AGG_KEYS:
+                return KeysType.AGG_KEYS;
+            default:
+                return null;
+        }
+    }
+
     public String toSql() {
         switch (this) {
             case PRIMARY_KEYS:

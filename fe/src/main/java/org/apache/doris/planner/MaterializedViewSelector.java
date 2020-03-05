@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.UserException;
@@ -115,20 +116,20 @@ public class MaterializedViewSelector {
 
     private Map<Long, List<Column>> predicates(OlapScanNode scanNode) {
         // Step1: all of predicates is compensating predicates
-        Map<Long, List<Column>> candidateIndexIdToSchema = scanNode.getOlapTable().getVisibleIndexIdToSchema();
+        Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta = scanNode.getOlapTable().getVisibleIndexIdToMeta();
         OlapTable table = scanNode.getOlapTable();
         Preconditions.checkState(table != null);
         String tableName = table.getName();
         // Step2: check all columns in compensating predicates are available in the view output
-        checkCompensatingPredicates(columnNamesInPredicates.get(tableName), candidateIndexIdToSchema);
+        checkCompensatingPredicates(columnNamesInPredicates.get(tableName), candidateIndexIdToMeta);
         // Step3: group by list in query is the subset of group by list in view or view contains no aggregation
-        checkGrouping(columnNamesInGrouping.get(tableName), candidateIndexIdToSchema, table.getKeysType());
+        checkGrouping(columnNamesInGrouping.get(tableName), candidateIndexIdToMeta);
         // Step4: aggregation functions are available in the view output
-        checkAggregationFunction(aggregateColumnsInQuery.get(tableName), candidateIndexIdToSchema);
+        checkAggregationFunction(aggregateColumnsInQuery.get(tableName), candidateIndexIdToMeta);
         // Step5: columns required to compute output expr are available in the view output
-        checkOutputColumns(columnNamesInQueryOutput.get(tableName), candidateIndexIdToSchema);
+        checkOutputColumns(columnNamesInQueryOutput.get(tableName), candidateIndexIdToMeta);
         // Step6: if table type is aggregate and the candidateIndexIdToSchema is empty,
-        if (table.getKeysType() == KeysType.AGG_KEYS && candidateIndexIdToSchema.size() == 0) {
+        if (table.getKeysType() == KeysType.AGG_KEYS && candidateIndexIdToMeta.size() == 0) {
             // the base index will be added in the candidateIndexIdToSchema.
             /**
              * In Doris, it is allowed that the aggregate table should be scanned directly
@@ -144,11 +145,15 @@ public class MaterializedViewSelector {
              * So, we need to compensate those kinds of index in following step.
              *
              */
-            compensateCandidateIndex(candidateIndexIdToSchema, scanNode.getOlapTable().getVisibleIndexIdToSchema(),
+            compensateCandidateIndex(candidateIndexIdToMeta, scanNode.getOlapTable().getVisibleIndexIdToMeta(),
                             table);
-            checkOutputColumns(columnNamesInQueryOutput.get(tableName), candidateIndexIdToSchema);
+            checkOutputColumns(columnNamesInQueryOutput.get(tableName), candidateIndexIdToMeta);
         }
-        return candidateIndexIdToSchema;
+        Map<Long, List<Column>> result = Maps.newHashMap();
+        for (Map.Entry<Long, MaterializedIndexMeta> entry : candidateIndexIdToMeta.entrySet()) {
+            result.put(entry.getKey(), entry.getValue().getSchema());
+        }
+        return result;
     }
 
     private long priorities(OlapScanNode scanNode, Map<Long, List<Column>> candidateIndexIdToSchema) {
@@ -217,8 +222,8 @@ public class MaterializedViewSelector {
                 selectedIndexId = indexId;
             } else if (rowCount == minRowCount) {
                 // check column number, select one minimum column number
-                int selectedColumnSize = olapTable.getIndexIdToSchema().get(selectedIndexId).size();
-                int currColumnSize = olapTable.getIndexIdToSchema().get(indexId).size();
+                int selectedColumnSize = olapTable.getSchemaByIndexId(selectedIndexId).size();
+                int currColumnSize = olapTable.getSchemaByIndexId(indexId).size();
                 if (currColumnSize < selectedColumnSize) {
                     selectedIndexId = indexId;
                 }
@@ -248,24 +253,24 @@ public class MaterializedViewSelector {
         return selectedIndexId;
     }
 
-    private void checkCompensatingPredicates(Set<String> columnsInPredicates,
-                                             Map<Long, List<Column>> candidateIndexIdToSchema) {
+    private void checkCompensatingPredicates(Set<String> columnsInPredicates, Map<Long, MaterializedIndexMeta>
+            candidateIndexIdToMeta) {
         // When the query statement does not contain any columns in predicates, all candidate index can pass this check
         if (columnsInPredicates == null) {
             return;
         }
-        Iterator<Map.Entry<Long, List<Column>>> iterator = candidateIndexIdToSchema.entrySet().iterator();
+        Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<Long, List<Column>> entry = iterator.next();
+            Map.Entry<Long, MaterializedIndexMeta> entry = iterator.next();
             Set<String> indexNonAggregatedColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            entry.getValue().stream().filter(column -> !column.isAggregated())
+            entry.getValue().getSchema().stream().filter(column -> !column.isAggregated())
                     .forEach(column -> indexNonAggregatedColumnNames.add(column.getName()));
             if (!indexNonAggregatedColumnNames.containsAll(columnsInPredicates)) {
                 iterator.remove();
             }
         }
         LOG.debug("Those mv pass the test of compensating predicates:"
-                          + Joiner.on(",").join(candidateIndexIdToSchema.keySet()));
+                          + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
     /**
@@ -277,35 +282,37 @@ public class MaterializedViewSelector {
      * 2. the empty grouping columns in query is subset of all of views
      *
      * @param columnsInGrouping
-     * @param candidateIndexIdToSchema
+     * @param candidateIndexIdToMeta
      */
 
-    private void checkGrouping(Set<String> columnsInGrouping, Map<Long, List<Column>> candidateIndexIdToSchema,
-            KeysType keysType) {
-        Iterator<Map.Entry<Long, List<Column>>> iterator = candidateIndexIdToSchema.entrySet().iterator();
+    private void checkGrouping(Set<String> columnsInGrouping, Map<Long, MaterializedIndexMeta>
+            candidateIndexIdToMeta) {
+        Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<Long, List<Column>> entry = iterator.next();
+            Map.Entry<Long, MaterializedIndexMeta> entry = iterator.next();
             Set<String> indexNonAggregatedColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            List<Column> candidateIndexSchema = entry.getValue();
+            MaterializedIndexMeta candidateIndexMeta = entry.getValue();
+            List<Column> candidateIndexSchema = candidateIndexMeta.getSchema();
             candidateIndexSchema.stream().filter(column -> !column.isAggregated())
                     .forEach(column -> indexNonAggregatedColumnNames.add(column.getName()));
             /*
-            If there is no aggregated column in duplicate table, the index will be SPJ.
+            If there is no aggregated column in duplicate index, the index will be SPJ.
             For example:
                 duplicate table (k1, k2, v1)
-                mv index (k1, v1)
+                duplicate mv index (k1, v1)
             When the candidate index is SPJ type, it passes the verification directly
 
-            If there is no aggregated column in aggregate index, the index will be deduplicate table.
+            If there is no aggregated column in aggregate index, the index will be deduplicate index.
             For example:
-                aggregate table (k1, k2, v1 sum)
-                mv index (k1, k2)
+                duplicate table (k1, k2, v1 sum)
+                aggregate mv index (k1, k2)
             This kind of index is SPJG which same as select k1, k2 from aggregate_table group by k1, k2.
             It also need to check the grouping column using following steps.
 
             ISSUE-3016, MaterializedViewFunctionTest: testDeduplicateQueryInAgg
              */
-            if (indexNonAggregatedColumnNames.size() == candidateIndexSchema.size() && keysType == KeysType.DUP_KEYS) {
+            if (indexNonAggregatedColumnNames.size() == candidateIndexSchema.size()
+                    && candidateIndexMeta.getKeysType() == KeysType.DUP_KEYS) {
                 continue;
             }
             // When the query is SPJ type but the candidate index is SPJG type, it will not pass directly.
@@ -324,16 +331,16 @@ public class MaterializedViewSelector {
             }
         }
         LOG.debug("Those mv pass the test of grouping:"
-                          + Joiner.on(",").join(candidateIndexIdToSchema.keySet()));
+                          + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
     private void checkAggregationFunction(Set<AggregatedColumn> aggregatedColumnsInQueryOutput,
-                                          Map<Long, List<Column>> candidateIndexIdToSchema) {
-        Iterator<Map.Entry<Long, List<Column>>> iterator = candidateIndexIdToSchema.entrySet().iterator();
+            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta) {
+        Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<Long, List<Column>> entry = iterator.next();
+            Map.Entry<Long, MaterializedIndexMeta> entry = iterator.next();
             List<AggregatedColumn> indexAggregatedColumns = Lists.newArrayList();
-            List<Column> candidateIndexSchema = entry.getValue();
+            List<Column> candidateIndexSchema = entry.getValue().getSchema();
             candidateIndexSchema.stream().filter(column -> column.isAggregated())
                     .forEach(column -> indexAggregatedColumns.add(
                             new AggregatedColumn(column.getName(), column.getAggregationType().name())));
@@ -360,19 +367,19 @@ public class MaterializedViewSelector {
             }
         }
         LOG.debug("Those mv pass the test of aggregation function:"
-                          + Joiner.on(",").join(candidateIndexIdToSchema.keySet()));
+                          + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
-    private void checkOutputColumns(Set<String> columnNamesInQueryOutput,
-                                    Map<Long, List<Column>> candidateIndexIdToSchema) {
+    private void checkOutputColumns(Set<String> columnNamesInQueryOutput, Map<Long, MaterializedIndexMeta>
+            candidateIndexIdToMeta) {
         if (columnNamesInQueryOutput == null) {
             return;
         }
-        Iterator<Map.Entry<Long, List<Column>>> iterator = candidateIndexIdToSchema.entrySet().iterator();
+        Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
-            Map.Entry<Long, List<Column>> entry = iterator.next();
+            Map.Entry<Long, MaterializedIndexMeta> entry = iterator.next();
             Set<String> indexColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-            List<Column> candidateIndexSchema = entry.getValue();
+            List<Column> candidateIndexSchema = entry.getValue().getSchema();
             candidateIndexSchema.stream().forEach(column -> indexColumnNames.add(column.getName()));
             // The aggregated columns in query output must be subset of the aggregated columns in view
             if (!indexColumnNames.containsAll(columnNamesInQueryOutput)) {
@@ -380,23 +387,23 @@ public class MaterializedViewSelector {
             }
         }
         LOG.debug("Those mv pass the test of output columns:"
-                          + Joiner.on(",").join(candidateIndexIdToSchema.keySet()));
+                          + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
-    private void compensateCandidateIndex(Map<Long, List<Column>> candidateIndexIdToSchema,
-                                 Map<Long, List<Column>> allVisibleIndexes,
+    private void compensateCandidateIndex(Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, Map<Long,
+            MaterializedIndexMeta> allVisibleIndexes,
                                  OlapTable table) {
         isPreAggregation = false;
         reasonOfDisable = "The aggregate operator does not match";
         int keySizeOfBaseIndex = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
-        for (Map.Entry<Long, List<Column>> index : allVisibleIndexes.entrySet()) {
+        for (Map.Entry<Long, MaterializedIndexMeta> index : allVisibleIndexes.entrySet()) {
             long mvIndexId = index.getKey();
             if (table.getKeyColumnsByIndexId(mvIndexId).size() == keySizeOfBaseIndex) {
-                candidateIndexIdToSchema.put(mvIndexId, index.getValue());
+                candidateIndexIdToMeta.put(mvIndexId, index.getValue());
             }
         }
         LOG.debug("Those mv pass the test of output columns:"
-                          + Joiner.on(",").join(candidateIndexIdToSchema.keySet()));
+                          + Joiner.on(",").join(candidateIndexIdToMeta.keySet()));
     }
 
     private void init() {

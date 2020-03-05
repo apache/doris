@@ -2904,10 +2904,7 @@ public class Catalog {
         DistributionInfo distributionInfo = null;
         OlapTable olapTable = null;
 
-        Map<Long, List<Column>> indexIdToSchema = null;
-        Map<Long, Integer> indexIdToSchemaHash = null;
-        Map<Long, Short> indexIdToShortKeyColumnCount = null;
-        Map<Long, TStorageType> indexIdToStorageType = null;
+        Map<Long, MaterializedIndexMeta> indexIdToMeta;
         Set<String> bfColumns = null;
 
         String partitionName = singlePartitionDesc.getPartitionName();
@@ -3001,10 +2998,7 @@ public class Catalog {
                 groupSchema.checkReplicationNum(singlePartitionDesc.getReplicationNum());
             }
 
-            indexIdToShortKeyColumnCount = olapTable.getCopiedIndexIdToShortKeyColumnCount();
-            indexIdToSchemaHash = olapTable.getCopiedIndexIdToSchemaHash();
-            indexIdToStorageType = olapTable.getCopiedIndexIdToStorageType();
-            indexIdToSchema = olapTable.getCopiedIndexIdToSchema();
+            indexIdToMeta = olapTable.getCopiedIndexIdToMeta();
             bfColumns = olapTable.getCopiedBfColumns();
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
@@ -3014,10 +3008,7 @@ public class Catalog {
 
         Preconditions.checkNotNull(distributionInfo);
         Preconditions.checkNotNull(olapTable);
-        Preconditions.checkNotNull(indexIdToShortKeyColumnCount);
-        Preconditions.checkNotNull(indexIdToSchemaHash);
-        Preconditions.checkNotNull(indexIdToStorageType);
-        Preconditions.checkNotNull(indexIdToSchema);
+        Preconditions.checkNotNull(indexIdToMeta);
 
         // create partition outside db lock
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
@@ -3030,10 +3021,7 @@ public class Catalog {
                     olapTable.getId(),
                     olapTable.getBaseIndexId(),
                     partitionId, partitionName,
-                    indexIdToShortKeyColumnCount,
-                    indexIdToSchemaHash,
-                    indexIdToStorageType,
-                    indexIdToSchema,
+                    indexIdToMeta,
                     olapTable.getKeysType(),
                     distributionInfo,
                     dataProperty.getStorageMedium(),
@@ -3074,17 +3062,17 @@ public class Catalog {
                 // rollup index may be added or dropped during add partition operation.
                 // schema may be changed during add partition operation.
                 boolean metaChanged = false;
-                if (olapTable.getIndexNameToId().size() != indexIdToSchema.size()) {
+                if (olapTable.getIndexNameToId().size() != indexIdToMeta.size()) {
                     metaChanged = true;
                 } else {
                     // compare schemaHash
-                    for (Map.Entry<Long, Integer> entry : olapTable.getIndexIdToSchemaHash().entrySet()) {
+                    for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
                         long indexId = entry.getKey();
-                        if (!indexIdToSchemaHash.containsKey(indexId)) {
+                        if (!indexIdToMeta.containsKey(indexId)) {
                             metaChanged = true;
                             break;
                         }
-                        if (!indexIdToSchemaHash.get(indexId).equals(entry.getValue())) {
+                        if (indexIdToMeta.get(indexId).getSchemaHash() != entry.getValue().getSchemaHash()) {
                             metaChanged = true;
                             break;
                         }
@@ -3351,10 +3339,7 @@ public class Catalog {
 
     private Partition createPartitionWithIndices(String clusterName, long dbId, long tableId,
                                                  long baseIndexId, long partitionId, String partitionName,
-                                                 Map<Long, Short> indexIdToShortKeyColumnCount,
-                                                 Map<Long, Integer> indexIdToSchemaHash,
-                                                 Map<Long, TStorageType> indexIdToStorageType,
-                                                 Map<Long, List<Column>> indexIdToSchema,
+                                                 Map<Long, MaterializedIndexMeta> indexIdToMeta,
                                                  KeysType keysType,
                                                  DistributionInfo distributionInfo,
                                                  TStorageMedium storageMedium,
@@ -3377,7 +3362,7 @@ public class Catalog {
         indexMap.put(baseIndexId, baseIndex);
 
         // create rollup index if has
-        for (long indexId : indexIdToSchema.keySet()) {
+        for (long indexId : indexIdToMeta.keySet()) {
             if (indexId == baseIndexId) {
                 continue;
             }
@@ -3396,9 +3381,10 @@ public class Catalog {
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
+            MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
 
             // create tablets
-            int schemaHash = indexIdToSchemaHash.get(indexId);
+            int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
             createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, versionHash,
                     replicationNum, tabletMeta, tabletIdSet);
@@ -3407,9 +3393,9 @@ public class Catalog {
             String errMsg = null;
 
             // add create replica task for olap
-            short shortKeyColumnCount = indexIdToShortKeyColumnCount.get(indexId);
-            TStorageType storageType = indexIdToStorageType.get(indexId);
-            List<Column> schema = indexIdToSchema.get(indexId);
+            short shortKeyColumnCount = indexMeta.getShortKeyColumnCount();
+            TStorageType storageType = indexMeta.getStorageType();
+            List<Column> schema = indexMeta.getSchema();
             int totalTaskNum = index.getTablets().size() * replicationNum;
             MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
             AgentBatchTask batchTask = new AgentBatchTask();
@@ -3535,16 +3521,7 @@ public class Catalog {
 
         // set base index info to table
         // this should be done before create partition.
-        // get base index storage type. default is COLUMN
         Map<String, String> properties = stmt.getProperties();
-        TStorageType baseIndexStorageType = null;
-        try {
-            baseIndexStorageType = PropertyAnalyzer.analyzeStorageType(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        Preconditions.checkNotNull(baseIndexStorageType);
-        olapTable.setStorageTypeToIndex(baseIndexId, baseIndexStorageType);
 
         // analyze bloom filter columns
         Set<String> bfColumns = null;
@@ -3624,7 +3601,15 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
 
-        // set index schema
+        // get base index storage type. default is COLUMN
+        TStorageType baseIndexStorageType = null;
+        try {
+            baseIndexStorageType = PropertyAnalyzer.analyzeStorageType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        Preconditions.checkNotNull(baseIndexStorageType);
+        // set base index meta
         int schemaVersion = 0;
         try {
             schemaVersion = PropertyAnalyzer.analyzeSchemaVersion(properties);
@@ -3632,8 +3617,8 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
         int schemaHash = Util.schemaHash(schemaVersion, baseSchema, bfColumns, bfFpp);
-        olapTable.setIndexSchemaInfo(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash,
-                shortKeyColumnCount);
+        olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash,
+                shortKeyColumnCount, baseIndexStorageType, keysType);
 
 
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
@@ -3641,15 +3626,7 @@ public class Catalog {
 
             Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
 
-            // set rollup index schema to olap table
-            List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
-            short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
-            int rollupSchemaHash = Util.schemaHash(schemaVersion, rollupColumns, bfColumns, bfFpp);
-            long rollupIndexId = getCurrentCatalog().getNextId();
-            olapTable.setIndexSchemaInfo(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion, rollupSchemaHash,
-                    rollupShortKeyColumnCount);
-
-            // set storage type for rollup index
+            // get storage type for rollup index
             TStorageType rollupIndexStorageType = null;
             try {
                 rollupIndexStorageType = PropertyAnalyzer.analyzeStorageType(addRollupClause.getProperties());
@@ -3657,7 +3634,14 @@ public class Catalog {
                 throw new DdlException(e.getMessage());
             }
             Preconditions.checkNotNull(rollupIndexStorageType);
-            olapTable.setStorageTypeToIndex(rollupIndexId, rollupIndexStorageType);
+            // set rollup index meta to olap table
+            List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause,
+                    olapTable, baseRollupIndex, false);
+            short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
+            int rollupSchemaHash = Util.schemaHash(schemaVersion, rollupColumns, bfColumns, bfFpp);
+            long rollupIndexId = getCurrentCatalog().getNextId();
+            olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
+                    rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
 
         // analyze version info
@@ -3684,10 +3668,7 @@ public class Catalog {
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                         olapTable.getId(), olapTable.getBaseIndexId(),
                         partitionId, partitionName,
-                        olapTable.getIndexIdToShortKeyColumnCount(),
-                        olapTable.getIndexIdToSchemaHash(),
-                        olapTable.getIndexIdToStorageType(),
-                        olapTable.getIndexIdToSchema(),
+                        olapTable.getIndexIdToMeta(),
                         keysType,
                         distributionInfo,
                         partitionInfo.getDataProperty(partitionId).getStorageMedium(),
@@ -3717,10 +3698,7 @@ public class Catalog {
                     DataProperty dataProperty = rangePartitionInfo.getDataProperty(entry.getValue());
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                             olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
-                            olapTable.getIndexIdToShortKeyColumnCount(),
-                            olapTable.getIndexIdToSchemaHash(),
-                            olapTable.getIndexIdToStorageType(),
-                            olapTable.getIndexIdToSchema(),
+                            olapTable.getIndexIdToMeta(),
                             keysType, distributionInfo,
                             dataProperty.getStorageMedium(),
                             partitionInfo.getReplicationNum(entry.getValue()),
@@ -4137,19 +4115,21 @@ public class Catalog {
         // 3. rollup
         if (createRollupStmt != null && (table instanceof OlapTable)) {
             OlapTable olapTable = (OlapTable) table;
-            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
                 if (entry.getKey() == olapTable.getBaseIndexId()) {
                     continue;
                 }
+                MaterializedIndexMeta materializedIndexMeta = entry.getValue();
                 sb = new StringBuilder();
-                String indexName = olapTable.getIndexNameById(entry.getKey());
+                String indexName = materializedIndexMeta.getIndexName();
                 sb.append("ALTER TABLE ").append(table.getName()).append(" ADD ROLLUP ").append(indexName);
                 sb.append("(");
 
-                for (int i = 0; i < entry.getValue().size(); i++) {
-                    Column column = entry.getValue().get(i);
+                List<Column> indexSchema = materializedIndexMeta.getSchema();
+                for (int i = 0; i < indexSchema.size(); i++) {
+                    Column column = indexSchema.get(i);
                     sb.append(column.getName());
-                    if (i != entry.getValue().size() - 1) {
+                    if (i != indexSchema.size() - 1) {
                         sb.append(", ");
                     }
                 }
@@ -6223,10 +6203,7 @@ public class Catalog {
                 Partition newPartition = createPartitionWithIndices(db.getClusterName(),
                         db.getId(), copiedTbl.getId(), copiedTbl.getBaseIndexId(),
                         newPartitionId, entry.getKey(),
-                        copiedTbl.getIndexIdToShortKeyColumnCount(),
-                        copiedTbl.getIndexIdToSchemaHash(),
-                        copiedTbl.getIndexIdToStorageType(),
-                        copiedTbl.getIndexIdToSchema(),
+                        copiedTbl.getIndexIdToMeta(),
                         copiedTbl.getKeysType(),
                         copiedTbl.getDefaultDistributionInfo(),
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
