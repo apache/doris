@@ -269,7 +269,6 @@ void BitmapFunctions::bitmap_update_int(FunctionContext* ctx, const T& src, Stri
     if (src.is_null) {
         return;
     }
-
     auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
     dst_bitmap->add(src.val);
 }
@@ -282,12 +281,18 @@ BigIntVal BitmapFunctions::bitmap_finalize(FunctionContext* ctx, const StringVal
 }
 
 BigIntVal BitmapFunctions::bitmap_get_value(FunctionContext* ctx, const StringVal& src) {
+    if (src.is_null) {
+        return 0;
+    }
     auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
     BigIntVal result(src_bitmap->cardinality());
     return result;
 }
 
 void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
     auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
     // zero size means the src input is a agg object
     if (src.len == 0) {
@@ -298,6 +303,9 @@ void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, S
 }
 
 BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& src) {
+    if (src.is_null) {
+        return 0;
+    }
     // zero size means the src input is a agg object
     if (src.len == 0) {
         auto bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
