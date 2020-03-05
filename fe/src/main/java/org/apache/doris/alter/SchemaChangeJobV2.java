@@ -314,11 +314,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         for (long shadowIdxId : indexIdMap.keySet()) {
-            tbl.setIndexSchemaInfo(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
+            tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
                     indexSchemaVersionAndHashMap.get(shadowIdxId).first,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).second,
-                    indexShortKeyMap.get(shadowIdxId));
-            tbl.setStorageTypeToIndex(shadowIdxId, TStorageType.COLUMN);
+                    indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN, null);
         }
 
         tbl.rebuildFullSchema();

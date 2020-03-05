@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
@@ -166,32 +167,44 @@ public class MaterializedViewSelectorTest {
     }
 
     @Test
-    public void testCheckCompensatingPredicates(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer) {
+    public void testCheckCompensatingPredicates(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
+            @Injectable MaterializedIndexMeta indexMeta1,
+            @Injectable MaterializedIndexMeta indexMeta2,
+            @Injectable MaterializedIndexMeta indexMeta3,
+            @Injectable MaterializedIndexMeta indexMeta4) {
         Set<String> tableAColumnNames = Sets.newHashSet();
         tableAColumnNames.add("C1");
-        Map<Long, List<Column>> candidateIndexIdToSchema = Maps.newHashMap();
+        Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
         Column index1Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index1Columns.add(index1Column1);
-        candidateIndexIdToSchema.put(new Long(1), index1Columns);
+        candidateIndexIdToSchema.put(new Long(1), indexMeta1);
         List<Column> index2Columns = Lists.newArrayList();
         Column index2Column1 = new Column("c1", Type.INT, false, AggregateType.NONE, true, "", "");
         index2Columns.add(index2Column1);
-        candidateIndexIdToSchema.put(new Long(2), index2Columns);
+        candidateIndexIdToSchema.put(new Long(2), indexMeta2);
         List<Column> index3Columns = Lists.newArrayList();
         Column index3Column1 = new Column("c1", Type.INT, false, AggregateType.SUM, true, "", "");
         index3Columns.add(index3Column1);
-        candidateIndexIdToSchema.put(new Long(3), index3Columns);
+        candidateIndexIdToSchema.put(new Long(3), indexMeta3);
         List<Column> index4Columns = Lists.newArrayList();
         Column index4Column2 = new Column("c2", Type.INT, true, null, true, "", "");
         index4Columns.add(index4Column2);
-        candidateIndexIdToSchema.put(new Long(4), index4Columns);
+        candidateIndexIdToSchema.put(new Long(4), indexMeta4);
         new Expectations() {
             {
                 selectStmt.getAggInfo();
                 result = null;
                 selectStmt.getResultExprs();
                 result = Lists.newArrayList();
+                indexMeta1.getSchema();
+                result = index1Columns;
+                indexMeta2.getSchema();
+                result = index2Columns;
+                indexMeta3.getSchema();
+                result = index3Columns;
+                indexMeta4.getSchema();
+                result = index4Columns;
             }
         };
 
@@ -203,69 +216,88 @@ public class MaterializedViewSelectorTest {
     }
 
     @Test
-    public void testCheckGrouping(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer) {
+    public void testCheckGrouping(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
+            @Injectable MaterializedIndexMeta indexMeta1,
+            @Injectable MaterializedIndexMeta indexMeta2,
+            @Injectable MaterializedIndexMeta indexMeta3) {
         Set<String> tableAColumnNames = Sets.newHashSet();
         tableAColumnNames.add("C1");
-        Map<Long, List<Column>> candidateIndexIdToSchema = Maps.newHashMap();
+        Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
         Column index1Column1 = new Column("c2", Type.INT, true, null, true, "", "");
         index1Columns.add(index1Column1);
-        candidateIndexIdToSchema.put(new Long(1), index1Columns);
+        candidateIndexIdToSchema.put(new Long(1), indexMeta1);
         List<Column> index2Columns = Lists.newArrayList();
         Column index2Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index2Columns.add(index2Column1);
         Column index2Column2 = new Column("c2", Type.INT, false, AggregateType.SUM, true, "", "");
         index2Columns.add(index2Column2);
-        candidateIndexIdToSchema.put(new Long(2), index2Columns);
+        candidateIndexIdToSchema.put(new Long(2), indexMeta2);
         List<Column> index3Columns = Lists.newArrayList();
         Column index3Column1 = new Column("c2", Type.INT, true, null, true, "", "");
         index3Columns.add(index3Column1);
         Column index3Column2 = new Column("c1", Type.INT, false, AggregateType.SUM, true, "", "");
         index3Columns.add(index3Column2);
-        candidateIndexIdToSchema.put(new Long(3), index3Columns);
+        candidateIndexIdToSchema.put(new Long(3), indexMeta3);
         new Expectations() {
             {
                 selectStmt.getAggInfo();
                 result = null;
                 selectStmt.getResultExprs();
                 result = Lists.newArrayList();
+                indexMeta1.getSchema();
+                result = index1Columns;
+                indexMeta1.getKeysType();
+                result = KeysType.DUP_KEYS;
+                indexMeta2.getSchema();
+                result = index2Columns;
+                indexMeta3.getSchema();
+                result = index3Columns;
             }
         };
 
         MaterializedViewSelector selector = new MaterializedViewSelector(selectStmt, analyzer);
         Deencapsulation.setField(selector, "isSPJQuery", false);
-        Deencapsulation.invoke(selector, "checkGrouping", tableAColumnNames, candidateIndexIdToSchema,
-                KeysType.DUP_KEYS);
+        Deencapsulation.invoke(selector, "checkGrouping", tableAColumnNames, candidateIndexIdToSchema);
         Assert.assertEquals(2, candidateIndexIdToSchema.size());
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(1)));
         Assert.assertTrue(candidateIndexIdToSchema.keySet().contains(new Long(2)));
     }
 
     @Test
-    public void testCheckAggregationFunction(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer) {
-        Map<Long, List<Column>> candidateIndexIdToSchema = Maps.newHashMap();
+    public void testCheckAggregationFunction(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
+            @Injectable MaterializedIndexMeta indexMeta1,
+            @Injectable MaterializedIndexMeta indexMeta2,
+            @Injectable MaterializedIndexMeta indexMeta3) {
+        Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
         Column index1Column1 = new Column("c2", Type.INT, true, null, true, "", "");
         index1Columns.add(index1Column1);
-        candidateIndexIdToSchema.put(new Long(1), index1Columns);
+        candidateIndexIdToSchema.put(new Long(1), indexMeta1);
         List<Column> index2Columns = Lists.newArrayList();
         Column index2Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index2Columns.add(index2Column1);
         Column index2Column2 = new Column("c2", Type.INT, false, AggregateType.SUM, true, "", "");
         index2Columns.add(index2Column2);
-        candidateIndexIdToSchema.put(new Long(2), index2Columns);
+        candidateIndexIdToSchema.put(new Long(2), indexMeta2);
         List<Column> index3Columns = Lists.newArrayList();
         Column index3Column1 = new Column("c2", Type.INT, true, null, true, "", "");
         index3Columns.add(index3Column1);
         Column index3Column2 = new Column("c1", Type.INT, false, AggregateType.SUM, true, "", "");
         index3Columns.add(index3Column2);
-        candidateIndexIdToSchema.put(new Long(3), index3Columns);
+        candidateIndexIdToSchema.put(new Long(3), indexMeta3);
         new Expectations() {
             {
                 selectStmt.getAggInfo();
                 result = null;
                 selectStmt.getResultExprs();
                 result = Lists.newArrayList();
+                indexMeta1.getSchema();
+                result = index1Columns;
+                indexMeta2.getSchema();
+                result = index2Columns;
+                indexMeta3.getSchema();
+                result = index3Columns;
             }
         };
 
@@ -283,30 +315,39 @@ public class MaterializedViewSelectorTest {
     }
 
     @Test
-    public void testCheckOutputColumns(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer) {
-        Map<Long, List<Column>> candidateIndexIdToSchema = Maps.newHashMap();
+    public void testCheckOutputColumns(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
+            @Injectable MaterializedIndexMeta indexMeta1,
+            @Injectable MaterializedIndexMeta indexMeta2,
+            @Injectable MaterializedIndexMeta indexMeta3) {
+        Map<Long, MaterializedIndexMeta> candidateIndexIdToSchema = Maps.newHashMap();
         List<Column> index1Columns = Lists.newArrayList();
         Column index1Column1 = new Column("c2", Type.INT, true, null, true, "", "");
         index1Columns.add(index1Column1);
-        candidateIndexIdToSchema.put(new Long(1), index1Columns);
+        candidateIndexIdToSchema.put(new Long(1), indexMeta1);
         List<Column> index2Columns = Lists.newArrayList();
         Column index2Column1 = new Column("c1", Type.INT, true, null, true, "", "");
         index2Columns.add(index2Column1);
         Column index2Column2 = new Column("c2", Type.INT, false, AggregateType.NONE, true, "", "");
         index2Columns.add(index2Column2);
-        candidateIndexIdToSchema.put(new Long(2), index2Columns);
+        candidateIndexIdToSchema.put(new Long(2), indexMeta2);
         List<Column> index3Columns = Lists.newArrayList();
         Column index3Column1 = new Column("C2", Type.INT, true, null, true, "", "");
         index3Columns.add(index3Column1);
         Column index3Column2 = new Column("c1", Type.INT, false, AggregateType.SUM, true, "", "");
         index3Columns.add(index3Column2);
-        candidateIndexIdToSchema.put(new Long(3), index3Columns);
+        candidateIndexIdToSchema.put(new Long(3), indexMeta3);
         new Expectations() {
             {
                 selectStmt.getAggInfo();
                 result = null;
                 selectStmt.getResultExprs();
                 result = Lists.newArrayList();
+                indexMeta1.getSchema();
+                result = index1Columns;
+                indexMeta2.getSchema();
+                result = index2Columns;
+                indexMeta3.getSchema();
+                result = index3Columns;
             }
         };
 

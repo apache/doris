@@ -24,13 +24,12 @@ import org.apache.doris.backup.BackupJobInfo.BackupTabletInfo;
 import org.apache.doris.backup.RestoreFileMapping.IdChain;
 import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -615,23 +614,20 @@ public class RestoreJob extends AbstractJob {
                 Set<String> bfColumns = localTbl.getCopiedBfColumns();
                 double bfFpp = localTbl.getBfFpp();
                 for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                    short shortKeyColumnCount = localTbl.getShortKeyColumnCountByIndexId(restoredIdx.getId());
-                    int schemaHash = localTbl.getSchemaHashByIndexId(restoredIdx.getId());
-                    KeysType keysType = localTbl.getKeysType();
-                    List<Column> columns = localTbl.getSchemaByIndexId(restoredIdx.getId());
+                    MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
                     TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                            restoredIdx.getId(), schemaHash, TStorageMedium.HDD);
+                            restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
                     for (Tablet restoreTablet : restoredIdx.getTablets()) {
                         Catalog.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                         for (Replica restoreReplica : restoreTablet.getReplicas()) {
                             Catalog.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
                             CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendId(), dbId,
                                     localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
-                                    restoreTablet.getId(), shortKeyColumnCount,
-                                    schemaHash, restoreReplica.getVersion(), restoreReplica.getVersionHash(),
-                                    keysType, TStorageType.COLUMN,
+                                    restoreTablet.getId(), indexMeta.getShortKeyColumnCount(),
+                                    indexMeta.getSchemaHash(), restoreReplica.getVersion(),
+                                    restoreReplica.getVersionHash(), indexMeta.getKeysType(), TStorageType.COLUMN,
                                     TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
-                                    columns, bfColumns, bfFpp, null,
+                                    indexMeta.getSchema(), bfColumns, bfFpp, null,
                                     localTbl.getCopiedIndexes(),
                                     localTbl.isInMemory());
                             task.setInRestoreMode(true);
@@ -650,21 +646,20 @@ public class RestoreJob extends AbstractJob {
                     Set<String> bfColumns = restoreTbl.getCopiedBfColumns();
                     double bfFpp = restoreTbl.getBfFpp();
                     for (MaterializedIndex index : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                        short shortKeyColumnCount = restoreTbl.getShortKeyColumnCountByIndexId(index.getId());
-                        int schemaHash = restoreTbl.getSchemaHashByIndexId(index.getId());
-                        KeysType keysType = restoreTbl.getKeysType();
-                        List<Column> columns = restoreTbl.getSchemaByIndexId(index.getId());
+                        MaterializedIndexMeta indexMeta = restoreTbl.getIndexMetaByIndexId(index.getId());
                         TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
-                                index.getId(), schemaHash, TStorageMedium.HDD);
+                                index.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
                         for (Tablet tablet : index.getTablets()) {
                             Catalog.getCurrentInvertedIndex().addTablet(tablet.getId(), tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
                                 Catalog.getCurrentInvertedIndex().addReplica(tablet.getId(), replica);
                                 CreateReplicaTask task = new CreateReplicaTask(replica.getBackendId(), dbId,
                                         restoreTbl.getId(), restorePart.getId(), index.getId(), tablet.getId(),
-                                        shortKeyColumnCount, schemaHash, replica.getVersion(), replica.getVersionHash(),
-                                        keysType, TStorageType.COLUMN, TStorageMedium.HDD, columns,
-                                        bfColumns, bfFpp, null, restoreTbl.getCopiedIndexes(),
+                                        indexMeta.getShortKeyColumnCount(), indexMeta.getSchemaHash(),
+                                        replica.getVersion(), replica.getVersionHash(),
+                                        indexMeta.getKeysType(), TStorageType.COLUMN, TStorageMedium.HDD,
+                                        indexMeta.getSchema(), bfColumns, bfFpp, null,
+                                        restoreTbl.getCopiedIndexes(),
                                         restoreTbl.isInMemory());
                                 task.setInRestoreMode(true);
                                 batchTask.addTask(task);

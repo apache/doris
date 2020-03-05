@@ -46,6 +46,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 
@@ -154,7 +155,8 @@ abstract public class DorisHttpTestCase {
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
         table.addPartition(partition);
-        table.setIndexSchemaInfo(testIndexId, "testIndex", columns, 0, testSchemaHash, (short) 1);
+        table.setIndexMeta(testIndexId, "testIndex", columns, 0, testSchemaHash, (short) 1, TStorageType.COLUMN,
+                KeysType.AGG_KEYS);
         table.setBaseIndexId(testIndexId);
         return table;
     }
