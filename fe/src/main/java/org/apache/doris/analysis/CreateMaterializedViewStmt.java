@@ -109,14 +109,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         FeNameFormat.checkTableName(mvName);
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.analyze(analyzer);
+        if (selectStmt.getAggInfo() != null) {
+            mvKeysType = KeysType.AGG_KEYS;
+        }
         analyzeSelectClause();
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
                                                 + selectStmt.getWhereClause().toSql());
-        }
-        if (selectStmt.getGroupByClause() != null) {
-            mvKeysType = KeysType.AGG_KEYS;
         }
         if (selectStmt.getHavingPred() != null) {
             throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
@@ -189,7 +189,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                                         + "Error function: " + functionCallExpr.toSqlImpl());
                 }
                 meetAggregate = true;
-                mvKeysType = KeysType.AGG_KEYS;
                 // check duplicate value
                 String columnName = slotRef.getColumnName().toLowerCase();
                 if (mvKeyColumnNameSet.contains(columnName)) {

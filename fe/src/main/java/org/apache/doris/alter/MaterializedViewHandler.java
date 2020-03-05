@@ -260,7 +260,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
                 // step 3 create rollup job
                 RollupJobV2 alterJobV2 = createMaterializedViewJob(rollupIndexName, baseIndexName, rollupSchema, addRollupClause.getProperties(),
-                        olapTable, db, baseIndexId, null);
+                        olapTable, db, baseIndexId, olapTable.getKeysType());
 
                 rollupNameJobMap.put(addRollupClause.getRollupName(), alterJobV2);
                 logJobIdSet.add(alterJobV2.getJobId());

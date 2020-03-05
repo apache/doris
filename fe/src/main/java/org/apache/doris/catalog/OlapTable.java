@@ -93,8 +93,8 @@ public class OlapTable extends Table {
 
     private KeysType keysType;
     private PartitionInfo partitionInfo;
-    private Map<Long, Partition> idToPartition;
-    private Map<String, Partition> nameToPartition;
+    private Map<Long, Partition> idToPartition = new HashMap<>();
+    private Map<String, Partition> nameToPartition = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
     private DistributionInfo defaultDistributionInfo;
 
@@ -122,17 +122,6 @@ public class OlapTable extends Table {
     public OlapTable() {
         // for persist
         super(TableType.OLAP);
-//        this.indexIdToSchema = new HashMap<Long, List<Column>>();
-//        this.indexIdToSchemaHash = new HashMap<Long, Integer>();
-//        this.indexIdToSchemaVersion = new HashMap<Long, Integer>();
-//
-//        this.indexIdToShortKeyColumnCount = new HashMap<Long, Short>();
-//        this.indexIdToStorageType = new HashMap<Long, TStorageType>();
-
-        this.indexNameToId = new HashMap<String, Long>();
-
-        this.idToPartition = new HashMap<Long, Partition>();
-        this.nameToPartition = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
         this.bfColumns = null;
         this.bfFpp = 0;
@@ -154,11 +143,6 @@ public class OlapTable extends Table {
         super(id, tableName, TableType.OLAP, baseSchema);
 
         this.state = OlapTableState.NORMAL;
-
-        this.indexNameToId = new HashMap<String, Long>();
-
-        this.idToPartition = new HashMap<Long, Partition>();
-        this.nameToPartition = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
 
         this.keysType = keysType;
         this.partitionInfo = partitionInfo;
@@ -330,7 +314,7 @@ public class OlapTable extends Table {
         return null;
     }
 
-    public Map<Long, MaterializedIndexMeta> getVisibleIndexIdToSchema() {
+    public Map<Long, MaterializedIndexMeta> getVisibleIndexIdToMeta() {
         Map<Long, MaterializedIndexMeta> visibleMVs = Maps.newHashMap();
         List<MaterializedIndex> mvs = getVisibleIndex();
         for (MaterializedIndex mv : mvs) {
@@ -524,7 +508,12 @@ public class OlapTable extends Table {
     }
 
     public TStorageType getStorageTypeByIndexId(Long indexId) {
-        return indexIdToMeta.get(indexId).getStorageType();
+        MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
+        if (indexMeta == null) {
+            LOG.warn("There is no index meta by index id {}. Using column storage type instead.", indexId);
+            return TStorageType.COLUMN;
+        }
+        return indexMeta.getStorageType();
     }
 
     public KeysType getKeysType() {
