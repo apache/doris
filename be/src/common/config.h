@@ -48,6 +48,8 @@ namespace config {
     // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
     // or percentage of the physical memory ('<int>%').
     // defaults to bytes if no unit is given"
+    // must larger than 0. and if larger than physical memory size,
+    // it will be set to physical memory size.
     CONF_String(mem_limit, "80%");
 
     // the port heartbeat service used
