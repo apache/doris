@@ -490,5 +490,19 @@ LoadFinishTime: 2019-07-27 11:50:16
 * 导入报错：`failed to send batch` 或 `TabletWriter add batch with unknown id`
 
     请参照 [导入手册](./load-manual.md) 中 **通用系统配置** 中 **BE 配置**，适当修改 `tablet_writer_rpc_timeout_sec` 和 `streaming_load_rpc_max_alive_time_sec`。
+    
+* 导入报错：`LOAD_RUN_FAIL; msg:Invalid Column Name:xxx` 
+    
+    如果是PARQUET或者ORC格式的数据,需要再文件头的列名与doris表中的列名一致，如 :  
+    ```
+    (tmp_c1,tmp_c2)
+    SET
+    (
+        id=tmp_c2,
+        name=tmp_c1
+    )
+    ```
+    代表获取在parquet或orc中以(tmp_c1, tmp_c2)为列名的列，映射到doris表中的(id, name)列。如果没有设置set, 则以column中的列作为映射。
 
+    注：如果使用某些hive版本直接生成的orc文件，orc文件中的表头并非hive meta数据，而是（_col0, _col1, _col2, ...）, 可能导致Invalid Column Name错误，那么则需要使用set进行映射
 
