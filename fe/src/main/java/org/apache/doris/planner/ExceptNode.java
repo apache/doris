@@ -15,30 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_CODEGEN_SUBEXPR_ELIMINATION_H
-#define DORIS_BE_SRC_QUERY_CODEGEN_SUBEXPR_ELIMINATION_H
+package org.apache.doris.planner;
 
-#include "common/status.h"
-#include "codegen/llvm_codegen.h"
+import java.util.List;
 
-namespace doris {
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.TupleId;
+import org.apache.doris.thrift.TPlanNode;
+import org.apache.doris.thrift.TPlanNodeType;
 
-// Optimization pass to remove redundant exprs.
-// TODO: make this into a llvm function pass (i.e. implement FunctionPass interface).
-class SubExprElimination {
-public:
-    SubExprElimination(LlvmCodeGen* codegen);
-    ~SubExprElimination() { }
+public class ExceptNode extends SetOperationNode {
+    protected ExceptNode(PlanNodeId id, TupleId tupleId) {
+        super(id, tupleId, "EXCEPT");
+    }
 
-    // Perform subexpr elimination on function.
-    bool run(llvm::Function* function);
+    protected ExceptNode(PlanNodeId id, TupleId tupleId,
+                         List<Expr> setOpResultExprs, boolean isInSubplan) {
+        super(id, tupleId, "EXCEPT", setOpResultExprs, isInSubplan);
+    }
 
-private:
-    // Parent codegen object.
-    LlvmCodeGen* _codegen;
-};
-
+    @Override
+    protected void toThrift(TPlanNode msg) {
+        toThrift(msg, TPlanNodeType.EXCEPT_NODE);
+    }
 }
-
-#endif
-

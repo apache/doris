@@ -167,7 +167,7 @@ The following sections explain several system-level configurations that are comm
 
 The following configuration belongs to the system configuration of FE, which can be modified by modifying the configuration file ``fe.conf``.
 
-+ max\_load\_timeout\_second 和 min\_load\_timeout\_second
++ max\_load\_timeout\_second and min\_load\_timeout\_second
 
 	The two configurations mean the maximum import timeout time and the minimum import timeout time in seconds. The default maximum timeout time is 3 days and the default minimum timeout time is 1 second. User-defined import timeouts should not exceed this range. This parameter is applicable to all import modes.
 

@@ -201,8 +201,8 @@ public class EsStateStore extends MasterDaemon {
             JSONObject mappings = indexMetaMap.optJSONObject("mappings");
             JSONObject rootSchema = mappings.optJSONObject(esTable.getMappingType());
             JSONObject schema = rootSchema.optJSONObject("properties");
-            List<Column> cols = esTable.getFullSchema();
-            for (Column col : cols) {
+            List<Column> colList = esTable.getFullSchema();
+            for (Column col : colList) {
                 String colName = col.getName();
                 if (!schema.has(colName)) {
                     continue;

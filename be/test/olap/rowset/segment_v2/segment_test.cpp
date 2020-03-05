@@ -57,6 +57,15 @@ static void DefaultIntGenerator(size_t rid, int cid, int block_id, RowCursorCell
     *(int*)cell.mutable_cell_ptr() = rid * 10 + cid;
 }
 
+static bool column_contains_index(ColumnMetaPB column_meta, ColumnIndexTypePB type) {
+    for (int i = 0; i < column_meta.indexes_size(); ++i) {
+        if (column_meta.indexes(i).type() == type) {
+            return true;
+        }
+    }
+    return false;
+}
+
 class SegmentReaderWriterTest : public ::testing::Test {
 protected:
     void SetUp() override {
@@ -353,7 +362,7 @@ TEST_F(SegmentReaderWriterTest, LazyMaterialization) {
         shared_ptr<Segment> segment;
         SegmentWriterOptions write_opts;
         build_segment(write_opts, tablet_schema, tablet_schema, 100, data_gen, &segment);
-        ASSERT_TRUE(segment->footer().columns(0).has_bitmap_index());
+        ASSERT_TRUE(column_contains_index(segment->footer().columns(0), BITMAP_INDEX));
         {
             // lazy disabled when all predicates are removed by bitmap index:
             // select c1, c2 where c2 = 30;
@@ -972,8 +981,8 @@ TEST_F(SegmentReaderWriterTest, TestBitmapPredicate) {
     SegmentWriterOptions opts;
     shared_ptr<Segment> segment;
     build_segment(opts, tablet_schema, tablet_schema, 4096, DefaultIntGenerator, &segment);
-    ASSERT_TRUE(segment->footer().columns(0).has_bitmap_index());
-    ASSERT_TRUE(segment->footer().columns(1).has_bitmap_index());
+    ASSERT_TRUE(column_contains_index(segment->footer().columns(0), BITMAP_INDEX));
+    ASSERT_TRUE(column_contains_index(segment->footer().columns(1), BITMAP_INDEX));
 
     {
         Schema schema(tablet_schema);
@@ -1104,14 +1113,14 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
     opts1.whether_to_filter_value = false;
     shared_ptr<Segment> seg1;
     build_segment(opts1, schema, schema, 100, DefaultIntGenerator, &seg1);
-    ASSERT_FALSE(seg1->footer().columns(3).has_bloom_filter_index());
+    ASSERT_FALSE(column_contains_index(seg1->footer().columns(3), BLOOM_FILTER_INDEX));
 
     // for base segment
     SegmentWriterOptions opts2;
     opts2.whether_to_filter_value = true;
     shared_ptr<Segment> seg2;
     build_segment(opts2, schema, schema, 100, DefaultIntGenerator, &seg2);
-    ASSERT_TRUE(seg2->footer().columns(3).has_bloom_filter_index());
+    ASSERT_TRUE(column_contains_index(seg2->footer().columns(3), BLOOM_FILTER_INDEX));
 }
 
 }

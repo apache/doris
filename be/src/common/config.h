@@ -48,6 +48,8 @@ namespace config {
     // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
     // or percentage of the physical memory ('<int>%').
     // defaults to bytes if no unit is given"
+    // must larger than 0. and if larger than physical memory size,
+    // it will be set to physical memory size.
     CONF_String(mem_limit, "80%");
 
     // the port heartbeat service used
@@ -499,8 +501,8 @@ namespace config {
     CONF_String(default_rowset_type, "ALPHA");
     CONF_String(compaction_rowset_type, "ALPHA");
 
-    // brpc config
-    CONF_Int64(brpc_max_body_size, "67108864")
+    // brpc config, 200M
+    CONF_Int64(brpc_max_body_size, "209715200")
 
     // max number of txns in txn manager
     // this is a self protection to avoid too many txns saving in manager

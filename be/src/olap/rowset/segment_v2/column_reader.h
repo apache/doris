@@ -21,17 +21,18 @@
 #include <cstddef> // for size_t
 #include <memory> // for unique_ptr
 
+#include "common/logging.h"
 #include "common/status.h" // for Status
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
 #include "olap/olap_cond.h" // for CondColumn
 #include "olap/tablet_schema.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h" // for BitmapIndexReader
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
+#include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/ordinal_page_index.h" // for OrdinalPageIndexIterator
-#include "olap/rowset/segment_v2/column_zone_map.h" // for ColumnZoneMap
 #include "olap/rowset/segment_v2/row_ranges.h" // for RowRanges
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
 #include "olap/rowset/segment_v2/parsed_page.h" // for ParsedPage
+#include "olap/rowset/segment_v2/zone_map_index.h"
 #include "util/once.h"
 #include "util/file_cache.h"
 
@@ -41,12 +42,13 @@ class ColumnBlock;
 class RandomAccessFile;
 class TypeInfo;
 class BlockCompressionCodec;
+class WrapperField;
 
 namespace segment_v2 {
 
 class EncodingInfo;
 class PageHandle;
-class PagePointer;
+struct PagePointer;
 class ColumnIterator;
 class BloomFilterIndexReader;
 
@@ -54,14 +56,19 @@ struct ColumnReaderOptions {
     // whether verify checksum when read page
     bool verify_checksum = true;
     // for in memory olap table, use DURABLE CachePriority in page cache
-    bool cache_in_memory = false;
+    bool kept_in_memory = false;
 };
 
 struct ColumnIteratorOptions {
+    RandomAccessFile* file = nullptr;
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
-    RandomAccessFile* file = nullptr;
     bool use_page_cache = false;
+
+    void sanity_check() const {
+        CHECK_NOTNULL(file);
+        CHECK_NOTNULL(stats);
+    }
 };
 
 // There will be concurrent users to read the same column. So
@@ -87,31 +94,25 @@ public:
 
     // Seek to the first entry in the column.
     Status seek_to_first(OrdinalPageIndexIterator* iter);
-    Status seek_at_or_before(rowid_t rowid, OrdinalPageIndexIterator* iter);
+    Status seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterator* iter);
 
     // read a page from file into a page handle
-    // use reader owned _file(usually is Descriptor<RandomAccessFile>*) to read page
-    Status read_page(const PagePointer& pp, const ColumnIteratorOptions& opts, PageHandle* handle);
-
-    // read a page from file into a page handle
-    // use file(usually is RandomAccessFile*) to read page
-    Status read_page(RandomAccessFile* file, const PagePointer& pp, const ColumnIteratorOptions& opts, PageHandle* handle);
+    Status read_page(const ColumnIteratorOptions& iter_opts, const PagePointer& pp,
+                     PageHandle* handle, Slice* page_body, PageFooterPB* footer);
 
     bool is_nullable() const { return _meta.is_nullable(); }
 
     const EncodingInfo* encoding_info() const { return _encoding_info; }
-
     const TypeInfo* type_info() const { return _type_info; }
 
-    bool has_zone_map() const { return _meta.has_zone_map_page(); }
+    bool has_zone_map() const { return _zone_map_index_meta != nullptr; }
+    bool has_bitmap_index() const { return _bitmap_index_meta != nullptr; }
+    bool has_bloom_filter_index() const { return _bf_index_meta != nullptr; }
 
-    bool has_bitmap_index() {
-        return _meta.has_bitmap_index();
-    }
-
-    bool has_bloom_filter_index() {
-        return _meta.has_bloom_filter_index();
-    }
+    // Check if this column could match `cond' using segment zone map.
+    // Since segment zone map is stored in metadata, this function is fast without I/O.
+    // Return true if segment zone map is absent or `cond' could be satisfied, false otherwise.
+    bool match_condition(CondColumn* cond) const;
 
     // get row ranges with zone map
     // - cond_column is user's query predicate
@@ -137,18 +138,24 @@ private:
     // May be called multiple times, subsequent calls will no op.
     Status _ensure_index_loaded() {
         return _load_index_once.call([this] {
-            RETURN_IF_ERROR(_load_zone_map_index());
-            RETURN_IF_ERROR(_load_ordinal_index());
-            RETURN_IF_ERROR(_load_bitmap_index());
-            RETURN_IF_ERROR(_load_bloom_filter_index());
+            bool use_page_cache = !config::disable_storage_page_cache;
+            RETURN_IF_ERROR(_load_zone_map_index(use_page_cache, _opts.kept_in_memory));
+            RETURN_IF_ERROR(_load_ordinal_index(use_page_cache, _opts.kept_in_memory));
+            RETURN_IF_ERROR(_load_bitmap_index(use_page_cache, _opts.kept_in_memory));
+            RETURN_IF_ERROR(_load_bloom_filter_index(use_page_cache, _opts.kept_in_memory));
             return Status::OK();
         });
     }
 
-    Status _load_zone_map_index();
-    Status _load_ordinal_index();
-    Status _load_bitmap_index();
-    Status _load_bloom_filter_index();
+    Status _load_zone_map_index(bool use_page_cache, bool kept_in_memory);
+    Status _load_ordinal_index(bool use_page_cache, bool kept_in_memory);
+    Status _load_bitmap_index(bool use_page_cache, bool kept_in_memory);
+    Status _load_bloom_filter_index(bool use_page_cache, bool kept_in_memory);
+
+    bool _zone_map_match_condition(const ZoneMapPB& zone_map,
+                                   WrapperField* min_value_container,
+                                   WrapperField* max_value_container,
+                                   CondColumn* cond) const;
 
     Status _get_filtered_pages(CondColumn* cond_column,
                                const std::vector<CondColumn*>& delete_conditions,
@@ -167,12 +174,17 @@ private:
     const TypeInfo* _type_info = nullptr;
     const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
+    // meta for various column indexes (null if the index is absent)
+    const ZoneMapIndexPB* _zone_map_index_meta = nullptr;
+    const OrdinalIndexPB* _ordinal_index_meta = nullptr;
+    const BitmapIndexPB* _bitmap_index_meta = nullptr;
+    const BloomFilterIndexPB* _bf_index_meta = nullptr;
 
     DorisCallOnce<Status> _load_index_once;
-    std::unique_ptr<ColumnZoneMap> _column_zone_map;
-    std::unique_ptr<OrdinalPageIndex> _ordinal_index;
-    std::unique_ptr<BitmapIndexReader> _bitmap_index_reader;
-    std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index_reader;
+    std::unique_ptr<ZoneMapIndexReader> _zone_map_index;
+    std::unique_ptr<OrdinalIndexReader> _ordinal_index;
+    std::unique_ptr<BitmapIndexReader> _bitmap_index;
+    std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
 };
 
 // Base iterator to read one column data
@@ -193,14 +205,14 @@ public:
     // Entry 0 is the first entry written to the column.
     // If provided seek point is past the end of the file,
     // then returns false.
-    virtual Status seek_to_ordinal(rowid_t ord_idx) = 0;
+    virtual Status seek_to_ordinal(ordinal_t ord) = 0;
 
     // After one seek, we can call this function many times to read data
     // into ColumnBlockView. when read string type data, memory will allocated
     // from MemPool
     virtual Status next_batch(size_t* n, ColumnBlockView* dst) = 0;
 
-    virtual rowid_t get_current_ordinal() const = 0;
+    virtual ordinal_t get_current_ordinal() const = 0;
 
     virtual Status get_row_ranges_by_zone_map(CondColumn* cond_column,
                                                 const std::vector<CondColumn*>& delete_conditions,
@@ -238,20 +250,13 @@ public:
     FileColumnIterator(ColumnReader* reader);
     ~FileColumnIterator() override;
 
-    Status init(const ColumnIteratorOptions& opts) override {
-        RETURN_IF_ERROR(ColumnIterator::init(opts));
-        DCHECK(_opts.file != nullptr);
-        _file = _opts.file;
-        return Status::OK();
-    }
-
     Status seek_to_first() override;
 
-    Status seek_to_ordinal(rowid_t ord_idx) override;
+    Status seek_to_ordinal(ordinal_t ord) override;
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
-    rowid_t get_current_ordinal() const override { return _current_rowid; }
+    ordinal_t get_current_ordinal() const override { return _current_ordinal; }
 
     // get row ranges by zone map
     // - cond_column is user's query predicate
@@ -263,9 +268,9 @@ public:
     Status get_row_ranges_by_bloom_filter(CondColumn* cond_column, RowRanges* row_ranges) override;
 
 private:
-    void _seek_to_pos_in_page(ParsedPage* page, uint32_t offset_in_page);
+    void _seek_to_pos_in_page(ParsedPage* page, ordinal_t offset_in_page);
     Status _load_next_page(bool* eos);
-    Status _read_page(const OrdinalPageIndexIterator& iter, ParsedPage* page);
+    Status _read_data_page(const OrdinalPageIndexIterator& iter);
 
 private:
     ColumnReader* _reader;
@@ -286,13 +291,11 @@ private:
     // This value will be reset when a new seek is issued
     OrdinalPageIndexIterator _page_iter;
 
-    // current rowid
-    rowid_t _current_rowid = 0;
+    // current value ordinal
+    ordinal_t _current_ordinal = 0;
 
     // page indexes those are DEL_PARTIAL_SATISFIED
     std::vector<uint32_t> _delete_partial_statisfied_pages;
-
-    RandomAccessFile* _file;
 };
 
 // This iterator is used to read default value column
@@ -315,14 +318,14 @@ public:
         return Status::OK();
     }
 
-    Status seek_to_ordinal(rowid_t ord_idx) override {
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
         _current_rowid = ord_idx;
         return Status::OK();
     }
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override;
 
-    rowid_t get_current_ordinal() const override { return _current_rowid; }
+    ordinal_t get_current_ordinal() const override { return _current_rowid; }
 
 private:
     bool _has_default_value;
@@ -337,7 +340,7 @@ private:
     std::unique_ptr<MemPool> _pool;
 
     // current rowid
-    rowid_t _current_rowid = 0;
+    ordinal_t _current_rowid = 0;
 };
 
 }

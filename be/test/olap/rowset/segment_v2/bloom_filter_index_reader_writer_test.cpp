@@ -26,10 +26,7 @@
 #include "env/env.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
-#include "olap/column_block.h"
 #include "util/file_utils.h"
-#include "runtime/mem_tracker.h"
-#include "runtime/mem_pool.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -46,7 +43,7 @@ const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
 template<FieldType type>
 void write_bloom_filter_index_file(const std::string& file_name, const void* values,
                       size_t value_count, size_t null_count,
-                      BloomFilterIndexPB* bloom_filter_index_meta) {
+                      ColumnIndexMetaPB* index_meta) {
     const TypeInfo* type_info = get_type_info(type);
     using CppType = typename CppTypeTraits<type>::CppType;
     FileUtils::create_dir(dname);
@@ -70,20 +67,21 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
             ASSERT_TRUE(st.ok());
             i += 1024;
         }
-        st = bloom_filter_index_writer->finish(wfile.get(), bloom_filter_index_meta);
+        st = bloom_filter_index_writer->finish(wfile.get(), index_meta);
         ASSERT_TRUE(st.ok()) << "writer finish status:" << st.to_string();
-        wfile.reset();
+        ASSERT_EQ(BLOOM_FILTER_INDEX, index_meta->type());
+        ASSERT_EQ(bf_options.strategy, index_meta->bloom_filter_index().hash_strategy());
     }
 }
 
-void get_bloom_filter_reader_iter(const std::string& file_name, const BloomFilterIndexPB& bloom_filter_index_meta,
+void get_bloom_filter_reader_iter(const std::string& file_name, const ColumnIndexMetaPB& meta,
                             std::unique_ptr<RandomAccessFile>* rfile,
                             BloomFilterIndexReader** reader,
                             std::unique_ptr<BloomFilterIndexIterator>* iter) {
     std::string fname = dname + "/" + file_name;
 
-    *reader = new BloomFilterIndexReader(fname, bloom_filter_index_meta);
-    auto st = (*reader)->load(true);
+    *reader = new BloomFilterIndexReader(fname, &meta.bloom_filter_index());
+    auto st = (*reader)->load(true, false);
     ASSERT_TRUE(st.ok());
 
     st = (*reader)->new_iterator(iter);
@@ -96,15 +94,13 @@ void test_bloom_filter_index_reader_writer_template(const std::string file_name,
         typename TypeTraits<Type>::CppType* not_exist_value,
         bool is_slice_type = false) {
      typedef typename TypeTraits<Type>::CppType CppType;
-    BloomFilterIndexPB bloom_filter_index_meta;
-    write_bloom_filter_index_file<Type>(file_name, val, num, null_num,
-                                          &bloom_filter_index_meta);
+    ColumnIndexMetaPB meta;
+    write_bloom_filter_index_file<Type>(file_name, val, num, null_num, &meta);
     {
         std::unique_ptr<RandomAccessFile> rfile;
         BloomFilterIndexReader* reader = nullptr;
         std::unique_ptr<BloomFilterIndexIterator> iter;
-        get_bloom_filter_reader_iter(file_name, bloom_filter_index_meta,
-                                                    &rfile, &reader, &iter);
+        get_bloom_filter_reader_iter(file_name, meta, &rfile, &reader, &iter);
 
         // page 0
         std::unique_ptr<BloomFilter> bf;

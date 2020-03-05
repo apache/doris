@@ -138,7 +138,7 @@ Adding FE processes is described in detail in the [Deployment and Upgrade Docume
 	* The first time you start a new FE, you must make sure that the `meta_dir` of the FE is created, has correct permissions and is empty.
 	* Starting a new FE and executing the `ALTER SYSTEM ADD FOLLOWER/OBSERVER` statement adds FE to metadata in a sequence that is not required. If a new FE is started first and no statement is executed, the `current node is not added to the group. Please add it first.` in the new FE log. When the statement is executed, it enters the normal process.
 	* Make sure that after the previous FE is added successfully, the next FE is added.
-	* 建议直接连接到 MASTER FE 执行 `ALTER SYSTEM ADD FOLLOWER/OBSERVER` 语句。
+	* Connect to  MASTER FE and execute `ALTER SYSTEM ADD FOLLOWER/OBSERVER` claus。
 
 2. Common problems
 
@@ -283,7 +283,7 @@ The deployment recommendation of FE is described in the Installation and [Deploy
 
 ## Other common problems
 
-1. fe.log 中一直滚动 `meta out of date. current time: xxx, synchronized time: xxx, has log: xxx, fe type: xxx`
+1. Output `meta out of date. current time: xxx, synchronized time: xxx, has log: xxx, fe type: xxx` in fe.log 
 
 	This is usually because the FE cannot elect Master. For example, if three FOLLOWERs are configured, but only one FOLLOWER is started, this FOLLOWER will cause this problem. Usually, just start the remaining FOLLOWER. If the problem has not been solved after the start-up, manual recovery may be required in accordance with the way in the `Failure Recovery` section.
 

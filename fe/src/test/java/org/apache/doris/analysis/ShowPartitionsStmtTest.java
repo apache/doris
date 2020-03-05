@@ -65,7 +65,7 @@ public class ShowPartitionsStmtTest {
 
     @Test
     public void testNormal() throws UserException {
-        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), null, null, null);
+        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), null, null, null, false);
         stmt.analyzeImpl(analyzer);
         Assert.assertEquals("SHOW PARTITIONS FROM `testCluster:testDb`.`testTable`", stmt.toString());
     }
@@ -75,7 +75,7 @@ public class ShowPartitionsStmtTest {
         SlotRef slotRef = new SlotRef(null, "LastConsistencyCheckTime");
         StringLiteral stringLiteral = new StringLiteral("2019-12-22 10:22:11");
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, slotRef, stringLiteral);
-        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), binaryPredicate, null, null);
+        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), binaryPredicate, null, null, false);
         stmt.analyzeImpl(analyzer);
         Assert.assertEquals("SHOW PARTITIONS FROM `testCluster:testDb`.`testTable` WHERE `LastConsistencyCheckTime` > '2019-12-22 10:22:11'", stmt.toString());
     }
@@ -85,7 +85,7 @@ public class ShowPartitionsStmtTest {
         SlotRef slotRef = new SlotRef(null, "PartitionName");
         StringLiteral stringLiteral = new StringLiteral("%p2019%");
         LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef, stringLiteral);
-        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), likePredicate, null, null);
+        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), likePredicate, null, null, false);
         stmt.analyzeImpl(analyzer);
         Assert.assertEquals("SHOW PARTITIONS FROM `testCluster:testDb`.`testTable` WHERE `PartitionName` LIKE '%p2019%'", stmt.toString());
     }
@@ -95,7 +95,7 @@ public class ShowPartitionsStmtTest {
         SlotRef slotRef = new SlotRef(null, "PartitionId");
         OrderByElement orderByElement = new OrderByElement(slotRef, true, false);
         LimitElement limitElement = new LimitElement(10);
-        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), null, Arrays.asList(orderByElement), limitElement);
+        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), null, Arrays.asList(orderByElement), limitElement, false);
         stmt.analyzeImpl(analyzer);
         Assert.assertEquals("SHOW PARTITIONS FROM `testCluster:testDb`.`testTable` ORDER BY `PartitionId` ASC LIMIT 10", stmt.toString());
     }
@@ -105,7 +105,7 @@ public class ShowPartitionsStmtTest {
         SlotRef slotRef = new SlotRef(null, "DataSize");
         StringLiteral stringLiteral = new StringLiteral("3.2 GB");
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, slotRef, stringLiteral);
-        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), binaryPredicate, null, null);
+        ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName("testDb", "testTable"), binaryPredicate, null, null, false);
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("Only the columns of PartitionId/PartitionName/" +
                 "State/Buckets/ReplicationNum/LastConsistencyCheckTime are supported.");

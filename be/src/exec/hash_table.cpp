@@ -17,8 +17,6 @@
 
 #include "exec/hash_table.hpp"
 
-#include "codegen/codegen_anyval.h"
-
 #include "exprs/expr.h"
 #include "runtime/raw_value.h"
 #include "runtime/string_value.hpp"

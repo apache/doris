@@ -54,6 +54,7 @@ import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 
@@ -69,6 +70,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Constructs a non-executable single-node plan from an analyzed parse tree.
@@ -81,6 +83,7 @@ public class SingleNodePlanner {
 
     private final PlannerContext ctx_;
     private final ArrayList<ScanNode> scanNodes = Lists.newArrayList();
+    private Map<UUID, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
 
     public SingleNodePlanner(PlannerContext ctx) {
         ctx_ = ctx;
@@ -408,7 +411,7 @@ public class SingleNodePlanner {
             }
 
             boolean valueColumnValidate = true;
-            List<Expr> allConjuncts = analyzer.getAllConjunt(selectStmt.getTableRefs().get(0).getId());
+            List<Expr> allConjuncts = analyzer.getAllConjuncts(selectStmt.getTableRefs().get(0).getId());
             List<SlotId> conjunctSlotIds = Lists.newArrayList();
             if (allConjuncts != null) {
                 for (Expr conjunct : allConjuncts) {
@@ -446,7 +449,7 @@ public class SingleNodePlanner {
                                 && child.getChild(0).getType().isNumericType()) {
                             returnColumns.add(((SlotRef) child.getChild(0)).getDesc().getColumn());
                         } else {
-                            turnOffReason = "aggExpr.getChild(0)[aggExpr.getChild(0).toSql()] is not Numeric CastExpr";
+                            turnOffReason = "aggExpr.getChild(0)[" + aggExpr.getChild(0).toSql()+ "] is not Numeric CastExpr";
                             aggExprValidate = false;
                             break;
                         }
@@ -677,7 +680,7 @@ public class SingleNodePlanner {
         // create left-deep sequence of binary hash joins; assign node ids as we go along
         TableRef tblRef = selectStmt.getTableRefs().get(0);
         materializeTableResultForCrossJoinOrCountStar(tblRef, analyzer);
-        PlanNode root = createTableRefNode(analyzer, tblRef);
+        PlanNode root = createTableRefNode(analyzer, tblRef, selectStmt);
         // to change the inner contains analytic function
         // selectStmt.seondSubstituteInlineViewExprs(analyzer.getChangeResSmap());
 
@@ -698,7 +701,7 @@ public class SingleNodePlanner {
         for (int i = 1; i < selectStmt.getTableRefs().size(); ++i) {
             TableRef outerRef = selectStmt.getTableRefs().get(i - 1);
             TableRef innerRef = selectStmt.getTableRefs().get(i);
-            root = createJoinNode(analyzer, root, outerRef, innerRef);
+            root = createJoinNode(analyzer, root, outerRef, innerRef, selectStmt);
             // Have the build side of a join copy data to a compact representation
             // in the tuple buffer.
             root.getChildren().get(1).setCompactData(true);
@@ -747,6 +750,42 @@ public class SingleNodePlanner {
         root = new RepeatNode(ctx_.getNextNodeId(), root, groupingInfo, groupByClause);
         root.init(analyzer);
         return root;
+    }
+
+    public void selectMaterializedView(QueryStmt queryStmt, Analyzer analyzer) throws UserException {
+        if (queryStmt instanceof SelectStmt) {
+            SelectStmt selectStmt = (SelectStmt) queryStmt;
+            for (TableRef tableRef : selectStmt.getTableRefs()) {
+                if (tableRef instanceof InlineViewRef) {
+                    selectMaterializedView(((InlineViewRef) tableRef).getViewStmt(), analyzer);
+                }
+            }
+            List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getId());
+            if (scanNodeList == null) {
+                return;
+            }
+            MaterializedViewSelector materializedViewSelector = new MaterializedViewSelector(selectStmt, analyzer);
+            for (ScanNode scanNode : scanNodeList) {
+                if (!(scanNode instanceof OlapScanNode)) {
+                    continue;
+                }
+                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+                if (olapScanNode.getSelectedPartitionIds().size() == 0 && !FeConstants.runningUnitTest) {
+                    continue;
+                }
+                MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector.selectBestMV
+                        (olapScanNode);
+                olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(), bestIndexInfo.isPreAggregation(),
+                        bestIndexInfo.getReasonOfDisable());
+            }
+
+        } else {
+            Preconditions.checkState(queryStmt instanceof SetOperationStmt);
+            SetOperationStmt unionStmt = (SetOperationStmt) queryStmt;
+            for (SetOperationStmt.SetOperand unionOperand : unionStmt.getOperands()) {
+                selectMaterializedView(unionOperand.getQueryStmt(), analyzer);
+            }
+        }
     }
 
     /**
@@ -1279,7 +1318,7 @@ public class SingleNodePlanner {
     /**
      * Create node for scanning all data files of a particular table.
      */
-    private PlanNode createScanNode(Analyzer analyzer, TableRef tblRef)
+    private PlanNode createScanNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException {
         ScanNode scanNode = null;
 
@@ -1328,6 +1367,12 @@ public class SingleNodePlanner {
         analyzer.materializeSlots(scanNode.getConjuncts());
 
         scanNodes.add(scanNode);
+        List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getId());
+        if (scanNodeList == null) {
+            scanNodeList = Lists.newArrayList();
+            selectStmtToScanNodes.put(selectStmt.getId(), scanNodeList);
+        }
+        scanNodeList.add(scanNode);
         return scanNode;
     }
 
@@ -1402,12 +1447,13 @@ public class SingleNodePlanner {
      * as well as regular conjuncts. Calls init() on the new join node.
      * Throws if the JoinNode.init() fails.
      */
-    private PlanNode createJoinNode(Analyzer analyzer, PlanNode outer, TableRef outerRef, TableRef innerRef)
+    private PlanNode createJoinNode(Analyzer analyzer, PlanNode outer, TableRef outerRef, TableRef innerRef,
+            SelectStmt selectStmt)
             throws UserException, AnalysisException {
         materializeTableResultForCrossJoinOrCountStar(innerRef, analyzer);
         // the rows coming from the build node only need to have space for the tuple
         // materialized by that node
-        PlanNode inner = createTableRefNode(analyzer, innerRef);
+        PlanNode inner = createTableRefNode(analyzer, innerRef, selectStmt);
 
         List<Expr> eqJoinConjuncts = Lists.newArrayList();
         Reference<String> errMsg = new Reference<String>();
@@ -1464,10 +1510,10 @@ public class SingleNodePlanner {
      * Throws if a PlanNode.init() failed or if planning of the given
      * table ref is not implemented.
      */
-    private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef)
+    private PlanNode createTableRefNode(Analyzer analyzer, TableRef tblRef, SelectStmt selectStmt)
             throws UserException, AnalysisException {
         if (tblRef instanceof BaseTableRef) {
-            return createScanNode(analyzer, tblRef);
+            return createScanNode(analyzer, tblRef, selectStmt);
         }
         if (tblRef instanceof InlineViewRef) {
             return createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
@@ -1476,18 +1522,43 @@ public class SingleNodePlanner {
     }
 
     /**
-     * Create a plan tree corresponding to 'unionOperands' for the given unionStmt.
-     * The individual operands' plan trees are attached to a single UnionNode.
-     * If unionDistinctPlan is not null, it is expected to contain the plan for the
-     * distinct portion of the given unionStmt. The unionDistinctPlan is then added
-     * as a child of the returned UnionNode.
+     * Create a plan tree corresponding to 'setOperands' for the given SetOperationStmt.
+     * The individual operands' plan trees are attached to a single SetOperationNode.
+     * If setOperationDistinctPlan is not null, it is expected to contain the plan for the
+     * distinct portion of the given SetOperationStmt. The setOperationDistinctPlan is then added
+     * as a child of the returned SetOperationNode.
      */
-    private UnionNode createUnionPlan(
+    private SetOperationNode createSetOperationPlan(
             Analyzer analyzer, SetOperationStmt setOperationStmt, List<SetOperationStmt.SetOperand> setOperands,
-            PlanNode unionDistinctPlan, long defaultOrderByLimit)
+            PlanNode setOperationDistinctPlan, long defaultOrderByLimit)
             throws UserException, AnalysisException {
-        UnionNode unionNode = new UnionNode(ctx_.getNextNodeId(), setOperationStmt.getTupleId(),
-                setOperationStmt.getSetOpsResultExprs(), false);
+        SetOperationNode setOpNode;
+        SetOperationStmt.Operation operation = null;
+        for (SetOperationStmt.SetOperand setOperand : setOperands) {
+            if (setOperand.getOperation() != null) {
+                if (operation == null) {
+                    operation = setOperand.getOperation();
+                }
+                Preconditions.checkState(operation == setOperand.getOperation(), "can not support mixed set "
+                        + "operations at here");
+            }
+        }
+        switch (operation) {
+            case UNION:
+                setOpNode = new UnionNode(ctx_.getNextNodeId(), setOperationStmt.getTupleId(),
+                        setOperationStmt.getSetOpsResultExprs(), false);
+                break;
+            case INTERSECT:
+                setOpNode = new IntersectNode(ctx_.getNextNodeId(), setOperationStmt.getTupleId(),
+                        setOperationStmt.getSetOpsResultExprs(), false);
+                break;
+            case EXCEPT:
+                setOpNode = new ExceptNode(ctx_.getNextNodeId(), setOperationStmt.getTupleId(),
+                        setOperationStmt.getSetOpsResultExprs(), false);
+                break;
+            default:
+                throw new AnalysisException("not supported set operations: " + operation);
+        }
         for (SetOperationStmt.SetOperand op : setOperands) {
             if (op.getAnalyzer().hasEmptyResultSet()) {
                 unmarkCollectionSlots(op.getQueryStmt());
@@ -1497,7 +1568,7 @@ public class SingleNodePlanner {
             if (queryStmt instanceof SelectStmt) {
                 SelectStmt selectStmt = (SelectStmt) queryStmt;
                 if (selectStmt.getTableRefs().isEmpty()) {
-                    unionNode.addConstExprList(selectStmt.getResultExprs());
+                    setOpNode.addConstExprList(selectStmt.getResultExprs());
                     continue;
                 }
             }
@@ -1508,17 +1579,27 @@ public class SingleNodePlanner {
             if (opPlan instanceof EmptySetNode) {
                 continue;
             }
-            unionNode.addChild(opPlan, op.getQueryStmt().getResultExprs());
+            setOpNode.addChild(opPlan, op.getQueryStmt().getResultExprs());
         }
-
-        if (unionDistinctPlan != null) {
+        // If it is a union or other same operation, there are only two possibilities,
+        // one is the root node, and the other is a distinct node in front, so the setOperationDistinctPlan will
+        // be aggregate node, if this is a mixed operation
+        // e.g. :
+        // a union b -> setOperationDistinctPlan == null
+        // a union b union all c -> setOperationDistinctPlan == null -> setOperationDistinctPlan == AggregationNode
+        // a union all b except c -> setOperationDistinctPlan == null -> setOperationDistinctPlan == UnionNode
+        // a union b except c -> setOperationDistinctPlan == null -> setOperationDistinctPlan == AggregationNode
+        if (setOperationDistinctPlan != null && setOperationDistinctPlan instanceof SetOperationNode) {
+            Preconditions.checkState(!setOperationDistinctPlan.getClass().equals(setOpNode.getClass()));
+            setOpNode.addChild(setOperationDistinctPlan, setOperationStmt.getResultExprs());
+        } else if (setOperationDistinctPlan != null) {
             Preconditions.checkState(setOperationStmt.hasDistinctOps());
-            Preconditions.checkState(unionDistinctPlan instanceof AggregationNode);
-            unionNode.addChild(unionDistinctPlan,
+            Preconditions.checkState(setOperationDistinctPlan instanceof AggregationNode);
+            setOpNode.addChild(setOperationDistinctPlan,
                     setOperationStmt.getDistinctAggInfo().getGroupingExprs());
         }
-        unionNode.init(analyzer);
-        return unionNode;
+        setOpNode.init(analyzer);
+        return setOpNode;
     }
 
     /**
@@ -1590,16 +1671,33 @@ public class SingleNodePlanner {
         setOperationStmt.materializeRequiredSlots(analyzer);
 
         PlanNode result = null;
-        // create DISTINCT tree
-        if (setOperationStmt.hasDistinctOps()) {
-            result = createUnionPlan(
-                    analyzer, setOperationStmt, setOperationStmt.getDistinctOperands(), null, defaultOrderByLimit);
-            result = new AggregationNode(ctx_.getNextNodeId(), result, setOperationStmt.getDistinctAggInfo());
-            result.init(analyzer);
+        SetOperationStmt.Operation operation = null;
+        List<SetOperationStmt.SetOperand> partialOperands = new ArrayList<>();
+        // create plan for a union b intersect c except b to three fragments
+        // 3:[2:[1:[a union b] intersect c] except c]
+        for (SetOperationStmt.SetOperand op : setOperationStmt.getOperands()) {
+            if (op.getOperation() == null) {
+                partialOperands.add(op);
+            } else if (operation == null && op.getOperation() != null) {
+                operation = op.getOperation();
+                partialOperands.add(op);
+            } else if (operation != null && op.getOperation() == operation) {
+                partialOperands.add(op);
+            } else if (operation != null && op.getOperation() != operation) {
+                if (partialOperands.size() > 0) {
+                    result = createPartialSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
+                            defaultOrderByLimit);
+                    partialOperands.clear();
+                }
+                operation = op.getOperation();
+                partialOperands.add(op);
+            } else {
+                throw new AnalysisException("invalid set operation statement.");
+            }
         }
-        // create ALL tree
-        if (setOperationStmt.hasAllOps()) {
-            result = createUnionPlan(analyzer, setOperationStmt, setOperationStmt.getAllOperands(), result, defaultOrderByLimit);
+        if (partialOperands.size() > 0) {
+            result = createPartialSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
+                    defaultOrderByLimit);
         }
 
         if (setOperationStmt.hasAnalyticExprs() || hasConstantOp) {
@@ -1607,6 +1705,57 @@ public class SingleNodePlanner {
                     analyzer, setOperationStmt.getTupleId().asList(), result);
         }
         return result;
+    }
+
+    // create the partial plan, or example: a union b intersect c
+    // the first partial plan is a union b as a result d,
+    // the second partial plan d intersect c
+    // notice that when query is a union b the union operation is in right-hand child(b),
+    // while the left-hand child(a)'s operation is null
+    private PlanNode createPartialSetOperationPlan(Analyzer analyzer, SetOperationStmt setOperationStmt,
+                                                   List<SetOperationStmt.SetOperand> setOperands,
+                                                   PlanNode setOperationDistinctPlan, long defaultOrderByLimit)
+            throws UserException {
+        boolean hasDistinctOps = false;
+        boolean hasAllOps = false;
+        List<SetOperationStmt.SetOperand> allOps = new ArrayList<>();
+        List<SetOperationStmt.SetOperand> distinctOps = new ArrayList<>();
+        SetOperationStmt.Operation operation = null;
+        for (SetOperationStmt.SetOperand op: setOperands) {
+            if (op.getQualifier() == SetOperationStmt.Qualifier.DISTINCT) {
+                hasDistinctOps = true;
+                distinctOps.add(op);
+            }
+            if (op.getQualifier() == SetOperationStmt.Qualifier.ALL) {
+                hasAllOps = true;
+                allOps.add(op);
+            }
+            if (operation == null || operation == op.getOperation()) {
+                operation = op.getOperation();
+            } else {
+                operation = null;
+            }
+        }
+        Preconditions.checkNotNull(operation, "invalid operation.");
+        if (operation == SetOperationStmt.Operation.INTERSECT || operation == SetOperationStmt.Operation.EXCEPT) {
+            setOperationDistinctPlan = createSetOperationPlan(
+                    analyzer, setOperationStmt, setOperands, setOperationDistinctPlan, defaultOrderByLimit);
+        } else {
+            // create DISTINCT tree
+            if (hasDistinctOps) {
+                setOperationDistinctPlan = createSetOperationPlan(
+                        analyzer, setOperationStmt, distinctOps, setOperationDistinctPlan, defaultOrderByLimit);
+                setOperationDistinctPlan = new AggregationNode(ctx_.getNextNodeId(), setOperationDistinctPlan,
+                        setOperationStmt.getDistinctAggInfo());
+                setOperationDistinctPlan.init(analyzer);
+            }
+            // create ALL tree
+            if (hasAllOps) {
+                setOperationDistinctPlan = createSetOperationPlan(analyzer, setOperationStmt, allOps,
+                        setOperationDistinctPlan, defaultOrderByLimit);
+            }
+        }
+        return setOperationDistinctPlan;
     }
 
     private PlanNode createAssertRowCountNode(PlanNode input, AssertNumRowsElement assertNumRowsElement,

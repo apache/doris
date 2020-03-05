@@ -15,27 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifdef IR_COMPILE
-struct __float128;
-#include "codegen/codegen_anyval_ir.cpp"
-#include "exec/aggregation_node_ir.cpp"
-#include "exec/hash_join_node_ir.cpp"
-#include "exprs/cast_functions.cpp"
-#include "exprs/conditional_functions_ir.cpp"
-#include "exprs/decimal_operators.cpp"
-#include "exprs/expr_ir.cpp"
-#include "exprs/is_null_predicate.cpp"
-#include "exprs/like_predicate.cpp"
-#include "exprs/math_functions.cpp"
-#include "exprs/operators.cpp"
-#include "exprs/string_functions.cpp"
-#include "exprs/timestamp_functions.cpp"
-#include "exprs/utility_functions.cpp"
-#include "runtime/raw_value_ir.cpp"
-#include "runtime/string_value_ir.cpp"
-#include "udf/udf_ir.cpp"
-#include "util/hash_util_ir.cpp"
-#else
-#error "This file should only be used for cross compiling to IR."
-#endif
+#include "olap/fs/block_manager_metrics.h"
 
+#include "util/doris_metrics.h"
+
+namespace doris {
+namespace fs {
+namespace internal {
+
+BlockManagerMetrics::BlockManagerMetrics() {
+    blocks_open_reading = &DorisMetrics::blocks_open_reading;
+    blocks_open_writing = &DorisMetrics::blocks_open_writing;
+
+    total_readable_blocks = &DorisMetrics::readable_blocks_total;
+    total_writable_blocks = &DorisMetrics::writable_blocks_total;
+    total_blocks_created = &DorisMetrics::blocks_created_total;
+    total_blocks_deleted = &DorisMetrics::blocks_deleted_total;
+    total_bytes_read = &DorisMetrics::bytes_read_total;
+    total_bytes_written = &DorisMetrics::bytes_written_total;
+    total_disk_sync = &DorisMetrics::disk_sync_total;
+}
+
+} // namespace internal
+} // namespace fs
+} // namespace doris

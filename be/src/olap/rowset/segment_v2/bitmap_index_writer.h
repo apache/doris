@@ -42,7 +42,7 @@ public:
 
     virtual void add_nulls(uint32_t count) = 0;
 
-    virtual Status finish(WritableFile* file, BitmapIndexColumnPB* meta) = 0;
+    virtual Status finish(WritableFile* file, ColumnIndexMetaPB* index_meta) = 0;
 
     virtual uint64_t size() const = 0;
 private:

@@ -21,6 +21,7 @@
 #include "env/env.h" // RandomAccessFile
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
+#include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
@@ -68,41 +69,10 @@ Status Segment::new_iterator(const Schema& schema,
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
             int32_t column_id = column_condition.first;
-            auto entry = _column_id_to_footer_ordinal.find(column_id);
-            if (entry == _column_id_to_footer_ordinal.end()) {
+            if (_column_readers[column_id] == nullptr || !_column_readers[column_id]->has_zone_map()) {
                 continue;
             }
-            auto& c_meta = _footer.columns(entry->second);
-            if (!c_meta.has_zone_map()) {
-                continue;
-            }
-            auto& c_zone_map = c_meta.zone_map();
-            if (!c_zone_map.has_not_null() && !c_zone_map.has_null()) {
-                // no data
-                iter->reset(new EmptySegmentIterator(schema));
-                return Status::OK();
-            }
-            // TODO Logic here and the similar logic in ColumnReader::_get_filtered_pages should be unified.
-            TypeInfo* type_info = get_type_info((FieldType)c_meta.type());
-            if (type_info == nullptr) {
-                return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", c_meta.type()));
-            }
-            FieldType type = type_info->type();
-            const Field* field = schema.column(column_id);
-            int32_t var_length = field->length();
-            std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, var_length));
-            std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, var_length));
-            if (c_zone_map.has_not_null()) {
-                min_value->from_string(c_zone_map.min());
-                max_value->from_string(c_zone_map.max());
-            }
-            if (c_zone_map.has_null()) {
-                min_value->set_null();
-                if (!c_zone_map.has_not_null()) {
-                    max_value->set_null();
-                }
-            }
-            if (!column_condition.second->eval({min_value.get(), max_value.get()})) {
+            if (!_column_readers[column_id]->match_condition(column_condition.second)) {
                 // any condition not satisfied, return.
                 iter->reset(new EmptySegmentIterator(schema));
                 return Status::OK();
@@ -164,18 +134,25 @@ Status Segment::_parse_footer() {
 
 Status Segment::_load_index() {
     return _load_index_once.call([this] {
-        // read short key index content
+        // read and parse short key index page
         OpenedFileHandle<RandomAccessFile> file_handle;
         RETURN_IF_ERROR(FileManager::instance()->open_file(_fname, &file_handle));
-        RandomAccessFile* input_file = file_handle.file();
-        _sk_index_buf.resize(_footer.short_key_index_page().size());
-        Slice slice(_sk_index_buf.data(), _sk_index_buf.size());
-        RETURN_IF_ERROR(input_file->read_at(_footer.short_key_index_page().offset(), slice));
 
-        // Parse short key index
-        _sk_index_decoder.reset(new ShortKeyIndexDecoder(_sk_index_buf));
-        RETURN_IF_ERROR(_sk_index_decoder->parse());
-        return Status::OK();
+        PageReadOptions opts;
+        opts.file = file_handle.file();
+        opts.page_pointer = PagePointer(_footer.short_key_index_page());
+        opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
+        OlapReaderStatistics tmp_stats;
+        opts.stats = &tmp_stats;
+
+        Slice body;
+        PageFooterPB footer;
+        RETURN_IF_ERROR(PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
+        DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
+        DCHECK(footer.has_short_key_page_footer());
+
+        _sk_index_decoder.reset(new ShortKeyIndexDecoder);
+        return _sk_index_decoder->parse(body, footer.short_key_page_footer());
     });
 }
 
@@ -194,7 +171,7 @@ Status Segment::_create_column_readers() {
         }
 
         ColumnReaderOptions opts;
-        opts.cache_in_memory = _tablet_schema->is_in_memory();
+        opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
         // pass Descriptor<RandomAccessFile>* to column reader
         RETURN_IF_ERROR(ColumnReader::create(

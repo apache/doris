@@ -15,16 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_CODEGEN_DORIS_IR_DATA_H
-#define DORIS_BE_SRC_QUERY_CODEGEN_DORIS_IR_DATA_H
+package org.apache.doris.common;
 
-/// Header with declarations of Impala IR data. Definitions of the arrays are generated
-/// separately.
+public enum InternalErrorCode {
+    OK(0),
 
-extern const unsigned char doris_sse_llvm_ir[];
-extern const size_t doris_sse_llvm_ir_len;
+    // for common error
+    IMPOSSIBLE_ERROR_ERR(1),
+    INTERNAL_ERR(2),
+    REPLICA_FEW_ERR(3),
+    PARTITIONS_ERR(4),
+    DB_ERR(5),
+    TABLE_ERR(6),
+    META_NOT_FOUND_ERR(7),
 
-extern const unsigned char doris_no_sse_llvm_ir[];
-extern const size_t doris_no_sse_llvm_ir_len;
+    // for load job error
+    MANUAL_PAUSE_ERR(100),
+    MANUAL_STOP_ERR(101),
+    TOO_MANY_FAILURE_ROWS_ERR(102),
+    CREATE_TASKS_ERR(103),
+    TASKS_ABORT_ERR(104);
 
-#endif
+    private long errCode;
+    private InternalErrorCode(long code) {
+        this.errCode = code;
+    }
+
+    @Override
+    public String toString() {
+        return "errCode = " + errCode;
+    }
+}

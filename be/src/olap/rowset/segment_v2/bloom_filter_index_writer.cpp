@@ -46,6 +46,17 @@ struct BloomFilterTraits<Slice> {
     using ValueDict = std::set<Slice, Slice::Comparator>;
 };
 
+struct Int128Comparator {
+    bool operator()(const PackedInt128& a, const PackedInt128& b) const {
+        return a.value < b.value;
+    }
+};
+
+template<>
+struct BloomFilterTraits<int128_t> {
+    using ValueDict = std::set<PackedInt128, Int128Comparator>;
+};
+
 // Builder for bloom filter. In doris, bloom filter index is used in
 // high cardinality key columns and none-agg value columns for high selectivity and storage
 // efficiency.
@@ -73,6 +84,10 @@ public:
                     CppType new_value;
                     _typeinfo->deep_copy(&new_value, v, &_pool);
                     _values.insert(new_value);
+                } else if (_is_int128()) {
+                    PackedInt128 new_value;
+                    memcpy(&new_value.value, v, sizeof(PackedInt128));
+                    _values.insert((*reinterpret_cast<CppType*>(&new_value)));
                 } else {
                     _values.insert(*v);
                 }
@@ -104,10 +119,12 @@ public:
         return Status::OK();
     }
 
-    Status finish(WritableFile* file, BloomFilterIndexPB* meta) override {
+    Status finish(WritableFile* file, ColumnIndexMetaPB* index_meta) override {
         if (_values.size() > 0) {
             RETURN_IF_ERROR(flush());
         }
+        index_meta->set_type(BLOOM_FILTER_INDEX);
+        BloomFilterIndexPB* meta = index_meta->mutable_bloom_filter_index();
         meta->set_hash_strategy(_bf_options.strategy);
         meta->set_algorithm(BLOCK_BLOOM_FILTER);
 
@@ -118,7 +135,7 @@ public:
         options.write_value_index = false;
         options.encoding = PLAIN_ENCODING;
         IndexedColumnWriter bf_writer(options, bf_typeinfo, file);
-        bf_writer.init();
+        RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
             bf_writer.add(&data);
@@ -137,6 +154,10 @@ private:
     // supported slice types are: OLAP_FIELD_TYPE_CHAR|OLAP_FIELD_TYPE_VARCHAR
     bool _is_slice_type() const {
         return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR;
+    }
+
+    bool _is_int128() const {
+        return field_type == OLAP_FIELD_TYPE_LARGEINT;
     }
 
 private:

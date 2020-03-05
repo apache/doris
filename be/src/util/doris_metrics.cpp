@@ -124,6 +124,18 @@ IntGauge DorisMetrics::max_disk_io_util_percent;
 IntGauge DorisMetrics::max_network_send_bytes_rate;
 IntGauge DorisMetrics::max_network_receive_bytes_rate;
 
+IntCounter DorisMetrics::readable_blocks_total;
+IntCounter DorisMetrics::writable_blocks_total;
+IntCounter DorisMetrics::blocks_created_total;
+IntCounter DorisMetrics::blocks_deleted_total;
+IntCounter DorisMetrics::bytes_read_total;
+IntCounter DorisMetrics::bytes_written_total;
+IntCounter DorisMetrics::disk_sync_total;
+IntGauge DorisMetrics::blocks_open_reading;
+IntGauge DorisMetrics::blocks_open_writing;
+
+IntCounter DorisMetrics::blocks_push_remote_duration_us;
+
 DorisMetrics::DorisMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
 }
 
@@ -282,7 +294,7 @@ void DorisMetrics::initialize(
         _metrics->register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
         gauge = disks_state.set_key(path);
         _metrics->register_metric("disks_state", MetricLabels().add("path", path), gauge);
-    } 
+    }
 
     REGISTER_DORIS_METRIC(push_request_write_bytes_per_second);
     REGISTER_DORIS_METRIC(query_scan_bytes_per_second);
@@ -291,6 +303,18 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(max_network_receive_bytes_rate);
 
     _metrics->register_hook(_s_hook_name, std::bind(&DorisMetrics::update, this));
+
+    REGISTER_DORIS_METRIC(readable_blocks_total);
+    REGISTER_DORIS_METRIC(writable_blocks_total);
+    REGISTER_DORIS_METRIC(blocks_created_total);
+    REGISTER_DORIS_METRIC(blocks_deleted_total);
+    REGISTER_DORIS_METRIC(bytes_read_total);
+    REGISTER_DORIS_METRIC(bytes_written_total);
+    REGISTER_DORIS_METRIC(disk_sync_total);
+    REGISTER_DORIS_METRIC(blocks_open_reading);
+    REGISTER_DORIS_METRIC(blocks_open_writing);
+
+    REGISTER_DORIS_METRIC(blocks_push_remote_duration_us);
 
     if (init_system_metrics) {
         _system_metrics = new SystemMetrics();

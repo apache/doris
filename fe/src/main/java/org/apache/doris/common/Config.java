@@ -361,9 +361,11 @@ public class Config extends ConfigBase {
     public static int max_layout_length_per_row = 100000; // 100k
 
     /*
-     * Load checker's running interval.
-     * A load job will transfer its state from PENDING to ETL to LOADING to FINISHED.
-     * So a load job will cost at least 3 check intervals to finish.
+     * The load scheduler running interval.
+     * A load job will transfer its state from PENDING to LOADING to FINISHED.
+     * The load scheduler will transfer load job from PENDING to LOADING
+     *      while the txn callback will transfer load job from LOADING to FINISHED.
+     * So a load job will cost at most one interval to finish when the concurrency has not reached the upper limit.
      */
     @ConfField public static int load_checker_interval_second = 5;
 
@@ -999,5 +1001,24 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static boolean check_java_version = true;
+
+    /*
+     * control materialized view
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_materialized_view = false;
+
+    /**
+     * it can't auto-resume routine load job as long as one of the backends is down
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_tolerable_backend_down_num = 0;
+
+    /**
+     * a period for auto resume routine load
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int period_of_auto_resume_min = 5;
+
 }
 

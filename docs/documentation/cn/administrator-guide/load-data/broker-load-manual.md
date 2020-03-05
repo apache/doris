@@ -157,7 +157,7 @@ Label 的另一个作用，是防止用户重复导入相同的数据。**强烈
 
 + negative
 
-    ```data_desc```中还可以设置数据取反导入。这个功能主要用于，当数据表中聚合列的类型都为 SUM 类型时。如果希望撤销某一批导入的数据。则可以通过 `negative` 参数当如同一批数据。Doris 会自动为这一批数据在聚合列上数据取反，以达到消除同一批数据的功能。
+    ```data_desc```中还可以设置数据取反导入。这个功能主要用于，当数据表中聚合列的类型都为 SUM 类型时。如果希望撤销某一批导入的数据。则可以通过 `negative` 参数导入同一批数据。Doris 会自动为这一批数据在聚合列上数据取反，以达到消除同一批数据的功能。
     
 + partition
 
@@ -201,7 +201,7 @@ Label 的另一个作用，是防止用户重复导入相同的数据。**强烈
     
     计算公式为：
     
-    ``` (dpp.abnorm.ALL / (dpp.abnorm.ALL + dpp.norm.ALL ) ) > max_filter_ratio ```
+    ``` max_filter_ratio = (dpp.abnorm.ALL / (dpp.abnorm.ALL + dpp.norm.ALL ) ) ```
     
     ```dpp.abnorm.ALL``` 表示数据质量不合格的行数。如类型不匹配，列数不匹配，长度不匹配等等。
     
@@ -285,7 +285,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 + JobId
 
-    导入任务的唯一ID，每个导入任务的 JobId 都不同，有系统自动生成。与 Label 不同的是，JobId永远不会相同，而 Label 则可以在导入任务失败后被复用。
+    导入任务的唯一ID，每个导入任务的 JobId 都不同，由系统自动生成。与 Label 不同的是，JobId永远不会相同，而 Label 则可以在导入任务失败后被复用。
     
 + Label
 
@@ -315,7 +315,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 + EtlInfo
 
-    主要显示了导入的数据量指标 ```unselected.rows``` , ```dpp.norm.ALL 和 dpp.abnorm.ALL```。用户可以根据第一个数值判断 where 条件过滤了多少行，后两个指标验证当前导入任务的错误率是否超过 max\_filter\_ratio。
+    主要显示了导入的数据量指标 ```unselected.rows``` , ```dpp.norm.ALL``` 和 ```dpp.abnorm.ALL```。用户可以根据第一个数值判断 where 条件过滤了多少行，后两个指标验证当前导入任务的错误率是否超过 ```max_filter_ratio```。
 
     三个指标之和就是原始数据量的总行数。
     
@@ -448,7 +448,7 @@ LoadFinishTime: 2019-07-27 11:50:16
         ```
         期望最大导入文件数据量 = 14400s * 10M/s * BE 个数
         比如：集群的 BE 个数为 10个
-        期望最大导入文件数据量 = 14400 * 10M/s * 10 = 1440000M ≈ 1440G
+        期望最大导入文件数据量 = 14400s * 10M/s * 10 = 1440000M ≈ 1440G
         
         注意：一般用户的环境可能达不到 10M/s 的速度，所以建议超过 500G 的文件都进行文件切分，再导入。
         
@@ -490,5 +490,19 @@ LoadFinishTime: 2019-07-27 11:50:16
 * 导入报错：`failed to send batch` 或 `TabletWriter add batch with unknown id`
 
     请参照 [导入手册](./load-manual.md) 中 **通用系统配置** 中 **BE 配置**，适当修改 `tablet_writer_rpc_timeout_sec` 和 `streaming_load_rpc_max_alive_time_sec`。
+    
+* 导入报错：`LOAD_RUN_FAIL; msg:Invalid Column Name:xxx` 
+    
+    如果是PARQUET或者ORC格式的数据,需要再文件头的列名与doris表中的列名一致，如 :  
+    ```
+    (tmp_c1,tmp_c2)
+    SET
+    (
+        id=tmp_c2,
+        name=tmp_c1
+    )
+    ```
+    代表获取在parquet或orc中以(tmp_c1, tmp_c2)为列名的列，映射到doris表中的(id, name)列。如果没有设置set, 则以column中的列作为映射。
 
+    注：如果使用某些hive版本直接生成的orc文件，orc文件中的表头并非hive meta数据，而是（_col0, _col1, _col2, ...）, 可能导致Invalid Column Name错误，那么则需要使用set进行映射
 

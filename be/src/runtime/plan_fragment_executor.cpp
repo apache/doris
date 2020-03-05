@@ -22,7 +22,6 @@
 #include <boost/unordered_map.hpp>
 #include <boost/foreach.hpp>
 
-#include "codegen/llvm_codegen.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
 #include "exec/data_sink.h"
@@ -114,24 +113,28 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     //     _runtime_state->mem_trackers()->push_back(_exec_env->process_mem_tracker());
     // }
 
-    if (request.query_options.mem_limit > 0) {
-        // we have a per-query limit
-        int64_t bytes_limit = request.query_options.mem_limit;
-        // NOTE: this MemTracker only for olap
-        _mem_tracker.reset(
-                new MemTracker(bytes_limit, "fragment mem-limit", _exec_env->process_mem_tracker()));
-        _runtime_state->set_fragment_mem_tracker(_mem_tracker.get());
-
-        if (bytes_limit > MemInfo::physical_mem()) {
-            LOG(WARNING) << "Memory limit "
-                         << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
-                         << " exceeds physical memory of "
-                         << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES);
-        }
-
-        LOG(INFO) << "Using query memory limit: "
-                   << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
+    int64_t bytes_limit = request.query_options.mem_limit;
+    if (bytes_limit <= 0) {
+        // sometimes the request does not set the query mem limit, we use default one.
+        // TODO(cmy): we should not allow request without query mem limit.
+        bytes_limit = 2 * 1024 * 1024 * 1024L;
     }
+
+    if (bytes_limit > _exec_env->process_mem_tracker()->limit()) {
+        LOG(WARNING) << "Query memory limit "
+            << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+            << " exceeds process memory limit of "
+            << PrettyPrinter::print(_exec_env->process_mem_tracker()->limit(), TUnit::BYTES)
+            << ". Using process memory limit instead";
+        bytes_limit = _exec_env->process_mem_tracker()->limit();
+    }
+    // NOTE: this MemTracker only for olap
+    _mem_tracker.reset(
+            new MemTracker(bytes_limit, "fragment mem-limit", _exec_env->process_mem_tracker()));
+    _runtime_state->set_fragment_mem_tracker(_mem_tracker.get());
+
+    LOG(INFO) << "Using query memory limit: "
+        << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
 
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());
 
@@ -211,21 +214,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     // set up profile counters
     profile()->add_child(_plan->runtime_profile(), true, NULL);
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
-#if 0
-    // After preparing the plan and initializing the output sink, all functions should
-    // have been code-generated.  At this point we optimize all the functions.
-    if (_runtime_state->llvm_codegen() != NULL) {
-        Status status = _runtime_state->llvm_codegen()->optimize_module();
-
-        if (!status.ok()) {
-            LOG(ERROR) << "Error with codegen for this query: " << status.get_error_msg();
-            // TODO: propagate this to the coordinator and user?  Not really actionable
-            // for them but we'd like them to let us know.
-        }
-
-        // If codegen failed, we automatically fall back to not using codegen.
-    }
-#endif
 
     _row_batch.reset(new RowBatch(
             _plan->row_desc(),
@@ -239,23 +227,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _sink->set_query_statistics(_query_statistics);
     return Status::OK();
 }
-
-void PlanFragmentExecutor::optimize_llvm_module() {
-    if (!_runtime_state->codegen_created()) {
-        return;
-    }
-    LlvmCodeGen* codegen = NULL;
-    Status status = _runtime_state->get_codegen(&codegen, /* initalize */ false);
-    DCHECK(status.ok());
-    DCHECK(codegen != NULL);
-    status = codegen->finalize_module();
-    if (!status.ok()) {
-        std::stringstream ss;
-        ss << "Error with codegen for this query: ";
-        _runtime_state->log_error(status.get_error_msg());
-    }
-}
-
 
 void PlanFragmentExecutor::print_volume_ids(
     const PerNodeScanRanges& per_node_scan_ranges) {
@@ -279,8 +250,6 @@ Status PlanFragmentExecutor::open() {
         _report_thread_started_cv.wait(l);
         _report_thread_active = true;
     }
-
-    optimize_llvm_module();
 
     Status status = open_internal();
 

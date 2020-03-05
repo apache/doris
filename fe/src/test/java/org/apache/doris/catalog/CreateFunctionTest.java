@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -51,6 +52,7 @@ public class CreateFunctionTest {
     @BeforeClass
     public static void setup() throws Exception {
         UtFrameUtils.createMinDorisCluster(runningDir);
+        FeConstants.runningUnitTest = true;
     }
 
     @AfterClass

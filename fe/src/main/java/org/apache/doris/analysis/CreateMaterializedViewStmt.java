@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
@@ -27,6 +28,7 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -93,15 +95,27 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        // TODO(ml): remove it
+        if (!Config.enable_materialized_view) {
+            throw new AnalysisException("The materialized view is coming soon");
+        }
         super.analyze(analyzer);
         FeNameFormat.checkTableName(mvName);
-        // TODO(ml): the mv name in from clause should pass the analyze without error.
+        // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.analyze(analyzer);
         analyzeSelectClause();
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
                                                 + selectStmt.getWhereClause().toSql());
+        }
+        if (selectStmt.getGroupByClause() != null) {
+            // TODO(ml): The metadata in fe does not support the deduplicate mv in base table
+            //           which keys type is duplicated.
+            if (selectStmt.getGroupByClause().getGroupingExprs().size() ==
+                    selectStmt.getSelectList().getItems().size()) {
+                throw new AnalysisException("The deduplicate materialized view is not yet supported");
+            }
         }
         if (selectStmt.getHavingPred() != null) {
             throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
@@ -120,7 +134,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The materialized view must contain at least one column");
         }
         boolean meetAggregate = false;
-        Set<String> mvColumnNameSet = Sets.newHashSet();
+        Set<String> mvKeyColumnNameSet = Sets.newHashSet();
+        Map<String, Set<String>> mvAggColumnNameToFunctionNames = Maps.newHashMap();
         /**
          * 1. The columns of mv must be a single column or a aggregate column without any calculate.
          *    Also the children of aggregate column must be a single column without any calculate.
@@ -143,7 +158,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 }
                 SlotRef slotRef = (SlotRef) selectListItem.getExpr();
                 String columnName = slotRef.getColumnName().toLowerCase();
-                if (!mvColumnNameSet.add(columnName)) {
+                // check duplicate key
+                if (!mvKeyColumnNameSet.add(columnName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
@@ -172,10 +188,20 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                                         + "Error function: " + functionCallExpr.toSqlImpl());
                 }
                 meetAggregate = true;
+                // check duplicate value
                 String columnName = slotRef.getColumnName().toLowerCase();
-                if (!mvColumnNameSet.add(columnName)) {
+                if (mvKeyColumnNameSet.contains(columnName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
+                Set<String> functionNames = mvAggColumnNameToFunctionNames.get(columnName);
+                if (functionNames == null) {
+                    functionNames = Sets.newHashSet();
+                }
+                if (!functionNames.add(functionName.toLowerCase())) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
+                }
+                mvAggColumnNameToFunctionNames.put(columnName, functionNames);
+
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;
                 }
@@ -186,6 +212,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             }
         }
         // TODO(ML): only value columns of materialized view, such as select sum(v1) from table
+        if (beginIndexOfAggregation == 0) {
+            throw new AnalysisException("The materialized view must contain at least one key column");
+        }
     }
 
     private void analyzeFromClause() throws AnalysisException {

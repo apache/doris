@@ -60,7 +60,7 @@ public:
         DataDirInfo info;
         info.path = _path;
         info.path_hash = _path_hash;
-        info.capacity = _capacity_bytes;
+        info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
         info.is_used = _is_used;
         info.storage_medium = _storage_medium;
@@ -110,10 +110,6 @@ public:
     // this is a producer function. After scan, it will notify the perform_path_gc function to gc
     void perform_path_scan();
 
-    // this function is a consumer function
-    // this function will collect garbage paths scaned by last function
-    void perform_path_gc();
-
     void perform_path_gc_by_rowsetid();
 
     OLAPStatus remove_old_meta_and_files();
@@ -159,8 +155,8 @@ private:
     size_t _path_hash;
     // user specified capacity
     int64_t _capacity_bytes;
-    // the actual avaiable capacity of the disk of this data dir
-    // NOTICE that _available_byte smay be larger than _capacity_bytes, if capacity is set
+    // the actual available capacity of the disk of this data dir
+    // NOTICE that _available_bytes may be larger than _capacity_bytes, if capacity is set
     // by user, not the disk's actual capacity
     int64_t _available_bytes;
     // the actual capacity of the disk of this data dir

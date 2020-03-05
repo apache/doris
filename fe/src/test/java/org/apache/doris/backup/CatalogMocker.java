@@ -241,6 +241,7 @@ public class CatalogMocker {
         partitionInfo.setDataProperty(TEST_SINGLE_PARTITION_ID, dataProperty);
         OlapTable olapTable = new OlapTable(TEST_TBL_ID, TEST_TBL_NAME, TEST_TBL_BASE_SCHEMA,
                                             KeysType.AGG_KEYS, partitionInfo, distributionInfo);
+        Deencapsulation.setField(olapTable, "baseIndexId", TEST_TBL_ID);
 
         Tablet tablet0 = new Tablet(TEST_TABLET0_ID);
         TabletMeta tabletMeta = new TabletMeta(TEST_DB_ID, TEST_TBL_ID, TEST_SINGLE_PARTITION_ID,
@@ -312,6 +313,7 @@ public class CatalogMocker {
 
         OlapTable olapTable2 = new OlapTable(TEST_TBL2_ID, TEST_TBL2_NAME, TEST_TBL_BASE_SCHEMA,
                                              KeysType.AGG_KEYS, rangePartitionInfo, distributionInfo2);
+        Deencapsulation.setField(olapTable2, "baseIndexId", TEST_TBL2_ID);
 
         Tablet baseTabletP1 = new Tablet(TEST_BASE_TABLET_P1_ID);
         TabletMeta tabletMetaBaseTabletP1 = new TabletMeta(TEST_DB_ID, TEST_TBL2_ID, TEST_PARTITION1_ID,

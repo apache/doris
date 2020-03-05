@@ -79,8 +79,18 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         ASSERT_TRUE(st.ok());
 
         ColumnWriterOptions writer_opts;
-        writer_opts.encoding_type = encoding;
-        writer_opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
+        writer_opts.meta = &meta;
+        writer_opts.meta->set_column_id(0);
+        writer_opts.meta->set_unique_id(0);
+        writer_opts.meta->set_type(type);
+        if (type == OLAP_FIELD_TYPE_CHAR || type == OLAP_FIELD_TYPE_VARCHAR) {
+            writer_opts.meta->set_length(10);
+        } else {
+            writer_opts.meta->set_length(0);
+        }
+        writer_opts.meta->set_encoding(encoding);
+        writer_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
+        writer_opts.meta->set_is_nullable(true);
         writer_opts.need_zone_map = true;
 
         TabletColumn column(OLAP_FIELD_AGGREGATION_NONE, type);
@@ -90,7 +100,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             column = create_char_key(1);
         }
         std::unique_ptr<Field> field(FieldFactory::create(column));
-        ColumnWriter writer(writer_opts, std::move(field), true, wfile.get());
+        ColumnWriter writer(writer_opts, std::move(field), wfile.get());
         st = writer.init();
         ASSERT_TRUE(st.ok()) << st.to_string();
 
@@ -108,9 +118,6 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         ASSERT_TRUE(st.ok());
         st = writer.write_zone_map();
         ASSERT_TRUE(st.ok());
-
-        writer.write_meta(&meta);
-        ASSERT_TRUE(meta.has_zone_map_page());
 
         // close the file
         wfile.reset();

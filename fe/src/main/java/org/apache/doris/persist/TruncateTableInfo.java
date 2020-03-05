@@ -17,10 +17,15 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -29,18 +34,24 @@ import java.util.List;
 
 public class TruncateTableInfo implements Writable {
 
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tblId")
     private long tblId;
+    @SerializedName(value = "partitions")
     private List<Partition> partitions = Lists.newArrayList();
+    @SerializedName(value = "isEntireTable")
+    private boolean isEntireTable = false;
 
     private TruncateTableInfo() {
 
     }
 
-    public TruncateTableInfo(long dbId, long tblId, List<Partition> partitions) {
+    public TruncateTableInfo(long dbId, long tblId, List<Partition> partitions, boolean isEntireTable) {
         this.dbId = dbId;
         this.tblId = tblId;
         this.partitions = partitions;
+        this.isEntireTable = isEntireTable;
     }
 
     public long getDbId() {
@@ -55,23 +66,28 @@ public class TruncateTableInfo implements Writable {
         return partitions;
     }
 
+    public boolean isEntireTable() {
+        return isEntireTable;
+    }
+
     public static TruncateTableInfo read(DataInput in) throws IOException {
-        TruncateTableInfo info = new TruncateTableInfo();
-        info.readFields(in);
-        return info;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_74) {
+            TruncateTableInfo info = new TruncateTableInfo();
+            info.readFields(in);
+            return info;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, TruncateTableInfo.class);
+        }
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tblId);
-        out.writeInt(partitions.size());
-        for (Partition partition : partitions) {
-            partition.write(out);
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tblId = in.readLong();
         int size = in.readInt();
@@ -80,5 +96,4 @@ public class TruncateTableInfo implements Writable {
             partitions.add(partition);
         }
     }
-
 }

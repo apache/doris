@@ -18,6 +18,7 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -36,7 +37,6 @@ import java.util.List;
 public class RoutineLoadScheduler extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadScheduler.class);
-    private static final int DEFAULT_INTERVAL_SECONDS = 10;
 
     private RoutineLoadManager routineLoadManager;
 
@@ -47,7 +47,7 @@ public class RoutineLoadScheduler extends MasterDaemon {
     }
 
     public RoutineLoadScheduler(RoutineLoadManager routineLoadManager) {
-        super("Routine load scheduler", DEFAULT_INTERVAL_SECONDS * 1000);
+        super("Routine load scheduler", FeConstants.default_scheduler_interval_millisecond);
         this.routineLoadManager = routineLoadManager;
     }
 
@@ -92,9 +92,11 @@ public class RoutineLoadScheduler extends MasterDaemon {
             } catch (MetaNotFoundException e) {
                 errorJobState = RoutineLoadJob.JobState.CANCELLED;
                 userException = e;
+                LOG.warn(userException.getMessage());
             } catch (UserException e) {
                 errorJobState = RoutineLoadJob.JobState.PAUSED;
                 userException = e;
+                LOG.warn(userException.getMessage());
             }
 
             if (errorJobState != null) {
@@ -104,7 +106,8 @@ public class RoutineLoadScheduler extends MasterDaemon {
                                  .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " + userException.getMessage())
                                  .build(), userException);
                 try {
-                    routineLoadJob.updateState(errorJobState, userException.getMessage(), false);
+                    ErrorReason reason = new ErrorReason(userException.getErrorCode(), userException.getMessage());
+                    routineLoadJob.updateState(errorJobState, reason, false);
                 } catch (UserException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                                      .add("current_state", routineLoadJob.getState())

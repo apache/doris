@@ -33,11 +33,13 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTable;
@@ -103,10 +105,13 @@ public class OlapTable extends Table {
 
     private KeysType keysType;
     private PartitionInfo partitionInfo;
-    private DistributionInfo defaultDistributionInfo;
-
     private Map<Long, Partition> idToPartition;
     private Map<String, Partition> nameToPartition;
+
+    private DistributionInfo defaultDistributionInfo;
+
+    // all info about temporary partitions are save in "tempPartitions"
+    private TempPartitions tempPartitions = new TempPartitions();
 
     // bloom filter columns
     private Set<String> bfColumns;
@@ -176,6 +181,10 @@ public class OlapTable extends Table {
 
         this.keysType = keysType;
         this.partitionInfo = partitionInfo;
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            tempPartitions = new TempPartitions(((RangePartitionInfo) this.partitionInfo).getPartitionColumns());
+        }
+        
         this.defaultDistributionInfo = defaultDistributionInfo;
 
         this.bfColumns = null;
@@ -289,6 +298,10 @@ public class OlapTable extends Table {
     public void rebuildFullSchema() {
         fullSchema.clear();
         nameToColumn.clear();
+        for (Column baseColumn : indexIdToSchema.get(baseIndexId)) {
+            fullSchema.add(baseColumn);
+            nameToColumn.put(baseColumn.getName(), baseColumn);
+        }
         for (List<Column> columns : indexIdToSchema.values()) {
             for (Column column : columns) {
                 if (!nameToColumn.containsKey(column.getName())) {
@@ -329,6 +342,20 @@ public class OlapTable extends Table {
             }
         }
         return null;
+    }
+
+    public Map<Long, List<Column>> getVisibleIndexIdToSchema() {
+        Map<Long, List<Column>> visibleMVs = Maps.newHashMap();
+        List<MaterializedIndex> mvs = getVisibleIndex();
+        for (MaterializedIndex mv : mvs) {
+            visibleMVs.put(mv.getId(), indexIdToSchema.get(mv.getId()));
+        }
+        return visibleMVs;
+    }
+
+    public List<MaterializedIndex> getVisibleIndex() {
+        Partition partition = idToPartition.values().stream().findFirst().get();
+        return partition.getMaterializedIndices(IndexExtState.VISIBLE);
     }
 
     // this is only for schema change.
@@ -608,6 +635,14 @@ public class OlapTable extends Table {
 
     public Partition getPartition(String partitionName) {
         return nameToPartition.get(partitionName);
+    }
+
+    public Partition getPartition(String partitionName, boolean isTempPartition) {
+        if (isTempPartition) {
+            return tempPartitions.getPartition(partitionName);
+        } else {
+            return nameToPartition.get(partitionName);
+        }
     }
 
     public Set<String> getPartitionNames() {
@@ -896,6 +931,8 @@ public class OlapTable extends Table {
             out.writeBoolean(true);
             tableProperty.write(out);
         }
+
+        tempPartitions.write(out);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -1002,6 +1039,16 @@ public class OlapTable extends Table {
                 tableProperty = TableProperty.read(in);
             }
         }
+
+        // temp partitions
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
+            tempPartitions = TempPartitions.read(in);
+        }
+
+        // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
+        // After that, some properties of fullSchema and nameToColumn may be not same as properties of base columns.
+        // So, here we need to rebuild the fullSchema to ensure the correctness of the properties.
+        rebuildFullSchema();
     }
 
     public boolean equals(Table table) {
@@ -1201,11 +1248,11 @@ public class OlapTable extends Table {
         tableProperty.buildReplicationNum();
     }
 
-    public Short getReplicationNum() {
+    public Short getDefaultReplicationNum() {
         if (tableProperty != null) {
             return tableProperty.getReplicationNum();
         }
-        return null;
+        return FeConstants.default_replication_num;
     }
 
     public Boolean isInMemory() {
@@ -1221,5 +1268,142 @@ public class OlapTable extends Table {
         }
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INMEMORY, Boolean.valueOf(isInMemory).toString());
         tableProperty.buildInMemory();
+    }
+
+    // return true if partition with given name already exist, both in partitions and temp partitions.
+    // return false otherwise
+    public boolean checkPartitionNameExist(String partitionName) {
+        if (nameToPartition.containsKey(partitionName)) {
+            return true;
+        }
+        return tempPartitions.hasPartition(partitionName);
+    }
+
+    // if includeTempPartition is true, check if temp partition with given name exist,
+    // if includeTempPartition is false, check if normal partition with given name exist.
+    // return true if exist, otherwise, return false;
+    public boolean checkPartitionNameExist(String partitionName, boolean isTempPartition) {
+        if (isTempPartition) {
+            return tempPartitions.hasPartition(partitionName);
+        } else {
+            return nameToPartition.containsKey(partitionName);
+        }
+    }
+
+    public void dropTempPartition(String partitionName, boolean needDropTablet) {
+        tempPartitions.dropPartition(partitionName, needDropTablet);
+    }
+
+    /*
+     * replace partitions in 'partitionNames' with partitions in 'tempPartitionNames'.
+     * If strictRange is true, the replaced ranges must be exactly same.
+     * What is "exactly same"?
+     *      1. {[0, 10), [10, 20)} === {[0, 20)}
+     *      2. {[0, 10), [15, 20)} === {[0, 10), [15, 18), [18, 20)}
+     *      3. {[0, 10), [15, 20)} === {[0, 10), [15, 20)}
+     *      4. {[0, 10), [15, 20)} !== {[0, 20)}
+     *      
+     * If useTempPartitionName is false and replaced partition number are equal,
+     * the replaced partitions' name will remain unchanged.
+     * What is "remain unchange"?
+     *      1. replace partition (p1, p2) with temporary partition (tp1, tp2). After replacing, the partition
+     *         names are still p1 and p2.
+     * 
+     */
+    public void replaceTempPartitions(List<String> partitionNames, List<String> tempPartitionNames,
+            boolean strictRange, boolean useTempPartitionName) throws DdlException {
+        RangePartitionInfo rangeInfo = (RangePartitionInfo) partitionInfo;
+        RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
+
+        if (strictRange) {
+            // check if range of partitions and temp partitions are exactly same
+            List<Range<PartitionKey>> rangeList = Lists.newArrayList();
+            List<Range<PartitionKey>> tempRangeList = Lists.newArrayList();
+            for (String partName : partitionNames) {
+                Partition partition = nameToPartition.get(partName);
+                Preconditions.checkNotNull(partition);
+                rangeList.add(rangeInfo.getRange(partition.getId()));
+            }
+
+            for (String partName : tempPartitionNames) {
+                Partition partition = tempPartitions.getPartition(partName);
+                Preconditions.checkNotNull(partition);
+                tempRangeList.add(tempRangeInfo.getRange(partition.getId()));
+            }
+            RangeUtils.checkRangeListsMatch(rangeList, tempRangeList);
+        } else {
+            // check after replacing, whether the range will conflict
+            Set<Long> replacePartitionIds = Sets.newHashSet();
+            for (String partName : partitionNames) {
+                Partition partition = nameToPartition.get(partName);
+                Preconditions.checkNotNull(partition);
+                replacePartitionIds.add(partition.getId());
+            }
+            List<Range<PartitionKey>> replacePartitionRanges = Lists.newArrayList();
+            for (String partName : tempPartitionNames) {
+                Partition partition = tempPartitions.getPartition(partName);
+                Preconditions.checkNotNull(partition);
+                replacePartitionRanges.add(tempRangeInfo.getRange(partition.getId()));
+            }
+            List<Range<PartitionKey>> sortedRangeList = rangeInfo.getRangeList(replacePartitionIds);
+            RangeUtils.checkRangeConflict(sortedRangeList, replacePartitionRanges);
+        }
+        
+        // begin to replace
+        // 1. drop old partitions
+        List<Partition> droppedPartitions = Lists.newArrayList();
+        for (String partitionName : partitionNames) {
+            Partition partition = dropPartition(-1, partitionName, true);
+            droppedPartitions.add(partition);
+        }
+
+        // 2. add temp partitions' range info to rangeInfo, and remove them from tempPartitionInfo
+        for (String partitionName : tempPartitionNames) {
+            Partition partition = tempPartitions.getPartition(partitionName);
+            // add
+            addPartition(partition);
+            rangeInfo.addPartition(partition.getId(), tempRangeInfo.getRange(partition.getId()),
+                    tempRangeInfo.getDataProperty(partition.getId()),
+                    tempRangeInfo.getReplicationNum(partition.getId()),
+                    tempRangeInfo.getIsInMemory(partition.getId()));
+            // drop
+            dropTempPartition(partitionName, false /* do not drop the tablet */);
+        }
+
+        // 3. delete old partition's tablets in inverted index
+        for (Partition partition : droppedPartitions) {
+            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (Tablet tablet : index.getTablets()) {
+                    Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
+                }
+            }
+        }
+
+        // change the name so that after replacing, the partition name remain unchanged
+        if (!useTempPartitionName && partitionNames.size() == tempPartitionNames.size()) {
+            for (int i = 0; i < tempPartitionNames.size(); i++) {
+                renamePartition(tempPartitionNames.get(i), partitionNames.get(i));
+            }
+        }
+    }
+
+    public PartitionInfo getTempPartitonRangeInfo() {
+        return tempPartitions.getPartitionInfo();
+    }
+
+    public void addTempPartition(Partition partition) {
+        tempPartitions.addPartition(partition);
+    }
+
+    public void dropAllTempPartitions() {
+        tempPartitions.dropAll();
+    }
+
+    public Collection<Partition> getAllTempPartitions() {
+        return tempPartitions.getAllPartitions();
+    }
+
+    public boolean existTempPartitions() {
+        return !tempPartitions.isEmpty();
     }
 }

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -44,6 +45,9 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.commons.io.FileUtils;
+
+import java.io.File;
 import java.io.IOException;
 import java.io.StringReader;
 import java.net.ServerSocket;
@@ -52,7 +56,9 @@ import java.nio.file.Files;
 import java.util.List;
 import java.util.Map;
 
+
 public class UtFrameUtils {
+
     // Help to create a mocked ConnectContext.
     public static ConnectContext createDefaultCtx() throws IOException {
         SocketChannel channel = SocketChannel.open();
@@ -71,9 +77,19 @@ public class UtFrameUtils {
         System.out.println("begin to parse stmt: " + originStmt);
         SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
-
-        StatementBase statementBase = (StatementBase) parser.parse().value;
         Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
+        StatementBase statementBase = null;
+        try {
+            statementBase = (StatementBase) parser.parse().value;
+        } catch (AnalysisException e) {
+            String errorMessage = parser.getErrorMsg(originStmt);
+            System.err.println("parse failed: " + errorMessage);
+            if (errorMessage == null) {
+                throw e;
+            } else {
+                throw new AnalysisException(errorMessage, e);
+            }
+        }
         statementBase.analyze(analyzer);
         return statementBase;
     }
@@ -129,6 +145,13 @@ public class UtFrameUtils {
 
         // sleep to wait first heartbeat
         Thread.sleep(6000);
+    }
+
+    public static void cleanDorisFeDir(String baseDir) {
+        try {
+            FileUtils.deleteDirectory(new File(baseDir));
+        } catch (IOException e) {
+        }
     }
 
     public static int findValidPort() {

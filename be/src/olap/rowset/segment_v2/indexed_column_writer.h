@@ -48,6 +48,7 @@ struct IndexedColumnWriterOptions {
     bool write_value_index = false;
     EncodingTypePB encoding = DEFAULT_ENCODING;
     CompressionTypePB compression = NO_COMPRESSION;
+    double compression_min_space_saving = 0.1;
 };
 
 // IndexedColumn is a column with an optional "ordinal index" and an optional "value index".
@@ -82,15 +83,6 @@ public:
 private:
     Status _finish_current_data_page();
 
-    // Append the given data page, update ordinal index or value index if they're used.
-    Status _append_data_page(const std::vector<Slice>& data_page, rowid_t first_rowid);
-
-    // Append the given page into the file. After return, *pp points to the newly
-    // inserted page.
-    // Input data will be compressed when compression is enabled.
-    // We also compute and append checksum for the page.
-    Status _append_page(const std::vector<Slice>& page, PagePointer* pp);
-
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 
     IndexedColumnWriterOptions _options;
@@ -100,7 +92,7 @@ private:
     MemTracker _mem_tracker;
     MemPool _mem_pool;
 
-    rowid_t _num_values;
+    ordinal_t _num_values;
     uint32_t _num_data_pages;
     // remember the first value in current page
     faststring _first_value;

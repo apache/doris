@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -226,7 +227,8 @@ public class RoutineLoadManager implements Writable {
         }
 
         routineLoadJob.updateState(RoutineLoadJob.JobState.PAUSED,
-                                   "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job",
+                                   new ErrorReason(InternalErrorCode.MANUAL_PAUSE_ERR,
+                                   "User " + ConnectContext.get().getQualifiedUser() + " pauses routine load job"),
                                    false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                          .add("current_state", routineLoadJob.getState())
@@ -258,7 +260,9 @@ public class RoutineLoadManager implements Writable {
                                                 ConnectContext.get().getRemoteIP(),
                                                 tableName);
         }
-
+        routineLoadJob.autoResumeCount = 0;
+        routineLoadJob.firstResumeTimestamp = 0;
+        routineLoadJob.autoResumeLock = false;
         routineLoadJob.updateState(RoutineLoadJob.JobState.NEED_SCHEDULE, null, false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                          .add("current_state", routineLoadJob.getState())
@@ -292,7 +296,7 @@ public class RoutineLoadManager implements Writable {
                                                 tableName);
         }
         routineLoadJob.updateState(RoutineLoadJob.JobState.STOPPED,
-                                   "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job",
+                                    new ErrorReason(InternalErrorCode.MANUAL_STOP_ERR, "User  " + ConnectContext.get().getQualifiedUser() + " stop routine load job"),
                                    false /* not replay */);
         LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                          .add("current_state", routineLoadJob.getState())

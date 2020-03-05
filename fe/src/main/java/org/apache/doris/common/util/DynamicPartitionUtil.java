@@ -18,7 +18,6 @@
 
 package org.apache.doris.common.util;
 
-import com.google.common.base.Strings;
 import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -35,8 +34,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
+
+import com.google.common.base.Strings;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
@@ -255,7 +255,7 @@ public class DynamicPartitionUtil {
     }
 
     public static int estimateReplicateNum(OlapTable table) {
-        int replicateNum = table.getReplicationNum() == null ? FeConstants.default_replication_num : table.getReplicationNum();
+        int replicateNum = table.getDefaultReplicationNum();
         long maxPartitionId = 0;
         for (Partition partition: table.getPartitions()) {
             if (partition.getId() > maxPartitionId) {

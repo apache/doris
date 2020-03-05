@@ -39,7 +39,7 @@ The backup operation is to upload the data of the specified table or partition d
 
 	After the data file snapshot is uploaded, Frontend first writes the corresponding metadata to the local file, and then uploads the local metadata file to the remote warehouse through broker. Finish the final backup job.
 
-###Restore
+### Restore
 
 Recovery operations need to specify a backup that already exists in a remote repository, and then restore the backup content to the local cluster. When a user submits a Restore request, the following actions will be done within the system:
 

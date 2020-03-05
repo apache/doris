@@ -65,7 +65,7 @@ public:
         }
     }
 
-    // This function only valid when assign valid data, either in cache or not
+    // the return slice contains uncompressed page body, page footer, and footer size
     Slice data() const {
         if (_is_data_owner) {
             return _data;

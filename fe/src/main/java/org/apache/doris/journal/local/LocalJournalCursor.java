@@ -241,8 +241,7 @@ public final class LocalJournalCursor implements JournalCursor {
                 break;
             }
             case OperationType.OP_DROP_PARTITION: {
-                DropPartitionInfo info = new DropPartitionInfo();
-                info.readFields(in);
+                DropPartitionInfo info = DropPartitionInfo.read(in);
                 ret.setData(info);
                 break;
             }
