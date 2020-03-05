@@ -46,6 +46,17 @@ struct BloomFilterTraits<Slice> {
     using ValueDict = std::set<Slice, Slice::Comparator>;
 };
 
+struct Int128Comparator {
+    bool operator()(const PackedInt128& a, const PackedInt128& b) const {
+        return a.value < b.value;
+    }
+};
+
+template<>
+struct BloomFilterTraits<int128_t> {
+    using ValueDict = std::set<PackedInt128, Int128Comparator>;
+};
+
 // Builder for bloom filter. In doris, bloom filter index is used in
 // high cardinality key columns and none-agg value columns for high selectivity and storage
 // efficiency.
@@ -73,6 +84,10 @@ public:
                     CppType new_value;
                     _typeinfo->deep_copy(&new_value, v, &_pool);
                     _values.insert(new_value);
+                } else if (_is_int128()) {
+                    PackedInt128 new_value;
+                    new_value.value = *v;
+                    _values.insert((*reinterpret_cast<CppType*>(&new_value)));
                 } else {
                     _values.insert(*v);
                 }
@@ -139,6 +154,10 @@ private:
     // supported slice types are: OLAP_FIELD_TYPE_CHAR|OLAP_FIELD_TYPE_VARCHAR
     bool _is_slice_type() const {
         return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR;
+    }
+
+    bool _is_int128() const {
+        return field_type == OLAP_FIELD_TYPE_LARGEINT;
     }
 
 private:
