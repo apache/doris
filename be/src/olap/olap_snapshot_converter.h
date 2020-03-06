@@ -47,7 +47,7 @@ public:
     // convert olap header to tablet meta pb, convert delta to rowsetmetapb
     // pending delta is not in tablet meta any more, so that convert pending delta to rowset and add it to pending rowsets
     // as a return value
-    OLAPStatus to_tablet_meta_pb(const OLAPHeaderMessage& olap_header, TabletMetaPB* tablet_meta_pb, 
+    OLAPStatus to_tablet_meta_pb(const OLAPHeaderMessage& olap_header, TabletMetaPB* tablet_meta_pb,
                                  vector<RowsetMetaPB>* pending_rowsets);
 
     OLAPStatus convert_to_pdelta(const RowsetMetaPB& rowset_meta_pb, PDelta* delta);
@@ -67,8 +67,8 @@ public:
     OLAPStatus to_alter_tablet_pb(const SchemaChangeStatusMessage& schema_change_msg, AlterTabletPB* alter_tablet_pb);
 
     // from olap header to tablet meta
-    OLAPStatus to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix, 
-        const string& new_data_path_prefix, TabletMetaPB* tablet_meta_pb,
+    OLAPStatus to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix,
+        const string& new_data_path_prefix, TabletMetaPB* tablet_meta_pb, 
         vector<RowsetMetaPB>* pending_rowsets, bool is_startup);
 
     // from tablet meta to olap header

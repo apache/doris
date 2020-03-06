@@ -66,8 +66,13 @@ OLAPStatus OlapSnapshotConverter::to_olap_header(const TabletMetaPB& tablet_meta
     }
 
     for (auto& rs_meta : tablet_meta_pb.rs_metas()) {
+        // Add delete predicate OLAPHeaderMessage from PDelta.
         PDelta* pdelta = olap_header->add_delta();
         convert_to_pdelta(rs_meta, pdelta);
+        if (pdelta->has_delete_condition()) {
+            DeletePredicatePB* delete_condition = olap_header->add_delete_data_conditions();
+            *delete_condition = pdelta->delete_condition();
+        }
     }
     // not add pending delta, it is usedless in clone or backup restore
     for (auto& inc_rs_meta : tablet_meta_pb.inc_rs_metas()) {
@@ -131,11 +136,23 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     }
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
+    const DelPredicateArray& delete_conditions = olap_header.delete_data_conditions();
     for (auto& delta : olap_header.delta()) {
         RowsetId next_id = StorageEngine::instance()->next_rowset_id();
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_rs_metas();
-        convert_to_rowset_meta(delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
-        Version rowset_version = { delta.start_version(), delta.end_version() };
+        PDelta temp_delta = delta;
+        // PDelta is not corresponding with RowsetMeta in DeletePredicate
+        // Add delete predicate to PDelta from OLAPHeaderMessage.
+        // Only after this, convert from PDelta to RowsetMeta is valid.
+        for (auto& del_pred : delete_conditions) {
+            if (temp_delta.start_version() == temp_delta.end_version()
+                && temp_delta.start_version() == del_pred.version()) {
+                    DeletePredicatePB* delete_condition = temp_delta.mutable_delete_condition();
+                    *delete_condition = del_pred;
+                }
+        }
+        convert_to_rowset_meta(temp_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
+        Version rowset_version = { temp_delta.start_version(), temp_delta.end_version() };
         _rs_version_map[rowset_version] = rowset_meta;
     }
 
@@ -150,7 +167,15 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         }
         RowsetId next_id = StorageEngine::instance()->next_rowset_id();
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_inc_rs_metas();
-        convert_to_rowset_meta(inc_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
+        PDelta temp_inc_delta = inc_delta;
+        for (auto& del_pred : delete_conditions) {
+            if (temp_inc_delta.start_version() == temp_inc_delta.end_version()
+                && temp_inc_delta.start_version() == del_pred.version()) {
+                    DeletePredicatePB* delete_condition = temp_inc_delta.mutable_delete_condition();
+                    *delete_condition = del_pred;
+                }
+        }
+        convert_to_rowset_meta(temp_inc_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
     }
 
     for (auto& pending_delta : olap_header.pending_delta()) {
@@ -414,7 +439,7 @@ OLAPStatus OlapSnapshotConverter::to_alter_tablet_pb(const SchemaChangeStatusMes
 
 // from olap header to tablet meta
 OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_header, const string& old_data_path_prefix,
-    const string& new_data_path_prefix, TabletMetaPB* tablet_meta_pb,
+    const string& new_data_path_prefix, TabletMetaPB* tablet_meta_pb, 
     vector<RowsetMetaPB>* pending_rowsets, bool is_startup) {
     RETURN_NOT_OK(to_tablet_meta_pb(olap_header, tablet_meta_pb, pending_rowsets));
 
