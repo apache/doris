@@ -266,7 +266,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                             break;
                         }
                         case orc::DATE: {
-                            //Date columns record the minimum and maximum values as the number of days since the UNIX epoch (1/1/1970 in UTC).
+                            //Date columns record the number of days since the UNIX epoch (1/1/1970 in UTC).
                             int64_t timestamp = ((orc::LongVectorBatch*) cvb)->data[_current_line_of_group] * 24 * 60 * 60;
                             DateTimeValue dtv;
                             if (!dtv.from_unixtime(timestamp, "00:00")) {
