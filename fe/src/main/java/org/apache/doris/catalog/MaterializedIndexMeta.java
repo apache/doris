@@ -34,8 +34,6 @@ import java.util.List;
 public class MaterializedIndexMeta implements Writable {
     @SerializedName(value = "indexId")
     private long indexId;
-    @SerializedName(value = "indexName")
-    private String indexName;
     @SerializedName(value = "schema")
     private List<Column> schema = Lists.newArrayList();
     @SerializedName(value = "schemaVersion")
@@ -49,11 +47,9 @@ public class MaterializedIndexMeta implements Writable {
     @SerializedName(value = "keysType")
     private KeysType keysType;
 
-    public MaterializedIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int
+    public MaterializedIndexMeta(long indexId, List<Column> schema, int schemaVersion, int
             schemaHash, short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
         this.indexId = indexId;
-        Preconditions.checkState(indexName != null);
-        this.indexName = indexName;
         Preconditions.checkState(schema != null);
         Preconditions.checkState(schema.size() != 0);
         this.schema = schema;
@@ -68,10 +64,6 @@ public class MaterializedIndexMeta implements Writable {
 
     public long getIndexId() {
         return indexId;
-    }
-
-    public String getIndexName() {
-        return indexName;
     }
 
     public KeysType getKeysType() {
@@ -109,9 +101,6 @@ public class MaterializedIndexMeta implements Writable {
         }
         MaterializedIndexMeta indexMeta = (MaterializedIndexMeta) obj;
         if (indexMeta.indexId != this.indexId) {
-            return false;
-        }
-        if (!indexMeta.indexName.equals(this.indexName)) {
             return false;
         }
         if (indexMeta.schema.size() != this.schema.size() || !indexMeta.schema.containsAll(this.schema)) {
