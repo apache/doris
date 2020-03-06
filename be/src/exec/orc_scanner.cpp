@@ -213,24 +213,6 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                             str_slot->len = wbytes;
                             break;
                         }
-                        case orc::DATE: {
-                            //Date columns record the minimum and maximum values as the number of days since the UNIX epoch (1/1/1970 in UTC).
-                            int64_t timestamp = ((orc::LongVectorBatch*) cvb)->data[_current_line_of_group] * 24 * 60 * 60;
-                            DateTimeValue dtv;
-                            if (!dtv.from_unixtime(timestamp, "00:00")) {
-                                std::stringstream str_error;
-                                str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
-                                LOG(WARNING) << str_error.str();
-                                return Status::InternalError(str_error.str());
-                            }
-                            dtv.cast_to_date();
-                            char* buf_end = dtv.to_string((char*) tmp_buf);
-                            wbytes = buf_end - (char*) tmp_buf -1;
-                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
-                            memcpy(str_slot->ptr, tmp_buf, wbytes);
-                            str_slot->len = wbytes;
-                            break;
-                        }
                         case orc::FLOAT:
                         case orc::DOUBLE: {
                             double value = ((orc::DoubleVectorBatch*) cvb)->data[_current_line_of_group];
@@ -283,7 +265,27 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                             str_slot->len = v.size();
                             break;
                         }
+                        case orc::DATE: {
+                            //Date columns record the minimum and maximum values as the number of days since the UNIX epoch (1/1/1970 in UTC).
+                            int64_t timestamp = ((orc::LongVectorBatch*) cvb)->data[_current_line_of_group] * 24 * 60 * 60;
+                            DateTimeValue dtv;
+                            if (!dtv.from_unixtime(timestamp, "00:00")) {
+                                std::stringstream str_error;
+                                str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
+                                LOG(WARNING) << str_error.str();
+                                return Status::InternalError(str_error.str());
+                            }
+                            dtv.cast_to_date();
+                            char* buf_end = dtv.to_string((char*) tmp_buf);
+                            wbytes = buf_end - (char*) tmp_buf -1;
+                            str_slot->ptr = reinterpret_cast<char*>(tuple_pool->allocate(wbytes));
+                            memcpy(str_slot->ptr, tmp_buf, wbytes);
+                            str_slot->len = wbytes;
+                            break;
+                        }
                         case orc::TIMESTAMP: {
+                            //The time zone of orc's timestamp is stored inside orc's stripe information,
+                            //so the timestamp obtained here is an offset timestamp, so parse timestamp with UTC is actual datetime literal.
                             int64_t timestamp = ((orc::TimestampVectorBatch*) cvb)->data[_current_line_of_group];
                             DateTimeValue dtv;
                             if (!dtv.from_unixtime(timestamp, "00:00")) {
