@@ -144,12 +144,13 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         // PDelta is not corresponding with RowsetMeta in DeletePredicate
         // Add delete predicate to PDelta from OLAPHeaderMessage.
         // Only after this, convert from PDelta to RowsetMeta is valid.
-        for (auto& del_pred : delete_conditions) {
-            if (temp_delta.start_version() == temp_delta.end_version()
-                && temp_delta.start_version() == del_pred.version()) {
+        if (temp_delta.start_version() == temp_delta.end_version()) {
+            for (auto& del_pred : delete_conditions) {
+                if (temp_delta.start_version() == del_pred.version()) {
                     DeletePredicatePB* delete_condition = temp_delta.mutable_delete_condition();
                     *delete_condition = del_pred;
                 }
+            }
         }
         convert_to_rowset_meta(temp_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
         Version rowset_version = { temp_delta.start_version(), temp_delta.end_version() };
@@ -168,12 +169,13 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
         RowsetId next_id = StorageEngine::instance()->next_rowset_id();
         RowsetMetaPB* rowset_meta = tablet_meta_pb->add_inc_rs_metas();
         PDelta temp_inc_delta = inc_delta;
-        for (auto& del_pred : delete_conditions) {
-            if (temp_inc_delta.start_version() == temp_inc_delta.end_version()
-                && temp_inc_delta.start_version() == del_pred.version()) {
+        if (temp_inc_delta.start_version() == temp_inc_delta.end_version()) {
+            for (auto& del_pred : delete_conditions) {
+                if (temp_inc_delta.start_version() == del_pred.version()) {
                     DeletePredicatePB* delete_condition = temp_inc_delta.mutable_delete_condition();
                     *delete_condition = del_pred;
                 }
+            }
         }
         convert_to_rowset_meta(temp_inc_delta, next_id, olap_header.tablet_id(), olap_header.schema_hash(), rowset_meta);
     }
