@@ -87,6 +87,16 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     @Override
+    public void onTaskFinished(TaskAttachment attachment) {
+        if (attachment instanceof SparkPendingTaskAttachment) {
+            onPendingTaskFinished((SparkPendingTaskAttachment) attachment);
+        }
+    }
+
+    private void onPendingTaskFinished(SparkPendingTaskAttachment attachment) {
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
         etlClusterDesc.write(out);
