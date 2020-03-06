@@ -255,9 +255,7 @@ public class Column implements Writable {
             throw new DdlException("Can not change " + getDataType() + " to " + other.getDataType());
         }
 
-        if (this.aggregationType != other.aggregationType
-                && !(this.aggregationType == null && other.aggregationType == AggregateType.NONE)
-                && !(this.aggregationType == AggregateType.NONE && other.aggregationType == null)) {
+        if (this.aggregationType != other.aggregationType) {
             throw new DdlException("Can not change aggregation type");
         }
 
