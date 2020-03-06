@@ -48,7 +48,7 @@ public class BackendsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(BackendsProcDir.class);
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("BackendId").add("Cluster").add("IP").add("HostName").add("HeartbeatPort")
+            .add("BackendId").add("Cluster").add("IP").add("HostName").add("Version").add("HeartbeatPort")
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
@@ -123,6 +123,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(backend.getHost());
             if (Strings.isNullOrEmpty(clusterName)) {
                 backendInfo.add(FrontendOptions.getHostnameByIp(backend.getHost()));
+                backendInfo.add(String.valueOf(backend.getVersion()));
                 backendInfo.add(String.valueOf(backend.getHeartbeatPort()));
                 backendInfo.add(String.valueOf(backend.getBePort()));
                 backendInfo.add(String.valueOf(backend.getHttpPort()));
