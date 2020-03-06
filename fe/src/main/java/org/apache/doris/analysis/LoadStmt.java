@@ -149,6 +149,11 @@ public class LoadStmt extends DdlStmt {
         }
 
         for (Entry<String, String> entry : properties.entrySet()) {
+            // temporary use for global dict
+            if (entry.getKey().startsWith("bitmap_data")) {
+                continue;
+            }
+
             if (!PROPERTIES_SET.contains(entry.getKey())) {
                 throw new DdlException(entry.getKey() + " is invalid property");
             }

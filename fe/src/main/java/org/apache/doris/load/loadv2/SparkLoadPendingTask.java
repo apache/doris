@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.base.Preconditions;
 import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -288,6 +289,22 @@ public class SparkLoadPendingTask extends LoadTask {
 
                 idToEtlPartition.put(partitionId, new EtlPartition(startKeys, endKeys, isMaxPartition, bucketNum));
             }
+        } else {
+            Preconditions.checkState(type == PartitionType.UNPARTITIONED);
+            Preconditions.checkState(partitionIds.size() == 1);
+
+            for (Long partitionId : partitionIds) {
+                Partition partition = table.getPartition(partitionId);
+                if (partition == null) {
+                    throw new LoadException("partition does not exist. id: " + partitionId);
+                }
+
+                // bucket num
+                int bucketNum = partition.getDistributionInfo().getBucketNum();
+
+                idToEtlPartition.put(partitionId, new EtlPartition(Lists.newArrayList(), Lists.newArrayList(),
+                                                                   true, bucketNum));
+            }
         }
 
         return new EtlPartitionInfo(type.typeString, partitionColumnRefs, idToEtlPartition);
@@ -310,11 +327,16 @@ public class SparkLoadPendingTask extends LoadTask {
             partitionIds = Lists.newArrayList(tablePartitionIds);
         }
 
+        // where
+        String where = null;
+        if (fileGroup.getWhereExpr() != null) {
+            where = fileGroup.getWhereExpr().toSql();
+        }
         EtlSource etlSource = new EtlSource(fileGroup.getFilePaths(), fileGroup.getFileFieldNames(),
                                             fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
                                             fileGroup.getLineDelimiter(), fileGroup.isNegative(),
                                             fileGroup.getFileFormat(), columnMappings,
-                                            fileGroup.getWhereExpr().toSql(), partitionIds);
+                                            where, partitionIds);
 
         // set hive table
         etlSource.setHiveTableName(((SparkLoadJob) callback).getBitmapDataHiveTable());
@@ -465,8 +487,11 @@ public class SparkLoadPendingTask extends LoadTask {
             columnMap.put("is_allow_null", column.isAllowNull());
             // is key
             columnMap.put("is_key", column.isKey());
-            // aggregation
-            columnMap.put("aggregation_type", column.getAggregationType().toString());
+
+            // aggregation type
+            if (column.getAggregationType() != null) {
+                columnMap.put("aggregation_type", column.getAggregationType().toString());
+            }
 
             // default value
             if (column.getDefaultValue() != null) {
