@@ -188,7 +188,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     // Return if this transaction is committed successful; otherwise, we need try to
     // rollback this transaction
     Status status(result.status);
-    if (!status.ok()) {
+    if (!status.ok() && status.code() != TStatusCode::PUBLISH_TIMEOUT) {
         LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg()
             << ctx->brief();
         return status;
