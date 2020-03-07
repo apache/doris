@@ -172,6 +172,8 @@ private:
 
     void _build_tablet_stat();
 
+    void _add_tablet_to_partition(const Tablet& tablet);
+
     void _remove_tablet_from_partition(const Tablet& tablet);
 
     inline RWMutex& _get_tablet_map_lock(TTabletId tabletId);
@@ -191,12 +193,14 @@ private:
     // tablet_id -> TabletInstances
     typedef std::unordered_map<int64_t, TableInstances> tablet_map_t;
 
-    // Protect _tablet_map, _partition_tablet_map, _shutdown_tablets
     int32_t _tablet_map_lock_shard_size;
+    // _tablet_map_lock_array[i] protect _tablet_map_array[i], i=0,1,2...,and i < _tablet_map_lock_shard_size
     RWMutex *_tablet_map_lock_array;
     tablet_map_t *_tablet_map_array;
 
+    // Protect _partition_tablet_map, should not be obtained before _tablet_map_lock to avoid dead lock
     RWMutex _partition_tablet_map_lock;
+    // Protect _shutdown_tablets, should not be obtained before _tablet_map_lock to avoid dead lock
     RWMutex _shutdown_tablets_lock;
     // partition_id => tablet_info
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;

@@ -186,10 +186,7 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id, Schem
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id].table_arr.push_back(tablet);
     tablet_map[tablet_id].table_arr.sort(_cmp_tablet_by_create_time);
-    {
-        ReadLock rlock(&_partition_tablet_map_lock);
-        _partition_tablet_map[tablet->partition_id()].insert(tablet->get_tablet_info());
-    }
+    _add_tablet_to_partition(*tablet);
 
     VLOG(3) << "add tablet to map successfully."
             << " tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
@@ -551,35 +548,38 @@ OLAPStatus TabletManager::_drop_tablet_unlocked(
 OLAPStatus TabletManager::drop_tablets_on_error_root_path(
         const vector<TabletInfo>& tablet_info_vec) {
     OLAPStatus res = OLAP_SUCCESS;
-
-    for (const TabletInfo& tablet_info : tablet_info_vec) {
-        TTabletId tablet_id = tablet_info.tablet_id;
-        TSchemaHash schema_hash = tablet_info.schema_hash;
-        RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
+    for (int32 i = 0; i < _tablet_map_lock_shard_size; i++) {
+        RWMutex& tablet_map_lock = _tablet_map_lock_array[i];
         WriteLock wlock(&tablet_map_lock);
-        VLOG(3) << "drop_tablet begin. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
-        TabletSharedPtr dropped_tablet = _get_tablet_unlocked(tablet_id, schema_hash);
-        if (dropped_tablet == nullptr) {
-            LOG(WARNING) << "dropping tablet not exist. "
-                         << " tablet=" << tablet_id
-                         << " schema_hash=" << schema_hash;
-            continue;
-        } else {
-            tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
-            for (list<TabletSharedPtr>::iterator it = tablet_map[tablet_id].table_arr.begin();
-                    it != tablet_map[tablet_id].table_arr.end();) {
-                if ((*it)->equal(tablet_id, schema_hash)) {
-                    // We should first remove tablet from partition_map to avoid iterator
-                    // becoming invalid.
-                    _remove_tablet_from_partition(*(*it));
-                    it = tablet_map[tablet_id].table_arr.erase(it);
-                } else {
-                    ++it;
+        for (const TabletInfo& tablet_info : tablet_info_vec) {
+            TTabletId tablet_id = tablet_info.tablet_id;
+            if ((tablet_id & (_tablet_map_lock_shard_size - 1)) != i) {
+                continue;
+            }
+            TSchemaHash schema_hash = tablet_info.schema_hash;
+            VLOG(3) << "drop_tablet begin. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
+            TabletSharedPtr dropped_tablet = _get_tablet_unlocked(tablet_id, schema_hash);
+            if (dropped_tablet == nullptr) {
+                LOG(WARNING) << "dropping tablet not exist. "
+                             << " tablet=" << tablet_id
+                             << " schema_hash=" << schema_hash;
+                continue;
+            } else {
+                tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
+                for (list<TabletSharedPtr>::iterator it = tablet_map[tablet_id].table_arr.begin();
+                     it != tablet_map[tablet_id].table_arr.end();) {
+                    if ((*it)->equal(tablet_id, schema_hash)) {
+                        // We should first remove tablet from partition_map to avoid iterator
+                        // becoming invalid.
+                        _remove_tablet_from_partition(*(*it));
+                        it = tablet_map[tablet_id].table_arr.erase(it);
+                    } else {
+                        ++it;
+                    }
                 }
             }
         }
     }
-
     return res;
 }
 
@@ -830,6 +830,7 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
                                                  tablet->full_name()));
     RETURN_NOT_OK_LOG(_add_tablet_unlocked(tablet_id, schema_hash, tablet, update_meta, force),
                       Substitute("fail to add tablet. tablet=$0", tablet->full_name()));
+
     return OLAP_SUCCESS;
 }
 
@@ -1359,6 +1360,11 @@ TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id, SchemaH
     // Return nullptr tablet if fail
     TabletSharedPtr tablet;
     return tablet;
+}
+
+void TabletManager::_add_tablet_to_partition(const Tablet& tablet) {
+    WriteLock wlock(&_partition_tablet_map_lock);
+    _partition_tablet_map[tablet.partition_id()].insert(tablet.get_tablet_info());
 }
 
 void TabletManager::_remove_tablet_from_partition(const Tablet& tablet) {
