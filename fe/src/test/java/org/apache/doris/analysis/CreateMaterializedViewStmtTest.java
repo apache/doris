@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -33,8 +32,6 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import javax.validation.constraints.AssertTrue;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -195,8 +192,6 @@ public class CreateMaterializedViewStmtTest {
                 result = havingClause;
                 slotRef.getColumnName();
                 result = "k1";
-                selectStmt.getGroupByClause();
-                result = null;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -241,8 +236,6 @@ public class CreateMaterializedViewStmtTest {
                 result = "k1";
                 slotRef2.getColumnName();
                 result = "k2";
-                selectStmt.getGroupByClause();
-                result = null;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -297,8 +290,6 @@ public class CreateMaterializedViewStmtTest {
                 result = Lists.newArrayList(slotRef2);
                 functionCallExpr.getChild(0);
                 result = slotRef2;
-                selectStmt.getGroupByClause();
-                result = groupByClause;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -396,8 +387,6 @@ public class CreateMaterializedViewStmtTest {
                 result = Lists.newArrayList(slotRef1);
                 functionCallExpr.getChild(0);
                 result = functionChild0;
-                selectStmt.getGroupByClause();
-                result = groupByClause;
             }
         };
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
@@ -474,8 +463,6 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName4;
                 functionChild0.getColumnName();
                 result = columnName5;
-                selectStmt.getGroupByClause();
-                result = groupByClause;
             }
         };
 
@@ -569,7 +556,7 @@ public class CreateMaterializedViewStmtTest {
                 result = 3;
                 slotRef4.getType().getStorageLayoutBytes();
                 result = 4;
-                selectStmt.getGroupByClause();
+                selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
                 result = null;
             }
         };
@@ -658,8 +645,6 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName2;
                 functionChild0.getColumnName();
                 result = columnName3;
-                selectStmt.getGroupByClause();
-                result = groupByClause;
             }
         };
 
@@ -714,8 +699,6 @@ public class CreateMaterializedViewStmtTest {
                 result = null;
                 slotRef1.getColumnName();
                 result = columnName1;
-                selectStmt.getGroupByClause();
-                result = groupByClause;
                 selectStmt.getHavingPred();
                 result = null;
                 selectStmt.getLimit();
@@ -736,3 +719,4 @@ public class CreateMaterializedViewStmtTest {
 
     }
 }
+
