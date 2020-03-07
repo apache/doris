@@ -46,8 +46,8 @@ class DataDir;
 // please uniformly name the method in "xxx_unlocked()" mode
 class TabletManager {
 public:
-    TabletManager();
-    ~TabletManager() = default;
+    TabletManager(int32_t tablet_map_lock_shard_size);
+    ~TabletManager();
 
     bool check_tablet_id_exist(TTabletId tablet_id);
 
@@ -172,7 +172,9 @@ private:
 
     void _build_tablet_stat();
 
-    void _remove_tablet_from_partition_unlocked(const Tablet& tablet);
+    void _remove_tablet_from_partition(const Tablet& tablet);
+
+    inline RWMutex& _get_tablet_map_lock(TTabletId tabletId);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
@@ -190,8 +192,12 @@ private:
     typedef std::unordered_map<int64_t, TableInstances> tablet_map_t;
 
     // Protect _tablet_map, _partition_tablet_map, _shutdown_tablets
-    RWMutex _tablet_map_lock;
-    tablet_map_t _tablet_map;
+    int32_t _tablet_map_lock_shard_size;
+    RWMutex *_tablet_map_lock_array;
+    tablet_map_t *_tablet_map_array;
+
+    RWMutex _partition_tablet_map_lock;
+    RWMutex _shutdown_tablets_lock;
     // partition_id => tablet_info
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
     std::vector<TabletSharedPtr> _shutdown_tablets;
@@ -202,7 +208,17 @@ private:
     std::map<int64_t, TTabletStat> _tablet_stat_cache;
     // last update time of tablet stat cache
     int64_t _last_update_stat_ms;
+
+    inline tablet_map_t& _get_tablet_map(TTabletId tablet_id);
 };
+
+inline RWMutex& TabletManager::_get_tablet_map_lock(TTabletId tabletId) {
+    return _tablet_map_lock_array[tabletId & (_tablet_map_lock_shard_size - 1)];
+}
+
+inline TabletManager::tablet_map_t& TabletManager::_get_tablet_map(TTabletId tabletId) {
+    return _tablet_map_array[tabletId & (_tablet_map_lock_shard_size - 1)];
+}
 
 }  // namespace doris
 
