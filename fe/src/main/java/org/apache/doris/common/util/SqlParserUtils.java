@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.AnalysisException;
 
 import java.util.List;
 
@@ -30,9 +31,17 @@ public class SqlParserUtils {
     //      "select k1 from tbl;"
     // The parser will return a list with 2 elements: [SelectStmt, EmptyStmt]
     // In this case, we only need the first Stmt.
-    public static StatementBase getSingleStmt(SqlParser parser) throws Exception {
+    public static StatementBase getFirstStmt(SqlParser parser) throws Exception {
         List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
         return stmts.get(0);
+    }
+
+    public static StatementBase getStmt(SqlParser parser, int idx) throws Exception {
+        List<StatementBase> stmts = (List<StatementBase>) parser.parse().value;
+        if (idx >= stmts.size()) {
+            throw new AnalysisException("Invalid statement index: " + idx + ". size: " + stmts.size());
+        }
+        return stmts.get(idx);
     }
 
     // get all parsed statements as a list

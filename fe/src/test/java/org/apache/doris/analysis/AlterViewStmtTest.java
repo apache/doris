@@ -159,7 +159,7 @@ public class AlterViewStmtTest {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(alterStmt)));
         QueryStmt alterQueryStmt = null;
         try {
-            alterQueryStmt = (QueryStmt) SqlParserUtils.getSingleStmt(parser);
+            alterQueryStmt = (QueryStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             Assert.fail(e.getMessage());
         } catch (Exception e) {

@@ -37,7 +37,7 @@ public class SqlModeTest {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         SelectStmt selectStmt = null;
         try {
-            selectStmt = (SelectStmt) SqlParserUtils.getSingleStmt(parser);
+            selectStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
@@ -45,7 +45,7 @@ public class SqlModeTest {
 
         parser = new SqlParser(new SqlScanner(new StringReader(stmt), SqlModeHelper.MODE_DEFAULT));
         try {
-            selectStmt = (SelectStmt) SqlParserUtils.getSingleStmt(parser);
+            selectStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
@@ -59,7 +59,7 @@ public class SqlModeTest {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt), SqlModeHelper.MODE_PIPES_AS_CONCAT));
         SelectStmt selectStmt = null;
         try {
-            selectStmt = (SelectStmt) SqlParserUtils.getSingleStmt(parser);
+            selectStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
@@ -72,7 +72,7 @@ public class SqlModeTest {
         // Mode DeActive
         parser = new SqlParser(new SqlScanner(new StringReader(stmt), SqlModeHelper.MODE_DEFAULT));
         try {
-            selectStmt = (SelectStmt) SqlParserUtils.getSingleStmt(parser);
+            selectStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
@@ -90,7 +90,7 @@ public class SqlModeTest {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt), SqlModeHelper.MODE_PIPES_AS_CONCAT));
         SelectStmt parsedStmt = null;
         try {
-            parsedStmt = (SelectStmt) SqlParserUtils.getSingleStmt(parser);
+            parsedStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }

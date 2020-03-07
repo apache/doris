@@ -178,7 +178,7 @@ public class ConnectProcessor {
                     ctx.resetRetureRows();
                 }
                 parsedStmt = stmts.get(i);
-                executor = new StmtExecutor(ctx, parsedStmt, originStmt);
+                executor = new StmtExecutor(ctx, parsedStmt, new OriginStatement(originStmt, i));
                 executor.execute();
 
                 if (i != stmts.size() - 1) {
@@ -425,7 +425,9 @@ public class ConnectProcessor {
 
         StmtExecutor executor = null;
         try {
-            executor = new StmtExecutor(ctx, request.getSql(), true);
+            // 0 for compatibility.
+            int idx = request.isSetStmtIdx() ? request.getStmtIdx() : 0;
+            executor = new StmtExecutor(ctx, new OriginStatement(request.getSql(), idx), true);
             executor.execute();
         } catch (IOException e) {
             // Client failed.

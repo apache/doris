@@ -196,7 +196,7 @@ public class StreamLoadTask {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {
-            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getSingleStmt(parser);
+            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
             throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
@@ -224,7 +224,7 @@ public class StreamLoadTask {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(whereSQL)));
         ImportWhereStmt whereStmt;
         try {
-            whereStmt = (ImportWhereStmt) SqlParserUtils.getSingleStmt(parser);
+            whereStmt = (ImportWhereStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing where header, sql={}", whereSQL, e);
             throw new AnalysisException("failed to parsing where header, maybe contain unsupported character");

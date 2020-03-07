@@ -29,6 +29,7 @@ import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
 
 import com.google.common.base.Preconditions;
@@ -84,8 +85,8 @@ public class SystemAction extends WebBaseAction {
         if (!Catalog.getCurrentCatalog().isMaster()) {
             // forward to master
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
-            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(showProcStmt, ConnectContext.get(),
-                    RedirectStatus.FORWARD_NO_SYNC);
+            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0),
+                    ConnectContext.get(), RedirectStatus.FORWARD_NO_SYNC);
             try {
                 masterOpExecutor.execute();
             } catch (Exception e) {

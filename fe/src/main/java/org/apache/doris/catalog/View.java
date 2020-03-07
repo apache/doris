@@ -154,7 +154,7 @@ public class View extends Table {
         SqlParser parser = new SqlParser(input);
         ParseNode node;
         try {
-            node = (ParseNode) SqlParserUtils.getSingleStmt(parser);
+            node = (ParseNode) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             LOG.info("stmt is {}", inlineViewDef);
             LOG.info("exception because: {}", e);

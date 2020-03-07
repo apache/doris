@@ -58,7 +58,7 @@ public class AdminShowReplicaTest {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         AdminShowReplicaStatusStmt showStmt = null;
         try {
-            showStmt = (AdminShowReplicaStatusStmt) SqlParserUtils.getSingleStmt(parser);
+            showStmt = (AdminShowReplicaStatusStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             Assert.fail(e.getMessage());
         } catch (Exception e) {

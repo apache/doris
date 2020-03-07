@@ -96,12 +96,12 @@ public class StreamLoadPlannerTest {
     public void testParseStmt() throws Exception {
         String sql = new String("COLUMNS (k1, k2, k3=abc(), k4=default_value())");
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(sql)));
-        ImportColumnsStmt columnsStmt = (ImportColumnsStmt) SqlParserUtils.getSingleStmt(parser);
+        ImportColumnsStmt columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
         Assert.assertEquals(4, columnsStmt.getColumns().size());
 
         sql = new String("WHERE k1 > 2 and k3 < 4");
         parser = new SqlParser(new SqlScanner(new StringReader(sql)));
-        ImportWhereStmt whereStmt = (ImportWhereStmt) SqlParserUtils.getSingleStmt(parser);
+        ImportWhereStmt whereStmt = (ImportWhereStmt) SqlParserUtils.getFirstStmt(parser);
         Assert.assertTrue(whereStmt.getExpr() instanceof CompoundPredicate);
     }
 }

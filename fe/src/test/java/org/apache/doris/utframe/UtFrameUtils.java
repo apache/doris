@@ -81,7 +81,7 @@ public class UtFrameUtils {
         Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
         StatementBase statementBase = null;
         try {
-            statementBase = SqlParserUtils.getSingleStmt(parser);
+            statementBase = SqlParserUtils.getFirstStmt(parser);
         } catch (AnalysisException e) {
             String errorMessage = parser.getErrorMsg(originStmt);
             System.err.println("parse failed: " + errorMessage);
