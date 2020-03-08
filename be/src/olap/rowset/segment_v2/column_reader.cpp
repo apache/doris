@@ -55,7 +55,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts,
                 DCHECK(meta.children_columns_size() == 1);
                 RETURN_IF_ERROR(ColumnReader::create(opts,
                                                      meta.children_columns(0),
-                                                     meta.children_columns(0).orinal(),
+                                                     meta.children_columns(0).num_rows(),
                                                      file_name,
                                                      &item_reader));
                 std::unique_ptr<ColumnReader> reader_local(

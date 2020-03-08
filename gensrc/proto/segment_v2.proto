@@ -156,7 +156,7 @@ message ColumnMetaPB {
     repeated string children_clolumn_names = 11;
 
     // required
-    optional uint64 orinal = 12;
+    optional uint64 num_rows = 12;
 }
 
 message SegmentFooterPB {

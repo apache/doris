@@ -312,7 +312,7 @@ uint64_t ColumnWriter::estimate_buffer_size() {
 
 Status ColumnWriter::finish() {
     RETURN_IF_ERROR(_finish_current_page());
-    _opts.meta->set_orinal(_next_rowid);
+    _opts.meta->set_num_rows(_next_rowid);
     return Status::OK();
 }
 
