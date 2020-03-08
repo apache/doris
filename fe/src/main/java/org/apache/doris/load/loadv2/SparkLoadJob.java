@@ -33,10 +33,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
+// TODO: add description
 public class SparkLoadJob extends BulkLoadJob {
     private static final Logger LOG = LogManager.getLogger(SparkLoadJob.class);
 
-    //for global dict
+    // for global dict
     private static final String BITMAP_DATA_PROPERTY = "bitmap_data";
 
     private EtlClusterDesc etlClusterDesc;
@@ -44,7 +45,8 @@ public class SparkLoadJob extends BulkLoadJob {
     private long etlStartTimestamp = -1;
 
     // hivedb.table for global dict
-    private String bitmapDataHiveTable = "";
+    // temporary use: one SparkLoadJob has only one table to load
+    private String hiveTableName;
 
     // only for log replay
     public SparkLoadJob() {
@@ -55,14 +57,13 @@ public class SparkLoadJob extends BulkLoadJob {
     SparkLoadJob(long dbId, String label, EtlClusterDesc etlClusterDesc, String originStmt)
             throws MetaNotFoundException {
         super(dbId, label, originStmt);
-        // broker timeout？
-        this.timeoutSecond = Config.broker_load_default_timeout_second;
+        this.timeoutSecond = Config.spark_load_default_timeout_second;
         this.etlClusterDesc = etlClusterDesc;
         this.jobType = EtlJobType.SPARK;
     }
 
-    public String getBitmapDataHiveTable() {
-        return bitmapDataHiveTable;
+    public String getHiveTableName() {
+        return hiveTableName;
     }
 
     @Override
@@ -72,7 +73,7 @@ public class SparkLoadJob extends BulkLoadJob {
         // global dict
         if (properties != null) {
             if (properties.containsKey(BITMAP_DATA_PROPERTY)) {
-                bitmapDataHiveTable = properties.get(BITMAP_DATA_PROPERTY);
+                hiveTableName = properties.get(BITMAP_DATA_PROPERTY);
             }
         }
     }
@@ -100,12 +101,12 @@ public class SparkLoadJob extends BulkLoadJob {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         etlClusterDesc.write(out);
-        Text.writeString(out, bitmapDataHiveTable);
+        Text.writeString(out, hiveTableName);
     }
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in, null);
         etlClusterDesc = EtlClusterDesc.read(in);
-        bitmapDataHiveTable = Text.readString(in);
+        hiveTableName = Text.readString(in);
     }
 }

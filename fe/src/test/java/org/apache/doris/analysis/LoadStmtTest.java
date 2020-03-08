@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
@@ -88,6 +89,15 @@ public class LoadStmtTest {
 
         Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n"
                 + "(XXX)", stmt.toString());
+
+
+        // test EtlClusterDesc
+        stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList,
+                            new EtlClusterDesc("spark.cluster0", null), null, null);
+        stmt.analyze(analyzer);
+        Assert.assertEquals(EtlJobType.SPARK, stmt.getDataProcessorDesc().getEtlJobType());
+        Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n(XXX)\nWITH CLUSTER 'spark.cluster0' ()",
+                            stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)

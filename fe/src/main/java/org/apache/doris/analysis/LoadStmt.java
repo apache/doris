@@ -291,7 +291,7 @@ public class LoadStmt extends DdlStmt {
         }
 
         if (dataProcessorDesc != null) {
-            sb.append("\n WITH ");
+            sb.append("\nWITH ");
             if (dataProcessorDesc instanceof BrokerDesc) {
                 sb.append("BROKER");
             } else if (dataProcessorDesc instanceof EtlClusterDesc) {

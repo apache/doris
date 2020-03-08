@@ -17,10 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.google.common.base.Preconditions;
-import com.google.gson.FieldNamingPolicy;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 import org.apache.doris.analysis.EtlClusterDesc;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Catalog;
@@ -42,11 +38,16 @@ import org.apache.doris.load.FailMsg;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import org.apache.spark.launcher.SparkAppHandle;
+
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
-import org.apache.spark.launcher.SparkAppHandle;
+import com.google.gson.FieldNamingPolicy;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 
 import java.util.List;
 import java.util.Map;
@@ -57,10 +58,10 @@ public class SparkLoadPendingTask extends LoadTask {
 
     private final Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups;
     private final EtlClusterDesc etlClusterDesc;
+    private final long dbId;
+    private final String loadLabel;
+    private final long loadJobId;
     private EtlJobConf etlJobConf;
-    private long dbId;
-    private String loadLabel;
-    private long loadJobId;
 
     public SparkLoadPendingTask(SparkLoadJob loadTaskCallback,
                                 Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
@@ -71,8 +72,8 @@ public class SparkLoadPendingTask extends LoadTask {
         this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
         this.etlClusterDesc = etlClusterDesc;
         this.dbId = loadTaskCallback.getDbId();
-        this.loadLabel = loadTaskCallback.getLabel();
         this.loadJobId = loadTaskCallback.getId();
+        this.loadLabel = loadTaskCallback.getLabel();
         this.failMsg = new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL);
     }
 
@@ -82,20 +83,24 @@ public class SparkLoadPendingTask extends LoadTask {
         submitEtlJob();
     }
 
-    private void submitEtlJob() {
+    private void submitEtlJob() throws LoadException {
         // retry different output path
         String outputPath = etlClusterDesc.getProperties().get("output_path");
         String fsDefaultName = etlClusterDesc.getProperties().get("fs.default.name");
-        outputPath = SparkEtlJobHandler.getOutputPath(fsDefaultName, outputPath, dbId, loadLabel, signature);
-        etlJobConf.setOutputPath(outputPath);
-        String jsonConfig = configToJson(etlJobConf);
+        etlJobConf.setOutputPath(SparkEtlJobHandler.getOutputPath(fsDefaultName, outputPath, dbId,
+                                                                  loadLabel, signature));
 
+        // spark configs
+        String sparkMaster = etlClusterDesc.getProperties().get("spark.master");
+        Map<String, String> sparkConfigs = Maps.newHashMap();
+
+        // handler submit etl job
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
-        SparkAppHandle handle = handler.submitEtlJob(loadJobId, loadLabel, jsonConfig);
+        SparkAppHandle handle = handler.submitEtlJob(loadJobId, loadLabel, sparkMaster, sparkConfigs, configToJson());
         ((SparkPendingTaskAttachment) attachment).setHandle(handle);
     }
 
-    private String configToJson(EtlJobConf etlJobConf) {
+    private String configToJson() {
         GsonBuilder gsonBuilder = new GsonBuilder();
         gsonBuilder.setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES);
         Gson gson = gsonBuilder.create();
@@ -104,7 +109,12 @@ public class SparkLoadPendingTask extends LoadTask {
 
     @Override
     public void init() throws LoadException {
+        prepareEtlClusterInfos();
         createEtlJobConf();
+    }
+
+    private void prepareEtlClusterInfos() {
+        // etlClusterDesc properties merge with cluster infos in user property
     }
 
     private void createEtlJobConf() throws LoadException {
@@ -146,9 +156,9 @@ public class SparkLoadPendingTask extends LoadTask {
                     tables.put(tableId, etlTable);
                 }
 
-                // source
+                // file group
                 for (BrokerFileGroup fileGroup : entry.getValue()) {
-                    etlTable.addSource(createEtlSource(fileGroup, tableIdToPartitionIds.get(tableId)));
+                    etlTable.addFileGroup(createEtlFileGroup(fileGroup, tableIdToPartitionIds.get(tableId)));
                 }
             }
 
@@ -310,7 +320,7 @@ public class SparkLoadPendingTask extends LoadTask {
         return new EtlPartitionInfo(type.typeString, partitionColumnRefs, idToEtlPartition);
     }
 
-    private EtlSource createEtlSource(BrokerFileGroup fileGroup, Set<Long> tablePartitionIds) {
+    private FileGroup createEtlFileGroup(BrokerFileGroup fileGroup, Set<Long> tablePartitionIds) {
         // column mappings
         Map<String, Pair<String, List<String>>> columnToHadoopFunction = fileGroup.getColumnToHadoopFunction();
         Map<String, EtlColumnMapping> columnMappings = Maps.newHashMap();
@@ -332,22 +342,22 @@ public class SparkLoadPendingTask extends LoadTask {
         if (fileGroup.getWhereExpr() != null) {
             where = fileGroup.getWhereExpr().toSql();
         }
-        EtlSource etlSource = new EtlSource(fileGroup.getFilePaths(), fileGroup.getFileFieldNames(),
-                                            fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
-                                            fileGroup.getLineDelimiter(), fileGroup.isNegative(),
-                                            fileGroup.getFileFormat(), columnMappings,
-                                            where, partitionIds);
+        FileGroup etlFileGroup = new FileGroup(fileGroup.getFilePaths(), fileGroup.getFileFieldNames(),
+                                               fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
+                                               fileGroup.getLineDelimiter(), fileGroup.isNegative(),
+                                               fileGroup.getFileFormat(), columnMappings,
+                                               where, partitionIds);
 
         // set hive table
-        etlSource.setHiveTableName(((SparkLoadJob) callback).getBitmapDataHiveTable());
+        etlFileGroup.setHiveTableName(((SparkLoadJob) callback).getHiveTableName());
 
-        return etlSource;
+        return etlFileGroup;
     }
 
     /** config.json file format
      * {
      * 	"tables": {
-     * 		"10014": {
+     * 		10014: {
      * 			"columns": {
      * 				"k1": {
      * 					"default_value": "\\N",
@@ -366,7 +376,7 @@ public class SparkLoadPendingTask extends LoadTask {
      *              }
      *          },
      * 			"indexes": {
-     * 				"10014": {
+     * 				10014: {
      * 					"column_refs": [{
      * 						"name": "k1",
      * 						"is_key": true,
@@ -383,7 +393,7 @@ public class SparkLoadPendingTask extends LoadTask {
      *                  "distribution_column_refs": ["k1"],
      * 					"schema_hash": 1294206574
      *              },
-     * 				"10017": {
+     * 				10017: {
      * 					"column_refs": [{
      * 						"name": "k1",
      * 						"is_key": true,
@@ -398,10 +408,10 @@ public class SparkLoadPendingTask extends LoadTask {
      *                }
      *           },
      * 			"partition_info": {
-     * 				"partition_type": "range",
+     * 				"partition_type": "RANGE",
      * 				"partition_column_refs": ["k2"],
      * 				"partitions": {
-     * 					"10020": {
+     * 					10020: {
      * 						"start_keys": [-100],
      * 						"end_keys": [10],
      * 						"is_max_partition": false,
@@ -409,7 +419,7 @@ public class SparkLoadPendingTask extends LoadTask {
      *                  }
      *              }
      *          },
-     * 			"sources": [{
+     * 			"file_groups": [{
      * 		        "partitions": [10020],
      * 				"file_paths": ["hdfs://hdfs_host:port/user/palo/test/file"],
      * 				"file_field_names": ["tmp_k1", "k2"],
@@ -439,7 +449,7 @@ public class SparkLoadPendingTask extends LoadTask {
 
         public EtlJobConf(Map<Long, EtlTable> tables, String outputFilePattern) {
             this.tables = tables;
-            // assign outputPath when submit etl job
+            // set outputPath when submit etl job
             this.outputPath = null;
             this.outputFilePattern = outputFilePattern;
         }
@@ -453,18 +463,18 @@ public class SparkLoadPendingTask extends LoadTask {
         private Map<String, Map<String, Object>> columns;
         private Map<Long, EtlIndex> indexes;
         private EtlPartitionInfo partitionInfo;
-        private List<EtlSource> sources;
+        private List<FileGroup> fileGroups;
 
         public EtlTable(Map<String, Map<String, Object>> nameToColumnMap, Map<Long, EtlIndex> idToEtlIndex,
                         EtlPartitionInfo etlPartitionInfo) {
             this.columns = nameToColumnMap;
             this.indexes = idToEtlIndex;
             this.partitionInfo = etlPartitionInfo;
-            this.sources = Lists.newArrayList();
+            this.fileGroups = Lists.newArrayList();
         }
 
-        public void addSource(EtlSource etlSource) {
-            sources.add(etlSource);
+        public void addFileGroup(FileGroup fileGroup) {
+            fileGroups.add(fileGroup);
         }
     }
 
@@ -555,7 +565,7 @@ public class SparkLoadPendingTask extends LoadTask {
         }
     }
 
-    private class EtlSource {
+    private class FileGroup {
         private List<String> filePaths;
         private List<String> fileFieldNames;
         private List<String> columnsFromPath;
@@ -569,7 +579,7 @@ public class SparkLoadPendingTask extends LoadTask {
 
         private String hiveTableName;
 
-        public EtlSource(List<String> filePaths, List<String> fileFieldNames, List<String> columnsFromPath,
+        public FileGroup(List<String> filePaths, List<String> fileFieldNames, List<String> columnsFromPath,
                          String valueSeparator, String lineDelimiter, boolean isNegative, String fileFormat,
                          Map<String, EtlColumnMapping> columnMappings, String where, List<Long> partitions) {
             this.filePaths = filePaths;

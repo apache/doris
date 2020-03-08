@@ -112,7 +112,7 @@ public abstract class BulkLoadJob extends LoadJob {
             switch (stmt.getDataProcessorDesc().getEtlJobType()) {
                 case BROKER:
                     bulkLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                    stmt.getBrokerDesc(), originStmt);
+                                                    (BrokerDesc) stmt.getDataProcessorDesc(), originStmt);
                     break;
                 case SPARK:
                     bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(),

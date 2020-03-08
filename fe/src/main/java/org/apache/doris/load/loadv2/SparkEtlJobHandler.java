@@ -59,32 +59,36 @@ public class SparkEtlJobHandler {
         public void infoChanged(SparkAppHandle sparkAppHandle) {}
     }
 
-    public SparkAppHandle submitEtlJob(long loadJobId, String loadLabel, String jsonConfig) {
+    public SparkAppHandle submitEtlJob(long loadJobId, String loadLabel, String sparkMaster,
+                                       Map<String, String> sparkConfigs, String jobJsonConfig) throws LoadException {
         // create job config file
         String configDirPath = JOB_CONFIG_DIR + "/" + loadJobId;
         String configFilePath = configDirPath + "/" + JOB_CONFIG_FILE;
         try {
-            createJobConfigFile(configDirPath, configFilePath, loadJobId, jsonConfig);
+            createJobConfigFile(configDirPath, configFilePath, loadJobId, jobJsonConfig);
         } catch (LoadException e) {
             return null;
         }
 
         // spark cluster config
-        String master = "spark://127.0.0.1:7077";
-        String etlJobName = String.format(ETL_JOB_NAME, loadLabel);
-
-        // spark start app
         SparkLauncher launcher = new SparkLauncher();
+        launcher = launcher.setMaster(sparkMaster)
+                .setAppResource(APP_RESOURCE)
+                .setMainClass(MAIN_CLASS)
+                .setAppName(String.format(ETL_JOB_NAME, loadLabel))
+                .addAppArgs(configFilePath);
+        for (Map.Entry<String, String> entry : sparkConfigs.entrySet()) {
+            launcher = launcher.setConf(entry.getKey(), entry.getValue());
+        }
+
+        // start app
         SparkAppHandle handle = null;
         try {
-            handle = launcher.setMaster(master)
-                    .setAppResource(APP_RESOURCE)
-                    .setMainClass(MAIN_CLASS)
-                    .addAppArgs(configFilePath)
-                    .setAppName(etlJobName)
-                    .startApplication(new SparkAppListener());
+            handle = launcher.startApplication(new SparkAppListener());
         } catch (IOException e) {
-            LOG.warn("spark start app fail. error: {}", e);
+            String errMsg = "start spark app fail, error: " + e.toString();
+            LOG.warn(errMsg);
+            throw new LoadException(errMsg);
         } finally {
             // delete config file
             Util.deleteDirectory(new File(configDirPath));

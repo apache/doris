@@ -19,6 +19,7 @@ package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.DataProcessorDesc;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
@@ -106,12 +107,12 @@ public class BrokerLoadJobTest {
 
     @Test
     public void testFromLoadStmt2(@Injectable LoadStmt loadStmt,
-                                 @Injectable DataDescription dataDescription,
-                                 @Injectable LabelName labelName,
-                                 @Injectable Database database,
-                                 @Injectable OlapTable olapTable,
-                                 @Mocked Catalog catalog,
-                                 @Injectable String originStmt) {
+                                  @Injectable DataDescription dataDescription,
+                                  @Injectable LabelName labelName,
+                                  @Injectable Database database,
+                                  @Injectable OlapTable olapTable,
+                                  @Mocked Catalog catalog,
+                                  @Injectable String originStmt) {
 
         String label = "label";
         long dbId = 1;
@@ -119,6 +120,7 @@ public class BrokerLoadJobTest {
         String databaseName = "database";
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
+        DataProcessorDesc dataProcessorDesc = new BrokerDesc("broker0", Maps.newHashMap());
 
         new Expectations() {
             {
@@ -149,6 +151,9 @@ public class BrokerLoadJobTest {
                 database.getId();
                 minTimes = 0;
                 result = dbId;
+                loadStmt.getDataProcessorDesc();
+                minTimes = 0;
+                result = dataProcessorDesc;
             }
         };
 
