@@ -29,18 +29,14 @@ struct collection {
     // 子元素数据数据
     void* data;
 
-    collection(size_t length ) : length(length), null_signs(nullptr), data(nullptr) {}
+    collection(): length(0), null_signs(nullptr), data(nullptr) {}
+
+    explicit collection(size_t length) : length(length), null_signs(nullptr), data(nullptr) {}
 
     collection(void* data, size_t length ) : length(length), null_signs(nullptr), data(data) {}
 
     collection(void* data, size_t length, bool* null_signs)
     : length(length), null_signs(null_signs), data(data) {}
-
-    collection(collection& value) {
-        length = value.length;
-        null_signs = value.null_signs;
-        data = value.data;
-    }
 
     bool operator==(const collection& y) const ;
     bool operator!=(const collection& value) const ;

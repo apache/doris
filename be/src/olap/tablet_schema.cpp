@@ -266,6 +266,17 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, boo
     _is_nullable = is_nullable;
 }
 
+TabletColumn::TabletColumn(FieldAggregationMethod agg,
+                           FieldType filed_type,
+                           bool is_nullable,
+                           int32_t unique_id,
+                           size_t length) {
+    _aggregation = agg;
+    _type = filed_type;
+    _is_nullable = is_nullable;
+    _unique_id = unique_id;
+    _length = length;
+}
 void TabletColumn::init_from_pb(const ColumnPB& column) {
     _unique_id = column.unique_id();
     _col_name = column.name();

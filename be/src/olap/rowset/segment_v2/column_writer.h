@@ -68,11 +68,6 @@ class ColumnWriter {
 public:
 
     static Status create(const ColumnWriterOptions& opts,
-                         std::unique_ptr<Field> field,
-                         fs::WritableBlock* output_file,
-                         std::unique_ptr<ColumnWriter>* writer);
-
-    static Status create(const ColumnWriterOptions& opts,
                          const TabletColumn* column,
                          fs::WritableBlock* _wblock,
                          std::unique_ptr<ColumnWriter>* writer);
@@ -121,8 +116,8 @@ protected:
     ColumnWriter(const ColumnWriterOptions& opts,
                  std::unique_ptr<Field> field,
                  fs::WritableBlock* output_file);
-    // used in init() for create page builder.
-    virtual Status create_page_builder(const EncodingInfo* encoding_info, PageBuilder** page_builder);
+    // used in init() for set _encoding_info and create page builder.
+    virtual Status create_page_builder(PageBuilder** page_builder);
 
     // used for append not null data.
     virtual Status _append_data(const uint8_t** ptr, size_t num_rows);
@@ -136,6 +131,8 @@ protected:
     std::unique_ptr<NullBitmapBuilder> _null_bitmap_builder;
 
     ColumnWriterOptions _opts;
+
+    const EncodingInfo* _encoding_info = nullptr;
 
     bool _is_nullable;
 
@@ -188,7 +185,6 @@ private:
     ordinal_t _first_rowid = 0;
 
 
-    const EncodingInfo* _encoding_info = nullptr;
     const BlockCompressionCodec* _compress_codec = nullptr;
 
     std::unique_ptr<OrdinalIndexWriter> _ordinal_index_builder;
@@ -205,7 +201,7 @@ public:
 
 protected:
     // used in init() for create page builder.
-    Status create_page_builder(const EncodingInfo* encoding_info, PageBuilder** page_builder) override;
+    Status create_page_builder(PageBuilder** page_builder) override;
 
     Status _append_data(const uint8_t** ptr, size_t num_rows) override;
 

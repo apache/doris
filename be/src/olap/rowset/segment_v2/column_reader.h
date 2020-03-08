@@ -131,7 +131,9 @@ public:
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
     // do not call this method in classes other than subclasses of ColumnReader and ColumnReader
-    virtual Status init();
+    Status init();
+
+    virtual TypeInfo* get_type_info_for_read();
 
 protected:
     ColumnReader(const ColumnReaderOptions& opts,
@@ -212,7 +214,7 @@ public:
 
     Status new_iterator(ColumnIterator** iterator) override;
 protected:
-    Status init() override;
+    TypeInfo* get_type_info_for_read() override ;
 
 private:
     std::unique_ptr<ColumnReader> _item_reader;

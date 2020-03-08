@@ -93,6 +93,8 @@ public:
     // entry (ie the entry that will next be returned by next_vector())
     virtual size_t current_index() const = 0;
 
+    bool has_remaining() const { return current_index() < count(); }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(PageDecoder);
 };

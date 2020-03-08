@@ -160,7 +160,17 @@ public:
         size_t len = l_value->length;
 
         for (size_t i = 0; i < len; ++i){
-            if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size, (uint8_t*)(r_value->data) + i * _item_size)) {
+            if (l_value->null_signs[i]) {
+                if (r_value->null_signs[i]) { // both are null
+                    continue;
+                } else { // left is null & right is not null
+                    return false;
+                }
+            } else if (r_value->null_signs[i]) { // left is not null & right is null
+                return false;
+            }
+            if (!_item_type_info->equal((uint8_t*)(l_value->data) + i * _item_size,
+                                        (uint8_t*)(r_value->data) + i * _item_size)) {
                 return false;
             }
         }
@@ -173,10 +183,20 @@ public:
         size_t l_length = l_value->length;
         size_t r_length = r_value->length;
         size_t cur = 0;
+
         while (cur < l_length && cur < r_length) {
-            int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size, (uint8_t*)(r_value->data) + cur * _item_size);
-            if (result != 0) {
-                return result;
+            if (l_value->null_signs[cur]) {
+                if (!r_value->null_signs[cur]) { // left is null & right is not null
+                    return -1;
+                }
+            } else if (r_value->null_signs[cur]) { // left is not null & right is null
+                return 1;
+            } else { // both are not null
+                int result = _item_type_info->cmp((uint8_t*)(l_value->data) + cur * _item_size,
+                                                  (uint8_t*)(r_value->data) + cur * _item_size);
+                if (result != 0) {
+                    return result;
+                }
             }
             ++cur;
         }
@@ -204,12 +224,15 @@ public:
         dest_value->data = mem_pool->allocate(item_size + nulls_size);
         dest_value->null_signs = reinterpret_cast<bool*>(dest_value->data) + item_size;
 
-        // copy item
-        for (size_t i = 0; i < src_value->length; ++i) {
-            _item_type_info->deep_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size, mem_pool);
-        }
         // copy null_signs
         memory_copy(dest_value->null_signs, src_value->null_signs, sizeof(bool) * src_value->length);
+
+        // copy item
+        for (size_t i = 0; i < src_value->length; ++i) {
+            if (dest_value->null_signs[i]) continue;
+            _item_type_info->deep_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size, mem_pool);
+        }
+
     }
 
     inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
@@ -223,12 +246,15 @@ public:
 
         dest_value->length = src_value->length;
 
-        // direct opy item
-        for (size_t i = 0; i < src_value->length; ++i) {
-            _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size);
-        }
         // direct copy null_signs
         memory_copy(dest_value->null_signs, src_value->null_signs, src_value->length);
+
+        // direct opy item
+        for (size_t i = 0; i < src_value->length; ++i) {
+            if (dest_value->null_signs[i]) continue;
+            _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size);
+        }
+
     }
 
     OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const override {

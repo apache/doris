@@ -79,8 +79,12 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts,
 
 ColumnReader::~ColumnReader() = default;
 
+TypeInfo* ColumnReader::get_type_info_for_read() {
+    return get_type_info(&_meta);
+}
+
 Status ColumnReader::init() {
-    _type_info = get_type_info(&_meta);
+    _type_info = get_type_info_for_read();
     if (_type_info == nullptr) {
         return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", _meta.type()));
     }
@@ -329,15 +333,8 @@ Status ListColumnReader::new_iterator(ColumnIterator** iterator) {
     return Status::OK();
 }
 
-Status ListColumnReader::init() {
-    RETURN_IF_ERROR(ColumnReader::init());
-
-    TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
-    RETURN_IF_ERROR(EncodingInfo::get(bigint_type_info, _meta.encoding(), &_encoding_info));
-
-    RETURN_IF_ERROR(_item_reader->init());
-
-    return Status::OK();
+TypeInfo* ListColumnReader::get_type_info_for_read() {
+    return get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
 }
 
 ListFileColumnIterator::ListFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader)
@@ -368,9 +365,9 @@ Status ListFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     }
 
     // 2. 读取最后一个ordinal
-    if (_page->has_remaining()) { // last_ordinal in page.
+    if (_page->data_decoder->has_remaining()) { // not _page->has_remaining()
         size_t i = 1;
-        _page->data_decoder->peek_next_batch(&i, &ordinal_view);
+        _page->data_decoder->peek_next_batch(&i, &ordinal_view); // not null
         DCHECK(i == 1);
     } else {
         *(reinterpret_cast<ordinal_t*>(ordinal_view.data())) = _page->next_array_item_ordinal;
@@ -380,11 +377,11 @@ Status ListFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
 
     // 3. 对于nullable的数据，修补ordinal_block中的空洞: 0 N N 3 N 5 -> 0 3 3 3 5 5
     if (_reader->is_nullable()) {
-        size_t j = *n;
-        ordinal_t pre = *(reinterpret_cast<ordinal_t*>(ordinal_block.cell(j).mutable_cell_ptr()));
-        while(--j >= 0) {
-            ColumnBlockCell cell = ordinal_block.cell(j);
+        size_t j = *n + 1;
+        while(--j > 0) { // j can not be less than 0
+            ColumnBlockCell cell = ordinal_block.cell(j - 1);
             if (cell.is_null()) {
+                ordinal_t pre = *(reinterpret_cast<ordinal_t*>(ordinal_block.cell(j).mutable_cell_ptr()));
                 *(reinterpret_cast<ordinal_t*>(cell.mutable_cell_ptr())) = pre;
             }
         }
@@ -403,16 +400,26 @@ Status ListFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     if (size_to_read > 0) {
         _item_iterator->seek_to_ordinal(ordinals[0]);
         ColumnVectorBatch* item_vector_batch = collection_batch->get_elements();
-        item_vector_batch->resize(collection_batch->item_offset(end_offset));
+        RETURN_IF_ERROR(item_vector_batch->resize(collection_batch->item_offset(end_offset)));
         ColumnBlock item_block = ColumnBlock(item_vector_batch, dst->pool());
         ColumnBlockView item_view = ColumnBlockView(&item_block, collection_batch->item_offset(start_offset));
         size_t real_read = size_to_read;
         RETURN_IF_ERROR(_item_iterator->next_batch(&real_read, &item_view));
         DCHECK(size_to_read == real_read);
     }
-    collection_batch->transform_offsets_and_elements_to_data(start_offset, end_offset);
 
-    dst->advance(*n);
+    if (dst->is_nullable()) {
+        for (size_t i = 0; i < *n; ++i) {
+            dst->set_null_bits(1, ordinal_block.is_null(i));
+            dst->advance(1);
+        }
+    } else {
+        dst->set_null_bits(*n, false);
+        dst->advance(*n);
+    }
+
+    collection_batch->transform_offsets_and_elements_to_data(0, end_offset);
+
     return Status::OK();
 }
 

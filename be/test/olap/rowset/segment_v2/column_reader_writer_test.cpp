@@ -68,7 +68,6 @@ template<FieldType type, EncodingTypePB encoding>
 void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
     using Type = typename TypeTraits<type>::CppType;
     Type* src = (Type*)src_data;
-    const TypeInfo* type_info = get_scalar_type_info(type);
 
     ColumnMetaPB meta;
 
@@ -101,9 +100,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         } else if (type == OLAP_FIELD_TYPE_CHAR) {
             column = create_char_key(1);
         }
-        std::unique_ptr<Field> field(FieldFactory::create(column));
         std::unique_ptr<ColumnWriter> writer;
-        ColumnWriter::create(writer_opts, std::move(field), wblock.get(), &writer);
+        ColumnWriter::create(writer_opts, &column, wblock.get(), &writer);
         st = writer->init();
         ASSERT_TRUE(st.ok()) << st.to_string();
 
@@ -120,6 +118,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         // close the file
         ASSERT_TRUE(wblock->close().ok());
     }
+    const TypeInfo* type_info = get_scalar_type_info(type);
     // read and check
     {
         // read and check
@@ -231,6 +230,198 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         delete iter;
     }
 }
+
+template<FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB list_encoding>
+void test_list_nullable_data(collection* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
+    collection* src = src_data;
+    ColumnMetaPB meta;
+
+    // write data
+    string fname = TEST_DIR + "/" + test_name;
+    {
+        std::unique_ptr<WritableFile> wfile;
+        auto st = Env::Default()->new_writable_file(fname, &wfile);
+        ASSERT_TRUE(st.ok());
+
+        ColumnWriterOptions writer_opts;
+        writer_opts.meta = &meta;
+        writer_opts.meta->set_column_id(0);
+        writer_opts.meta->set_unique_id(0);
+        writer_opts.meta->set_type(OLAP_FIELD_TYPE_LIST);
+        writer_opts.meta->set_length(0);
+        writer_opts.meta->set_encoding(list_encoding);
+        writer_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
+        writer_opts.meta->set_is_nullable(true);
+        writer_opts.need_zone_map = false;
+        writer_opts.data_page_size = 5 * 8;
+
+        TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_LIST);
+        int32 item_length = 0;
+        if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
+            item_length = 10;
+        }
+        TabletColumn item_column(OLAP_FIELD_AGGREGATION_NONE, item_type, true, 0, item_length);
+        list_column.add_sub_column(item_column);
+
+        std::unique_ptr<ColumnWriter> writer;
+        ColumnWriter::create(writer_opts, &list_column, wfile.get(), &writer);
+        st = writer->init();
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        for (int i = 0; i < num_rows; ++i) {
+            st = writer->append(BitmapTest(src_is_null, i), src + i);
+            ASSERT_TRUE(st.ok());
+        }
+
+        st = writer->finish();
+        ASSERT_TRUE(st.ok());
+
+        st = writer->write_data();
+        ASSERT_TRUE(st.ok());
+        st = writer->write_ordinal_index();
+        ASSERT_TRUE(st.ok());
+
+        // close the file
+        wfile.reset();
+    }
+    TypeInfo* type_info = get_type_info(&meta);
+    // read and check
+    {
+        // read and check
+        ColumnReaderOptions reader_opts;
+        std::unique_ptr<ColumnReader> reader;
+        auto st = ColumnReader::create(reader_opts, meta, num_rows, fname, &reader);
+        ASSERT_TRUE(st.ok());
+
+        ColumnIterator* iter = nullptr;
+        st = reader->new_iterator(&iter);
+        ASSERT_TRUE(st.ok());
+        std::unique_ptr<RandomAccessFile> rfile;
+        st = Env::Default()->new_random_access_file(fname, &rfile);
+        ASSERT_TRUE(st.ok());
+        ColumnIteratorOptions iter_opts;
+        OlapReaderStatistics stats;
+        iter_opts.stats = &stats;
+        iter_opts.file = rfile.get();
+        st = iter->init(iter_opts);
+        ASSERT_TRUE(st.ok());
+        // sequence read
+        {
+            st = iter->seek_to_first();
+            ASSERT_TRUE(st.ok()) << st.to_string();
+
+            MemTracker tracker;
+            MemPool pool(&tracker);
+            std::unique_ptr<ColumnVectorBatch> cvb;
+            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnBlock col(cvb.get(), &pool);
+
+            int idx = 0;
+            while (true) {
+                size_t rows_read = 1024;
+                ColumnBlockView dst(&col);
+                st = iter->next_batch(&rows_read, &dst);
+                ASSERT_TRUE(st.ok());
+                for (int j = 0; j < rows_read; ++j) {
+                    ASSERT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
+                    if (!col.is_null(j)) {
+                        type_info->equal(&src[idx], col.cell_ptr(j));
+                    }
+                    ++idx;
+                }
+                if (rows_read < 1024) {
+                    break;
+                }
+            }
+        }
+        // seek read
+        {
+            MemTracker tracker;
+            MemPool pool(&tracker);
+            std::unique_ptr<ColumnVectorBatch> cvb;
+            ColumnVectorBatch::create(1024, true, type_info, &cvb);
+            ColumnBlock col(cvb.get(), &pool);
+
+            for (int rowid = 0; rowid < num_rows; rowid += 4025) {
+                st = iter->seek_to_ordinal(rowid);
+                ASSERT_TRUE(st.ok());
+
+                int idx = rowid;
+                size_t rows_read = 1024;
+                ColumnBlockView dst(&col);
+
+                st = iter->next_batch(&rows_read, &dst);
+                ASSERT_TRUE(st.ok());
+                for (int j = 0; j < rows_read; ++j) {
+                    ASSERT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
+                    if (!col.is_null(j)) {
+                        ASSERT_TRUE(type_info->equal(&src[idx], col.cell_ptr(j)));
+                    }
+                    ++idx;
+                }
+            }
+        }
+        delete iter;
+    }
+}
+
+
+TEST_F(ColumnReaderWriterTest, test_list_type) {
+    size_t num_list = 1024 * 1024;
+    size_t num_item = num_list * 3;
+
+    uint8_t* list_is_null = new uint8_t[BitmapSize(num_list)];
+    collection* list_val = new collection[num_list];
+    bool* item_is_null = new bool[num_item];
+    uint8_t* item_val = new uint8_t[num_item];
+    for (int i = 0; i < num_item; ++i) {
+        // 0[0 1 2]null 1[3 4 5] 2[6 7 8] 3[9 10 11] 4[12 13 14]null 5[15 16 17]
+        item_val[i] = i;
+        item_is_null[i] = (i % 4) == 0;
+        if (i % 3 == 0) {
+            size_t list_index = i / 3;
+            bool is_null = (list_index % 4) == 1;
+            BitmapChange(list_is_null, list_index, is_null);
+            if (is_null) {
+                continue;
+            }
+            list_val[list_index].data = &item_val[i];
+            list_val[list_index].null_signs = &item_is_null[i];
+            list_val[list_index].length = 3;
+        }
+    }
+    test_list_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_bs");
+
+    delete[] list_val;
+    list_val = new collection[num_list];
+
+
+    Slice* varchar_vals = new Slice[3];
+    delete[] item_is_null;
+    item_is_null = new bool[3];
+    for (int i = 0; i < 3; ++i) {
+        item_is_null[i] = i == 1;
+        if (i != 1) {
+            set_column_value_by_type(OLAP_FIELD_TYPE_VARCHAR, i, (char*)&varchar_vals[i], &_pool);
+        }
+    }
+    for (int i = 0; i <  num_list; ++i) {
+        bool is_null = (i % 4) == 1;
+        BitmapChange(list_is_null, i, is_null);
+        if (is_null) {
+            continue;
+        }
+        list_val[i].data = varchar_vals;
+        list_val[i].null_signs = item_is_null;
+        list_val[i].length = 3;
+    }
+
+    delete[] list_val;
+    delete[] list_is_null;
+    delete[] item_is_null;
+    delete[] item_val;
+}
+
 
 template<FieldType type>
 void test_read_default_value(string value, void* result) {

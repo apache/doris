@@ -31,6 +31,7 @@ public:
     TabletColumn();
     TabletColumn(FieldAggregationMethod agg, FieldType type);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
+    TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable, int32_t unique_id, size_t length);
     void init_from_pb(const ColumnPB& column);
     void to_schema_pb(ColumnPB* column);
 

@@ -144,7 +144,7 @@ private:
     std::unique_ptr<ColumnVectorBatch> _elements;
 
     // 用于存储每个数据在_elements中的位置
-    size_t* _item_offsets;
+    size_t* _item_offsets = nullptr;
 };
 
 } // namespace doris end
