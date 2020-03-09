@@ -55,7 +55,7 @@ If the tablet exists, the result is returned in JSON format:
         "[0-48] 10 DATA OVERLAPPING",
         "[49-49] 2 DATA OVERLAPPING",
         "[50-50] 0 DELETE NONOVERLAPPING",
-        "[51-51] 5 DATE OVERLAPPING"
+        "[51-51] 5 DATA OVERLAPPING"
     ]
 }
 ```
