@@ -84,7 +84,7 @@ public class IndexInfoProcDir implements ProcDirInterface {
                     builder.append(Joiner.on(", ").join(columnNames)).append(")");
 
                     result.addRow(Lists.newArrayList(String.valueOf(indexId),
-                            indexMeta.getIndexName(),
+                            olapTable.getIndexNameById(indexId),
                             String.valueOf(indexMeta.getSchemaVersion()),
                             String.valueOf(indexMeta.getSchemaHash()),
                             String.valueOf(indexMeta.getShortKeyColumnCount()),

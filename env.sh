@@ -99,4 +99,3 @@ if ! ${CMAKE_CMD} --version; then
     exit 1
 fi
 export CMAKE_CMD
-

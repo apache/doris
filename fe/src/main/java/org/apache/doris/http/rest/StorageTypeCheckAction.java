@@ -80,7 +80,7 @@ public class StorageTypeCheckAction extends RestBaseAction {
                 for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTbl.getIndexIdToMeta().entrySet()) {
                     MaterializedIndexMeta indexMeta = entry.getValue();
                     if (indexMeta.getStorageType() == TStorageType.ROW) {
-                        indexObj.put(indexMeta.getIndexName(), indexMeta.getStorageType().name());
+                        indexObj.put(olapTbl.getIndexNameById(entry.getKey()), indexMeta.getStorageType().name());
                     }
                 }
                 root.put(tbl.getName(), indexObj);
