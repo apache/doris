@@ -1,5 +1,5 @@
 ===============================
-Compilation and deployment
+Compilation and Deployment
 ===============================
 
 .. toctree::

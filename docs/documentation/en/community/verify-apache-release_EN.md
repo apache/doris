@@ -72,48 +72,4 @@ It will output a file list which don't include ASF license header, and these fil
 
 ## 4. Verify building
 
-Firstly, you must be install and start docker service.
-
-And then you could build Doris as following steps:
-
-#### Step1: Pull the docker image with Doris building environment
-
-```
-$ docker pull apachedoris/doris-dev:build-env
-```
-
-You can check it by listing images, for example:
-
-```
-$ docker images
-REPOSITORY              TAG                 IMAGE ID            CREATED             SIZE
-apachedoris/doris-dev   build-env           f8bc5d4024e0        21 hours ago        3.28GB
-```
-
-#### Step2: Run the Docker image
-
-You can run image directyly:
-
-```
-$ docker run -it apachedoris/doris-dev:build-env
-```
-
-#### Step3: Download Doris source
-Now you should in docker environment, and you can download Doris source by release package or by git clone in image.
-(If you have downloaded source and it is not in image, you can map its path to image in Step2.)
-
-```
-$ wget https://dist.apache.org/repos/dist/dev/incubator/doris/xxx.tar.gz
-```
-
-#### Step4: Build Doris
-Now you can enter Doris source path and build Doris.
-
-```
-$ cd incubator-doris
-$ sh build.sh
-```
-
-After successfully building, it will install binary files in the directory output/.
-
-For more detail, you can refer to README.md in source package.
+To compile the Doris, please read [Compilation](../installing/compilation_EN.html)
