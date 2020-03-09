@@ -146,9 +146,8 @@ public class BackupJob extends AbstractJob {
         if (request.getTask_status().getStatus_code() != TStatusCode.OK) {
             taskErrMsg.put(task.getSignature(), Joiner.on(",").join(request.getTask_status().getError_msgs()));
             // status -230 means OLAP_ERR_VERSION_ALREADY_MERGED in BE OLAPStatus
-            if (request.getTask_status().isSetError_msgs() &&
-                    request.getTask_status().getError_msgs().get(0).equals("make_snapshot failed. status: -230")) {
-                status = new Status(ErrCode.COMMON_ERROR, "make_snapshot failed");
+            if (request.getTask_status().getStatus_code() == TStatusCode.OLAP_ERR_VERSION_ALREADY_MERGED) {
+                status = new Status(ErrCode.OLAP_VERSION_ALREADY_MERGED, "make snapshot failed, version already merged");
                 cancelInternal();
             }
             return false;
