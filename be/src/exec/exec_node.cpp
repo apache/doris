@@ -446,9 +446,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new IntersectNode(pool, tnode, descs));
         return Status::OK();
 
-    // case TPlanNodeType::EXCEPT_NODE:
-    //     *node = pool->add(new ExceptNode(pool, tnode, descs));
-    //     return Status::OK();
+    case TPlanNodeType::EXCEPT_NODE:
+        *node = pool->add(new ExceptNode(pool, tnode, descs));
+        return Status::OK();
 
     case TPlanNodeType::BROKER_SCAN_NODE:
         *node = pool->add(new BrokerScanNode(pool, tnode, descs));

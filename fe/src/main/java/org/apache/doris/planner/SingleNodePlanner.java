@@ -1533,7 +1533,6 @@ public class SingleNodePlanner {
             throws UserException, AnalysisException {
         SetOperationNode setOpNode;
         SetOperationStmt.Operation operation = null;
-        boolean hasConst = false;
         for (SetOperationStmt.SetOperand setOperand : setOperands) {
             if (setOperand.getOperation() != null) {
                 if (operation == null) {
@@ -1542,17 +1541,6 @@ public class SingleNodePlanner {
                 Preconditions.checkState(operation == setOperand.getOperation(), "can not support mixed set "
                         + "operations at here");
             }
-            if (setOperand.getQueryStmt() instanceof SelectStmt) {
-                SelectStmt selectStmt = (SelectStmt) setOperand.getQueryStmt();
-                if (selectStmt.getTableRefs().isEmpty()) {
-                    hasConst = true;
-                }
-            }
-        }
-        if (hasConst && !((SelectStmt) setOperands.get(0).getQueryStmt()).getTableRefs().isEmpty()
-                && operation != SetOperationStmt.Operation.UNION) {
-            // TODO(yangzhengguo) fix be will core when const exprs not at first
-            throw  new AnalysisException("not supported const expr in INTERSECT or EXCEPT");
         }
         switch (operation) {
             case UNION:
