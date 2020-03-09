@@ -114,13 +114,4 @@ public class SparkLoadJobTest {
             Assert.fail(e.getMessage());
         }
     }
-
-    @Test
-    public void testExecuteJob(@Mocked MasterTaskExecutor masterTaskExecutor) throws LoadException {
-        SparkLoadJob sparkLoadJob = new SparkLoadJob();
-        sparkLoadJob.unprotectedExecuteJob();
-
-        Map<Long, LoadTask> idToTasks = Deencapsulation.getField(sparkLoadJob, "idToTasks");
-        Assert.assertEquals(1, idToTasks.size());
-    }
 }
