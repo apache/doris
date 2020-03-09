@@ -128,7 +128,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         NEED_SCHEDULE,
         RUNNING,
         PAUSED,
-        STOPPED, CANCELLED;
+        STOPPED,
+        CANCELLED;
 
         public boolean isFinalState() {
             return this == STOPPED || this == CANCELLED;

@@ -85,6 +85,12 @@ echo "******************************"
 cd ${DORIS_HOME}/fe/
 mkdir -p build/compile
 
+if [ -z "${FE_UT_PARALLEL}" ]; then
+    # the default fe unit test parallel is 1
+    export FE_UT_PARALLEL=1
+fi
+echo "Unit test parallel is: $FE_UT_PARALLEL"
+
 if [ ${COVERAGE} -eq 1 ]; then
     echo "Run coverage statistic"
     ant cover-test

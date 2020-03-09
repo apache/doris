@@ -28,7 +28,6 @@ import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -1527,6 +1526,7 @@ recover_stmt ::=
     ;
 
 opt_agg_type ::=
+    /* not set */
     {: RESULT = null; :}
     | KW_SUM
     {:
