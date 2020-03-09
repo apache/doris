@@ -1507,6 +1507,10 @@ drop_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, tableName, false)));
     :}
+    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
+    {:
+        RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
+    :}
     ;
 
 // Recover statement
