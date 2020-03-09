@@ -195,7 +195,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
     if (!status.ok()) {
         LOG(WARNING) << "commit transaction failed, errmsg=" << status.get_error_msg()
                      << ctx->brief();
-        if (status.code() != TStatusCode::PUBLISH_TIMEOUT) {
+        if (status.code() == TStatusCode::PUBLISH_TIMEOUT) {
             ctx->need_rollback = false;
         }
         return status;
