@@ -23,6 +23,7 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
+#include "olap/fs/block_manager.h"
 #include "olap/page_cache.h"
 #include "util/block_compression.h"
 #include "util/coding.h"
@@ -61,7 +62,7 @@ Status PageIO::compress_page_body(const BlockCompressionCodec* codec,
     return Status::OK();
 }
 
-Status PageIO::write_page(WritableFile* file,
+Status PageIO::write_page(fs::WritableBlock* wblock,
                           const std::vector<Slice>& body,
                           const PageFooterPB& footer,
                           PagePointer* result) {
@@ -99,11 +100,11 @@ Status PageIO::write_page(WritableFile* file,
     encode_fixed32_le(checksum_buf, checksum);
     page.emplace_back(checksum_buf, sizeof(uint32_t));
 
-    uint64_t offset = file->size();
-    RETURN_IF_ERROR(file->appendv(&page[0], page.size()));
+    uint64_t offset = wblock->bytes_appended();
+    RETURN_IF_ERROR(wblock->appendv(&page[0], page.size()));
 
     result->offset = offset;
-    result->size = file->size() - offset;
+    result->size = wblock->bytes_appended() - offset;
     return Status::OK();
 }
 

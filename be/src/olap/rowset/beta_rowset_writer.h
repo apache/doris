@@ -18,9 +18,15 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
 #define DORIS_BE_SRC_OLAP_ROWSET_BETA_ROWSET_WRITER_H
 
+#include "vector"
+
 #include "olap/rowset/rowset_writer.h"
 
 namespace doris {
+
+namespace fs {
+class WritableBlock;
+}
 
 namespace segment_v2 {
 class SegmentWriter;
@@ -37,6 +43,7 @@ public:
     OLAPStatus add_row(const RowCursor& row) override {
         return _add_row(row);
     }
+    // For Memtable::flush()
     OLAPStatus add_row(const ContiguousRow& row) override {
         return _add_row(row);
     }
@@ -45,7 +52,7 @@ public:
     OLAPStatus add_rowset(RowsetSharedPtr rowset) override;
 
     OLAPStatus add_rowset_for_linked_schema_change(
-        RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) override;
+            RowsetSharedPtr rowset, const SchemaMapping& schema_mapping) override;
 
     OLAPStatus flush() override;
 
@@ -70,8 +77,9 @@ private:
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
     int _num_segment;
-    uint32_t _max_segment_size;
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
+    // TODO(lingbin): it is better to wrapper in a Batch?
+    std::vector<std::unique_ptr<fs::WritableBlock>> _wblocks;
 
     // counters and statistics maintained during data write
     int64_t _num_rows_written;
@@ -80,7 +88,7 @@ private:
     // TODO rowset's Zonemap
 
     bool _is_pending = false;
-    bool _rowset_build = false;
+    bool _already_built = false;
 };
 
 } // namespace doris

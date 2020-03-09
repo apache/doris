@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/zone_map_index.h"
 
 #include "olap/column_block.h"
+#include "olap/fs/block_manager.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
@@ -84,7 +85,7 @@ Status ZoneMapIndexWriter::flush() {
     return Status::OK();
 }
 
-Status ZoneMapIndexWriter::finish(WritableFile* file, ColumnIndexMetaPB* index_meta) {
+Status ZoneMapIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* index_meta) {
     index_meta->set_type(ZONE_MAP_INDEX);
     ZoneMapIndexPB* meta = index_meta->mutable_zone_map_index();
     // store segment zone map
@@ -98,7 +99,7 @@ Status ZoneMapIndexWriter::finish(WritableFile* file, ColumnIndexMetaPB* index_m
     options.encoding = EncodingInfo::get_default_encoding(typeinfo, false);
     options.compression = NO_COMPRESSION; // currently not compressed
 
-    IndexedColumnWriter writer(options, typeinfo, file);
+    IndexedColumnWriter writer(options, typeinfo, wblock);
     RETURN_IF_ERROR(writer.init());
 
     for (auto& value : _values) {
