@@ -7,6 +7,7 @@
 
 .. toctree::
 
+    downloads/index 
     installing/index
     getting-started/index
     administrator-guide/index
@@ -15,4 +16,3 @@
     sql-reference/index
     developer-guide/index    
     community/index
-
