@@ -266,7 +266,9 @@ public abstract class SetOperationNode extends PlanNode {
         Preconditions.checkState(conjuncts.isEmpty());
         computeMemLayout(analyzer);
         computeStats(analyzer);
-        computePassthrough(analyzer);
+        if (!(this instanceof ExceptNode)) {
+            computePassthrough(analyzer);
+        }
 
         // drop resultExprs/constExprs that aren't getting materialized (= where the
         // corresponding output slot isn't being materialized)
