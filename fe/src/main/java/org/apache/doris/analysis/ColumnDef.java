@@ -106,7 +106,7 @@ public class ColumnDef {
     public String getDefaultValue() { return defaultValue.value; }
     public String getName() { return name; }
     public AggregateType getAggregateType() { return aggregateType; }
-    public void setAggregateType(AggregateType aggregateType, boolean xxx) { this.aggregateType = aggregateType; }
+    public void setAggregateType(AggregateType aggregateType) { this.aggregateType = aggregateType; }
     public boolean isKey() { return isKey; }
     public void setIsKey(boolean isKey) { this.isKey = isKey; }
     public TypeDef getTypeDef() { return typeDef; }

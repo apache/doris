@@ -240,11 +240,10 @@ public class OlapTable extends Table {
 
     public void setIndexMeta(long indexId, String indexName, List<Column> schema, int schemaVersion, int schemaHash,
             short shortKeyColumnCount, TStorageType storageType, KeysType keysType) {
-        // Nullable when meta comes from schema change
+        // Nullable when meta comes from schema change log replay.
+        // The replay log only save the index id, so we need to get name by id.
         if (indexName == null) {
-            MaterializedIndexMeta oldIndexMeta = indexIdToMeta.get(indexId);
-            Preconditions.checkState(oldIndexMeta != null);
-            indexName = oldIndexMeta.getIndexName();
+            indexName = getIndexNameById(indexId);
             Preconditions.checkState(indexName != null);
         }
         // Nullable when meta is less then VERSION_74
@@ -262,7 +261,7 @@ public class OlapTable extends Table {
             Preconditions.checkState(storageType == TStorageType.COLUMN);
         }
 
-        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, indexName, schema, schemaVersion,
+        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema, schemaVersion,
                 schemaHash, shortKeyColumnCount, storageType, keysType);
         indexIdToMeta.put(indexId, indexMeta);
         indexNameToId.put(indexName, indexId);
@@ -885,7 +884,7 @@ public class OlapTable extends Table {
                 short shortKeyColumnCount = in.readShort();
 
                 // The keys type in here is incorrect
-                MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, indexName, schema,
+                MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(indexId, schema,
                         schemaVersion, schemaHash, shortKeyColumnCount, storageType, KeysType.AGG_KEYS);
                 tmpIndexMetaList.add(indexMeta);
             } else {

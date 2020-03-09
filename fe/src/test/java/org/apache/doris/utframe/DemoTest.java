@@ -17,15 +17,16 @@
 
 package org.apache.doris.utframe;
 
-import org.apache.commons.io.FileUtils;
 import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
@@ -40,7 +41,6 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
@@ -64,6 +64,7 @@ public class DemoTest {
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
+        FeConstants.default_scheduler_interval_millisecond = 1000;
         UtFrameUtils.createMinDorisCluster(runningDir);
     }
 
@@ -109,7 +110,7 @@ public class DemoTest {
         for (AlterJobV2 alterJobV2 : alterJobs.values()) {
             while (!alterJobV2.getJobState().isFinalState()) {
                 System.out.println("alter job " + alterJobV2.getDbId() + " is running. state: " + alterJobV2.getJobState());
-                Thread.sleep(5000);
+                Thread.sleep(1000);
             }
             System.out.println("alter job " + alterJobV2.getDbId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
@@ -118,6 +119,11 @@ public class DemoTest {
         try {
             OlapTable tbl = (OlapTable) db.getTable("tbl1");
             Assert.assertEquals(2, tbl.getBaseSchema().size());
+
+            String baseIndexName = tbl.getIndexNameById(tbl.getBaseIndexId());
+            Assert.assertEquals(baseIndexName, tbl.getName());
+            MaterializedIndexMeta indexMeta = tbl.getIndexMetaByIndexId(tbl.getBaseIndexId());
+            Assert.assertNotNull(indexMeta);
         } finally {
             db.readUnlock();
         }

@@ -51,10 +51,22 @@ public class MaterializedIndexMetaTest {
         DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
 
         List<Column> schema = Lists.newArrayList();
-        Column column = new Column("k1", Type.INT, true, null, true, "1", "");
-        schema.add(column);
+        schema.add(new Column("k1", Type.TINYINT, true, null, true, "1", "abc"));
+        schema.add(new Column("k2", Type.SMALLINT, true, null, true, "1", "debug"));
+        schema.add(new Column("k3", Type.INT, true, null, true, "1", ""));
+        schema.add(new Column("k4", Type.BIGINT, true, null, true, "1", "**"));
+        schema.add(new Column("k5", Type.LARGEINT, true, null, true, null, ""));
+        schema.add(new Column("k6", Type.DOUBLE, true, null, true, "1.1", ""));
+        schema.add(new Column("k7", Type.FLOAT, true, null, true, "1", ""));
+        schema.add(new Column("k8", Type.DATE, true, null, true, "1", ""));
+        schema.add(new Column("k9", Type.DATETIME, true, null, true, "1", ""));
+        schema.add(new Column("k10", Type.VARCHAR, true, null, true, "1", ""));
+        schema.add(new Column("k11", Type.DECIMALV2, true, null, true, "1", ""));
+        schema.add(new Column("k12", Type.INT, true, null, true, "1", ""));
+        schema.add(new Column("v1", Type.INT, true, AggregateType.SUM, true, "1", ""));
+        schema.add(new Column("v1", Type.VARCHAR, true, AggregateType.REPLACE, true, "1", ""));
         short shortKeyColumnCount = 1;
-        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(1, "test", schema, 1, 1, shortKeyColumnCount,
+        MaterializedIndexMeta indexMeta = new MaterializedIndexMeta(1, schema, 1, 1, shortKeyColumnCount,
                 TStorageType.COLUMN, KeysType.DUP_KEYS);
         indexMeta.write(out);
         out.flush();

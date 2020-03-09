@@ -1076,7 +1076,7 @@ public class SchemaChangeHandler extends AlterHandler {
             while (currentSchemaHash == newSchemaHash) {
                 newSchemaHash = Util.generateSchemaHash();
             }
-            String newIndexName = SHADOW_NAME_PRFIX + currentIndexMeta.getIndexName();
+            String newIndexName = SHADOW_NAME_PRFIX + olapTable.getIndexNameById(originIndexId);
             short newShortKeyColumnCount = indexIdToShortKeyColumnCount.get(originIndexId);
             long shadowIndexId = catalog.getNextId();
 

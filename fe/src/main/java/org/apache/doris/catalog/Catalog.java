@@ -4121,7 +4121,7 @@ public class Catalog {
                 }
                 MaterializedIndexMeta materializedIndexMeta = entry.getValue();
                 sb = new StringBuilder();
-                String indexName = materializedIndexMeta.getIndexName();
+                String indexName = olapTable.getIndexNameById(entry.getKey());
                 sb.append("ALTER TABLE ").append(table.getName()).append(" ADD ROLLUP ").append(indexName);
                 sb.append("(");
 

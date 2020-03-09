@@ -308,7 +308,7 @@ public class MaterializedViewHandler extends AlterHandler {
      * @throws AnalysisException
      */
     private RollupJobV2 createMaterializedViewJob(String mvName, String baseIndexName,
-                                           List<Column> mvColumns, Map<String, String> properties, OlapTable
+            List<Column> mvColumns, Map<String, String> properties, OlapTable
             olapTable, Database db, long baseIndexId, KeysType mvKeysType)
             throws DdlException, AnalysisException {
         if (mvKeysType == null) {
@@ -343,31 +343,35 @@ public class MaterializedViewHandler extends AlterHandler {
          * create all rollup indexes. and set state.
          * After setting, Tables' state will be ROLLUP
          */
+        List<Tablet> addedTablets = Lists.newArrayList();
         for (Partition partition : olapTable.getPartitions()) {
             long partitionId = partition.getId();
             TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
             // index state is SHADOW
             MaterializedIndex mvIndex = new MaterializedIndex(mvIndexId, IndexState.SHADOW);
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
-            TabletMeta mvTabletMeta = new TabletMeta(dbId, tableId, partitionId, mvIndexId, mvSchemaHash,
-                                                     medium);
+            TabletMeta mvTabletMeta = new TabletMeta(dbId, tableId, partitionId, mvIndexId, mvSchemaHash, medium);
+            short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
             for (Tablet baseTablet : baseIndex.getTablets()) {
                 long baseTabletId = baseTablet.getId();
                 long mvTabletId = catalog.getNextId();
 
                 Tablet newTablet = new Tablet(mvTabletId);
                 mvIndex.addTablet(newTablet, mvTabletMeta);
+                addedTablets.add(newTablet);
 
                 mvJob.addTabletIdMap(partitionId, mvTabletId, baseTabletId);
                 List<Replica> baseReplicas = baseTablet.getReplicas();
 
+                int healthyReplicaNum = 0;
                 for (Replica baseReplica : baseReplicas) {
                     long mvReplicaId = catalog.getNextId();
                     long backendId = baseReplica.getBackendId();
                     if (baseReplica.getState() == Replica.ReplicaState.CLONE
                             || baseReplica.getState() == Replica.ReplicaState.DECOMMISSION
                             || baseReplica.getLastFailedVersion() > 0) {
-                        // just skip it.
+                        LOG.info("base replica {} of tablet {} state is {}, and last failed version is {}, skip creating rollup replica",
+                                baseReplica.getId(), baseTabletId, baseReplica.getState(), baseReplica.getLastFailedVersion());
                         continue;
                     }
                     Preconditions.checkState(baseReplica.getState() == Replica.ReplicaState.NORMAL);
@@ -377,7 +381,24 @@ public class MaterializedViewHandler extends AlterHandler {
                                                             .PARTITION_INIT_VERSION_HASH,
                                                     mvSchemaHash);
                     newTablet.addReplica(mvReplica);
+                    healthyReplicaNum++;
                 } // end for baseReplica
+
+                if (healthyReplicaNum < replicationNum / 2 + 1) {
+                    /*
+                     * TODO(cmy): This is a bad design.
+                     * Because in the rollup job, we will only send tasks to the rollup replicas that have been created,
+                     * without checking whether the quorum of replica number are satisfied.
+                     * This will cause the job to fail until we find that the quorum of replica number
+                     * is not satisfied until the entire job is done.
+                     * So here we check the replica number strictly and do not allow to submit the job
+                     * if the quorum of replica number is not satisfied.
+                     */
+                    for (Tablet tablet : addedTablets) {
+                        Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
+                    }
+                    throw new DdlException("tablet " + baseTabletId + " has few healthy replica: " + healthyReplicaNum);
+                }
             } // end for baseTablets
 
             mvJob.addMVIndex(partitionId, mvIndex);
@@ -387,7 +408,6 @@ public class MaterializedViewHandler extends AlterHandler {
         } // end for partitions
 
         LOG.info("finished to create materialized view job: {}", mvJob.getJobId());
-
         return mvJob;
     }
 
