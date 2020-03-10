@@ -65,9 +65,6 @@ public class DropMaterializedViewStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(mvName)) {
             throw new AnalysisException("The materialized name could not be empty or null.");
         }
-        if (Strings.isNullOrEmpty(tableName.getDb())) {
-            tableName.setDb(analyzer.getDefaultDb());
-        }
         tableName.analyze(analyzer);
 
         // check access
