@@ -18,7 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.EtlClusterDesc;
+import org.apache.doris.analysis.EtlClusterWithBrokerDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SingleRangePartitionDesc;
@@ -62,7 +62,7 @@ public class SparkLoadPendingTaskTest {
 
     @Test
     public void testExecuteTask(@Injectable SparkLoadJob sparkLoadJob,
-                                @Injectable EtlClusterDesc etlClusterDesc,
+                                @Injectable EtlClusterWithBrokerDesc etlClusterWithBrokerDesc,
                                 @Mocked Catalog catalog,
                                 @Injectable Database database,
                                 @Injectable OlapTable table,
@@ -127,7 +127,7 @@ public class SparkLoadPendingTaskTest {
             }
         };
 
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, etlClusterDesc);
+        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, etlClusterWithBrokerDesc);
         task.init();
         SparkPendingTaskAttachment attachment = Deencapsulation.getField(task, "attachment");
         Assert.assertTrue(attachment.getHandle() == null);
@@ -137,7 +137,7 @@ public class SparkLoadPendingTaskTest {
 
     @Test(expected = LoadException.class)
     public void testNoDb(@Injectable SparkLoadJob sparkLoadJob,
-                         @Injectable EtlClusterDesc etlClusterDesc,
+                         @Injectable EtlClusterWithBrokerDesc etlClusterWithBrokerDesc,
                          @Mocked Catalog catalog) throws LoadException {
         long dbId = 0L;
 
@@ -148,13 +148,13 @@ public class SparkLoadPendingTaskTest {
             }
         };
 
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, null, etlClusterDesc);
+        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, null, etlClusterWithBrokerDesc);
         task.init();
     }
 
     @Test(expected = LoadException.class)
     public void testNoTable(@Injectable SparkLoadJob sparkLoadJob,
-                            @Injectable EtlClusterDesc etlClusterDesc,
+                            @Injectable EtlClusterWithBrokerDesc etlClusterWithBrokerDesc,
                             @Mocked Catalog catalog,
                             @Injectable Database database) throws LoadException {
         long dbId = 0L;
@@ -178,13 +178,13 @@ public class SparkLoadPendingTaskTest {
             }
         };
 
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, etlClusterDesc);
+        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, etlClusterWithBrokerDesc);
         task.init();
     }
 
     @Test
     public void testRangePartitionHashDistribution(@Injectable SparkLoadJob sparkLoadJob,
-                                                   @Injectable EtlClusterDesc etlClusterDesc,
+                                                   @Injectable EtlClusterWithBrokerDesc etlClusterWithBrokerDesc,
                                                    @Mocked Catalog catalog,
                                                    @Injectable Database database,
                                                    @Injectable OlapTable table) throws LoadException, DdlException, AnalysisException {
@@ -262,7 +262,7 @@ public class SparkLoadPendingTaskTest {
             }
         };
 
-        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, etlClusterDesc);
+        SparkLoadPendingTask task = new SparkLoadPendingTask(sparkLoadJob, aggKeyToFileGroups, etlClusterWithBrokerDesc);
         task.init();
         String jsonConfig = Deencapsulation.invoke(task, "configToJson");
         Gson gson = new Gson();

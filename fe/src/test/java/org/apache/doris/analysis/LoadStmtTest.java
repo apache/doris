@@ -81,7 +81,7 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null);
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null, null, null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals("testCluster:testDb", stmt.getLabel().getDbName());
         Assert.assertEquals(dataDescriptionList, stmt.getDataDescriptions());
@@ -92,10 +92,10 @@ public class LoadStmtTest {
 
 
         // test EtlClusterDesc
-        stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList,
-                            new EtlClusterDesc("spark.cluster0", null), null, null);
+        stmt = new LoadStmt(new LabelName("testDb", "testLabel"), dataDescriptionList, null,
+                            new EtlClusterWithBrokerDesc("spark.cluster0", "broker0", null), null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals(EtlJobType.SPARK, stmt.getDataProcessorDesc().getEtlJobType());
+        Assert.assertEquals(EtlJobType.SPARK, stmt.getEtlJobType());
         Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n(XXX)\nWITH CLUSTER 'spark.cluster0' ()",
                             stmt.toString());
     }
@@ -109,7 +109,7 @@ public class LoadStmtTest {
             }
         };
 
-        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null);
+        LoadStmt stmt = new LoadStmt(new LabelName("testDb", "testLabel"), null, null, null, null, null);
         stmt.analyze(analyzer);
 
         Assert.fail("No exception throws.");

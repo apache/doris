@@ -103,7 +103,7 @@ public class LoadManager implements Writable{
         writeLock();
         try {
             checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-            if (stmt.getDataProcessorDesc() == null) {
+            if (stmt.getEtlJobType() != EtlJobType.BROKER && stmt.getEtlJobType() != EtlJobType.SPARK) {
                 throw new DdlException("LoadManager only support the broker and spark load.");
             }
             if (loadJobScheduler.isQueueFull()) {
@@ -378,6 +378,14 @@ public class LoadManager implements Writable{
     // only for those jobs which transaction is not started
     public void processTimeoutJobs() {
         idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
+    }
+
+    // only for those jobs which have etl state, like SparkLoadJob
+    public void processEtlStateJobs() {
+        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.ETL))
+                .forEach(job -> {
+                    ((SparkLoadJob) job).updateEtlStatus();
+                });
     }
 
     /**

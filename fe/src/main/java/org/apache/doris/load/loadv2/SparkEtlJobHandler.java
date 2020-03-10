@@ -21,20 +21,30 @@ import org.apache.doris.PaloFe;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlStatus;
+import org.apache.doris.thrift.TEtlState;
+import org.apache.http.HttpEntity;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import org.apache.spark.launcher.SparkAppHandle;
 import org.apache.spark.launcher.SparkAppHandle.Listener;
+import org.apache.spark.launcher.SparkAppHandle.State;
 import org.apache.spark.launcher.SparkLauncher;
 
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStreamWriter;
+import java.util.List;
 import java.util.Map;
 
 public class SparkEtlJobHandler {
@@ -47,13 +57,15 @@ public class SparkEtlJobHandler {
     private static final String ETL_JOB_NAME = "doris__%s";
     // hdfs://host:port/outputPath/dbId/loadLabel/PendingTaskSignature
     private static final String ETL_OUTPUT_PATH = "%s/%s/%d/%s/%d";
+    // http://host:port/api/v1/applications/appid/jobs
+    private static final String STATUS_URL = "%s/api/v1/applications/%s/jobs";
+
+    public static final String NUM_TASKS = "numTasks";
+    public static final String NUM_COMPLETED_TASKS = "numCompletedTasks";
 
     class SparkAppListener implements Listener {
         @Override
-        public void stateChanged(SparkAppHandle sparkAppHandle) {
-            sparkAppHandle.getAppId();
-            sparkAppHandle.getState();
-        }
+        public void stateChanged(SparkAppHandle sparkAppHandle) {}
 
         @Override
         public void infoChanged(SparkAppHandle sparkAppHandle) {}
@@ -61,6 +73,8 @@ public class SparkEtlJobHandler {
 
     public SparkAppHandle submitEtlJob(long loadJobId, String loadLabel, String sparkMaster,
                                        Map<String, String> sparkConfigs, String jobJsonConfig) throws LoadException {
+        // check outputPath exist
+
         // create job config file
         String configDirPath = JOB_CONFIG_DIR + "/" + loadJobId;
         String configFilePath = configDirPath + "/" + JOB_CONFIG_FILE;
@@ -137,12 +151,79 @@ public class SparkEtlJobHandler {
     }
 
 
-    public EtlStatus getEtlJobStatus(String etlJobId) {
-        return new EtlStatus();
+    public EtlStatus getEtlJobStatus(String statusServer, SparkAppHandle handle, String appId) {
+        EtlStatus status = new EtlStatus();
+
+        // state
+        SparkAppHandle.State etlJobState = handle.getState();
+        if (etlJobState == State.FINISHED) {
+            status.setState(TEtlState.FINISHED);
+        } else if (etlJobState == State.FAILED || etlJobState == State.KILLED || etlJobState == State.LOST) {
+            status.setState(TEtlState.CANCELLED);
+        } else {
+            // UNKNOWN CONNECTED SUBMITTED RUNNING
+            status.setState(TEtlState.RUNNING);
+        }
+
+        // stats
+        if (appId != null) {
+            String statusUrl = String.format(STATUS_URL, statusServer, appId);
+            CloseableHttpClient httpClient = HttpClients.createDefault();
+            HttpGet httpGet = new HttpGet(statusUrl);
+            CloseableHttpResponse httpResponse = null;
+            String responseJson = null;
+            try {
+                httpResponse = httpClient.execute(httpGet);
+                HttpEntity httpEntity = httpResponse.getEntity();
+                responseJson = EntityUtils.toString(httpEntity);
+                LOG.info("get spark app status success. response: {}", responseJson);
+            } catch (IOException e) {
+                LOG.warn("get spark app status fail. error: {}", e);
+                return status;
+            } finally {
+                try {
+                    if (httpResponse != null) {
+                        httpResponse.close();
+                    }
+                    if (httpClient != null) {
+                        httpClient.close();
+                    }
+                } catch (IOException e) {
+                    LOG.warn("close http response or client fail. error: {}", e);
+                }
+            }
+
+            // [{ "jobId" : 0, "name" : "foreachPartition at Dpp.java:248",
+            //    "submissionTime" : "2020-02-18T09:09:46.398GMT", "stageIds" : [ 0, 1, 2 ], "status" : "RUNNING",
+            //    "numTasks" : 12, "numActiveTasks" : 3, "numCompletedTasks" : 9, "numSkippedTasks" : 0,
+            //    "numFailedTasks" : 0, "numKilledTasks" : 0, "numCompletedIndices" : 9, "numActiveStages" : 1,
+            //    "numCompletedStages" : 2, "numSkippedStages" : 0, "numFailedStages" : 0, "killedTasksSummary" : { }
+            //  }]
+            List<Map<String, Object>> jobInfos = new Gson().fromJson(responseJson, List.class);
+            Map<String, String> stats = Maps.newHashMap();
+            int numTasks = 0;
+            int numCompletedTasks = 0;
+            for (Map<String, Object> jobInfo : jobInfos) {
+                if (jobInfo.containsKey(NUM_TASKS)) {
+                    numTasks += (int) jobInfo.get(NUM_TASKS);
+                }
+                if (jobInfo.containsKey(NUM_COMPLETED_TASKS)) {
+                    numCompletedTasks += (int) jobInfo.get(NUM_COMPLETED_TASKS);
+                }
+            }
+
+            stats.put(NUM_TASKS, String.valueOf(numTasks));
+            stats.put(NUM_COMPLETED_TASKS, String.valueOf(numCompletedTasks));
+            status.setStats(stats);
+        }
+
+        // counters
+
+        return status;
     }
 
-    public void killEtlJob(String etlJobId) {
-
+    public void killEtlJob(SparkAppHandle handle) {
+        handle.stop();
     }
 
     public Map<String, Long> getEtlFilePaths(String outputPath) {

@@ -392,7 +392,7 @@ nonterminal LabelName job_label;
 nonterminal String opt_with_label;
 nonterminal String opt_system;
 nonterminal BrokerDesc opt_broker;
-nonterminal DataProcessorDesc opt_data_processor;
+nonterminal EtlClusterWithBrokerDesc opt_cluster_with_broker;
 nonterminal List<String> opt_col_list, col_list, opt_dup_keys, opt_columns_from_path;
 nonterminal List<ColWithComment> opt_col_with_comment_list, col_with_comment_list;
 nonterminal ColWithComment col_with_comment;
@@ -1121,11 +1121,12 @@ export_stmt ::=
 load_stmt ::=
     KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
-    opt_data_processor:dataProcessor
+    opt_broker:broker
+    opt_cluster_with_broker:clusterWithBroker
     opt_system:system
     opt_properties:properties
     {:
-        RESULT = new LoadStmt(label, dataDescList, dataProcessor, system, properties);
+        RESULT = new LoadStmt(label, dataDescList, broker, clusterWithBroker, system, properties);
     :}
     ;
 
@@ -1312,18 +1313,17 @@ opt_broker ::=
     :}
     ;
 
-opt_data_processor ::=
-    opt_broker:broker
+opt_cluster_with_broker ::=
     {:
-        RESULT = broker;
+        RESULT = null;
     :}
-    | KW_WITH KW_CLUSTER ident_or_text:name
+    | KW_WITH KW_CLUSTER ident_or_text:clusterName KW_BROKER ident_or_text:brokerName
     {:
-        RESULT = new EtlClusterDesc(name, null);
+        RESULT = new EtlClusterWithBrokerDesc(clusterName, brokerName, null);
     :}
-    | KW_WITH KW_CLUSTER ident_or_text:name LPAREN key_value_map:properties RPAREN
+    | KW_WITH KW_CLUSTER ident_or_text:clusterName KW_BROKER ident_or_text:brokerName LPAREN key_value_map:properties RPAREN
     {:
-        RESULT = new EtlClusterDesc(name, properties);
+        RESULT = new EtlClusterWithBrokerDesc(clusterName, brokerName, properties);
     :}
     ;
 

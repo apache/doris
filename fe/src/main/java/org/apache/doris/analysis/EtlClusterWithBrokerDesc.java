@@ -17,11 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.collect.Maps;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-
-import com.google.common.collect.Maps;
 import org.apache.doris.load.EtlJobType;
 
 import java.io.DataInput;
@@ -29,21 +28,32 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
-// DataProcessor descriptor
-public abstract class DataProcessorDesc implements Writable {
-    private String name;
+// Etl cluster with broker descriptor
+public class EtlClusterWithBrokerDesc implements Writable {
+    private static final String SPARK_CLUSTER_NAME_PREFIX = "spark.";
+
+    private String clusterName;
+    private String brokerName;
     private Map<String, String> properties;
 
-    public DataProcessorDesc(String name, Map<String, String> properties) {
-        this.name = name;
-        this.properties = properties;
+    // Only used for recovery
+    private EtlClusterWithBrokerDesc() {
+    }
+
+    public EtlClusterWithBrokerDesc(String clusterName, String brokerName, Map<String, String> properties) {
+        this.clusterName = clusterName;
+        this.brokerName = brokerName;
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
     }
 
-    public String getName() {
-        return name;
+    public String getClusterName() {
+        return clusterName;
+    }
+
+    public String getBrokerName() {
+        return brokerName;
     }
 
     public Map<String, String> getProperties() {
@@ -51,13 +61,29 @@ public abstract class DataProcessorDesc implements Writable {
     }
 
     public void analyze() throws AnalysisException {
+        // analyze name
+        String lowerCaseClusterName = clusterName.toLowerCase();
+        if (!lowerCaseClusterName.startsWith(SPARK_CLUSTER_NAME_PREFIX)
+                || lowerCaseClusterName.split("\\.").length != 2) {
+            throw new AnalysisException("Etl cluster name should be 'spark.{cluster_name}'");
+        }
+
+        // check etl cluster exist or not
     }
 
-    abstract public EtlJobType getEtlJobType();
+    public EtlJobType getEtlJobType() {
+        String lowerCaseClusterName = clusterName.toLowerCase();
+        if (lowerCaseClusterName.startsWith(SPARK_CLUSTER_NAME_PREFIX)) {
+            return EtlJobType.SPARK;
+        }
+
+        return null;
+    }
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, name);
+        Text.writeString(out, clusterName);
+        Text.writeString(out, brokerName);
         out.writeInt(properties.size());
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             Text.writeString(out, entry.getKey());
@@ -66,7 +92,8 @@ public abstract class DataProcessorDesc implements Writable {
     }
 
     public void readFields(DataInput in) throws IOException {
-        name = Text.readString(in);
+        clusterName = Text.readString(in);
+        brokerName = Text.readString(in);
         int size = in.readInt();
         properties = Maps.newHashMap();
         for (int i = 0; i < size; ++i) {
@@ -74,5 +101,11 @@ public abstract class DataProcessorDesc implements Writable {
             final String val = Text.readString(in);
             properties.put(key, val);
         }
+    }
+
+    public static EtlClusterWithBrokerDesc read(DataInput in) throws IOException {
+        EtlClusterWithBrokerDesc desc = new EtlClusterWithBrokerDesc();
+        desc.readFields(in);
+        return desc;
     }
 }

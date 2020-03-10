@@ -17,30 +17,70 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+
+import com.google.common.collect.Maps;
 import org.apache.doris.load.EtlJobType;
 
 import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
 // Broker descriptor
-public class BrokerDesc extends DataProcessorDesc {
+public class BrokerDesc implements Writable {
+    private String name;
+    private Map<String, String> properties;
+
+    // Only used for recovery
     private BrokerDesc() {
-        this(null, null);
     }
 
     public BrokerDesc(String name, Map<String, String> properties) {
-        super(name, properties);
+        this.name = name;
+        this.properties = properties;
+        if (this.properties == null) {
+            this.properties = Maps.newHashMap();
+        }
     }
 
-    @Override
+    public String getName() {
+        return name;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
     public EtlJobType getEtlJobType() {
         return EtlJobType.BROKER;
     }
 
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, name);
+        out.writeInt(properties.size());
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            Text.writeString(out, entry.getValue());
+        }
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        name = Text.readString(in);
+        int size = in.readInt();
+        properties = Maps.newHashMap();
+        for (int i = 0; i < size; ++i) {
+            final String key = Text.readString(in);
+            final String val = Text.readString(in);
+            properties.put(key, val);
+        }
+    }
+
     public static BrokerDesc read(DataInput in) throws IOException {
-        BrokerDesc brokerDesc = new BrokerDesc();
-        brokerDesc.readFields(in);
-        return brokerDesc;
+        BrokerDesc desc = new BrokerDesc();
+        desc.readFields(in);
+        return desc;
     }
 }

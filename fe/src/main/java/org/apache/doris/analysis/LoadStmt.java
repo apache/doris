@@ -22,7 +22,9 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
+import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Function;
@@ -40,7 +42,7 @@ import java.util.Map.Entry;
 //      LOAD LABEL load_label
 //          (data_desc, ...)
 //          [BY cluster]
-//          [data_processor_desc]
+//          [broker_desc | cluster_with_broker_desc]
 //          [PROPERTIES (key1=value1, )]
 //
 //      load_label:
@@ -55,9 +57,13 @@ import java.util.Map.Entry;
 //          [(col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xx))]
 //
-//     data_processor_desc:
-//          WITH BROKER|CLUSTER name
+//      broker_desc:
+//          WITH BROKER name
 //          (key2=value2, ...)
+//
+//      cluster_with_broker_desc:
+//          WITH CLUSTER cluster_name BROKER broker_name
+//          (key3=value3, ...)
 public class LoadStmt extends DdlStmt {
     public static final String TIMEOUT_PROPERTY = "timeout";
     public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
@@ -83,7 +89,8 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_FORMAT_TYPE = "format";
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
-    private final DataProcessorDesc dataProcessorDesc;
+    private final BrokerDesc brokerDesc;
+    private final EtlClusterWithBrokerDesc etlClusterWithBrokerDesc;
     private final String cluster;
     private final Map<String, String> properties;
     private String user;
@@ -102,11 +109,12 @@ public class LoadStmt extends DdlStmt {
             .add(TIMEZONE)
             .build();
     
-    public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
-                    DataProcessorDesc dataProcessorDesc, String cluster, Map<String, String> properties) {
+    public LoadStmt(LabelName label, List<DataDescription> dataDescriptions, BrokerDesc brokerDesc,
+                    EtlClusterWithBrokerDesc etlClusterWithBrokerDesc, String cluster, Map<String, String> properties) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
-        this.dataProcessorDesc = dataProcessorDesc;
+        this.brokerDesc = brokerDesc;
+        this.etlClusterWithBrokerDesc = etlClusterWithBrokerDesc;
         this.cluster = cluster;
         this.properties = properties;
         this.user = null;
@@ -120,14 +128,22 @@ public class LoadStmt extends DdlStmt {
         return dataDescriptions;
     }
 
-    public DataProcessorDesc getDataProcessorDesc() {
-        return dataProcessorDesc;
+    public BrokerDesc getBrokerDesc() {
+        return brokerDesc;
     }
 
-    public BrokerDesc getBrokerDesc() {
-        if (dataProcessorDesc instanceof BrokerDesc) {
-            return (BrokerDesc) dataProcessorDesc;
+    public EtlClusterWithBrokerDesc getEtlClusterWithBrokerDesc() {
+        return etlClusterWithBrokerDesc;
+    }
+
+    public EtlJobType getEtlJobType () {
+        if (brokerDesc != null) {
+            return brokerDesc.getEtlJobType();
         }
+        if (etlClusterWithBrokerDesc != null) {
+            return etlClusterWithBrokerDesc.getEtlJobType();
+        }
+
         return null;
     }
 
@@ -150,7 +166,7 @@ public class LoadStmt extends DdlStmt {
 
         for (Entry<String, String> entry : properties.entrySet()) {
             // temporary use for global dict
-            if (entry.getKey().startsWith("bitmap_data")) {
+            if (entry.getKey().startsWith(SparkLoadJob.BITMAP_DATA_PROPERTY)) {
                 continue;
             }
 
@@ -241,14 +257,14 @@ public class LoadStmt extends DdlStmt {
             throw new AnalysisException("No data file in load statement.");
         }
         for (DataDescription dataDescription : dataDescriptions) {
-            if (dataProcessorDesc == null) {
+            if (brokerDesc == null && etlClusterWithBrokerDesc == null) {
                 dataDescription.setIsHadoopLoad(true);
             }
             dataDescription.analyze(label.getDbName());
         }
 
-        if (dataProcessorDesc != null) {
-            dataProcessorDesc.analyze();
+        if (etlClusterWithBrokerDesc != null) {
+            etlClusterWithBrokerDesc.analyze();
         }
         
         try {
@@ -263,7 +279,7 @@ public class LoadStmt extends DdlStmt {
 
     @Override
     public boolean needAuditEncryption() {
-        if (dataProcessorDesc != null) {
+        if (brokerDesc != null || etlClusterWithBrokerDesc != null) {
             return true;
         }
         return false;
@@ -290,17 +306,19 @@ public class LoadStmt extends DdlStmt {
             sb.append("'");
         }
 
-        if (dataProcessorDesc != null) {
-            sb.append("\nWITH ");
-            if (dataProcessorDesc instanceof BrokerDesc) {
-                sb.append("BROKER");
-            } else if (dataProcessorDesc instanceof EtlClusterDesc) {
-                sb.append("CLUSTER");
-            } else {
-                sb.append("UNKNOWN");
-            }
-            sb.append(" '").append(dataProcessorDesc.getName()).append("' (");
-            sb.append(new PrintableMap<String, String>(dataProcessorDesc.getProperties(), "=", true, false, true));
+        if (brokerDesc != null) {
+            sb.append("\nWITH BROKER");
+            sb.append(" '").append(brokerDesc.getName()).append("' (");
+            sb.append(new PrintableMap<String, String>(brokerDesc.getProperties(), "=", true, false, true));
+            sb.append(")");
+        }
+
+        if (etlClusterWithBrokerDesc != null) {
+            sb.append("\nWITH CLUSTER");
+            sb.append(" '").append(etlClusterWithBrokerDesc.getClusterName()).append("' ");
+            sb.append("BROKER");
+            sb.append(" '").append(etlClusterWithBrokerDesc.getBrokerName()).append("' (");
+            sb.append(new PrintableMap<String, String>(etlClusterWithBrokerDesc.getProperties(), "=", true, false, true));
             sb.append(")");
         }
 

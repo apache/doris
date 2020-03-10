@@ -26,7 +26,7 @@ import org.junit.Test;
 
 import java.util.Map;
 
-public class EtlClusterDescTest {
+public class EtlClusterWithBrokerDescTest {
 
     @Test
     public void testNormal() throws AnalysisException {
@@ -37,16 +37,16 @@ public class EtlClusterDescTest {
         String value = "/tmp/output";
         properties.put(key, value);
 
-        EtlClusterDesc etlClusterDesc = new EtlClusterDesc(name, properties);
+        EtlClusterWithBrokerDesc etlClusterWithBrokerDesc = new EtlClusterWithBrokerDesc(name, properties);
 
-        Assert.assertEquals(name, etlClusterDesc.getName());
-        Assert.assertEquals(value, etlClusterDesc.getProperties().get(key));
-        Assert.assertEquals(EtlJobType.SPARK, etlClusterDesc.getEtlJobType());
+        Assert.assertEquals(name, etlClusterWithBrokerDesc.getName());
+        Assert.assertEquals(value, etlClusterWithBrokerDesc.getProperties().get(key));
+        Assert.assertEquals(EtlJobType.SPARK, etlClusterWithBrokerDesc.getEtlJobType());
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoTable() throws AnalysisException {
-        EtlClusterDesc etlClusterDesc = new EtlClusterDesc("test_cluster0", null);
-        etlClusterDesc.analyze();
+        EtlClusterWithBrokerDesc etlClusterWithBrokerDesc = new EtlClusterWithBrokerDesc("test_cluster0", null);
+        etlClusterWithBrokerDesc.analyze();
     }
 }

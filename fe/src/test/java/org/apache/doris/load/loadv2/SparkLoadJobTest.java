@@ -18,20 +18,17 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.DataProcessorDesc;
-import org.apache.doris.analysis.EtlClusterDesc;
+import org.apache.doris.analysis.EtlClusterWithBrokerDesc;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.Source;
-import org.apache.doris.task.MasterTaskExecutor;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -63,7 +60,8 @@ public class SparkLoadJobTest {
         String databaseName = "database";
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
-        DataProcessorDesc dataProcessorDesc = new EtlClusterDesc("spark.cluster0", Maps.newHashMap());
+        EtlClusterWithBrokerDesc etlClusterWithBrokerDesc = new EtlClusterWithBrokerDesc("spark.cluster0",
+                                                                                         "broker0", Maps.newHashMap());
         Map<String, String> properties = Maps.newHashMap();
         String hiveTable = "hivedb.table0";
         properties.put("bitmap_data", hiveTable);
@@ -88,8 +86,8 @@ public class SparkLoadJobTest {
                 result = null;
                 database.getId();
                 result = dbId;
-                loadStmt.getDataProcessorDesc();
-                result = dataProcessorDesc;
+                loadStmt.getEtlClusterWithBrokerDesc();
+                result = etlClusterWithBrokerDesc;
                 loadStmt.getProperties();
                 result = properties;
             }
