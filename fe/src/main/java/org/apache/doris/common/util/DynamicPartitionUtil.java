@@ -65,6 +65,20 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkStart(String start) throws DdlException {
+        if (Strings.isNullOrEmpty(start)) {
+            // If start properties is not specified, the default expire time is Integer.MAX_VALUE
+            start = String.valueOf(Integer.MAX_VALUE);
+        }
+        try {
+            if (Integer.parseInt(start) >= 0) {
+                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_START_ZERO, start);
+            }
+        } catch (NumberFormatException e) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_START_FORMAT, start);
+        }
+    }
+
     private static void checkEnd(String end) throws DdlException {
         if (Strings.isNullOrEmpty(end)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_EMPTY);
@@ -170,6 +184,12 @@ public class DynamicPartitionUtil {
             checkPrefix(prefixValue);
             properties.remove(DynamicPartitionProperty.PREFIX);
             analyzedProperties.put(DynamicPartitionProperty.PREFIX, prefixValue);
+        }
+        if (properties.containsKey(DynamicPartitionProperty.START)) {
+            String startValue = properties.get(DynamicPartitionProperty.START);
+            checkStart(startValue);
+            properties.remove(DynamicPartitionProperty.START);
+            analyzedProperties.put(DynamicPartitionProperty.START, startValue);
         }
         if (properties.containsKey(DynamicPartitionProperty.END)) {
             String endValue = properties.get(DynamicPartitionProperty.END);
