@@ -189,22 +189,22 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
 Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t *buf, int32_t *wbytes) {
     const auto type = std::dynamic_pointer_cast<arrow::TimestampType>(ts_array->type());
     // Doris only supports seconds
-    time_t timestamp = 0;
+    int64_t timestamp = 0;
     switch (type->unit()) {
         case arrow::TimeUnit::type::NANO: {// INT96
-            timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_batch) / 1000000000); // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000000000; // convert to Second
             break;
         }
         case arrow::TimeUnit::type::SECOND: {
-            timestamp = (time_t)ts_array->Value(_current_line_of_batch);
+            timestamp = ts_array->Value(_current_line_of_batch);
             break;
         }
         case arrow::TimeUnit::type::MILLI: {
-            timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_batch) / 1000); // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000; // convert to Second
             break;
         }
         case arrow::TimeUnit::type::MICRO: {
-            timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_batch) / 1000000); // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000000; // convert to Second
             break;
         }
         default:
