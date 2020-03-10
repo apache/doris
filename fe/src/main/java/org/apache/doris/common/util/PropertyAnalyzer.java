@@ -73,6 +73,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
 
+    public static final String PROPERTIES_TYPE = "type";
+
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
         DataProperty dataProperty = oldDataProperty;
@@ -372,5 +374,15 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_TIMEOUT);
         }
         return timeout;
+    }
+
+    // analyze property like : "type" = "xxx";
+    public static String analyzeType(Map<String, String> properties) throws AnalysisException {
+        String type = null;
+        if (properties != null && properties.containsKey(PROPERTIES_TYPE)) {
+            type = properties.get(PROPERTIES_TYPE);
+            properties.remove(PROPERTIES_TYPE);
+        }
+        return type;
     }
 }

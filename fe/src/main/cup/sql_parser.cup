@@ -192,7 +192,7 @@ parser code {:
 // Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS, 
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP_UNION, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY,
-    KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
+    KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_TIME, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
@@ -3914,6 +3914,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminShowConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND);
     :}
+    | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
+    {:
+        RESULT = new AdminCheckTabletsStmt(tabletIds, properties);
+    :}
     ;
 
 truncate_stmt ::=
@@ -4020,6 +4024,8 @@ keyword ::=
     | KW_CHAIN:id
     {: RESULT = id; :}
     | KW_CHARSET:id
+    {: RESULT = id; :}
+    | KW_CHECK:id
     {: RESULT = id; :}
     | KW_COLUMNS:id
     {: RESULT = id; :}

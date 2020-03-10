@@ -26,6 +26,8 @@ import org.apache.doris.alter.RollupHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
+import org.apache.doris.analysis.AdminCheckTabletsStmt;
+import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -6260,6 +6262,18 @@ public class Catalog {
             LOG.info("replay modify distribution type of table: " + tbl.getName());
         } finally {
             db.writeUnlock();
+        }
+    }
+
+    // entry of checking tablets operation
+    public void checkTablets(AdminCheckTabletsStmt stmt) {
+        CheckType type = stmt.getType();
+        switch (type) {
+            case CONSISTENCY:
+                consistencyChecker.addTabletsToCheck(stmt.getTabletIds());
+                break;
+            default:
+                break;
         }
     }
 }

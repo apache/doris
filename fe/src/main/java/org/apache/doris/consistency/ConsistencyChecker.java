@@ -392,4 +392,12 @@ public class ConsistencyChecker extends MasterDaemon {
             db.writeUnlock();
         }
     }
+
+    // manually adding tablets to check
+    public void addTabletsToCheck(List<Long> tabletIds) {
+        for (Long tabletId : tabletIds) {
+            CheckConsistencyJob job = new CheckConsistencyJob(tabletId);
+            addJob(job);
+        }
+    }
 }

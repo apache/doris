@@ -560,7 +560,7 @@ under the License.
                     <!--<cupDefinition>${palo.home}/gensrc/parser/sql_parser.cup</cupDefinition>-->
                     <className>SqlParser</className>
                     <symbolsName>SqlParserSymbols</symbolsName>
-                    <expectedConflicts>20</expectedConflicts>
+                    <expectedConflicts>6</expectedConflicts>
                     <!--<outputDirectory>src/main/java</outputDirectory>-->
                 </configuration>
             </plugin>
