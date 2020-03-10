@@ -80,7 +80,7 @@ public class DynamicPartitionTableTest {
         properties.put(DynamicPartitionProperty.ENABLE, "true");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.TIME_UNIT, "day");
-        properties.put(DynamicPartitionProperty.START, "3");
+        properties.put(DynamicPartitionProperty.START, "-3");
         properties.put(DynamicPartitionProperty.END, "3");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
 
