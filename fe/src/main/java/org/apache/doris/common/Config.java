@@ -614,6 +614,14 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long check_consistency_default_timeout_second = 600; // 10 min
 
+    /*
+     * Check consistency for current inconsistent tablets.
+     * This configuration can be used after you repair
+     * inconsistent tablets manually.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean check_inconsistent_tablets = false;
+
     // Configurations for query engine
     /*
      * Maximal number of connections per FE.

@@ -318,18 +318,24 @@ public class ConsistencyChecker extends MasterDaemon {
                                     }
 
                                     // check if version has already been checked
-                                    if (partition.getVisibleVersion() == tablet.getCheckedVersion()
-                                            && partition.getVisibleVersionHash() == tablet.getCheckedVersionHash()) {
-                                        if (tablet.isConsistent()) {
-                                            LOG.debug("tablet[{}]'s version[{}-{}] has been checked. ignore",
-                                                      chosenTabletId, tablet.getCheckedVersion(),
-                                                      tablet.getCheckedVersionHash());
+                                    if (Config.check_inconsistent_tablets) {
+                                        if (!tablet.isConsistent()) {
+                                            chosenTablets.add(chosenTabletId);
                                         }
                                     } else {
-                                        LOG.info("chose tablet[{}-{}-{}-{}-{}] to check consistency", db.getId(),
-                                                 table.getId(), partition.getId(), index.getId(), chosenTabletId);
+                                        if (partition.getVisibleVersion() == tablet.getCheckedVersion()
+                                                && partition.getVisibleVersionHash() == tablet.getCheckedVersionHash()) {
+                                            if (tablet.isConsistent()) {
+                                                LOG.debug("tablet[{}]'s version[{}-{}] has been checked. ignore",
+                                                        chosenTabletId, tablet.getCheckedVersion(),
+                                                        tablet.getCheckedVersionHash());
+                                            }
+                                        } else {
+                                            LOG.info("chose tablet[{}-{}-{}-{}-{}] to check consistency", db.getId(),
+                                                    table.getId(), partition.getId(), index.getId(), chosenTabletId);
 
-                                        chosenTablets.add(chosenTabletId);
+                                            chosenTablets.add(chosenTabletId);
+                                        }
                                     }
                                 } // end while tabletQueue
                             } // end while indexQueue
