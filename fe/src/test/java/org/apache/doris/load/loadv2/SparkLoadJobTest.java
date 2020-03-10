@@ -90,6 +90,8 @@ public class SparkLoadJobTest {
                 result = etlClusterWithBrokerDesc;
                 loadStmt.getProperties();
                 result = properties;
+                loadStmt.getEtlJobType();
+                result = EtlJobType.SPARK;
             }
         };
 

@@ -153,6 +153,9 @@ public class BrokerLoadJobTest {
                 loadStmt.getBrokerDesc();
                 minTimes = 0;
                 result = brokerDesc;
+                loadStmt.getEtlJobType();
+                minTimes = 0;
+                result = EtlJobType.BROKER;
             }
         };
 

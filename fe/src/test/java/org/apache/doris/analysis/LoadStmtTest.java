@@ -96,7 +96,7 @@ public class LoadStmtTest {
                             new EtlClusterWithBrokerDesc("spark.cluster0", "broker0", null), null, null);
         stmt.analyze(analyzer);
         Assert.assertEquals(EtlJobType.SPARK, stmt.getEtlJobType());
-        Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n(XXX)\nWITH CLUSTER 'spark.cluster0' ()",
+        Assert.assertEquals("LOAD LABEL `testCluster:testDb`.`testLabel`\n(XXX)\nWITH CLUSTER 'spark.cluster0' BROKER 'broker0' ()",
                             stmt.toString());
     }
 

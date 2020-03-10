@@ -17,10 +17,15 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.PaloFe;
+import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlStatus;
+import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TEtlState;
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -226,8 +231,20 @@ public class SparkEtlJobHandler {
         handle.stop();
     }
 
-    public Map<String, Long> getEtlFilePaths(String outputPath) {
-        return Maps.newHashMap();
+    public Map<String, Long> getEtlFilePaths(String outputPath, BrokerDesc brokerDesc) throws UserException {
+        Map<String, Long> fileNameToSize = Maps.newHashMap();
+
+        List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+        BrokerUtil.parseBrokerFile(outputPath, brokerDesc, fileStatuses);
+        for (TBrokerFileStatus fstatus : fileStatuses) {
+            if (fstatus.isDir) {
+                continue;
+            }
+
+            fileNameToSize.put(fstatus.getPath(), fstatus.getSize());
+        }
+
+        return fileNameToSize;
     }
 
     public static String getOutputPath(String fsDefaultName, String outputPath, long dbId,

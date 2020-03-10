@@ -43,6 +43,7 @@ public class EtlClusterWithBrokerDesc implements Writable {
     public EtlClusterWithBrokerDesc(String clusterName, String brokerName, Map<String, String> properties) {
         this.clusterName = clusterName;
         this.brokerName = brokerName;
+        this.properties = properties;
         if (this.properties == null) {
             this.properties = Maps.newHashMap();
         }
@@ -58,6 +59,10 @@ public class EtlClusterWithBrokerDesc implements Writable {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public BrokerDesc getBrokerDesc() {
+        return new BrokerDesc(brokerName, properties);
     }
 
     public void analyze() throws AnalysisException {
