@@ -123,14 +123,16 @@ public class BuildGlobalDict {
         });
 
         // TODO(wb): drop hive table to prevent schema change
+        // create IntermediateHiveTable
         spark.sql(getCreateIntermediateHiveTableSql());
 
+        // insert data to IntermediateHiveTable
         spark.sql(getInsertIntermediateHiveTableSql());
     }
 
     public void extractDistinctColumn() {
         // create distinct tables
-        // TODO(wb): maybe keep this table in memory
+        // TODO(wb): maybe keep this table in memory ?
         spark.sql(getCreateDistinctKeyTableSql());
 
         // extract distinct column
@@ -154,9 +156,19 @@ public class BuildGlobalDict {
             if (maxGlobalDictValueRow.size() == 0) {
                 throw new RuntimeException(String.format("get max dict value failed: %s", distinctColumnName));
             }
-            Object maxDictValueObj = maxGlobalDictValueRow.stream().findAny().get().get(0);
-            long maxDictValue = maxDictValueObj == null ? 0 : (long) maxDictValueObj;
-            LOG.info(" column {} 's max value in dict is {} ", distinctColumnName, maxDictValue);
+
+            long maxDictValue = 0;
+            long minDictValue = 0;
+            Row row = maxGlobalDictValueRow.get(0);
+            if (row != null && row.get(0) != null) {
+                maxDictValue = (long)row.get(0);
+                minDictValue = (long)row.get(1);
+            }
+            LOG.info(" column {} 's max value in dict is {} , min value is {}", distinctColumnName, maxDictValue, minDictValue);
+            // maybe never happened, but we need detect it
+            if (minDictValue < 0) {
+                throw new RuntimeException(String.format(" column  {} 's cardinality has exceed bigint's max value"));
+            }
 
             // build global dict
             spark.sql(getCreateBuildGlobalDictSql(maxDictValue, distinctColumnName));
@@ -215,11 +227,11 @@ public class BuildGlobalDict {
 
     private String getCreateGlobalDictHiveTableSql() {
         return "create table if not exists " + globalDictTableName
-                + "(dict_key string, dict_value int) partitioned by(dict_column string) stored as sequencefile ";
+                + "(dict_key string, dict_value bigint) partitioned by(dict_column string) stored as sequencefile ";
     }
 
     private String getMaxGlobalDictValueSql(String distinctColumnName) {
-        return "select max(dict_value) from " + globalDictTableName + " where dict_column='" + distinctColumnName + "'";
+        return "select max(dict_value) as max_value,min(dict_value) as min_value from " + globalDictTableName + " where dict_column='" + distinctColumnName + "'";
     }
 
     private String getCreateBuildGlobalDictSql(long maxGlobalDictValue, String distinctColumnName) {
