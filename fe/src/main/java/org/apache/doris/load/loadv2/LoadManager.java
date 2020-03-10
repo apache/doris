@@ -384,7 +384,11 @@ public class LoadManager implements Writable{
     public void processEtlStateJobs() {
         idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.ETL))
                 .forEach(job -> {
-                    ((SparkLoadJob) job).updateEtlStatus();
+                    try {
+                        ((SparkLoadJob) job).updateEtlStatus();
+                    } catch (UserException e) {
+                        LOG.warn("update spark load job etl status fail. error: {}", e);
+                    }
                 });
     }
 

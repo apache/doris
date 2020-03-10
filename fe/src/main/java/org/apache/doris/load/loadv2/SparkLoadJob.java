@@ -17,22 +17,19 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.google.common.collect.Lists;
-import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.EtlClusterWithBrokerDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.thrift.TBrokerFileStatus;
-import org.apache.doris.thrift.TBrokerListPathRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.spark.launcher.SparkAppHandle;
@@ -42,7 +39,6 @@ import com.google.common.base.Preconditions;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 
 // TODO: add description
@@ -159,7 +155,7 @@ public class SparkLoadJob extends BulkLoadJob {
         state = JobState.ETL;
     }
 
-    public void updateEtlStatus() {
+    public void updateEtlStatus() throws UserException {
         if (state != JobState.ETL) {
             return;
         }
@@ -207,7 +203,10 @@ public class SparkLoadJob extends BulkLoadJob {
         }
     }
 
-    private void updateEtlFinished(EtlStatus status, SparkEtlJobHandler handler) {
+    private void updateEtlFinished(EtlStatus status, SparkEtlJobHandler handler) throws UserException {
+        // etl output files
+        handler.getEtlFilePaths(etlOutputPath, etlClusterWithBrokerDesc.getBrokerDesc());
+
         writeLock();
         try {
             loadingStatus = status;
@@ -216,9 +215,6 @@ public class SparkLoadJob extends BulkLoadJob {
         } finally {
             writeUnlock();
         }
-
-        // etl output files
-        handler.getEtlFilePaths(etlOutputPath, etlClusterWithBrokerDesc.getBrokerDesc());
     }
 
     @Override
