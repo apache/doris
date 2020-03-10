@@ -42,7 +42,7 @@ public class AdminCheckTabletsStmt extends DdlStmt {
 
         public static CheckType getTypeFromString(String str) throws AnalysisException {
             try {
-                return CheckType.valueOf(str);
+                return CheckType.valueOf(str.toUpperCase());
             } catch (Exception e) {
                 throw new AnalysisException("Unknown check type: " + str);
             }
@@ -78,6 +78,9 @@ public class AdminCheckTabletsStmt extends DdlStmt {
         }
 
         String typeStr = PropertyAnalyzer.analyzeType(properties);
+        if (typeStr == null) {
+            throw new AnalysisException("Should specify 'type' property");
+        }
         type = CheckType.getTypeFromString(typeStr);
 
         if (properties != null && !properties.isEmpty()) {
