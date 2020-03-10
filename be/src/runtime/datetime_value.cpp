@@ -1553,8 +1553,8 @@ bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezo
 }
 
 bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
-    // timestamp should between 0-01-01 00:00:00 ~ 9999-12-31 23:59:59
-    if (timestamp < -62167248343 || timestamp > 253402271999L) {
+    // timestamp should between 1970-00-00 00:00:00 ~ 9999-12-31 23:59:59
+    if (timestamp < 0 || timestamp > 253402271999L) {
         return false;
     }
 
@@ -1564,12 +1564,6 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
     }
 
     int64_t current_t = timestamp;
-    bool neg = false;
-    if (timestamp < 0) {
-        current_t = -timestamp;
-        neg = true;
-    }
-
     boost::posix_time::ptime time = boost::posix_time::ptime(boost::gregorian::date(1970,1,1));
 
     while(current_t > 0) {
@@ -1580,12 +1574,7 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
             seconds_to_add = static_cast<int32_t>(current_t);
         }
         current_t -= seconds_to_add;
-        if (neg) {
-            time -= boost::posix_time::seconds(seconds_to_add);
-        } else {
-            time += boost::posix_time::seconds(seconds_to_add);
-        }
-
+        time += boost::posix_time::seconds(seconds_to_add);
     }
     boost::local_time::local_date_time lt(time, local_time_zone);
     boost::posix_time::ptime local_ptime = lt.local_time();
