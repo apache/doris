@@ -120,6 +120,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("char", new Integer(SqlParserSymbols.KW_CHAR));
         keywordMap.put("character", new Integer(SqlParserSymbols.KW_CHAR));
         keywordMap.put("charset", new Integer(SqlParserSymbols.KW_CHARSET));
+        keywordMap.put("check", new Integer(SqlParserSymbols.KW_CHECK));
         keywordMap.put("cluster", new Integer(SqlParserSymbols.KW_CLUSTER));
         keywordMap.put("clusters", new Integer(SqlParserSymbols.KW_CLUSTERS));
         keywordMap.put("collate", new Integer(SqlParserSymbols.KW_COLLATE));
