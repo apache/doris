@@ -308,7 +308,7 @@ public class MultiLoadMgr {
                 dataDescriptions.add(desc.toDataDesc());
             }
 
-            return new LoadStmt(commitLabel, dataDescriptions, null, null, properties);
+            return new LoadStmt(commitLabel, dataDescriptions, null, null, null, properties);
         }
     }
 

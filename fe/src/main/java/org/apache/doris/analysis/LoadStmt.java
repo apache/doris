@@ -263,6 +263,10 @@ public class LoadStmt extends DdlStmt {
             dataDescription.analyze(label.getDbName());
         }
 
+        if (brokerDesc != null && etlClusterWithBrokerDesc != null) {
+            throw new AnalysisException("WITH BROKER and WITH CLUSTER BROKER should not be used at the same time.");
+        }
+
         if (etlClusterWithBrokerDesc != null) {
             etlClusterWithBrokerDesc.analyze();
         }

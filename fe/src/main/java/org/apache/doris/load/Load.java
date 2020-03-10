@@ -345,7 +345,7 @@ public class Load {
                 properties.put(LoadStmt.TIMEOUT_PROPERTY, timeout);
             }
         }
-        LoadStmt stmt = new LoadStmt(labelName, dataDescriptions, null, null, properties);
+        LoadStmt stmt = new LoadStmt(labelName, dataDescriptions, null, null, null, properties);
 
         // try to register mini label
         if (!registerMiniLabel(fullDbName, label, timestamp)) {
