@@ -108,7 +108,7 @@ std::string get_build_version(bool compact) {
 }
 
 std::string get_short_version() {
-    static std::string short_version(std::string(PALO_BUILD_VERSION) + "-" + PALO_BUILD_SHORT_HASH);
+    static std::string short_version(std::string(DORIS_BUILD_VERSION) + "-" + DORIS_BUILD_SHORT_HASH);
     return short_version;
 }
 
