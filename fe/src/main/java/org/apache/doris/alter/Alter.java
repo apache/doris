@@ -31,6 +31,7 @@ import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
+import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.analysis.IndexDef;
@@ -56,6 +57,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -94,7 +96,12 @@ public class Alter {
 
     public void processCreateMaterializedView(CreateMaterializedViewStmt stmt) throws DdlException, AnalysisException {
         String tableName = stmt.getBaseIndexName();
-        Database db = Catalog.getInstance().getDb(stmt.getDBName());
+        // check db
+        String dbName = stmt.getDBName();
+        Database db = Catalog.getInstance().getDb(dbName);
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+        }
         // check cluster capacity
         Catalog.getCurrentSystemInfo().checkClusterCapacity(stmt.getClusterName());
         // check db quota
@@ -107,24 +114,44 @@ public class Alter {
                 throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
             }
             OlapTable olapTable = (OlapTable) table;
-
-            if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. "
-                                               + "Do not allow doing materialized view");
-            }
-            // check if all tablets are healthy, and no tablet is in tablet scheduler
-            boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
-                                                  Catalog.getCurrentCatalog().getTabletScheduler(),
-                                                  db.getClusterName());
-            if (!isStable) {
-                throw new DdlException("table [" + olapTable.getName() + "] is not stable."
-                                               + " Some tablets of this table may not be healthy or are being "
-                                               + "scheduled."
-                                               + " You need to repair the table first"
-                                               + " or stop cluster balance. See 'help admin;'.");
-            }
+            olapTable.checkStableAndNormal(db.getClusterName());
 
             ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    public void processDropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
+        // check db
+        String dbName = stmt.getTableName().getDb();
+        Database db = Catalog.getInstance().getDb(dbName);
+        if (db == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+        }
+
+        db.writeLock();
+        try {
+            String tableName = stmt.getTableName().getTbl();
+            Table table = db.getTable(tableName);
+            // if table exists
+            if (table == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
+            }
+            // check table type
+            if (table.getType() != TableType.OLAP) {
+                throw new DdlException("Do not support non-OLAP table [" + tableName + "] when drop materialized view");
+            }
+            // check table state
+            OlapTable olapTable = (OlapTable) table;
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. "
+                        + "Do not allow doing DROP ops");
+            }
+
+            // drop materialized view
+            ((MaterializedViewHandler)materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
+
         } finally {
             db.writeUnlock();
         }
