@@ -41,6 +41,7 @@ import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.DataProcessorDesc;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.DropClusterStmt;
@@ -108,11 +109,17 @@ public class DdlExecutor {
             catalog.cancelAlter((CancelAlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof LoadStmt) {
             LoadStmt loadStmt = (LoadStmt) ddlStmt;
-            EtlJobType jobType = loadStmt.getEtlJobType();
-            if (jobType != EtlJobType.BROKER && jobType != EtlJobType.SPARK) {
+            EtlJobType jobType;
+            DataProcessorDesc dataProcessorDesc = loadStmt.getDataProcessorDesc();
+            if (dataProcessorDesc != null) {
+                jobType = dataProcessorDesc.getEtlJobType();
+                if (jobType == null) {
+                    throw new DdlException("Unknown load job type");
+                }
+            } else {
                 if (Config.disable_hadoop_load) {
                     throw new DdlException("Load job by hadoop cluster is disabled."
-                            + " Try using broker load. See 'help broker load;'");
+                                                   + " Try using broker load. See 'help broker load;'");
                 }
                 jobType = EtlJobType.HADOOP;
             }

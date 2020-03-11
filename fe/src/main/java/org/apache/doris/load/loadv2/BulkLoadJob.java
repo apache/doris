@@ -23,6 +23,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.EtlClusterDesc;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
@@ -108,14 +109,14 @@ public abstract class BulkLoadJob extends LoadJob {
         // create job
         BulkLoadJob bulkLoadJob = null;
         try {
-            switch (stmt.getEtlJobType()) {
+            switch (stmt.getDataProcessorDesc().getEtlJobType()) {
                 case BROKER:
                     bulkLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                    stmt.getBrokerDesc(), originStmt);
+                                                    (BrokerDesc) stmt.getDataProcessorDesc(), originStmt);
                     break;
                 case SPARK:
                     bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                                                   stmt.getEtlClusterWithBrokerDesc(), originStmt);
+                                                   (EtlClusterDesc) stmt.getDataProcessorDesc(), originStmt);
                     break;
                 case MINI:
                 case DELETE:

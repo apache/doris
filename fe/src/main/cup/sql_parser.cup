@@ -392,7 +392,7 @@ nonterminal LabelName job_label;
 nonterminal String opt_with_label;
 nonterminal String opt_system;
 nonterminal BrokerDesc opt_broker;
-nonterminal EtlClusterWithBrokerDesc opt_cluster_with_broker;
+nonterminal DataProcessorDesc opt_data_processor;
 nonterminal List<String> opt_col_list, col_list, opt_dup_keys, opt_columns_from_path;
 nonterminal List<ColWithComment> opt_col_with_comment_list, col_with_comment_list;
 nonterminal ColWithComment col_with_comment;

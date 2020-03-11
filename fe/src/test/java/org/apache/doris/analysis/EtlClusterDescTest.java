@@ -26,31 +26,27 @@ import org.junit.Test;
 
 import java.util.Map;
 
-public class EtlClusterWithBrokerDescTest {
+public class EtlClusterDescTest {
 
     @Test
     public void testNormal() throws AnalysisException {
         String clusterName = "spark.cluster0";
-        String brokerName = "broker0";
 
         Map<String, String> properties = Maps.newHashMap();
         String key = "outputPath";
         String value = "/tmp/output";
         properties.put(key, value);
 
-        EtlClusterWithBrokerDesc etlClusterWithBrokerDesc = new EtlClusterWithBrokerDesc(clusterName, brokerName,
-                                                                                         properties);
+        EtlClusterDesc etlClusterDesc = new EtlClusterDesc(clusterName, properties);
 
-        Assert.assertEquals(clusterName, etlClusterWithBrokerDesc.getClusterName());
-        Assert.assertEquals(brokerName, etlClusterWithBrokerDesc.getBrokerName());
-        Assert.assertEquals(value, etlClusterWithBrokerDesc.getProperties().get(key));
-        Assert.assertEquals(EtlJobType.SPARK, etlClusterWithBrokerDesc.getEtlJobType());
+        Assert.assertEquals(clusterName, etlClusterDesc.getName());
+        Assert.assertEquals(value, etlClusterDesc.getProperties().get(key));
+        Assert.assertEquals(EtlJobType.SPARK, etlClusterDesc.getEtlJobType());
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoTable() throws AnalysisException {
-        EtlClusterWithBrokerDesc etlClusterWithBrokerDesc = new EtlClusterWithBrokerDesc("test_cluster0",
-                                                                                         "broker1", null);
-        etlClusterWithBrokerDesc.analyze();
+        EtlClusterDesc etlClusterDesc = new EtlClusterDesc("test_cluster0", null);
+        etlClusterDesc.analyze();
     }
 }

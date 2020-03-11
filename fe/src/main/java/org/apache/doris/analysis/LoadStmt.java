@@ -22,7 +22,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.qe.ConnectContext;
@@ -42,7 +41,7 @@ import java.util.Map.Entry;
 //      LOAD LABEL load_label
 //          (data_desc, ...)
 //          [BY cluster]
-//          [broker_desc | cluster_with_broker_desc]
+//          [data_processor_desc]
 //          [PROPERTIES (key1=value1, )]
 //
 //      load_label:
@@ -57,13 +56,9 @@ import java.util.Map.Entry;
 //          [(col1, ...)]
 //          [SET (k1=f1(xx), k2=f2(xx))]
 //
-//      broker_desc:
-//          WITH BROKER name
+//      data_processor_desc:
+//          WITH BROKER|CLUSTER name
 //          (key2=value2, ...)
-//
-//      cluster_with_broker_desc:
-//          WITH CLUSTER cluster_name BROKER broker_name
-//          (key3=value3, ...)
 public class LoadStmt extends DdlStmt {
     public static final String TIMEOUT_PROPERTY = "timeout";
     public static final String MAX_FILTER_RATIO_PROPERTY = "max_filter_ratio";
@@ -89,8 +84,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_FORMAT_TYPE = "format";
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
-    private final BrokerDesc brokerDesc;
-    private final EtlClusterWithBrokerDesc etlClusterWithBrokerDesc;
+    private final DataProcessorDesc dataProcessorDesc;
     private final String cluster;
     private final Map<String, String> properties;
     private String user;
@@ -109,12 +103,11 @@ public class LoadStmt extends DdlStmt {
             .add(TIMEZONE)
             .build();
     
-    public LoadStmt(LabelName label, List<DataDescription> dataDescriptions, BrokerDesc brokerDesc,
-                    EtlClusterWithBrokerDesc etlClusterWithBrokerDesc, String cluster, Map<String, String> properties) {
+    public LoadStmt(LabelName label, List<DataDescription> dataDescriptions, DataProcessorDesc dataProcessorDesc,
+                    String cluster, Map<String, String> properties) {
         this.label = label;
         this.dataDescriptions = dataDescriptions;
-        this.brokerDesc = brokerDesc;
-        this.etlClusterWithBrokerDesc = etlClusterWithBrokerDesc;
+        this.dataProcessorDesc = dataProcessorDesc;
         this.cluster = cluster;
         this.properties = properties;
         this.user = null;
@@ -128,22 +121,14 @@ public class LoadStmt extends DdlStmt {
         return dataDescriptions;
     }
 
+    public DataProcessorDesc getDataProcessorDesc() {
+        return dataProcessorDesc;
+    }
+
     public BrokerDesc getBrokerDesc() {
-        return brokerDesc;
-    }
-
-    public EtlClusterWithBrokerDesc getEtlClusterWithBrokerDesc() {
-        return etlClusterWithBrokerDesc;
-    }
-
-    public EtlJobType getEtlJobType () {
-        if (brokerDesc != null) {
-            return brokerDesc.getEtlJobType();
+        if (dataProcessorDesc instanceof BrokerDesc) {
+            return (BrokerDesc) dataProcessorDesc;
         }
-        if (etlClusterWithBrokerDesc != null) {
-            return etlClusterWithBrokerDesc.getEtlJobType();
-        }
-
         return null;
     }
 
@@ -257,18 +242,14 @@ public class LoadStmt extends DdlStmt {
             throw new AnalysisException("No data file in load statement.");
         }
         for (DataDescription dataDescription : dataDescriptions) {
-            if (brokerDesc == null && etlClusterWithBrokerDesc == null) {
+            if (dataProcessorDesc == null) {
                 dataDescription.setIsHadoopLoad(true);
             }
             dataDescription.analyze(label.getDbName());
         }
 
-        if (brokerDesc != null && etlClusterWithBrokerDesc != null) {
-            throw new AnalysisException("WITH BROKER and WITH CLUSTER BROKER should not be used at the same time.");
-        }
-
-        if (etlClusterWithBrokerDesc != null) {
-            etlClusterWithBrokerDesc.analyze();
+        if (dataProcessorDesc != null) {
+            dataProcessorDesc.analyze();
         }
         
         try {
@@ -283,7 +264,7 @@ public class LoadStmt extends DdlStmt {
 
     @Override
     public boolean needAuditEncryption() {
-        if (brokerDesc != null || etlClusterWithBrokerDesc != null) {
+        if (dataProcessorDesc != null) {
             return true;
         }
         return false;
@@ -310,19 +291,17 @@ public class LoadStmt extends DdlStmt {
             sb.append("'");
         }
 
-        if (brokerDesc != null) {
-            sb.append("\nWITH BROKER");
-            sb.append(" '").append(brokerDesc.getName()).append("' (");
-            sb.append(new PrintableMap<String, String>(brokerDesc.getProperties(), "=", true, false, true));
-            sb.append(")");
-        }
-
-        if (etlClusterWithBrokerDesc != null) {
-            sb.append("\nWITH CLUSTER");
-            sb.append(" '").append(etlClusterWithBrokerDesc.getClusterName()).append("' ");
-            sb.append("BROKER");
-            sb.append(" '").append(etlClusterWithBrokerDesc.getBrokerName()).append("' (");
-            sb.append(new PrintableMap<String, String>(etlClusterWithBrokerDesc.getProperties(), "=", true, false, true));
+        if (dataProcessorDesc != null) {
+            sb.append("\n WITH ");
+            if (dataProcessorDesc instanceof BrokerDesc) {
+                sb.append("BROKER");
+            } else if (dataProcessorDesc instanceof EtlClusterDesc) {
+                sb.append("CLUSTER");
+            } else {
+                sb.append("UNKNOWN");
+            }
+            sb.append(" '").append(dataProcessorDesc.getName()).append("' (");
+            sb.append(new PrintableMap<String, String>(dataProcessorDesc.getProperties(), "=", true, false, true));
             sb.append(")");
         }
 

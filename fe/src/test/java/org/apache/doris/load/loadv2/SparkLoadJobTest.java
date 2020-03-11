@@ -18,7 +18,8 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.analysis.DataDescription;
-import org.apache.doris.analysis.EtlClusterWithBrokerDesc;
+import org.apache.doris.analysis.DataProcessorDesc;
+import org.apache.doris.analysis.EtlClusterDesc;
 import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
@@ -60,8 +61,7 @@ public class SparkLoadJobTest {
         String databaseName = "database";
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(dataDescription);
-        EtlClusterWithBrokerDesc etlClusterWithBrokerDesc = new EtlClusterWithBrokerDesc("spark.cluster0",
-                                                                                         "broker0", Maps.newHashMap());
+        DataProcessorDesc dataProcessorDesc = new EtlClusterDesc("spark.cluster0", Maps.newHashMap());
         Map<String, String> properties = Maps.newHashMap();
         String hiveTable = "hivedb.table0";
         properties.put("bitmap_data", hiveTable);
@@ -86,12 +86,10 @@ public class SparkLoadJobTest {
                 result = null;
                 database.getId();
                 result = dbId;
-                loadStmt.getEtlClusterWithBrokerDesc();
-                result = etlClusterWithBrokerDesc;
+                loadStmt.getDataProcessorDesc();
+                result = dataProcessorDesc;
                 loadStmt.getProperties();
                 result = properties;
-                loadStmt.getEtlJobType();
-                result = EtlJobType.SPARK;
             }
         };
 

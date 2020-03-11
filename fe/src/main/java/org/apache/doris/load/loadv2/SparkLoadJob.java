@@ -17,7 +17,8 @@
 
 package org.apache.doris.load.loadv2;
 
-import org.apache.doris.analysis.EtlClusterWithBrokerDesc;
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.analysis.EtlClusterDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -48,7 +49,7 @@ public class SparkLoadJob extends BulkLoadJob {
     // for global dict
     public static final String BITMAP_DATA_PROPERTY = "bitmap_data";
 
-    private EtlClusterWithBrokerDesc etlClusterWithBrokerDesc;
+    private EtlClusterDesc etlClusterDesc;
 
     private long etlStartTimestamp = -1;
 
@@ -67,11 +68,11 @@ public class SparkLoadJob extends BulkLoadJob {
         this.jobType = EtlJobType.SPARK;
     }
 
-    SparkLoadJob(long dbId, String label, EtlClusterWithBrokerDesc etlClusterWithBrokerDesc, String originStmt)
+    SparkLoadJob(long dbId, String label, EtlClusterDesc etlClusterDesc, String originStmt)
             throws MetaNotFoundException {
         super(dbId, label, originStmt);
         this.timeoutSecond = Config.spark_load_default_timeout_second;
-        this.etlClusterWithBrokerDesc = etlClusterWithBrokerDesc;
+        this.etlClusterDesc = etlClusterDesc;
         this.jobType = EtlJobType.SPARK;
     }
 
@@ -94,7 +95,7 @@ public class SparkLoadJob extends BulkLoadJob {
     @Override
     protected void unprotectedExecuteJob() throws LoadException {
         LoadTask task = new SparkLoadPendingTask(this, fileGroupAggInfo.getAggKeyToFileGroups(),
-                                                 etlClusterWithBrokerDesc);
+                                                 etlClusterDesc);
         task.init();
         idToTasks.put(task.getSignature(), task);
         Catalog.getCurrentCatalog().getLoadTaskScheduler().submit(task);
@@ -170,7 +171,7 @@ public class SparkLoadJob extends BulkLoadJob {
 
         // get etl status
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
-        EtlStatus status = handler.getEtlJobStatus(etlClusterWithBrokerDesc.getProperties().get("spark.status_server"),
+        EtlStatus status = handler.getEtlJobStatus(etlClusterDesc.getProperties().get("spark.status_server"),
                                                    sparkAppHandle, appId);
         switch (status.getState()) {
             case RUNNING:
@@ -208,7 +209,7 @@ public class SparkLoadJob extends BulkLoadJob {
 
         // etl output files
         Map<String, Long> fileNameToSize = handler.getEtlFilePaths(etlOutputPath,
-                                                                   etlClusterWithBrokerDesc.getBrokerDesc());
+                                                                   new BrokerDesc("", null));
 
         writeLock();
         try {
@@ -223,13 +224,13 @@ public class SparkLoadJob extends BulkLoadJob {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
-        etlClusterWithBrokerDesc.write(out);
+        etlClusterDesc.write(out);
         Text.writeString(out, hiveTableName);
     }
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in, null);
-        etlClusterWithBrokerDesc = EtlClusterWithBrokerDesc.read(in);
+        etlClusterDesc = EtlClusterDesc.read(in);
         hiveTableName = Text.readString(in);
     }
 }
