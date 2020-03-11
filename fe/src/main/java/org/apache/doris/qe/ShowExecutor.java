@@ -1488,6 +1488,7 @@ public class ShowExecutor {
                             tableName,
                             String.valueOf(dynamicPartitionProperty.getEnable()),
                             dynamicPartitionProperty.getTimeUnit().toUpperCase(),
+                            String.valueOf(dynamicPartitionProperty.getStart()),
                             String.valueOf(dynamicPartitionProperty.getEnd()),
                             dynamicPartitionProperty.getPrefix(),
                             String.valueOf(dynamicPartitionProperty.getBuckets()),

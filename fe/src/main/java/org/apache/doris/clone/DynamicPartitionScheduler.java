@@ -53,6 +53,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -215,18 +216,18 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
 
-        for (Map.Entry<Long, Range<PartitionKey>> idToRangeEntry : info.getIdToRange().entrySet()) {
-            // only support single column partition now
+        List<Map.Entry<Long, Range<PartitionKey>>> idToRanges = new ArrayList<>(info.getIdToRange().entrySet());
+        idToRanges.sort(Comparator.comparing(o -> o.getValue().upperEndpoint()));
+        for (Map.Entry<Long, Range<PartitionKey>> idToRange : idToRanges) {
             try {
-                Long checkDropPartitionId = idToRangeEntry.getKey();
-                Range<PartitionKey> checkDropPartitionKey = idToRangeEntry.getValue();
+                Long checkDropPartitionId = idToRange.getKey();
+                Range<PartitionKey> checkDropPartitionKey = idToRange.getValue();
                 RangeUtils.checkRangeIntersect(reservePartitionKeyRange, checkDropPartitionKey);
-                if (checkDropPartitionKey.upperEndpoint().compareTo(reservePartitionKeyRange.lowerEndpoint()) < 0) {
+                if (checkDropPartitionKey.upperEndpoint().compareTo(reservePartitionKeyRange.lowerEndpoint()) <= 0) {
                     String dropPartitionName = olapTable.getPartition(checkDropPartitionId).getName();
                     dropPartitionClauses.add(new DropPartitionClause(false, dropPartitionName, false));
                 }
             } catch (DdlException e) {
-                recordDropPartitionFailedMsg(olapTable.getName(), e.getMessage());
                 break;
             }
         }
@@ -291,11 +292,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
 
             for (DropPartitionClause dropPartitionClause : dropPartitionClauses) {
+                db.writeLock();
                 try {
                     Catalog.getCurrentCatalog().dropPartition(db, olapTable, dropPartitionClause);
                     clearDropPartitionFailedMsg(tableName);
                 } catch (DdlException e) {
-                    recordCreatePartitionFailedMsg(tableName, e.getMessage());
+                    recordDropPartitionFailedMsg(tableName, e.getMessage());
+                } finally {
+                    db.writeUnlock();
                 }
             }
 
