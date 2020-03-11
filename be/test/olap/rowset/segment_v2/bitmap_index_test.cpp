@@ -24,11 +24,13 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "olap/fs/block_manager.h"
+#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
-#include "util/file_utils.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
+#include "util/file_utils.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -61,14 +63,17 @@ void write_index_file(std::string& filename, const void* values,
                       ColumnIndexMetaPB* meta) {
     const TypeInfo* type_info = get_type_info(type);
     {
-        std::unique_ptr<WritableFile> wfile;
-        ASSERT_TRUE(Env::Default()->new_writable_file(filename, &wfile).ok());
+        std::unique_ptr<fs::WritableBlock> wblock;
+        fs::CreateBlockOptions opts({ filename });
+        ASSERT_TRUE(fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock).ok());
+
         std::unique_ptr<BitmapIndexWriter> writer;
         BitmapIndexWriter::create(type_info, &writer);
         writer->add_values(values, value_count);
         writer->add_nulls(null_count);
-        ASSERT_TRUE(writer->finish(wfile.get(), meta).ok());
+        ASSERT_TRUE(writer->finish(wblock.get(), meta).ok());
         ASSERT_EQ(BITMAP_INDEX, meta->type());
+        ASSERT_TRUE(wblock->close().ok());
     }
 }
 

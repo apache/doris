@@ -21,6 +21,7 @@
 #include <roaring/roaring.hh>
 
 #include "env/env.h"
+#include "olap/fs/block_manager.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/indexed_column_writer.h"
@@ -100,7 +101,7 @@ public:
         _has_null = true;
     }
 
-    Status flush() override {   
+    Status flush() override {
         std::unique_ptr<BloomFilter> bf;
         RETURN_IF_ERROR(BloomFilter::create(BLOCK_BLOOM_FILTER, &bf));
         RETURN_IF_ERROR(bf->init(_values.size(), _bf_options.fpp, _bf_options.strategy));
@@ -119,7 +120,7 @@ public:
         return Status::OK();
     }
 
-    Status finish(WritableFile* file, ColumnIndexMetaPB* index_meta) override {
+    Status finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* index_meta) override {
         if (_values.size() > 0) {
             RETURN_IF_ERROR(flush());
         }
@@ -134,7 +135,7 @@ public:
         options.write_ordinal_index = true;
         options.write_value_index = false;
         options.encoding = PLAIN_ENCODING;
-        IndexedColumnWriter bf_writer(options, bf_typeinfo, file);
+        IndexedColumnWriter bf_writer(options, bf_typeinfo, wblock);
         RETURN_IF_ERROR(bf_writer.init());
         for (auto& bf : _bfs) {
             Slice data(bf->data(), bf->size());
