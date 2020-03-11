@@ -103,7 +103,7 @@ public class LoadManager implements Writable{
         writeLock();
         try {
             checkLabelUsed(dbId, stmt.getLabel().getLabelName());
-            if (stmt.getEtlJobType() != EtlJobType.BROKER && stmt.getEtlJobType() != EtlJobType.SPARK) {
+            if (stmt.getDataProcessorDesc() == null) {
                 throw new DdlException("LoadManager only support the broker and spark load.");
             }
             if (loadJobScheduler.isQueueFull()) {
