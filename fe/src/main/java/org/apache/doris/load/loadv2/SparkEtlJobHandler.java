@@ -57,8 +57,8 @@ public class SparkEtlJobHandler {
 
     private static final String JOB_CONFIG_DIR = PaloFe.DORIS_HOME_DIR + "/temp/job_conf";
     private static final String JOB_CONFIG_FILE = "jobconfig.json";
-    private static final String APP_RESOURCE = PaloFe.DORIS_HOME_DIR + "/lib/spark-etl-1.0.0.jar";
-    private static final String MAIN_CLASS = "org.apache.doris.dpp.Dpp";
+    private static final String APP_RESOURCE = PaloFe.DORIS_HOME_DIR + "/lib/palo-fe.jar";
+    private static final String MAIN_CLASS = "org.apache.doris.load.loadv2.etl.SparkEtl";
     private static final String ETL_JOB_NAME = "doris__%s";
     // hdfs://host:port/outputPath/dbId/loadLabel/PendingTaskSignature
     private static final String ETL_OUTPUT_PATH = "%s/%s/%d/%s/%d";

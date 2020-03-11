@@ -35,9 +35,17 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumnMapping;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartition;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartitionInfo;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 import org.apache.spark.launcher.SparkAppHandle;
 
 import com.google.common.base.Preconditions;
@@ -61,7 +69,7 @@ public class SparkLoadPendingTask extends LoadTask {
     private final long dbId;
     private final String loadLabel;
     private final long loadJobId;
-    private EtlJobConf etlJobConf;
+    private EtlJobConfig etlJobConfig;
 
     public SparkLoadPendingTask(SparkLoadJob loadTaskCallback,
                                 Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
@@ -87,8 +95,8 @@ public class SparkLoadPendingTask extends LoadTask {
         // retry different output path
         String outputPath = etlClusterWithBrokerDesc.getProperties().get("output_path");
         String fsDefaultName = etlClusterWithBrokerDesc.getProperties().get("fs.default.name");
-        etlJobConf.setOutputPath(SparkEtlJobHandler.getOutputPath(fsDefaultName, outputPath, dbId,
-                                                                  loadLabel, signature));
+        etlJobConfig.setOutputPath(SparkEtlJobHandler.getOutputPath(fsDefaultName, outputPath, dbId,
+                                                                    loadLabel, signature));
 
         // spark configs
         String sparkMaster = etlClusterWithBrokerDesc.getProperties().get("spark.master");
@@ -98,14 +106,14 @@ public class SparkLoadPendingTask extends LoadTask {
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
         SparkAppHandle handle = handler.submitEtlJob(loadJobId, loadLabel, sparkMaster, sparkConfigs, configToJson());
         ((SparkPendingTaskAttachment) attachment).setHandle(handle);
-        ((SparkPendingTaskAttachment) attachment).setOutputPath(etlJobConf.outputPath);
+        ((SparkPendingTaskAttachment) attachment).setOutputPath(etlJobConfig.getOutputPath());
     }
 
     private String configToJson() {
         GsonBuilder gsonBuilder = new GsonBuilder();
         gsonBuilder.setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES);
         Gson gson = gsonBuilder.create();
-        return gson.toJson(etlJobConf);
+        return gson.toJson(etlJobConfig);
     }
 
     @Override
@@ -146,7 +154,7 @@ public class SparkLoadPendingTask extends LoadTask {
                     etlTable = tables.get(tableId);
                 } else {
                     // columns
-                    Map<String, Map<String, Object>> nameToColumnMap = createEtlColumnMap(table);
+                    Map<String, EtlColumn> nameToColumnMap = createEtlColumnMap(table);
                     // indexes
                     Map<Long, EtlIndex> idToEtlIndex = createEtlIndexes(table);
                     // partition info
@@ -164,7 +172,7 @@ public class SparkLoadPendingTask extends LoadTask {
             }
 
             String outputFilePattern = loadLabel + ".%(table_id)d.%(partition_id)d.%(index_id)d.%(bucket)d.%(schema_hash)d";
-            etlJobConf = new EtlJobConf(tables, outputFilePattern);
+            etlJobConfig = new EtlJobConfig(tables, outputFilePattern);
         } finally {
             db.readUnlock();
         }
@@ -205,10 +213,10 @@ public class SparkLoadPendingTask extends LoadTask {
         }
     }
 
-    private Map<String, Map<String, Object>> createEtlColumnMap(OlapTable table) {
-        Map<String, Map<String, Object>> nameToColumnMap = Maps.newHashMap();
+    private Map<String, EtlColumn> createEtlColumnMap(OlapTable table) {
+        Map<String, EtlColumn> nameToColumnMap = Maps.newHashMap();
         for (Column column : table.getBaseSchema()) {
-            nameToColumnMap.put(column.getName(), new EtlColumn(column).toEtlColumnMap());
+            nameToColumnMap.put(column.getName(), createEtlColumn(column));
         }
         return nameToColumnMap;
     }
@@ -220,9 +228,9 @@ public class SparkLoadPendingTask extends LoadTask {
             long indexId = entry.getKey();
             int schemaHash = table.getSchemaHashByIndexId(indexId);
 
-            List<Map<String, Object>> columnMaps = Lists.newArrayList();
+            List<EtlColumn> columnMaps = Lists.newArrayList();
             for (Column column : entry.getValue()) {
-                columnMaps.add(new EtlColumn(column).toEtlColumnMap());
+                columnMaps.add(createEtlColumn(column));
             }
 
             List<String> distributionColumnRefs = Lists.newArrayList();
@@ -251,6 +259,50 @@ public class SparkLoadPendingTask extends LoadTask {
         }
 
         return idToEtlIndex;
+    }
+
+    private EtlColumn createEtlColumn(Column column) {
+        // name
+        String name = column.getName();
+        // column type
+        PrimitiveType type = column.getDataType();
+        String columnType = column.getDataType().toString();
+        // is allow null
+        boolean isAllowNull = column.isAllowNull();
+        // is key
+        boolean isKey = column.isKey();
+
+        // aggregation type
+        String aggregationType = null;
+        if (column.getAggregationType() != null) {
+            aggregationType = column.getAggregationType().toString();
+        }
+
+        // default value
+        String defaultValue = null;
+        if (column.getDefaultValue() != null) {
+            defaultValue = column.getDefaultValue();
+        }
+        if (column.isAllowNull() && column.getDefaultValue() == null) {
+            defaultValue = "\\N";
+        }
+
+        // string length
+        int stringLength = 0;
+        if (type.isStringType()) {
+            stringLength = column.getStrLen();
+        }
+
+        // decimal precision scale
+        int precision = 0;
+        int scale = 0;
+        if (type.isDecimalType() || type.isDecimalV2Type()) {
+            precision = column.getPrecision();
+            scale = column.getScale();
+        }
+
+        return new EtlColumn(name, columnType, isAllowNull, isKey, aggregationType, defaultValue,
+                             stringLength, precision, scale);
     }
 
     private EtlPartitionInfo createEtlPartitionInfo(OlapTable table, Set<Long> partitionIds) throws LoadException {
@@ -321,7 +373,7 @@ public class SparkLoadPendingTask extends LoadTask {
         return new EtlPartitionInfo(type.typeString, partitionColumnRefs, idToEtlPartition);
     }
 
-    private FileGroup createEtlFileGroup(BrokerFileGroup fileGroup, Set<Long> tablePartitionIds) {
+    private EtlFileGroup createEtlFileGroup(BrokerFileGroup fileGroup, Set<Long> tablePartitionIds) {
         // column mappings
         Map<String, Pair<String, List<String>>> columnToHadoopFunction = fileGroup.getColumnToHadoopFunction();
         Map<String, EtlColumnMapping> columnMappings = Maps.newHashMap();
@@ -343,270 +395,15 @@ public class SparkLoadPendingTask extends LoadTask {
         if (fileGroup.getWhereExpr() != null) {
             where = fileGroup.getWhereExpr().toSql();
         }
-        FileGroup etlFileGroup = new FileGroup(fileGroup.getFilePaths(), fileGroup.getFileFieldNames(),
-                                               fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
-                                               fileGroup.getLineDelimiter(), fileGroup.isNegative(),
-                                               fileGroup.getFileFormat(), columnMappings,
-                                               where, partitionIds);
+        EtlFileGroup etlFileGroup = new EtlFileGroup(fileGroup.getFilePaths(), fileGroup.getFileFieldNames(),
+                                                     fileGroup.getColumnsFromPath(), fileGroup.getValueSeparator(),
+                                                     fileGroup.getLineDelimiter(), fileGroup.isNegative(),
+                                                     fileGroup.getFileFormat(), columnMappings,
+                                                     where, partitionIds);
 
         // set hive table
         etlFileGroup.setHiveTableName(((SparkLoadJob) callback).getHiveTableName());
 
         return etlFileGroup;
-    }
-
-    /** jobconfig.json file format
-     * {
-     * 	"tables": {
-     * 		10014: {
-     * 			"columns": {
-     * 				"k1": {
-     * 					"default_value": "\\N",
-     * 					"column_type": "DATETIME",
-     * 					"is_allow_null": true
-     *              },
-     * 				"k2": {
-     * 					"default_value": "0",
-     * 					"column_type": "SMALLINT",
-     * 					"is_allow_null": true
-     *              },
-     * 				"v": {
-     * 					"default_value": "0",
-     * 					"column_type": "BIGINT",
-     * 					"is_allow_null": false
-     *              }
-     *          },
-     * 			"indexes": {
-     * 				10014: {
-     * 					"column_refs": [{
-     * 						"name": "k1",
-     * 						"is_key": true,
-     * 						"aggregation_type": "NONE"
-     *                    }, {
-     * 						"name": "k2",
-     * 						"is_key": true,
-     * 						"aggregation_type": "NONE"
-     *                    }, {
-     * 						"name": "v",
-     * 						"is_key": false,
-     * 						"aggregation_type": "NONE"
-     *                    }],
-     *                  "distribution_column_refs": ["k1"],
-     * 					"schema_hash": 1294206574
-     *              },
-     * 				10017: {
-     * 					"column_refs": [{
-     * 						"name": "k1",
-     * 						"is_key": true,
-     * 						"aggregation_type": "NONE"
-     *                    }, {
-     * 						"name": "v",
-     * 						"is_key": false,
-     * 						"aggregation_type": "SUM"
-     *                    }],
-     *                  "distribution_column_refs": ["k1"],
-     * 					"schema_hash": 1294206575
-     *                }
-     *           },
-     * 			"partition_info": {
-     * 				"partition_type": "RANGE",
-     * 				"partition_column_refs": ["k2"],
-     * 				"partitions": {
-     * 					10020: {
-     * 						"start_keys": [-100],
-     * 						"end_keys": [10],
-     * 						"is_max_partition": false,
-     * 						"bucket_num": 3
-     *                  }
-     *              }
-     *          },
-     * 			"file_groups": [{
-     * 		        "partitions": [10020],
-     * 				"file_paths": ["hdfs://hdfs_host:port/user/palo/test/file"],
-     * 				"file_field_names": ["tmp_k1", "k2"],
-     * 				"value_separator": ",",
-     * 			    "line_delimiter": "\n"
-     * 				"column_mappings": {
-     * 					"k1": {
-     * 						"function_name": "strftime",
-     * 						"args": ["%Y-%m-%d %H:%M:%S", "tmp_k1"]
-     *                   }
-     *              },
-     * 				"where": "k2 > 10",
-     * 				"is_negative": false,
-     * 				"hive_table_name": "hive_db.table"
-     *          }]
-     *      }
-     *  },
-     * 	"output_path": "hdfs://hdfs_host:port/user/output/10003/label1/1582599203397",
-     * 	"output_file_pattern": "label1.%(table_id)d.%(partition_id)d.%(index_id)d.%(bucket)d.%(schema_hash)d"
-     * }
-     */
-    private class EtlJobConf {
-        private Map<Long, EtlTable> tables;
-        private String outputPath;
-        private String outputFilePattern;
-        // private EtlErrorHubInfo hubInfo;
-
-        public EtlJobConf(Map<Long, EtlTable> tables, String outputFilePattern) {
-            this.tables = tables;
-            // set outputPath when submit etl job
-            this.outputPath = null;
-            this.outputFilePattern = outputFilePattern;
-        }
-
-        public void setOutputPath(String outputPath) {
-            this.outputPath = outputPath;
-        }
-    }
-
-    private class EtlTable {
-        private Map<String, Map<String, Object>> columns;
-        private Map<Long, EtlIndex> indexes;
-        private EtlPartitionInfo partitionInfo;
-        private List<FileGroup> fileGroups;
-
-        public EtlTable(Map<String, Map<String, Object>> nameToColumnMap, Map<Long, EtlIndex> idToEtlIndex,
-                        EtlPartitionInfo etlPartitionInfo) {
-            this.columns = nameToColumnMap;
-            this.indexes = idToEtlIndex;
-            this.partitionInfo = etlPartitionInfo;
-            this.fileGroups = Lists.newArrayList();
-        }
-
-        public void addFileGroup(FileGroup fileGroup) {
-            fileGroups.add(fileGroup);
-        }
-    }
-
-    private class EtlColumn {
-        private final Column column;
-
-        public EtlColumn(Column column) {
-            this.column = column;
-        }
-
-        public Map<String, Object> toEtlColumnMap() {
-            Map<String, Object> columnMap = Maps.newHashMap();
-
-            // name
-            columnMap.put("name", column.getName());
-            // column type
-            PrimitiveType type = column.getDataType();
-            columnMap.put("column_type", column.getDataType().toString());
-            // is allow null
-            columnMap.put("is_allow_null", column.isAllowNull());
-            // is key
-            columnMap.put("is_key", column.isKey());
-
-            // aggregation type
-            if (column.getAggregationType() != null) {
-                columnMap.put("aggregation_type", column.getAggregationType().toString());
-            }
-
-            // default value
-            if (column.getDefaultValue() != null) {
-                columnMap.put("default_value", column.getDefaultValue());
-            }
-            if (column.isAllowNull() && null == column.getDefaultValue()) {
-                columnMap.put("default_value", "\\N");
-            }
-
-            // string length
-            if (type.isStringType()) {
-                columnMap.put("string_length", column.getStrLen());
-            }
-
-            // decimal precision scale
-            if (type.isDecimalType() || type.isDecimalV2Type()) {
-                columnMap.put("precision", column.getPrecision());
-                columnMap.put("scale", column.getScale());
-            }
-
-            return columnMap;
-        }
-    }
-
-    private class EtlIndex {
-        private List<Map<String, Object>> columnRefs;
-        private List<String> distributionColumnRefs;
-        private int schemaHash;
-
-        public EtlIndex(List<Map<String, Object>> columnMaps, List<String> distributionColumnRefs, int schemaHash) {
-            this.columnRefs = columnMaps;
-            this.distributionColumnRefs = distributionColumnRefs;
-            this.schemaHash = schemaHash;
-        }
-    }
-
-    private class EtlPartitionInfo {
-        private String partitionType;
-        private List<String> partitionColumnRefs;
-        private Map<Long, EtlPartition> partitions;
-
-        public EtlPartitionInfo(String partitionType, List<String> partitionColumnRefs,
-                                Map<Long, EtlPartition> idToEtlPartition) {
-            this.partitionType = partitionType;
-            this.partitionColumnRefs = partitionColumnRefs;
-            this.partitions = idToEtlPartition;
-        }
-    }
-
-    private class EtlPartition {
-        private List<Object> startKeys;
-        private List<Object> endKeys;
-        private boolean isMaxPartition;
-        private int bucketNum;
-
-        public EtlPartition(List<Object> startKeys, List<Object> endKeys, boolean isMaxPartition, int bucketNum) {
-            this.startKeys = startKeys;
-            this.endKeys = endKeys;
-            this.isMaxPartition = isMaxPartition;
-            this.bucketNum = bucketNum;
-        }
-    }
-
-    private class FileGroup {
-        private List<String> filePaths;
-        private List<String> fileFieldNames;
-        private List<String> columnsFromPath;
-        private String valueSeparator;
-        private String lineDelimiter;
-        private boolean isNegative;
-        private String fileFormat;
-        private Map<String, EtlColumnMapping> columnMappings;
-        private String where;
-        private List<Long> partitions;
-
-        private String hiveTableName;
-
-        public FileGroup(List<String> filePaths, List<String> fileFieldNames, List<String> columnsFromPath,
-                         String valueSeparator, String lineDelimiter, boolean isNegative, String fileFormat,
-                         Map<String, EtlColumnMapping> columnMappings, String where, List<Long> partitions) {
-            this.filePaths = filePaths;
-            this.fileFieldNames = fileFieldNames;
-            this.columnsFromPath = columnsFromPath;
-            this.valueSeparator = valueSeparator;
-            this.lineDelimiter = lineDelimiter;
-            this.isNegative = isNegative;
-            this.fileFormat = fileFormat;
-            this.columnMappings = columnMappings;
-            this.where = where;
-            this.partitions = partitions;
-        }
-
-        public void setHiveTableName(String hiveTableName) {
-            this.hiveTableName = hiveTableName;
-        }
-    }
-
-    private class EtlColumnMapping {
-        private String functionName;
-        private List<String> args;
-
-        public EtlColumnMapping(String functionName, List<String> args) {
-            this.functionName = functionName;
-            this.args = args;
-        }
     }
 }

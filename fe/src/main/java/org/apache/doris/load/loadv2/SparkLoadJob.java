@@ -204,8 +204,11 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     private void updateEtlFinished(EtlStatus status, SparkEtlJobHandler handler) throws UserException {
+        // checkDataQuality
+
         // etl output files
-        handler.getEtlFilePaths(etlOutputPath, etlClusterWithBrokerDesc.getBrokerDesc());
+        Map<String, Long> fileNameToSize = handler.getEtlFilePaths(etlOutputPath,
+                                                                   etlClusterWithBrokerDesc.getBrokerDesc());
 
         writeLock();
         try {
