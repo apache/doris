@@ -1121,12 +1121,11 @@ export_stmt ::=
 load_stmt ::=
     KW_LOAD KW_LABEL job_label:label
     LPAREN data_desc_list:dataDescList RPAREN
-    opt_broker:broker
-    opt_cluster_with_broker:clusterWithBroker
+    opt_data_processor:dataProcessor
     opt_system:system
     opt_properties:properties
     {:
-        RESULT = new LoadStmt(label, dataDescList, broker, clusterWithBroker, system, properties);
+        RESULT = new LoadStmt(label, dataDescList, dataProcessor, system, properties);
     :}
     ;
 
@@ -1313,17 +1312,18 @@ opt_broker ::=
     :}
     ;
 
-opt_cluster_with_broker ::=
+opt_data_processor ::=
+    opt_broker:broker
     {:
-        RESULT = null;
+        RESULT = broker;
     :}
-    | KW_WITH KW_CLUSTER ident_or_text:clusterName KW_BROKER ident_or_text:brokerName
+    | KW_WITH KW_CLUSTER ident_or_text:clusterName
     {:
-        RESULT = new EtlClusterWithBrokerDesc(clusterName, brokerName, null);
+        RESULT = new EtlClusterDesc(clusterName, null);
     :}
-    | KW_WITH KW_CLUSTER ident_or_text:clusterName KW_BROKER ident_or_text:brokerName LPAREN key_value_map:properties RPAREN
+    | KW_WITH KW_CLUSTER ident_or_text:clusterName LPAREN key_value_map:properties RPAREN
     {:
-        RESULT = new EtlClusterWithBrokerDesc(clusterName, brokerName, properties);
+        RESULT = new EtlClusterDesc(clusterName, properties);
     :}
     ;
 
