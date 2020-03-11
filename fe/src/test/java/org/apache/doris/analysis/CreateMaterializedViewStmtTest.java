@@ -335,6 +335,52 @@ public class CreateMaterializedViewStmtTest {
     }
 
     @Test
+    public void testDuplicateColumn1(@Injectable SlotRef slotRef1, @Injectable SlotRef slotRef2,
+            @Injectable FunctionCallExpr functionCallExpr1, @Injectable FunctionCallExpr functionCallExpr2,
+            @Injectable SelectStmt selectStmt) throws UserException {
+        SelectList selectList = new SelectList();
+        SelectListItem selectListItem1 = new SelectListItem(slotRef1, null);
+        selectList.addItem(selectListItem1);
+        SelectListItem selectListItem2 = new SelectListItem(functionCallExpr1, null);
+        selectList.addItem(selectListItem2);
+        SelectListItem selectListItem3 = new SelectListItem(functionCallExpr2, null);
+        selectList.addItem(selectListItem3);
+
+        new Expectations() {
+            {
+                analyzer.getClusterName();
+                result = "default";
+                selectStmt.analyze(analyzer);
+                selectStmt.getSelectList();
+                result = selectList;
+                slotRef1.getColumnName();
+                result = "k1";
+                slotRef2.getColumnName();
+                result = "k2";
+                functionCallExpr1.getFnName().getFunction();
+                result = "sum";
+                functionCallExpr1.getChildren();
+                result = Lists.newArrayList(slotRef2);
+                functionCallExpr1.getChild(0);
+                result = slotRef2;
+                functionCallExpr2.getFnName().getFunction();
+                result = "max";
+                functionCallExpr2.getChildren();
+                result = Lists.newArrayList(slotRef2);
+                functionCallExpr2.getChild(0);
+                result = slotRef2;
+            }
+        };
+        CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
+        try {
+            createMaterializedViewStmt.analyze(analyzer);
+            Assert.fail();
+        } catch (UserException e) {
+            System.out.print(e.getMessage());
+        }
+    }
+
+    @Test
     public void testOrderByColumnsLessThenGroupByColumns(@Injectable SlotRef slotRef1,
                                                          @Injectable SlotRef slotRef2,
                                                          @Injectable FunctionCallExpr functionCallExpr,

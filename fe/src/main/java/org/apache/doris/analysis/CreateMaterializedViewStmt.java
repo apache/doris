@@ -135,8 +135,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The materialized view must contain at least one column");
         }
         boolean meetAggregate = false;
-        Set<String> mvKeyColumnNameSet = Sets.newHashSet();
-        Map<String, Set<String>> mvAggColumnNameToFunctionNames = Maps.newHashMap();
+        // TODO(ml): support same column with different aggregation function
+        Set<String> mvColumnNameSet = Sets.newHashSet();
         /**
          * 1. The columns of mv must be a single column or a aggregate column without any calculate.
          *    Also the children of aggregate column must be a single column without any calculate.
@@ -158,9 +158,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     throw new AnalysisException("The aggregate column should be after the single column");
                 }
                 SlotRef slotRef = (SlotRef) selectListItem.getExpr();
+                // check duplicate column
                 String columnName = slotRef.getColumnName().toLowerCase();
-                // check duplicate key
-                if (!mvKeyColumnNameSet.add(columnName)) {
+                if (!mvColumnNameSet.add(columnName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
@@ -189,19 +189,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                                         + "Error function: " + functionCallExpr.toSqlImpl());
                 }
                 meetAggregate = true;
-                // check duplicate value
+                // check duplicate column
                 String columnName = slotRef.getColumnName().toLowerCase();
-                if (mvKeyColumnNameSet.contains(columnName)) {
+                if (!mvColumnNameSet.add(columnName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
-                Set<String> functionNames = mvAggColumnNameToFunctionNames.get(columnName);
-                if (functionNames == null) {
-                    functionNames = Sets.newHashSet();
-                }
-                if (!functionNames.add(functionName.toLowerCase())) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
-                }
-                mvAggColumnNameToFunctionNames.put(columnName, functionNames);
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;
