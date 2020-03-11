@@ -1360,7 +1360,8 @@ void* TaskWorkerPool::_make_snapshot_thread_callback(void* arg_this) {
         OLAPStatus make_snapshot_status = SnapshotManager::instance()->make_snapshot(
                 snapshot_request, &snapshot_path);
         if (make_snapshot_status != OLAP_SUCCESS) {
-            status_code = TStatusCode::RUNTIME_ERROR;
+            status_code = make_snapshot_status == OLAP_ERR_VERSION_ALREADY_MERGED ? TStatusCode::OLAP_ERR_VERSION_ALREADY_MERGED :
+                    TStatusCode::RUNTIME_ERROR;
             OLAP_LOG_WARNING("make_snapshot failed. tablet_id: %ld, schema_hash: %ld, version: %d,"
                              "version_hash: %ld, status: %d",
                              snapshot_request.tablet_id, snapshot_request.schema_hash,
