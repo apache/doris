@@ -32,7 +32,6 @@ class RowBlock;
 class RowCursor;
 class TabletSchema;
 class ShortKeyIndexBuilder;
-class WritableFile;
 
 namespace fs {
 class WritableBlock;
