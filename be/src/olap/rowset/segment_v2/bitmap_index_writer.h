@@ -27,7 +27,6 @@
 namespace doris {
 
 class TypeInfo;
-class WritableFile;
 
 namespace fs {
 class WritableBlock;

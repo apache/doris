@@ -35,7 +35,6 @@ namespace doris {
 class BlockCompressionCodec;
 class KeyCoder;
 class TypeInfo;
-class WritableFile;
 
 namespace fs {
 class WritableBlock;
