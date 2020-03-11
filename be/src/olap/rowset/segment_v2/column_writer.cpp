@@ -22,6 +22,7 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
+#include "olap/fs/block_manager.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
@@ -78,10 +79,10 @@ private:
 
 ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
                            std::unique_ptr<Field> field,
-                           WritableFile* output_file) :
+                           fs::WritableBlock* wblock) :
         _opts(opts),
         _field(std::move(field)),
-        _output_file(output_file),
+        _wblock(wblock),
         _is_nullable(_opts.meta->is_nullable()),
         _data_size(0) {
     // these opts.meta fields should be set by client
@@ -92,6 +93,7 @@ ColumnWriter::ColumnWriter(const ColumnWriterOptions& opts,
     DCHECK(opts.meta->has_encoding());
     DCHECK(opts.meta->has_compression());
     DCHECK(opts.meta->has_is_nullable());
+    DCHECK(wblock != nullptr);
 }
 
 ColumnWriter::~ColumnWriter() {
@@ -264,7 +266,7 @@ Status ColumnWriter::write_data() {
 
         PagePointer dict_pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
-                _compress_codec, _opts.compression_min_space_saving, _output_file,
+                _compress_codec, _opts.compression_min_space_saving, _wblock,
                 { dict_body.slice() }, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
@@ -272,26 +274,26 @@ Status ColumnWriter::write_data() {
 }
 
 Status ColumnWriter::write_ordinal_index() {
-    return _ordinal_index_builder->finish(_output_file, _opts.meta->add_indexes());
+    return _ordinal_index_builder->finish(_wblock, _opts.meta->add_indexes());
 }
 
 Status ColumnWriter::write_zone_map() {
     if (_opts.need_zone_map) {
-        return _zone_map_index_builder->finish(_output_file, _opts.meta->add_indexes());
+        return _zone_map_index_builder->finish(_wblock, _opts.meta->add_indexes());
     }
     return Status::OK();
 }
 
 Status ColumnWriter::write_bitmap_index() {
     if (_opts.need_bitmap_index) {
-        return _bitmap_index_builder->finish(_output_file, _opts.meta->add_indexes());
+        return _bitmap_index_builder->finish(_wblock, _opts.meta->add_indexes());
     }
     return Status::OK();
 }
 
 Status ColumnWriter::write_bloom_filter_index() {
     if (_opts.need_bloom_filter) {
-        return _bloom_filter_index_builder->finish(_output_file, _opts.meta->add_indexes());
+        return _bloom_filter_index_builder->finish(_wblock, _opts.meta->add_indexes());
     }
     return Status::OK();
 }
@@ -303,7 +305,7 @@ Status ColumnWriter::_write_data_page(Page* page) {
     for (auto& data : page->data) {
         compressed_body.push_back(data.slice());
     }
-    RETURN_IF_ERROR(PageIO::write_page(_output_file, compressed_body, page->footer, &pp));
+    RETURN_IF_ERROR(PageIO::write_page(_wblock, compressed_body, page->footer, &pp));
     _ordinal_index_builder->append_entry(page->footer.data_page_footer().first_ordinal(), pp);
     return Status::OK();
 }

@@ -27,17 +27,20 @@
 #include "common/logging.h"
 #include "gutil/strings/substitute.h"
 #include "olap/comparison_predicate.h"
+#include "olap/fs/block_manager.h"
+#include "olap/fs/fs_util.h"
 #include "olap/in_list_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/row_cursor.h"
-#include "olap/tablet_schema.h"
 #include "olap/row_block.h"
 #include "olap/row_block2.h"
-#include "olap/types.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
+#include "olap/tablet_schema.h"
 #include "olap/tablet_schema_helper.h"
-#include "util/file_utils.h"
+#include "olap/types.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "util/file_utils.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -105,8 +108,12 @@ protected:
         // must use unique filename for each segment, otherwise page cache kicks in and produces
         // the wrong answer (it use (filename,offset) as cache key)
         string filename = strings::Substitute("$0/seg_$1.dat", kSegmentDir, seg_id++);
-        SegmentWriter writer(filename, 0, &build_schema, opts);
-        auto st = writer.init(10);
+        std::unique_ptr<fs::WritableBlock> wblock;
+        fs::CreateBlockOptions block_opts({ filename });
+        Status st = fs::fs_util::block_mgr_for_ut()->create_block(block_opts, &wblock);
+        ASSERT_TRUE(st.ok());
+        SegmentWriter writer(wblock.get(), 0, &build_schema, opts);
+        st = writer.init(10);
         ASSERT_TRUE(st.ok());
 
         RowCursor row;
@@ -125,6 +132,7 @@ protected:
         uint64_t file_size, index_size;
         st = writer.finalize(&file_size, &index_size);
         ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(wblock->close().ok());
 
         st = Segment::open(filename, 0, &query_schema, res);
         ASSERT_TRUE(st.ok());
@@ -599,8 +607,12 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
     opts.num_rows_per_block = num_rows_per_block;
 
     std::string fname = dname + "/int_case";
-    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
-    auto st = writer.init(10);
+    std::unique_ptr<fs::WritableBlock> wblock;
+    fs::CreateBlockOptions wblock_opts({ fname });
+    Status st = fs::fs_util::block_mgr_for_ut()->create_block(wblock_opts, &wblock);
+    ASSERT_TRUE(st.ok());
+    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
+    st = writer.init(10);
     ASSERT_TRUE(st.ok());
 
     RowCursor row;
@@ -624,9 +636,8 @@ TEST_F(SegmentReaderWriterTest, estimate_segment_size) {
 
     uint64_t file_size = 0;
     uint64_t index_size;
-    st = writer.finalize(&file_size, &index_size);
-
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(writer.finalize(&file_size, &index_size).ok());
+    ASSERT_TRUE(wblock->close().ok());
 
     file_size = boost::filesystem::file_size(fname);
     LOG(INFO) << "segment file size is:" << file_size;
@@ -762,9 +773,12 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
     opts.num_rows_per_block = num_rows_per_block;
 
     std::string fname = dname + "/string_case";
-
-    SegmentWriter writer(fname, 0, tablet_schema.get(), opts);
-    auto st = writer.init(10);
+    std::unique_ptr<fs::WritableBlock> wblock;
+    fs::CreateBlockOptions wblock_opts({ fname });
+    Status st = fs::fs_util::block_mgr_for_ut()->create_block(wblock_opts, &wblock);
+    ASSERT_TRUE(st.ok());
+    SegmentWriter writer(wblock.get(), 0, tablet_schema.get(), opts);
+    st = writer.init(10);
     ASSERT_TRUE(st.ok());
 
     RowCursor row;
@@ -787,8 +801,8 @@ TEST_F(SegmentReaderWriterTest, TestStringDict) {
 
     uint64_t file_size = 0;
     uint64_t index_size;
-    st = writer.finalize(&file_size, &index_size);
-    ASSERT_TRUE(st.ok());
+    ASSERT_TRUE(writer.finalize(&file_size, &index_size).ok());
+    ASSERT_TRUE(wblock->close().ok());
 
     {
         std::shared_ptr<Segment> segment;
