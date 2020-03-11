@@ -126,7 +126,7 @@ template Status SegmentWriter::append_row(const ContiguousRow& row);
 // NOTE: This function will be called when any row of data is added, so we need to
 // make this function efficient.
 uint64_t SegmentWriter::estimate_segment_size() {
-    // magic size
+    // footer_size(4) + checksum(4) + segment_magic(4)
     uint64_t size = 12;
     for (auto& column_writer : _column_writers) {
         size += column_writer->estimate_buffer_size();

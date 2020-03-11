@@ -29,7 +29,6 @@
 namespace doris {
 
 class TypeInfo;
-class WritableFile;
 class BlockCompressionCodec;
 
 namespace fs {
