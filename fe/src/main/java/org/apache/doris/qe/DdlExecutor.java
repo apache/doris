@@ -49,6 +49,7 @@ import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
+import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropTableStmt;
@@ -101,6 +102,8 @@ public class DdlExecutor {
             catalog.dropTable((DropTableStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateMaterializedViewStmt) {
             catalog.createMaterializedView((CreateMaterializedViewStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropMaterializedViewStmt) {
+            catalog.dropMaterializedView((DropMaterializedViewStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterTableStmt) {
             catalog.alterTable((AlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof AlterViewStmt) {
