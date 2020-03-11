@@ -135,8 +135,8 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testAggQueryOnAggMV1() throws Exception {
-        String createMVSQL = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary), max" + ""
-                + "(salary) from " + EMPS_TABLE_NAME + " group by deptno;";
+        String createMVSQL = "create materialized view " + EMPS_MV_NAME + " as select deptno, sum(salary), "
+                + "max(commission) from " + EMPS_TABLE_NAME + " group by deptno;";
         String query = "select sum(salary), deptno from " + EMPS_TABLE_NAME + " group by deptno;";
         dorisAssert.withMaterializedView(createMVSQL).query(query).explainContains(QUERY_USE_EMPS_MV);
     }

@@ -1066,6 +1066,24 @@ public class OlapTable extends Table {
         return dataSize;
     }
 
+    public void checkStableAndNormal(String clusterName) throws DdlException {
+        if (state != OlapTableState.NORMAL) {
+            throw new DdlException("Table[" + name + "]'s state is not NORMAL. "
+                    + "Do not allow doing materialized view");
+        }
+        // check if all tablets are healthy, and no tablet is in tablet scheduler
+        boolean isStable = isStable(Catalog.getCurrentSystemInfo(),
+                Catalog.getCurrentCatalog().getTabletScheduler(),
+                clusterName);
+        if (!isStable) {
+            throw new DdlException("table [" + name + "] is not stable."
+                    + " Some tablets of this table may not be healthy or are being "
+                    + "scheduled."
+                    + " You need to repair the table first"
+                    + " or stop cluster balance. See 'help admin;'.");
+        }
+    }
+
     public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
         int availableBackendsNum = infoService.getClusterBackendIds(clusterName, true).size();
         for (Partition partition : idToPartition.values()) {
