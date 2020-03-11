@@ -18,6 +18,7 @@
 #include "olap/fs/fs_util.h"
 
 #include "common/status.h"
+#include "env/env.h"
 #include "olap/fs/file_block_manager.h"
 
 namespace doris {
@@ -26,6 +27,12 @@ namespace fs_util {
 
 BlockManager* file_block_mgr(Env* env, BlockManagerOptions opts) {
     return new FileBlockManager(env, std::move(opts));
+}
+
+BlockManager* block_mgr_for_ut() {
+    fs::BlockManagerOptions bm_opts;
+    bm_opts.read_only = false;
+    return file_block_mgr(Env::Default(), bm_opts);
 }
 
 } // namespace fs_util

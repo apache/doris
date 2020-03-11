@@ -21,6 +21,7 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "olap/fs/block_manager.h"
 #include "olap/rowset/segment_v2/encoding_info.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/options.h"
@@ -37,10 +38,10 @@ namespace segment_v2 {
 
 IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& options,
                                          const TypeInfo* typeinfo,
-                                         WritableFile* output_file)
+                                         fs::WritableBlock* wblock)
         : _options(options),
           _typeinfo(typeinfo),
-          _file(output_file),
+          _wblock(wblock),
           _mem_tracker(-1),
           _mem_pool(&_mem_tracker),
           _num_values(0),
@@ -111,7 +112,7 @@ Status IndexedColumnWriter::_finish_current_data_page() {
     footer.mutable_data_page_footer()->set_nullmap_size(0);
 
     RETURN_IF_ERROR(PageIO::compress_and_write_page(
-            _compress_codec, _options.compression_min_space_saving, _file, { page_body.slice() },
+            _compress_codec, _options.compression_min_space_saving, _wblock, { page_body.slice() },
             footer, &_last_data_page));
     _num_data_pages++;
 
@@ -159,7 +160,7 @@ Status IndexedColumnWriter::_flush_index(IndexPageBuilder* index_builder, BTreeM
 
         PagePointer pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
-                _compress_codec, _options.compression_min_space_saving, _file,
+                _compress_codec, _options.compression_min_space_saving, _wblock,
                 { page_body.slice() }, page_footer, &pp));
 
         meta->set_is_root_data_page(false);
