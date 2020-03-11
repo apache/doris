@@ -134,16 +134,22 @@ public class Alter {
         try {
             String tableName = stmt.getTableName().getTbl();
             Table table = db.getTable(tableName);
+            // if table exists
             if (table == null) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_BAD_TABLE_ERROR, tableName);
             }
-
+            // check table type
             if (table.getType() != TableType.OLAP) {
                 throw new DdlException("Do not support non-OLAP table [" + tableName + "] when drop materialized view");
             }
-
+            // check table state
             OlapTable olapTable = (OlapTable) table;
-            olapTable.checkStableAndNormal(db.getClusterName());
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. "
+                        + "Do not allow doing DROP ops");
+            }
+
+            // drop materialized view
             ((MaterializedViewHandler)materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
 
         } finally {
