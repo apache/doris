@@ -188,7 +188,7 @@ Status CGroupUtil::find_cgroup_cpu_limit(float* cpu_count) {
         *cpu_count = -1;
         return Status::OK();
     }
-    string cfs_period_filename = cgroup_path + "/cfs_period_us";
+    string cfs_period_filename = cgroup_path + "/cpu.cfs_period_us";
     RETURN_IF_ERROR(read_cgroup_value(cfs_period_filename, &period));
     if (quota <= period) {
         return Status::InvalidArgument("quota <= period");
