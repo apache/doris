@@ -993,10 +993,36 @@ public class OlapTable extends Table {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }
-        
+
+        // remove shadow index from copied table
+        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+        for (MaterializedIndex deleteIndex : shadowIndex) {
+            LOG.debug("table delete shadow index : {}", deleteIndex);
+            copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
+        }
+        /*
+        Map<Long, MaterializedIndexMeta> visibleIndex =  copied.getVisibleIndexIdToMeta();
+        Map<Long, String> shadowIndex = Maps.newHashMap();
+        for (Map.Entry<String, Long> entry : copied.getIndexNameToId().entrySet()) {
+            if (!visibleIndex.containsKey(entry.getValue())) {
+                shadowIndex.put(entry.getValue(), entry.getKey());
+            }
+        }
+
+        for (String index : shadowIndex.values()) {
+            LOG.debug("delete shadow index : {}", index);
+            copied.deleteIndexInfo(index);
+        }
+        */
+
         if (resetState) {
             copied.setState(OlapTableState.NORMAL);
             for (Partition partition : copied.getPartitions()) {
+                // remove shadow index from partition
+                for (MaterializedIndex deleteIndex : shadowIndex) {
+                    LOG.debug("partition delete shadow index : {}", deleteIndex);
+                    partition.deleteRollupIndex(deleteIndex.getId());
+                }
                 partition.setState(PartitionState.NORMAL);
                 copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
                 for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
