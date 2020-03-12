@@ -993,15 +993,14 @@ public class OlapTable extends Table {
             LOG.warn("failed to copy olap table: " + getName());
             return null;
         }
-
-        // remove shadow index from copied table
-        List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
-        for (MaterializedIndex deleteIndex : shadowIndex) {
-            LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
-            copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
-        }
-
+        
         if (resetState) {
+            // remove shadow index from copied table
+            List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+            for (MaterializedIndex deleteIndex : shadowIndex) {
+                LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
+                copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
+            }
             copied.setState(OlapTableState.NORMAL);
             for (Partition partition : copied.getPartitions()) {
                 // remove shadow index from partition
