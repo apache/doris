@@ -249,7 +249,7 @@ public class FunctionCallExpr extends Expr {
         return false;
     }
 
-    public boolean needRewriteCountDistinct() {
+    public boolean isCountDistinctBitmapOrHLL() {
         if (!fnParams.isDistinct()) {
             return false;
         }

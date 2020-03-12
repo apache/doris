@@ -824,7 +824,7 @@ public class SelectStmt extends QueryStmt {
         }
 
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-        if (functionCallExpr.needRewriteCountDistinct()) {
+        if (functionCallExpr.isCountDistinctBitmapOrHLL()) {
             FunctionParams newParams = new FunctionParams(false, functionCallExpr.getParams().exprs());
             if (expr.getChild(0).type.isBitmapType()) {
                 FunctionCallExpr bitmapExpr = new FunctionCallExpr(FunctionSet.BITMAP_UNION_COUNT, newParams);
