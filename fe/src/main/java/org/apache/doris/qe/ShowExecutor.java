@@ -46,6 +46,7 @@ import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
+import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
@@ -115,6 +116,7 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -248,6 +250,8 @@ public class ShowExecutor {
             handleShowIndex();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
+        } else if (stmt instanceof ShowPluginsStmt) {
+            handleShowPlugins();
         } else {
             handleEmtpy();
         }
@@ -1514,6 +1518,34 @@ public class ShowExecutor {
         long txnId = showStmt.getTxnId();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
+    }
+
+    private void handleShowPlugins() throws AnalysisException {
+        ShowPluginsStmt pluginsStmt = (ShowPluginsStmt) stmt;
+
+        List<PluginInfo> plugins = Catalog.getCurrentPluginMgr().getAllPluginInfo();
+
+        List<List<String>> rows = Lists.newArrayListWithCapacity(plugins.size());
+
+        for (PluginInfo p : plugins) {
+            List<String> r = Lists.newArrayListWithCapacity(stmt.getMetaData().getColumnCount());
+            r.add(p.getName());
+            r.add(p.getType().name());
+            r.add(p.getDescription());
+            r.add(p.getVersion().toString());
+            r.add(p.getJavaVersion().toString());
+            r.add(p.getClassName());
+            r.add(p.getSoName());
+            if (Strings.isNullOrEmpty(p.getSource())) {
+                r.add("Builtin");
+            } else {
+                r.add(p.getSource());
+            }
+
+            rows.add(r);
+        }
+
+        resultSet = new ShowResultSet(pluginsStmt.getMetaData(), rows);
     }
 }
 

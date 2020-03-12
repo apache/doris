@@ -18,46 +18,43 @@
 package plugin;
 
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
 
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
 import org.apache.doris.plugin.PluginInfo;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
-public class PluginTest extends Plugin {
+public class AuditPluginDemo extends Plugin implements AuditPlugin {
+    private final static Logger LOG = LogManager.getLogger(AuditPluginDemo.class);
 
-    private Map<String, String> map = new HashMap<>();
+    private final static short EVENT_MASKS = AuditEvent.AUDIT_QUERY_START | AuditEvent.AUDIT_QUERY_END;
 
     @Override
     public void init(PluginInfo info, PluginContext ctx) {
-        System.out.println("this is init");
+        super.init(info, ctx);
+        LOG.info("this is audit plugin demo init");
     }
-
 
     @Override
     public void close() throws IOException {
         super.close();
-        System.out.println("this is close");
+        LOG.info("this is audit plugin demo close");
     }
 
     @Override
-    public int flags() {
-        return 2;
+    public boolean eventFilter(short type, short masks) {
+        return type == AuditEvent.AUDIT_QUERY && (masks & EVENT_MASKS) != 0;
     }
 
     @Override
-    public void setVariable(String key, String value) {
-        map.put(key, value);
-    }
-
-    @Override
-    public Map<String, String> variable() {
-        return map;
-    }
-
-    @Override
-    public Map<String, String> status() {
-        return new HashMap<>();
+    public void exec(AuditEvent event) {
+        LOG.info("audit demo plugin log: event={} masks={} user={}, ip={}, query={}", event.getEventType(),
+                event.getEventMasks(),
+                event.getUser(),
+                event.getIp(),
+                event.getQuery());
     }
 }

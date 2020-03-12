@@ -69,6 +69,7 @@ import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
+import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
@@ -519,6 +520,17 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_REPLACE_TEMP_PARTITION: {
                 data = ReplacePartitionOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_INSTALL_PLUGIN: {
+                data = PluginInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_UNINSTALL_PLUGIN: {
+                data = new Text();
+                ((Text) data).readFields(in);
                 isRead = true;
                 break;
             }

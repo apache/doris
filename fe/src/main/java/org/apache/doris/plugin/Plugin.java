@@ -22,15 +22,20 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 
+/**
+ * Base Plugin
+ *
+ * Note: plugin is thread-unsafe and work in parallel
+ */
 public abstract class Plugin implements Closeable {
     public static final int PLUGIN_DEFAULT_FLAGS = 0;
     public static final int PLUGIN_INSTALL_EARLY = 1;
-    public static final int PLUGIN_NOT_DYNAMIC_UNINSTALL = 2;
+    public static final int PLUGIN_NOT_DYNAMIC_UNINSTALL = 1 << 1;
 
     /**
      * invoke when the plugin install
      */
-    public void init(PluginContext ctx) { }
+    public void init(PluginInfo info, PluginContext ctx) { }
 
     /**
      * invoke when the plugin uninstall

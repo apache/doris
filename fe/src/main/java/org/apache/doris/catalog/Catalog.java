@@ -56,6 +56,7 @@ import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
 import org.apache.doris.analysis.MigrateDbStmt;
@@ -74,6 +75,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
+import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupHandler;
@@ -172,7 +174,9 @@ import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
+import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.qe.Auditor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
@@ -387,6 +391,8 @@ public class Catalog {
     
     private PluginMgr pluginMgr;
 
+    private Auditor auditor;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -521,6 +527,8 @@ public class Catalog {
         this.imageDir = this.metaDir + IMAGE_DIR;
         
         this.pluginMgr = new PluginMgr();
+
+        this.auditor = new Auditor(pluginMgr);
     }
 
     public static void destroyCheckpoint() {
@@ -568,6 +576,10 @@ public class Catalog {
 
     public PluginMgr getPluginMgr() {
         return pluginMgr;
+    }
+
+    public Auditor getAuditor() {
+        return auditor;
     }
 
     public PaloAuth getAuth() {
@@ -620,6 +632,10 @@ public class Catalog {
 
     public static PluginMgr getCurrentPluginMgr() {
         return getCurrentCatalog().getPluginMgr();
+    }
+
+    public static Auditor getCurrentAuditor() {
+        return getCurrentCatalog().getAuditor();
     }
 
     // Use tryLock to avoid potential dead lock
@@ -1423,6 +1439,7 @@ public class Catalog {
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
+            checksum = loadPlugins(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1858,6 +1875,7 @@ public class Catalog {
             checksum = saveRoutineLoadJobs(dos, checksum);
             checksum = saveLoadJobsV2(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
+            checksum = savePlugins(dos, checksum);
             dos.writeLong(checksum);
         } finally {
             dos.close();
@@ -6539,6 +6557,77 @@ public class Catalog {
             LOG.warn("should not happen. {}", e);
         } finally {
             db.writeUnlock();
+        }
+    }
+
+    public void installPlugin(InstallPluginStmt stmt) throws UserException, IOException {
+        PluginInfo pluginInfo = pluginMgr.installPlugin(stmt);
+        if (Config.plugin_enable) {
+            editLog.logInstallPlugin(pluginInfo);
+        }
+        LOG.info("install plugin = " + pluginInfo.getName());
+    }
+
+    public long savePlugins(DataOutputStream dos, long checksum) throws IOException {
+        if (!Config.plugin_enable) {
+            return checksum;
+        }
+
+        List<PluginInfo> list = pluginMgr.getAllDynamicPluginInfo();
+
+        int size = list.size();
+        checksum ^= size;
+
+        dos.writeInt(size);
+
+        for (PluginInfo pc : list) {
+            pc.write(dos);
+        }
+
+        return checksum;
+    }
+
+    public long loadPlugins(DataInputStream dis, long checksum) throws IOException {
+        if (!Config.plugin_enable) {
+            return checksum;
+        }
+
+        int size = dis.readInt();
+        long newChecksum = checksum ^ size;
+
+        for (int i = 0; i < size; i++) {
+            PluginInfo pluginInfo = PluginInfo.read(dis);
+            try {
+                pluginMgr.loadDynamicPlugin(pluginInfo);
+            } catch (Exception e) {
+                LOG.warn("load plugin failed.", e);
+            }
+        }
+
+        return newChecksum;
+    }
+
+    public void replayInstallPlugin(PluginInfo pluginInfo)  {
+        try {
+            pluginMgr.loadDynamicPlugin(pluginInfo);
+        } catch (Exception e) {
+            LOG.warn("replay install plugin failed.", e);
+        }
+    }
+
+    public void uninstallPlugin(UninstallPluginStmt stmt) throws IOException, UserException {
+        pluginMgr.uninstallPlugin(stmt.getPluginName());
+        if (Config.plugin_enable) {
+            editLog.logUninstallPlugin(stmt.getPluginName());
+        }
+        LOG.info("uninstall plugin = " + stmt.getPluginName());
+    }
+
+    public void replayUninstallPlugin(String pluginName)  {
+        try {
+            pluginMgr.uninstallPlugin(pluginName);
+        } catch (Exception e) {
+            LOG.warn("replay uninstall plugin failed.", e);
         }
     }
 }

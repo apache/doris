@@ -47,31 +47,14 @@ public class PluginLoaderTest {
     }
 
     @Test
-    public void testPluginRead() {
-        try {
-            PluginContext info = PluginContext.readFromProperties(PluginTestUtil.getTestPath("source"),
-                    "test");
-
-            assertEquals("plugin_test", info.getName());
-            assertEquals(PluginType.STORAGE, info.getType());
-            assertTrue(DigitalVersion.CURRENT_DORIS_VERSION.onOrAfter(info.getVersion()));
-            assertTrue(DigitalVersion.JDK_9_0_0.onOrAfter(info.getJavaVersion()));
-            assertTrue(DigitalVersion.JDK_1_8_0.before(info.getJavaVersion()));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    @Test
     public void testMovePlugin() {
-        PluginContext pf =
-                new PluginContext("test-plugin", PluginType.STORAGE, "test/test", DigitalVersion.CURRENT_DORIS_VERSION,
+        PluginInfo pf =
+                new PluginInfo("test-plugin", PluginType.STORAGE, "test/test", DigitalVersion.CURRENT_DORIS_VERSION,
                         DigitalVersion.JDK_1_8_0, "test/test", "libtest.so", "test/test");
-
-        pf.installPath = PluginTestUtil.getTestPathString("target");
 
         try {
             PluginLoader util = new DynamicPluginLoader(PluginTestUtil.getTestPathString("source"), pf);
+            ((DynamicPluginLoader) util).installPath = PluginTestUtil.getTestPath("target");
             ((DynamicPluginLoader) util).movePlugin();
             assertTrue(Files.isDirectory(PluginTestUtil.getTestPath("source/test-plugin")));
             assertTrue(FileUtils.deleteQuietly(PluginTestUtil.getTestFile("source/test-plugin")));
@@ -83,13 +66,13 @@ public class PluginLoaderTest {
     @Test
     public void testDynamicLoadPlugin() {
         try {
-            PluginContext info = new PluginContext("test", PluginType.STORAGE, "test", DigitalVersion.CURRENT_DORIS_VERSION,
+            PluginInfo info = new PluginInfo("test", PluginType.STORAGE, "test", DigitalVersion.CURRENT_DORIS_VERSION,
                     DigitalVersion.JDK_1_8_0, "plugin.PluginTest", "libtest.so", "plugin_test.jar");
 
             DynamicPluginLoader util = new DynamicPluginLoader(PluginTestUtil.getTestPathString(""), info);
             Plugin p = util.dynamicLoadPlugin(PluginTestUtil.getTestPath(""));
 
-            p.init(null);
+            p.init(null, null);
             p.close();
             assertEquals(2, p.flags());
 

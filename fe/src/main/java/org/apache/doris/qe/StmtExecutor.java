@@ -61,6 +61,7 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.RpcException;
@@ -206,6 +207,9 @@ public class StmtExecutor {
     // Exception:
     //  IOException: talk with client failed.
     public void execute() throws Exception {
+
+        Catalog.getCurrentAuditor().notifyQueryEvent(context, originStmt, AuditEvent.AUDIT_QUERY_START);
+
         long beginTimeInNanoSecond = TimeUtils.getStartTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         try {
@@ -301,6 +305,8 @@ public class StmtExecutor {
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
             }
         }
+
+        Catalog.getCurrentAuditor().notifyQueryEvent(context, originStmt, AuditEvent.AUDIT_QUERY_END);
     }
 
     private void forwardToMaster() throws Exception {

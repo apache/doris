@@ -203,9 +203,9 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof DropFileStmt) {
             catalog.getSmallFileMgr().dropFile((DropFileStmt) ddlStmt);
         } else if (ddlStmt instanceof InstallPluginStmt) {
-            catalog.getPluginMgr().installPlugin((InstallPluginStmt) ddlStmt);
+            catalog.installPlugin((InstallPluginStmt) ddlStmt);
         } else if (ddlStmt instanceof UninstallPluginStmt) {
-            catalog.getPluginMgr().uninstallPlugin((UninstallPluginStmt) ddlStmt);
+            catalog.uninstallPlugin((UninstallPluginStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
 

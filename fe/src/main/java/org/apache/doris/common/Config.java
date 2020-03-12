@@ -108,6 +108,9 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
+    @ConfField
+    public static boolean plugin_enable = false;
+
     /*
      * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
      * The removed labels can be reused.

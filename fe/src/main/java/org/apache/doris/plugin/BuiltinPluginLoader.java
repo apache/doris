@@ -17,13 +17,34 @@
 
 package org.apache.doris.plugin;
 
-/**
- * Describe the type of plugin
- */
-public enum PluginType {
-    AUDIT,
-    IMPORT,
-    STORAGE;
+import java.io.IOException;
 
-    public static int MAX_PLUGIN_SIZE = PluginType.values().length;
+import org.apache.doris.common.UserException;
+
+public class BuiltinPluginLoader extends PluginLoader {
+
+    BuiltinPluginLoader(String path, PluginInfo info, Plugin plugin) {
+        super(path, info);
+        this.plugin = plugin;
+    }
+
+    @Override
+    public boolean isBuiltinPlugin() {
+        return true;
+    }
+
+    @Override
+    public void install() throws UserException, IOException {
+        pluginInstallValid();
+        plugin.init(pluginInfo, pluginContext);
+    }
+
+    @Override
+    public void uninstall() throws IOException, UserException {
+        if (plugin != null) {
+            pluginUninstallValid();
+
+            plugin.close();
+        }
+    }
 }

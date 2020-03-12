@@ -24,24 +24,27 @@ import java.util.Map;
 import java.util.Objects;
 
 import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.kudu.client.shaded.com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 public class PluginMgr {
-    private final List<Map<String, PluginLoader>> plugins;
+    private final static Logger LOG = LogManager.getLogger(PluginMgr.class);
+
+    private final Map<String, PluginLoader>[] plugins;
 
     private String pluginDir;
 
     public PluginMgr() {
-        plugins = Lists.newArrayListWithCapacity(PluginType.MAX_PLUGIN_SIZE);
+        plugins =  new Map[PluginType.MAX_PLUGIN_SIZE];
 
         for (int i = 0; i < PluginType.MAX_PLUGIN_SIZE; i++) {
-            plugins.add(Maps.newConcurrentMap());
+            plugins[i] = Maps.newConcurrentMap();
         }
 
         this.pluginDir = Config.plugin_dir;
@@ -50,45 +53,37 @@ public class PluginMgr {
     /**
      * Dynamic install plugin thought install statement
      */
-    public void installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
+    public PluginInfo installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
         PluginLoader pluginLoader = new DynamicPluginLoader(pluginDir, stmt.getPluginPath());
 
-        PluginContext ctx = pluginLoader.getPluginContext();
+        try {
+            PluginInfo info = pluginLoader.getPluginInfo();
+            // install plugin
+            pluginLoader.install();
 
-        {
-            // already install
-            PluginLoader oldRef = plugins.get(ctx.getType().ordinal()).get(ctx.getName());
-            if (oldRef != null) {
-                throw new UserException(
-                        "plugin " + ctx.getName() + " has install version " + oldRef.getPluginContext().getVersion());
+            PluginLoader checkLoader = plugins[info.getTypeId()].putIfAbsent(info.getName(), pluginLoader);
+
+            if (checkLoader != null) {
+                throw new UserException("plugin " + info.getName() + " has install.");
             }
-        }
 
-        // install plugin
-        pluginLoader.install();
-
-        {
-            PluginLoader checkRef = plugins.get(ctx.getType().ordinal()).putIfAbsent(ctx.getName(), pluginLoader);
-
-            if (!pluginLoader.equals(checkRef)) {
-                pluginLoader.uninstall();
-                throw new UserException(
-                        "plugin " + ctx.getName() + " has install version " + checkRef.getPluginContext().getVersion());
-            }
+            return info;
+        } catch (IOException | UserException e) {
+            pluginLoader.uninstall();
+            throw e;
         }
     }
 
     /**
-     * Dynamic uninstall plugin thought install statement
+     * Dynamic uninstall plugin
      */
-    public void uninstallPlugin(UninstallPluginStmt stmt) throws IOException, UserException {
+    public void uninstallPlugin(String name) throws IOException, UserException {
         for (PluginType type : PluginType.values()) {
-            if (plugins.get(type.ordinal()).containsKey(stmt.getPluginName())) {
-                PluginLoader ref = plugins.get(type.ordinal()).remove(stmt.getPluginName());
+            if (plugins[type.ordinal()].containsKey(name)) {
+                PluginLoader loader = plugins[type.ordinal()].remove(name);
 
                 // uninstall plugin
-                ref.uninstall();
-                return;
+                loader.uninstall();
             }
         }
     }
@@ -96,37 +91,95 @@ public class PluginMgr {
     /**
      * For built-in Plugin register
      */
-    public boolean registerPlugin(PluginContext pluginContext, Plugin plugin) {
-        if (Objects.isNull(pluginContext) || Objects.isNull(plugin) || Objects.isNull(pluginContext.getType()) || Strings
-                .isNullOrEmpty(pluginContext.getName())) {
+    public boolean registerPlugin(PluginInfo pluginInfo, Plugin plugin) {
+        if (Objects.isNull(pluginInfo) || Objects.isNull(plugin) || Objects.isNull(pluginInfo.getType())
+                || Strings
+                .isNullOrEmpty(pluginInfo.getName())) {
             return false;
         }
 
-        PluginLoader ref = new BuiltinPluginLoader(pluginDir,pluginContext, plugin);
-        PluginLoader checkRef = plugins.get(pluginContext.getType().ordinal()).putIfAbsent(pluginContext.getName(), ref);
+        PluginLoader loader = new BuiltinPluginLoader(pluginDir, pluginInfo, plugin);
+        PluginLoader checkLoader =
+                plugins[pluginInfo.getTypeId()].putIfAbsent(pluginInfo.getName(), loader);
 
-        return ref.equals(checkRef);
+        return loader.equals(checkLoader);
+    }
+
+    /**
+     *
+     * Just load dynamic plugin
+     */
+    public void loadDynamicPlugin(PluginInfo info) throws IOException, UserException {
+        DynamicPluginLoader pluginLoader = new DynamicPluginLoader(pluginDir, info);
+
+        try {
+            // install plugin
+            pluginLoader.reload();
+
+            PluginLoader checkLoader = plugins[info.getTypeId()].putIfAbsent(info.getName(), pluginLoader);
+
+            if (checkLoader != null) {
+                throw new UserException(
+                        "plugin " + info.getName() + " has install.");
+            }
+        } catch (IOException | UserException e) {
+            pluginLoader.uninstall();
+            throw e;
+        }
     }
 
     public final Plugin getPlugin(String name, PluginType type) {
-        PluginLoader ref = plugins.get(type.ordinal()).get(name);
+        PluginLoader loader = plugins[type.ordinal()].get(name);
 
-        if (null != ref) {
-            return ref.getPlugin();
+        if (null != loader) {
+            return loader.getPlugin();
         }
 
         return null;
     }
 
     public final List<Plugin> getPluginList(PluginType type) {
-        Map<String, PluginLoader> m = plugins.get(type.ordinal());
+        Map<String, PluginLoader> m = plugins[type.ordinal()];
 
         List<Plugin> l = Lists.newArrayListWithCapacity(m.size());
-        for (PluginLoader ref : m.values()) {
-            l.add(ref.getPlugin());
-        }
+
+        m.values().forEach(d -> l.add(d.getPlugin()));
 
         return Collections.unmodifiableList(l);
+    }
+
+    public final List<PluginInfo> getAllDynamicPluginInfo() {
+        List<PluginInfo> list = Lists.newArrayList();
+
+        for (Map<String, PluginLoader> map : plugins) {
+            map.values().forEach(loader -> {
+                try {
+                    if (loader.isDynamicPlugin()) {
+                        list.add(loader.getPluginInfo());
+                    }
+                } catch (Exception e) {
+                    LOG.warn("load plugin from {} failed", loader.source, e);
+                }
+            });
+        }
+
+        return list;
+    }
+
+    public final List<PluginInfo> getAllPluginInfo() {
+        List<PluginInfo> list = Lists.newArrayList();
+
+        for (Map<String, PluginLoader> map : plugins) {
+            map.values().forEach(loader -> {
+                try {
+                    list.add(loader.getPluginInfo());
+                } catch (Exception e) {
+                    LOG.warn("load plugin from {} failed", loader.source, e);
+                }
+            });
+        }
+
+        return list;
     }
 
 }

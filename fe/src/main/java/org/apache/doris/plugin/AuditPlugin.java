@@ -18,12 +18,20 @@
 package org.apache.doris.plugin;
 
 /**
- * Describe the type of plugin
+ * Audit plugin interface describe.
  */
-public enum PluginType {
-    AUDIT,
-    IMPORT,
-    STORAGE;
+public interface AuditPlugin {
+    /**
+     *
+     * use for check audit event type and masks, the event will skip the plugin if return false
+     */
+    public boolean eventFilter(short type, short masks);
 
-    public static int MAX_PLUGIN_SIZE = PluginType.values().length;
+    /**
+     *
+     *
+     */
+    public void exec(AuditEvent event);
+
+
 }

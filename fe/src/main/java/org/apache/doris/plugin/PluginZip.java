@@ -138,6 +138,14 @@ class PluginZip {
      * unzip .zip file
      */
     Path extractZip(Path zip, Path targetPath) throws IOException, UserException {
+        if (!Files.exists(zip)) {
+            throw new UserException("Download plugin zip failed, source: " + source);
+        }
+
+        if (Files.isDirectory(zip)) {
+            return zip;
+        }
+
         try (ZipInputStream zipInput = new ZipInputStream(Files.newInputStream(zip))) {
             ZipEntry entry;
             byte[] buffer = new byte[8192];

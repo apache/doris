@@ -21,6 +21,8 @@ import java.util.Objects;
 
 import org.apache.commons.lang.StringUtils;
 
+import com.google.gson.annotations.SerializedName;
+
 /**
  * Parse software's version, like XX.YY.ZZ, where xx is major version, yy is minor version and ZZ is revision
  */
@@ -33,12 +35,16 @@ public class DigitalVersion implements Comparable<DigitalVersion> {
     public static final DigitalVersion JDK_9_0_0 = new DigitalVersion(9000000);
     public static final DigitalVersion JDK_1_8_0 = new DigitalVersion(1080000);
 
+    @SerializedName("id")
     public final int id;
 
+    @SerializedName("major")
     public final byte major;
 
+    @SerializedName("minor")
     public final byte minor;
 
+    @SerializedName("revision")
     public final byte revision;
 
     public DigitalVersion(int id) {
