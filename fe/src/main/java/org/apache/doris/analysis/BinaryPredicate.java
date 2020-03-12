@@ -337,7 +337,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
 
         // if children has subquery, it will be written and reanalyzed in the future.
-        if (children.get(0) instanceof Subquery || children.get(1) instanceof Subquery) {
+        if (contains(Subquery.class)) {
             return;
         }
 

@@ -102,6 +102,9 @@ public class SelectStmt extends QueryStmt {
     // Set in analyze().
     protected String sqlString_;
 
+    // Table alias generator used during query rewriting.
+    private TableAliasGenerator tableAliasGenerator = null;
+
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
         this.valueList = valueList;
@@ -238,6 +241,10 @@ public class SelectStmt extends QueryStmt {
         return havingClause != null;
     }
 
+    public void removeHavingClause() {
+        havingClause = null;
+    }
+
     @Override
     public SortInfo getSortInfo() {
         return sortInfo;
@@ -301,14 +308,15 @@ public class SelectStmt extends QueryStmt {
         return columnAliasGenerator;
     }
 
-    // Table alias generator used during query rewriting.
-    private TableAliasGenerator tableAliasGenerator = null;
-
     public TableAliasGenerator getTableAliasGenerator() {
         if (tableAliasGenerator == null) {
             tableAliasGenerator = new TableAliasGenerator(analyzer, null);
         }
         return tableAliasGenerator;
+    }
+
+    public void setTableAliasGenerator(TableAliasGenerator tableAliasGenerator) {
+        this.tableAliasGenerator = tableAliasGenerator;
     }
 
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
@@ -839,15 +847,28 @@ public class SelectStmt extends QueryStmt {
     private void analyzeAggregation(Analyzer analyzer) throws AnalysisException {
         // check having clause
         if (havingClause != null) {
-            if (havingClause.contains(Predicates.instanceOf(Subquery.class))) {
-                throw new AnalysisException(
-                        "Subqueries are not supported in the HAVING clause.");
-            }
             Expr ambiguousAlias = getFirstAmbiguousAlias(havingClause);
             if (ambiguousAlias != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NON_UNIQ_ERROR, ambiguousAlias.toColumnLabel());
             }
-            // substitute aliases in place (ordinals not allowed in having clause)
+            /*
+             * The having clause need to be substitute by aliasSMap.
+             * And it is analyzed after substitute.
+             * For example:
+             * Query: select k1 a, sum(k2) b from table group by k1 having a > 1;
+             * Having clause: a > 1
+             * aliasSMap: <a, table.k1> <b, sum(table.k2)>
+             * After substitute: a > 1 changed to table.k1 > 1
+             * Analyzer: check column and other subquery in having clause
+             * having predicate: table.k1 > 1
+             */
+            /*
+             * TODO(ml): support substitute outer column in subquery
+             * For example: select k1 key, sum(k1) sum_k1 from table a group by k1
+             *              having k1 >
+             *                     (select min(k1) from table b where a.key=b.k2);
+             * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
+             */
             havingPred = havingClause.substitute(aliasSMap, analyzer, false);
             havingPred.checkReturnsBool("HAVING clause", true);
             // can't contain analytic exprs
@@ -974,15 +995,23 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("desctbl: " + analyzer.getDescTbl().debugString());
             LOG.debug("resultexprs: " + Expr.debugString(resultExprs));
         }
+        /*
+         * All of columns of result and having clause are replaced by new slot ref which is bound by top tuple of agg info.
+         * For example:
+         * ResultExprs: SlotRef(k1), FunctionCall(sum(SlotRef(k2)))
+         * Having predicate: FunctionCall(sum(SlotRef(k2))) > subquery
+         * CombinedSMap: <SlotRef(k1) tuple 0, SlotRef(k1) of tuple 3>,
+         *               <FunctionCall(SlotRef(k2)) tuple 0, SlotRef(sum(k2)) of tuple 3>
+         *
+         * After rewritten:
+         * ResultExprs: SlotRef(k1) of tuple 3, SlotRef(sum(k2)) of tuple 3
+         * Having predicate: SlotRef(sum(k2)) of tuple 3 > subquery
+         */
         resultExprs = Expr.substituteList(resultExprs, combinedSmap, analyzer, false);
         if (LOG.isDebugEnabled()) {
             LOG.debug("post-agg selectListExprs: " + Expr.debugString(resultExprs));
         }
         if (havingPred != null) {
-            // Make sure the predicate in the HAVING clause does not contain a
-            // subquery.
-            Preconditions.checkState(!havingPred.contains(
-                    Predicates.instanceOf(Subquery.class)));
             havingPred = havingPred.substitute(combinedSmap, analyzer, false);
             analyzer.registerConjuncts(havingPred, true, finalAggInfo.getOutputTupleId().asList());
             if (LOG.isDebugEnabled()) {
@@ -1030,11 +1059,6 @@ public class SelectStmt extends QueryStmt {
                                 "clause?): " + havingClause.toSql());
             }
         }
-    }
-
-    private void createGroupingInfo(Analyzer analyzer) throws AnalysisException {
-        groupingInfo = new GroupingInfo(analyzer, groupByClause.getGroupingType());
-
     }
 
     /**
@@ -1436,6 +1460,22 @@ public class SelectStmt extends QueryStmt {
         }
         // In all other cases, return false.
         return false;
+    }
+
+    @Override
+    public boolean containsCorrelatedPredicate() {
+        // check inline view
+        for (TableRef tableRef : fromClause_.getTableRefs()) {
+            if (tableRef instanceof InlineViewRef) {
+                if (((InlineViewRef) tableRef).getViewStmt().containsCorrelatedPredicate()) {
+                    return true;
+                }
+            }
+        }
+        if (whereClause == null) {
+            return false;
+        }
+        return whereClause.isCorrelatedPredicate(getTableRefIds());
     }
 
     @Override

@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
@@ -43,47 +44,52 @@ public class StmtRewriter {
      * Rewrite the statement of an analysis result. The unanalyzed rewritten
      * statement is returned.
      */
-    public static void rewrite(Analyzer analyzer, StatementBase parsedStmt)
+    public static StatementBase rewrite(Analyzer analyzer, StatementBase parsedStmt)
             throws AnalysisException {
         if (parsedStmt instanceof QueryStmt) {
             QueryStmt analyzedStmt = (QueryStmt) parsedStmt;
             Preconditions.checkNotNull(analyzedStmt.analyzer);
-            rewriteQueryStatement(analyzedStmt, analyzer);
+            parsedStmt = rewriteQueryStatement(analyzedStmt, analyzer);
         } else if (parsedStmt instanceof InsertStmt) {
             final InsertStmt insertStmt = (InsertStmt)parsedStmt;
             final QueryStmt analyzedStmt = (QueryStmt)insertStmt.getQueryStmt();
             Preconditions.checkNotNull(analyzedStmt.analyzer);
-            rewriteQueryStatement(analyzedStmt, analyzer);
+            QueryStmt rewrittenQueryStmt = rewriteQueryStatement(analyzedStmt, analyzer);
+            insertStmt.setQueryStmt(rewrittenQueryStmt);
         } else {
             throw new AnalysisException("Unsupported statement containing subqueries: "
                     + parsedStmt.toSql());
         }
+        return parsedStmt;
     }
 
   /**
    *  Calls the appropriate rewrite method based on the specific type of query stmt. See
    *  rewriteSelectStatement() and rewriteUnionStatement() documentation.
    */
-    public static void rewriteQueryStatement(QueryStmt stmt, Analyzer analyzer)
+    public static QueryStmt rewriteQueryStatement(QueryStmt stmt, Analyzer analyzer)
             throws AnalysisException {
         Preconditions.checkNotNull(stmt);
         if (stmt instanceof SelectStmt) {
-            rewriteSelectStatement((SelectStmt) stmt, analyzer);
+            stmt = rewriteSelectStatement((SelectStmt) stmt, analyzer);
         } else if (stmt instanceof SetOperationStmt) {
             rewriteUnionStatement((SetOperationStmt) stmt, analyzer);
         } else {
             throw new AnalysisException("Subqueries not supported for "
                     + stmt.getClass().getSimpleName() + " statements");
         }
+        return stmt;
     }
 
-    private static void rewriteSelectStatement(SelectStmt stmt, Analyzer analyzer)
+    private static SelectStmt rewriteSelectStatement(SelectStmt stmt, Analyzer analyzer)
             throws AnalysisException {
         // Rewrite all the subqueries in the FROM clause.
         for (TableRef tblRef: stmt.fromClause_) {
             if (!(tblRef instanceof InlineViewRef)) continue;
             InlineViewRef inlineViewRef = (InlineViewRef)tblRef;
-            rewriteQueryStatement(inlineViewRef.getViewStmt(), inlineViewRef.getAnalyzer());
+            QueryStmt rewrittenQueryStmt = rewriteQueryStatement(inlineViewRef.getViewStmt(),
+                    inlineViewRef.getAnalyzer());
+            inlineViewRef.setViewStmt(rewrittenQueryStmt);
         }
         // Rewrite all the subqueries in the WHERE clause.
         if (stmt.hasWhereClause()) {
@@ -97,8 +103,128 @@ public class StmtRewriter {
             }
             rewriteWhereClauseSubqueries(stmt, analyzer);
         }
+        // Rewrite all subquery in the having clause
+        if (stmt.getHavingPred() != null && stmt.getHavingPred().getSubquery() != null) {
+            stmt = rewriteHavingClauseSubqueries(stmt, analyzer);
+        }
         stmt.sqlString_ = null;
         if (LOG.isDebugEnabled()) LOG.debug("rewritten stmt: " + stmt.toSql());
+        return stmt;
+    }
+
+    /**
+     * Rewrite having subquery.
+     * Step1: rewrite having subquery to where subquery
+     * Step2: rewrite where subquery
+     * <p>
+     * For example:
+     * select cs_item_sk, sum(cs_sales_price) from catalog_sales a group by cs_item_sk
+     * having sum(cs_sales_price) >
+     *        (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk);
+     * <p>
+     * Step1: rewrite having subquery to where subquery
+     * Outer query is changed to inline view in rewritten query
+     * Inline view of outer query:
+     *     from (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
+     * Rewritten subquery of expr:
+     *     where a.sum_cs_sales_price >
+     *           (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk)
+     * Rewritten query:
+     *     select cs_item_sk, a.sum_cs_sales_price from
+     *     (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
+     *     where a.sum_cs_sales_price >
+     *           (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk)
+     * <p>
+     * Step2: rewrite where subquery
+     * Inline view of subquery:
+     *     from (select b.cs_item_sk, min(cs_sales_price) from catalog_sales b group by cs_item_sk) c
+     * Rewritten correlated predicate:
+     *     where c.cs_item_sk = a.cs_item_sk and a.sum_cs_sales_price > c.min(cs_sales_price)
+     *
+     * @param stmt
+     * @param analyzer
+     */
+    private static SelectStmt rewriteHavingClauseSubqueries(SelectStmt stmt, Analyzer analyzer) throws AnalysisException {
+        // extract having predicate
+        Expr havingPredicate = stmt.getHavingPred();
+        Preconditions.checkState(havingPredicate != null);
+        Preconditions.checkState(havingPredicate.getSubquery() != null);
+        // extract result of stmt
+        List<Expr> leftExprList = stmt.getResultExprs();
+        // extract table alias generator
+        TableAliasGenerator tableAliasGenerator = stmt.getTableAliasGenerator();
+
+        /*
+         * The outer query is changed to inline view without having predicate
+         * For example:
+         * Query: select cs_item_sk, sum(cs_sales_price) from catalog_sales a group by cs_item_sk having ...;
+         * Inline view:
+         *     from (select cs_item_sk $ColumnA, sum(cs_sales_price) $ColumnB from catalog_sales a group by cs_item_sk) $TableA
+         */
+        SelectStmt inlineViewQuery = (SelectStmt) stmt.clone();
+        inlineViewQuery.reset();
+        inlineViewQuery.removeHavingClause();
+        // add a new alias for all of columns in subquery
+        List<String> colAliasOfInlineView = Lists.newArrayList();
+        for (int i = 0; i < inlineViewQuery.getSelectList().getItems().size(); ++i) {
+            colAliasOfInlineView.add(inlineViewQuery.getColumnAliasGenerator().getNextAlias());
+        }
+        InlineViewRef inlineViewRef = new InlineViewRef(tableAliasGenerator.getNextAlias(), inlineViewQuery,
+                colAliasOfInlineView);
+        try {
+            inlineViewRef.analyze(analyzer);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        LOG.debug("Outer query is changed to " + inlineViewRef.tableRefToSql());
+
+        /*
+         * Columns which belong to outer query can substitute for output columns of inline view
+         * For example:
+         * Having predicate: sum(cs_sales_price) >
+         *                   (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk);
+         * Columns which belong to outer query: sum(cs_sales_price), a.cs_item_sk
+         * SMap: <cs_item_sk $ColumnA> <sum(cs_sales_price) $ColumnB>
+         * After substitute: $ColumnB >
+         *                   (select min(cs_sales_price) from catalog_sales b where $ColumnA = b.cs_item_sk)
+         */
+        /*
+         * Prepare select list of new query.
+         * Generate a new select item for each original columns in select list
+         */
+        havingPredicate.reset();
+        ExprSubstitutionMap smap = new ExprSubstitutionMap();
+        SelectList newSelectList = new SelectList();
+        for (int i = 0; i < inlineViewQuery.getSelectList().getItems().size(); i++) {
+            Expr leftExpr = leftExprList.get(i);
+            Expr rightExpr = new SlotRef(inlineViewRef.getAliasAsName(), colAliasOfInlineView.get(i));
+            rightExpr.analyze(analyzer);
+            smap.put(leftExpr, rightExpr);
+            // construct outer query select list
+            SelectListItem selectListItem = new SelectListItem(rightExpr, stmt.getColLabels().get(i));
+            newSelectList.addItem(selectListItem);
+        }
+        Expr newWherePredicate = havingPredicate.substitute(smap, analyzer,false);
+        LOG.debug("Having predicate is changed to " + newWherePredicate.toSql());
+
+        // construct rewritten query
+        List<TableRef> newTableRefList = Lists.newArrayList();
+        newTableRefList.add(inlineViewRef);
+        FromClause newFromClause = new FromClause(newTableRefList);
+        SelectStmt result = new SelectStmt(newSelectList, newFromClause, newWherePredicate, null, null, null,
+                LimitElement.NO_LIMIT);
+        result.setTableAliasGenerator(tableAliasGenerator);
+        try {
+            result.analyze(analyzer);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage());
+        }
+        LOG.info("New stmt {} is constructed after rewritten subquery of having clause.", result.toSql());
+
+        // rewrite where subquery
+        result = rewriteSelectStatement(result, analyzer);
+        LOG.info("The final stmt is " + result.toSql());
+        return result;
     }
 
     /**
@@ -109,8 +235,9 @@ public class StmtRewriter {
             throws AnalysisException {
         for (SetOperationStmt.SetOperand operand: stmt.getOperands()) {
             Preconditions.checkState(operand.getQueryStmt() instanceof SelectStmt);
-            StmtRewriter.rewriteSelectStatement(
+            QueryStmt rewrittenQueryStmt = StmtRewriter.rewriteSelectStatement(
                     (SelectStmt)operand.getQueryStmt(), operand.getAnalyzer());
+            operand.setQueryStmt(rewrittenQueryStmt);
         }
     }
 
@@ -292,11 +419,11 @@ public class StmtRewriter {
         // Extract the subquery and rewrite it.
         Subquery subquery = expr.getSubquery();
         Preconditions.checkNotNull(subquery);
-        rewriteSelectStatement((SelectStmt) subquery.getStatement(), subquery.getAnalyzer());
+        QueryStmt rewrittenStmt = rewriteSelectStatement((SelectStmt) subquery.getStatement(), subquery.getAnalyzer());
         // Create a new Subquery with the rewritten stmt and use a substitution map
         // to replace the original subquery from the expr.
 
-        QueryStmt rewrittenStmt = subquery.getStatement().clone();
+        rewrittenStmt = rewrittenStmt.clone();
         rewrittenStmt.reset();
         Subquery newSubquery = new Subquery(rewrittenStmt);
         newSubquery.analyze(analyzer);
@@ -500,10 +627,7 @@ public class StmtRewriter {
         if (!hasEqJoinPred && !inlineView.isCorrelated()) {
             // TODO: Remove this when independent subquery evaluation is implemented.
             // TODO: Requires support for non-equi joins.
-            boolean hasGroupBy = ((SelectStmt) inlineView.getViewStmt()).hasGroupByClause();
-            // boolean hasGroupBy = false;
-            if (!expr.getSubquery().returnsScalarColumn()
-                    || (!(hasGroupBy && stmt.selectList.isDistinct()) && hasGroupBy)) {
+            if (!expr.getSubquery().returnsScalarColumn()) {
                 throw new AnalysisException("Unsupported predicate with subquery: "
                         + expr.toSql());
             }
