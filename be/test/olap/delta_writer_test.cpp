@@ -46,8 +46,8 @@ namespace doris {
 static const uint32_t MAX_RETRY_TIMES = 10;
 static const uint32_t MAX_PATH_LEN = 1024;
 
-StorageEngine* k_engine = nullptr;
-MemTracker* k_mem_tracker = nullptr;
+static StorageEngine* k_engine = nullptr;
+static MemTracker* k_mem_tracker = nullptr;
 
 void set_up() {
     char buffer[MAX_PATH_LEN];

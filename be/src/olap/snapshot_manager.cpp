@@ -558,9 +558,9 @@ OLAPStatus SnapshotManager::_convert_beta_rowsets_to_alpha(const TabletMetaShare
     }
     if (res == OLAP_SUCCESS && modified) {
         if (is_incremental) {
-            res = new_tablet_meta->revise_inc_rs_metas(new_rowset_metas);
+            new_tablet_meta->revise_inc_rs_metas(new_rowset_metas);
         } else {
-            res = new_tablet_meta->revise_rs_metas(new_rowset_metas);
+            new_tablet_meta->revise_rs_metas(new_rowset_metas);
         }
     }
     return res;
