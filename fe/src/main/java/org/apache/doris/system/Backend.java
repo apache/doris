@@ -61,6 +61,7 @@ public class Backend implements Writable {
 
     private long id;
     private String host;
+    private String version;
 
     private int heartbeatPort; // heartbeat
     private AtomicInteger bePort; // be
@@ -95,6 +96,7 @@ public class Backend implements Writable {
 
     public Backend() {
         this.host = "";
+        this.version = "";
         this.lastUpdateMs = new AtomicLong();
         this.lastStartTime = new AtomicLong();
         this.isAlive = new AtomicBoolean();
@@ -114,6 +116,7 @@ public class Backend implements Writable {
     public Backend(long id, String host, int heartbeatPort) {
         this.id = id;
         this.host = host;
+        this.version = "";
         this.heartbeatPort = heartbeatPort;
         this.bePort = new AtomicInteger(-1);
         this.httpPort = new AtomicInteger(-1);
@@ -136,6 +139,10 @@ public class Backend implements Writable {
 
     public String getHost() {
         return host;
+    }
+
+    public String getVersion() {
+        return version;
     }
 
     public int getBePort() {
@@ -573,6 +580,11 @@ public class Backend implements Writable {
     public boolean handleHbResponse(BackendHbResponse hbResponse) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            if (!this.version.equals(hbResponse.getVersion())) {
+                isChanged = true;
+                this.version = hbResponse.getVersion();
+            }
+
             if (this.bePort.get() != hbResponse.getBePort()) {
                 isChanged = true;
                 this.bePort.set(hbResponse.getBePort());
