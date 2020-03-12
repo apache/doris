@@ -42,4 +42,12 @@ public class SparkPendingTaskAttachment extends TaskAttachment {
     public void setOutputPath(String outputPath) {
         this.outputPath = outputPath;
     }
+
+    @Override
+    public String toString() {
+        return "SparkPendingTaskAttachment{" +
+                "handle=" + handle +
+                ", outputPath='" + outputPath + '\'' +
+                '}';
+    }
 }

@@ -161,18 +161,11 @@ public class SparkLoadJob extends BulkLoadJob {
             return;
         }
 
-        // get spark appid
-        Preconditions.checkState(sparkAppHandle != null);
-        String appId = sparkAppHandle.getAppId();
-        if (appId == null) {
-            LOG.info("spark app handle get null appid, and check in next round. load job id: {}", id);
-            return;
-        }
-
         // get etl status
+        Preconditions.checkState(sparkAppHandle != null);
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
-        EtlStatus status = handler.getEtlJobStatus(etlClusterDesc.getProperties().get("spark.status_server"),
-                                                   sparkAppHandle, appId);
+        EtlStatus status = handler.getEtlJobStatus(sparkAppHandle, id,
+                                                   etlClusterDesc.getProperties().get("spark.status_server"));
         switch (status.getState()) {
             case RUNNING:
                 updateEtlStatusInternal(status);

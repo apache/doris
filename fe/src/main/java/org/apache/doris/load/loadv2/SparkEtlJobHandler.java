@@ -61,7 +61,7 @@ public class SparkEtlJobHandler {
     private static final String MAIN_CLASS = "org.apache.doris.load.loadv2.etl.SparkEtl";
     private static final String ETL_JOB_NAME = "doris__%s";
     // hdfs://host:port/outputPath/dbId/loadLabel/PendingTaskSignature
-    private static final String ETL_OUTPUT_PATH = "%s/%s/%d/%s/%d";
+    private static final String ETL_OUTPUT_PATH = "%s%s/%d/%s/%d";
     // http://host:port/api/v1/applications/appid/jobs
     private static final String STATUS_URL = "%s/api/v1/applications/%s/jobs";
 
@@ -156,7 +156,7 @@ public class SparkEtlJobHandler {
     }
 
 
-    public EtlStatus getEtlJobStatus(String statusServer, SparkAppHandle handle, String appId) {
+    public EtlStatus getEtlJobStatus(SparkAppHandle handle, long loadJobId, String statusServer) {
         EtlStatus status = new EtlStatus();
 
         // state
@@ -170,57 +170,62 @@ public class SparkEtlJobHandler {
             status.setState(TEtlState.RUNNING);
         }
 
-        // stats
-        if (appId != null) {
-            String statusUrl = String.format(STATUS_URL, statusServer, appId);
-            CloseableHttpClient httpClient = HttpClients.createDefault();
-            HttpGet httpGet = new HttpGet(statusUrl);
-            CloseableHttpResponse httpResponse = null;
-            String responseJson = null;
-            try {
-                httpResponse = httpClient.execute(httpGet);
-                HttpEntity httpEntity = httpResponse.getEntity();
-                responseJson = EntityUtils.toString(httpEntity);
-                LOG.info("get spark app status success. response: {}", responseJson);
-            } catch (IOException e) {
-                LOG.warn("get spark app status fail. error: {}", e);
-                return status;
-            } finally {
-                try {
-                    if (httpResponse != null) {
-                        httpResponse.close();
-                    }
-                    if (httpClient != null) {
-                        httpClient.close();
-                    }
-                } catch (IOException e) {
-                    LOG.warn("close http response or client fail. error: {}", e);
-                }
-            }
-
-            // [{ "jobId" : 0, "name" : "foreachPartition at Dpp.java:248",
-            //    "submissionTime" : "2020-02-18T09:09:46.398GMT", "stageIds" : [ 0, 1, 2 ], "status" : "RUNNING",
-            //    "numTasks" : 12, "numActiveTasks" : 3, "numCompletedTasks" : 9, "numSkippedTasks" : 0,
-            //    "numFailedTasks" : 0, "numKilledTasks" : 0, "numCompletedIndices" : 9, "numActiveStages" : 1,
-            //    "numCompletedStages" : 2, "numSkippedStages" : 0, "numFailedStages" : 0, "killedTasksSummary" : { }
-            //  }]
-            List<Map<String, Object>> jobInfos = new Gson().fromJson(responseJson, List.class);
-            Map<String, String> stats = Maps.newHashMap();
-            int numTasks = 0;
-            int numCompletedTasks = 0;
-            for (Map<String, Object> jobInfo : jobInfos) {
-                if (jobInfo.containsKey(NUM_TASKS)) {
-                    numTasks += (int) jobInfo.get(NUM_TASKS);
-                }
-                if (jobInfo.containsKey(NUM_COMPLETED_TASKS)) {
-                    numCompletedTasks += (int) jobInfo.get(NUM_COMPLETED_TASKS);
-                }
-            }
-
-            stats.put(NUM_TASKS, String.valueOf(numTasks));
-            stats.put(NUM_COMPLETED_TASKS, String.valueOf(numCompletedTasks));
-            status.setStats(stats);
+        // get spark appid
+        String appId = handle.getAppId();
+        if (appId == null) {
+            LOG.info("spark app handle get null appid, and check in next round. load job id: {}", loadJobId);
+            return status;
         }
+
+        // stats
+        String statusUrl = String.format(STATUS_URL, statusServer, appId);
+        CloseableHttpClient httpClient = HttpClients.createDefault();
+        HttpGet httpGet = new HttpGet(statusUrl);
+        CloseableHttpResponse httpResponse = null;
+        String responseJson = null;
+        try {
+            httpResponse = httpClient.execute(httpGet);
+            HttpEntity httpEntity = httpResponse.getEntity();
+            responseJson = EntityUtils.toString(httpEntity);
+            LOG.info("get spark app status success. load job id: {}, response: {}", loadJobId, responseJson);
+        } catch (IOException e) {
+            LOG.warn("get spark app status fail. load job id: {}, error: {}", loadJobId, e);
+            return status;
+        } finally {
+            try {
+                if (httpResponse != null) {
+                    httpResponse.close();
+                }
+                if (httpClient != null) {
+                    httpClient.close();
+                }
+            } catch (IOException e) {
+                LOG.warn("close http response or client fail. load job id: {}, error: {}", loadJobId, e);
+            }
+        }
+
+        // [{ "jobId" : 0, "name" : "foreachPartition at Dpp.java:248",
+        //    "submissionTime" : "2020-02-18T09:09:46.398GMT", "stageIds" : [ 0, 1, 2 ], "status" : "RUNNING",
+        //    "numTasks" : 12, "numActiveTasks" : 3, "numCompletedTasks" : 9, "numSkippedTasks" : 0,
+        //    "numFailedTasks" : 0, "numKilledTasks" : 0, "numCompletedIndices" : 9, "numActiveStages" : 1,
+        //    "numCompletedStages" : 2, "numSkippedStages" : 0, "numFailedStages" : 0, "killedTasksSummary" : { }
+        //  }]
+        List<Map<String, Object>> jobInfos = new Gson().fromJson(responseJson, List.class);
+        Map<String, String> stats = Maps.newHashMap();
+        int numTasks = 0;
+        int numCompletedTasks = 0;
+        for (Map<String, Object> jobInfo : jobInfos) {
+            if (jobInfo.containsKey(NUM_TASKS)) {
+                numTasks += new Double((double) jobInfo.get(NUM_TASKS)).intValue();
+            }
+            if (jobInfo.containsKey(NUM_COMPLETED_TASKS)) {
+                numCompletedTasks += new Double((double) jobInfo.get(NUM_COMPLETED_TASKS)).intValue();
+            }
+        }
+
+        stats.put(NUM_TASKS, String.valueOf(numTasks));
+        stats.put(NUM_COMPLETED_TASKS, String.valueOf(numCompletedTasks));
+        status.setStats(stats);
 
         // counters
 

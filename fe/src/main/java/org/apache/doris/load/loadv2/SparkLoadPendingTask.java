@@ -109,6 +109,7 @@ public class SparkLoadPendingTask extends LoadTask {
         SparkAppHandle handle = handler.submitEtlJob(loadJobId, loadLabel, sparkMaster, sparkConfigs, configToJson());
         ((SparkPendingTaskAttachment) attachment).setHandle(handle);
         ((SparkPendingTaskAttachment) attachment).setOutputPath(etlJobConfig.getOutputPath());
+        LOG.info("submit spark etl job success. attachment: {}", attachment);
     }
 
     private String configToJson() {
