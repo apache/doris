@@ -32,7 +32,7 @@ key:
 
 Super user rights:
 Max_user_connections: Maximum number of connections.
-resource.cpu_share: cpu资源分配。
+resource.cpu_share: share of CPU time
 Load_cluster. {cluster_name}. priority: assigns priority to a specified cluster, which can be HIGH or NORMAL
 
 Ordinary user rights:

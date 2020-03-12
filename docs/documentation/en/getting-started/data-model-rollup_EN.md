@@ -245,18 +245,18 @@ This is a typical user base information table. There is no aggregation requireme
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "用户id",
-"username" VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-` City `VARCHAR (20) COMMENT `User City',
-"Age" SMALLINT COMMENT "29992;" 25143;"24180;" 40836 ",
-`sex` TINYINT COMMENT "用户性别",
-`phone` LARGEINT COMMENT "用户电话",
-'address ` VARCHAR (500) COMMENT'25143;',
-'register 'or'time' DATETIME COMMENT "29992;" 25143;"27880;" 20876;"26102;" 38388;"
+    `user_id` LARGEINT NOT NULL COMMENT "user id",
+    `username` VARCHAR(50) NOT NULL COMMENT "User nickname",
+    `city` VARCHAR(20) COMMENT "User City",
+    `age` SMALLINT COMMENT "User Age",
+    `sex` TINYINT COMMENT "User Gender",
+    `phone` LARGEINT COMMENT "User Phone",
+    `address` VARCHAR(500) COMMENT "User Address",
+    `register_time` DATETIME COMMENT "user registration time"
 )
-Unique Key ("User", "User", "Name")
+UNIQUE KEY(`user_id`, `username`)
 ... /* 省略 Partition 和 Distribution 信息 */
-;
+；
 ```
 
 This table structure is exactly the same as the following table structure described by the aggregation model:
@@ -277,18 +277,18 @@ And table-building statements:
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "用户id",
-"username" VARCHAR (50) NOT NULL COMMENT "25143;" 261651;"
-` City `VARCHAR (20) REPLACE COMMENT `User City',
-What do you say when you are young?
-`sex` TINYINT REPLACE COMMENT "用户性别",
-"phone" LARGEINT REPLACE COMMENT "25143;"
-`address` VARCHAR(500) REPLACE COMMENT "用户地址",
-'register 'or'time' DATETIME REPLACE COMMENT "29992;" 25143;"27880;" 20876;"26102;"
+    `user_id` LARGEINT NOT NULL COMMENT "user id",
+    `username` VARCHAR(50) NOT NULL COMMENT "User nickname",
+    `city` VARCHAR(20) REPLACE COMMENT "User City",
+    `age` SMALLINT REPLACE COMMENT "User Age",
+    `sex` TINYINT REPLACE COMMENT "User Phone",
+    `phone` LARGEINT REPLACE COMMENT "User Address",
+    `address` VARCHAR(500) REPLACE COMMENT "User Address",
+    `register_time` DATETIME REPLACE COMMENT "User registration time"
 )
-AGGREGATE KEY(`user_id`, `user_name`)
-... /* 省略 Partition 和 Distribution 信息 */
-;
+AGGREGATE KEY(`user_id`, `username`)
+... /* Partition and Distribution info */
+；
 ```
 
 That is to say, Uniq model can be completely replaced by REPLACE in aggregation model. Its internal implementation and data storage are exactly the same. No further examples will be given here.
@@ -310,16 +310,16 @@ The TABLE statement is as follows:
 ```
 CREATE TABLE IF NOT EXISTS example_db.expamle_tbl
 (
-`timestamp` DATETIME NOT NULL COMMENT "日志时间",
-`type` INT NOT NULL COMMENT "日志类型",
-"Error"\\\\\\\\\\\\\
-`error_msg` VARCHAR(1024) COMMENT "错误详细信息",
-`op_id` BIGINT COMMENT "负责人id",
-OP `op `time ` DATETIME COMMENT "22788;" 29702;"26102;" 388;"
+    `timestamp` DATETIME NOT NULL COMMENT "Logging Time",
+    `type` INT NOT NULL COMMENT "Log Type",
+    `error_code` INT COMMENT "error code",
+    `error_msg` VARCHAR(1024) COMMENT "Error Details",
+    `op_id` BIGINT COMMENT "operator id",
+    `op_time` DATETIME COMMENT "operation time"
 )
 DUPLICATE KEY(`timestamp`, `type`)
-... /* 省略 Partition 和 Distribution 信息 */
-;
+... /* Partition 和 Distribution info */
+；
 ```
 
 This data model is different from Aggregate and Uniq models. Data is stored entirely in accordance with the data in the imported file, without any aggregation. Even if the two rows of data are identical, they will be retained.

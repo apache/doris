@@ -28,10 +28,10 @@ Simply add the property colocate_with when building a table. The value of coloca
 However, you need to ensure that tables in the colocate_with attribute are created first.
 
 If you need to Colocate Join table t1 and t2, you can build tables according to the following statements:
-
+```
 CREATE TABLE `t1` (
 `id` int(11) COMMENT "",
-'value ` varchar (8) COMMENT ""
+'value` varchar (8) COMMENT ""
 ) ENGINE=OLAP
 DUPLICATE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 10
@@ -41,20 +41,20 @@ PROPERTIES (
 
 CREATE TABLE `t2` (
 `id` int(11) COMMENT "",
-'value ` varchar (8) COMMENT ""
+'value` varchar (8) COMMENT ""
 ) ENGINE=OLAP
 DUPLICATE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 10
 PROPERTIES (
 "colocate_with" = "t1"
 );
-
-2 Colocate Join 目前的限制:
+```
+2 Limitation of Colocate Join:
 
 1. Colcoate Table must be an OLAP-type table
 2. The BUCKET number of tables with the same colocate_with attribute must be the same
 3. The number of copies of tables with the same colocate_with attribute must be the same
-4. Data types of DISTRIBUTTED Columns for tables with the same colocate_with attribute must be the same
+4. Data types of DISTRIBUTED Columns for tables with the same colocate_with attribute must be the same
 
 3 Colocate Join's applicable scenario:
 
@@ -62,13 +62,13 @@ Colocate Join is well suited for scenarios where tables are bucketed according t
 
 4 FAQ:
 
-Q: 支持多张表进行Colocate Join 吗?
+Q: Do you support Colocate Join cross multi-table?
 
-A: 25903;. 25345
+A: yes
 
 Q: Do you support Colocate table and normal table Join?
 
-A: 25903;. 25345
+A: yes
 
 Q: Does the Colocate table support Join with non-bucket Key?
 
@@ -82,9 +82,9 @@ Q: How to modify the colocate_with attribute?
 
 A: ALTER TABLE example_db.my_table set ("colocate_with"="target_table");
 
-Q: 229144; colcoate join?
+Q: How to disable colcoate join?
 
-A: set disable_colocate_join = true; 就可以禁用Colocate Join，查询时就会使用Shuffle Join 和Broadcast Join
+A: set disable_colocate_join = true;  will use Shuffle Join and Broadcast Join instead
 
 ## keyword
 

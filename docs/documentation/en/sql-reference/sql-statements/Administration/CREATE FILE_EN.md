@@ -37,7 +37,7 @@ CREATE FILE "File name" [IN database]
 Explain:
 File_name: Custom file name.
 Database: The file belongs to a db, and if not specified, the DB of the current session is used.
-properties 支持以下参数:
+properties parameters:
 
 Url: Must. Specify a download path for a file. Currently only unauthenticated HTTP download paths are supported. When the command line succeeds, the file will be saved in Doris and the URL will no longer be required.
 Catalog: Yes. The classification name of the file can be customized. But in some commands, files in the specified catalog are looked up. For example, in a routine import, when the data source is kafka, the file under the name of catalog is looked up.

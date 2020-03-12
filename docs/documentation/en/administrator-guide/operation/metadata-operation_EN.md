@@ -232,7 +232,7 @@ FE currently has the following ports
 
 * Ed_log_port: bdbje's communication port
 * http_port: http port, also used to push image
-* rpc_port：FE 的 thrift server port
+* rpc_port：thrift server port of FE
 * query_port: Mysql connection port
 
 1. edit_log_port
@@ -311,7 +311,7 @@ The deployment recommendation of FE is described in the Installation and [Deploy
 
 	Because Doris's metadata adopts the majority writing strategy, that is, a metadata journal must be written to at least a number of FOLLOWER FEs (for example, three FOLLOWERs, two must be written successfully) before it can be considered successful. If the write fails, the FE process exits on its own initiative. So suppose there are three FOLLOWERs: A, B and C. C hangs up first, and then B hangs up, then A will hang up. So as described in the `Best Practices `section, if you don't have extensive experience in metadata operations and maintenance, it's not recommended to deploy multiple FOLLOWERs.
 
-6. fe.log 中出现 `get exception when try to close previously opened bdb database. ignore it`
+6. `get exception when try to close previously opened bdb database. ignore it` in fe.log
 
 	If there is the word `ignore it` behind it, there is usually no need to deal with it. If you are interested, you can search for this error in `BDBEnvironment.java`, and see the annotations.
 

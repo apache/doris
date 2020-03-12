@@ -94,7 +94,7 @@ ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
 "table" = "load_errors"
 );
 
-7. 添加一个 Broker 类型的 load error hub
+7. add a load error hub of broker type
 ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES
 ("type"= "broker",
 "Name" = BOS,

@@ -543,32 +543,6 @@ We have collected some statistics of Tablet Checker and Tablet Scheduler during 
 +---------------------------------------------------+-------------+
 ```
 
-The meanings of each line are as follows:
-
-* num of tablet check round：Tablet Checker 检查次数
-* cost of tablet check(ms)：Tablet Checker 检查总耗时
-* num of tablet checked in tablet checker：Tablet Checker 检查过的 tablet 数量
-* num of unhealthy tablet checked in tablet checker：Tablet Checker 检查过的不健康的 tablet 数量
-* num of tablet being added to tablet scheduler：被提交到 Tablet Scheduler 中的 tablet 数量
-* num of tablet schedule round：Tablet Scheduler 运行次数
-* cost of tablet schedule(ms)：Tablet Scheduler 运行总耗时
-* num of tablet being scheduled：被调度的 Tablet 总数量
-* num of tablet being scheduled succeeded：被成功调度的 Tablet 总数量
-* num of tablet being scheduled failed：调度失败的 Tablet 总数量
-* num of tablet being scheduled discard：调度失败且被抛弃的 Tablet 总数量
-* num of tablet priority upgraded：优先级上调次数
-* num of tablet priority downgraded：优先级下调次数
-* num of clone task: number of clone tasks generated
-* num of clone task succeeded：clone 任务成功的数量
-* num of clone task failed：clone 任务失败的数量
-* num of clone task timeout：clone 任务超时的数量
-* num of replica missing error: the number of tablets whose status is checked is the missing copy
-* num of replica version missing error：检查的状态为版本缺失的 tablet 的数量（该统计值包括了 num of replica relocating 和 num of replica missing in cluster error）
-*num of replica relocation *29366;* 24577;*replica relocation tablet *
-* num of replica redundant error: Number of tablets whose checked status is replica redundant
-* num of replica missing in cluster error：检查的状态为不在对应 cluster 的 tablet 的数量
-* num of balance scheduled：均衡调度的次数
-
 > Note: The above states are only historical accumulative values. We also print these statistics regularly in the FE logs, where the values in parentheses represent the number of changes in each statistical value since the last printing dependence of the statistical information.
 
 ## Relevant configuration instructions
@@ -601,7 +575,7 @@ The following adjustable parameters are all configurable parameters in fe.conf.
 	* Default value: 0.1
 	* Importance:
 
-* storage\_high\_watermark\_usage\_percent 和 storage\_min\_left\_capacity\_bytes
+* storage\_high\_watermark\_usage\_percent and storage\_min\_left\_capacity\_bytes
 
 	* Description: These two parameters represent the upper limit of the maximum space utilization of a disk and the lower limit of the minimum space remaining, respectively. When the space utilization of a disk is greater than the upper limit or the remaining space is less than the lower limit, the disk will no longer be used as the destination address for balanced scheduling.
 	* Default values: 0.85 and 1048576000 (1GB)

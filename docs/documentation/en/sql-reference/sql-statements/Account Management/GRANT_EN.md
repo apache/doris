@@ -38,7 +38,7 @@ ALTER_PRIV: schema change permissions for specified libraries or tables
 CREATE_PRIV: Creation permissions for specified libraries or tables
 DROP_PRIV: Delete permissions for specified libraries or tables
 
-旧版权限中的 ALL 和 READ_WRITE 会被转换成：SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV；
+ALL and READ_WRITE in older versions will be rewrite to SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV；
 READ_ONLY is converted to SELECT_PRIV.
 
 Db_name [.tbl_name] supports the following three forms:

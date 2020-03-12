@@ -153,7 +153,7 @@ The concrete structure is as follows:
 
 	In this way, the above two problems no longer exist. Metadata is also organized in a relatively simple way. That is to say, use ** Figure 3 ** to record db, user and nodes belonging to their own cluster.
 
-2. BE 节点管理
+2. Management of BE
 
 	Each cluster has its own set of instances, which can be viewed through `SHOW BACKENDS`. In order to distinguish which cluster the instance belongs to and how it is used, BE introduces several states:
 
@@ -184,7 +184,7 @@ The concrete structure is as follows:
 
 	The process of cluster expansion is the same as that of cluster creation. BE instance on hosts that are not outside the cluster is preferred. The selected principles are the same as creating clusters.
 
-5. 集群缩容、CLUSTER DECOMMISSION
+5. Cluster Shrinkage and Cluster Decommission
 
 	Users can scale clusters by setting instance num of clusters.
 

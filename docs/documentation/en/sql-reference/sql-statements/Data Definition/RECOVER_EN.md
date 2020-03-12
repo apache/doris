@@ -23,7 +23,7 @@ This statement is used to restore previously deleted databases, tables, or parti
 Grammar:
 1)24674;"22797database;
 RECOVER DATABASE db_name;
-2) 恢复 table
+2) Recover table
 RECOVER TABLE [db_name.]table_name;
 3)24674;"22797partition
 RECOVER PARTITION partition name FROM [dbu name.]table name;

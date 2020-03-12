@@ -20,20 +20,26 @@ under the License.
 # CANCEL ALTER
 ## Description
 This statement is used to undo an ALTER operation.
-1. 撤销 ALTER TABLE COLUMN 操作
+1. Cancel Alter Table Column
 Grammar:
+```
 CANCEL ALTER TABLE COLUMN
 FROM db_name.table_name
+```
 
-2. 撤销 ALTER TABLE ROLLUP 操作
+2.  Cancel Alter Table Rollup
 Grammar:
+```
 CANCEL ALTER TABLE ROLLUP
 FROM db_name.table_name
+```
 
 3. batch cancel rollup by job id
     Grammar:
-        CANCEL ALTER TABLE ROLLUP
-                FROM db_name.table_name (jobid,...)
+```
+    CANCEL ALTER TABLE ROLLUP
+    FROM db_name.table_name (jobid,...)
+```
     Note:
         Batch cancel rollup job is a async operation, use `show alter table rollup` to see whether it executes successfully
 
@@ -44,12 +50,12 @@ Grammar:
 
 ## example
 [CANCEL ALTER TABLE COLUMN]
-1. 撤销针对 my_table 的 ALTER COLUMN 操作。
+1. cancel ALTER COLUMN on my_table
 CANCEL ALTER TABLE COLUMN
 FROM example_db.my_table;
 
 [CANCEL ALTER TABLE ROLLUP]
-1. 撤销 my_table 下的 ADD ROLLUP 操作。
+1. cancel ADD ROLLUP on  my_table
 CANCEL ALTER TABLE ROLLUP
 FROM example_db.my_table;
 

@@ -30,7 +30,7 @@ MIGRATE DATABASE src u cluster name.src db name of the cluster name.des db name
 
 ## example
 
-1. 迁移test_clusterA中的test_db到test_clusterB
+1. migrate test_clusterA.test_db to test_clusterB
 
 MIGRATE DATABASE test_clusterA.test_db test_clusterB.link_test_db;
 

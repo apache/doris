@@ -111,14 +111,14 @@ Fmt: Date format, such as% Y% m% d% H% M% S (year, month, day, hour, second)
 Column: Column in column_list, which is the column in the input file. Storage content should be a digital timestamp.
 If there is no column_list, the columns of the input file are entered by default in the column order of the Palo table.
 
-time_format(output_fmt, input_fmt, column) 日期格式转化
+time_format(output_fmt, input_fmt, column) date time format
 Output_fmt: Converted date format, such as% Y% m% d% H% M% S (year, month, day, hour, second)
 Input_fmt: The date format of the column before transformation, such as% Y% m% d% H% M% S (days, hours, seconds, months, years)
 Column: Column in column_list, which is the column in the input file. Storage content should be a date string in input_fmt format.
 If there is no column_list, the columns of the input file are entered by default in the column order of the Palo table.
 
-alignment_timestamp(precision, column) 将时间戳对齐到指定精度
-Precision: year 124month;124day;124hour;
+alignment_timestamp(precision, column) alignment timestamp to precision
+Precision: year|month|day|hour
 Column: Column in column_list, which is the column in the input file. Storage content should be a digital timestamp.
 If there is no column_list, the columns of the input file are entered by default in the column order of the Palo table.
 Note: When the alignment accuracy is year and month, only the time stamps in the range of 20050101-20191231 are supported.
@@ -152,10 +152,10 @@ Integer classes (TINYINT/SMALLINT/INT/BIGINT/LARGEINT): 1,1000,1234
 Floating Point Class (FLOAT/DOUBLE/DECIMAL): 1.1, 0.23, 356
 Date class (DATE/DATETIME): 2017-10-03, 2017-06-13 12:34:03.
 (Note: If it's in other date formats, you can use strftime or time_format functions to convert in the import command)
-字符串类（CHAR/VARCHAR）："I am a student", "a"
+string（CHAR/VARCHAR）："I am a student", "a"
 NULL value: N
 
-'35;'35; example
+## example
 
 1. Import a batch of data, specify timeout time and filtering ratio. Specify the import queue as my_cluster.
 

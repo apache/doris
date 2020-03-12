@@ -241,8 +241,8 @@ OpenPGP Public Key Primary Fingerprint:
 ```
 svn co //dist.apache.org/repos/dist/dev/incubator/doris/
 # edit doris/KEY file
-gpg --list-sigs [用户 ID] >> doris/KEYS
-gpg --armor --export [用户 ID] >> doris/KEYS
+gpg --list-sigs [User ID] >> doris/KEYS
+gpg --armor --export [User ID] >> doris/KEYS
 svn ci --username $ASF_USERNAME --password "$ASF_PASSWORD" -m"Update KEYS"
 ```
 

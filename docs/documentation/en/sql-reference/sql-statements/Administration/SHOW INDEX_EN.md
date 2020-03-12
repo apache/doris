@@ -22,7 +22,7 @@ under the License.
 ## description
 
     This statement is used to show all index(only bitmap index in current version) of a table
-    语法：
+    syntax：
         SHOW INDEX[ES] FROM [db_name.]table_name;
 
 ## example

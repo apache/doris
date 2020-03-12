@@ -30,7 +30,7 @@ DROP FILE "file_name" [FROM database]
 Explain:
 File_name: File name.
 Database: A DB to which the file belongs, if not specified, uses the DB of the current session.
-properties 支持以下参数:
+properties parameters:
 
 Catalog: Yes. Classification of documents.
 
