@@ -113,6 +113,7 @@ public class DynamicPartitionUtil {
             return false;
         }
         return properties.containsKey(DynamicPartitionProperty.TIME_UNIT) ||
+                properties.containsKey(DynamicPartitionProperty.START) ||
                 properties.containsKey(DynamicPartitionProperty.END) ||
                 properties.containsKey(DynamicPartitionProperty.PREFIX) ||
                 properties.containsKey(DynamicPartitionProperty.BUCKETS) ||
