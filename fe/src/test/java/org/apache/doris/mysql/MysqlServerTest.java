@@ -140,16 +140,16 @@ public class MysqlServerTest {
 
         // submit
         SocketChannel channel = SocketChannel.open();
-        channel.connect(new InetSocketAddress(port));
+        channel.connect(new InetSocketAddress("127.0.0.1", port));
         // sleep to wait mock process
-        Thread.sleep(100);
+        Thread.sleep(1000);
         channel.close();
 
         // submit twice
         channel = SocketChannel.open();
-        channel.connect(new InetSocketAddress(port));
+        channel.connect(new InetSocketAddress("127.0.0.1", port));
         // sleep to wait mock process
-        Thread.sleep(100);
+        Thread.sleep(1000);
         channel.close();
 
         // stop and join
