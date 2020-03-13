@@ -76,9 +76,6 @@ public:
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId>& partition_ids);
 
-    // Clear status(tables, ...)
-    OLAPStatus clear();
-
     // 获取cache的使用情况信息
     void get_cache_status(rapidjson::Document* document) const;
 
@@ -203,6 +200,9 @@ private:
     OLAPStatus _open();
 
     OLAPStatus _start_bg_worker();
+
+    // Clear status(tables, ...)
+    void _clear();
 
     void _update_storage_medium_type_count();
 

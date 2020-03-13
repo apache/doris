@@ -124,7 +124,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
-    clear();
+    _clear();
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -425,7 +425,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
     return !tablet_info_vec.empty();
 }
 
-OLAPStatus StorageEngine::clear() {
+void StorageEngine::_clear() {
     // 删除lru中所有内容,其实进程退出这么做本身意义不大,但对单测和更容易发现问题还是有很大意义的
     delete FileHandler::get_fd_cache();
     FileHandler::set_fd_cache(nullptr);
@@ -439,8 +439,6 @@ OLAPStatus StorageEngine::clear() {
     _store_map.clear();
 
     _stop_bg_worker = true;
-
-    return OLAP_SUCCESS;
 }
 
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) {
