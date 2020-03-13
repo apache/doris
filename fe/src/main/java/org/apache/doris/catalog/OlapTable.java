@@ -995,8 +995,18 @@ public class OlapTable extends Table {
         }
         
         if (resetState) {
+            // remove shadow index from copied table
+            List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+            for (MaterializedIndex deleteIndex : shadowIndex) {
+                LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
+                copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
+            }
             copied.setState(OlapTableState.NORMAL);
             for (Partition partition : copied.getPartitions()) {
+                // remove shadow index from partition
+                for (MaterializedIndex deleteIndex : shadowIndex) {
+                    partition.deleteRollupIndex(deleteIndex.getId());
+                }
                 partition.setState(PartitionState.NORMAL);
                 copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
                 for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
