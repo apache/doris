@@ -289,4 +289,33 @@ public class QueryPlanTest {
         UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertEquals(MysqlStateType.EOF, connectContext.getState().getStateType());
     }
+
+    @Test
+    public void testCountDistinctRewrite() throws Exception {
+        String sql = "select count(distinct id) from test.bitmap_table";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("output: count"));
+
+        sql = "select count(distinct id2) from test.bitmap_table";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
+        sql = "select sum(id) / count(distinct id2) from test.bitmap_table";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
+        sql = "select count(distinct id2) from test.hll_table";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("hll_union_agg"));
+
+        sql = "select sum(id) / count(distinct id2) from test.hll_table";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("hll_union_agg"));
+
+
+        ConnectContext.get().getSessionVariable().setRewriteCountDistinct(false);
+        sql = "select count(distinct id2) from test.bitmap_table";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains(Type.OnlyMetricTypeErrorMsg));
+    }
 }
