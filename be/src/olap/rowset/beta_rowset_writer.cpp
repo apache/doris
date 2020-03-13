@@ -186,6 +186,8 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer() {
     fs::CreateBlockOptions opts({path});
     DCHECK(block_mgr != nullptr);
     Status st = block_mgr->create_block(opts, &wblock);
+    // FIXME(cmy): this is just a temp implementation, will be refactor later.
+    delete block_mgr;
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable block. path=" << path;
         return OLAP_ERR_INIT_FAILED;

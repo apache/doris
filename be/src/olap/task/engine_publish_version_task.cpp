@@ -60,7 +60,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
             OLAPStatus publish_status = OLAP_SUCCESS;
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
-            LOG(INFO) << "begin to publish version on tablet. "
+            VLOG(3) << "begin to publish version on tablet. "
                     << "tablet_id=" << tablet_info.tablet_id
                     << ", schema_hash=" << tablet_info.schema_hash
                     << ", version=" << version.first
@@ -111,9 +111,9 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
             partition_related_tablet_infos.erase(tablet_info);
-            LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
-                      << ", transaction_id=" << transaction_id << ", version=" << version.first
-                      << ", res=" << publish_status;
+            VLOG(3) << "publish version successfully on tablet. tablet=" << tablet->full_name()
+                    << ", transaction_id=" << transaction_id << ", version=" << version.first
+                    << ", res=" << publish_status;
         }
 
         // check if the related tablet remained all have the version
