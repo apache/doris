@@ -179,7 +179,7 @@ public class QueryPlanTest {
     public void testBitmapQuery() throws Exception {
         testBitmapQueryPlan(
                 "select * from test.bitmap_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "OUTPUT EXPRS:`default_cluster:test.bitmap_table`.`id` | `default_cluster:test.bitmap_table`.`id2`"
         );
 
         testBitmapQueryPlan(
@@ -233,7 +233,7 @@ public class QueryPlanTest {
     public void testHLLTypeQuery() throws Exception {
         testHLLQueryPlan(
                 "select * from test.hll_table;",
-                Type.OnlyMetricTypeErrorMsg
+                "OUTPUT EXPRS:`default_cluster:test.hll_table`.`id` | `default_cluster:test.hll_table`.`id2`"
         );
 
         testHLLQueryPlan(
