@@ -18,8 +18,10 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.rewrite.ExprRewriter;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -35,7 +37,7 @@ public class SqlModeTest {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         SelectStmt selectStmt = null;
         try {
-            selectStmt = (SelectStmt) parser.parse().value;
+            selectStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
@@ -43,7 +45,7 @@ public class SqlModeTest {
 
         parser = new SqlParser(new SqlScanner(new StringReader(stmt), SqlModeHelper.MODE_DEFAULT));
         try {
-            selectStmt = (SelectStmt) parser.parse().value;
+            selectStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
@@ -57,7 +59,7 @@ public class SqlModeTest {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt), SqlModeHelper.MODE_PIPES_AS_CONCAT));
         SelectStmt selectStmt = null;
         try {
-            selectStmt = (SelectStmt) parser.parse().value;
+            selectStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
@@ -70,7 +72,7 @@ public class SqlModeTest {
         // Mode DeActive
         parser = new SqlParser(new SqlScanner(new StringReader(stmt), SqlModeHelper.MODE_DEFAULT));
         try {
-            selectStmt = (SelectStmt) parser.parse().value;
+            selectStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }
@@ -88,7 +90,7 @@ public class SqlModeTest {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt), SqlModeHelper.MODE_PIPES_AS_CONCAT));
         SelectStmt parsedStmt = null;
         try {
-            parsedStmt = (SelectStmt) parser.parse().value;
+            parsedStmt = (SelectStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             Assert.fail(e.getMessage());
         }

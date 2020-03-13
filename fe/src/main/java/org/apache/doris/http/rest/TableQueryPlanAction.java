@@ -37,6 +37,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -183,7 +184,7 @@ public class TableQueryPlanAction extends RestBaseAction {
     private void handleQuery(ConnectContext context, String requestDb, String requestTable, String sql,
                              Map<String, Object> result) throws DorisHttpException {
         // use SE to resolve sql
-        StmtExecutor stmtExecutor = new StmtExecutor(context, sql, false);
+        StmtExecutor stmtExecutor = new StmtExecutor(context, new OriginStatement(sql, 0), false);
         try {
             TQueryOptions tQueryOptions = context.getSessionVariable().toThrift();
             // Conduct Planner create SingleNodePlan#createPlanFragments

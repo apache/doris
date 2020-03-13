@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
@@ -80,7 +81,7 @@ public class UtFrameUtils {
         Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
         StatementBase statementBase = null;
         try {
-            statementBase = (StatementBase) parser.parse().value;
+            statementBase = SqlParserUtils.getFirstStmt(parser);
         } catch (AnalysisException e) {
             String errorMessage = parser.getErrorMsg(originStmt);
             System.err.println("parse failed: " + errorMessage);
@@ -92,6 +93,30 @@ public class UtFrameUtils {
         }
         statementBase.analyze(analyzer);
         return statementBase;
+    }
+
+    // for analyzing multi statements
+    public static List<StatementBase> parseAndAnalyzeStmts(String originStmt, ConnectContext ctx) throws Exception {
+        System.out.println("begin to parse stmts: " + originStmt);
+        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
+        SqlParser parser = new SqlParser(input);
+        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
+        List<StatementBase> statementBases = null;
+        try {
+            statementBases = SqlParserUtils.getMultiStmts(parser);
+        } catch (AnalysisException e) {
+            String errorMessage = parser.getErrorMsg(originStmt);
+            System.err.println("parse failed: " + errorMessage);
+            if (errorMessage == null) {
+                throw e;
+            } else {
+                throw new AnalysisException(errorMessage, e);
+            }
+        }
+        for (StatementBase stmt : statementBases) {
+            stmt.analyze(analyzer);
+        }
+        return statementBases;
     }
 
     public static int startFEServer(String runningDir) throws EnvVarNotSetException, IOException,
