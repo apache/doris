@@ -185,9 +185,6 @@ protected:
         tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
         ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
@@ -294,9 +291,6 @@ protected:
         tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
         ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
@@ -635,9 +629,6 @@ protected:
         _delete_handler.finalize();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
         ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 

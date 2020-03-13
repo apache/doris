@@ -31,15 +31,16 @@
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "agent/cgroups_mgr.h"
+#include "util/time.h"
 
 using std::string;
 
 namespace doris {
 
 // TODO(yingchun): should be more graceful in the future refactor.
-#define SLEEP_IN_BG_WORKER(seconds)                \
-  int64_t left_seconds = (seconds)                \
-  while(!_stop_bg_worker && left_seconds > 0) {   \
+#define SLEEP_IN_BG_WORKER(seconds)               \
+  int64_t left_seconds = (seconds);               \
+  while (!_stop_bg_worker && left_seconds > 0) {  \
       sleep(1);                                   \
       --left_seconds;                             \
   }                                               \
