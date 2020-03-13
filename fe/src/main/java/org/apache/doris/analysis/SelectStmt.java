@@ -811,7 +811,7 @@ public class SelectStmt extends QueryStmt {
     // for bitmap type, we rewrite count distinct to bitmap_union_count
     // for hll type, we rewrite count distinct to hll_union_agg
     private Expr rewriteCountDistinctForBitmapOrHLL(Expr expr, Analyzer analyzer) {
-        if (!ConnectContext.get().getSessionVariable().isRewriteCountDistinct()) {
+        if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isRewriteCountDistinct()) {
             return expr;
         }
 
