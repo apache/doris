@@ -60,12 +60,12 @@ OLAPStatus EnginePublishVersionTask::finish() {
             OLAPStatus publish_status = OLAP_SUCCESS;
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
-            VLOG(3) << "begin to publish version on tablet. "
-                    << "tablet_id=" << tablet_info.tablet_id
-                    << ", schema_hash=" << tablet_info.schema_hash
-                    << ", version=" << version.first
-                    << ", version_hash=" << version_hash
-                    << ", transaction_id=" << transaction_id;
+            LOG(INFO) << "begin to publish version on tablet. "
+                << "tablet_id=" << tablet_info.tablet_id
+                << ", schema_hash=" << tablet_info.schema_hash
+                << ", version=" << version.first
+                << ", version_hash=" << version_hash
+                << ", transaction_id=" << transaction_id;
             // if rowset is null, it means this be received write task, but failed during write
             // and receive fe's publish version task
             // this be must return as an error tablet
@@ -111,9 +111,9 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
             partition_related_tablet_infos.erase(tablet_info);
-            VLOG(3) << "publish version successfully on tablet. tablet=" << tablet->full_name()
-                    << ", transaction_id=" << transaction_id << ", version=" << version.first
-                    << ", res=" << publish_status;
+            LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
+                << ", transaction_id=" << transaction_id << ", version=" << version.first
+                << ", res=" << publish_status;
         }
 
         // check if the related tablet remained all have the version
