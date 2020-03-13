@@ -246,13 +246,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 continue;
             }
 
-            db.readLock();
             ArrayList<AddPartitionClause> addPartitionClauses;
             ArrayList<DropPartitionClause> dropPartitionClauses;
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
             String tableName;
             boolean skipAddPartition = false;
+            db.readLock();
+            OlapTable olapTable;
             try {
+                olapTable = (OlapTable) db.getTable(tableId);
                 // Only OlapTable has DynamicPartitionProperty
                 if (olapTable == null
                         || !olapTable.dynamicPartitionExists()
