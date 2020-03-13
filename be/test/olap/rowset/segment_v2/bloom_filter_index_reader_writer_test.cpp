@@ -33,14 +33,15 @@
 namespace doris {
 namespace segment_v2 {
 
+const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
+
 class BloomFilterIndexReaderWriterTest : public testing::Test {
    public:
-    BloomFilterIndexReaderWriterTest() { }
-    virtual ~BloomFilterIndexReaderWriterTest() {
+    virtual void SetUp() {
+        ASSERT_TRUE(boost::filesystem::remove_all(dname));
     }
 };
 
-const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
 
 template<FieldType type>
 void write_bloom_filter_index_file(const std::string& file_name, const void* values,

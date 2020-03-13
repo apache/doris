@@ -44,7 +44,7 @@ namespace doris {
       sleep(1);                                   \
       --left_seconds;                             \
   }                                               \
-  if (!_stop_bg_worker) {                         \
+  if (_stop_bg_worker) {                          \
       break;                                      \
   }
 

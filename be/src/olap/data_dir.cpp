@@ -117,7 +117,7 @@ Status DataDir::init() {
 }
 
 void DataDir::stop_bg_worker() {
-    _stop_bg_worker = false;
+    _stop_bg_worker = true;
     _cv.notify_one();
 }
 
