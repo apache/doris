@@ -55,6 +55,7 @@ void set_up() {
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
     config::min_file_descriptor_number = 1000;
+    config::tablet_map_shard_size = 1;
 
     doris::EngineOptions options;
     options.store_paths = paths;
@@ -184,9 +185,6 @@ protected:
         tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
         ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
@@ -293,9 +291,6 @@ protected:
         tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
         ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
@@ -634,9 +629,6 @@ protected:
         _delete_handler.finalize();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
         ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 

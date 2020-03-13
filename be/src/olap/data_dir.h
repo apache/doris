@@ -49,6 +49,7 @@ public:
     ~DataDir();
 
     Status init();
+    void stop_bg_worker();
 
     const std::string& path() const { return _path; }
     size_t path_hash() const { return _path_hash; }
@@ -151,6 +152,8 @@ private:
     bool _check_pending_ids(const std::string& id);
 
 private:
+    bool _stop_bg_worker = false;
+
     std::string _path;
     size_t _path_hash;
     // user specified capacity
@@ -188,7 +191,7 @@ private:
 
     std::set<std::string> _all_check_paths;
     std::mutex _check_path_mutex;
-    std::condition_variable cv;
+    std::condition_variable _cv;
 
     std::set<std::string> _pending_path_ids;
     RWMutex _pending_path_mutex;

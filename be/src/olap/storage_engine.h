@@ -76,9 +76,6 @@ public:
     void clear_transaction_task(const TTransactionId transaction_id,
                                 const std::vector<TPartitionId>& partition_ids);
 
-    // Clear status(tables, ...)
-    OLAPStatus clear();
-
     // 获取cache的使用情况信息
     void get_cache_status(rapidjson::Document* document) const;
 
@@ -204,6 +201,9 @@ private:
 
     OLAPStatus _start_bg_worker();
 
+    // Clear status(tables, ...)
+    void _clear();
+
     void _update_storage_medium_type_count();
 
     // Some check methods
@@ -302,6 +302,7 @@ private:
     Mutex _gc_mutex;
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
+    bool _stop_bg_worker = false;
     std::thread _unused_rowset_monitor_thread;
     // thread to monitor snapshot expiry
     std::thread _garbage_sweeper_thread;
