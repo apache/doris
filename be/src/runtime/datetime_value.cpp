@@ -1566,7 +1566,7 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
     int64_t current_t = timestamp;
     boost::posix_time::ptime time = boost::posix_time::ptime(boost::gregorian::date(1970,1,1));
 
-    while(current_t > 0) {
+    while (current_t > 0) {
         int32_t seconds_to_add = 0;
         if(current_t >= std::numeric_limits<int32_t>::max()) {
             seconds_to_add = std::numeric_limits<int32_t>::max();

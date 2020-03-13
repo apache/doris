@@ -192,7 +192,7 @@ Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::Timestam
     int64_t timestamp = 0;
     switch (type->unit()) {
         case arrow::TimeUnit::type::NANO: {// INT96
-            timestamp = ts_array->Value(_current_line_of_batch) / 1000000000; // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000000000L; // convert to Second
             break;
         }
         case arrow::TimeUnit::type::SECOND: {
