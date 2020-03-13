@@ -64,7 +64,7 @@ public class DemoTest {
     @BeforeClass
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
-        FeConstants.default_scheduler_interval_millisecond = 1000;
+        FeConstants.default_scheduler_interval_millisecond = 10;
         UtFrameUtils.createMinDorisCluster(runningDir);
     }
 

@@ -76,7 +76,8 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 
 public class DdlExecutor {
-    public static void execute(Catalog catalog, DdlStmt ddlStmt, String origStmt) throws DdlException, Exception {
+    public static void execute(Catalog catalog, DdlStmt ddlStmt, OriginStatement origStmt)
+            throws DdlException, Exception {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
             catalog.createCluster(stmt);

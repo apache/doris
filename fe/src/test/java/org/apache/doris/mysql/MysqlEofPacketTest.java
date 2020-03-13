@@ -17,6 +17,8 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.qe.QueryState;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -33,7 +35,7 @@ public class MysqlEofPacketTest {
 
     @Test
     public void testWrite() {
-        MysqlEofPacket packet = new MysqlEofPacket(null);
+        MysqlEofPacket packet = new MysqlEofPacket(new QueryState());
         MysqlSerializer serializer = MysqlSerializer.newInstance(capability);
 
         packet.writeTo(serializer);

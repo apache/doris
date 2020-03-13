@@ -33,7 +33,7 @@ import java.nio.ByteBuffer;
 public class MasterOpExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterOpExecutor.class);
 
-    private final String originStmt;
+    private final OriginStatement originStmt;
     private final ConnectContext ctx;
     private TMasterOpResult result;
 
@@ -41,7 +41,7 @@ public class MasterOpExecutor {
     // the total time of thrift connectTime add readTime and writeTime
     private int thriftTimeoutMs;
 
-    public MasterOpExecutor(String originStmt, ConnectContext ctx, RedirectStatus status) {
+    public MasterOpExecutor(OriginStatement originStmt, ConnectContext ctx, RedirectStatus status) {
         this.originStmt = originStmt;
         this.ctx = ctx;
         if (status.isNeedToWaitJournalSync()) {
@@ -73,7 +73,8 @@ public class MasterOpExecutor {
         }
         TMasterOpRequest params = new TMasterOpRequest();
         params.setCluster(ctx.getClusterName());
-        params.setSql(originStmt);
+        params.setSql(originStmt.originStmt);
+        params.setStmtIdx(originStmt.idx);
         params.setUser(ctx.getQualifiedUser());
         params.setDb(ctx.getDatabase());
         params.setSqlMode(ctx.getSessionVariable().getSqlMode());
