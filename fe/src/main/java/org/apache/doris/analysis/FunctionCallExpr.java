@@ -249,6 +249,23 @@ public class FunctionCallExpr extends Expr {
         return false;
     }
 
+    public boolean isCountDistinctBitmapOrHLL() {
+        if (!fnParams.isDistinct()) {
+            return false;
+        }
+
+        if (!fnName.getFunction().equalsIgnoreCase("count")) {
+            return false;
+        }
+
+        if (children.size() != 1) {
+            return false;
+        }
+
+        Type type = getChild(0).getType();
+        return type.isBitmapType() || type.isHllType();
+    }
+
     @Override
     protected void toThrift(TExprNode msg) {
         // TODO: we never serialize this to thrift if it's an aggregate function
