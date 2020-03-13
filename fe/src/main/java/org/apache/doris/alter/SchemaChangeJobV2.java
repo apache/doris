@@ -185,7 +185,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
-        db.readLock();
+        db.writeLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
@@ -198,7 +198,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             if (!isStable) {
                 errMsg = "table is unstable";
                 LOG.warn("doing schema change job: " + jobId + " while table is not stable.");
+                // set to WAITING_STABLE so that the tablet scheduler can continue fixing the tablets of
+                // this table.
+                tbl.setState(OlapTableState.WAITING_STABLE);
                 return;
+            } else {
+                // table is stable, set is to SCHEMA_CHANGE and begin altering.
+                tbl.setState(OlapTableState.SCHEMA_CHANGE);
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -243,7 +249,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
         } finally {
-            db.readUnlock();
+            db.writeUnlock();
         }
 
         if (!FeConstants.runningUnitTest) {

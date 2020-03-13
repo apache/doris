@@ -162,7 +162,7 @@ public class RollupJobV2 extends AlterJobV2 {
             }
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
-        db.readLock();
+        db.writeLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
@@ -175,7 +175,11 @@ public class RollupJobV2 extends AlterJobV2 {
             if (!isStable) {
                 errMsg = "table is unstable";
                 LOG.warn("doing rollup job: " + jobId + " while table is not stable.");
+                tbl.setState(OlapTableState.WAITING_STABLE);
                 return;
+            } else {
+                // table is stable, set is to ROLLUP and begin altering.
+                tbl.setState(OlapTableState.ROLLUP);
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
@@ -215,7 +219,7 @@ public class RollupJobV2 extends AlterJobV2 {
                 } // end for rollupTablets
             }
         } finally {
-            db.readUnlock();
+            db.writeUnlock();
         }
 
         if (!FeConstants.runningUnitTest) {
