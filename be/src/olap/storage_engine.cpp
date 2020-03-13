@@ -116,7 +116,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
         _memtable_flush_executor(nullptr),
         _default_rowset_type(ALPHA_ROWSET),
-        _compaction_rowset_type(ALPHA_ROWSET),
         _heartbeat_flags(nullptr) {
     if (_s_instance == nullptr) {
         _s_instance = this;
@@ -702,14 +701,6 @@ void StorageEngine::_parse_default_rowset_type() {
         _default_rowset_type = BETA_ROWSET;
     } else {
         _default_rowset_type = ALPHA_ROWSET;
-    }
-
-    std::string compaction_rowset_type_config = config::compaction_rowset_type;
-    boost::to_upper(compaction_rowset_type_config);
-    if (compaction_rowset_type_config == "BETA") {
-        _compaction_rowset_type = BETA_ROWSET;
-    } else {
-        _compaction_rowset_type = ALPHA_ROWSET;
     }
 }
 

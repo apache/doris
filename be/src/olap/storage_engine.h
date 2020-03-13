@@ -186,13 +186,6 @@ public:
         return _default_rowset_type;
     }
 
-    RowsetTypePB compaction_rowset_type() const {
-        if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
-            return BETA_ROWSET;
-        }
-        return _compaction_rowset_type;
-    }
-
     void set_heartbeat_flags(HeartbeatFlags* heartbeat_flags) {
         _heartbeat_flags = heartbeat_flags;
     }
@@ -336,7 +329,6 @@ private:
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
-    RowsetTypePB _compaction_rowset_type;
 
     HeartbeatFlags* _heartbeat_flags;
 
