@@ -40,6 +40,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
 
@@ -115,7 +116,7 @@ public class RoutineLoadManagerTest {
             }
         };
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.createRoutineLoadJob(createRoutineLoadStmt, "dummy");
+        routineLoadManager.createRoutineLoadJob(createRoutineLoadStmt, new OriginStatement("dummy", 0));
 
         Map<String, RoutineLoadJob> idToRoutineLoadJob =
                 Deencapsulation.getField(routineLoadManager, "idToRoutineLoadJob");
@@ -175,7 +176,7 @@ public class RoutineLoadManagerTest {
         };
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         try {
-            routineLoadManager.createRoutineLoadJob(createRoutineLoadStmt, "dummy");
+            routineLoadManager.createRoutineLoadJob(createRoutineLoadStmt, new OriginStatement("dummy", 0));
             Assert.fail();
         } catch (LoadException | DdlException e) {
             Assert.fail();

@@ -37,6 +37,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -116,7 +117,7 @@ public class RoutineLoadManager implements Writable {
 
     }
 
-    public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt, String origStmt)
+    public void createRoutineLoadJob(CreateRoutineLoadStmt createRoutineLoadStmt, OriginStatement origStmt)
             throws UserException {
         // check load auth
         if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(),

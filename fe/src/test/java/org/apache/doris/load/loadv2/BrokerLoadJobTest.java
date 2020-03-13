@@ -35,6 +35,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.Source;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
 
@@ -96,7 +97,7 @@ public class BrokerLoadJobTest {
         };
 
         try {
-            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(loadStmt, originStmt);
+            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(loadStmt, new OriginStatement(originStmt, 0));
             Assert.fail();
         } catch (DdlException e) {
             System.out.println("could not find table named " + tableName);
@@ -161,7 +162,7 @@ public class BrokerLoadJobTest {
         };
 
         try {
-            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(loadStmt, originStmt);
+            BrokerLoadJob brokerLoadJob = BrokerLoadJob.fromLoadStmt(loadStmt, new OriginStatement(originStmt, 0));
             Assert.assertEquals(Long.valueOf(dbId), Deencapsulation.getField(brokerLoadJob, "dbId"));
             Assert.assertEquals(label, Deencapsulation.getField(brokerLoadJob, "label"));
             Assert.assertEquals(JobState.PENDING, Deencapsulation.getField(brokerLoadJob, "state"));

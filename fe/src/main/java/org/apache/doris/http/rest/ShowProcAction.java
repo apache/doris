@@ -31,6 +31,7 @@ import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.system.SystemInfoService;
 
@@ -77,7 +78,7 @@ public class ShowProcAction extends RestBaseAction {
             context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             context.setQualifiedUser(ConnectContext.get().getQualifiedUser());
             context.setRemoteIP(ConnectContext.get().getRemoteIP());
-            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(showProcStmt, context,
+            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0), context,
                     RedirectStatus.FORWARD_NO_SYNC);
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
 

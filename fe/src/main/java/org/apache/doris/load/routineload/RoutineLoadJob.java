@@ -43,12 +43,14 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.task.StreamLoadTask;
@@ -214,7 +216,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
     // because we can not serialize the Expressions contained in job.
-    protected String origStmt;
+    protected OriginStatement origStmt;
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     // TODO(ml): error sample
@@ -1067,7 +1069,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return false;
     }
 
-    public void setOrigStmt(String origStmt) {
+    public void setOrigStmt(OriginStatement origStmt) {
         this.origStmt = origStmt;
     }
 
@@ -1233,7 +1235,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(committedTaskNum);
         out.writeLong(abortedTaskNum);
 
-        Text.writeString(out, origStmt);
+        origStmt.write(out);
         out.writeInt(jobProperties.size());
         for (Map.Entry<String, String> entry : jobProperties.entrySet()) {
             Text.writeString(out, entry.getKey());
@@ -1289,7 +1291,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         committedTaskNum = in.readLong();
         abortedTaskNum = in.readLong();
 
-        origStmt = Text.readString(in);
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
+            String stmt = Text.readString(in);
+            origStmt = new OriginStatement(stmt, 0);
+        } else {
+            origStmt = OriginStatement.read(in);
+        }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
             int size = in.readInt();
@@ -1316,11 +1323,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         // parse the origin stmt to get routine load desc
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt),
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         CreateRoutineLoadStmt stmt = null;
         try {
-            stmt = (CreateRoutineLoadStmt) parser.parse().value;
+            stmt = (CreateRoutineLoadStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
             stmt.checkLoadProperties();
             setRoutineLoadDesc(stmt.getRoutineLoadDesc());
         } catch (Exception e) {
