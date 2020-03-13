@@ -62,6 +62,7 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.LoadEtlTask;
@@ -257,14 +258,7 @@ public class StmtExecutor {
                     }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail", t);
-                    InsertStmt insertStmt = (InsertStmt) parsedStmt;
-                    try {
-                        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                                insertStmt.getTransactionId(), 
-                                t.getMessage() == null ? "unknown reason" : t.getMessage());
-                    } catch (Exception abortTxnException) {
-                        LOG.warn("errors when abort txn", abortTxnException);
-                    }
+                    // the transaction of this insert may already begun, we will abort it at outer finally block.
                     throw t;
                 } finally {
                     QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
@@ -284,7 +278,7 @@ public class StmtExecutor {
             }
         } catch (IOException e) {
             LOG.warn("execute IOException ", e);
-            // the excetion happens when interact with client
+            // the exception happens when interact with client
             // this exception shows the connection is gone
             context.getState().setError(e.getMessage());
             throw e;
@@ -299,6 +293,21 @@ public class StmtExecutor {
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+            }
+        } finally {
+            if (parsedStmt instanceof InsertStmt) {
+                InsertStmt insertStmt = (InsertStmt) parsedStmt;
+                // The transaction of a insert operation begin at analyze phase.
+                // So we should abort the transaction at this finally block if it encounter exception.
+                if (insertStmt.isTransactionBegin() && context.getState().getStateType() == MysqlStateType.ERR) {
+                    try {
+                        String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
+                        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                                insertStmt.getTransactionId(), (errMsg == null ? "unknown reason" : errMsg));
+                    } catch (Exception abortTxnException) {
+                        LOG.warn("errors when abort txn", abortTxnException);
+                    }
+                }
             }
         }
     }
