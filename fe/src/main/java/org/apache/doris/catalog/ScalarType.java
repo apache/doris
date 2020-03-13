@@ -651,6 +651,9 @@ public class ScalarType extends Type {
         if (!t1.isValid() || !t2.isValid()) {
             return INVALID;
         }
+        if (t1.isArrayType() || t2.isArrayType()) {
+            return INVALID;
+        }
         if (t1.equals(t2)) {
             return t1;
         }
