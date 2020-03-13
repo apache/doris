@@ -438,6 +438,8 @@ OLAPStatus StorageEngine::clear() {
     }
     _store_map.clear();
 
+    _stop_bg_worker = true;
+
     return OLAP_SUCCESS;
 }
 
@@ -943,7 +945,7 @@ void* StorageEngine::_path_gc_thread_callback(void* arg) {
         interval = 1800; // 0.5 hour
     }
 
-    while (true) {
+    while (!_stop_bg_worker) {
         LOG(INFO) << "try to perform path gc!";
         // perform path gc by rowset id
         ((DataDir*)arg)->perform_path_gc_by_rowsetid();
@@ -966,7 +968,7 @@ void* StorageEngine::_path_scan_thread_callback(void* arg) {
         interval = 24 * 3600; // one day
     }
 
-    while (true) {
+    while (!_stop_bg_worker) {
         LOG(INFO) << "try to perform path scan!";
         ((DataDir*)arg)->perform_path_scan();
         usleep(interval * 1000000);
@@ -980,7 +982,7 @@ void* StorageEngine::_tablet_checkpoint_callback(void* arg) {
     ProfilerRegisterThread();
 #endif
     LOG(INFO) << "try to start tablet meta checkpoint thread!";
-    while (true) {
+    while (!_stop_bg_worker) {
         LOG(INFO) << "begin to do tablet meta checkpoint:" << ((DataDir*)arg)->path();
         int64_t start_time = UnixMillis();
         _tablet_manager->do_tablet_meta_checkpoint((DataDir*)arg);

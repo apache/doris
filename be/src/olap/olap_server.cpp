@@ -154,7 +154,7 @@ void* StorageEngine::_fd_cache_clean_callback(void* arg) {
                          "force set to 3600", interval);
         interval = 3600;
     }
-    while (true) {
+    while (!_stop_bg_worker) {
         sleep(interval);
         _start_clean_fd_cache();
     }
@@ -175,7 +175,7 @@ void* StorageEngine::_base_compaction_thread_callback(void* arg, DataDir* data_d
 
     //string last_base_compaction_fs;
     //TTabletId last_base_compaction_tablet_id = -1;
-    while (true) {
+    while (!_stop_bg_worker) {
         // must be here, because this thread is start on start and
         // cgroup is not initialized at this time
         // add tid to cgroup
@@ -210,7 +210,7 @@ void* StorageEngine::_garbage_sweeper_thread_callback(void* arg) {
     const double pi = 4 * std::atan(1);
     double usage = 1.0;
     // 程序启动后经过min_interval后触发第一轮扫描
-    while (true) {
+    while (!_stop_bg_worker) {
         usage *= 100.0;
         // 该函数特性：当磁盘使用率<60%的时候，ratio接近于1；
         // 当使用率介于[60%, 75%]之间时，ratio急速从0.87降到0.27；
@@ -249,7 +249,7 @@ void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
         interval = 1;
     }
 
-    while (true) {
+    while (!_stop_bg_worker) {
         _start_disk_stat_monitor();
         sleep(interval);
     }
@@ -269,7 +269,7 @@ void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* 
         interval = 1;
     }
 
-    while (true) {
+    while (!_stop_bg_worker) {
         // must be here, because this thread is start on start and
         // cgroup is not initialized at this time
         // add tid to cgroup
@@ -296,7 +296,7 @@ void* StorageEngine::_unused_rowset_monitor_thread_callback(void* arg) {
         interval = 1;
     }
 
-    while (true) {
+    while (!_stop_bg_worker) {
         start_delete_unused_rowset();
         sleep(interval);
     }

@@ -302,6 +302,7 @@ private:
     Mutex _gc_mutex;
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
+    bool _stop_bg_worker = false;
     std::thread _unused_rowset_monitor_thread;
     // thread to monitor snapshot expiry
     std::thread _garbage_sweeper_thread;
