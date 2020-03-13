@@ -152,6 +152,10 @@ public class RollupJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Database " + dbId + " does not exist");
         }
 
+        if (!checkTableStable(db)) {
+            return;
+        }
+
         // 1. create rollup replicas
         AgentBatchTask batchTask = new AgentBatchTask();
         // count total replica num
@@ -167,19 +171,6 @@ public class RollupJobV2 extends AlterJobV2 {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
-
-            boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
-                    Catalog.getCurrentCatalog().getTabletScheduler(),
-                    db.getClusterName());
-            if (!isStable) {
-                errMsg = "table is unstable";
-                LOG.warn("doing rollup job: " + jobId + " while table is not stable.");
-                tbl.setState(OlapTableState.WAITING_STABLE);
-                return;
-            } else {
-                // table is stable, set is to ROLLUP and begin altering.
-                tbl.setState(OlapTableState.ROLLUP);
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
