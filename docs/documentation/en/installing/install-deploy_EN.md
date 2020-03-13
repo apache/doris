@@ -258,6 +258,8 @@ Configure and start Follower or Observer. Follower and Observer are configured w
 
 `./bin/start_fe.sh --helper host:port --daemon`
 
+The host is the node IP of Leader, and the port is edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
+
 View the status of Follower or Observer. Connect to any booted FE using mysql-client and execute: SHOW PROC'/frontends'; you can view the FE currently joined the cluster and its corresponding roles.
 
 > Notes for FE expansion:
