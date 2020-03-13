@@ -246,6 +246,10 @@ public class InsertStmt extends DdlStmt {
         return db;
     }
 
+    public boolean isTransactionBegin() {
+        return isTransactionBegin;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
