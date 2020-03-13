@@ -227,6 +227,12 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         std::this_thread::yield();
     }
 
+    {
+        std::lock_guard<std::mutex> lg(_pending_batches_lock);
+        DCHECK(_pending_batches.empty());
+        DCHECK(_cur_batch == false);
+    }
+
     if (_add_batches_finished) {
         state->tablet_commit_infos().insert(state->tablet_commit_infos().end(),
                                             std::make_move_iterator(_tablet_commit_infos.begin()),
@@ -253,6 +259,15 @@ void NodeChannel::cancel() {
     closure->cntl.set_timeout_ms(_rpc_timeout_ms);
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
     request.release_id();
+
+    // Beware of the destruct sequence. RowBatches will use mem_trackers(ancestors mem_tracker).
+    // Delete RowBatches here is a better choice to reduce the potential of dtor errors.
+    {
+        std::lock_guard<std::mutex> lg(_pending_batches_lock);
+        std::queue<AddBatchReq> empty;
+        std::swap(_pending_batches, empty);
+        _cur_batch.reset();
+    }
 }
 
 int NodeChannel::try_send_and_fetch_status() {
