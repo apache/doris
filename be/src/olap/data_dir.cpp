@@ -116,6 +116,11 @@ Status DataDir::init() {
     return Status::OK();
 }
 
+void DataDir::stop_bg_worker() {
+    _stop_bg_worker = false;
+    _cv.notify_one();
+}
+
 Status DataDir::_init_cluster_id() {
     std::string cluster_id_path = _path + CLUSTER_ID_PREFIX;
     if (access(cluster_id_path.c_str(), F_OK) != 0) {
@@ -803,7 +808,10 @@ void DataDir::perform_path_gc_by_rowsetid() {
     // init the set of valid path
     // validate the path in data dir
     std::unique_lock<std::mutex> lck(_check_path_mutex);
-    cv.wait(lck, [this]{return _all_check_paths.size() > 0;});
+    _cv.wait(lck, [this] { return _stop_bg_worker || _all_check_paths.size() > 0; });
+    if (_stop_bg_worker) {
+        return;
+    }
     LOG(INFO) << "start to path gc by rowsetid.";
     int counter = 0;
     for (auto& path : _all_check_paths) {
@@ -900,7 +908,7 @@ void DataDir::perform_path_scan() {
         }
         LOG(INFO) << "scan data dir path:" << _path << " finished. path size:" << _all_check_paths.size();
     }
-    cv.notify_one();
+    _cv.notify_one();
 }
 
 void DataDir::_process_garbage_path(const std::string& path) {
