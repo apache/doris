@@ -20,7 +20,7 @@
 
 #include "runtime/raw_value.h"
 #include "runtime/string_value.hpp"
-#include "runtime/collection_value.h"
+#include "runtime/array_value.h"
 #include "runtime/tuple.h"
 #include "olap/utils.h"
 #include "util/types.h"
@@ -174,7 +174,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         *stream << reinterpret_cast<const PackedInt128*>(value)->value;
         break;
     case TYPE_ARRAY: {
-        const CollectionValue* src = reinterpret_cast<const CollectionValue*>(value);
+        const ArrayValue* src = reinterpret_cast<const ArrayValue*>(value);
         auto children_type = type.children.at(0);
         auto iter = src->iterator(children_type.type);
         *stream << "[";
@@ -319,14 +319,14 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
     case TYPE_ARRAY: {
         DCHECK_EQ(type.children.size(), 1);
         
-        const CollectionValue* src = reinterpret_cast<const CollectionValue*>(value);
-        CollectionValue* val = reinterpret_cast<CollectionValue*>(dst);
+        const ArrayValue* src = reinterpret_cast<const ArrayValue*>(value);
+        ArrayValue* val = reinterpret_cast<ArrayValue*>(dst);
 
         if (pool != NULL) {
             auto children_type = type.children.at(0).type;
-            CollectionValue::init_collection(pool, src->size(), children_type, val);
-            CollectionIterator src_iter = src->iterator(children_type);
-            CollectionIterator val_iter = val->iterator(children_type);
+            ArrayValue::init_array(pool, src->size(), children_type, val);
+            ArrayIterator src_iter = src->iterator(children_type);
+            ArrayIterator val_iter = val->iterator(children_type);
 
             val->copy_null_signs(src);
             

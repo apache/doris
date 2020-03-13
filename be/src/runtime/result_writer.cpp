@@ -169,9 +169,9 @@ int ResultWriter::add_row_value(int index, const TypeDescriptor& type, void* ite
         
         case TYPE_ARRAY: {
             auto children_type = type.children[0].type;
-            auto collection_value = (const CollectionValue*) (item);
+            auto array_value = (const ArrayValue*) (item);
 
-            CollectionIterator iter = collection_value->iterator(children_type);
+            ArrayIterator iter = array_value->iterator(children_type);
 
             _row_buffer->open_dynamic_mode();
             
@@ -185,13 +185,12 @@ int ResultWriter::add_row_value(int index, const TypeDescriptor& type, void* ite
 
                 if (children_type == TYPE_CHAR || children_type == TYPE_VARCHAR) {
                     buf_ret = _row_buffer->push_string("'", 1);
-                }
-
-                buf_ret = add_row_value(index, children_type, iter.value());
-
-                if (children_type == TYPE_CHAR || children_type == TYPE_VARCHAR) {
+                    buf_ret = add_row_value(index, children_type, iter.value());
                     buf_ret = _row_buffer->push_string("'", 1);
+                } else {
+                    buf_ret = add_row_value(index, children_type, iter.value());
                 }
+                    
                 iter.next();
                 begin++;
             }

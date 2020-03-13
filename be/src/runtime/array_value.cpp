@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/collection_value.h"
+#include "runtime/array_value.h"
 
 #include "util/bitmap.h"
 
@@ -57,31 +57,31 @@ Status type_check(const PrimitiveType& type) {
 }
 
 
-void CollectionValue::to_collection_val(CollectionVal* collectionVal) const {
-    collectionVal->length = _length;
-    collectionVal->data = _data;
-    collectionVal->null_signs = _null_signs;
+void ArrayValue::to_array_val(ArrayVal* arrayVal) const {
+    arrayVal->length = _length;
+    arrayVal->data = _data;
+    arrayVal->null_signs = _null_signs;
 }
 
-void CollectionValue::shallow_copy(const CollectionValue* value) {
+void ArrayValue::shallow_copy(const ArrayValue* value) {
     _length = value->_length;
     _null_signs = value->_null_signs;
     _data = value->_data;
 }
 
-void CollectionValue::copy_null_signs(const CollectionValue* other) {
+void ArrayValue::copy_null_signs(const ArrayValue* other) {
     memcpy(_null_signs, other->_null_signs, other->size());
 }
 
-CollectionIterator CollectionValue::iterator(const PrimitiveType& children_type) const {
-    return CollectionIterator(children_type, this);
+ArrayIterator ArrayValue::iterator(const PrimitiveType& children_type) const {
+    return ArrayIterator(children_type, this);
 }
 
 
-Status CollectionValue::init_collection(ObjectPool* pool, const int& size,
-                                        const PrimitiveType& child_type, CollectionValue* val) {
+Status ArrayValue::init_array(ObjectPool* pool, const int& size,
+                                        const PrimitiveType& child_type, ArrayValue* val) {
     if (val == nullptr) {
-        return Status::InvalidArgument("collection value is null");
+        return Status::InvalidArgument("array value is null");
     }
 
     RETURN_IF_ERROR(type_check(child_type));
@@ -97,10 +97,10 @@ Status CollectionValue::init_collection(ObjectPool* pool, const int& size,
 }
 
 Status
-CollectionValue::init_collection(MemPool* pool, const int& size, const PrimitiveType& child_type,
-                                 CollectionValue* val) {
+ArrayValue::init_array(MemPool* pool, const int& size, const PrimitiveType& child_type,
+                                 ArrayValue* val) {
     if (val == nullptr) {
-        return Status::InvalidArgument("collection value is null");
+        return Status::InvalidArgument("array value is null");
     }
 
     RETURN_IF_ERROR(type_check(child_type));
@@ -117,10 +117,10 @@ CollectionValue::init_collection(MemPool* pool, const int& size, const Primitive
     return Status::OK();
 }
 
-Status CollectionValue::init_collection(FunctionContext* context, const int& size, const PrimitiveType& child_type,
-                                        CollectionValue* val) {
+Status ArrayValue::init_array(FunctionContext* context, const int& size, const PrimitiveType& child_type,
+                                        ArrayValue* val) {
     if (val == nullptr) {
-        return Status::InvalidArgument("collection value is null");
+        return Status::InvalidArgument("array value is null");
     }
 
     RETURN_IF_ERROR(type_check(child_type));
@@ -138,16 +138,16 @@ Status CollectionValue::init_collection(FunctionContext* context, const int& siz
 }
 
 
-CollectionValue CollectionValue::from_collection_val(const CollectionVal& val) {
-    return CollectionValue(val.length, val.null_signs, val.data);
+ArrayValue ArrayValue::from_array_val(const ArrayVal& val) {
+    return ArrayValue(val.length, val.null_signs, val.data);
 }
 
-Status CollectionValue::set(const int& i, const PrimitiveType& type, const AnyVal* value) {
+Status ArrayValue::set(const int& i, const PrimitiveType& type, const AnyVal* value) {
     RETURN_IF_ERROR(type_check(type));
 
-    CollectionIterator iter(type, this);
+    ArrayIterator iter(type, this);
     if (!iter.seek(i)) {
-        return Status::InvalidArgument("over of collection size");
+        return Status::InvalidArgument("over of array size");
     }
 
     if (value->is_null) {
@@ -176,27 +176,27 @@ Status CollectionValue::set(const int& i, const PrimitiveType& type, const AnyVa
 }
 
 /**
- * ----------- Collection Iterator -------- 
+ * ----------- Array Iterator -------- 
  */
-CollectionIterator::CollectionIterator(const PrimitiveType& children_type,
-                                       const CollectionValue* data) : _offset(0),
+ArrayIterator::ArrayIterator(const PrimitiveType& children_type,
+                                       const ArrayValue* data) : _offset(0),
                                                                       _type(children_type),
                                                                       _data(data) {
     _type_size = sizeof_type(children_type);
 }
 
-void* CollectionIterator::value() {
+void* ArrayIterator::value() {
     if (is_null()) {
         return nullptr;
     }
     return ((char*) _data->_data) + _offset * _type_size;
 }
 
-bool CollectionIterator::is_null() {
+bool ArrayIterator::is_null() {
     return *(_data->_null_signs + _offset);
 }
 
-void CollectionIterator::value(AnyVal* dest) {
+void ArrayIterator::value(AnyVal* dest) {
     TypeDescriptor td(_type);
     AnyValUtil::set_any_val(value(), td, dest);
 }

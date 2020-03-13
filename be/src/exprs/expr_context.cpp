@@ -384,14 +384,14 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
         return &_result.decimalv2_val;
     }
     case TYPE_ARRAY: {
-        doris_udf::CollectionVal v = e->get_collection_val(this, row);
+        doris_udf::ArrayVal v = e->get_array_val(this, row);
         if (v.is_null) {
             return NULL;
         }
 
-        _result.collection_val = CollectionValue::from_collection_val(v);
+        _result.array_val = ArrayValue::from_array_val(v);
                 
-        return &_result.collection_val;
+        return &_result.array_val;
     }
 #if 0
     case TYPE_MAP: {

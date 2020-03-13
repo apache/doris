@@ -98,7 +98,7 @@ AnyVal* create_any_val(ObjectPool* pool, const TypeDescriptor& type) {
     case TYPE_DATETIME:
         return pool->add(new DateTimeVal);
     case TYPE_ARRAY:
-        return pool->add(new CollectionVal);        
+        return pool->add(new ArrayVal);        
     default:
         DCHECK(false) << "Unsupported type: " << type.type;
         return NULL;

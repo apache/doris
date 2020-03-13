@@ -402,19 +402,11 @@ public class FEFunctions {
             @FEFunction(name = "ifnull", argTypes = {"TINYINT", "TINYINT"}, returnType = "TINYINT"),
             @FEFunction(name = "ifnull", argTypes = {"INT", "INT"}, returnType = "INT"),
             @FEFunction(name = "ifnull", argTypes = {"BIGINT", "BIGINT"}, returnType = "BIGINT"),
-            @FEFunction(name = "ifnull", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME")
+            @FEFunction(name = "ifnull", argTypes = {"DATETIME", "DATETIME"}, returnType = "DATETIME"),
+            @FEFunction(name = "ifnull", argTypes = { "DATE", "DATETIME" }, returnType = "DATETIME"),
+            @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
     })
     public static LiteralExpr ifNull(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        return first instanceof NullLiteral ? second : first;
-    }
-
-    @FEFunction(name = "ifnull", argTypes = { "DATE", "DATETIME" }, returnType = "DATETIME")
-    public static LiteralExpr ifNullDateDatetime(LiteralExpr first, LiteralExpr second) throws AnalysisException {
-        return first instanceof NullLiteral ? second : first;
-    }
-
-    @FEFunction(name = "ifnull", argTypes = { "DATETIME", "DATE" }, returnType = "DATETIME")
-    public static LiteralExpr ifNullDatetimeDate(LiteralExpr first, LiteralExpr second) throws AnalysisException {
         return first instanceof NullLiteral ? second : first;
     }
 
@@ -429,7 +421,7 @@ public class FEFunctions {
             @FEFunction(name = "array", argTypes = {"INT"}, returnType = "ARRAY"),
             @FEFunction(name = "array", argTypes = {"VARCHAR"}, returnType = "ARRAY")
     })
-    public static ArrayLiteral array(StringLiteral... exprs) throws AnalysisException {
+    public static ArrayLiteral array(LiteralExpr... exprs) throws AnalysisException {
         return new ArrayLiteral(exprs);
     }
 }

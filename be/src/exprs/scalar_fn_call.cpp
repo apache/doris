@@ -446,7 +446,7 @@ typedef StringVal (*StringWrapper)(ExprContext*, TupleRow*);
 typedef DateTimeVal (*DatetimeWrapper)(ExprContext*, TupleRow*);
 typedef DecimalVal (*DecimalWrapper)(ExprContext*, TupleRow*);
 typedef DecimalV2Val (*DecimalV2Wrapper)(ExprContext*, TupleRow*);
-typedef CollectionVal (*CollectionWrapper)(ExprContext*, TupleRow*);
+typedef ArrayVal (*ArrayWrapper)(ExprContext*, TupleRow*);
 
 // TODO: macroify this?
 BooleanVal ScalarFnCall::get_boolean_val(ExprContext* context, TupleRow* row) {
@@ -570,15 +570,15 @@ DecimalV2Val ScalarFnCall::get_decimalv2_val(ExprContext* context, TupleRow* row
     return fn(context, row);
 }
 
-CollectionVal ScalarFnCall::get_collection_val(ExprContext* context, TupleRow* row) {
+ArrayVal ScalarFnCall::get_array_val(ExprContext* context, TupleRow* row) {
     DCHECK_EQ(_type.type, TYPE_ARRAY);
     DCHECK(context != NULL);
     
     if (_scalar_fn_wrapper == NULL) {
-        return interpret_eval<CollectionVal>(context, row);
+        return interpret_eval<ArrayVal>(context, row);
     }
 
-    CollectionWrapper fn = reinterpret_cast<CollectionWrapper>(_scalar_fn_wrapper);
+    ArrayWrapper fn = reinterpret_cast<ArrayWrapper>(_scalar_fn_wrapper);
     return fn(context, row);
 }
 

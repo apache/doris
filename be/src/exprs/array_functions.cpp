@@ -15,27 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXPRS_COLLECTION_FUNCTIONS_H
-#define DORIS_BE_SRC_QUERY_EXPRS_COLLECTION_FUNCTIONS_H
+#include "exprs/array_functions.h"
+#include "runtime/array_value.h"
 
-
-#include "anyval_util.h"
+#include "common/logging.h"
 
 namespace doris {
 
-class CollectionFunctions {
-    
-public:
-    static void init();
+void ArrayFunctions::init() { }
 
-    /**
-     * array construct functions, create array with the children values
-     */
-    static CollectionVal array(FunctionContext* context, int num_children, const IntVal* values);
-
-    static CollectionVal array(FunctionContext* context, int num_children, const StringVal* values);
-};
-
+#define ARRAY_FUNCTION(TYPE, PRIMARY_TYPE)  \
+ArrayVal ArrayFunctions::array(FunctionContext *context, int num_children, const TYPE *values) {  \
+    DCHECK_EQ(context->get_return_type().children.size(), 1);  \       
+    ArrayValue v;  \
+    ArrayValue::init_array(context, num_children, PRIMARY_TYPE, &v);  \
+    for (int i = 0; i < num_children; ++i) {  \
+        v.set(i, PRIMARY_TYPE, values + i);  \
+    }  \
+    ArrayVal ret;  \
+    v.to_array_val(&ret);  \
+    return ret;  \
 }
 
-#endif 
+ARRAY_FUNCTION(IntVal, TYPE_INT);
+ARRAY_FUNCTION(StringVal, TYPE_VARCHAR);
+
+}

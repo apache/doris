@@ -19,18 +19,18 @@
 
 #include "string"
 #include "util/bitmap.h"
-#include "runtime/collection_value.h"
+#include "runtime/array_value.h"
 
 #define private public
 
 namespace doris {
 
-TEST(CollectionValueTest, init) {
+TEST(ArrayValueTest, init) {
     {
-        CollectionValue cv;
+        ArrayValue cv;
 
         ObjectPool pool;
-        EXPECT_TRUE(CollectionValue::init_collection(&pool, 10, TYPE_INT, &cv).ok());
+        EXPECT_TRUE(ArrayValue::init_array(&pool, 10, TYPE_INT, &cv).ok());
 
         EXPECT_EQ(10, cv.size());
 
@@ -38,25 +38,25 @@ TEST(CollectionValueTest, init) {
             EXPECT_FALSE(*(cv._null_signs + j));
         }
 
-        EXPECT_FALSE(CollectionValue::init_collection(&pool, 10, TYPE_INT, nullptr).ok());
+        EXPECT_FALSE(ArrayValue::init_array(&pool, 10, TYPE_INT, nullptr).ok());
 
-        CollectionValue cv_null;
-        EXPECT_TRUE(CollectionValue::init_collection(&pool, 0, TYPE_INT, &cv_null).ok());
+        ArrayValue cv_null;
+        EXPECT_TRUE(ArrayValue::init_array(&pool, 0, TYPE_INT, &cv_null).ok());
         EXPECT_EQ(0, cv_null.size());
     }
     
     {
-        CollectionValue cv;
+        ArrayValue cv;
         ObjectPool pool;
-        EXPECT_TRUE(CollectionValue::init_collection(&pool, 10, TYPE_INT, &cv).ok());
+        EXPECT_TRUE(ArrayValue::init_array(&pool, 10, TYPE_INT, &cv).ok());
     }
     
 }
 
-TEST(CollectionValueTest, set) {
-    CollectionValue cv;
+TEST(ArrayValueTest, set) {
+    ArrayValue cv;
     ObjectPool pool;
-    EXPECT_TRUE(CollectionValue::init_collection(&pool, 10, TYPE_INT, &cv).ok());
+    EXPECT_TRUE(ArrayValue::init_array(&pool, 10, TYPE_INT, &cv).ok());
 
     // normal
     {
@@ -91,10 +91,10 @@ TEST(CollectionValueTest, set) {
 }
 
 
-TEST(CollectionValueTest, iter) {
-    CollectionValue cv;
+TEST(ArrayValueTest, iter) {
+    ArrayValue cv;
     ObjectPool pool;
-    EXPECT_TRUE(CollectionValue::init_collection(&pool, 10, TYPE_VARCHAR, &cv).ok());
+    EXPECT_TRUE(ArrayValue::init_array(&pool, 10, TYPE_VARCHAR, &cv).ok());
 
     // normal
     {

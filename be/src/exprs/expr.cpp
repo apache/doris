@@ -757,7 +757,7 @@ doris_udf::AnyVal* Expr::get_const_val(ExprContext* context) {
         break;
     }
     case TYPE_ARRAY: {
-        _constant_val.reset(new CollectionVal(get_collection_val(context, NULL)));
+        _constant_val.reset(new ArrayVal(get_array_val(context, NULL)));
         break;
     }
     default:
@@ -844,8 +844,8 @@ DecimalV2Val Expr::get_decimalv2_val(ExprContext* context, TupleRow* row) {
     return val;
 }
 
-CollectionVal Expr::get_collection_val(ExprContext *context, TupleRow * row) {
-    CollectionVal val;
+ArrayVal Expr::get_array_val(ExprContext *context, TupleRow * row) {
+    ArrayVal val;
     return val;
 }
 

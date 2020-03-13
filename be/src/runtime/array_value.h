@@ -28,35 +28,35 @@ namespace doris {
 
 using doris_udf::AnyVal;
 
-class CollectionIterator;
+class ArrayIterator;
 
 /**
  * The format of array-typed slot.
- * The collection's sub-element type just support: 
+ * The array's sub-element type just support: 
  * - INT32
  * - CHAR
  * - VARCHAR
  * - NULL
  * 
- * A new collection need initialization memory before used
+ * A new array need initialization memory before used
  */
-class CollectionValue {
+class ArrayValue {
 
 public:
-    CollectionValue() : _length(0), _null_signs(NULL), _data(NULL) {};
+    ArrayValue() : _length(0), _null_signs(NULL), _data(NULL) {};
 
-    CollectionValue(int len, bool* null_signs, void* data) : _length(len), _null_signs(null_signs),
+    ArrayValue(int len, bool* null_signs, void* data) : _length(len), _null_signs(null_signs),
                                                              _data(data) {};
 
-    void to_collection_val(CollectionVal* collectionVal) const;
+    void to_array_val(ArrayVal* arrayVal) const;
 
     int size() const { return _length; }
 
-    void shallow_copy(const CollectionValue* other);
+    void shallow_copy(const ArrayValue* other);
 
-    void copy_null_signs(const CollectionValue* other);
+    void copy_null_signs(const ArrayValue* other);
 
-    CollectionIterator iterator(const PrimitiveType& children_type) const;
+    ArrayIterator iterator(const PrimitiveType& children_type) const;
 
     /**
      * just shallow copy sub-elment value
@@ -65,18 +65,18 @@ public:
     Status set(const int& i, const PrimitiveType& type, const AnyVal* value);
 
     /**
-     * init collection, will alloc (children Type's size + 1) * (children Nums) memory  
+     * init array, will alloc (children Type's size + 1) * (children Nums) memory  
      */
     static Status
-    init_collection(ObjectPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val);
+    init_array(ObjectPool* pool, const int& size, const PrimitiveType& child_type, ArrayValue* val);
 
     static Status
-    init_collection(MemPool* pool, const int& size, const PrimitiveType& child_type, CollectionValue* val);
+    init_array(MemPool* pool, const int& size, const PrimitiveType& child_type, ArrayValue* val);
 
     static Status
-    init_collection(FunctionContext* context, const int& size, const PrimitiveType& child_type, CollectionValue* val);
+    init_array(FunctionContext* context, const int& size, const PrimitiveType& child_type, ArrayValue* val);
 
-    static CollectionValue from_collection_val(const CollectionVal& val);
+    static ArrayValue from_array_val(const ArrayVal& val);
 
 private:
     int _length;
@@ -91,15 +91,15 @@ private:
     // TYPE_CHAR/VARCHAR/OBJECT: StringValue 
     void* _data;
 
-    friend CollectionIterator;
+    friend ArrayIterator;
 };
 
 /**
- * Collection's Iterator, support read collection by special type
+ * Array's Iterator, support read array by special type
  */
-class CollectionIterator {
+class ArrayIterator {
 private:
-    CollectionIterator(const PrimitiveType& children_type, const CollectionValue* data);
+    ArrayIterator(const PrimitiveType& children_type, const ArrayValue* data);
 
 public:
 
@@ -135,9 +135,9 @@ private:
     size_t _offset;
     int _type_size;
     const PrimitiveType _type;
-    const CollectionValue* _data;
+    const ArrayValue* _data;
 
-    friend CollectionValue;
+    friend ArrayValue;
 };
 
 }

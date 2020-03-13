@@ -19,7 +19,7 @@
 #define DORIS_BE_SRC_QUERY_EXPRS_ANYVAL_UTIL_H
 
 #include "runtime/primitive_type.h"
-#include "runtime/collection_value.h"
+#include "runtime/array_value.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
@@ -229,7 +229,7 @@ public:
             return sizeof(doris_udf::DecimalV2Val);
 
         case TYPE_ARRAY:
-            return sizeof(doris_udf::CollectionVal);
+            return sizeof(doris_udf::ArrayVal);
 
         default:
             DCHECK(false) << t;
@@ -258,7 +258,7 @@ public:
           return alignof(DateTimeVal);
         case TYPE_DECIMAL: return alignof(DecimalVal);
         case TYPE_DECIMALV2: return alignof(DecimalV2Val);
-        case TYPE_ARRAY: return alignof(doris_udf::CollectionVal);
+        case TYPE_ARRAY: return alignof(doris_udf::ArrayVal);
         
         default:
             DCHECK(false) << t;
@@ -368,8 +368,8 @@ public:
             reinterpret_cast<doris_udf::DateTimeVal*>(dst));
             return;
         case TYPE_ARRAY:
-            reinterpret_cast<const CollectionValue*>(slot)->to_collection_val(
-                    reinterpret_cast<CollectionVal*> (dst));
+            reinterpret_cast<const ArrayValue*>(slot)->to_array_val(
+                    reinterpret_cast<ArrayVal*> (dst));
             return;
         default:
         DCHECK(false) << "NYI";

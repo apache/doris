@@ -22,7 +22,7 @@
 #include "gen_cpp/Exprs_types.h"
 #include "util/string_parser.hpp"
 #include "runtime/runtime_state.h"
-#include "runtime/collection_value.h"
+#include "runtime/array_value.h"
 
 namespace doris {
 
@@ -181,10 +181,10 @@ StringVal Literal::get_string_val(ExprContext* context, TupleRow* row) {
     return str_val;
 }
 
-CollectionVal Literal::get_collection_val(ExprContext *context, TupleRow *) {
+ArrayVal Literal::get_array_val(ExprContext *context, TupleRow *) {
     DCHECK(_type.is_collection_type());
-    CollectionVal val;
-    _value.collection_val.to_collection_val(&val);
+    ArrayVal val;
+    _value.array_val.to_array_val(&val);
     return val;
 }
 
@@ -197,12 +197,12 @@ Status Literal::prepare(RuntimeState* state, const RowDescriptor& row_desc,
         DCHECK_EQ(type().children.size(), 1) << "array children type not 1";
 
         auto td = type().children.at(0).type;
-        RETURN_IF_ERROR(CollectionValue::init_collection(state->obj_pool(), get_num_children(), td,
-                                                             &_value.collection_val));
+        RETURN_IF_ERROR(ArrayValue::init_array(state->obj_pool(), get_num_children(), td,
+                                                             &_value.array_val));
 
         for (int i = 0; i < get_num_children(); ++i) {
             Expr* children = get_child(i);
-            RETURN_IF_ERROR(_value.collection_val.set(i, td,
+            RETURN_IF_ERROR(_value.array_val.set(i, td,
                                                       children->get_const_val(context)));
         }
     }

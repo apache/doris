@@ -23,7 +23,7 @@
 #include "runtime/datetime_value.h"
 #include "runtime/decimal_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/collection_value.h"
+#include "runtime/array_value.h"
 #include "runtime/types.h"
 
 namespace doris {
@@ -47,7 +47,7 @@ struct ExprValue {
     DateTimeValue datetime_val;
     DecimalValue decimal_val;
     DecimalV2Value decimalv2_val;
-    CollectionValue collection_val;
+    ArrayValue array_val;
 
     ExprValue() : 
             bool_val(false),
@@ -63,7 +63,7 @@ struct ExprValue {
             datetime_val(),
             decimal_val(),
             decimalv2_val(),
-            collection_val() {
+            array_val() {
     }
 
     ExprValue(bool v): bool_val(v) {}

@@ -45,7 +45,7 @@ public:
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow*);
     virtual DateTimeVal get_datetime_val(ExprContext* context, TupleRow*);
     virtual StringVal get_string_val(ExprContext* context, TupleRow* row);
-    virtual CollectionVal get_collection_val(ExprContext *context, TupleRow *);
+    virtual ArrayVal get_array_val(ExprContext *context, TupleRow *);
 
     virtual Status prepare(RuntimeState *state, const RowDescriptor &row_desc, ExprContext *context);
 

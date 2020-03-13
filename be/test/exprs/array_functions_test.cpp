@@ -20,8 +20,8 @@
 
 #include "string"
 #include "udf/udf.h"
-#include "runtime/collection_value.h"
-#include "exprs/collection_functions.h"
+#include "runtime/array_value.h"
+#include "exprs/array_functions.h"
 #include "runtime/free_pool.hpp"
 #include "testutil/function_utils.h"
 
@@ -29,14 +29,14 @@
 
 namespace doris {
 
-class CollectionFunctionsTest : public testing::Test {
+class ArrayFunctionsTest : public testing::Test {
 
 public:
-    CollectionFunctionsTest() {
+    ArrayFunctionsTest() {
         _utils = new FunctionUtils();
         _context = _utils->get_fn_ctx();
     }
-    ~CollectionFunctionsTest() {
+    ~ArrayFunctionsTest() {
         delete _utils;
     }
 
@@ -45,7 +45,7 @@ public:
     FunctionContext* _context;
 };
 
-TEST_F(CollectionFunctionsTest, array) {
+TEST_F(ArrayFunctionsTest, array) {
     
     void* a = new uint8_t[0];
     LOG(WARNING) << "a: " << a;
@@ -64,9 +64,9 @@ TEST_F(CollectionFunctionsTest, array) {
             v[i].val = i + 1;
         }
         
-        CollectionVal cv = CollectionFunctions::array(_context, 10, v);
+        ArrayVal cv = ArrayFunctions::array(_context, 10, v);
         
-        CollectionValue value = CollectionValue::from_collection_val(cv);
+        ArrayValue value = ArrayValue::from_array_val(cv);
 
         int i = 0;
         for (auto&& iter = value.iterator(TYPE_INT); iter.has_next() ; iter.next()) {
@@ -91,9 +91,9 @@ TEST_F(CollectionFunctionsTest, array) {
             v[i] = StringVal(std::to_string(i).c_str());
         }
 
-        CollectionVal cv = CollectionFunctions::array(_context, 10, v);
+        ArrayVal cv = ArrayFunctions::array(_context, 10, v);
 
-        CollectionValue value = CollectionValue::from_collection_val(cv);
+        ArrayValue value = ArrayValue::from_array_val(cv);
 
         int i = 0;
         for (auto&& iter = value.iterator(TYPE_VARCHAR); iter.has_next() ; iter.next()) {
