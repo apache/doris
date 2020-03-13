@@ -269,7 +269,7 @@ public abstract class Type {
     }
 
     public boolean isCollectionType() {
-        return isMapType() || isArrayType();
+        return isMapType() || isArrayType() || isMultiRowType();
     }
 
     public boolean isMapType() {
@@ -278,6 +278,10 @@ public abstract class Type {
 
     public boolean isArrayType() {
         return this instanceof ArrayType;
+    }
+
+    public boolean isMultiRowType() {
+        return this instanceof MultiRowType;
     }
 
     public boolean isStructType() {
@@ -421,6 +425,11 @@ public abstract class Type {
         } else if (isMapType()) {
             MapType mapType = (MapType) this;
             if (mapType.getValueType().exceedsMaxNestingDepth(d + 1)) {
+                return true;
+            }
+        } else if (isMultiRowType()) {
+            MultiRowType multiRowType = (MultiRowType) this;
+            if (multiRowType.getItemType().exceedsMaxNestingDepth(d + 1)) {
                 return true;
             }
         } else {

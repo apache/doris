@@ -191,7 +191,7 @@ public class InPredicate extends Predicate {
         }
         boolean useSetLookup = allConstant;
         // Only lookup fn_ if all subqueries have been rewritten. If the second child is a
-        // subquery, it will have type ArrayType, which cannot be resolved to a builtin
+        // subquery, it will have type MultiRowType, which cannot be resolved to a builtin
         // function and will fail analysis.
         Type[] argTypes = {getChild(0).type, getChild(1).type};
         if (useSetLookup) {
