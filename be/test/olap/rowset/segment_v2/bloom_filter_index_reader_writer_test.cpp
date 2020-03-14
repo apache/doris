@@ -38,7 +38,7 @@ const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
 class BloomFilterIndexReaderWriterTest : public testing::Test {
    public:
     virtual void SetUp() {
-        ASSERT_TRUE(boost::filesystem::remove_all(dname));
+        ASSERT_TRUE(Env::Default()->delete_dir(dname));
     }
 };
 
