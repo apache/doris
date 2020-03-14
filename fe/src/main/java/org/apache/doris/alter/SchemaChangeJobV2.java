@@ -189,7 +189,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
-        db.writeLock();
+        db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
@@ -238,7 +238,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
         } finally {
-            db.writeUnlock();
+            db.readUnlock();
         }
 
         if (!FeConstants.runningUnitTest) {

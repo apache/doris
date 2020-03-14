@@ -166,7 +166,7 @@ public class RollupJobV2 extends AlterJobV2 {
             }
         }
         MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
-        db.writeLock();
+        db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
@@ -210,7 +210,7 @@ public class RollupJobV2 extends AlterJobV2 {
                 } // end for rollupTablets
             }
         } finally {
-            db.writeUnlock();
+            db.readUnlock();
         }
 
         if (!FeConstants.runningUnitTest) {
