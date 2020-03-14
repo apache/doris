@@ -164,7 +164,7 @@ public final class FeMetaVersion {
     // multi statement
     public static final int VERSION_76 = 76;
     // load to temp partitions
-    public static final int VERSION_75 = 74;
+    public static final int VERSION_77 = 77;
 
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
     public static final int VERSION_CURRENT = VERSION_77;

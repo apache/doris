@@ -558,7 +558,7 @@ public class TempPartitionTest {
     
     private void testSerializeOlapTable(OlapTable tbl) throws IOException, AnalysisException {
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_75);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_77);
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file

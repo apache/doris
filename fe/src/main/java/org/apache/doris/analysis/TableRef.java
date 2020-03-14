@@ -710,7 +710,7 @@ public class TableRef implements ParseNode, Writable {
         name = new TableName();
         name.readFields(in);
         if (in.readBoolean()) {
-            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_75) {
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_77) {
                 List<String> partitions = Lists.newArrayList();
                 int size = in.readInt();
                 for (int i = 0; i < size; i++) {
