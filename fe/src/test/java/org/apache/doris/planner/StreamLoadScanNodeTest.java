@@ -20,7 +20,9 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
@@ -31,9 +33,13 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.load.Load;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TExplainLevel;
@@ -623,5 +629,16 @@ public class StreamLoadScanNodeTest {
         scanNode.getNodeExplainString("", TExplainLevel.NORMAL);
         TPlanNode planNode = new TPlanNode();
         scanNode.toThrift(planNode);
+    }
+
+    @Test(expected = DdlException.class)
+    public void testLoadInitColumnsMappingColumnNotExist() throws UserException {
+        List<Column> columns = Lists.newArrayList();
+        columns.add(new Column("c1", Type.INT, true, null, false, null, ""));
+        columns.add(new Column("c2", ScalarType.createVarchar(10), true, null, false, null, ""));
+        Table table = new Table(1L, "table0", TableType.OLAP, columns);
+        List<ImportColumnDesc> columnExprs = Lists.newArrayList();
+        columnExprs.add(new ImportColumnDesc("c3", new FunctionCallExpr("func", Lists.newArrayList())));
+        Load.initColumns(table, columnExprs, null, null, null, null, null, null);
     }
 }
