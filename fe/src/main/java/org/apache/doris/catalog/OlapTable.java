@@ -82,7 +82,14 @@ public class OlapTable extends Table {
         @Deprecated
         BACKUP,
         RESTORE,
-        RESTORE_WITH_LOAD
+        RESTORE_WITH_LOAD,
+        /*
+         * this state means table is under PENDING alter operation(SCHEMA_CHANGE or ROLLUP), and is not
+         * stable. The tablet scheduler will continue fixing the tablets of this table. And the state will
+         * change back to SCHEMA_CHANGE or ROLLUP after table is stable, and continue doing alter operation.
+         * This state is a in-memory state and no need to persist.
+         */
+        WAITING_STABLE
     }
 
     private OlapTableState state;
