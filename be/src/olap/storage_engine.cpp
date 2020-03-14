@@ -768,10 +768,10 @@ void StorageEngine::start_delete_unused_rowset() {
         if (it->second.use_count() != 1) {
             ++it;
         } else if (it->second->need_delete_file()){
-            LOG(INFO) << "start to remove rowset:" << it->second->rowset_id()
+            VLOG(3) << "start to remove rowset:" << it->second->rowset_id()
                     << ", version:" << it->second->version().first << "-" << it->second->version().second;
             OLAPStatus status = it->second->remove();
-            LOG(INFO) << "remove rowset:" << it->second->rowset_id() << " finished. status:" << status;
+            VLOG(3) << "remove rowset:" << it->second->rowset_id() << " finished. status:" << status;
             it = _unused_rowsets.erase(it);
         }
     }
@@ -781,7 +781,7 @@ void StorageEngine::start_delete_unused_rowset() {
 void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     if (rowset == nullptr) { return; }
     _gc_mutex.lock();
-    LOG(INFO) << "add unused rowset, rowset id:" << rowset->rowset_id()
+    VLOG(3) << "add unused rowset, rowset id:" << rowset->rowset_id()
             << ", version:" << rowset->version().first
             << "-" << rowset->version().second
             << ", unique id:" << rowset->unique_id();

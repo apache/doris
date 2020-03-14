@@ -484,6 +484,8 @@ OLAPStatus TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add
                     remove_delete_predicate_by_version((*it)->version());
                 }
                 _rs_metas.erase(it);
+                // there should be only one rowset match the version
+                break;
             } else {
                 it++;
             }
