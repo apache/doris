@@ -875,6 +875,19 @@ public class Load {
             Map<String, Pair<String, List<String>>> columnToHadoopFunction,
             Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
             Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
+        // check mapping column exist in schema
+        // !! all column mappings are in columnExprs !!
+        for (ImportColumnDesc importColumnDesc : columnExprs) {
+            if (importColumnDesc.isColumn()) {
+                continue;
+            }
+
+            String mappingColumnName = importColumnDesc.getColumnName();
+            if (tbl.getColumn(mappingColumnName) == null) {
+                throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
+            }
+        }
+
         // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
         boolean specifyFileFieldNames = columnExprs.stream().anyMatch(p -> p.isColumn());
@@ -960,10 +973,6 @@ public class Load {
             for (Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
                 String mappingColumnName = entry.getKey();
                 Column mappingColumn = tbl.getColumn(mappingColumnName);
-                if (mappingColumn == null) {
-                    throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
-                }
-
                 Pair<String, List<String>> function = entry.getValue();
                 try {
                     DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
