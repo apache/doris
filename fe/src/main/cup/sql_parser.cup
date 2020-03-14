@@ -254,7 +254,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
-    KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW,
+    KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STRING,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
@@ -977,6 +977,10 @@ create_stmt ::=
     {:
         RESULT = new CreateDbStmt(ifNotExists, db);
     :}
+    | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db
+    {:
+        RESULT = new CreateDbStmt(ifNotExists, db);
+    :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
     {:
@@ -1497,6 +1501,10 @@ revoke_stmt ::=
 drop_stmt ::=
     /* Database */
     KW_DROP KW_DATABASE opt_if_exists:ifExists ident:db
+    {:
+        RESULT = new DropDbStmt(ifExists, db);
+    :}
+    | KW_DROP KW_SCHEMA opt_if_exists:ifExists ident:db
     {:
         RESULT = new DropDbStmt(ifExists, db);
     :}
@@ -2022,6 +2030,10 @@ show_param ::=
     :}
     /* Create database */
     | KW_CREATE KW_DATABASE ident:db
+    {:
+        RESULT = new ShowCreateDbStmt(db);
+    :}
+    | KW_CREATE KW_SCHEMA ident:db
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}
@@ -4476,6 +4488,8 @@ keyword ::=
     | KW_ROLLBACK:id
     {: RESULT = id; :}
     | KW_ROLLUP:id
+    {: RESULT = id; :}
+    | KW_SCHEMA:id
     {: RESULT = id; :}
     | KW_SERIALIZABLE:id
     {: RESULT = id; :}
