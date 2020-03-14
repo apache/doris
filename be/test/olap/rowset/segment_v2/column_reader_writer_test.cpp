@@ -239,9 +239,10 @@ void test_list_nullable_data(collection* src_data, uint8_t* src_is_null, int num
     // write data
     string fname = TEST_DIR + "/" + test_name;
     {
-        std::unique_ptr<WritableFile> wfile;
-        auto st = Env::Default()->new_writable_file(fname, &wfile);
-        ASSERT_TRUE(st.ok());
+        std::unique_ptr<fs::WritableBlock> wblock;
+        fs::CreateBlockOptions opts({ fname });
+        Status st = fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock);
+        ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;
@@ -264,7 +265,7 @@ void test_list_nullable_data(collection* src_data, uint8_t* src_is_null, int num
         list_column.add_sub_column(item_column);
 
         std::unique_ptr<ColumnWriter> writer;
-        ColumnWriter::create(writer_opts, &list_column, wfile.get(), &writer);
+        ColumnWriter::create(writer_opts, &list_column, wblock.get(), &writer);
         st = writer->init();
         ASSERT_TRUE(st.ok()) << st.to_string();
 
@@ -282,7 +283,7 @@ void test_list_nullable_data(collection* src_data, uint8_t* src_is_null, int num
         ASSERT_TRUE(st.ok());
 
         // close the file
-        wfile.reset();
+        ASSERT_TRUE(wblock->close().ok());
     }
     TypeInfo* type_info = get_type_info(&meta);
     // read and check
