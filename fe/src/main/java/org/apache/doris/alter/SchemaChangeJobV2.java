@@ -175,6 +175,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
 
+        if (!checkTableStable(db)) {
+            return;
+        }
+
         // 1. create replicas
         AgentBatchTask batchTask = new AgentBatchTask();
         // count total replica num
@@ -190,15 +194,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
-
-            boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
-                    Catalog.getCurrentCatalog().getTabletScheduler(),
-                    db.getClusterName());
-            if (!isStable) {
-                errMsg = "table is unstable";
-                LOG.warn("doing schema change job: " + jobId + " while table is not stable.");
-                return;
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
