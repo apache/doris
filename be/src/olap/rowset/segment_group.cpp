@@ -216,7 +216,7 @@ bool SegmentGroup::delete_all_files() {
         string index_path = construct_index_file_path(seg_id);
         string data_path = construct_data_file_path(seg_id);
 
-        LOG(INFO) << "delete index file. path=" << index_path;
+        VLOG(3) << "delete index file. path=" << index_path;
         if (remove(index_path.c_str()) != 0) {
             // if the errno is not ENOENT, log the error msg.
             // ENOENT stands for 'No such file or directory'
@@ -228,7 +228,7 @@ bool SegmentGroup::delete_all_files() {
             }
         }
 
-        LOG(INFO) << "delete data file. path=" << data_path;
+        VLOG(3) << "delete data file. path=" << data_path;
         if (remove(data_path.c_str()) != 0) {
             if (errno != ENOENT) {
                 char errmsg[64];

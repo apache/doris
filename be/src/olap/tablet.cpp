@@ -305,7 +305,7 @@ OLAPStatus Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
 const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) const {
     auto iter = _rs_version_map.find(version);
     if (iter == _rs_version_map.end()) {
-        LOG(INFO) << "no rowset for version:" << version.first << "-" << version.second
+        VLOG(3) << "no rowset for version:" << version.first << "-" << version.second
                 << ", tablet: " << full_name();
         return nullptr;
     }
@@ -319,7 +319,7 @@ const RowsetSharedPtr Tablet::get_rowset_by_version(const Version& version) cons
 const RowsetSharedPtr Tablet::get_inc_rowset_by_version(const Version& version) const {
     auto iter = _inc_rs_version_map.find(version);
     if (iter == _inc_rs_version_map.end()) {
-        LOG(INFO) << "no rowset for version:" << version << ", tablet: " << full_name();
+        VLOG(3) << "no rowset for version:" << version << ", tablet: " << full_name();
         return nullptr;
     }
     RowsetSharedPtr rowset = iter->second;
