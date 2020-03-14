@@ -240,6 +240,10 @@ public class ConnectContext {
         return returnRows;
     }
 
+    public void resetRetureRows() {
+        returnRows = 0;
+    }
+
     public MysqlSerializer getSerializer() {
         return serializer;
     }

@@ -17,13 +17,18 @@
 
 package org.apache.doris.planner;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.ImportColumnsStmt;
+import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.SqlParser;
+import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
@@ -32,10 +37,13 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
 
+import org.junit.Assert;
 import org.junit.Test;
 
+import java.io.StringReader;
 import java.util.List;
 
+import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
 
@@ -82,5 +90,18 @@ public class StreamLoadPlannerTest {
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
         StreamLoadPlanner planner = new StreamLoadPlanner(db, destTable, streamLoadTask);
         planner.plan(streamLoadTask.getId());
+    }
+
+    @Test
+    public void testParseStmt() throws Exception {
+        String sql = new String("COLUMNS (k1, k2, k3=abc(), k4=default_value())");
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(sql)));
+        ImportColumnsStmt columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
+        Assert.assertEquals(4, columnsStmt.getColumns().size());
+
+        sql = new String("WHERE k1 > 2 and k3 < 4");
+        parser = new SqlParser(new SqlScanner(new StringReader(sql)));
+        ImportWhereStmt whereStmt = (ImportWhereStmt) SqlParserUtils.getFirstStmt(parser);
+        Assert.assertTrue(whereStmt.getExpr() instanceof CompoundPredicate);
     }
 }

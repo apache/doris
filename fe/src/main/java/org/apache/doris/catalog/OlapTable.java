@@ -995,8 +995,18 @@ public class OlapTable extends Table {
         }
         
         if (resetState) {
+            // remove shadow index from copied table
+            List<MaterializedIndex> shadowIndex = copied.getPartitions().stream().findFirst().get().getMaterializedIndices(IndexExtState.SHADOW);
+            for (MaterializedIndex deleteIndex : shadowIndex) {
+                LOG.debug("copied table delete shadow index : {}", deleteIndex.getId());
+                copied.deleteIndexInfo(copied.getIndexNameById(deleteIndex.getId()));
+            }
             copied.setState(OlapTableState.NORMAL);
             for (Partition partition : copied.getPartitions()) {
+                // remove shadow index from partition
+                for (MaterializedIndex deleteIndex : shadowIndex) {
+                    partition.deleteRollupIndex(deleteIndex.getId());
+                }
                 partition.setState(PartitionState.NORMAL);
                 copied.getPartitionInfo().setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
                 for (MaterializedIndex idx : partition.getMaterializedIndices(extState)) {
@@ -1064,6 +1074,24 @@ public class OlapTable extends Table {
             dataSize += partition.getDataSize();
         }
         return dataSize;
+    }
+
+    public void checkStableAndNormal(String clusterName) throws DdlException {
+        if (state != OlapTableState.NORMAL) {
+            throw new DdlException("Table[" + name + "]'s state is not NORMAL. "
+                    + "Do not allow doing materialized view");
+        }
+        // check if all tablets are healthy, and no tablet is in tablet scheduler
+        boolean isStable = isStable(Catalog.getCurrentSystemInfo(),
+                Catalog.getCurrentCatalog().getTabletScheduler(),
+                clusterName);
+        if (!isStable) {
+            throw new DdlException("table [" + name + "] is not stable."
+                    + " Some tablets of this table may not be healthy or are being "
+                    + "scheduled."
+                    + " You need to repair the table first"
+                    + " or stop cluster balance. See 'help admin;'.");
+        }
     }
 
     public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {

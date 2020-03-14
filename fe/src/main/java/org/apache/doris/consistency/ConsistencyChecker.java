@@ -17,7 +17,6 @@
 
 package org.apache.doris.consistency;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -35,6 +34,7 @@ import org.apache.doris.consistency.CheckConsistencyJob.JobState;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.task.CheckConsistencyTask;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.logging.log4j.LogManager;
@@ -383,6 +383,14 @@ public class ConsistencyChecker extends MasterDaemon {
             tablet.setIsConsistent(info.isConsistent());
         } finally {
             db.writeUnlock();
+        }
+    }
+
+    // manually adding tablets to check
+    public void addTabletsToCheck(List<Long> tabletIds) {
+        for (Long tabletId : tabletIds) {
+            CheckConsistencyJob job = new CheckConsistencyJob(tabletId);
+            addJob(job);
         }
     }
 }

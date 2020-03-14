@@ -25,12 +25,14 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "olap/column_block.h"
+#include "olap/fs/block_manager.h"
+#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
-#include "olap/column_block.h"
-#include "util/file_utils.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
+#include "util/file_utils.h"
 
 using std::string;
 
@@ -74,9 +76,10 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
     // write data
     string fname = TEST_DIR + "/" + test_name;
     {
-        std::unique_ptr<WritableFile> wfile;
-        auto st = Env::Default()->new_writable_file(fname, &wfile);
-        ASSERT_TRUE(st.ok());
+        std::unique_ptr<fs::WritableBlock> wblock;
+        fs::CreateBlockOptions opts({ fname });
+        Status st = fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock);
+        ASSERT_TRUE(st.ok()) << st.get_error_msg();
 
         ColumnWriterOptions writer_opts;
         writer_opts.meta = &meta;
@@ -100,7 +103,7 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             column = create_char_key(1);
         }
         std::unique_ptr<Field> field(FieldFactory::create(column));
-        ColumnWriter writer(writer_opts, std::move(field), wfile.get());
+        ColumnWriter writer(writer_opts, std::move(field), wblock.get());
         st = writer.init();
         ASSERT_TRUE(st.ok()) << st.to_string();
 
@@ -109,18 +112,13 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             ASSERT_TRUE(st.ok());
         }
 
-        st = writer.finish();
-        ASSERT_TRUE(st.ok());
-
-        st = writer.write_data();
-        ASSERT_TRUE(st.ok());
-        st = writer.write_ordinal_index();
-        ASSERT_TRUE(st.ok());
-        st = writer.write_zone_map();
-        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(writer.finish().ok());
+        ASSERT_TRUE(writer.write_data().ok());
+        ASSERT_TRUE(writer.write_ordinal_index().ok());
+        ASSERT_TRUE(writer.write_zone_map().ok());
 
         // close the file
-        wfile.reset();
+        ASSERT_TRUE(wblock->close().ok());
     }
     // read and check
     {

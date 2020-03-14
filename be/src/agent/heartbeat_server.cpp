@@ -28,6 +28,7 @@
 #include "olap/storage_engine.h"
 #include "olap/utils.h"
 #include "service/backend_options.h"
+#include "util/debug_util.h"
 #include "util/thrift_server.h"
 #include "runtime/heartbeat_flags.h"
 
@@ -69,6 +70,7 @@ void HeartbeatServer::heartbeat(
         heartbeat_result.backend_info.__set_http_port(config::webserver_port);
         heartbeat_result.backend_info.__set_be_rpc_port(-1);
         heartbeat_result.backend_info.__set_brpc_port(config::brpc_port);
+        heartbeat_result.backend_info.__set_version(get_short_version());
     }
 }
 

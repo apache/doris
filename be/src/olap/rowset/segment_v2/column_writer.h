@@ -29,8 +29,11 @@
 namespace doris {
 
 class TypeInfo;
-class WritableFile;
 class BlockCompressionCodec;
+
+namespace fs {
+class WritableBlock;
+}
 
 namespace segment_v2 {
 
@@ -64,7 +67,7 @@ class ColumnWriter {
 public:
     ColumnWriter(const ColumnWriterOptions& opts,
                  std::unique_ptr<Field> field,
-                 WritableFile* output_file);
+                 fs::WritableBlock* output_file);
     ~ColumnWriter();
 
     Status init();
@@ -145,7 +148,7 @@ private:
 private:
     ColumnWriterOptions _opts;
     std::unique_ptr<Field> _field;
-    WritableFile* _output_file;
+    fs::WritableBlock* _wblock = nullptr;
     bool _is_nullable;
     // total size of data page list
     uint64_t _data_size;

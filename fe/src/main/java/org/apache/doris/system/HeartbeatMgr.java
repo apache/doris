@@ -233,8 +233,13 @@ public class HeartbeatMgr extends MasterDaemon {
                     if (tBackendInfo.isSetBrpc_port()) {
                         brpcPort = tBackendInfo.getBrpc_port();
                     }
+                    String version = "";
+                    if (tBackendInfo.isSetVersion()) {
+                        version = tBackendInfo.getVersion();
+                    }
+
                     // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis());
+                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis(), version);
                 } else {
                     return new BackendHbResponse(backendId, result.getStatus().getError_msgs().isEmpty() ? "Unknown error"
                             : result.getStatus().getError_msgs().get(0));

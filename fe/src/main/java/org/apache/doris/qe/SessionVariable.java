@@ -91,6 +91,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_ROWSET_TYPE = "default_rowset_type";
     public static final String USE_V2_ROLLUP = "use_v2_rollup";
     public static final String TEST_MATERIALIZED_VIEW = "test_materialized_view";
+    public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -226,6 +227,9 @@ public class SessionVariable implements Serializable, Writable {
     // TODO(ml): remove it after test
     @VariableMgr.VarAttr(name = TEST_MATERIALIZED_VIEW)
     private boolean testMaterializedView = false;
+
+    @VariableMgr.VarAttr(name = REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL)
+    private boolean rewriteCountDistinct = true;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -401,6 +405,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setTestMaterializedView(boolean testMaterializedView) {
         this.testMaterializedView = testMaterializedView;
+    }
+
+    public boolean isRewriteCountDistinct() {
+        return rewriteCountDistinct;
+    }
+
+    public void setRewriteCountDistinct(boolean rewriteCountDistinct) {
+        this.rewriteCountDistinct = rewriteCountDistinct;
     }
 
     // Serialize to thrift object

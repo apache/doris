@@ -35,7 +35,10 @@ namespace doris {
 class BlockCompressionCodec;
 class KeyCoder;
 class TypeInfo;
-class WritableFile;
+
+namespace fs {
+class WritableBlock;
+}
 
 namespace segment_v2 {
 
@@ -69,7 +72,7 @@ class IndexedColumnWriter {
 public:
     explicit IndexedColumnWriter(const IndexedColumnWriterOptions& options,
                                  const TypeInfo* typeinfo,
-                                 WritableFile* output_file);
+                                 fs::WritableBlock* wblock);
 
     ~IndexedColumnWriter();
 
@@ -87,7 +90,7 @@ private:
 
     IndexedColumnWriterOptions _options;
     const TypeInfo* _typeinfo;
-    WritableFile* _file;
+    fs::WritableBlock* _wblock;
     // only used for `_first_value`
     MemTracker _mem_tracker;
     MemPool _mem_pool;

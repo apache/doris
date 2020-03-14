@@ -31,7 +31,9 @@
 
 namespace doris {
 
-class WritableFile;
+namespace fs {
+class WritableBlock;
+}
 
 namespace segment_v2 {
 
@@ -75,7 +77,7 @@ public:
     // mark the end of one data page so that we can finalize the corresponding zone map
     Status flush();
 
-    Status finish(WritableFile* file, ColumnIndexMetaPB* index_meta);
+    Status finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* index_meta);
 
     uint64_t size() { return _estimated_size; }
 

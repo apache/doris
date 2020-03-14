@@ -27,6 +27,8 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddRollupClause;
+import org.apache.doris.analysis.AdminCheckTabletsStmt;
+import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterClusterStmt;
@@ -52,6 +54,7 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
+import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.FunctionName;
@@ -103,6 +106,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -4892,6 +4896,10 @@ public class Catalog {
         this.alter.processCreateMaterializedView(stmt);
     }
 
+    public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
+        this.alter.processDropMaterializedView(stmt);
+    }
+
     /*
      * used for handling CacnelAlterStmt (for client is the CANCEL ALTER
      * command). including SchemaChangeHandler and RollupHandler
@@ -6501,6 +6509,18 @@ public class Catalog {
             LOG.warn("should not happen. {}", e);
         } finally {
             db.writeUnlock();
+        }
+    }
+
+    // entry of checking tablets operation
+    public void checkTablets(AdminCheckTabletsStmt stmt) {
+        CheckType type = stmt.getType();
+        switch (type) {
+            case CONSISTENCY:
+                consistencyChecker.addTabletsToCheck(stmt.getTabletIds());
+                break;
+            default:
+                break;
         }
     }
 }

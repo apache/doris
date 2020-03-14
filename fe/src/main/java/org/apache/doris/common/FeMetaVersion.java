@@ -161,6 +161,8 @@ public final class FeMetaVersion {
     public static final int VERSION_74 = 74;
     // support materialized index meta while there is different keys type in different materialized index
     public static final int VERSION_75 = 75;
+    // multi statement
+    public static final int VERSION_76 = 76;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_75;
+    public static final int VERSION_CURRENT = VERSION_76;
 }

@@ -273,4 +273,35 @@ public class MaterializedViewHandlerTest {
         }
     }
 
+    @Test
+    public void testCheckDropMaterializedView(@Injectable OlapTable olapTable, @Injectable Partition partition,
+            @Injectable MaterializedIndex materializedIndex) {
+        String mvName = "mv_1";
+        new Expectations() {
+            {
+                olapTable.getState();
+                result = OlapTable.OlapTableState.NORMAL;
+                olapTable.getName();
+                result = "table1";
+                olapTable.hasMaterializedIndex(mvName);
+                result = true;
+                olapTable.getIndexIdByName(mvName);
+                result = 1L;
+                olapTable.getSchemaHashByIndexId(1L);
+                result = 1;
+                olapTable.getPartitions();
+                result = Lists.newArrayList(partition);
+                partition.getIndex(1L);
+                result = materializedIndex;
+            }
+        };
+        MaterializedViewHandler materializedViewHandler = new MaterializedViewHandler();
+        try {
+            Deencapsulation.invoke(materializedViewHandler, "checkDropMaterializedView", mvName, olapTable);
+        } catch (Exception e) {
+            Assert.fail(e.getMessage());
+        }
+
+    }
+
 }
