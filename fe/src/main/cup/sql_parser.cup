@@ -3315,26 +3315,6 @@ partition_names ::=
     :}
     ;
 
-
-// partition_names ::=
-//     opt_tmp:isTemp KW_PARTITION LPAREN ident_list:partitions RPAREN
-//     {:
-//         RESULT = new PartitionNames(isTemp, partitions);
-//     :}
-//     | opt_tmp:isTemp KW_PARTITIONS LPAREN ident_list:partitions RPAREN
-//     {:
-//         RESULT = new PartitionNames(isTemp, partitions);
-//     :}
-//     | opt_tmp:isTemp KW_PARTITION ident:partName
-//     {:
-//         RESULT = new PartitionNames(isTemp, Lists.newArrayList(partName));
-//     :}
-//     | opt_tmp:isTemp KW_PARTITIONS ident:partName
-//     {:
-//         RESULT = new PartitionNames(isTemp, Lists.newArrayList(partName));
-//     :}
-//     ; 
-
 join_operator ::=
   opt_inner KW_JOIN
   {: RESULT = JoinOperator.INNER_JOIN; :}

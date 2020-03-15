@@ -1441,8 +1441,7 @@ public class Catalog {
 
                 OlapTable olapTable = (OlapTable) table;
                 long tableId = olapTable.getId();
-                List<Partition> allPartitions = Lists.newArrayList(olapTable.getPartitions());
-                allPartitions.addAll(olapTable.getAllTempPartitions());
+                Collection<Partition> allPartitions = olapTable.getAllPartitions();
                 for (Partition partition : allPartitions) {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
@@ -3195,7 +3194,6 @@ public class Catalog {
             partitionInfo = olapTable.getTempPartitonRangeInfo();
         }
 
-
         // drop
         if (isTempPartition) {
             olapTable.dropTempPartition(partitionName, true);
@@ -4154,7 +4152,7 @@ public class Catalog {
                 OlapTable olapTable = (OlapTable) table;
                 long dbId = db.getId();
                 long tableId = table.getId();
-                for (Partition partition : olapTable.getPartitions()) {
+                for (Partition partition : olapTable.getAllPartitions()) {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
                             partitionId).getStorageMedium();
@@ -4571,7 +4569,7 @@ public class Catalog {
                     long tableId = table.getId();
                     OlapTable olapTable = (OlapTable) table;
                     PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                    for (Partition partition : olapTable.getPartitions()) {
+                    for (Partition partition : olapTable.getAllPartitions()) {
                         long partitionId = partition.getId();
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
                         Preconditions.checkNotNull(dataProperty);

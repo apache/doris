@@ -588,28 +588,62 @@ public class OlapTable extends Table {
         return dropPartition(-1, partitionName, true);
     }
 
-    public Collection<Partition> getPartitions() {
-        return idToPartition.values();
-    }
-
-    public Collection<Partition> getTempPartitions() {
-        return tempPartitions.getAllPartitions();
-    }
-
-    public Collection<Partition> getAllPartitions() {
-        List<Partition> partitions = Lists.newArrayList(idToPartition.values());
-        partitions.addAll(tempPartitions.getAllPartitions());
-        return partitions;
-    }
-
-    public Partition getPartition(long partitionId) {
-        return idToPartition.get(partitionId);
-    }
-
+    /*
+     * A table may contain both formal and temporary partitions.
+     * There are several methods to get the partition of a table.
+     * Typically divided into two categories:
+     * 
+     * 1. Get partition by id
+     * 2. Get partition by name
+     * 
+     * According to different requirements, the caller may want to obtain
+     * a formal partition or a temporary partition. These methods are
+     * described below in order to obtain the partition by using the correct method.
+     * 
+     * 1. Get by name
+     * 
+     * This type of request usually comes from a user with partition names. Such as
+     * `select * from tbl partition(p1);`.
+     * This type of request has clear information to indicate whether to obtain a
+     * formal or temporary partition.
+     * Therefore, we need to get the partition through this method:
+     * 
+     * `getPartition(String partitionName, boolean isTemp)`
+     * 
+     * To avoid modifying too much code, we leave the `getPartition(String
+     * partitionName)`, which is same as:
+     * 
+     * `getPartition(partitionName, false)`
+     * 
+     * 2. Get by id
+     * 
+     * This type of request usually means that the previous step has obtained
+     * certain partition ids in some way,
+     * so we only need to get the corresponding partition through this method:
+     * 
+     * `getPartition(long partitionId)`.
+     * 
+     * This method will try to get both formal partitions and temporary partitions.
+     * 
+     * 3. Get all partition instances
+     * 
+     * Depending on the requirements, the caller may want to obtain all formal
+     * partitions,
+     * all temporary partitions, or all partitions. Therefore we provide 3 methods,
+     * the caller chooses according to needs.
+     * 
+     * `getPartitions()`
+     * `getTempPartitions()`
+     * `getAllPartitions()`
+     *
+     */
+    
+    // get partition by name, not including temp partitions
     public Partition getPartition(String partitionName) {
-        return nameToPartition.get(partitionName);
+        return getPartition(partitionName, false);
     }
 
+    // get partition by name
     public Partition getPartition(String partitionName, boolean isTempPartition) {
         if (isTempPartition) {
             return tempPartitions.getPartition(partitionName);
@@ -618,8 +652,46 @@ public class OlapTable extends Table {
         }
     }
 
+    // get partition by id, including temp partitions
+    public Partition getPartition(long partitionId) {
+        Partition partition = idToPartition.get(partitionId);
+        if (partition == null) {
+            partition = tempPartitions.getPartition(partitionId);
+        }
+        return partition;
+    }
+    
+    // get all partitions except temp partitions
+    public Collection<Partition> getPartitions() {
+        return idToPartition.values();
+    }
+
+    // get only temp partitions
+    public Collection<Partition> getTempPartitions() {
+        return tempPartitions.getAllPartitions();
+    }
+
+    // get all partitions including temp partitions
+    public Collection<Partition> getAllPartitions() {
+        List<Partition> partitions = Lists.newArrayList(idToPartition.values());
+        partitions.addAll(tempPartitions.getAllPartitions());
+        return partitions;
+    }
+
+    // get all partitions' name except the temp partitions
     public Set<String> getPartitionNames() {
         return Sets.newHashSet(nameToPartition.keySet());
+    }
+
+    public Range<PartitionKey> getPartitionRangeById(long partitionId) {
+        if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
+            return null;
+        }
+        Range<PartitionKey> range = ((RangePartitionInfo) partitionInfo).getRange(partitionId);
+        if (range == null) {
+            range = tempPartitions.getPartitionInfo().getRange(partitionId);
+        }
+        return range;
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -770,6 +842,7 @@ public class OlapTable extends Table {
         return Math.abs((int) adler32.getValue());
     }
 
+    // get intersect partition names with the given table "anotherTbl". not including temp partitions
     public Status getIntersectPartNamesWith(OlapTable anotherTbl, List<String> intersectPartNames) {
         if (this.getPartitionInfo().getType() != anotherTbl.getPartitionInfo().getType()) {
             return new Status(ErrCode.COMMON_ERROR, "Table's partition type is different");

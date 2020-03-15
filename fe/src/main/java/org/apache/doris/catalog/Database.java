@@ -348,7 +348,7 @@ public class Database extends MetaObject implements Writable {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
-                for (Partition partition : olapTable.getPartitions()) {
+                for (Partition partition : olapTable.getAllPartitions()) {
                     short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
                     if (ret < replicationNum) {
                         ret = replicationNum;

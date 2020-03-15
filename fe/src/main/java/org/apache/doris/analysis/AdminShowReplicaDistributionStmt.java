@@ -31,16 +31,13 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
-import java.util.List;
-
+// admin show replica distribution from tbl [partition(p1, p2, ...)]
 public class AdminShowReplicaDistributionStmt extends ShowStmt {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BackendId").add("ReplicaNum").add("Graph").add("Percent").build();
 
     private TableRef tblRef;
-    private List<String> partitions = Lists.newArrayList();
 
     public AdminShowReplicaDistributionStmt(TableRef tblRef) {
         this.tblRef = tblRef;
@@ -66,14 +63,6 @@ public class AdminShowReplicaDistributionStmt extends ShowStmt {
         }
 
         tblRef.getName().setDb(dbName);
-
-        PartitionNames partitionNames = tblRef.getPartitionNames();
-        if (partitionNames != null) {
-            if (partitionNames.isTemp()) {
-                throw new AnalysisException("Do not support showing replica distribution of temporary partitions");
-            }
-            partitions.addAll(partitionNames.getPartitionNames());
-        }
     }
 
     public String getDbName() {
@@ -84,8 +73,8 @@ public class AdminShowReplicaDistributionStmt extends ShowStmt {
         return tblRef.getName().getTbl();
     }
 
-    public List<String> getPartitions() {
-        return partitions;
+    public PartitionNames getPartitionNames() {
+        return tblRef.getPartitionNames();
     }
 
     @Override
