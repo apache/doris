@@ -6558,14 +6558,14 @@ public class Catalog {
                 LOG.info("replica of tablet {} does not exist", tabletId);
                 return;
             }
-            if (status == ReplicaStatus.BAD) {
-                if (replica.setBad(true)) {
+            if (status == ReplicaStatus.BAD || status == ReplicaStatus.OK) {
+                if (replica.setBad(status == ReplicaStatus.BAD)) {
                     if (!isReplay) {
                         SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(backendId, tabletId, status);
                         getEditLog().logSetReplicaStatus(log);
                     }
-                    LOG.info("set replica {} of tablet {} on backend {} as bad. is replay: {}",
-                            replica.getId(), tabletId, backendId, isReplay);
+                    LOG.info("set replica {} of tablet {} on backend {} as {}. is replay: {}",
+                            replica.getId(), tabletId, backendId, status, isReplay);
                 }
             }
         } finally {

@@ -112,6 +112,14 @@ public class AdminStmtTest {
         Catalog.getCurrentCatalog().setReplicaStatus(stmt);
         replica = Catalog.getCurrentInvertedIndex().getReplica(tabletId, backendId);
         Assert.assertTrue(replica.isBad());
+
+        // set replica to ok
+        adminStmt = "admin set replica status properties ('tablet_id' = '" + tabletId + "', 'backend_id' = '"
+                + backendId + "', 'status' = 'ok');";
+        stmt = (AdminSetReplicaStatusStmt) UtFrameUtils.parseAndAnalyzeStmt(adminStmt, connectContext);
+        Catalog.getCurrentCatalog().setReplicaStatus(stmt);
+        replica = Catalog.getCurrentInvertedIndex().getReplica(tabletId, backendId);
+        Assert.assertFalse(replica.isBad());
     }
     
     @Test
