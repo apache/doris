@@ -20,18 +20,17 @@ package org.apache.doris.load;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
-
-import java.util.List;
+import org.apache.doris.analysis.PartitionNames;
 
 public class RoutineLoadDesc {
     private final ColumnSeparator columnSeparator;
     private final ImportColumnsStmt columnsInfo;
     private final ImportWhereStmt wherePredicate;
     // nullable
-    private final List<String> partitionNames;
+    private final PartitionNames partitionNames;
 
     public RoutineLoadDesc(ColumnSeparator columnSeparator, ImportColumnsStmt columnsInfo,
-            ImportWhereStmt wherePredicate, List<String> partitionNames) {
+            ImportWhereStmt wherePredicate, PartitionNames partitionNames) {
         this.columnSeparator = columnSeparator;
         this.columnsInfo = columnsInfo;
         this.wherePredicate = wherePredicate;
@@ -51,7 +50,7 @@ public class RoutineLoadDesc {
     }
 
     // nullable
-    public List<String> getPartitionNames() {
+    public PartitionNames getPartitionNames() {
         return partitionNames;
     }
 }

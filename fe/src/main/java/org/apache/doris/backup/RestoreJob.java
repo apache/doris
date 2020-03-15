@@ -552,7 +552,7 @@ public class RestoreJob extends AbstractJob {
                                 RangePartitionInfo remoteRangePartitionInfo 
                                         = (RangePartitionInfo) remoteOlapTbl.getPartitionInfo();
                                 Range<PartitionKey> remoteRange = remoteRangePartitionInfo.getRange(backupPartInfo.id);
-                                if (!localRangePartitionInfo.checkRange(remoteRange)) {
+                                if (localRangePartitionInfo.getAnyIntersectRange(remoteRange, false) != null) {
                                     status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
                                             + " in table " + localTbl.getName()
                                             + " has conflict range with existing ranges");
@@ -727,7 +727,7 @@ public class RestoreJob extends AbstractJob {
                         long remotePartId = backupPartitionInfo.id;
                         Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                         DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
-                        localPartitionInfo.addPartition(restoredPart.getId(), remoteRange,
+                        localPartitionInfo.addPartition(restoredPart.getId(), false, remoteRange,
                                 remoteDataProperty, (short) restoreReplicationNum,
                                 remotePartitionInfo.getIsInMemory(remotePartId));
                         localTbl.addPartition(restoredPart);
@@ -935,7 +935,7 @@ public class RestoreJob extends AbstractJob {
                 long remotePartId = backupPartitionInfo.id;
                 Range<PartitionKey> remoteRange = remotePartitionInfo.getRange(remotePartId);
                 DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
-                localPartitionInfo.addPartition(restorePart.getId(), remoteRange,
+                localPartitionInfo.addPartition(restorePart.getId(), false, remoteRange,
                         remoteDataProperty, (short) restoreReplicationNum,
                         remotePartitionInfo.getIsInMemory(remotePartId));
                 localTbl.addPartition(restorePart);

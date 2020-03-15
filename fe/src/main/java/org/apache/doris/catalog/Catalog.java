@@ -2936,10 +2936,6 @@ public class Catalog {
                 throw new DdlException("Only support adding partition to range partitioned table");
             }
 
-            if (isTempPartition) {
-                partitionInfo = olapTable.getTempPartitonRangeInfo();
-            }
-
             // check partition name
             if (olapTable.checkPartitionNameExist(partitionName)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
@@ -2962,7 +2958,7 @@ public class Catalog {
 
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), properties);
-            rangePartitionInfo.checkAndCreateRange(singlePartitionDesc);
+            rangePartitionInfo.checkAndCreateRange(singlePartitionDesc, isTempPartition);
 
             // get distributionInfo
             List<Column> baseSchema = olapTable.getBaseSchema();
@@ -3088,16 +3084,13 @@ public class Catalog {
 
                 // check partition type
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                if (isTempPartition) {
-                    partitionInfo = olapTable.getTempPartitonRangeInfo();
-                }
                 if (partitionInfo.getType() != PartitionType.RANGE) {
                     throw new DdlException("Only support adding partition to range partitioned table");
                 }
 
                 // update partition info
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId);
+                rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
 
                 if (isTempPartition) {
                     olapTable.addTempPartition(partition);
@@ -3134,14 +3127,13 @@ public class Catalog {
 
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
             if (info.isTempPartition()) {
-                partitionInfo = olapTable.getTempPartitonRangeInfo();
                 olapTable.addTempPartition(partition);
             } else {
                 olapTable.addPartition(partition);
             }
 
             ((RangePartitionInfo) partitionInfo).unprotectHandleNewSinglePartitionDesc(partition.getId(),
-                    info.getRange(), info.getDataProperty(), info.getReplicationNum(),
+                    info.isTempPartition(), info.getRange(), info.getDataProperty(), info.getReplicationNum(),
                     info.isInMemory());
 
             if (!isCheckpointThread()) {
@@ -3188,10 +3180,6 @@ public class Catalog {
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() != PartitionType.RANGE) {
             throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
-        }
-
-        if (isTempPartition) {
-            partitionInfo = olapTable.getTempPartitonRangeInfo();
         }
 
         // drop
@@ -3483,7 +3471,7 @@ public class Catalog {
                     partitionNameToId.put(desc.getPartitionName(), partitionId);
                 }
             }
-            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId);
+            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
         } else {
             if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(stmt.getProperties())) {
                 throw new DdlException("Only support dynamic partition properties on range partition table");
@@ -3771,7 +3759,7 @@ public class Catalog {
         PartitionInfo partitionInfo = null;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
-            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId);
+            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
         } else {
             long partitionId = getNextId();
             // use table name as single partition name
@@ -4095,7 +4083,7 @@ public class Catalog {
             OlapTable olapTable = (OlapTable) table;
             RangePartitionInfo partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
             boolean first = true;
-            for (Map.Entry<Long, Range<PartitionKey>> entry : partitionInfo.getSortedRangeMap()) {
+            for (Map.Entry<Long, Range<PartitionKey>> entry : partitionInfo.getSortedRangeMap(false)) {
                 if (first) {
                     first = false;
                     continue;

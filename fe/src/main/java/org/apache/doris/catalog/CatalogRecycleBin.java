@@ -512,13 +512,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         // check if range is invalid
         Range<PartitionKey> recoverRange = recoverPartitionInfo.getRange();
         RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-        Map<Long, Range<PartitionKey>> idToRangeMap = partitionInfo.getIdToRange();
-        try {
-            for (Range<PartitionKey> existRange : idToRangeMap.values()) {
-                RangeUtils.checkRangeIntersect(recoverRange, existRange);
-            }
-        } catch (DdlException e) {
-            throw new DdlException("Can not recover partition[" + partitionName + "]. " + e.getMessage());
+        if (partitionInfo.getAnyIntersectRange(recoverRange, false) != null) {
+            throw new DdlException("Can not recover partition[" + partitionName + "]. Range conflict.");
         }
 
         // recover partition
@@ -528,7 +523,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         
         // recover partition info
         long partitionId = recoverPartition.getId();
-        partitionInfo.setRange(partitionId, recoverRange);
+        partitionInfo.setRange(partitionId, false, recoverRange);
         partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
         partitionInfo.setReplicationNum(partitionId, recoverPartitionInfo.getReplicationNum());
         partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
@@ -557,7 +552,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             table.addPartition(partitionInfo.getPartition());
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-            rangePartitionInfo.setRange(partitionId, partitionInfo.getRange());
+            rangePartitionInfo.setRange(partitionId, false, partitionInfo.getRange());
             rangePartitionInfo.setDataProperty(partitionId, partitionInfo.getDataProperty());
             rangePartitionInfo.setReplicationNum(partitionId, partitionInfo.getReplicationNum());
             rangePartitionInfo.setIsInMemory(partitionId, partitionInfo.isInMemory());

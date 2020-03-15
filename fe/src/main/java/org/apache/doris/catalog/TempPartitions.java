@@ -20,7 +20,6 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.io.Writable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -38,17 +37,10 @@ import java.util.Map;
 public class TempPartitions implements Writable {
     private Map<Long, Partition> idToPartition = Maps.newHashMap();
     private Map<String, Partition> nameToPartition = Maps.newHashMap();
-    private RangePartitionInfo partitionInfo;
+    @Deprecated
+    private RangePartitionInfo partitionInfo = null;
 
     public TempPartitions() {
-    }
-
-    public TempPartitions(List<Column> partCols) {
-        partitionInfo = new RangePartitionInfo(partCols);
-    }
-
-    public RangePartitionInfo getPartitionInfo() {
-        return partitionInfo;
     }
 
     public void addPartition(Partition partition) {
@@ -65,12 +57,6 @@ public class TempPartitions implements Writable {
         if (partition != null) {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
-
-            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE);
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            // drop partition info
-            rangePartitionInfo.dropPartition(partition.getId());
-
             if (!Catalog.isCheckpointThread() && needDropTablet) {
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -100,6 +86,16 @@ public class TempPartitions implements Writable {
 
     public boolean isEmpty() {
         return idToPartition.isEmpty();
+    }
+
+    @Deprecated
+    public RangePartitionInfo getPartitionInfo() {
+        return partitionInfo;
+    }
+
+    @Deprecated
+    public void unsetPartitionInfo() {
+        partitionInfo = null;
     }
 
     // drop all temp partitions

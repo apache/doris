@@ -28,6 +28,7 @@ import org.apache.doris.analysis.ShowTabletStmt;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
@@ -69,6 +70,7 @@ public class TempPartitionTest {
     public static void setup() throws Exception {
         UtFrameUtils.createMinDorisCluster(runningDir);
         ctx = UtFrameUtils.createDefaultCtx();
+        FeConstants.default_scheduler_interval_millisecond = 100;
     }
 
     @AfterClass
@@ -112,8 +114,9 @@ public class TempPartitionTest {
         }
     }
 
-    private List<List<String>> checkTablet(String tbl, String partitions, int expected) throws Exception {
-        String showStr = "show tablet from " + tbl + " partition (" + partitions + ");";
+    private List<List<String>> checkTablet(String tbl, String partitions, boolean isTemp, int expected)
+            throws Exception {
+        String showStr = "show tablet from " + tbl + (isTemp ? " temporary" : "") + " partition (" + partitions + ");";
         ShowTabletStmt showStmt = (ShowTabletStmt) UtFrameUtils.parseAndAnalyzeStmt(showStr, ctx);
         ShowExecutor executor = new ShowExecutor(ctx, (ShowStmt) showStmt);
         ShowResultSet showResultSet = executor.execute();
@@ -145,7 +148,7 @@ public class TempPartitionTest {
             partIdToName.put(Long.valueOf(row.get(0)), row.get(1));
         }
 
-        rows = checkTablet(tbl, Joiner.on(",").join(partIdToName.values()), -1);
+        rows = checkTablet(tbl, Joiner.on(",").join(partIdToName.values()), isTemp, -1);
         for (List<String> row : rows) {
             long tabletId = Long.valueOf(row.get(0));
             long partitionId = getPartitionIdByTabletId(tabletId);
@@ -458,8 +461,8 @@ public class TempPartitionTest {
         checkPartitionExist(tbl2, "tp2", false, false);
         checkPartitionExist(tbl2, "p2", true, false);
 
-        checkTablet("db2.tbl2", "p2", 2);
-        checkTablet("db2.tbl2", "tp3", 2);
+        checkTablet("db2.tbl2", "p2", false, 2);
+        checkTablet("db2.tbl2", "tp3", false, 2);
 
         // for now, we have 2 partitions: p2, tp3, [min, 20), [20, 30). 0 temp partition. 
         stmtStr = "alter table db2.tbl2 add temporary partition tp4 values less than('20') ('in_memory' = 'true') distributed by hash(k1) buckets 3";
@@ -581,7 +584,7 @@ public class TempPartitionTest {
 
     private void testSerializeTempPartitions(TempPartitions tempPartitionsInstance) throws IOException, AnalysisException {
         MetaContext metaContext = new MetaContext();
-        metaContext.setMetaVersion(FeMetaVersion.VERSION_74);
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_77);
         metaContext.setThreadLocalInfo();
 
         // 1. Write objects to file

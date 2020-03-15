@@ -287,7 +287,7 @@ public class OlapScanNode extends ScanNode {
                 keyRangeById.put(part.getId(), partitionInfo.getRange(part.getId()));
             }
         } else {
-            keyRangeById = partitionInfo.getIdToRange();
+            keyRangeById = partitionInfo.getIdToRange(false);
         }
         PartitionPruner partitionPruner = new RangePartitionPruner(keyRangeById,
                 partitionInfo.getPartitionColumns(), columnFilters);
@@ -408,9 +408,6 @@ public class OlapScanNode extends ScanNode {
         PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE) {
-            if (partitionNames != null && partitionNames.isTemp()) {
-                partitionInfo = olapTable.getTempPartitonRangeInfo();
-            }
             selectedPartitionIds = partitionPrune((RangePartitionInfo) partitionInfo, partitionNames);
         } else {
             selectedPartitionIds = null;
