@@ -671,7 +671,13 @@ build_orc() {
     make -j$PARALLEL && make install
 }
 
-build_llvm
+# See https://github.com/apache/incubator-doris/issues/2910
+# LLVM related codes have already be removed in master, so there is
+# no need to build llvm tool here.
+# Currently, some old release of Doris may still need it, so for now
+# we just comment it, instead of remove it.
+# build_llvm
+
 build_libevent
 build_zlib
 build_lz4
