@@ -21,7 +21,10 @@ import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.Replica.ReplicaStatus;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -32,7 +35,12 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.util.List;
 import java.util.UUID;
 
@@ -104,6 +112,35 @@ public class AdminStmtTest {
         Catalog.getCurrentCatalog().setReplicaStatus(stmt);
         replica = Catalog.getCurrentInvertedIndex().getReplica(tabletId, backendId);
         Assert.assertTrue(replica.isBad());
+    }
+    
+    @Test
+    public void testSetReplicaStatusOperationLog() throws IOException, AnalysisException {
+        String fileName = "./SetReplicaStatusOperationLog";
+        try {
+            // 1. Write objects to file
+            File file = new File(fileName);
+            file.createNewFile();
+            DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+            
+            SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(10000, 100001, ReplicaStatus.BAD);
+            log.write(out);
+            out.flush();
+            out.close();
+            
+            // 2. Read objects from file
+            DataInputStream in = new DataInputStream(new FileInputStream(file));
+            
+            SetReplicaStatusOperationLog readLog = SetReplicaStatusOperationLog.read(in);
+            Assert.assertEquals(log.getBackendId(), readLog.getBackendId());
+            Assert.assertEquals(log.getTabletId(), readLog.getTabletId());
+            Assert.assertEquals(log.getReplicaStatus(), readLog.getReplicaStatus());
+            
+            in.close();
+        } finally {
+            File file = new File(fileName);
+            file.delete();
+        }
     }
 
 }
