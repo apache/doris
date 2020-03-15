@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -25,15 +26,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
-
-import java.util.List;
 import java.util.Map;
 
 /*
  *  admin set replicas status properties ("key" = "val", ..);
  *  Required:
- *      "tablet_id" = "1,2,3,4,5,...",
+ *      "tablet_id" = "10010",
  *      "backend_id" = "10001"
  *      "status" = "bad"
  */
@@ -42,12 +40,11 @@ public class AdminSetReplicaStatusStmt extends DdlStmt {
     public static final String TABLET_ID = "tablet_id";
     public static final String BACKEND_ID = "backend_id";
     public static final String STATUS = "status";
-    public static final String STATUS_BAD = "bad";
 
     private Map<String, String> properties;
-    private List<Long> tabletIds = Lists.newArrayList();
+    private long tabletId = -1;
     private long backendId = -1;
-    private String status = null;
+    private ReplicaStatus status;
 
     public AdminSetReplicaStatusStmt(Map<String, String> properties) {
         this.properties = properties;
@@ -72,10 +69,7 @@ public class AdminSetReplicaStatusStmt extends DdlStmt {
 
             if (key.equalsIgnoreCase(TABLET_ID)) {
                 try {
-                    String[] ids = val.replace(" ", "").split(",");
-                    for (String idStr : ids) {
-                        tabletIds.add(Long.valueOf(idStr));
-                    }
+                    tabletId = Long.valueOf(val);
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("Invalid tablet id format: " + val);
                 }
@@ -86,8 +80,8 @@ public class AdminSetReplicaStatusStmt extends DdlStmt {
                     throw new AnalysisException("Invalid backend id format: " + val);
                 }
             } else if (key.equalsIgnoreCase(STATUS)) {
-                status = val.toLowerCase();
-                if (!status.equals(STATUS_BAD)) {
+                status = ReplicaStatus.valueOf(val.toUpperCase());
+                if (status != ReplicaStatus.BAD) {
                     throw new AnalysisException("Do not support setting replica status as " + val);
                 }
             } else {
@@ -95,20 +89,20 @@ public class AdminSetReplicaStatusStmt extends DdlStmt {
             }
         }
 
-        if (tabletIds.isEmpty() || backendId == -1 || status == null) {
+        if (tabletId == -1 || backendId == -1 || status == null) {
             throw new AnalysisException("Should add following properties: TABLET_ID, BACKEND_ID and STATUS");
         }
     }
 
-    public List<Long> getTabletIds() {
-        return tabletIds;
+    public long getTabletId() {
+        return tabletId;
     }
 
     public long getBackendId() {
         return backendId;
     }
 
-    public String getStatus() {
+    public ReplicaStatus getStatus() {
         return status;
     }
 

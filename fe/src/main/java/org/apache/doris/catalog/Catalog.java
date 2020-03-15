@@ -89,6 +89,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.clone.ColocateTableBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -172,6 +173,7 @@ import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
@@ -6527,44 +6529,48 @@ public class Catalog {
 
     // Set specified replica's status. If replica does not exist, just ignore it.
     public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) {
-        List<Long> tabletIds = stmt.getTabletIds();
+        long tabletId = stmt.getTabletId();
         long backendId = stmt.getBackendId();
-        String status = stmt.getStatus();
+        ReplicaStatus status = stmt.getStatus();
+        setReplicaStatusInternal(tabletId, backendId, status, false);
+    }
 
-        BackendTabletsInfo tabletsInfo = new BackendTabletsInfo(backendId);
-        tabletsInfo.setBad(true);
-        for (Long tabletId : tabletIds) {
-            TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
-            if (meta == null) {
-                LOG.info("tablet {} does not exist", tabletId);
-                continue;
-            }
-            long dbId = meta.getDbId();
-            Database db = getDb(dbId);
-            if (db == null) {
-                LOG.info("database {} of tablet {} does not exist", dbId, tabletId);
-                continue;
-            }
-            db.writeLock();
-            try {
-                Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
-                if (replica == null) {
-                    LOG.info("replica of tablet {} does not exist", tabletId);
-                    continue;
-                }
-                if (status.equals(AdminSetReplicaStatusStmt.STATUS_BAD)) {
-                    if (replica.setBad(true)) {
-                        tabletsInfo.addTabletWithSchemaHash(tabletId, meta.getOldSchemaHash());
-                        LOG.info("set replica {} of tablet {} on backend {} as bad",
-                                replica.getId(), tabletId, backendId);
-                    }
-                }
-            } finally {
-                db.writeUnlock();
-            }
+    public void replaySetReplicaStatus(SetReplicaStatusOperationLog log) {
+        setReplicaStatusInternal(log.getTabletId(), log.getBackendId(), log.getReplicaStatus(), true);
+    }
+
+    private void setReplicaStatusInternal(long tabletId, long backendId, ReplicaStatus status, boolean isReplay) {
+        TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
+        if (meta == null) {
+            LOG.info("tablet {} does not exist", tabletId);
+            return;
         }
-
-        Catalog.getInstance().getEditLog().logBackendTabletsInfo(tabletsInfo);
+        long dbId = meta.getDbId();
+        Database db = getDb(dbId);
+        if (db == null) {
+            LOG.info("database {} of tablet {} does not exist", dbId, tabletId);
+            return;
+        }
+        db.writeLock();
+        try {
+            Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
+            if (replica == null) {
+                LOG.info("replica of tablet {} does not exist", tabletId);
+                return;
+            }
+            if (status == ReplicaStatus.BAD) {
+                if (replica.setBad(true)) {
+                    if (!isReplay) {
+                        SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(backendId, tabletId, status);
+                        getEditLog().logSetReplicaStatus(log);
+                    }
+                    LOG.info("set replica {} of tablet {} on backend {} as bad. is replay: {}",
+                            replica.getId(), tabletId, backendId, isReplay);
+                }
+            }
+        } finally {
+            db.writeUnlock();
+        }
     }
 }
 

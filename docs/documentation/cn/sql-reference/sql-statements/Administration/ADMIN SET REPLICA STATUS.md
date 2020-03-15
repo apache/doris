@@ -10,11 +10,15 @@
         PROPERTIES ("key" = "value", ...);
 
         目前支持如下属性：
-        "tablet_id"：必需。指定一个或多个 tablet id，逗号分隔。
+        "tablet_id"：必需。指定一个 Tablet Id.
         "backend_id"：必需。指定 Backend Id.
         "status"：必需。指定状态。当前仅支持 "bad"
 
         如果指定的副本不存在，或状态已经是 bad，则会被忽略。
+
+    注意：
+
+        设置为 Bad 状态的副本不能再恢复正常，请谨慎操作。
 
 ## example
 
@@ -22,10 +26,7 @@
 
         ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "10003", "backend_id" = "10001", "status" = "bad");
 
-    1. 设置 tablet 10003,10004,10005 在 BE 10001 上的副本状态为 bad。
-
-        ADMIN SET REPLICA STATUS PROPERTIES("tablet_id" = "10003, 10004, 10005", "backend_id" = "10001", "status" = "bad");
-
 ## keyword
+
     ADMIN,SET,REPLICA,STATUS
 

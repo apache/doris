@@ -63,7 +63,8 @@ public class Replica implements Writable {
         DEAD, // backend is not available
         VERSION_ERROR, // missing version
         MISSING, // replica does not exist
-        SCHEMA_ERROR // replica's schema hash does not equal to index's schema hash
+        SCHEMA_ERROR, // replica's schema hash does not equal to index's schema hash
+        BAD // replica is broken. This is the final status of a replica, and can not be set back to other status
     }
     
     @SerializedName(value = "id")
