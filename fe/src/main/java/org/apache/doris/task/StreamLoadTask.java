@@ -144,7 +144,7 @@ public class StreamLoadTask {
         if (request.isSetPartitions()) {
             String[] partNames = request.getPartitions().trim().split("\\s*,\\s*");
             if (request.isSetIsTempPartition()) {
-                partitions = new PartitionNames(request.getIsTempPartition(), Lists.newArrayList(partNames));
+                partitions = new PartitionNames(request.isIsTempPartition(), Lists.newArrayList(partNames));
             } else {
                 partitions = new PartitionNames(false, Lists.newArrayList(partNames));
             }

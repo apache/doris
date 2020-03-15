@@ -98,7 +98,7 @@ public class DataDescriptionTest {
                                                   Lists.newArrayList("abc.txt"),
                                                   null, null, null, false, null);
         desc.analyze("testDb");
-        Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2)", desc.toString());
+        Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2)", desc.toString());
         
         // alignment_timestamp func
         List<Expr> params = Lists.newArrayList();
