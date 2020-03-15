@@ -613,6 +613,7 @@ public class DataDescription {
         }
         sb.append(" INTO TABLE ").append(tableName);
         if (partitionNames != null) {
+            sb.append(" ");
             sb.append(partitionNames.toSql());
         }
         if (columnSeparator != null) {

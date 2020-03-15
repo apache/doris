@@ -117,8 +117,7 @@ public class MetadataViewerTest {
     @Test
     public void testGetTabletDistribution()
             throws IllegalAccessException, IllegalArgumentException, InvocationTargetException {
-        PartitionNames partitionNames = new PartitionNames(false, Lists.newArrayList());
-        Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, partitionNames };
+        Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, null };
         List<List<String>> result = (List<List<String>>) getTabletDistributionMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
         System.out.println(result);

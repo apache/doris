@@ -111,7 +111,7 @@ public class DataDescriptionTest {
                                                   Lists.newArrayList("k2", "k3"), null, null, false, Lists
                                                           .newArrayList((Expr) predicate));
         desc.analyze("testDb");
-        String sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)" 
+        String sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = alignment_timestamp('day', `k2`))";
         Assert.assertEquals(sql, desc.toString());
 
@@ -126,7 +126,7 @@ public class DataDescriptionTest {
                                                   Lists.newArrayList("k2", "k3"), null, null,
                                                   false, Lists.newArrayList((Expr) predicate));
         desc.analyze("testDb");
-        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)"
+        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('-', '10'))";
         Assert.assertEquals(sql, desc.toString());
 
@@ -141,7 +141,7 @@ public class DataDescriptionTest {
                                                   Lists.newArrayList("k2", "k3"), null, null, false, Lists
                                                           .newArrayList((Expr) predicate));
         desc.analyze("testDb");
-        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)"
+        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('', NULL))";
         Assert.assertEquals(sql, desc.toString());
     }

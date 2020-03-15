@@ -88,7 +88,7 @@ public class PartitionNames implements ParseNode, Writable {
             sb.append("TEMPORARY ");
         }
         sb.append("PARTITIONS (");
-        sb.append(Joiner.on(",").join(partitionNames));
+        sb.append(Joiner.on(", ").join(partitionNames));
         sb.append(")");
         return sb.toString();
     }
