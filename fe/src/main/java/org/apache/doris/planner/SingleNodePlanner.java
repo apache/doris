@@ -1366,11 +1366,7 @@ public class SingleNodePlanner {
         analyzer.materializeSlots(scanNode.getConjuncts());
 
         scanNodes.add(scanNode);
-        List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getId());
-        if (scanNodeList == null) {
-            scanNodeList = Lists.newArrayList();
-            selectStmtToScanNodes.put(selectStmt.getId(), scanNodeList);
-        }
+        List<ScanNode> scanNodeList = selectStmtToScanNodes.computeIfAbsent(selectStmt.getId(), k -> Lists.newArrayList());
         scanNodeList.add(scanNode);
         return scanNode;
     }

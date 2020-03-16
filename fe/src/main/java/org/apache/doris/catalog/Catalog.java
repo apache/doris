@@ -1356,12 +1356,6 @@ public class Catalog {
             connection.setConnectTimeout(HTTP_TIMEOUT_SECOND * 1000);
             connection.setReadTimeout(HTTP_TIMEOUT_SECOND * 1000);
             return mapper.readValue(connection.getInputStream(), StorageInfo.class);
-        } catch (JsonParseException e) {
-            throw new IOException(e);
-        } catch (JsonMappingException e) {
-            throw new IOException(e);
-        } catch (IOException e) {
-            throw e;
         } finally {
             if (connection != null) {
                 connection.disconnect();
@@ -1828,8 +1822,7 @@ public class Catalog {
 
         long checksum = 0;
         long saveImageStartTime = System.currentTimeMillis();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(curFile));
-        try {
+        try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(curFile))) {
             checksum = saveHeader(dos, replayedJournalId, checksum);
             checksum = saveMasterInfo(dos, checksum);
             checksum = saveFrontends(dos, checksum);
@@ -1850,8 +1843,6 @@ public class Catalog {
             checksum = saveLoadJobsV2(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             dos.writeLong(checksum);
-        } finally {
-            dos.close();
         }
 
         long saveImageEndTime = System.currentTimeMillis();
@@ -2199,7 +2190,7 @@ public class Catalog {
             // but service may be continued when there is no log being replayed.
             LOG.warn("meta out of date. current time: {}, synchronized time: {}, has log: {}, fe type: {}",
                     currentTimeMs, synchronizedTimeMs, hasLog, feType);
-            if (hasLog || (!hasLog && feType == FrontendNodeType.UNKNOWN)) {
+            if (hasLog || feType == FrontendNodeType.UNKNOWN) {
                 // 1. if we read log from BDB, which means master is still alive.
                 // So we need to set meta out of date.
                 // 2. if we didn't read any log from BDB and feType is UNKNOWN,
@@ -4808,8 +4799,7 @@ public class Catalog {
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties)
             throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
-        for (int i = 0; i < columns.size(); i++) {
-            Column column = columns.get(i);
+        for (Column column : columns) {
             if (column.isKey()) {
                 indexColumns.add(column);
             }

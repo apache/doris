@@ -185,7 +185,6 @@ public class BDBEnvironment {
                 // list as the argument to config.setLogProviders(), if the
                 // default selection of providers is not suitable.
                 restore.execute(insufficientLogEx, config);
-                continue;
             } catch (DatabaseException e) {
                 if (i < RETRY_TIME - 1) {
                     try {
@@ -193,7 +192,6 @@ public class BDBEnvironment {
                     } catch (InterruptedException e1) {
                         e1.printStackTrace();
                     }
-                    continue;
                 } else {
                     LOG.error("error to open replicated environment. will exit.", e);
                     System.exit(-1);
@@ -333,7 +331,6 @@ public class BDBEnvironment {
                 } catch (InterruptedException e1) {
                     e1.printStackTrace();
                 }
-                continue;
             } catch (DatabaseException e) {
                 LOG.warn("catch an exception when calling getDatabaseNames", e);
                 return null;
