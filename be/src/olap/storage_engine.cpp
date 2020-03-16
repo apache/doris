@@ -124,7 +124,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
-    clear();
+    _clear();
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -425,7 +425,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
     return !tablet_info_vec.empty();
 }
 
-OLAPStatus StorageEngine::clear() {
+void StorageEngine::_clear() {
     // 删除lru中所有内容,其实进程退出这么做本身意义不大,但对单测和更容易发现问题还是有很大意义的
     delete FileHandler::get_fd_cache();
     FileHandler::set_fd_cache(nullptr);
@@ -433,12 +433,13 @@ OLAPStatus StorageEngine::clear() {
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {
+        store_pair.second->stop_bg_worker();
         delete store_pair.second;
         store_pair.second = nullptr;
     }
     _store_map.clear();
 
-    return OLAP_SUCCESS;
+    _stop_bg_worker = true;
 }
 
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) {
@@ -928,71 +929,6 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
     }
     _gc_mutex.unlock();
     return false;
-}
-
-void* StorageEngine::_path_gc_thread_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
-    LOG(INFO) << "try to start path gc thread!";
-    uint32_t interval = config::path_gc_check_interval_second;
-    if (interval <= 0) {
-        LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
-            << "will be forced set to half hour";
-        interval = 1800; // 0.5 hour
-    }
-
-    while (true) {
-        LOG(INFO) << "try to perform path gc!";
-        // perform path gc by rowset id
-        ((DataDir*)arg)->perform_path_gc_by_rowsetid();
-        usleep(interval * 1000000);
-    }
-
-    return nullptr;
-}
-
-void* StorageEngine::_path_scan_thread_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
-    LOG(INFO) << "try to start path scan thread!";
-    uint32_t interval = config::path_scan_interval_second;
-    if (interval <= 0) {
-        LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
-            << "will be forced set to one day";
-        interval = 24 * 3600; // one day
-    }
-
-    while (true) {
-        LOG(INFO) << "try to perform path scan!";
-        ((DataDir*)arg)->perform_path_scan();
-        usleep(interval * 1000000);
-    }
-
-    return nullptr;
-}
-
-void* StorageEngine::_tablet_checkpoint_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-    LOG(INFO) << "try to start tablet meta checkpoint thread!";
-    while (true) {
-        LOG(INFO) << "begin to do tablet meta checkpoint:" << ((DataDir*)arg)->path();
-        int64_t start_time = UnixMillis();
-        _tablet_manager->do_tablet_meta_checkpoint((DataDir*)arg);
-        int64_t used_time = (UnixMillis() - start_time) / 1000;
-        if (used_time < config::tablet_meta_checkpoint_min_interval_secs) {
-            sleep(config::tablet_meta_checkpoint_min_interval_secs - used_time);
-        } else {
-            sleep(1);
-        }
-    }
-
-    return nullptr;
 }
 
 }  // namespace doris
