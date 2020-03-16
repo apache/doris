@@ -326,14 +326,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     }
     if (!http_req->header(HTTP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_PARTITIONS));
-        request.__set_isTemppartition(false);
+        request.__set_isTempPartition(false);
         if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
             return Status::InvalidArgument("Can not specify both partitions and temporary partitions");
         }
     } 
     if (!http_req->header(HTTP_TEMP_PARTITIONS).empty()) {
         request.__set_partitions(http_req->header(HTTP_TEMP_PARTITIONS));
-        request.__set_isTemppartition(true);
+        request.__set_isTempPartition(true);
         if (!http_req->header(HTTP_PARTITIONS).empty()) {
             return Status::InvalidArgument("Can not specify both partitions and temporary partitions");
         }

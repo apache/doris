@@ -122,7 +122,7 @@ public class BrokerFileGroup implements Writable {
             for (String pName : partitionNames.getPartitionNames()) {
                 Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
                 if (partition == null) {
-                    throw new DdlException("Unknown partition" + pName + " in table" + table.getName());
+                    throw new DdlException("Unknown partition '" + pName + "' in table '" + table.getName() + "'");
                 }
                 partitionIds.add(partition.getId());
             }

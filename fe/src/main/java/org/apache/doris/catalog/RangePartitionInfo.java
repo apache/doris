@@ -188,9 +188,9 @@ public class RangePartitionInfo extends PartitionInfo {
 
     public Map<Long, Range<PartitionKey>> getIdToRange(boolean isTemp) {
         if (isTemp) {
-            return idToRange;
-        } else {
             return idToTempRange;
+        } else {
+            return idToRange;
         }
     }
 
