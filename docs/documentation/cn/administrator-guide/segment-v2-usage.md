@@ -99,7 +99,7 @@ Doris 0.12版本中实现了segment v2（新的存储格式），引入词典压
 
 	使用这个方式，只需要执行上述命令，之后等待10s左右，FE会将配置同步到BE中。不需要在每个BE中进行配置。推荐使用这个配置。不过该方式目前没有简单的方式来验证BE上的default rowset type是否已经变更，一种办法是建一个表，然后查看对应的表的元数据。但是这样子比较麻烦，后续看需要可以在某个地方实现状态查看。
 
-2. 修改BE中的配置文件中的配置default_rowset_type和compaction_rowset_type为BETA。这种方式需要在每个BE中添加对应的配置。
+2. 修改BE中的配置文件中的配置default_rowset_type为BETA。这种方式需要在每个BE中添加对应的配置。
 
 
 ### 转化segment v1格式为v2
