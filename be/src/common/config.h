@@ -499,7 +499,6 @@ namespace config {
     // config for default rowset type
     // Valid configs: ALPHA, BETA
     CONF_String(default_rowset_type, "ALPHA");
-    CONF_String(compaction_rowset_type, "ALPHA");
 
     // brpc config, 200M
     CONF_Int64(brpc_max_body_size, "209715200")
