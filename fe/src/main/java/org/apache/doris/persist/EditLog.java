@@ -697,6 +697,11 @@ public class EditLog {
                     catalog.replayConvertDistributionType(tableInfo);
                     break;
                 }
+                case OperationType.OP_SET_REPLICA_STATUS: {
+                    SetReplicaStatusOperationLog log = (SetReplicaStatusOperationLog) journal.getData();
+                    catalog.replaySetReplicaStatus(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1197,5 +1202,9 @@ public class EditLog {
 
     public void logModifyDitrubutionType(TableInfo tableInfo) {
         logEdit(OperationType.OP_MODIFY_DISTRIBUTION_TYPE, tableInfo);
+    }
+
+    public void logSetReplicaStatus(SetReplicaStatusOperationLog log) {
+        logEdit(OperationType.OP_SET_REPLICA_STATUS, log);
     }
 }
