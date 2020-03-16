@@ -76,5 +76,4 @@ create/drop index 语法
 
     ```
     default_rowset_type=BETA
-    compaction_rowset_type=BETA
     ``` 

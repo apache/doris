@@ -73,5 +73,4 @@ Please refer to [Scheam Change](alter-table-schema-change_EN.html)
 * The bitmap index takes effect only in segmentV2. You need to add the following configuration to the configuration file of be
     ```
     default_rowset_type=BETA
-    compaction_rowset_type=BETA
     ``` 
