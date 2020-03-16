@@ -23,13 +23,14 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/row.h" // ContiguousRow
 #include "olap/row_cursor.h" // RowCursor
+#include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -180,14 +181,13 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer() {
     // and tablets with the same type should share one BlockManager object;
     fs::BlockManagerOptions bm_opts;
     bm_opts.read_only = false;
-    fs::BlockManager* block_mgr = fs::fs_util::file_block_mgr(Env::Default(), bm_opts);
+    // fs::BlockManager* block_mgr = fs::fs_util::file_block_mgr(Env::Default(), bm_opts);
+    fs::BlockManager* block_mgr = ExecEnv::GetInstance()->storage_engine()->file_block_manager();
 
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions opts({path});
     DCHECK(block_mgr != nullptr);
     Status st = block_mgr->create_block(opts, &wblock);
-    // FIXME(cmy): this is just a temp implementation, will be refactor later.
-    delete block_mgr;
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable block. path=" << path;
         return OLAP_ERR_INIT_FAILED;

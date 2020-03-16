@@ -52,6 +52,7 @@ namespace doris {
 
 class DataDir;
 class EngineTask;
+class FileBlockManager;
 class MemTableFlushExecutor;
 class Tablet;
 
@@ -163,6 +164,7 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
+    FileBlockManager* file_block_manager() { return _file_block_manager.get(); }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
@@ -332,6 +334,8 @@ private:
     std::unique_ptr<RowsetIdGenerator> _rowset_id_generator;
 
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
+
+    std::unique_lock<FileBlockManager> _file_block_manager;
 
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data

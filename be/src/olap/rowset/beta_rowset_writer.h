@@ -80,6 +80,8 @@ private:
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
     // TODO(lingbin): it is better to wrapper in a Batch?
     std::vector<std::unique_ptr<fs::WritableBlock>> _wblocks;
+    // TODO(cmy): 
+    std::unique_ptr<FileBlockManager> _file_block_manager;
 
     // counters and statistics maintained during data write
     int64_t _num_rows_written;
