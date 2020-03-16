@@ -30,6 +30,7 @@ import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminSetConfigStmt;
+import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -88,6 +89,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.clone.ColocateTableBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -171,6 +173,7 @@ import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
@@ -6521,6 +6524,52 @@ public class Catalog {
                 break;
             default:
                 break;
+        }
+    }
+
+    // Set specified replica's status. If replica does not exist, just ignore it.
+    public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) {
+        long tabletId = stmt.getTabletId();
+        long backendId = stmt.getBackendId();
+        ReplicaStatus status = stmt.getStatus();
+        setReplicaStatusInternal(tabletId, backendId, status, false);
+    }
+
+    public void replaySetReplicaStatus(SetReplicaStatusOperationLog log) {
+        setReplicaStatusInternal(log.getTabletId(), log.getBackendId(), log.getReplicaStatus(), true);
+    }
+
+    private void setReplicaStatusInternal(long tabletId, long backendId, ReplicaStatus status, boolean isReplay) {
+        TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
+        if (meta == null) {
+            LOG.info("tablet {} does not exist", tabletId);
+            return;
+        }
+        long dbId = meta.getDbId();
+        Database db = getDb(dbId);
+        if (db == null) {
+            LOG.info("database {} of tablet {} does not exist", dbId, tabletId);
+            return;
+        }
+        db.writeLock();
+        try {
+            Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
+            if (replica == null) {
+                LOG.info("replica of tablet {} does not exist", tabletId);
+                return;
+            }
+            if (status == ReplicaStatus.BAD || status == ReplicaStatus.OK) {
+                if (replica.setBad(status == ReplicaStatus.BAD)) {
+                    if (!isReplay) {
+                        SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(backendId, tabletId, status);
+                        getEditLog().logSetReplicaStatus(log);
+                    }
+                    LOG.info("set replica {} of tablet {} on backend {} as {}. is replay: {}",
+                            replica.getId(), tabletId, backendId, status, isReplay);
+                }
+            }
+        } finally {
+            db.writeUnlock();
         }
     }
 }
