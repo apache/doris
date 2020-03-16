@@ -33,14 +33,23 @@
 namespace doris {
 namespace segment_v2 {
 
+const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
+
 class BloomFilterIndexReaderWriterTest : public testing::Test {
    public:
-    BloomFilterIndexReaderWriterTest() { }
-    virtual ~BloomFilterIndexReaderWriterTest() {
+    virtual void SetUp() {
+        if (FileUtils::is_dir(dname)) {
+            std::set<std::string> files;
+            ASSERT_TRUE(FileUtils::list_dirs_files(dname, nullptr, &files,  Env::Default()).ok());
+            for (const auto& file : files) {
+              Status s = Env::Default()->delete_file(dname + "/" + file);
+              ASSERT_TRUE(s.ok()) << s.to_string();
+            }
+            ASSERT_TRUE(Env::Default()->delete_dir(dname).ok());
+        }
     }
 };
 
-const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
 
 template<FieldType type>
 void write_bloom_filter_index_file(const std::string& file_name, const void* values,
@@ -54,7 +63,7 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
         std::unique_ptr<fs::WritableBlock> wblock;
         fs::CreateBlockOptions opts({ fname });
         Status st = fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock);
-        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(st.ok()) << st.to_string();
 
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
         BloomFilterOptions bf_options;
