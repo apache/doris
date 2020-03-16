@@ -19,7 +19,10 @@ package org.apache.doris.planner;
 
 
 import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateDbStmtTest;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.analysis.DropDbStmt;
+import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Type;
@@ -27,6 +30,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import org.codehaus.jackson.map.ser.StdSerializers;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -339,4 +343,32 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains(Type.OnlyMetricTypeErrorMsg));
     }
+
+    @Test
+    public void testCreateDbQueryPlanWithSchemaSyntax() throws Exception {
+        String createSchemaSql = "create schema if not exists test";
+        String createDbSql = "create database if not exists test";
+        CreateDbStmt createSchemaStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createSchemaSql, connectContext);
+        CreateDbStmt createDbStmt =  (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbSql, connectContext);
+        Assert.assertEquals(createDbStmt.toSql(), createSchemaStmt.toSql());
+    }
+
+    @Test
+    public void testDropDbQueryPlanWithSchemaSyntax() throws Exception {
+        String dropSchemaSql = "drop schema if exists test";
+        String dropDbSql = "drop database if exists test";
+        DropDbStmt dropSchemaStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropSchemaSql, connectContext);
+        DropDbStmt dropDbStmt = (DropDbStmt) UtFrameUtils.parseAndAnalyzeStmt(dropDbSql, connectContext);
+        Assert.assertEquals(dropDbStmt.toSql(), dropSchemaStmt.toSql());
+    }
+
+    @Test
+    public void testShowCreateDbQueryPlanWithSchemaSyntax() throws Exception {
+        String showCreateSchemaSql = "show create schema test";
+        String showCreateDbSql = "show create database test";
+        ShowCreateDbStmt showCreateSchemaStmt = (ShowCreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(showCreateSchemaSql, connectContext);
+        ShowCreateDbStmt showCreateDbStmt = (ShowCreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(showCreateDbSql, connectContext);
+        Assert.assertEquals(showCreateDbStmt.toSql(), showCreateSchemaStmt.toSql());
+    }
+
 }
