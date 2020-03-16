@@ -53,6 +53,7 @@ class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
+class FileBlockManager;
 
 class BackendServiceClient;
 class FrontendServiceClient;
