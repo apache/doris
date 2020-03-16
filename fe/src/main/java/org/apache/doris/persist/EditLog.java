@@ -725,6 +725,11 @@ public class EditLog {
                     catalog.replayReplaceTempPartition(replaceTempPartitionLog);
                     break;
                 }
+                case OperationType.OP_SET_REPLICA_STATUS: {
+                    SetReplicaStatusOperationLog log = (SetReplicaStatusOperationLog) journal.getData();
+                    catalog.replaySetReplicaStatus(log);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1249,5 +1254,9 @@ public class EditLog {
 
     public void logReplaceTempPartition(ReplacePartitionOperationLog info) {
         logEdit(OperationType.OP_REPLACE_TEMP_PARTITION, info);
+    }
+
+    public void logSetReplicaStatus(SetReplicaStatusOperationLog log) {
+        logEdit(OperationType.OP_SET_REPLICA_STATUS, log);
     }
 }

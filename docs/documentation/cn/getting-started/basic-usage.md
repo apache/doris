@@ -260,17 +260,17 @@ curl --location-trusted -u test:test -H "label:table1_20170707" -H "column_separ
 示例2: 以 "table2_20170707" 为 Label，使用本地文件 table2_data 导入 table2 表。
 
 ```
-curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:\t" -T table2_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
+curl --location-trusted -u test:test -H "label:table2_20170707" -H "column_separator:|" -T table1_data http://127.0.0.1:8030/api/example_db/table2/_stream_load
 ```
 
-本地文件 `table2_data` 以 `\t` 作为数据之间的分隔，具体内容如下：
+本地文件 `table2_data` 以 `|` 作为数据之间的分隔，具体内容如下：
 
 ```
-2017-07-03  1   1   jim   2
-2017-07-05  2   1   grace 2
-2017-07-12  3   2   tom   2
-2017-07-15  4   3   bush  3
-2017-07-12  5   3   helen 3
+2017-07-03|1|1|jim|2
+2017-07-05|2|1|grace|2
+2017-07-12|3|2|tom|2
+2017-07-15|4|3|bush|3
+2017-07-12|5|3|helen|3
 ```
 
 > 注意事项：
