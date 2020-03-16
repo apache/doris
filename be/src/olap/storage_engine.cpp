@@ -50,7 +50,7 @@
 #include "olap/rowset/column_data_writer.h"
 #include "olap/olap_snapshot_converter.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
-#include "olap/fs/file_block_manager.h"
+#include "olap/fs/fs_util.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -116,7 +116,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _txn_manager(new TxnManager()),
         _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
         _memtable_flush_executor(nullptr),
-        _file_block_manager(nullptr),
+        _block_manager(nullptr),
         _default_rowset_type(ALPHA_ROWSET),
         _compaction_rowset_type(ALPHA_ROWSET),
         _heartbeat_flags(nullptr) {
@@ -178,7 +178,7 @@ OLAPStatus StorageEngine::_open() {
 
     fs::BlockManagerOptions bm_opts;
     bm_opts.read_only = false;
-    _file_block_manager.reset(new FileBlockManager(Env::Default(), std::move(opts));
+    _block_manager.reset(fs::fs_util::file_block_mgr(Env::Default(), bm_opts));
 
     _parse_default_rowset_type();
 
