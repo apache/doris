@@ -149,7 +149,7 @@ OLAPStatus TxnManager::prepare_txn(
     _txn_tablet_map[key][tablet_info] = load_info;
     _insert_txn_partition_map_unlocked(transaction_id, partition_id);
 
-    LOG(INFO) << "add transaction to engine successfully."
+    VLOG(3) << "add transaction to engine successfully."
             << "partition_id: " << key.first
             << ", transaction_id: " << key.second
             << ", tablet: " << tablet_info.to_string();
