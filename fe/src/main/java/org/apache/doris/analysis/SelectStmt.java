@@ -340,7 +340,8 @@ public class SelectStmt extends QueryStmt {
                 // Analyze the resultExpr before generating a label to ensure enforcement
                 // of expr child and depth limits (toColumn() label may call toSql()).
                 item.getExpr().analyze(analyzer);
-                if (item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
+                if (!(item.getExpr() instanceof CaseExpr) &&
+                        item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                     throw new AnalysisException("Subquery is not supported in the select list.");
                 }
                 Expr expr = rewriteCountDistinctForBitmapOrHLL(item.getExpr(), analyzer);
@@ -728,39 +729,6 @@ public class SelectStmt extends QueryStmt {
     }
 
     /**
-     * This select block might contain inline views.
-     * Substitute all exprs (result of the analysis) of this select block referencing any
-     * of our inlined views, including everything registered with the analyzer.
-     * Expressions created during parsing (such as whereClause) are not touched.
-     *
-     * @throws AnalysisException
-     */
-    public void seondSubstituteInlineViewExprs(ExprSubstitutionMap sMap) throws AnalysisException {
-        // we might not have anything to substitute
-        if (sMap.size() == 0) {
-            return;
-        }
-
-        // select
-        // Expr.substituteList(resultExprs, sMap);
-
-        // aggregation (group by and aggregation expr)
-        if (aggInfo != null) {
-            aggInfo.substitute(sMap, analyzer);
-        }
-
-        // having
-        if (havingPred != null) {
-            havingPred.substitute(sMap);
-        }
-
-        // ordering
-        //if (sortInfo != null) {
-        // sortInfo.substitute(sMap);
-        //}
-    }
-
-    /**
      * Expand "*" select list item.
      */
     private void expandStar(Analyzer analyzer) throws AnalysisException {
@@ -1032,11 +1000,6 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    private void createGroupingInfo(Analyzer analyzer) throws AnalysisException {
-        groupingInfo = new GroupingInfo(analyzer, groupByClause.getGroupingType());
-
-    }
-
     /**
      * Build smap count_distinct->multi_count_distinct sum_distinct->multi_count_distinct
      * assumes that select list and having clause have been analyzed.
@@ -1213,6 +1176,7 @@ public class SelectStmt extends QueryStmt {
             }
         }
     }
+
 
     @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
