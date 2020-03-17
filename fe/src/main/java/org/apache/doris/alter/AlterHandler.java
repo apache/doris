@@ -130,7 +130,7 @@ public abstract class AlterHandler extends MasterDaemon {
             if ((curTime - historyJob.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second) {
                 iter.remove();
                 LOG.info("remove history {} job[{}]. finish at {}", historyJob.getType(),
-                        historyJob.getTableId(), TimeUtils.longToTimeString(historyJob.getCreateTimeMs()));
+                        historyJob.getTableId(), TimeUtils.longToTimeString(historyJob.getFinishedTime()));
             }
         }
     }
