@@ -113,6 +113,14 @@ public:
         insert_impl(row);
     }
 
+    // Insert row into the hash table. if the row is alread exist will not insert
+    void IR_ALWAYS_INLINE insert_unique(TupleRow* row) {
+        if (find(row, false) == end()) {
+            insert(row);
+        }
+    }
+
+
     // Returns the start iterator for all rows that match 'probe_row'.  'probe_row' is
     // evaluated with _probe_expr_ctxs.  The iterator can be iterated until HashTable::end()
     // to find all the matching rows.
@@ -122,7 +130,7 @@ public:
     // Advancing the returned iterator will go to the next matching row.  The matching
     // rows are evaluated lazily (i.e. computed as the Iterator is moved).
     // Returns HashTable::end() if there is no match.
-    Iterator IR_ALWAYS_INLINE find(TupleRow* probe_row);
+    Iterator IR_ALWAYS_INLINE find(TupleRow* probe_row, bool probe = true);
 
     // Returns number of elements in the hash table
     int64_t size() {
@@ -195,6 +203,11 @@ public:
                 return NULL;
             }
             return _table->get_node(_node_idx)->data();
+        }
+
+        // Returns Hash
+        uint32_t get_hash() {
+            return _table->get_node(_node_idx)->_hash;
         }
 
         // Returns if the iterator is at the end
