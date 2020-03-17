@@ -78,14 +78,14 @@ Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
 
 void ThriftClientImpl::close() {
     try {
-        if (_transport.get() != NULL && _transport->isOpen()) _transport->close();
+        if (_transport.get() != nullptr && _transport->isOpen()) _transport->close();
     } catch (const apache::thrift::transport::TTransportException& e) {
         LOG(INFO) << "Error closing connection to: " << ipaddress() << ":" << port()
                   << ", ignoring (" << e.what() << ")";
         // Forcibly close the socket (since the transport may have failed to get that far
         // during close())
         try {
-            if (_socket.get() != NULL) _socket->close();
+            if (_socket.get() != nullptr) _socket->close();
         } catch (const apache::thrift::transport::TTransportException& e) {
             LOG(INFO) << "Error closing socket to: " << ipaddress() << ":" << port()
                       << ", ignoring (" << e.what() << ")";
