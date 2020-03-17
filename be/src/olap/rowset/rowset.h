@@ -187,10 +187,10 @@ public:
             LOG(WARNING) << "state transition failed from:" << _rowset_state_machine.rowset_state();
             return;
         }
-        LOG(INFO) << "rowset is close. rowset state from:" << old_state
-                  << " to " << _rowset_state_machine.rowset_state()
-                  << ", version:" << start_version() << "-" << end_version()
-                  << ", tabletid:" << _rowset_meta->tablet_id();
+        VLOG(3) << "rowset is close. rowset state from:" << old_state
+            << " to " << _rowset_state_machine.rowset_state()
+            << ", version:" << start_version() << "-" << end_version()
+            << ", tabletid:" << _rowset_meta->tablet_id();
     }
 
     // hard link all files in this rowset to `dir` to form a new rowset with id `new_rowset_id`.
@@ -244,9 +244,9 @@ public:
                 }
             }
             if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
-                LOG(INFO) << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
-                          << ", version:" << start_version() << "-" << end_version()
-                          << ", tabletid:" << _rowset_meta->tablet_id();
+                VLOG(3) << "close the rowset. rowset state from ROWSET_UNLOADING to ROWSET_UNLOADED"
+                    << ", version:" << start_version() << "-" << end_version()
+                    << ", tabletid:" << _rowset_meta->tablet_id();
             }
         }
     }
