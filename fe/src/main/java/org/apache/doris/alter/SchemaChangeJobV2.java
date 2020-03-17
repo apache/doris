@@ -159,9 +159,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.storageFormat = storageFormat;
     }
 
-    /**
-     * clear some data structure in this job to save memory
-     */
+    @Override
     public void clear() {
         partitionIndexMap = null;
         indexIdMap = null;
