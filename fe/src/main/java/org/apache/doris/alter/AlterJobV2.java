@@ -169,10 +169,7 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    /**
-     * clear some date structure in this job to save memory
-     */
-    public abstract void clear();
+
 
     /**
     * should be call before executing the job.

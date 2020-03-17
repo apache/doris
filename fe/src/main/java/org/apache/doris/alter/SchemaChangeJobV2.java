@@ -159,7 +159,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.storageFormat = storageFormat;
     }
 
-    @Override
+    /**
+     * clear some data structure in this job to save memory
+     */
     public void clear() {
         partitionIndexMap = null;
         indexIdMap = null;
@@ -886,6 +888,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
