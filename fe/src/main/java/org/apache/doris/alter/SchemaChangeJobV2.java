@@ -159,6 +159,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.storageFormat = storageFormat;
     }
 
+    @Override
+    public void clear() {
+        partitionIndexMap = null;
+        indexIdMap = null;
+        indexIdToName = null;
+        indexSchemaMap = null;
+        indexSchemaVersionAndHashMap = null;
+        indexShortKeyMap = null;
+    }
+
     /*
      * runPendingJob():
      * 1. Create all replicas of all shadow indexes and wait them finished.

@@ -101,6 +101,7 @@ public class MaterializedViewHandler extends AlterHandler {
     // table id -> set of running job ids
     private Map<Long, Set<Long>> tableRunningJobMap = new ConcurrentHashMap<>();
 
+    @Override
     public void addAlterJobV2(AlterJobV2 alterJob) {
         super.addAlterJobV2(alterJob);
         addAlterJobV2ToTableNotFinalStateJobMap(alterJob);
@@ -879,10 +880,8 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     private void runAlterJobV2() {
-        Iterator<Map.Entry<Long, AlterJobV2>> iterator = getAlterJobsCopy().entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<Long, AlterJobV2> entry = iterator.next();
-            RollupJobV2 alterJob = (RollupJobV2)entry.getValue();
+        for (Map.Entry<Long, AlterJobV2> entry : getAlterJobsCopy().entrySet()) {
+            RollupJobV2 alterJob = (RollupJobV2) entry.getValue();
             // run alter job
             runAlterJobWithConcurrencyLimit(alterJob);
             // the following check should be right after job's running, so that the table's state
@@ -894,7 +893,6 @@ public class MaterializedViewHandler extends AlterHandler {
 
             if (alterJob.isDone()) {
                 onJobDone(alterJob);
-                continue;
             }
         }
     }

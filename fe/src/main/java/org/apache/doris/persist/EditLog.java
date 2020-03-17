@@ -691,10 +691,10 @@ public class EditLog {
                     AlterJobV2 alterJob = (AlterJobV2) journal.getData();
                     switch (alterJob.getType()) {
                         case ROLLUP:
-                            catalog.getRollupHandler().replayAlterJobV2((RollupJobV2) alterJob);
+                            catalog.getRollupHandler().replayAlterJobV2(alterJob);
                             break;
                         case SCHEMA_CHANGE:
-                            catalog.getSchemaChangeHandler().replayAlterJobV2((SchemaChangeJobV2) alterJob);
+                            catalog.getSchemaChangeHandler().replayAlterJobV2(alterJob);
                             break;
                         default:
                             break;

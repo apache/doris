@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -115,6 +116,10 @@ public abstract class AlterJobV2 implements Writable {
         return System.currentTimeMillis() - createTimeMs > timeoutMs;
     }
 
+    public boolean isExpire() {
+       return (System.currentTimeMillis() - finishedTimeMs) / 1000 > Config.history_job_keep_max_second;
+    }
+
     public boolean isDone() {
         return jobState.isFinalState();
     }
@@ -164,8 +169,15 @@ public abstract class AlterJobV2 implements Writable {
         }
     }
 
-    // should be call before executing the job.
-    // return false if table is not stable.
+    /**
+     * clear some date structure in this job to save memory
+     */
+    public abstract void clear();
+
+    /**
+    * should be call before executing the job.
+    * return false if table is not stable.
+    */
     protected boolean checkTableStable(Database db) throws AlterCancelException {
         OlapTable tbl = null;
         boolean isStable = false;
