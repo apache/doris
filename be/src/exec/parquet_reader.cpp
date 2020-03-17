@@ -45,8 +45,7 @@ ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, int32_t num_of_col
 ParquetReaderWrap::~ParquetReaderWrap() {
     close();
 }
-
-Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
+Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs, const std::string& timezone) {
     try {
         // new file reader for parquet file
         auto st = parquet::arrow::FileReader::Make(arrow::default_memory_pool(),
@@ -71,6 +70,8 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
             // Get the Column Reader for the boolean column
             _map_column.emplace(schemaDescriptor->Column(i)->name(), i);
         }
+        
+        _timezone = timezone;
 
         if (_current_line_of_group == 0) {// the first read
             RETURN_IF_ERROR(column_indices(tuple_slot_descs));
@@ -188,30 +189,38 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
 Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t *buf, int32_t *wbytes) {
     const auto type = std::dynamic_pointer_cast<arrow::TimestampType>(ts_array->type());
     // Doris only supports seconds
-    time_t timestamp = 0;
+    int64_t timestamp = 0;
     switch (type->unit()) {
         case arrow::TimeUnit::type::NANO: {// INT96
-            timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_batch) / 1000000000); // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000000000L; // convert to Second
             break;
         }
         case arrow::TimeUnit::type::SECOND: {
-            timestamp = (time_t)ts_array->Value(_current_line_of_batch);
+            timestamp = ts_array->Value(_current_line_of_batch);
             break;
         }
         case arrow::TimeUnit::type::MILLI: {
-            timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_batch) / 1000); // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000; // convert to Second
             break;
         }
         case arrow::TimeUnit::type::MICRO: {
-            timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_batch) / 1000000); // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000000; // convert to Second
             break;
         }
         default:
             return Status::InternalError("Invalid Time Type.");
     }
-    struct tm local;
-    localtime_r(&timestamp, &local);
-    *wbytes = (uint32_t)strftime((char*)buf, 64, "%Y-%m-%d %H:%M:%S", &local);
+
+    DateTimeValue dtv;
+    if (!dtv.from_unixtime(timestamp, _timezone)) {
+        std::stringstream str_error;
+        str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
+        LOG(WARNING) << str_error.str();
+        return Status::InternalError(str_error.str());                                                                                                                                                                                     
+    }
+    char* buf_end = (char*) buf;
+    buf_end= dtv.to_string((char*) buf_end);
+    *wbytes = buf_end - (char*) buf -1;
     return Status::OK();
 }
 
