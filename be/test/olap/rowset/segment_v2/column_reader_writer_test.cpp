@@ -326,7 +326,7 @@ void test_list_nullable_data(collection* src_data, uint8_t* src_is_null, int num
                 for (int j = 0; j < rows_read; ++j) {
                     ASSERT_EQ(BitmapTest(src_is_null, idx), col.is_null(j));
                     if (!col.is_null(j)) {
-                        type_info->equal(&src[idx], col.cell_ptr(j));
+                        ASSERT_TRUE(type_info->equal(&src[idx], col.cell_ptr(j)));
                     }
                     ++idx;
                 }
@@ -376,7 +376,6 @@ TEST_F(ColumnReaderWriterTest, test_list_type) {
     bool* item_is_null = new bool[num_item];
     uint8_t* item_val = new uint8_t[num_item];
     for (int i = 0; i < num_item; ++i) {
-        // 0[0 1 2]null 1[3 4 5] 2[6 7 8] 3[9 10 11] 4[12 13 14]null 5[15 16 17]
         item_val[i] = i;
         item_is_null[i] = (i % 4) == 0;
         if (i % 3 == 0) {

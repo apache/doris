@@ -84,11 +84,11 @@ Status ScalarColumnVectorBatch::resize(size_t new_cap) {
     return Status::OK();
 }
 
-uint8_t* ScalarColumnVectorBatch::data() const { return _data; };
+uint8_t* ScalarColumnVectorBatch::data() const { return _data; }
 
-const uint8_t* ScalarColumnVectorBatch::cell_ptr(size_t idx) const { return _data + idx * type_info()->size(); };
+const uint8_t* ScalarColumnVectorBatch::cell_ptr(size_t idx) const { return _data + idx * type_info()->size(); }
 
-uint8_t* ScalarColumnVectorBatch::mutable_cell_ptr(size_t idx) const { return _data + idx * type_info()->size(); };
+uint8_t* ScalarColumnVectorBatch::mutable_cell_ptr(size_t idx) const { return _data + idx * type_info()->size(); }
 
 
 ListColumnVectorBatch::ListColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity)
