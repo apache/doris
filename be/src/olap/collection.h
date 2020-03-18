@@ -38,11 +38,11 @@ struct Collection {
     Collection(void* data, size_t length, bool* null_signs)
     : length(length), null_signs(null_signs), data(data) {}
 
-    bool operator==(const Collection& y) const ;
-    bool operator!=(const Collection& value) const ;
-    bool operator<(const Collection& value) const ;
-    bool operator<=(const Collection& value) const ;
-    bool operator>(const Collection& value) const ;
+    bool operator==(const Collection& y) const;
+    bool operator!=(const Collection& value) const;
+    bool operator<(const Collection& value) const;
+    bool operator<=(const Collection& value) const;
+    bool operator>(const Collection& value) const;
     bool operator>=(const Collection& value) const;
     int32_t cmp(const Collection& other) const;
 };
