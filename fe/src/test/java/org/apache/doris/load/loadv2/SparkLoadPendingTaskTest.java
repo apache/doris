@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.collect.Sets;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.EtlClusterDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
@@ -28,6 +29,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -57,6 +59,7 @@ import org.junit.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class SparkLoadPendingTaskTest {
 
@@ -104,8 +107,6 @@ public class SparkLoadPendingTaskTest {
                 result = table;
                 table.getPartitions();
                 result = partitions;
-                table.getBaseSchema();
-                result = columns;
                 table.getIndexIdToSchema();
                 result = indexIdToSchema;
                 table.getDefaultDistributionInfo();
@@ -116,6 +117,10 @@ public class SparkLoadPendingTaskTest {
                 result = partitionInfo;
                 table.getPartition(partitionId);
                 result = partition;
+                table.getKeysTypeByIndexId(indexId);
+                result = KeysType.DUP_KEYS;
+                table.getBaseIndexId();
+                result = indexId;
             }
         };
 
@@ -243,8 +248,6 @@ public class SparkLoadPendingTaskTest {
                 result = table;
                 table.getPartitions();
                 result = partitions;
-                table.getBaseSchema();
-                result = columns;
                 table.getIndexIdToSchema();
                 result = indexIdToSchema;
                 table.getDefaultDistributionInfo();
@@ -259,6 +262,12 @@ public class SparkLoadPendingTaskTest {
                 result = partition1;
                 table.getPartition(partition2Id);
                 result = partition2;
+                table.getKeysTypeByIndexId(index1Id);
+                result = KeysType.AGG_KEYS;
+                table.getKeysTypeByIndexId(index2Id);
+                result = KeysType.AGG_KEYS;
+                table.getBaseIndexId();
+                result = index1Id;
             }
         };
 
@@ -274,18 +283,23 @@ public class SparkLoadPendingTaskTest {
         Assert.assertTrue(tables.containsKey(String.valueOf(tableId)));
 
         Map<String, Object> tableMap = (Map<String, Object>) tables.get(String.valueOf(tableId));
-        // check columns
-        Map<String, Object> columnMap = (Map<String, Object>) tableMap.get("columns");
-        Assert.assertEquals(3, columnMap.size());
-        for (Column column : columns) {
-            Assert.assertTrue(columnMap.containsKey(column.getName()));
-        }
-
         // check indexes
-        Map<String, Object> indexMap = (Map<String, Object>) tableMap.get("indexes");
-        Assert.assertEquals(2, indexMap.size());
-        Assert.assertTrue(indexMap.containsKey(String.valueOf(index1Id)));
-        Assert.assertTrue(indexMap.containsKey(String.valueOf(index2Id)));
+        List<Map<String, Object>> indexes = (List<Map<String, Object>>) tableMap.get("indexes");
+        Assert.assertEquals(2, indexes.size());
+        Set<Long> indexIds = Sets.newHashSet(index1Id, index2Id);
+        Assert.assertTrue(indexIds.contains(new Double((double)indexes.get(0).get("index_id")).longValue()));
+        Assert.assertTrue(indexIds.contains(new Double((double)indexes.get(1).get("index_id")).longValue()));
+
+        // check base index columns
+        for (Map<String, Object> indexMap : indexes) {
+            if (new Double((double) indexMap.get("index_id")).longValue() == index1Id) {
+                List<Map<String, Object>> columnMaps = (List<Map<String, Object>>) indexMap.get("columns");
+                Assert.assertEquals(3, columnMaps.size());
+                for (int i = 0; i < columns.size(); i++) {
+                    Assert.assertTrue(columns.get(i).getName().endsWith((String) columnMaps.get(i).get("column_name")));
+                }
+            }
+        }
 
         // check partitions
         Map<String, Object> partitionInfoMap = (Map<String, Object>) tableMap.get("partition_info");
@@ -293,10 +307,8 @@ public class SparkLoadPendingTaskTest {
         List<String> partitionColumns = (List<String>) partitionInfoMap.get("partition_column_refs");
         Assert.assertEquals(1, partitionColumns.size());
         Assert.assertEquals(columns.get(partitionColumnIndex).getName(), partitionColumns.get(0));
-        Map<String, Map<String, Object>> partitionMap = (Map<String, Map<String, Object>>) partitionInfoMap.get("partitions");
-        Assert.assertEquals(2, partitionMap.size());
-        Assert.assertEquals(3, (new Double((double) partitionMap.get(String.valueOf(partition1Id)).get("bucket_num")).intValue()));
-        Assert.assertEquals(4, (new Double((double) partitionMap.get(String.valueOf(partition2Id)).get("bucket_num")).intValue()));
+        List<Map<String, Object>> partitionMaps = (List<Map<String, Object>>) partitionInfoMap.get("partitions");
+        Assert.assertEquals(2, partitionMaps.size());
 
         // check file group
         List<Object> fileGroups = (List<Object>) tableMap.get("file_groups");

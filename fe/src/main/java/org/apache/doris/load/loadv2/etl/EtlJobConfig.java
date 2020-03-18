@@ -48,7 +48,7 @@ import java.util.Map;
  * 				    "is_allow_null": false,
  * 					"aggregation_type": "NONE"
  *              }],
- *              "distribution_column_refs": ["k1"],
+ *              "distribution_column_refs": ["k2"],
  * 				"schema_hash": 1294206574,
  * 			    "index_type": "DUPLICATE",
  * 			    "is_base_index": true
@@ -67,14 +67,14 @@ import java.util.Map;
  * 				    "is_allow_null": false,
  * 					"aggregation_type": "SUM"
  *              }],
- *              "distribution_column_refs": ["k1"],
+ *              "distribution_column_refs": ["k2"],
  * 				"schema_hash": 1294206575,
  * 			    "index_type": "AGGREGATE",
  * 			    "is_base_index": false
  *          }],
  * 			"partition_info": {
  * 				"partition_type": "RANGE",
- * 				"partition_column_refs": ["k2"],
+ * 				"partition_column_refs": ["k1"],
  * 				"partitions": [{
  * 				    "partition_id": 10020,
  * 					"start_keys": [-100],
@@ -83,8 +83,8 @@ import java.util.Map;
  * 					"bucket_num": 3
  *                }, {
  *                  "partition_id": 10021,
- *                  "start_keys": [-100],
- *                  "end_keys": [10],
+ *                  "start_keys": [10],
+ *                  "end_keys": [100],
  *                  "is_max_partition": false,
  *  				"bucket_num": 3
  *              }]
