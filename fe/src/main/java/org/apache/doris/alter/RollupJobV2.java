@@ -119,11 +119,7 @@ public class RollupJobV2 extends AlterJobV2 {
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
-        Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.get(partitionId);
-        if (tabletIdMap == null) {
-            tabletIdMap = Maps.newHashMap();
-            partitionIdToBaseRollupTabletIdMap.put(partitionId, tabletIdMap);
-        }
+        Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.computeIfAbsent(partitionId, k -> Maps.newHashMap());
         tabletIdMap.put(rollupTabletId, baseTabletId);
     }
 
@@ -133,6 +129,12 @@ public class RollupJobV2 extends AlterJobV2 {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    @Override
+    public void clear() {
+        partitionIdToBaseRollupTabletIdMap = null;
+        partitionIdToRollupIndex = null;
     }
 
     /*
@@ -548,6 +550,7 @@ public class RollupJobV2 extends AlterJobV2 {
         out.writeLong(watershedTxnId);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

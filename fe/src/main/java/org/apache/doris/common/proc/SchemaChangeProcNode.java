@@ -76,7 +76,7 @@ public class SchemaChangeProcNode implements ProcNodeInterface {
             switch (binaryPredicate.getOp()) {
                 case EQ:
                 case EQ_FOR_NULL:
-                    return leftVal == rightVal;
+                    return leftVal.equals(rightVal);
                 case GE:
                     return leftVal >= rightVal;
                 case GT:
@@ -86,7 +86,7 @@ public class SchemaChangeProcNode implements ProcNodeInterface {
                 case LT:
                     return leftVal < rightVal;
                 case NE:
-                    return leftVal != rightVal;
+                    return !leftVal.equals(rightVal);
                 default:
                     Preconditions.checkState(false, "No defined binary operator.");
             }

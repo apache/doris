@@ -21,9 +21,7 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.DecommissionBackendJob;
 import org.apache.doris.alter.RollupJob;
-import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJob;
-import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -691,10 +689,10 @@ public class EditLog {
                     AlterJobV2 alterJob = (AlterJobV2) journal.getData();
                     switch (alterJob.getType()) {
                         case ROLLUP:
-                            catalog.getRollupHandler().replayAlterJobV2((RollupJobV2) alterJob);
+                            catalog.getRollupHandler().replayAlterJobV2(alterJob);
                             break;
                         case SCHEMA_CHANGE:
-                            catalog.getSchemaChangeHandler().replayAlterJobV2((SchemaChangeJobV2) alterJob);
+                            catalog.getSchemaChangeHandler().replayAlterJobV2(alterJob);
                             break;
                         default:
                             break;
