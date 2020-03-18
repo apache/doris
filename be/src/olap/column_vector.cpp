@@ -90,7 +90,6 @@ const uint8_t* ScalarColumnVectorBatch::cell_ptr(size_t idx) const { return _dat
 
 uint8_t* ScalarColumnVectorBatch::mutable_cell_ptr(size_t idx) const { return _data + idx * type_info()->size(); }
 
-
 ListColumnVectorBatch::ListColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity)
 : ColumnVectorBatch(type_info, is_nullable) {
     auto list_type_info = reinterpret_cast<const ListTypeInfo*>(type_info);

@@ -334,10 +334,11 @@ public:
     }
 
     Status next_batch(size_t* n, ColumnBlockView* dst) override {
-        return next_batch(n, dst, true);
+        return next_batch<true>(n, dst);
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool forward_index) {
+    template<bool forward_index>
+    inline Status next_batch(size_t* n, ColumnBlockView* dst) {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_index >= _num_elements)) {
             *n = 0;
@@ -355,7 +356,7 @@ public:
     }
 
     Status peek_next_batch(size_t *n, ColumnBlockView* dst) override {
-        return next_batch(n, dst, false);
+        return next_batch<false>(n, dst);
     }
 
     size_t count() const override {
