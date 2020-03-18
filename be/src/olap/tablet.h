@@ -48,7 +48,7 @@ using TabletSharedPtr = std::shared_ptr<Tablet>;
 class Tablet : public std::enable_shared_from_this<Tablet> {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
-                                                   DataDir* data_dir  = nullptr);
+                                                   DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
     ~Tablet();
@@ -242,7 +242,7 @@ public:
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
-    OLAPStatus generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta);
+    void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta);
 
     // return a json string to show the compaction status of this tablet
     OLAPStatus get_compaction_status(std::string* json_result);

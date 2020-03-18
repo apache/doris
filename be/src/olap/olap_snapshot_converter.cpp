@@ -446,7 +446,7 @@ OLAPStatus OlapSnapshotConverter::to_new_snapshot(const OLAPHeaderMessage& olap_
     RETURN_NOT_OK(to_tablet_meta_pb(olap_header, tablet_meta_pb, pending_rowsets));
 
     TabletSchema tablet_schema;
-    RETURN_NOT_OK(tablet_schema.init_from_pb(tablet_meta_pb->schema()));
+    tablet_schema.init_from_pb(tablet_meta_pb->schema());
 
     // convert visible pdelta file to rowsets
     for (auto& visible_rowset : tablet_meta_pb->rs_metas()) {
@@ -505,7 +505,7 @@ OLAPStatus OlapSnapshotConverter::to_old_snapshot(const TabletMetaPB& tablet_met
     RETURN_NOT_OK(to_olap_header(tablet_meta_pb, olap_header));
 
     TabletSchema tablet_schema;
-    RETURN_NOT_OK(tablet_schema.init_from_pb(tablet_meta_pb.schema()));
+    tablet_schema.init_from_pb(tablet_meta_pb.schema());
 
     // convert visible pdelta file to rowsets
     for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {

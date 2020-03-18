@@ -71,8 +71,8 @@ using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 class AlterTabletTask {
 public:
     AlterTabletTask() {}
-    OLAPStatus init_from_pb(const AlterTabletPB& alter_task);
-    OLAPStatus to_alter_pb(AlterTabletPB* alter_task);
+    void init_from_pb(const AlterTabletPB& alter_task);
+    void to_alter_pb(AlterTabletPB* alter_task);
 
     inline const AlterTabletState& alter_state() const { return _alter_state; }
     OLAPStatus set_alter_state(AlterTabletState alter_state);
@@ -125,15 +125,15 @@ public:
     static OLAPStatus save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
     static OLAPStatus reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
-                                                 int64_t tablet_id);
+                                                  int64_t tablet_id);
     OLAPStatus save_meta(DataDir* data_dir);
 
     OLAPStatus serialize(std::string* meta_binary);
     OLAPStatus deserialize(const std::string& meta_binary);
-    OLAPStatus init_from_pb(const TabletMetaPB& tablet_meta_pb);
+    void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
-    OLAPStatus to_meta_pb(TabletMetaPB* tablet_meta_pb);
-    OLAPStatus to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
+    void to_meta_pb(TabletMetaPB* tablet_meta_pb);
+    void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
 
     inline TabletUid tablet_uid() const;
     inline int64_t table_id() const;
@@ -165,7 +165,6 @@ public:
 
     inline const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
-    RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
     void delete_rs_meta_by_version(const Version& version,
                                    std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
     void modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,

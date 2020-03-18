@@ -157,7 +157,7 @@ OLAPStatus Tablet::revise_tablet_meta(
     do {
         // load new local tablet_meta to operate on
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        RETURN_NOT_OK(generate_tablet_meta_copy(new_tablet_meta));
+        generate_tablet_meta_copy(new_tablet_meta);
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
@@ -1113,18 +1113,16 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema().is_in_memory());
-    return;
 }
 
 // should use this method to get a copy of current tablet meta
 // there are some rowset meta in local meta store and in in-memory tablet meta
 // but not in tablet meta in local meta store
 // TODO(lingbin): do we need _meta_lock?
-OLAPStatus Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) {
+void Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) {
     TabletMetaPB tablet_meta_pb;
-    RETURN_NOT_OK(_tablet_meta->to_meta_pb(&tablet_meta_pb));
-    RETURN_NOT_OK(new_tablet_meta->init_from_pb(tablet_meta_pb));
-    return OLAP_SUCCESS;
+    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    new_tablet_meta->init_from_pb(tablet_meta_pb);
 }
 
 }  // namespace doris
