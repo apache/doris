@@ -17,8 +17,6 @@
 
 package org.apache.doris.load.loadv2.etl;
 
-import org.apache.doris.common.LoadException;
-
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -28,66 +26,68 @@ import java.util.Map;
  * {
  * 	"tables": {
  * 		10014: {
- * 			"columns": {
- * 				"k1": {
- * 					"default_value": "\\N",
- * 					"column_type": "DATETIME",
- * 					"is_allow_null": true
- *              },
- * 				"k2": {
- * 					"default_value": "0",
- * 					"column_type": "SMALLINT",
- * 					"is_allow_null": true
- *              },
- * 				"v": {
- * 					"default_value": "0",
- * 					"column_type": "BIGINT",
- * 					"is_allow_null": false
- *              }
- *          },
- * 			"indexes": {
- * 				10014: {
- * 					"column_refs": [{
- * 						"name": "k1",
- * 						"is_key": true,
- * 						"aggregation_type": "NONE"
- *                    }, {
- * 						"name": "k2",
- * 						"is_key": true,
- * 						"aggregation_type": "NONE"
- *                    }, {
- * 						"name": "v",
- * 						"is_key": false,
- * 						"aggregation_type": "NONE"
- *                    }],
- *                  "distribution_column_refs": ["k1"],
- * 					"schema_hash": 1294206574
- *              },
- * 				10017: {
- * 					"column_refs": [{
- * 						"name": "k1",
- * 						"is_key": true,
- * 						"aggregation_type": "NONE"
- *                    }, {
- * 						"name": "v",
- * 						"is_key": false,
- * 						"aggregation_type": "SUM"
- *                    }],
- *                  "distribution_column_refs": ["k1"],
- * 					"schema_hash": 1294206575
- *                }
- *           },
+ * 			"indexes": [{
+ * 			    "index_id": 10014,
+ * 				"columns": [{
+ * 				    "column_name": "k1",
+ * 				    "column_type": "SMALLINT",
+ * 				    "is_key": true,
+ * 				    "is_allow_null": true,
+ * 				    "aggregation_type": "NONE"
+ *                }, {
+ * 					"column_name": "k2",
+ * 				    "column_type": "VARCHAR",
+ * 				    "string_length": 20,
+ * 					"is_key": true,
+ * 				    "is_allow_null": true,
+ * 					"aggregation_type": "NONE"
+ *                }, {
+ * 					"column_name": "v",
+ * 				    "column_type": "BIGINT",
+ * 					"is_key": false,
+ * 				    "is_allow_null": false,
+ * 					"aggregation_type": "NONE"
+ *              }],
+ *              "distribution_column_refs": ["k1"],
+ * 				"schema_hash": 1294206574,
+ * 			    "index_type": "DUPLICATE",
+ * 			    "is_base_index": true
+ *            }, {
+ * 			    "index_id": 10017,
+ * 				"columns": [{
+ * 				    "column_name": "k1",
+ * 				    "column_type": "SMALLINT",
+ * 					"is_key": true,
+ * 				    "is_allow_null": true,
+ * 					"aggregation_type": "NONE"
+ *                }, {
+ * 					"column_name": "v",
+ * 				    "column_type": "BIGINT",
+ * 					"is_key": false,
+ * 				    "is_allow_null": false,
+ * 					"aggregation_type": "SUM"
+ *              }],
+ *              "distribution_column_refs": ["k1"],
+ * 				"schema_hash": 1294206575,
+ * 			    "index_type": "AGGREGATE",
+ * 			    "is_base_index": false
+ *          }],
  * 			"partition_info": {
  * 				"partition_type": "RANGE",
  * 				"partition_column_refs": ["k2"],
- * 				"partitions": {
- * 					10020: {
- * 						"start_keys": [-100],
- * 						"end_keys": [10],
- * 						"is_max_partition": false,
- * 						"bucket_num": 3
- *                  }
- *              }
+ * 				"partitions": [{
+ * 				    "partition_id": 10020,
+ * 					"start_keys": [-100],
+ * 					"end_keys": [10],
+ * 					"is_max_partition": false,
+ * 					"bucket_num": 3
+ *                }, {
+ *                  "partition_id": 10021,
+ *                  "start_keys": [-100],
+ *                  "end_keys": [10],
+ *                  "is_max_partition": false,
+ *  				"bucket_num": 3
+ *              }]
  *          },
  * 			"file_groups": [{
  * 		        "partitions": [10020],
@@ -108,7 +108,7 @@ import java.util.Map;
  *      }
  *  },
  * 	"output_path": "hdfs://hdfs_host:port/user/output/10003/label1/1582599203397",
- * 	"output_file_pattern": "label1.%(table_id)d.%(partition_id)d.%(index_id)d.%(bucket)d.%(schema_hash)d"
+ * 	"output_file_pattern": "label1.%d.%d.%d.%d.%d"
  * }
  */
 public class EtlJobConfig {
@@ -118,8 +118,9 @@ public class EtlJobConfig {
     public static final String DORIS_INTERMEDIATE_HIVE_TABLE_NAME = "doris_intermediate_hive_table_%d_%s";
 
     // hdfs://host:port/outputPath/dbId/loadLabel/PendingTaskSignature
-    private static final String ETL_OUTPUT_PATH = "%s%s/%d/%s/%d";
-    private static final String ETL_OUTPUT_FILE_NAME_FORMAT = "label.tableId.partitionId.indexId.bucket.schemaHash";
+    private static final String ETL_OUTPUT_PATH_FORMAT = "%s%s/%d/%s/%d";
+    private static final String ETL_OUTPUT_FILE_NAME_DESC = "label.tableId.partitionId.indexId.bucket.schemaHash";
+    public static final String ETL_OUTPUT_FILE_NAME_NO_LABEL_FORMAT = "%d.%d.%d.%d.%d";
 
     Map<Long, EtlTable> tables;
     String outputPath;
@@ -133,6 +134,15 @@ public class EtlJobConfig {
         this.outputFilePattern = outputFilePattern;
     }
 
+    @Override
+    public String toString() {
+        return "EtlJobConfig{" +
+                "tables=" + tables +
+                ", outputPath='" + outputPath + '\'' +
+                ", outputFilePattern='" + outputFilePattern + '\'' +
+                '}';
+    }
+
     public String getOutputPath() {
         return outputPath;
     }
@@ -143,41 +153,29 @@ public class EtlJobConfig {
 
     public static String getOutputPath(String hdfsDefaultName, String outputPath, long dbId,
                                        String loadLabel, long taskSignature) {
-        return String.format(ETL_OUTPUT_PATH, hdfsDefaultName, outputPath, dbId, loadLabel, taskSignature);
+        return String.format(ETL_OUTPUT_PATH_FORMAT, hdfsDefaultName, outputPath, dbId, loadLabel, taskSignature);
     }
 
-    public static String getTablePartitionIndexBucketSchemaStr(String filePath) throws LoadException {
+    public static String getTablePartitionIndexBucketSchemaStr(String filePath) throws Exception {
         // label.tableId.partitionId.indexId.bucket.schemaHash
         String fileName = filePath.substring(filePath.lastIndexOf("/") + 1);
         String[] fileNameArr = fileName.split("\\.");
-        if (fileNameArr.length != ETL_OUTPUT_FILE_NAME_FORMAT.split("\\.").length) {
-            throw new LoadException("etl output file name error, format: " + ETL_OUTPUT_FILE_NAME_FORMAT
-                                            + ", name: " + fileName);
+        if (fileNameArr.length != ETL_OUTPUT_FILE_NAME_DESC.split("\\.").length) {
+            throw new Exception("etl output file name error, format: " + ETL_OUTPUT_FILE_NAME_DESC
+                                        + ", name: " + fileName);
         }
 
         // tableId.partitionId.indexId.bucket.schemaHash
         return fileName.substring(fileName.indexOf(".") + 1);
     }
 
-    @Override
-    public String toString() {
-        return "EtlJobConfig{" +
-                "tables=" + tables +
-                ", outputPath='" + outputPath + '\'' +
-                ", outputFilePattern='" + outputFilePattern + '\'' +
-                '}';
-    }
-
     public static class EtlTable {
-        Map<String, EtlColumn> columns;
-        Map<Long, EtlIndex> indexes;
+        List<EtlIndex> indexes;
         EtlPartitionInfo partitionInfo;
         List<EtlFileGroup> fileGroups;
 
-        public EtlTable(Map<String, EtlColumn> nameToEtlColumn, Map<Long, EtlIndex> idToEtlIndex,
-                        EtlPartitionInfo etlPartitionInfo) {
-            this.columns = nameToEtlColumn;
-            this.indexes = idToEtlIndex;
+        public EtlTable(List<EtlIndex> etlIndexes, EtlPartitionInfo etlPartitionInfo) {
+            this.indexes = etlIndexes;
             this.partitionInfo = etlPartitionInfo;
             this.fileGroups = Lists.newArrayList();
         }
@@ -189,8 +187,7 @@ public class EtlJobConfig {
         @Override
         public String toString() {
             return "EtlTable{" +
-                    "columns=" + columns +
-                    ", indexes=" + indexes +
+                    "indexes=" + indexes +
                     ", partitionInfo=" + partitionInfo +
                     ", fileGroups=" + fileGroups +
                     '}';
@@ -198,7 +195,7 @@ public class EtlJobConfig {
     }
 
     public static class EtlColumn {
-        String name;
+        String columnName;
         String columnType;
         boolean isAllowNull;
         boolean isKey;
@@ -208,9 +205,9 @@ public class EtlJobConfig {
         int precision;
         int scale;
 
-        public EtlColumn(String name, String columnType, boolean isAllowNull, boolean isKey, String aggregationType,
-                         String defaultValue, int stringLength, int precision, int scale) {
-            this.name = name;
+        public EtlColumn(String columnName, String columnType, boolean isAllowNull, boolean isKey,
+                         String aggregationType, String defaultValue, int stringLength, int precision, int scale) {
+            this.columnName = columnName;
             this.columnType = columnType;
             this.isAllowNull = isAllowNull;
             this.isKey = isKey;
@@ -224,7 +221,7 @@ public class EtlJobConfig {
         @Override
         public String toString() {
             return "EtlColumn{" +
-                    "name='" + name + '\'' +
+                    "columnName='" + columnName + '\'' +
                     ", columnType='" + columnType + '\'' +
                     ", isAllowNull=" + isAllowNull +
                     ", isKey=" + isKey +
@@ -238,22 +235,32 @@ public class EtlJobConfig {
     }
 
     public static class EtlIndex {
-        List<EtlColumn> columnRefs;
+        long indexId;
+        List<EtlColumn> columns;
         List<String> distributionColumnRefs;
         int schemaHash;
+        String indexType;
+        boolean isBaseIndex;
 
-        public EtlIndex(List<EtlColumn> columnMaps, List<String> distributionColumnRefs, int schemaHash) {
-            this.columnRefs = columnMaps;
+        public EtlIndex(long indexId, List<EtlColumn> etlColumns, List<String> distributionColumnRefs,
+                        int schemaHash, String indexType, boolean isBaseIndex) {
+            this.indexId = indexId;
+            this.columns =  etlColumns;
             this.distributionColumnRefs = distributionColumnRefs;
             this.schemaHash = schemaHash;
+            this.indexType = indexType;
+            this.isBaseIndex = isBaseIndex;
         }
 
         @Override
         public String toString() {
             return "EtlIndex{" +
-                    "columnRefs=" + columnRefs +
+                    "indexId=" + indexId +
+                    ", columns=" + columns +
                     ", distributionColumnRefs=" + distributionColumnRefs +
                     ", schemaHash=" + schemaHash +
+                    ", indexType='" + indexType + '\'' +
+                    ", isBaseIndex=" + isBaseIndex +
                     '}';
         }
     }
@@ -261,13 +268,13 @@ public class EtlJobConfig {
     public static class EtlPartitionInfo {
         String partitionType;
         List<String> partitionColumnRefs;
-        Map<Long, EtlPartition> partitions;
+        List<EtlPartition> partitions;
 
         public EtlPartitionInfo(String partitionType, List<String> partitionColumnRefs,
-                                Map<Long, EtlPartition> idToEtlPartition) {
+                                List<EtlPartition> etlPartitions) {
             this.partitionType = partitionType;
             this.partitionColumnRefs = partitionColumnRefs;
-            this.partitions = idToEtlPartition;
+            this.partitions = etlPartitions;
         }
 
         @Override
@@ -281,12 +288,15 @@ public class EtlJobConfig {
     }
 
     public static class EtlPartition {
+        long partitionId;
         List<Object> startKeys;
         List<Object> endKeys;
         boolean isMaxPartition;
         int bucketNum;
 
-        public EtlPartition(List<Object> startKeys, List<Object> endKeys, boolean isMaxPartition, int bucketNum) {
+        public EtlPartition(long partitionId, List<Object> startKeys, List<Object> endKeys,
+                            boolean isMaxPartition, int bucketNum) {
+            this.partitionId = partitionId;
             this.startKeys = startKeys;
             this.endKeys = endKeys;
             this.isMaxPartition = isMaxPartition;
@@ -296,7 +306,8 @@ public class EtlJobConfig {
         @Override
         public String toString() {
             return "EtlPartition{" +
-                    "startKeys=" + startKeys +
+                    "partitionId=" + partitionId +
+                    ", startKeys=" + startKeys +
                     ", endKeys=" + endKeys +
                     ", isMaxPartition=" + isMaxPartition +
                     ", bucketNum=" + bucketNum +

@@ -265,6 +265,8 @@ public class SparkLoadJob extends BulkLoadJob {
             progress = 0;
             etlFinishTimestamp = System.currentTimeMillis();
             unprotectedUpdateState(JobState.LOADING);
+        } catch (Exception e) {
+            throw new LoadException("update to loading state fail", e);
         } finally {
             writeUnlock();
         }

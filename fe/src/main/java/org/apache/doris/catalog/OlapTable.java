@@ -562,6 +562,24 @@ public class OlapTable extends Table {
         return keysType;
     }
 
+    public KeysType getKeysTypeByIndexId(long indexId) {
+        List<Column> allColumns = this.getSchemaByIndexId(indexId);
+        for (Column column : allColumns) {
+            if (column.isKey()) {
+                continue;
+            }
+
+            AggregateType aggregateType = column.getAggregationType();
+            if (aggregateType == AggregateType.SUM) {
+                return KeysType.AGG_KEYS;
+            } else if (aggregateType.isReplaceFamily() || aggregateType == AggregateType.MAX
+                    || aggregateType == AggregateType.MIN) {
+                return KeysType.UNIQUE_KEYS;
+            }
+        }
+        return KeysType.DUP_KEYS;
+    }
+
     public PartitionInfo getPartitionInfo() {
         return partitionInfo;
     }

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
@@ -156,15 +157,13 @@ public class SparkLoadPendingTask extends LoadTask {
                 if (tables.containsKey(tableId)) {
                     etlTable = tables.get(tableId);
                 } else {
-                    // columns
-                    Map<String, EtlColumn> nameToColumnMap = createEtlColumnMap(table);
                     // indexes
-                    Map<Long, EtlIndex> idToEtlIndex = createEtlIndexes(table);
+                    List<EtlIndex> etlIndexes = createEtlIndexes(table);
                     // partition info
                     EtlPartitionInfo etlPartitionInfo = createEtlPartitionInfo(table,
                                                                                tableIdToPartitionIds.get(tableId));
 
-                    etlTable = new EtlTable(nameToColumnMap, idToEtlIndex, etlPartitionInfo);
+                    etlTable = new EtlTable(etlIndexes, etlPartitionInfo);
                     tables.put(tableId, etlTable);
                 }
 
@@ -174,7 +173,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 }
             }
 
-            String outputFilePattern = loadLabel + ".%(table_id)d.%(partition_id)d.%(index_id)d.%(bucket)d.%(schema_hash)d";
+            String outputFilePattern = loadLabel + "." + EtlJobConfig.ETL_OUTPUT_FILE_NAME_NO_LABEL_FORMAT;
             etlJobConfig = new EtlJobConfig(tables, outputFilePattern);
         } finally {
             db.readUnlock();
@@ -216,26 +215,20 @@ public class SparkLoadPendingTask extends LoadTask {
         }
     }
 
-    private Map<String, EtlColumn> createEtlColumnMap(OlapTable table) {
-        Map<String, EtlColumn> nameToColumnMap = Maps.newHashMap();
-        for (Column column : table.getBaseSchema()) {
-            nameToColumnMap.put(column.getName(), createEtlColumn(column));
-        }
-        return nameToColumnMap;
-    }
-
-    private Map<Long, EtlIndex> createEtlIndexes(OlapTable table) throws LoadException {
-        Map<Long, EtlIndex> idToEtlIndex = Maps.newHashMap();
+    private List<EtlIndex> createEtlIndexes(OlapTable table) throws LoadException {
+        List<EtlIndex> etlIndexes = Lists.newArrayList();
 
         for (Map.Entry<Long, List<Column>> entry : table.getIndexIdToSchema().entrySet()) {
             long indexId = entry.getKey();
             int schemaHash = table.getSchemaHashByIndexId(indexId);
 
-            List<EtlColumn> columnMaps = Lists.newArrayList();
+            // columns
+            List<EtlColumn> etlColumns = Lists.newArrayList();
             for (Column column : entry.getValue()) {
-                columnMaps.add(createEtlColumn(column));
+                etlColumns.add(createEtlColumn(column));
             }
 
+            // distribution column refs
             List<String> distributionColumnRefs = Lists.newArrayList();
             DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
             switch (distributionInfo.getType()) {
@@ -254,18 +247,41 @@ public class SparkLoadPendingTask extends LoadTask {
                     }
                     break;
                 default:
-                    LOG.warn("unknown distribution type. type: {}", distributionInfo.getType().name());
-                    throw new LoadException("unknown distribution type. type: " + distributionInfo.getType().name());
+                    String errMsg = "unknown distribution type. type: " + distributionInfo.getType().name();
+                    LOG.warn(errMsg);
+                    throw new LoadException(errMsg);
             }
 
-            idToEtlIndex.put(indexId, new EtlIndex(columnMaps, distributionColumnRefs, schemaHash));
+            // index type
+            String indexType = null;
+            KeysType keysType = table.getKeysTypeByIndexId(indexId);
+            switch (keysType) {
+                case DUP_KEYS:
+                    indexType = "DUPLICATE";
+                    break;
+                case AGG_KEYS:
+                    indexType = "AGGREGATE";
+                    break;
+                case UNIQUE_KEYS:
+                    indexType = "UNIQUE";
+                    break;
+                default:
+                    String errMsg = "unknown keys type. type: " + keysType.name();
+                    LOG.warn(errMsg);
+                    throw new LoadException(errMsg);
+            }
+
+            // is base index
+            boolean isBaseIndex = indexId == table.getBaseIndexId() ? true : false;
+
+            etlIndexes.add(new EtlIndex(indexId, etlColumns, distributionColumnRefs, schemaHash, indexType, isBaseIndex));
         }
 
-        return idToEtlIndex;
+        return etlIndexes;
     }
 
     private EtlColumn createEtlColumn(Column column) {
-        // name
+        // column name
         String name = column.getName();
         // column type
         PrimitiveType type = column.getDataType();
@@ -312,14 +328,19 @@ public class SparkLoadPendingTask extends LoadTask {
         PartitionType type = table.getPartitionInfo().getType();
 
         List<String> partitionColumnRefs = Lists.newArrayList();
-        Map<Long, EtlPartition> idToEtlPartition = Maps.newHashMap();
+        List<EtlPartition> etlPartitions = Lists.newArrayList();
         if (type == PartitionType.RANGE) {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
             for (Column column : rangePartitionInfo.getPartitionColumns()) {
                 partitionColumnRefs.add(column.getName());
             }
 
-            for (Long partitionId : partitionIds) {
+            for (Map.Entry<Long, Range<PartitionKey>> entry : rangePartitionInfo.getSortedRangeMap()) {
+                long partitionId = entry.getKey();
+                if (!partitionIds.contains(partitionId)) {
+                    continue;
+                }
+
                 Partition partition = table.getPartition(partitionId);
                 if (partition == null) {
                     throw new LoadException("partition does not exist. id: " + partitionId);
@@ -329,7 +350,7 @@ public class SparkLoadPendingTask extends LoadTask {
                 int bucketNum = partition.getDistributionInfo().getBucketNum();
 
                 // is max partition
-                Range<PartitionKey> range = rangePartitionInfo.getRange(partitionId);
+                Range<PartitionKey> range = entry.getValue();
                 boolean isMaxPartition = range.upperEndpoint().isMaxValue();
 
                 // start keys
@@ -353,7 +374,7 @@ public class SparkLoadPendingTask extends LoadTask {
                     }
                 }
 
-                idToEtlPartition.put(partitionId, new EtlPartition(startKeys, endKeys, isMaxPartition, bucketNum));
+                etlPartitions.add(new EtlPartition(partitionId, startKeys, endKeys, isMaxPartition, bucketNum));
             }
         } else {
             Preconditions.checkState(type == PartitionType.UNPARTITIONED);
@@ -368,12 +389,12 @@ public class SparkLoadPendingTask extends LoadTask {
                 // bucket num
                 int bucketNum = partition.getDistributionInfo().getBucketNum();
 
-                idToEtlPartition.put(partitionId, new EtlPartition(Lists.newArrayList(), Lists.newArrayList(),
-                                                                   true, bucketNum));
+                etlPartitions.add(new EtlPartition(partitionId, Lists.newArrayList(), Lists.newArrayList(),
+                                                   true, bucketNum));
             }
         }
 
-        return new EtlPartitionInfo(type.typeString, partitionColumnRefs, idToEtlPartition);
+        return new EtlPartitionInfo(type.typeString, partitionColumnRefs, etlPartitions);
     }
 
     private EtlFileGroup createEtlFileGroup(BrokerFileGroup fileGroup, Set<Long> tablePartitionIds) {

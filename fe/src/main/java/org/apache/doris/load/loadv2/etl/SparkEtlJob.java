@@ -21,6 +21,7 @@ import com.google.gson.FieldNamingPolicy;
 import com.google.gson.GsonBuilder;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
 import org.apache.spark.sql.SparkSession;
@@ -71,7 +72,13 @@ public class SparkEtlJob {
         // spark etl must have only one table with bitmap type column to process.
         hasBitMapColumns = false;
         for (EtlTable table : tables.values()) {
-            for (EtlColumn column : table.columns.values()) {
+            List<EtlColumn> baseSchema = null;
+            for (EtlIndex etlIndex : table.indexes) {
+                if (etlIndex.isBaseIndex) {
+                    baseSchema = etlIndex.columns;
+                }
+            }
+            for (EtlColumn column : baseSchema) {
                 if (column.columnType.equalsIgnoreCase(BITMAP_TYPE)) {
                     hasBitMapColumns = true;
                     break;
@@ -95,11 +102,17 @@ public class SparkEtlJob {
         List<String> distinctColumnList = Lists.newArrayList();
         List<String> dorisOlapTableColumnList = Lists.newArrayList();
         List<String> mapSideJoinColumns = Lists.newArrayList();
-        for (EtlColumn column : table.columns.values()) {
-            if (column.columnType.equalsIgnoreCase(BITMAP_TYPE)) {
-                distinctColumnList.add(column.name);
+        List<EtlColumn> baseSchema = null;
+        for (EtlIndex etlIndex : table.indexes) {
+            if (etlIndex.isBaseIndex) {
+                baseSchema = etlIndex.columns;
             }
-            dorisOlapTableColumnList.add(column.name);
+        }
+        for (EtlColumn column : baseSchema) {
+            if (column.columnType.equalsIgnoreCase(BITMAP_TYPE)) {
+                distinctColumnList.add(column.columnName);
+            }
+            dorisOlapTableColumnList.add(column.columnName);
         }
 
         EtlFileGroup fileGroup = table.fileGroups.get(0);
