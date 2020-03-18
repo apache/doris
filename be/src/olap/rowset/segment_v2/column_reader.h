@@ -203,14 +203,14 @@ private:
     std::unique_ptr<BloomFilterIndexReader> _bloom_filter_index;
 };
 
-class ListColumnReader : public ColumnReader {
+class ArrayColumnReader : public ColumnReader {
 public:
-    ListColumnReader(const ColumnReaderOptions& opts,
+    ArrayColumnReader(const ColumnReaderOptions& opts,
                      const ColumnMetaPB& meta,
                      uint64_t num_rows,
                      const std::string& file_name, std::unique_ptr<ColumnReader> item_reader)
                      : ColumnReader(opts, meta, num_rows, file_name), _item_reader(std::move(item_reader)) {}
-    ~ListColumnReader() override;
+    ~ArrayColumnReader() override;
 
     Status new_iterator(ColumnIterator** iterator) override;
 protected:
@@ -335,10 +335,11 @@ private:
     OrdinalPageIndexIterator _page_iter;
 };
 
-class ListFileColumnIterator : public FileColumnIterator {
+class ArrayFileColumnIterator : public FileColumnIterator {
 public:
-    explicit ListFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader);
-    ~ListFileColumnIterator() override;
+    explicit ArrayFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader);
+
+    ~ArrayFileColumnIterator() override;
 
     // page indexes those are DEL_PARTIAL_SATISFIED
     std::unordered_set<uint32_t> _delete_partial_statisfied_pages;

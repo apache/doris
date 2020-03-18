@@ -25,13 +25,13 @@ ColumnVectorBatch::~ColumnVectorBatch() {
 
 Status ColumnVectorBatch::resize(size_t new_cap) {
     if (_nullable) {
-        resize_buff(_capacity, new_cap, reinterpret_cast<uint8_t**>(&_null_signs));
+        reallocate_buffer(_capacity, new_cap, reinterpret_cast<uint8_t**>(&_null_signs));
     }
     _capacity = new_cap;
     return Status::OK();
 }
 
-Status ColumnVectorBatch::resize_buff(size_t copy_bytes, size_t new_cap, uint8_t** _buf_ptr) {
+Status ColumnVectorBatch::reallocate_buffer(size_t copy_bytes, size_t new_cap, uint8_t** _buf_ptr) {
     const uint8_t* old_buf = *_buf_ptr;
     if (old_buf) {
         *_buf_ptr = new uint8_t[new_cap];
@@ -54,7 +54,7 @@ Status ColumnVectorBatch::create(size_t init_capacity,
         return Status::OK();
     } else {
         switch (type_info->type()) {
-        case FieldType::OLAP_FIELD_TYPE_LIST: {
+        case FieldType::OLAP_FIELD_TYPE_ARRAY: {
             std::unique_ptr<ColumnVectorBatch> local(new ListColumnVectorBatch(type_info, is_nullable, init_capacity));
             *column_vector_batch = std::move(local);
             return Status::OK();
@@ -78,7 +78,7 @@ Status ScalarColumnVectorBatch::resize(size_t new_cap) {
         size_t type_size = type_info()->size();
         auto copy_bytes = get_capacity() * type_size;
         size_t new_data_size = new_cap * type_size;
-        resize_buff(copy_bytes, new_data_size, &_data);
+        reallocate_buffer(copy_bytes, new_data_size, &_data);
         return ColumnVectorBatch::resize(new_cap);
     }
     return Status::OK();
@@ -92,7 +92,7 @@ uint8_t* ScalarColumnVectorBatch::mutable_cell_ptr(size_t idx) const { return _d
 
 ListColumnVectorBatch::ListColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity)
 : ColumnVectorBatch(type_info, is_nullable) {
-    auto list_type_info = reinterpret_cast<const ListTypeInfo*>(type_info);
+    auto list_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
     ColumnVectorBatch::create(init_capacity * 2, true, list_type_info->item_type_info(), &_elements);
     resize(init_capacity);
 }
@@ -104,15 +104,15 @@ ListColumnVectorBatch::~ListColumnVectorBatch() {
 
 Status ListColumnVectorBatch::resize(size_t new_cap) {
     if (get_capacity() < new_cap) {
-        size_t collection_type_size = sizeof(collection);
+        size_t collection_type_size = sizeof(Collection);
         size_t copy_bytes = get_capacity() * collection_type_size;
         size_t new_data_size = new_cap * collection_type_size;
-        RETURN_IF_ERROR(resize_buff(copy_bytes, new_data_size, reinterpret_cast<uint8_t**>(&_data)));
+        RETURN_IF_ERROR(reallocate_buffer(copy_bytes, new_data_size, reinterpret_cast<uint8_t**>(&_data)));
 
         size_t offset_type_size = sizeof(size_t);
         size_t offset_copy_bytes = (get_capacity() + 1) * offset_type_size;
         size_t new_offset_size = (new_cap + 1) * offset_type_size;
-        RETURN_IF_ERROR(resize_buff(offset_copy_bytes, new_offset_size, reinterpret_cast<uint8_t**>(&_item_offsets)));
+        RETURN_IF_ERROR(reallocate_buffer(offset_copy_bytes, new_offset_size, reinterpret_cast<uint8_t**>(&_item_offsets)));
 
         RETURN_IF_ERROR(ColumnVectorBatch::resize(new_cap));
     }
@@ -121,7 +121,7 @@ Status ListColumnVectorBatch::resize(size_t new_cap) {
 
 uint8_t* ListColumnVectorBatch::data() const { return reinterpret_cast<uint8*>(_data); }
 
-const uint8_t* ListColumnVectorBatch::cell_ptr(size_t idx) const { return reinterpret_cast<uint8*>(_data + idx); }
+const uint8_t* ListColumnVectorBatch::cell_ptr(size_t idx) const { return reinterpret_cast<const uint8*>(_data + idx); }
 
 uint8_t* ListColumnVectorBatch::mutable_cell_ptr(size_t idx) const { return reinterpret_cast<uint8*>(_data + idx); }
 
@@ -139,7 +139,7 @@ void ListColumnVectorBatch::put_item_ordinal(segment_v2::ordinal_t* ordinals, si
 void ListColumnVectorBatch::transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx) {
     for (size_t idx = start_idx; idx < end_idx; ++idx) {
         if (!is_null_at(idx)) {
-            _data[idx] = collection(_elements->mutable_cell_ptr(_item_offsets[idx]),
+            _data[idx] = Collection(_elements->mutable_cell_ptr(_item_offsets[idx]),
             _item_offsets[idx + 1] - _item_offsets[idx],
             _elements->get_null_signs(_item_offsets[idx]));
         }

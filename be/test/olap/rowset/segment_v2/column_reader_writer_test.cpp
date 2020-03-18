@@ -146,20 +146,11 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
             st = iter->seek_to_first();
             ASSERT_TRUE(st.ok()) << st.to_string();
 
-<<<<<<< HEAD
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            Type vals[1024];
-            Type* vals_ = vals;
-            uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
-=======
-            MemTracker tracker;
-            MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1024, true, type_info, &cvb);
             ColumnBlock col(cvb.get(), &pool);
->>>>>>> Restructure storage type to support list type.
 
             int idx = 0;
             while (true) {
@@ -187,19 +178,11 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         }
 
         {
-<<<<<<< HEAD
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            Type vals[1024];
-            uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
-=======
-            MemTracker tracker;
-            MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1024, true, type_info, &cvb);
             ColumnBlock col(cvb.get(), &pool);
->>>>>>> Restructure storage type to support list type.
 
             for (int rowid = 0; rowid < num_rows; rowid += 4025) {
                 st = iter->seek_to_ordinal(rowid);
@@ -232,8 +215,8 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
 }
 
 template<FieldType item_type, EncodingTypePB item_encoding, EncodingTypePB list_encoding>
-void test_list_nullable_data(collection* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
-    collection* src = src_data;
+void test_list_nullable_data(Collection* src_data, uint8_t* src_is_null, int num_rows, string test_name) {
+    Collection* src = src_data;
     ColumnMetaPB meta;
 
     // write data
@@ -248,7 +231,7 @@ void test_list_nullable_data(collection* src_data, uint8_t* src_is_null, int num
         writer_opts.meta = &meta;
         writer_opts.meta->set_column_id(0);
         writer_opts.meta->set_unique_id(0);
-        writer_opts.meta->set_type(OLAP_FIELD_TYPE_LIST);
+        writer_opts.meta->set_type(OLAP_FIELD_TYPE_ARRAY);
         writer_opts.meta->set_length(0);
         writer_opts.meta->set_encoding(list_encoding);
         writer_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
@@ -256,7 +239,7 @@ void test_list_nullable_data(collection* src_data, uint8_t* src_is_null, int num
         writer_opts.need_zone_map = false;
         writer_opts.data_page_size = 5 * 8;
 
-        TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_LIST);
+        TabletColumn list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
         int32 item_length = 0;
         if (item_type == OLAP_FIELD_TYPE_CHAR || item_type == OLAP_FIELD_TYPE_VARCHAR) {
             item_length = 10;
@@ -372,7 +355,7 @@ TEST_F(ColumnReaderWriterTest, test_list_type) {
     size_t num_item = num_list * 3;
 
     uint8_t* list_is_null = new uint8_t[BitmapSize(num_list)];
-    collection* list_val = new collection[num_list];
+    Collection* list_val = new Collection[num_list];
     bool* item_is_null = new bool[num_item];
     uint8_t* item_val = new uint8_t[num_item];
     for (int i = 0; i < num_item; ++i) {
@@ -393,7 +376,7 @@ TEST_F(ColumnReaderWriterTest, test_list_type) {
     test_list_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE, BIT_SHUFFLE>(list_val, list_is_null, num_list, "null_list_bs");
 
     delete[] list_val;
-    list_val = new collection[num_list];
+    list_val = new Collection[num_list];
 
 
     Slice* varchar_vals = new Slice[3];
@@ -443,20 +426,11 @@ void test_read_default_value(string value, void* result) {
             st = iter.seek_to_first();
             ASSERT_TRUE(st.ok()) << st.to_string();
 
-<<<<<<< HEAD
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            Type vals[1024];
-            Type* vals_ = vals;
-            uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
-=======
-            MemTracker tracker;
-            MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1024, true, type_info, &cvb);
             ColumnBlock col(cvb.get(), &pool);
->>>>>>> Restructure storage type to support list type.
 
             int idx = 0;
             size_t rows_read = 1024;
@@ -479,19 +453,11 @@ void test_read_default_value(string value, void* result) {
         }
 
         {
-<<<<<<< HEAD
             auto tracker = std::make_shared<MemTracker>();
             MemPool pool(tracker.get());
-            Type vals[1024];
-            uint8_t is_null[1024];
-            ColumnBlock col(type_info, (uint8_t*)vals, is_null, 1024, &pool);
-=======
-            MemTracker tracker;
-            MemPool pool(&tracker);
             std::unique_ptr<ColumnVectorBatch> cvb;
             ColumnVectorBatch::create(1024, true, type_info, &cvb);
             ColumnBlock col(cvb.get(), &pool);
->>>>>>> Restructure storage type to support list type.
 
             for (int rowid = 0; rowid < 2048; rowid += 128) {
                 st = iter.seek_to_ordinal(rowid);

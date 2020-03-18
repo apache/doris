@@ -26,7 +26,7 @@
 #include <string>
 
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "olap/collection.h"
+#include "olap/Collection.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -145,15 +145,15 @@ private:
     template<typename TypeTraitsClass> ScalarTypeInfo(TypeTraitsClass t);
 };
 
-class ListTypeInfo : public TypeInfo {
+class ArrayTypeInfo : public TypeInfo {
 public:
-    explicit ListTypeInfo(TypeInfo* item_type_info)
+    explicit ArrayTypeInfo(TypeInfo* item_type_info)
     : _item_type_info(item_type_info), _item_size(item_type_info->size()) {
     }
 
     inline bool equal(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const collection*>(left);
-        auto r_value = reinterpret_cast<const collection*>(right);
+        auto l_value = reinterpret_cast<const Collection*>(left);
+        auto r_value = reinterpret_cast<const Collection*>(right);
         if (l_value->length != r_value->length) {
             return false;
         }
@@ -178,8 +178,8 @@ public:
     }
 
     inline int cmp(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const collection*>(left);
-        auto r_value = reinterpret_cast<const collection*>(right);
+        auto l_value = reinterpret_cast<const Collection*>(left);
+        auto r_value = reinterpret_cast<const Collection*>(right);
         size_t l_length = l_value->length;
         size_t r_length = r_value->length;
         size_t cur = 0;
@@ -210,12 +210,12 @@ public:
     }
 
     inline void shallow_copy(void* dest, const void* src) const override {
-        *reinterpret_cast<collection*>(dest) = *reinterpret_cast<const collection*>(src);
+        *reinterpret_cast<Collection*>(dest) = *reinterpret_cast<const Collection*>(src);
     }
 
     inline void deep_copy(void* dest, const void* src, MemPool* mem_pool) const {
-        auto dest_value = reinterpret_cast<collection*>(dest);
-        auto src_value = reinterpret_cast<const collection*>(src);
+        auto dest_value = reinterpret_cast<Collection*>(dest);
+        auto src_value = reinterpret_cast<const Collection*>(src);
 
         dest_value->length = src_value->length;
 
@@ -232,7 +232,6 @@ public:
             if (dest_value->null_signs[i]) continue;
             _item_type_info->deep_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size, mem_pool);
         }
-
     }
 
     inline void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
@@ -241,8 +240,8 @@ public:
 
     // TODO llj: How to ensure sufficient length of item
     inline void direct_copy(void* dest, const void* src) const override {
-        auto dest_value = reinterpret_cast<collection*>(dest);
-        auto src_value = reinterpret_cast<const collection*>(src);
+        auto dest_value = reinterpret_cast<Collection*>(dest);
+        auto src_value = reinterpret_cast<const Collection*>(src);
 
         dest_value->length = src_value->length;
 
@@ -265,7 +264,7 @@ public:
     }
 
     std::string to_string(const void* src) const override {
-        auto src_value = reinterpret_cast<const collection*>(src);
+        auto src_value = reinterpret_cast<const Collection*>(src);
         std::string result = "[";
 
         for (size_t i = 0; i< src_value->length; ++i) {
@@ -288,7 +287,7 @@ public:
     }
 
     inline uint32_t hash_code(const void* data, uint32_t seed) const override {
-        auto value = reinterpret_cast<const collection*>(data);
+        auto value = reinterpret_cast<const Collection*>(data);
         uint32_t result = HashUtil::hash(&(value->length), sizeof(size_t), seed);
         for (size_t i = 0; i < value->length; ++i) {
             if (value->null_signs[i]) {
@@ -300,9 +299,9 @@ public:
         return result;
     }
 
-    inline const size_t size() const override { return sizeof(collection); }
+    inline const size_t size() const override { return sizeof(Collection); }
 
-    inline FieldType type() const override { return OLAP_FIELD_TYPE_LIST; }
+    inline FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 
     inline const TypeInfo* item_type_info() const { return _item_type_info; }
 private:
@@ -396,8 +395,8 @@ template<> struct CppTypeTraits<OLAP_FIELD_TYPE_HLL> {
 template<> struct CppTypeTraits<OLAP_FIELD_TYPE_OBJECT> {
     using CppType = Slice;
 };
-template<> struct CppTypeTraits<OLAP_FIELD_TYPE_LIST> {
-    using CppType = collection;
+template<> struct CppTypeTraits<OLAP_FIELD_TYPE_ARRAY> {
+    using CppType = Collection;
 };
 
 template<FieldType field_type>

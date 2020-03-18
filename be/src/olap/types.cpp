@@ -86,7 +86,7 @@ ScalarTypeInfoResolver::~ScalarTypeInfoResolver() {}
 bool is_scalar_type(FieldType field_type) {
     switch (field_type) {
     case OLAP_FIELD_TYPE_STRUCT:
-    case OLAP_FIELD_TYPE_LIST:
+    case OLAP_FIELD_TYPE_ARRAY:
     case OLAP_FIELD_TYPE_MAP:
         return false;
     default: return true;
@@ -98,8 +98,8 @@ TypeInfo* get_scalar_type_info(FieldType field_type) {
 }
 
 
-class ListTypeInfoResolver {
-    DECLARE_SINGLETON(ListTypeInfoResolver);
+class ArrayTypeInfoResolver {
+    DECLARE_SINGLETON(ArrayTypeInfoResolver);
 
 public:
     TypeInfo* get_type_info(const FieldType t) {
@@ -110,7 +110,7 @@ public:
 private:
     template<FieldType item_type> void add_mapping() {
         _type_mapping.emplace(item_type, std::shared_ptr<TypeInfo>(
-                new ListTypeInfo(get_scalar_type_info(item_type)))
+                new ArrayTypeInfo(get_scalar_type_info(item_type)))
                 );
     }
 
@@ -118,9 +118,9 @@ private:
     std::unordered_map<FieldType, std::shared_ptr<TypeInfo>, std::hash<size_t>> _type_mapping;
 };
 
-ListTypeInfoResolver::~ListTypeInfoResolver() = default;
+ArrayTypeInfoResolver::~ArrayTypeInfoResolver() = default;
 
-ListTypeInfoResolver::ListTypeInfoResolver() {
+ArrayTypeInfoResolver::ArrayTypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_TINYINT>();
     add_mapping<OLAP_FIELD_TYPE_SMALLINT>();
     add_mapping<OLAP_FIELD_TYPE_INT>();
@@ -148,10 +148,10 @@ TypeInfo* get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
         return get_scalar_type_info(type);
     } else {
         switch (type) {
-            case OLAP_FIELD_TYPE_LIST: {
+            case OLAP_FIELD_TYPE_ARRAY: {
                 DCHECK(column_meta_pb->children_columns_size() == 1) << "more than 1 child type.";
                 FieldType child_type = (FieldType)column_meta_pb->children_columns(0).type();
-                return ListTypeInfoResolver::instance()->get_type_info(child_type);
+                return ArrayTypeInfoResolver::instance()->get_type_info(child_type);
             }
             default:
                 DCHECK(false) << "Bad field type: " << type;
@@ -165,9 +165,9 @@ TypeInfo* get_type_info(const TabletColumn* col) {
         return get_scalar_type_info(col->type());
     } else {
         switch (col->type()) {
-        case OLAP_FIELD_TYPE_LIST:
+        case OLAP_FIELD_TYPE_ARRAY:
             DCHECK(col->get_subtype_count() == 1) << "more than 1 child type.";
-            return ListTypeInfoResolver::instance()->get_type_info(col->get_sub_column(0).type());
+            return ArrayTypeInfoResolver::instance()->get_type_info(col->get_sub_column(0).type());
         default:
             DCHECK(false) << "Bad field type: " << col->type();
             return nullptr;

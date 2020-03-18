@@ -193,9 +193,9 @@ private:
     std::unique_ptr<BloomFilterIndexWriter> _bloom_filter_index_builder;
 };
 
-class ListColumnWriter : public ColumnWriter {
+class ArrayColumnWriter : public ColumnWriter {
 public:
-    ~ListColumnWriter() override;
+    ~ArrayColumnWriter() override;
 
     Status init() override ;
 
@@ -213,7 +213,7 @@ protected:
     Status write_ordinal_index() override ;
 
 private:
-    ListColumnWriter(const ColumnWriterOptions& opts,
+    ArrayColumnWriter(const ColumnWriterOptions& opts,
                      std::unique_ptr<Field> field,
                      fs::WritableBlock* output_file,
                      std::unique_ptr<ColumnWriter> item_writer);

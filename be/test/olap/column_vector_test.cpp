@@ -67,7 +67,7 @@ void test_read_write_scalar_column_vector(const TypeInfo* type_info, const uint8
 }
 
 template<FieldType item_type>
-void test_read_write_list_column_vector(const ListTypeInfo* list_type_info,
+void test_read_write_list_column_vector(const ArrayTypeInfo* list_type_info,
         segment_v2::ordinal_t* ordinals, // n + 1
         size_t list_size,
         const uint8_t* src_item_data,
@@ -155,7 +155,7 @@ TEST_F(ColumnVectorTest, list_column_vector_test) {
             }
         }
         ordinals[num_list] = num_item;
-        auto type_info = reinterpret_cast<ListTypeInfo*>(ListTypeInfoResolver::instance()->get_type_info(OLAP_FIELD_TYPE_TINYINT));
+        auto type_info = reinterpret_cast<ArrayTypeInfo*>(ArrayTypeInfoResolver::instance()->get_type_info(OLAP_FIELD_TYPE_TINYINT));
         test_read_write_list_column_vector<OLAP_FIELD_TYPE_TINYINT>(type_info, ordinals, num_list, item_val, list_val);
 
         delete[] ordinals;

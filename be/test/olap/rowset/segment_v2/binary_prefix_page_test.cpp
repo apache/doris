@@ -72,15 +72,9 @@ class BinaryPrefixPageTest : public testing::Test {
         ASSERT_EQ(slices.size(), page_decoder->count());
 
         //check values
-<<<<<<< HEAD
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
-        TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
-=======
-        MemTracker tracker;
-        MemPool pool(&tracker);
         TypeInfo* type_info = get_scalar_type_info(OLAP_FIELD_TYPE_VARCHAR);
->>>>>>> Restructure storage type to support list type.
         size_t size = slices.size();
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(size, false, type_info, &cvb);
@@ -156,17 +150,6 @@ class BinaryPrefixPageTest : public testing::Test {
         ret = page_decoder->init();
         ASSERT_TRUE(ret.ok());
 
-<<<<<<< HEAD
-        auto tracker = std::make_shared<MemTracker>();
-        MemPool pool(tracker.get());
-        TypeInfo* type_info = get_type_info(OLAP_FIELD_TYPE_VARCHAR);
-        size_t size = slices.size();
-        Slice* values = reinterpret_cast<Slice*>(pool.allocate(size * sizeof(Slice)));
-        ColumnBlock column_block(type_info, (uint8_t*)values, nullptr, size, &pool);
-        ColumnBlockView block_view(&column_block);
-
-=======
->>>>>>> Restructure storage type to support list type.
         Slice slice("c");
         bool exact_match;
         ret = page_decoder->seek_at_or_after_value(&slice, &exact_match);

@@ -50,7 +50,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts,
     } else {
         auto type = (FieldType)meta.type();
         switch(type) {
-            case FieldType::OLAP_FIELD_TYPE_LIST: {
+            case FieldType::OLAP_FIELD_TYPE_ARRAY: {
                 std::unique_ptr<ColumnReader> item_reader;
                 DCHECK(meta.children_columns_size() == 1);
                 RETURN_IF_ERROR(ColumnReader::create(opts,
@@ -59,7 +59,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts,
                                                      file_name,
                                                      &item_reader));
                 std::unique_ptr<ColumnReader> reader_local(
-                        new ListColumnReader(opts, meta, num_rows, file_name, std::move(item_reader)));
+                        new ArrayColumnReader(opts, meta, num_rows, file_name, std::move(item_reader)));
                 RETURN_IF_ERROR(reader_local->init());
                 *reader = std::move(reader_local);
                 return Status::OK();
@@ -324,27 +324,27 @@ Status ColumnReader::seek_at_or_before(ordinal_t ordinal, OrdinalPageIndexIterat
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ListColumnReader::~ListColumnReader() = default;
+ArrayColumnReader::~ArrayColumnReader() = default;
 
-Status ListColumnReader::new_iterator(ColumnIterator** iterator) {
+Status ArrayColumnReader::new_iterator(ColumnIterator** iterator) {
     ColumnIterator* item_iterator;
     _item_reader->new_iterator(&item_iterator);
-    *iterator = new ListFileColumnIterator(this, item_iterator);
+    *iterator = new ArrayFileColumnIterator(this, item_iterator);
     return Status::OK();
 }
 
-TypeInfo* ListColumnReader::get_type_info_for_read() {
+TypeInfo* ArrayColumnReader::get_type_info_for_read() {
     return get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
 }
 
-ListFileColumnIterator::ListFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader)
+ArrayFileColumnIterator::ArrayFileColumnIterator(ColumnReader* offset_reader, ColumnIterator* item_reader)
 : FileColumnIterator(offset_reader) {
     _item_iterator.reset(item_reader);
 }
 
-ListFileColumnIterator::~ListFileColumnIterator() = default;
+ArrayFileColumnIterator::~ArrayFileColumnIterator() = default;
 
-Status ListFileColumnIterator::init(const ColumnIteratorOptions& opts) {
+Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     RETURN_IF_ERROR(FileColumnIterator::init(opts));
     TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
     RETURN_IF_ERROR(ColumnVectorBatch::create(1024, true, bigint_type_info, &_offset_batch));
@@ -353,7 +353,7 @@ Status ListFileColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 // every invoke this method, _offset_batch will be cover, so this method is not thread safe.
-Status ListFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
+Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     // 1. read n offsets into  _offset_batch;
     _offset_batch->resize(*n + 1);
     ColumnBlock ordinal_block(_offset_batch.get(), nullptr);
@@ -640,8 +640,8 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
                 memory_copy(string_buffer, _default_value.c_str(), length);
                 ((Slice*)_mem_value)->size = length;
                 ((Slice*)_mem_value)->data = string_buffer;
-            } else if (_type_info->type() == OLAP_FIELD_TYPE_LIST) {
-                // TODO llj FOR LIST DEFAULT VALUE
+            } else if (_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
+                // TODO llj for Array default value
                 return Status::NotSupported("unsupported list default type");
             } else {
                 s = _type_info->from_string(_mem_value, _default_value);

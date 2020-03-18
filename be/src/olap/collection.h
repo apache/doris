@@ -21,30 +21,30 @@
 
 namespace doris {
 
-// cpp type for LIST
-struct collection {
+// cpp type for ARRAY
+struct Collection {
     size_t length;
     // null bitmap
     bool* null_signs;
     // child column data
     void* data;
 
-    collection(): length(0), null_signs(nullptr), data(nullptr) {}
+    Collection(): length(0), null_signs(nullptr), data(nullptr) {}
 
-    explicit collection(size_t length) : length(length), null_signs(nullptr), data(nullptr) {}
+    explicit Collection(size_t length) : length(length), null_signs(nullptr), data(nullptr) {}
 
-    collection(void* data, size_t length ) : length(length), null_signs(nullptr), data(data) {}
+    Collection(void* data, size_t length ) : length(length), null_signs(nullptr), data(data) {}
 
-    collection(void* data, size_t length, bool* null_signs)
+    Collection(void* data, size_t length, bool* null_signs)
     : length(length), null_signs(null_signs), data(data) {}
 
-    bool operator==(const collection& y) const ;
-    bool operator!=(const collection& value) const ;
-    bool operator<(const collection& value) const ;
-    bool operator<=(const collection& value) const ;
-    bool operator>(const collection& value) const ;
-    bool operator>=(const collection& value) const;
-    int32_t cmp(const collection& other) const;
+    bool operator==(const Collection& y) const ;
+    bool operator!=(const Collection& value) const ;
+    bool operator<(const Collection& value) const ;
+    bool operator<=(const Collection& value) const ;
+    bool operator>(const Collection& value) const ;
+    bool operator>=(const Collection& value) const;
+    int32_t cmp(const Collection& other) const;
 };
 
 }  // namespace doris

@@ -90,7 +90,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts,
         return Status::OK();
     } else {
         switch(column->type()) {
-            case FieldType::OLAP_FIELD_TYPE_LIST: {
+            case FieldType::OLAP_FIELD_TYPE_ARRAY: {
                 DCHECK(column->get_subtype_count() == 1);
                 const TabletColumn& item_meta = column->get_sub_column(0);
 
@@ -110,7 +110,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts,
                 RETURN_IF_ERROR(ColumnWriter::create(item_options, &item_meta, _wblock, &item_writer));
                 std::unique_ptr<ColumnWriter> writer_local =
                         std::unique_ptr<ColumnWriter>(
-                                new ListColumnWriter(opts,
+                                new ArrayColumnWriter(opts,
                                                          std::move(field),
                                                          _wblock,
                                                          std::move(item_writer)));
@@ -436,13 +436,13 @@ Status ColumnWriter::_finish_current_page() {
 
 ////////////////////////////////////////////////////////////////////////////////
 
-ListColumnWriter::ListColumnWriter(const ColumnWriterOptions& opts,
+ArrayColumnWriter::ArrayColumnWriter(const ColumnWriterOptions& opts,
                          std::unique_ptr<Field> field,
                                    fs::WritableBlock* output_file,
                          std::unique_ptr<ColumnWriter> item_writer):
         ColumnWriter(opts, std::move(field), output_file), _item_writer(std::move(item_writer)) {}
 
-Status ListColumnWriter::create_page_builder(PageBuilder** page_builder) {
+Status ArrayColumnWriter::create_page_builder(PageBuilder** page_builder) {
     TypeInfo* bigint_type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_BIGINT);
     RETURN_IF_ERROR(EncodingInfo::get(bigint_type_info, _opts.meta->encoding(), &_encoding_info));
 
@@ -461,9 +461,9 @@ Status ListColumnWriter::create_page_builder(PageBuilder** page_builder) {
         return Status::OK();
     }
 }
-ListColumnWriter::~ListColumnWriter() = default;
+ArrayColumnWriter::~ArrayColumnWriter() = default;
 
-Status ListColumnWriter::init() {
+Status ArrayColumnWriter::init() {
     if (_opts.need_zone_map) {
         return Status::NotSupported("unsupported zone map for list");
     }
@@ -481,15 +481,15 @@ Status ListColumnWriter::init() {
     return Status::OK();
 }
 
-Status ListColumnWriter::put_page_footer_info(DataPageFooterPB* footer) {
+Status ArrayColumnWriter::put_page_footer_info(DataPageFooterPB* footer) {
     footer->set_next_array_item_ordinal(_next_item_ordinal);
     return Status::OK();
 }
 
 // Now we can only write data one by one.
-Status ListColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
+Status ArrayColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
-    const auto* col_cursor = reinterpret_cast<const collection*>(*ptr);
+    const auto* col_cursor = reinterpret_cast<const Collection*>(*ptr);
     while (remaining > 0) {
         // TODO llj: bulk write
         size_t num_written = 1;
@@ -514,23 +514,23 @@ Status ListColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     return Status::OK();
 }
 
-uint64_t ListColumnWriter::estimate_buffer_size() {
+uint64_t ArrayColumnWriter::estimate_buffer_size() {
     return ColumnWriter::estimate_buffer_size() + _item_writer->estimate_buffer_size();
 }
 
-Status ListColumnWriter::finish() {
+Status ArrayColumnWriter::finish() {
     RETURN_IF_ERROR(ColumnWriter::finish());
     RETURN_IF_ERROR(_item_writer->finish());
     return Status::OK();
 }
 
-Status ListColumnWriter::write_data() {
+Status ArrayColumnWriter::write_data() {
     RETURN_IF_ERROR(ColumnWriter::write_data());
     RETURN_IF_ERROR(_item_writer->write_data());
     return Status::OK();
 }
 
-Status ListColumnWriter::write_ordinal_index() {
+Status ArrayColumnWriter::write_ordinal_index() {
     RETURN_IF_ERROR(ColumnWriter::write_ordinal_index());
     RETURN_IF_ERROR(_item_writer->write_ordinal_index());
     return Status::OK();

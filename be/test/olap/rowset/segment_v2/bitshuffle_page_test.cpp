@@ -36,18 +36,11 @@ public:
 
     template<FieldType type, class PageDecoderType>
     void copy_one(PageDecoderType* decoder, typename TypeTraits<type>::CppType* ret) {
-<<<<<<< HEAD
         auto tracker = std::make_shared<MemTracker>();
         MemPool pool(tracker.get());
-        uint8_t null_bitmap = 0;
-        ColumnBlock block(get_type_info(type), (uint8_t*)ret, &null_bitmap, 1, &pool);
-=======
-        MemTracker tracker;
-        MemPool pool(&tracker);
         std::unique_ptr<ColumnVectorBatch> cvb;
         ColumnVectorBatch::create(1, true, get_scalar_type_info(type), &cvb);
         ColumnBlock block(cvb.get(), &pool);
->>>>>>> Restructure storage type to support list type.
         ColumnBlockView column_block_view(&block);
 
         size_t n = 1;

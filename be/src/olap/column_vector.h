@@ -79,7 +79,7 @@ public:
                          std::unique_ptr<ColumnVectorBatch>* column_vector_batch);
 
 protected:
-    static Status resize_buff(size_t old_cap, size_t new_cap, uint8_t** _buf);
+    static Status reallocate_buffer(size_t old_cap, size_t new_cap, uint8_t** _buf);
 
 private:
     const TypeInfo* _type_info;
@@ -139,7 +139,7 @@ public:
     void transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx);
 
 private:
-    collection* _data = nullptr;
+    Collection* _data = nullptr;
 
     std::unique_ptr<ColumnVectorBatch> _elements;
 

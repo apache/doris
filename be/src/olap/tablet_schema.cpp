@@ -65,7 +65,7 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
     } else if (0 == upper_type_str.compare("STRUCT")) {
         type = OLAP_FIELD_TYPE_STRUCT;
     } else if (0 == upper_type_str.compare("LIST")) {
-        type = OLAP_FIELD_TYPE_LIST;
+        type = OLAP_FIELD_TYPE_ARRAY;
     } else if (0 == upper_type_str.compare("MAP")) {
         type = OLAP_FIELD_TYPE_MAP;
     } else if (0 == upper_type_str.compare("OBJECT")) {
@@ -169,7 +169,7 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
         case OLAP_FIELD_TYPE_STRUCT:
             return "STRUCT";
 
-        case OLAP_FIELD_TYPE_LIST:
+        case OLAP_FIELD_TYPE_ARRAY:
             return "LIST";
 
         case OLAP_FIELD_TYPE_MAP:
@@ -320,7 +320,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_visible()) {
         _visible = column.visible();
     }
-    if (_type == FieldType::OLAP_FIELD_TYPE_LIST) {
+    if (_type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(column.children_columns_size() == 1) << "LIST type has more than 1 children types.";
         TabletColumn child_column;
         child_column.init_from_pb(column.children_columns(0));
