@@ -69,7 +69,7 @@ public class SparkEtlJob {
         Map<Long, EtlTable> tables = etlJobConfig.tables;
 
         // spark etl must have only one table with bitmap type column to process.
-        boolean hasBitMapColumns = false;
+        hasBitMapColumns = false;
         for (EtlTable table : tables.values()) {
             for (EtlColumn column : table.columns.values()) {
                 if (column.columnType.equalsIgnoreCase(BITMAP_TYPE)) {
