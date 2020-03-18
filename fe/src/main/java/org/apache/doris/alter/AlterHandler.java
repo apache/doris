@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import com.google.common.collect.Queues;
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.CancelStmt;
@@ -59,14 +60,15 @@ public abstract class AlterHandler extends MasterDaemon {
 
     // tableId -> AlterJob
     @Deprecated
-    protected ConcurrentHashMap<Long, AlterJob> alterJobs = new ConcurrentHashMap<Long, AlterJob>();
+    protected ConcurrentHashMap<Long, AlterJob> alterJobs = new ConcurrentHashMap<>();
     @Deprecated
-    protected ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = new ConcurrentLinkedQueue<AlterJob>();
+    protected ConcurrentLinkedQueue<AlterJob> finishedOrCancelledAlterJobs = new ConcurrentLinkedQueue<>();
     
     // queue of alter job v2
     protected ConcurrentMap<Long, AlterJobV2> alterJobsV2 = Maps.newConcurrentMap();
-    
-    /*
+    protected ConcurrentLinkedQueue<AlterJobV2> finishedOrCancelledAlterJobsV2 = Queues.newConcurrentLinkedQueue();
+
+    /**
      * lock to perform atomic operations.
      * eg.
      *  When job is finished, it will be moved from alterJobs to finishedOrCancelledAlterJobs,
@@ -117,6 +119,30 @@ public abstract class AlterHandler extends MasterDaemon {
 
     public Map<Long, AlterJobV2> getAlterJobsV2() {
         return this.alterJobsV2;
+    }
+
+    private void clearExpireFinishedOrCancelledAlterJobs() {
+        long curTime = System.currentTimeMillis();
+        // clean history job
+        Iterator<AlterJob> iter = finishedOrCancelledAlterJobs.iterator();
+        while (iter.hasNext()) {
+            AlterJob historyJob = iter.next();
+            if ((curTime - historyJob.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second) {
+                iter.remove();
+                LOG.info("remove history {} job[{}]. finish at {}", historyJob.getType(),
+                        historyJob.getTableId(), TimeUtils.longToTimeString(historyJob.getFinishedTime()));
+            }
+        }
+    }
+
+    private void clearExpireFinishedOrCancelledAlterJobsV2() {
+        for (AlterJobV2 alterJobV2 : finishedOrCancelledAlterJobsV2) {
+            if (alterJobV2.isExpire()) {
+                finishedOrCancelledAlterJobsV2.remove(alterJobV2);
+                LOG.info("remove history {} jobV2[{}]. finish at {}", alterJobV2.getType(),
+                        alterJobV2.getTableId(), TimeUtils.longToTimeString(alterJobV2.getFinishedTimeMs()));
+            }
+        }
     }
 
     @Deprecated
@@ -319,17 +345,8 @@ public abstract class AlterHandler extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        long curTime = System.currentTimeMillis();
-        // clean history job
-        Iterator<AlterJob> iter = finishedOrCancelledAlterJobs.iterator();
-        while (iter.hasNext()) {
-            AlterJob historyJob = iter.next();
-            if ((curTime - historyJob.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second) {
-                iter.remove();
-                LOG.info("remove history {} job[{}]. created at {}", historyJob.getType(),
-                         historyJob.getTableId(), TimeUtils.longToTimeString(historyJob.getCreateTimeMs()));
-            }
-        }
+        clearExpireFinishedOrCancelledAlterJobs();
+        clearExpireFinishedOrCancelledAlterJobsV2();
     }
 
     @Override
