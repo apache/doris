@@ -130,7 +130,7 @@ public:
 
     PagePointer get_dict_page_pointer() const { return _meta.dict_page(); }
 
-    // do not call this method in classes other than subclasses of ColumnReader and ColumnReader
+    // Now, we call this method in ColumnReader::create.
     Status init();
 
     virtual TypeInfo* get_type_info_for_read();

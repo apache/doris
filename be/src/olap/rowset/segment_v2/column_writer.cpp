@@ -491,6 +491,7 @@ Status ListColumnWriter::_append_data(const uint8_t** ptr, size_t num_rows) {
     size_t remaining = num_rows;
     const auto* col_cursor = reinterpret_cast<const collection*>(*ptr);
     while (remaining > 0) {
+        // TODO llj: bulk write
         size_t num_written = 1;
         RETURN_IF_ERROR(_page_builder->add(reinterpret_cast<const uint8_t*>(&_next_item_ordinal), &num_written));
 

@@ -26,7 +26,7 @@ struct collection {
     size_t length;
     // null bitmap
     bool* null_signs;
-    // 子元素数据数据
+    // child column data
     void* data;
 
     collection(): length(0), null_signs(nullptr), data(nullptr) {}

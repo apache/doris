@@ -56,7 +56,6 @@ public:
 
     inline bool* get_null_signs(size_t idx) { return _null_signs + idx; }
 
-
     /**
      * Change the number of slots to at least the given capacity.
      * This function is not recursive into subtypes.
@@ -129,13 +128,14 @@ public:
 
     size_t item_offset(size_t idx) const;
 
-    // 将size个ordinals放入_item_offsets，从start_idx开始覆盖
-    // _item_offsets: 0 3 5 9, ordinals: 100 105 111, size: 3, satart_idx:3
+    // From `start_idx`, put `size` ordinals to _item_offsets
+    // Ex:
+    // original _item_offsets: 0 3 5 9; ordinals to be added: 100 105 111; size: 3; satart_idx: 3
     // --> _item_offsets: 0 3 5 (9 + 100 - 100) (9 + 105 - 100) (9 + 111 - 100)
-    // 即 _item_offsets变成 0 3 5 9 14 20
+    // _item_offsets becomes 0 3 5 9 14 20
     void put_item_ordinal(segment_v2::ordinal_t* ordinals, size_t start_idx, size_t size);
 
-    // 将_item_offsets从start_idx到end_idx的部分转化成data
+    // Generate collection slots.
     void transform_offsets_and_elements_to_data(size_t start_idx, size_t end_idx);
 
 private:
@@ -143,7 +143,7 @@ private:
 
     std::unique_ptr<ColumnVectorBatch> _elements;
 
-    // 用于存储每个数据在_elements中的位置
+    // Stores each collection's start offsets in _elements.
     size_t* _item_offsets = nullptr;
 };
 

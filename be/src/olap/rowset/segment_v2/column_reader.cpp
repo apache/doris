@@ -354,7 +354,7 @@ Status ListFileColumnIterator::init(const ColumnIteratorOptions& opts) {
 
 // every invoke this method, _offset_batch will be cover, so this method is not thread safe.
 Status ListFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
-    // 1. read offsets into  _offset_batch;
+    // 1. read n offsets into  _offset_batch;
     _offset_batch->resize(*n + 1);
     ColumnBlock ordinal_block(_offset_batch.get(), nullptr);
     ColumnBlockView ordinal_view(&ordinal_block);
@@ -364,7 +364,7 @@ Status ListFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
         return Status::OK();
     }
 
-    // 2. 读取最后一个ordinal
+    // 2. Becuase we should read n + 1 offsets, so read one more here.
     if (_page->data_decoder->has_remaining()) { // not _page->has_remaining()
         size_t i = 1;
         _page->data_decoder->peek_next_batch(&i, &ordinal_view); // not null
@@ -375,7 +375,7 @@ Status ListFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     ordinal_view.set_null_bits(1, false);
     ordinal_view.advance(1);
 
-    // 3. 对于nullable的数据，修补ordinal_block中的空洞: 0 N N 3 N 5 -> 0 3 3 3 5 5
+    // 3. For nullable data，fill null ordinals from last to start: 0 N N 3 N 5 -> 0 3 3 3 5 5
     if (_reader->is_nullable()) {
         size_t j = *n + 1;
         while(--j > 0) { // j can not be less than 0
@@ -387,7 +387,7 @@ Status ListFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
         }
     }
 
-    // 4. 读子列数据并拼装collection
+    // 4. read child column's data and generate collections.
     ColumnBlock* collection_block = dst->column_block();
     ListColumnVectorBatch* collection_batch =
             reinterpret_cast<ListColumnVectorBatch*>(collection_block->vector_batch());

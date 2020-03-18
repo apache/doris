@@ -239,7 +239,7 @@ public:
         deep_copy(dest, src, mem_pool);
     }
 
-    // TODO llj 疑惑，我direct_copy可以保证collection的长度够用，但如何保证item的长度够用?
+    // TODO llj: How to ensure sufficient length of item
     inline void direct_copy(void* dest, const void* src) const override {
         auto dest_value = reinterpret_cast<collection*>(dest);
         auto src_value = reinterpret_cast<const collection*>(src);
@@ -254,7 +254,6 @@ public:
             if (dest_value->null_signs[i]) continue;
             _item_type_info->direct_copy((uint8_t*)(dest_value->data) + i * _item_size, (uint8_t*)(src_value->data) + i * _item_size);
         }
-
     }
 
     OLAPStatus convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool) const override {
