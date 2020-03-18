@@ -174,7 +174,7 @@ public class SparkEtlJobHandler {
         // get spark appid
         String appId = handle.getAppId();
         if (appId == null) {
-            LOG.info("spark app handle get null appid, and check in next round. load job id: {}, state: ",
+            LOG.info("spark app handle get null appid, and check in next round. load job id: {}, state: {}",
                      loadJobId, etlJobState);
             return status;
         }

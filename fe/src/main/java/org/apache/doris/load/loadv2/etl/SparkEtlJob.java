@@ -17,6 +17,8 @@
 
 package org.apache.doris.load.loadv2.etl;
 
+import com.google.gson.FieldNamingPolicy;
+import com.google.gson.GsonBuilder;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
@@ -48,9 +50,13 @@ public class SparkEtlJob {
     private void initConfig() throws IOException {
         BufferedReader br = null;
         try {
+            GsonBuilder gsonBuilder = new GsonBuilder();
+            gsonBuilder.setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES);
+            Gson gson = gsonBuilder.create();
+
             br = new BufferedReader(new InputStreamReader(new FileInputStream(new File(configFilePath)),
                                                           "UTF-8"));
-            etlJobConfig = new Gson().fromJson(br.readLine(), EtlJobConfig.class);
+            etlJobConfig = gson.fromJson(br.readLine(), EtlJobConfig.class);
             System.err.println("etl job configs: " + etlJobConfig.toString());
         } finally {
             if (br != null) {
