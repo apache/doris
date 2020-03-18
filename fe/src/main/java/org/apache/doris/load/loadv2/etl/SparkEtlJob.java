@@ -17,13 +17,14 @@
 
 package org.apache.doris.load.loadv2.etl;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlColumn;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
-import com.google.gson.Gson;
 import org.apache.spark.sql.SparkSession;
+
+import com.google.common.collect.Lists;
+import com.google.gson.Gson;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -33,14 +34,14 @@ import java.io.InputStreamReader;
 import java.util.List;
 import java.util.Map;
 
-public class SparkEtl {
+public class SparkEtlJob {
     private static final String BITMAP_TYPE = "bitmap";
 
     private String configFilePath;
     private EtlJobConfig etlJobConfig;
     private boolean hasBitMapColumns;
 
-    private SparkEtl(String configFilePath) {
+    private SparkEtlJob(String configFilePath) {
         this.configFilePath = configFilePath;
     }
 
@@ -50,13 +51,10 @@ public class SparkEtl {
             br = new BufferedReader(new InputStreamReader(new FileInputStream(new File(configFilePath)),
                                                           "UTF-8"));
             etlJobConfig = new Gson().fromJson(br.readLine(), EtlJobConfig.class);
+            System.err.println("etl job configs: " + etlJobConfig.toString());
         } finally {
             if (br != null) {
-                try {
-                    br.close();
-                } catch (IOException e) {
-                    System.err.println("close buffered reader fail, error: " + e.toString());
-                }
+                br.close();
             }
         }
     }
@@ -80,7 +78,7 @@ public class SparkEtl {
         }
 
         if (hasBitMapColumns && tables.size() != 1) {
-            throw new Exception("spark etl must have only one table with bitmap type column to process");
+            throw new Exception("spark etl job must have only one table with bitmap type column to process");
         }
     }
 
@@ -131,7 +129,7 @@ public class SparkEtl {
             break;
         }
 
-        SparkSession spark = SparkSession.builder().appName("Spark etl").getOrCreate();
+        SparkSession spark = SparkSession.builder().appName("Spark Etl").getOrCreate();
 
         // build global dict and and encode source hive table
         buildGlobalDictAndEncodeSourceTable(table, tableId, spark);
@@ -159,11 +157,12 @@ public class SparkEtl {
             System.exit(-1);
         }
 
-        SparkEtl etl = new SparkEtl(args[0]);
+        SparkEtlJob etl = new SparkEtlJob(args[0]);
         try {
             etl.run();
         } catch (Exception e) {
-            System.err.println("spark etl run fail, error: " + e.toString());
+            System.err.println("spark etl job run fail");
+            e.printStackTrace();
             System.exit(-1);
         }
     }

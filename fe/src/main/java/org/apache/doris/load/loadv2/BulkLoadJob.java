@@ -67,6 +67,9 @@ import java.util.Set;
 public abstract class BulkLoadJob extends LoadJob {
     private static final Logger LOG = LogManager.getLogger(BulkLoadJob.class);
 
+    // input params
+    // TODO: move to BrokerLoadJob
+    protected BrokerDesc brokerDesc;
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
     // the expr of columns will be reanalyze when the log is replayed
@@ -291,6 +294,7 @@ public abstract class BulkLoadJob extends LoadJob {
     @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
+        brokerDesc.write(out);
         Text.writeString(out, originStmt);
 
         out.writeInt(sessionVariables.size());
@@ -300,13 +304,9 @@ public abstract class BulkLoadJob extends LoadJob {
         }
     }
 
-    public void readFields(DataInput in, BrokerDesc brokerDesc) throws IOException {
+    public void readFields(DataInput in) throws IOException {
         super.readFields(in);
-
-        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_75) {
-            brokerDesc = BrokerDesc.read(in);
-        }
-
+        brokerDesc = BrokerDesc.read(in);
         if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_61) {
             fileGroupAggInfo.readFields(in);
         }

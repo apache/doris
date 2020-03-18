@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.loadv2;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.PaloFe;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.LoadException;
@@ -27,6 +26,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TEtlState;
+
 import org.apache.http.HttpEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
@@ -35,12 +35,12 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
 import org.apache.spark.launcher.SparkAppHandle;
 import org.apache.spark.launcher.SparkAppHandle.Listener;
 import org.apache.spark.launcher.SparkAppHandle.State;
 import org.apache.spark.launcher.SparkLauncher;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.Gson;
 
@@ -58,10 +58,8 @@ public class SparkEtlJobHandler {
     private static final String JOB_CONFIG_DIR = PaloFe.DORIS_HOME_DIR + "/temp/job_conf";
     private static final String JOB_CONFIG_FILE = "jobconfig.json";
     private static final String APP_RESOURCE = PaloFe.DORIS_HOME_DIR + "/lib/palo-fe.jar";
-    private static final String MAIN_CLASS = "org.apache.doris.load.loadv2.etl.SparkEtl";
+    private static final String MAIN_CLASS = "org.apache.doris.load.loadv2.etl.SparkEtlJob";
     private static final String ETL_JOB_NAME = "doris__%s";
-    // hdfs://host:port/outputPath/dbId/loadLabel/PendingTaskSignature
-    private static final String ETL_OUTPUT_PATH = "%s%s/%d/%s/%d";
     // http://host:port/api/v1/applications/appid/jobs
     private static final String STATUS_URL = "%s/api/v1/applications/%s/jobs";
 
@@ -96,6 +94,9 @@ public class SparkEtlJobHandler {
                 .setMainClass(MAIN_CLASS)
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
                 .addAppArgs(configFilePath);
+                //.setDeployMode("cluster")
+                //.addSparkArg("--jars", "")
+                //addSparkArg("--files", "")
         for (Map.Entry<String, String> entry : sparkConfigs.entrySet()) {
             launcher = launcher.setConf(entry.getKey(), entry.getValue());
         }
@@ -110,7 +111,7 @@ public class SparkEtlJobHandler {
             throw new LoadException(errMsg);
         } finally {
             // delete config file
-            Util.deleteDirectory(new File(configDirPath));
+            // Util.deleteDirectory(new File(configDirPath));
         }
 
         return handle;
@@ -160,7 +161,7 @@ public class SparkEtlJobHandler {
         EtlStatus status = new EtlStatus();
 
         // state
-        SparkAppHandle.State etlJobState = handle.getState();
+        State etlJobState = handle.getState();
         if (etlJobState == State.FINISHED) {
             status.setState(TEtlState.FINISHED);
         } else if (etlJobState == State.FAILED || etlJobState == State.KILLED || etlJobState == State.LOST) {
@@ -173,7 +174,8 @@ public class SparkEtlJobHandler {
         // get spark appid
         String appId = handle.getAppId();
         if (appId == null) {
-            LOG.info("spark app handle get null appid, and check in next round. load job id: {}", loadJobId);
+            LOG.info("spark app handle get null appid, and check in next round. load job id: {}, state: ",
+                     loadJobId, etlJobState);
             return status;
         }
 
@@ -236,24 +238,24 @@ public class SparkEtlJobHandler {
         handle.stop();
     }
 
-    public Map<String, Long> getEtlFilePaths(String outputPath, BrokerDesc brokerDesc) throws UserException {
-        Map<String, Long> fileNameToSize = Maps.newHashMap();
+    public Map<String, Long> getEtlFilePaths(String outputPath, BrokerDesc brokerDesc) throws Exception {
+        Map<String, Long> filePathToSize = Maps.newHashMap();
 
         List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
-        BrokerUtil.parseBrokerFile(outputPath, brokerDesc, fileStatuses);
+        try {
+            BrokerUtil.parseBrokerFile(outputPath, brokerDesc, fileStatuses);
+        } catch (UserException e) {
+            throw new Exception(e);
+        }
+
         for (TBrokerFileStatus fstatus : fileStatuses) {
             if (fstatus.isDir) {
                 continue;
             }
-
-            fileNameToSize.put(fstatus.getPath(), fstatus.getSize());
+            filePathToSize.put(fstatus.getPath(), fstatus.getSize());
         }
+        LOG.debug("get spark etl file paths. files map: {}", filePathToSize);
 
-        return fileNameToSize;
-    }
-
-    public static String getOutputPath(String fsDefaultName, String outputPath, long dbId,
-                                       String loadLabel, long taskSignature) {
-        return String.format(ETL_OUTPUT_PATH, fsDefaultName, outputPath, dbId, loadLabel, taskSignature);
+        return filePathToSize;
     }
 }

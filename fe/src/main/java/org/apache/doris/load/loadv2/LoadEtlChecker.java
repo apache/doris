@@ -41,7 +41,7 @@ public class LoadEtlChecker extends MasterDaemon {
         try {
             loadManager.processEtlStateJobs();
         } catch (Throwable e) {
-            LOG.warn("Failed to process one round of LoadJobScheduler with error message {}", e.getMessage(), e);
+            LOG.warn("Failed to process one round of LoadEtlChecker with error message {}", e.getMessage(), e);
         }
     }
 }

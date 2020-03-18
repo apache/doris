@@ -17,6 +17,8 @@
 
 package org.apache.doris.load.loadv2.etl;
 
+import org.apache.doris.common.LoadException;
+
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -110,9 +112,14 @@ import java.util.Map;
  * }
  */
 public class EtlJobConfig {
+    // global dict
     public static final String GLOBAL_DICT_TABLE_NAME = "doris_global_dict_table_%d";
     public static final String DISTINCT_KEY_TABLE_NAME = "doris_distinct_key_table_%d_%s";
     public static final String DORIS_INTERMEDIATE_HIVE_TABLE_NAME = "doris_intermediate_hive_table_%d_%s";
+
+    // hdfs://host:port/outputPath/dbId/loadLabel/PendingTaskSignature
+    private static final String ETL_OUTPUT_PATH = "%s%s/%d/%s/%d";
+    private static final String ETL_OUTPUT_FILE_NAME_FORMAT = "label.tableId.partitionId.indexId.bucket.schemaHash";
 
     Map<Long, EtlTable> tables;
     String outputPath;
@@ -134,6 +141,33 @@ public class EtlJobConfig {
         this.outputPath = outputPath;
     }
 
+    public static String getOutputPath(String hdfsDefaultName, String outputPath, long dbId,
+                                       String loadLabel, long taskSignature) {
+        return String.format(ETL_OUTPUT_PATH, hdfsDefaultName, outputPath, dbId, loadLabel, taskSignature);
+    }
+
+    public static String getTablePartitionIndexBucketSchemaStr(String filePath) throws LoadException {
+        // label.tableId.partitionId.indexId.bucket.schemaHash
+        String fileName = filePath.substring(filePath.lastIndexOf("/") + 1);
+        String[] fileNameArr = fileName.split("\\.");
+        if (fileNameArr.length != ETL_OUTPUT_FILE_NAME_FORMAT.split("\\.").length) {
+            throw new LoadException("etl output file name error, format: " + ETL_OUTPUT_FILE_NAME_FORMAT
+                                            + ", name: " + fileName);
+        }
+
+        // tableId.partitionId.indexId.bucket.schemaHash
+        return fileName.substring(fileName.indexOf(".") + 1);
+    }
+
+    @Override
+    public String toString() {
+        return "EtlJobConfig{" +
+                "tables=" + tables +
+                ", outputPath='" + outputPath + '\'' +
+                ", outputFilePattern='" + outputFilePattern + '\'' +
+                '}';
+    }
+
     public static class EtlTable {
         Map<String, EtlColumn> columns;
         Map<Long, EtlIndex> indexes;
@@ -150,6 +184,16 @@ public class EtlJobConfig {
 
         public void addFileGroup(EtlFileGroup etlFileGroup) {
             fileGroups.add(etlFileGroup);
+        }
+
+        @Override
+        public String toString() {
+            return "EtlTable{" +
+                    "columns=" + columns +
+                    ", indexes=" + indexes +
+                    ", partitionInfo=" + partitionInfo +
+                    ", fileGroups=" + fileGroups +
+                    '}';
         }
     }
 
@@ -176,6 +220,21 @@ public class EtlJobConfig {
             this.precision = precision;
             this.scale = scale;
         }
+
+        @Override
+        public String toString() {
+            return "EtlColumn{" +
+                    "name='" + name + '\'' +
+                    ", columnType='" + columnType + '\'' +
+                    ", isAllowNull=" + isAllowNull +
+                    ", isKey=" + isKey +
+                    ", aggregationType='" + aggregationType + '\'' +
+                    ", defaultValue='" + defaultValue + '\'' +
+                    ", stringLength=" + stringLength +
+                    ", precision=" + precision +
+                    ", scale=" + scale +
+                    '}';
+        }
     }
 
     public static class EtlIndex {
@@ -187,6 +246,15 @@ public class EtlJobConfig {
             this.columnRefs = columnMaps;
             this.distributionColumnRefs = distributionColumnRefs;
             this.schemaHash = schemaHash;
+        }
+
+        @Override
+        public String toString() {
+            return "EtlIndex{" +
+                    "columnRefs=" + columnRefs +
+                    ", distributionColumnRefs=" + distributionColumnRefs +
+                    ", schemaHash=" + schemaHash +
+                    '}';
         }
     }
 
@@ -201,6 +269,15 @@ public class EtlJobConfig {
             this.partitionColumnRefs = partitionColumnRefs;
             this.partitions = idToEtlPartition;
         }
+
+        @Override
+        public String toString() {
+            return "EtlPartitionInfo{" +
+                    "partitionType='" + partitionType + '\'' +
+                    ", partitionColumnRefs=" + partitionColumnRefs +
+                    ", partitions=" + partitions +
+                    '}';
+        }
     }
 
     public static class EtlPartition {
@@ -214,6 +291,16 @@ public class EtlJobConfig {
             this.endKeys = endKeys;
             this.isMaxPartition = isMaxPartition;
             this.bucketNum = bucketNum;
+        }
+
+        @Override
+        public String toString() {
+            return "EtlPartition{" +
+                    "startKeys=" + startKeys +
+                    ", endKeys=" + endKeys +
+                    ", isMaxPartition=" + isMaxPartition +
+                    ", bucketNum=" + bucketNum +
+                    '}';
         }
     }
 
@@ -249,6 +336,23 @@ public class EtlJobConfig {
         public void setHiveTableName(String hiveTableName) {
             this.hiveTableName = hiveTableName;
         }
+
+        @Override
+        public String toString() {
+            return "EtlFileGroup{" +
+                    "filePaths=" + filePaths +
+                    ", fileFieldNames=" + fileFieldNames +
+                    ", columnsFromPath=" + columnsFromPath +
+                    ", valueSeparator='" + valueSeparator + '\'' +
+                    ", lineDelimiter='" + lineDelimiter + '\'' +
+                    ", isNegative=" + isNegative +
+                    ", fileFormat='" + fileFormat + '\'' +
+                    ", columnMappings=" + columnMappings +
+                    ", where='" + where + '\'' +
+                    ", partitions=" + partitions +
+                    ", hiveTableName='" + hiveTableName + '\'' +
+                    '}';
+        }
     }
 
     public static class EtlColumnMapping {
@@ -258,6 +362,14 @@ public class EtlJobConfig {
         public EtlColumnMapping(String functionName, List<String> args) {
             this.functionName = functionName;
             this.args = args;
+        }
+
+        @Override
+        public String toString() {
+            return "EtlColumnMapping{" +
+                    "functionName='" + functionName + '\'' +
+                    ", args=" + args +
+                    '}';
         }
     }
 }

@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import static org.apache.doris.load.FailMsg.CancelType.LOAD_RUN_FAIL;
+import static org.apache.doris.load.FailMsg.CancelType.ETL_RUN_FAIL;
 
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.LoadStmt;
@@ -116,7 +117,9 @@ public class LoadManager implements Writable{
         } finally {
             writeUnlock();
         }
-        Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+        if (!(loadJob instanceof SparkLoadJob)) {
+            Catalog.getCurrentCatalog().getEditLog().logCreateLoadJob(loadJob);
+        }
 
         // The job must be submitted after edit log.
         // It guarantee that load job has not been changed before edit log.
@@ -387,7 +390,23 @@ public class LoadManager implements Writable{
                     try {
                         ((SparkLoadJob) job).updateEtlStatus();
                     } catch (UserException e) {
-                        LOG.warn("update spark load job etl status fail. error: {}", e);
+                        job.cancelJobWithoutCheck(new FailMsg(ETL_RUN_FAIL, e.getMessage()), true, false);
+                    } catch (Exception e) {
+                        LOG.warn("update load job etl status fail. error: {}", e);
+                    }
+                });
+    }
+
+    // only for those jobs which load by PushTask
+    public void processLoadingStateJobs() {
+        idToLoadJob.values().stream().filter(job -> (job.jobType == EtlJobType.SPARK && job.state == JobState.LOADING))
+                .forEach(job -> {
+                    try {
+                        ((SparkLoadJob) job).updateLoadingStatus();
+                    } catch (UserException e) {
+                        job.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), true, false);
+                    } catch (Exception e) {
+                        LOG.warn("update load job loading status fail. error: {}", e);
                     }
                 });
     }

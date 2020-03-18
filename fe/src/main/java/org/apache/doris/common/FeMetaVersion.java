@@ -159,9 +159,7 @@ public final class FeMetaVersion {
     public static final int VERSION_73 = 73;
     // temp partitions
     public static final int VERSION_74 = 74;
-    // Spark load job
-    public static final int VERSION_75 = 75;
 
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_75;
+    public static final int VERSION_CURRENT = VERSION_74;
 }

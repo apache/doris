@@ -96,9 +96,9 @@ public class SparkLoadPendingTask extends LoadTask {
     private void submitEtlJob() throws LoadException {
         // retry different output path
         String outputPath = etlClusterDesc.getProperties().get("output_path");
-        String fsDefaultName = etlClusterDesc.getProperties().get("fs.default.name");
-        etlJobConfig.setOutputPath(SparkEtlJobHandler.getOutputPath(fsDefaultName, outputPath, dbId,
-                                                                    loadLabel, signature));
+        String hdfsDefaultName = etlClusterDesc.getProperties().get("fs.default.name");
+        etlJobConfig.setOutputPath(EtlJobConfig.getOutputPath(hdfsDefaultName, outputPath, dbId,
+                                                              loadLabel, signature));
 
         // spark configs
         String sparkMaster = etlClusterDesc.getProperties().get("spark.master");
