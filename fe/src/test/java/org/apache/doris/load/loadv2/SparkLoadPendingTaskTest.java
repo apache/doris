@@ -293,6 +293,8 @@ public class SparkLoadPendingTaskTest {
         // check base index columns
         for (Map<String, Object> indexMap : indexes) {
             if (new Double((double) indexMap.get("index_id")).longValue() == index1Id) {
+                Assert.assertTrue((Boolean) indexMap.get("is_base_index"));
+
                 List<Map<String, Object>> columnMaps = (List<Map<String, Object>>) indexMap.get("columns");
                 Assert.assertEquals(3, columnMaps.size());
                 for (int i = 0; i < columns.size(); i++) {
