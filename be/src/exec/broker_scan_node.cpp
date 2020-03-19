@@ -101,7 +101,6 @@ Status BrokerScanNode::prepare(RuntimeState* state) {
     // Profile
     _wait_scanner_timer = ADD_TIMER(runtime_profile(), "WaitScannerTime");
 
-    LOG(INFO) << "broker scan node mem_tracker " << mem_tracker()->debug_string();
     return Status::OK();
 }
 

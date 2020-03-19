@@ -66,7 +66,6 @@ Status NodeChannel::init(RuntimeState* state) {
 
     // use OlapTableSink mem_tracker which has the same ancestor of scan node , so mem limit is a matter for scan node
     _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker));
-    LOG(INFO) << _parent->_mem_tracker->debug_string();
 
     _stub = state->exec_env()->brpc_stub_cache()->get_stub(_node_info->host, _node_info->brpc_port);
     if (_stub == nullptr) {
@@ -187,8 +186,6 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
 
         _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker));
         _cur_add_batch_request.clear_tablet_ids();
-
-        // TODO 这里是唯一_cur_batch没用，也可以等_pending batches空掉的地方，但是只在一个channel的层面
 
         row_no = _cur_batch->add_row();
     }
@@ -440,7 +437,6 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile(_pool, "OlapTableSink"));
     _mem_tracker = _pool->add(new MemTracker(-1, "OlapTableSink", state->instance_mem_tracker()));
-    LOG(INFO) << "sink mem_tracker" << _mem_tracker->debug_string();
 
     SCOPED_TIMER(_profile->total_time_counter());
 
@@ -539,11 +535,6 @@ Status OlapTableSink::prepare(RuntimeState* state) {
         _channels.emplace_back(channel);
     }
 
-    // TODO del
-    if ((config::enable_partitioned_aggregation || config::enable_new_partitioned_aggregation)) {
-        LOG(INFO) << "mem tracker can release in RowBatch";
-    }
-
     return Status::OK();
 }
 
@@ -581,9 +572,6 @@ Status OlapTableSink::open(RuntimeState* state) {
 
 Status OlapTableSink::send(RuntimeState* state, RowBatch* input_batch) {
     SCOPED_TIMER(_profile->total_time_counter());
-
-    // TODO olaptablesink的mem tracker自己用？前提是mem tracker可以跟踪到pending batches的消失，照上次的经验来看，并不会。再看一次
-
     _number_input_rows += input_batch->num_rows();
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
