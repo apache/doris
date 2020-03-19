@@ -25,7 +25,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
     aggregation_node.cpp
-    #pre_aggregation_node.cpp
     aggregation_node_ir.cpp
     analytic_eval_node.cpp
     blocking_join_node.cpp
