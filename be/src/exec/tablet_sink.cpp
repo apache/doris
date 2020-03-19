@@ -260,7 +260,7 @@ void NodeChannel::cancel() {
     _stub->tablet_writer_cancel(&closure->cntl, &request, &closure->result, closure);
     request.release_id();
 
-    // Beware of the destruct sequence. RowBatches will use mem_trackers(ancestors mem_tracker).
+    // Beware of the destruct sequence. RowBatches will use mem_trackers(include ancestors).
     // Delete RowBatches here is a better choice to reduce the potential of dtor errors.
     {
         std::lock_guard<std::mutex> lg(_pending_batches_lock);
