@@ -162,6 +162,8 @@ public class WebBaseAction extends BaseAction {
             ctx.setQualifiedUser(authInfo.fullUserName);
             ctx.setRemoteIP(authInfo.remoteIp);
             ctx.setCurrentUserIdentity(currentUser);
+            ctx.setCatalog(Catalog.getCurrentCatalog());
+            ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setThreadLocalInfo();
 
             return true;
