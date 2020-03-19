@@ -28,13 +28,10 @@ import org.roaringbitmap.buffer.MutableRoaringBitmap;
 import org.roaringbitmap.longlong.ImmutableLongBitmapDataProvider;
 import org.roaringbitmap.longlong.LongConsumer;
 import org.roaringbitmap.longlong.LongIterator;
-import org.roaringbitmap.longlong.Roaring64NavigableMap;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
 import java.math.BigInteger;
 import java.util.AbstractMap;
 import java.util.Arrays;
@@ -48,13 +45,17 @@ import java.util.TreeMap;
 
 import static org.apache.doris.common.util.Util.decodeVarint64;
 import static org.apache.doris.common.util.Util.encodeVarint64;
+import static org.apache.doris.load.loadv2.BitmapValue.BITMAP32;
+import static org.apache.doris.load.loadv2.BitmapValue.BITMAP64;
 
 /**
- *  used in spark load progress to build 64 bits int bitmap
- *  forked from https://github.com/RoaringBitmap/RoaringBitmap/blob/RoaringBitmap-0.8.13/RoaringBitmap/src/main/java/org/roaringbitmap/longlong/Roaring64NavigableMap.java
- *  mainly overwrite serialize/deserialize method to keep the storage format consist with be's 64 bit int bitmap
- *  for bitmap using in doris,we don't care the way ordering long
- *  so disable constructor with args signedLongs and using the default order
+ *
+ * forked version 0.8.13
+ * major change as below :
+ *  1. overwrite serialize/deserialize method
+ *  2. add a new method is32BitsEnough
+ *  3. fork some Util method from org.roaringbitmap.longlong RoaringIntPacking
+ * for details to see the end of the class
  */
 public class Roaring64Map {
 
@@ -107,7 +108,7 @@ public class Roaring64Map {
      * @param signedLongs true if longs has to be ordered as plain java longs. False to handle them as
      *        unsigned 64bits long (as RoaringBitmap with unsigned integers)
      */
-    private Roaring64Map(boolean signedLongs) {
+    public Roaring64Map(boolean signedLongs) {
         this(signedLongs, DEFAULT_CARDINALITIES_ARE_CACHED);
     }
 
@@ -119,7 +120,7 @@ public class Roaring64Map {
      * @param cacheCardinalities true if cardinalities have to be cached. It will prevent many
      *        iteration along the NavigableMap
      */
-    private Roaring64Map(boolean signedLongs, boolean cacheCardinalities) {
+    public Roaring64Map(boolean signedLongs, boolean cacheCardinalities) {
         this(signedLongs, cacheCardinalities, new RoaringBitmapSupplier());
     }
 
@@ -129,7 +130,7 @@ public class Roaring64Map {
      * @param supplier provide the logic to instantiate new {@link BitmapDataProvider}, typically
      *        instantiated once per high.
      */
-    private Roaring64Map(BitmapDataProviderSupplier supplier) {
+    public Roaring64Map(BitmapDataProviderSupplier supplier) {
         this(DEFAULT_ORDER_IS_SIGNED, DEFAULT_CARDINALITIES_ARE_CACHED, supplier);
     }
 
@@ -141,7 +142,7 @@ public class Roaring64Map {
      * @param supplier provide the logic to instantiate new {@link BitmapDataProvider}, typically
      *        instantiated once per high.
      */
-    private Roaring64Map(boolean signedLongs, BitmapDataProviderSupplier supplier) {
+    public Roaring64Map(boolean signedLongs, BitmapDataProviderSupplier supplier) {
         this(signedLongs, DEFAULT_CARDINALITIES_ARE_CACHED, supplier);
     }
 
@@ -154,8 +155,8 @@ public class Roaring64Map {
      * @param supplier provide the logic to instantiate new {@link BitmapDataProvider}, typically
      *        instantiated once per high.
      */
-    private Roaring64Map(boolean signedLongs, boolean cacheCardinalities,
-                         BitmapDataProviderSupplier supplier) {
+    public Roaring64Map(boolean signedLongs, boolean cacheCardinalities,
+                        BitmapDataProviderSupplier supplier) {
         this.signedLongs = signedLongs;
         this.supplier = supplier;
 
@@ -239,7 +240,7 @@ public class Roaring64Map {
      *
      * @param x integer value
      */
-    private void addInt(int x) {
+    public void addInt(int x) {
         addLong(Util.toUnsignedLong(x));
     }
 
@@ -283,14 +284,6 @@ public class Roaring64Map {
 
         BitmapDataProvider previous = highToBitmap.put(high, bitmap);
         assert previous == null : "Should push only not-existing high";
-    }
-
-    private int low(long id) {
-        return (int) id;
-    }
-
-    private int high(long id) {
-        return (int) (id >> 32);
     }
 
     /**
@@ -719,21 +712,6 @@ public class Roaring64Map {
     }
 
     /**
-     *
-     * @param signedLongs true if long put in a {@link Roaring64NavigableMap} should be considered as
-     *        signed long.
-     * @return the int representing the highest value which can be set as high value in a
-     *         {@link Roaring64NavigableMap}
-     */
-    public static int highestHigh(boolean signedLongs) {
-        if (signedLongs) {
-            return Integer.MAX_VALUE;
-        } else {
-            return -1;
-        }
-    }
-
-    /**
      * In-place bitwise OR (union) operation. The current bitmap is modified.
      *
      * @param x2 other bitmap
@@ -931,21 +909,6 @@ public class Roaring64Map {
     }
 
     /**
-     * {@link Roaring64NavigableMap} are serializable. However, contrary to RoaringBitmap, the
-     * serialization format is not well-defined: for now, it is strongly coupled with Java standard
-     * serialization. Just like the serialization may be incompatible between various Java versions,
-     * {@link Roaring64NavigableMap} are subject to incompatibilities. Moreover, even on a given Java
-     * versions, the serialization format may change from one RoaringBitmap version to another
-     */
-    public void writeExternal(ObjectOutput out) throws IOException {
-        serialize(out);
-    }
-
-    public void readExternal(ObjectInput in) throws IOException, ClassNotFoundException {
-        deserialize(in);
-    }
-
-    /**
      * A string describing the bitmap.
      *
      * @return the string
@@ -978,22 +941,6 @@ public class Roaring64Map {
         }
         answer.append("}");
         return answer.toString();
-    }
-
-    /** the constant 2^64 */
-    private static final BigInteger TWO_64 = BigInteger.ONE.shiftLeft(64);
-
-    /**
-     * JDK8 Long.toUnsignedString was too complex to backport. Go for a slow version relying on
-     * BigInteger
-     */
-    // https://stackoverflow.com/questions/7031198/java-signed-long-to-unsigned-long-string
-    static String toUnsignedString(long l) {
-        BigInteger b = BigInteger.valueOf(l);
-        if (b.signum() < 0) {
-            b = b.add(TWO_64);
-        }
-        return b.toString();
     }
 
 
@@ -1075,18 +1022,6 @@ public class Roaring64Map {
         };
     }
 
-    /**
-     *
-     * @param high an integer representing the highest order bits of the output long
-     * @param low an integer representing the lowest order bits of the output long
-     * @return a long packing together the integers as computed by
-     *         {@link #high(long)} and {@link #low(long)}
-     */
-    // https://stackoverflow.com/questions/12772939/java-storing-two-ints-in-a-long
-    public static long pack(int high, int low) {
-        return (((long) high) << 32) | (low & 0xffffffffL);
-    }
-
     public boolean contains(long x) {
         int high = high(x);
         BitmapDataProvider lowBitmap = highToBitmap.get(high);
@@ -1148,98 +1083,6 @@ public class Roaring64Map {
         return hasChanged;
     }
 
-
-    /**
-     * Serialize this bitmap.
-     *
-     * Unlike RoaringBitmap, there is no specification for now: it may change from onve java version
-     * to another, and from one RoaringBitmap version to another.
-     *
-     * Consider calling {@link #runOptimize} before serialization to improve compression.
-     *
-     * The current bitmap is not modified.
-     *
-     * @param out the DataOutput stream
-     * @throws IOException Signals that an I/O exception has occurred.
-     */
-    public void serialize(DataOutput out) throws IOException {
-        // '4' means BITMAP64 in doris be
-        out.writeByte(4);
-        encodeVarint64(highToBitmap.size(), out);
-
-        for (Map.Entry<Integer, BitmapDataProvider> entry : highToBitmap.entrySet()) {
-            out.writeInt(entry.getKey().intValue());
-            entry.getValue().serialize(out);
-        }
-    }
-
-
-    /**
-     * Deserialize (retrieve) this bitmap.
-     *
-     * Unlike RoaringBitmap, there is no specification for now: it may change from one java version to
-     * another, and from one RoaringBitmap version to another.
-     *
-     * The current bitmap is overwritten.
-     *
-     * @param in the DataInput stream
-     * @throws IOException Signals that an I/O exception has occurred.
-     */
-    public void deserialize(DataInput in) throws IOException {
-        this.clear();
-
-        int bitmapType = in.readByte();
-        if (bitmapType != 4) {
-            throw new RuntimeException(String.format("bitmap type error expected %s actual %s", 4, bitmapType));
-        }
-        long nbHighs = decodeVarint64(in);
-
-        // Other NavigableMap may accept a target capacity
-        if (signedLongs) {
-            highToBitmap = new TreeMap<>();
-        } else {
-            highToBitmap = new TreeMap<>(unsignedComparator());
-        }
-
-        for (int i = 0; i < nbHighs; i++) {
-            int high = in.readInt();
-            RoaringBitmap provider = new RoaringBitmap();
-            provider.deserialize(in);
-
-            highToBitmap.put(high, provider);
-        }
-
-        resetPerfHelpers();
-    }
-
-    /**
-     * @return A comparator for unsigned longs: a negative long is a long greater than Long.MAX_VALUE
-     */
-    public static Comparator<Integer> unsignedComparator() {
-        return new Comparator<Integer>() {
-
-            @Override
-            public int compare(Integer o1, Integer o2) {
-                return compareUnsigned(o1, o2);
-            }
-        };
-    }
-
-    /**
-     * Compares two {@code int} values numerically treating the values as unsigned.
-     *
-     * @param x the first {@code int} to compare
-     * @param y the second {@code int} to compare
-     * @return the value {@code 0} if {@code x == y}; a value less than {@code 0} if {@code x < y} as
-     *         unsigned values; and a value greater than {@code 0} if {@code x > y} as unsigned values
-     * @since 1.8
-     */
-    // Duplicated from jdk8 Integer.compareUnsigned
-    public static int compareUnsigned(int x, int y) {
-        return Integer.compare(x + Integer.MIN_VALUE, y + Integer.MIN_VALUE);
-    }
-
-
     public long serializedSizeInBytes() {
         long nbBytes = 0L;
 
@@ -1298,8 +1141,8 @@ public class Roaring64Map {
      * @param dat set values
      * @return a new bitmap
      */
-    public static Roaring64NavigableMap bitmapOf(final long... dat) {
-        final Roaring64NavigableMap ans = new Roaring64NavigableMap();
+    public static Roaring64Map bitmapOf(final long... dat) {
+        final Roaring64Map ans = new Roaring64Map();
         ans.add(dat);
         return ans;
     }
@@ -1451,6 +1294,187 @@ public class Roaring64Map {
         }
 
         invalidateAboveHigh(high);
+    }
+
+    /* ------------------ method below from Roaring64NavigableMap and being overwritten ----------------------------- */
+
+    /**
+     * Serialize this bitmap.
+     *
+     * Unlike RoaringBitmap, there is no specification for now: it may change from onve java version
+     * to another, and from one RoaringBitmap version to another.
+     *
+     * Consider calling {@link #runOptimize} before serialization to improve compression.
+     *
+     * The current bitmap is not modified.
+     *
+     * @param out the DataOutput stream
+     * @throws IOException Signals that an I/O exception has occurred.
+     */
+    public void serialize(DataOutput out) throws IOException {
+        if (is32BitsEnough()) {
+            out.write(BITMAP32);
+            highToBitmap.get(0).serialize(out);
+            return;
+        }
+
+        out.write(BITMAP64);
+        encodeVarint64(highToBitmap.size(), out);
+
+        for (Map.Entry<Integer, BitmapDataProvider> entry : highToBitmap.entrySet()) {
+            out.writeInt(entry.getKey().intValue());
+            entry.getValue().serialize(out);
+        }
+    }
+
+
+    /**
+     * Deserialize (retrieve) this bitmap.
+     *
+     * Unlike RoaringBitmap, there is no specification for now: it may change from one java version to
+     * another, and from one RoaringBitmap version to another.
+     *
+     * The current bitmap is overwritten.
+     *
+     * @param in the DataInput stream
+     * @throws IOException Signals that an I/O exception has occurred.
+     */
+    public void deserialize(DataInput in, int bitmapType) throws IOException {
+        this.clear();
+        highToBitmap = new TreeMap<>();
+
+        long nbHighs = 1;
+        if (bitmapType == BITMAP64) {
+            nbHighs = decodeVarint64(in);
+        }
+
+        for (int i = 0; i < nbHighs; i++) {
+            int high = in.readInt();
+            RoaringBitmap provider = new RoaringBitmap();
+            provider.deserialize(in);
+
+            highToBitmap.put(high, provider);
+        }
+
+        resetPerfHelpers();
+    }
+
+
+
+    /*---------------------------- method below is new written for doris's own bitmap --------------------------------*/
+
+    /**
+     *  three cases to judge whether current bitmap contains long
+     *  for 32-bit integer casted to long,the high 32 bits(use >> to get) can only be 0 or -1
+     *  @return true means current bitmap contains 64-bit integer,otherwise only 32-bit integer
+     */
+    public boolean is32BitsEnough() {
+        if (highToBitmap.size() == 0) {
+            return true;
+        }
+
+        boolean containsKeyNeg1 = highToBitmap.containsKey(-1);
+        boolean containsKey0 = highToBitmap.containsKey(0);
+
+        if (highToBitmap.size() == 1 && (containsKey0 || containsKeyNeg1)) {
+            return true;
+        }
+
+        if (highToBitmap.size() == 2 && (containsKey0 && containsKeyNeg1)) {
+            return true;
+        }
+
+        return false;
+    }
+
+
+    /*---------------  method below fetched from org.roaringbitmap.longlong RoaringIntPacking  -----------------------*/
+    /**
+     *
+     * @param id any long, positive or negative
+     * @return an int holding the 32 highest order bits of information of the input long
+     */
+    public static int high(long id) {
+        return (int) (id >> 32);
+    }
+
+    /**
+     *
+     * @param id any long, positive or negative
+     * @return an int holding the 32 lowest order bits of information of the input long
+     */
+    public static int low(long id) {
+        return (int) id;
+    }
+
+    /**
+     *
+     * @param high an integer representing the highest order bits of the output long
+     * @param low an integer representing the lowest order bits of the output long
+     * @return a long packing together the integers as computed by
+     *         {@link #high(long)} and {@link #low(long)}
+     */
+    // https://stackoverflow.com/questions/12772939/java-storing-two-ints-in-a-long
+    public static long pack(int high, int low) {
+        return (((long) high) << 32) | (low & 0xffffffffL);
+    }
+
+
+    /**
+     *
+     * @param signedLongs true if long put in a {@link Roaring64Map} should be considered as
+     *        signed long.
+     * @return the int representing the highest value which can be set as high value in a
+     */
+    public static int highestHigh(boolean signedLongs) {
+        if (signedLongs) {
+            return Integer.MAX_VALUE;
+        } else {
+            return -1;
+        }
+    }
+
+    /**
+     * @return A comparator for unsigned longs: a negative long is a long greater than Long.MAX_VALUE
+     */
+    public static Comparator<Integer> unsignedComparator() {
+        return new Comparator<Integer>() {
+
+            @Override
+            public int compare(Integer o1, Integer o2) {
+                return compareUnsigned(o1, o2);
+            }
+        };
+    }
+
+    /**
+     * Compares two {@code int} values numerically treating the values as unsigned.
+     *
+     * @param x the first {@code int} to compare
+     * @param y the second {@code int} to compare
+     * @return the value {@code 0} if {@code x == y}; a value less than {@code 0} if {@code x < y} as
+     *         unsigned values; and a value greater than {@code 0} if {@code x > y} as unsigned values
+     * @since 1.8
+     */
+    // Duplicated from jdk8 Integer.compareUnsigned
+    public static int compareUnsigned(int x, int y) {
+        return Integer.compare(x + Integer.MIN_VALUE, y + Integer.MIN_VALUE);
+    }
+
+    /** the constant 2^64 */
+    private static final BigInteger TWO_64 = BigInteger.ONE.shiftLeft(64);
+
+    /**
+     * JDK8 Long.toUnsignedString was too complex to backport. Go for a slow version relying on
+     * BigInteger
+     */
+    // https://stackoverflow.com/questions/7031198/java-signed-long-to-unsigned-long-string
+    static String toUnsignedString(long l) {
+        BigInteger b = BigInteger.valueOf(l);
+        if (b.signum() < 0) {
+            b = b.add(TWO_64);
+        }
+        return b.toString();
     }
 
 }
