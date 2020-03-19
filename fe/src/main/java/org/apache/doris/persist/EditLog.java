@@ -729,7 +729,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_REMOVE_ALTER_JOB_V2: {
-                    RemoveAlterJobOperationLog log = (RemoveAlterJobOperationLog) journal.getData();
+                    RemoveAlterJobV2OperationLog log = (RemoveAlterJobV2OperationLog) journal.getData();
                     switch (log.getType()) {
                         case ROLLUP:
                             catalog.getRollupHandler().replayRemoveAlterJobV2(log);
@@ -1272,7 +1272,7 @@ public class EditLog {
         logEdit(OperationType.OP_SET_REPLICA_STATUS, log);
     }
 
-    public void logRemoveExpiredAlterJob(RemoveAlterJobOperationLog log) {
+    public void logRemoveExpiredAlterJobV2(RemoveAlterJobV2OperationLog log) {
         logEdit(OperationType.OP_REMOVE_ALTER_JOB_V2, log);
     }
 }

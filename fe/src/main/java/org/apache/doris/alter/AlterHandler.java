@@ -34,7 +34,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.persist.RemoveAlterJobOperationLog;
+import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AlterReplicaTask;
@@ -140,15 +140,15 @@ public abstract class AlterHandler extends MasterDaemon {
             AlterJobV2 alterJobV2 = iterator.next().getValue();
             if (alterJobV2.isExpire()) {
                 iterator.remove();
-                RemoveAlterJobOperationLog log = new RemoveAlterJobOperationLog(alterJobV2.getJobId(), alterJobV2.getType());
-                Catalog.getCurrentCatalog().getEditLog().logRemoveExpiredAlterJob(log);
+                RemoveAlterJobV2OperationLog log = new RemoveAlterJobV2OperationLog(alterJobV2.getJobId(), alterJobV2.getType());
+                Catalog.getCurrentCatalog().getEditLog().logRemoveExpiredAlterJobV2(log);
                 LOG.info("remove expired {} job {}. finish at {}", alterJobV2.getType(),
                         alterJobV2.getJobId(), TimeUtils.longToTimeString(alterJobV2.getFinishedTimeMs()));
             }
         }
     }
 
-    public void replayRemoveAlterJobV2(RemoveAlterJobOperationLog log) {
+    public void replayRemoveAlterJobV2(RemoveAlterJobV2OperationLog log) {
         if (alterJobsV2.remove(log.getJobId()) != null) {
             LOG.info("replay removing expired {} job {}.", log.getType(), log.getJobId());
         } else {

@@ -30,14 +30,14 @@ import java.io.IOException;
 
 
 // edit log from removing alter job v2
-public class RemoveAlterJobOperationLog implements Writable {
+public class RemoveAlterJobV2OperationLog implements Writable {
 
     @SerializedName(value = "jobId")
     private long jobId;
     @SerializedName(value = "type")
     private AlterJobV2.JobType type;
 
-    public RemoveAlterJobOperationLog(long jobId, AlterJobV2.JobType type) {
+    public RemoveAlterJobV2OperationLog(long jobId, AlterJobV2.JobType type) {
         this.jobId = jobId;
         this.type = type;
     }
@@ -56,9 +56,9 @@ public class RemoveAlterJobOperationLog implements Writable {
         Text.writeString(out, json);
     }
 
-    public static RemoveAlterJobOperationLog read(DataInput in) throws IOException {
+    public static RemoveAlterJobV2OperationLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, RemoveAlterJobOperationLog.class);
+        return GsonUtils.GSON.fromJson(json, RemoveAlterJobV2OperationLog.class);
     }
 
 }

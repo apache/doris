@@ -63,7 +63,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
-import org.apache.doris.persist.RemoveAlterJobOperationLog;
+import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
@@ -524,7 +524,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_REMOVE_ALTER_JOB_V2: {
-                data = RemoveAlterJobOperationLog.read(in);
+                data = RemoveAlterJobV2OperationLog.read(in);
                 isRead = true;
                 break;
             }
