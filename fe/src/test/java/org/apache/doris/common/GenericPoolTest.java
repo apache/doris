@@ -49,6 +49,7 @@ import org.apache.doris.thrift.TTabletStatResult;
 import org.apache.doris.thrift.TTransmitDataParams;
 import org.apache.doris.thrift.TTransmitDataResult;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.utframe.UtFrameUtils;
 
 import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.thrift.TException;
@@ -62,7 +63,6 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 public class GenericPoolTest {
     static GenericPool<BackendService.Client> backendService;
@@ -71,8 +71,7 @@ public class GenericPoolTest {
     static int port;
 
     static {
-        Random r = new Random(System.currentTimeMillis());
-        port = 20000 + r.nextInt(10000);
+        port = UtFrameUtils.findValidPort();
     }
 
     static void close() {

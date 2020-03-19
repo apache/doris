@@ -150,15 +150,60 @@ PROPERTIES (
 
 * 分区替换成功后，被替换的分区将被删除且不可恢复。
 
-## 临时分区的导入
+## 临时分区的导入和查询
 
-（TODO）
+用户可以将数据导入到临时分区，也可以指定临时分区进行查询。
+
+1. 导入临时分区
+
+    根据导入方式的不同，指定导入临时分区的语法稍有差别。这里通过示例进行简单说明
+
+    ```
+    INSERT INTO tbl TEMPORARY PARTITION(tp1, tp2, ...) SELECT ....
+    ```
+
+    ```
+    curl --location-trusted -u root: -H "label:123" -H "temporary_partition: tp1, tp2, ..." -T testData http://host:port/api/testDb/testTbl/_stream_load    
+    ```
+
+    ```
+    LOAD LABEL example_db.label1
+    (
+    DATA INFILE("hdfs://hdfs_host:hdfs_port/user/palo/data/input/file")
+    INTO TABLE `my_table`
+    TEMPORARY PARTITION (tp1, tp2, ...)
+    ...
+    )
+    WITH BROKER hdfs ("username"="hdfs_user", "password"="hdfs_password");
+    ```
+
+    ```
+    CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+    COLUMNS(k1, k2, k3, v1, v2, v3 = k1 * 100),
+    TEMPORARY PARTITIONS(tp1, tp2, ...),
+    WHERE k1 > 100
+    PROPERTIES
+    (...)
+    FROM KAFKA
+    (...);
+    ```
+
+2. 查询临时分区
+
+    ```
+    SELECT ... FROM
+    tbl1 TEMPORARY PARTITION(tp1, tp2, ...)
+    JOIN
+    tbl2 TEMPORARY PARTITION(tp1, tp2, ...)
+    ON ...
+    WHERE ...;
+    ```
 
 ## 和其他操作的关系
 
 ### DROP
 
-* 使用 Drop 操作直接删除数据库或表后，可以通过 Recover 命令恢复数据库或表（限定时间内），同时，对应的临时分区也会被一同恢复。
+* 使用 Drop 操作直接删除数据库或表后，可以通过 Recover 命令恢复数据库或表（限定时间内），但临时分区不会被恢复。
 * 使用 Alter 命令删除正式分区后，可以通过 Recover 命令恢复分区（限定时间内）。操作正式分区和临时分区无关。
 * 使用 Alter 命令删除临时分区后，无法通过 Recover 命令恢复临时分区。
 

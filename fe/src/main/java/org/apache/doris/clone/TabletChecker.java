@@ -213,7 +213,7 @@ public class TabletChecker extends MasterDaemon {
                     }
 
                     OlapTable olapTbl = (OlapTable) table;
-                    for (Partition partition : olapTbl.getPartitions()) {
+                    for (Partition partition : olapTbl.getAllPartitions()) {
                         if (partition.getState() != PartitionState.NORMAL) {
                             // when alter job is in FINISHING state, partition state will be set to NORMAL,
                             // and we can schedule the tablets in it.

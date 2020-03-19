@@ -80,7 +80,7 @@ public class DataDescription {
             "substitute");
 
     private final String tableName;
-    private final List<String> partitionNames;
+    private final PartitionNames partitionNames;
     private final List<String> filePaths;
     private final ColumnSeparator columnSeparator;
     private final String fileFormat;
@@ -111,7 +111,7 @@ public class DataDescription {
     private boolean isHadoopLoad = false;
 
     public DataDescription(String tableName,
-                           List<String> partitionNames,
+                           PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
                            ColumnSeparator columnSeparator,
@@ -122,7 +122,7 @@ public class DataDescription {
     }
 
     public DataDescription(String tableName,
-                           List<String> partitionNames,
+                           PartitionNames partitionNames,
                            List<String> filePaths,
                            List<String> columns,
                            ColumnSeparator columnSeparator,
@@ -147,7 +147,7 @@ public class DataDescription {
         return tableName;
     }
 
-    public List<String> getPartitionNames() {
+    public PartitionNames getPartitionNames() {
         return partitionNames;
     }
 
@@ -549,6 +549,10 @@ public class DataDescription {
             columnSeparator.analyze();
         }
 
+        if (partitionNames != null) {
+            partitionNames.analyze(null);
+        }
+
         analyzeColumns();
     }
 
@@ -608,9 +612,9 @@ public class DataDescription {
             sb.append(" NEGATIVE");
         }
         sb.append(" INTO TABLE ").append(tableName);
-        if (partitionNames != null && !partitionNames.isEmpty()) {
-            sb.append(" PARTITION (");
-            Joiner.on(", ").appendTo(sb, partitionNames).append(")");
+        if (partitionNames != null) {
+            sb.append(" ");
+            sb.append(partitionNames.toSql());
         }
         if (columnSeparator != null) {
             sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
