@@ -63,6 +63,8 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _row_desc.reset(new RowDescriptor(_tuple_desc, false));
     _batch_size = state->batch_size();
+
+    // use OlapTableSink mem_tracker which has the same ancestor of scan node , so mem limit is a matter for scan node
     _cur_batch.reset(new RowBatch(*_row_desc, _batch_size, _parent->_mem_tracker));
     LOG(INFO) << _parent->_mem_tracker->debug_string();
 
@@ -219,10 +221,10 @@ Status NodeChannel::mark_close() {
 Status NodeChannel::close_wait(RuntimeState* state) {
     auto st = none_of({_rpc_error, _is_cancelled, !_eos_is_produced});
     if (!st.ok()) {
-        return st.clone_and_prepend("skip waiting for close. rpc_error/cancelled/!eos: ");
+        return st.clone_and_prepend("already stopped, skip waiting for close. rpc_error/cancelled/!eos: ");
     }
 
-    // wait for finished, sleep_for timeout is difficult to determine, use yield
+    // wait for finished, loop interval is difficult to determine, use yield
     while (!_add_batches_finished && !_rpc_error) {
         std::this_thread::yield();
     }
@@ -309,7 +311,7 @@ int NodeChannel::try_send_and_fetch_status() {
             _add_batch_closure->end_mark();
             _send_finished = true;
             DCHECK(_pending_batches_num == 0);
-            LOG(INFO) << name() << " send finished, wait last repsonse";
+            LOG(INFO) << name() << " send finished, should wait the last repsonse";
         }
 
         _add_batch_closure->set_in_flight();
@@ -372,7 +374,7 @@ Status IndexChannel::add_row(Tuple* tuple, int64_t tablet_id) {
     auto it = _channels_by_tablet.find(tablet_id);
     DCHECK(it != std::end(_channels_by_tablet)) << "unknown tablet, tablet_id=" << tablet_id;
     for (auto channel : it->second) {
-        // If this node channel is already failed, this add_row will be skipped
+        // if this node channel is already failed, this add_row will be skipped
         auto st = channel->add_row(tuple, tablet_id);
         if (!st.ok()) {
             mark_as_failed(channel);
@@ -898,6 +900,25 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
         }
     }
     return filtered_rows;
+}
+
+void OlapTableSink::_send_batch_process() {
+    SCOPED_RAW_TIMER(&_non_blocking_send_ns);
+    while (true) {
+        int running_channels_num = 0;
+        for (auto index_channel : _channels) {
+            index_channel->for_each_node_channel([&](NodeChannel* ch) {
+                running_channels_num += ch->try_send_and_fetch_status();
+            });
+        }
+
+        if (running_channels_num == 0) {
+            LOG(INFO) << "all node channels are stopped(maybe finished/offending/cancelled), "
+                         "consumer thread exit.";
+            return;
+        }
+        std::this_thread::yield();
+    }
 }
 
 } // namespace stream_load

@@ -25,16 +25,16 @@
 #include <utility>
 #include <vector>
 
-#include "common/status.h"
 #include "common/object_pool.h"
+#include "common/status.h"
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gen_cpp/palo_internal_service.pb.h"
 #include "util/bitmap.h"
-#include "util/thrift_util.h"
 #include "util/ref_count_closure.h"
+#include "util/thrift_util.h"
 
 namespace doris {
 
@@ -94,10 +94,12 @@ public:
         DCHECK(_packet_in_flight == false);
         _packet_in_flight = true;
     }
+
     void end_mark() {
         DCHECK(_is_last_rpc == false);
         _is_last_rpc = true;
     }
+
     void Run() override {
         DCHECK(_packet_in_flight);
         if (cntl.Failed()) {
@@ -151,17 +153,15 @@ public:
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
     // two ways to stop channel:
-    // 1. mark_close()->close_wait() close_wait() is waiting for the last rpc response.
+    // 1. mark_close()->close_wait() PS. close_wait() will block waiting for the last AddBatch rpc response.
     // 2. just cancel()
     Status mark_close();
-
-    // must ensure pending batches have been consumed && cur_batch is nullptr
     Status close_wait(RuntimeState* state);
 
     void cancel();
 
     // return:
-    // 0: stopped, no more batch needs to send,or can't send any more bcoz internal error;
+    // 0: stopped, send finished(eos request has been sent), or any internal error;
     // 1: running, haven't reach eos.
     // only allow 1 rpc in flight
     int try_send_and_fetch_status();
@@ -171,7 +171,7 @@ public:
                      int64_t* actual_consume_ns) {
         add_batch_counter_map[_node_id] += _add_batch_counter;
         *serialize_batch_ns += _serialize_batch_ns;
-        LOG(INFO) << name() << " queue_push_ns: " << _queue_push_lock_ns;
+        LOG(DEBUG) << name() << " queue_push_ns: " << _queue_push_lock_ns;
         *queue_push_lock_ns += _queue_push_lock_ns;
         *actual_consume_ns += _actual_consume_ns;
     }
@@ -203,7 +203,7 @@ private:
     std::atomic<bool> _send_finished{false};
     std::atomic<bool> _add_batches_finished{false};
 
-    bool _eos_is_produced{false};  // only for restricting producer behaviors
+    bool _eos_is_produced{false}; // only for restricting producer behaviors
 
     std::unique_ptr<RowDescriptor> _row_desc;
     int _batch_size = 0;
@@ -230,8 +230,8 @@ private:
 
 class IndexChannel {
 public:
-    IndexChannel(OlapTableSink* parent, int64_t index_id, int32_t schema_hash) :
-        _parent(parent), _index_id(index_id), _schema_hash(schema_hash) {}
+    IndexChannel(OlapTableSink* parent, int64_t index_id, int32_t schema_hash)
+            : _parent(parent), _index_id(index_id), _schema_hash(schema_hash) {}
     ~IndexChannel();
 
     Status init(RuntimeState* state, const std::vector<TTabletWithPartition>& tablets);
@@ -292,24 +292,10 @@ private:
     // invalid row number is set in Bitmap
     int _validate_data(RuntimeState* state, RowBatch* batch, Bitmap* filter_bitmap);
 
-    void _send_batch_process() {
-        SCOPED_RAW_TIMER(&_non_blocking_send_ns);
-        while (true) {
-            int running_channels_num = 0;
-            for (auto index_channel : _channels) {
-                index_channel->for_each_node_channel([&](NodeChannel* ch) {
-                    running_channels_num += ch->try_send_and_fetch_status();
-                });
-            }
-
-            if (running_channels_num == 0) {
-                LOG(INFO) << "all node channels are stopped(maybe finished/offending/cancelled), "
-                             "consumer thread exit.";
-                return;
-            }
-            std::this_thread::yield();
-        }
-    }
+    // the consumer func of sending pending batches in every NodeChannel.
+    // use polling & NodeChannel::try_send_and_fetch_status() to achieve nonblocking sending.
+    // only focus on pending batches and channel status, the internal errors of NodeChannels will be handled by the productor
+    void _send_batch_process();
 
 private:
     friend class NodeChannel;
@@ -398,5 +384,5 @@ private:
     int64_t _load_channel_timeout_s = 0;
 };
 
-}
-}
+} // namespace stream_load
+} // namespace doris
