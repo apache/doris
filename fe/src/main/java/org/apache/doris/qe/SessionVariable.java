@@ -93,6 +93,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TEST_MATERIALIZED_VIEW = "test_materialized_view";
     public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
     public static final String EVENT_SCHEDULER = "event_scheduler";
+    public static final String STORAGE_ENGINE = "storage_engine";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -235,6 +236,8 @@ public class SessionVariable implements Serializable, Writable {
     // compatible with some mysql client connect, say DataGrip of JetBrains
     @VariableMgr.VarAttr(name = EVENT_SCHEDULER)
     private String eventScheduler = "OFF";
+    @VariableMgr.VarAttr(name = STORAGE_ENGINE)
+    private String storageEngine = "olap";
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -426,6 +429,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEventScheduler(String eventScheduler) {
         this.eventScheduler = eventScheduler;
+    }
+
+    public String getStorageEngine() {
+        return storageEngine;
+    }
+
+    public void setStorageEngine(String storageEngine) {
+        this.storageEngine = storageEngine;
     }
 
     // Serialize to thrift object
