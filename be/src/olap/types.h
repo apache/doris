@@ -26,7 +26,7 @@
 #include <string>
 
 #include "gen_cpp/segment_v2.pb.h" // for ColumnMetaPB
-#include "olap/Collection.h"
+#include "olap/collection.h"
 #include "olap/decimal12.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"

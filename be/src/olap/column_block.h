@@ -57,7 +57,7 @@ public:
 
     ColumnBlockCell cell(size_t idx) const;
 
-    size_t nrows() const { return _batch->get_capacity(); }
+    size_t nrows() const { return _batch->capacity(); }
 
     void set_delete_state(DelCondSatisfied delete_state) {
         _delete_state = delete_state;

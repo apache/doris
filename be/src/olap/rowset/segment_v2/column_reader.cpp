@@ -399,7 +399,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     size_t size_to_read = ordinals[*n] - ordinals[0];
     if (size_to_read > 0) {
         _item_iterator->seek_to_ordinal(ordinals[0]);
-        ColumnVectorBatch* item_vector_batch = collection_batch->get_elements();
+        ColumnVectorBatch* item_vector_batch = collection_batch->elements();
         RETURN_IF_ERROR(item_vector_batch->resize(collection_batch->item_offset(end_offset)));
         ColumnBlock item_block = ColumnBlock(item_vector_batch, dst->pool());
         ColumnBlockView item_view = ColumnBlockView(&item_block, collection_batch->item_offset(start_offset));
@@ -676,5 +676,5 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst) {
     return Status::OK();
 }
 
-} // namespace segment_v2 end
-} // namespace doris end
+} // namespace segment_v2
+} // namespace doris

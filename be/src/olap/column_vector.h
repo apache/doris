@@ -25,7 +25,7 @@
 namespace doris {
 
 // struct that contains column data(null bitmap), data array in sub class.
-struct ColumnVectorBatch {
+class ColumnVectorBatch {
 public:
     explicit ColumnVectorBatch(const TypeInfo* type_info, bool is_nullable)
     : _type_info(type_info), _capacity(0), _nullable(is_nullable) {}
@@ -34,9 +34,9 @@ public:
 
     const TypeInfo* type_info() const { return _type_info; }
 
-    size_t get_capacity() { return _capacity; }
+    size_t capacity() const { return _capacity; }
 
-    inline bool is_nullable() {return _nullable; }
+    bool is_nullable() const { return _nullable; }
 
     inline bool is_null_at(size_t row_idx) const {
         return _nullable && _null_signs[row_idx];
@@ -88,9 +88,9 @@ private:
     bool* _null_signs = nullptr;
 };
 
-struct ScalarColumnVectorBatch : public ColumnVectorBatch {
+class ScalarColumnVectorBatch : public ColumnVectorBatch {
 public:
-    explicit ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity);
+    explicit ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable);
 
     ~ScalarColumnVectorBatch() override ;
 
@@ -109,13 +109,13 @@ private:
     uint8_t* _data = nullptr;
 };
 
-struct ListColumnVectorBatch : public ColumnVectorBatch {
+class ListColumnVectorBatch : public ColumnVectorBatch {
 public:
     explicit ListColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity);
     ~ListColumnVectorBatch() override;
     Status resize(size_t new_cap) override;
 
-    ColumnVectorBatch* get_elements() const { return _elements.get(); }
+    ColumnVectorBatch* elements() const { return _elements.get(); }
 
     // Get the start of the data.
     uint8_t* data() const override;
@@ -147,4 +147,4 @@ private:
     size_t* _item_offsets = nullptr;
 };
 
-} // namespace doris end
+} // namespace doris

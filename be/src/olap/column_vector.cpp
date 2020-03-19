@@ -49,13 +49,15 @@ Status ColumnVectorBatch::create(size_t init_capacity,
         std::unique_ptr<ColumnVectorBatch>* column_vector_batch) {
     if (is_scalar_type(type_info->type())) {
         std::unique_ptr<ColumnVectorBatch> local(
-                new ScalarColumnVectorBatch(type_info, is_nullable, init_capacity));
+                new ScalarColumnVectorBatch(type_info, is_nullable));
+        RETURN_IF_ERROR(local->resize(init_capacity));
         *column_vector_batch = std::move(local);
         return Status::OK();
     } else {
         switch (type_info->type()) {
         case FieldType::OLAP_FIELD_TYPE_ARRAY: {
             std::unique_ptr<ColumnVectorBatch> local(new ListColumnVectorBatch(type_info, is_nullable, init_capacity));
+            RETURN_IF_ERROR(local->resize(init_capacity));
             *column_vector_batch = std::move(local);
             return Status::OK();
         }
@@ -65,18 +67,17 @@ Status ColumnVectorBatch::create(size_t init_capacity,
     }
 }
 
-ScalarColumnVectorBatch::ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable, size_t init_capacity)
+ScalarColumnVectorBatch::ScalarColumnVectorBatch(const TypeInfo* type_info, bool is_nullable)
 : ColumnVectorBatch(type_info, is_nullable) {
-    resize(init_capacity);
 }
 ScalarColumnVectorBatch::~ScalarColumnVectorBatch() {
     SAFE_DELETE_ARRAY(_data);
 }
 
 Status ScalarColumnVectorBatch::resize(size_t new_cap) {
-    if (get_capacity() < new_cap) { // before first init, _capacity is 0.
+    if (capacity() < new_cap) { // before first init, _capacity is 0.
         size_t type_size = type_info()->size();
-        auto copy_bytes = get_capacity() * type_size;
+        auto copy_bytes = capacity() * type_size;
         size_t new_data_size = new_cap * type_size;
         reallocate_buffer(copy_bytes, new_data_size, &_data);
         return ColumnVectorBatch::resize(new_cap);
@@ -94,7 +95,6 @@ ListColumnVectorBatch::ListColumnVectorBatch(const TypeInfo* type_info, bool is_
 : ColumnVectorBatch(type_info, is_nullable) {
     auto list_type_info = reinterpret_cast<const ArrayTypeInfo*>(type_info);
     ColumnVectorBatch::create(init_capacity * 2, true, list_type_info->item_type_info(), &_elements);
-    resize(init_capacity);
 }
 
 ListColumnVectorBatch::~ListColumnVectorBatch() {
@@ -103,14 +103,14 @@ ListColumnVectorBatch::~ListColumnVectorBatch() {
 }
 
 Status ListColumnVectorBatch::resize(size_t new_cap) {
-    if (get_capacity() < new_cap) {
+    if (capacity() < new_cap) {
         size_t collection_type_size = sizeof(Collection);
-        size_t copy_bytes = get_capacity() * collection_type_size;
+        size_t copy_bytes = capacity() * collection_type_size;
         size_t new_data_size = new_cap * collection_type_size;
         RETURN_IF_ERROR(reallocate_buffer(copy_bytes, new_data_size, reinterpret_cast<uint8_t**>(&_data)));
 
         size_t offset_type_size = sizeof(size_t);
-        size_t offset_copy_bytes = (get_capacity() + 1) * offset_type_size;
+        size_t offset_copy_bytes = (capacity() + 1) * offset_type_size;
         size_t new_offset_size = (new_cap + 1) * offset_type_size;
         RETURN_IF_ERROR(reallocate_buffer(offset_copy_bytes, new_offset_size, reinterpret_cast<uint8_t**>(&_item_offsets)));
 
@@ -146,4 +146,4 @@ void ListColumnVectorBatch::transform_offsets_and_elements_to_data(size_t start_
     }
 }
 
-} // namespace doris end
+} // namespace doris

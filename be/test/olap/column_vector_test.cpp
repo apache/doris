@@ -71,7 +71,7 @@ void test_read_write_list_column_vector(const ArrayTypeInfo* list_type_info,
         segment_v2::ordinal_t* ordinals, // n + 1
         size_t list_size,
         const uint8_t* src_item_data,
-        collection* result) {
+        Collection* result) {
     DCHECK(list_size > 1);
 
     using ItemType = typename TypeTraits<item_type>::CppType;
@@ -83,7 +83,7 @@ void test_read_write_list_column_vector(const ArrayTypeInfo* list_type_info,
     ASSERT_TRUE(ColumnVectorBatch::create(list_init_size, true, list_type_info, &cvb).ok());
 
     ListColumnVectorBatch* list_cvb = reinterpret_cast<ListColumnVectorBatch*>(cvb.get());
-    ColumnVectorBatch* item_cvb = list_cvb->get_elements();
+    ColumnVectorBatch* item_cvb = list_cvb->elements();
 
     // first write
     list_cvb->put_item_ordinal(ordinals, 0, list_init_size + 1);
@@ -139,7 +139,7 @@ TEST_F(ColumnVectorTest, list_column_vector_test) {
     size_t num_list = 1024;
     size_t num_item = num_list * 3;
     {
-        collection* list_val = new collection[num_list];
+        Collection* list_val = new Collection[num_list];
         uint8_t* item_val = new uint8_t[num_item];
         segment_v2::ordinal_t* ordinals = new segment_v2::ordinal_t[num_list + 1];
         bool null_signs[3] = {false, false, false};
@@ -164,7 +164,7 @@ TEST_F(ColumnVectorTest, list_column_vector_test) {
     }
 }
 
-} // namespace doris end
+} // namespace doris
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

@@ -206,10 +206,10 @@ private:
 class ArrayColumnReader : public ColumnReader {
 public:
     ArrayColumnReader(const ColumnReaderOptions& opts,
-                     const ColumnMetaPB& meta,
-                     uint64_t num_rows,
-                     const std::string& file_name, std::unique_ptr<ColumnReader> item_reader)
-                     : ColumnReader(opts, meta, num_rows, file_name), _item_reader(std::move(item_reader)) {}
+                      const ColumnMetaPB& meta,
+                      uint64_t num_rows,
+                      const std::string& file_name, std::unique_ptr<ColumnReader> item_reader)
+                      : ColumnReader(opts, meta, num_rows, file_name), _item_reader(std::move(item_reader)) {}
     ~ArrayColumnReader() override;
 
     Status new_iterator(ColumnIterator** iterator) override;

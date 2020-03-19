@@ -33,11 +33,15 @@ RowBlockV2::RowBlockV2(const Schema& schema, uint16_t capacity)
           _tracker(new MemTracker(-1, "RowBlockV2")),
           _pool(new MemPool(_tracker.get())),      _selection_vector(nullptr) {
     for (auto cid : _schema.column_ids()) {
-        ColumnVectorBatch::create(
+        Status status = ColumnVectorBatch::create(
                 _capacity,
                 _schema.column(cid)->is_nullable(),
                 _schema.column(cid)->type_info(),
                 &_column_vector_batches[cid]);
+        if (!status.ok()) {
+            LOG(ERROR) << "failed to create ColumnVectorBatch for type: " << _schema.column(cid)->type();
+            return;
+        }
     }
     _selection_vector = new uint16_t[_capacity];
     clear();
