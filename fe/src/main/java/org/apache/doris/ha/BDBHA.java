@@ -67,7 +67,7 @@ public class BDBHA implements HAProtocol {
                 long count = epochDb.count();
                 long myEpoch = count + 1;
                 LOG.info("start fencing, epoch number is {}", myEpoch);
-                Long key = new Long(myEpoch);
+                Long key = myEpoch;
                 DatabaseEntry theKey = new DatabaseEntry();
                 TupleBinding<Long> idBinding = TupleBinding.getPrimitiveBinding(Long.class);
                 idBinding.objectToEntry(key, theKey);
@@ -79,18 +79,14 @@ public class BDBHA implements HAProtocol {
                 } else if (status == OperationStatus.KEYEXIST) {
                     return false;
                 } else {
-                    Exception e = new Exception(status.toString());
-                    throw e;
+                    throw new Exception(status.toString());
                 }
             } catch (Exception e) {
                 LOG.error("fencing failed. tried {} times", i, e);
-                if (i < RETRY_TIME) {
-                    try {
-                        Thread.sleep(2000);
-                    } catch (InterruptedException e1) {
-                        e1.printStackTrace();
-                    }
-                    continue;
+                try {
+                    Thread.sleep(2000);
+                } catch (InterruptedException e1) {
+                    e1.printStackTrace();
                 }
             }
         }
