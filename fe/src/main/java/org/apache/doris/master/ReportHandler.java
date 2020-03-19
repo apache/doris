@@ -94,10 +94,8 @@ public class ReportHandler extends Daemon {
 
     private BlockingQueue<ReportTask> reportQueue = Queues.newLinkedBlockingQueue();
 
-    private GaugeMetric<Long> gaugeQueueSize;
-
     public ReportHandler() {
-        gaugeQueueSize = (GaugeMetric<Long>) new GaugeMetric<Long>(
+        GaugeMetric<Long> gaugeQueueSize = new GaugeMetric<Long>(
                 "report_queue_size", "report queue size") {
             @Override
             public Long getValue() {
