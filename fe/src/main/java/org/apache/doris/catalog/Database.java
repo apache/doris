@@ -226,7 +226,7 @@ public class Database extends MetaObject implements Writable {
             } // end for groups
 
             long leftDataQuota = dataQuotaBytes - usedDataQuota;
-            return leftDataQuota > 0L ? leftDataQuota : 0L;
+            return Math.max(leftDataQuota, 0L);
         } finally {
             readUnlock();
         }

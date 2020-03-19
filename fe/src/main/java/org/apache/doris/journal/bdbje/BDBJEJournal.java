@@ -247,8 +247,7 @@ public class BDBJEJournal implements Journal {
 
     @Override
     public JournalCursor read(long fromKey, long toKey) {
-        JournalCursor cursor = BDBJournalCursor.getJournalCursor(bdbEnvironment, fromKey, toKey);
-        return cursor;
+        return BDBJournalCursor.getJournalCursor(bdbEnvironment, fromKey, toKey);
     }
     
     @Override
@@ -363,7 +362,6 @@ public class BDBJEJournal implements Journal {
                 bdbEnvironment.close();
                 bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort, 
                                      helperNode.first + ":" + helperNode.second, Catalog.getInstance().isElectable());
-                continue;
             }
         }
     }

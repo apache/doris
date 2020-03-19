@@ -306,11 +306,11 @@ public class Util {
         if (directory.isDirectory()) {
             File[] files = directory.listFiles();
             if (null != files) {
-                for (int i = 0; i < files.length; i++) {
-                    if (files[i].isDirectory()) {
-                        deleteDirectory(files[i]);
+                for (File file : files) {
+                    if (file.isDirectory()) {
+                        deleteDirectory(file);
                     } else {
-                        files[i].delete();
+                        file.delete();
                     }
                 }
             }
@@ -401,8 +401,7 @@ public class Util {
         }
 
         try {
-            boolean result = Boolean.valueOf(valStr);
-            return result;
+            return Boolean.valueOf(valStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }
