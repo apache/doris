@@ -358,8 +358,8 @@ public class BackupJob extends AbstractJob {
                 }
 
                 OlapTable olapTbl = (OlapTable) tbl;
-                if (tableRef.getPartitions() != null && !tableRef.getPartitions().isEmpty()) {
-                    for (String partName : tableRef.getPartitions()) {
+                if (tableRef.getPartitionNames() != null) {
+                    for (String partName : tableRef.getPartitionNames().getPartitionNames()) {
                         Partition partition = olapTbl.getPartition(partName);
                         if (partition == null) {
                             status = new Status(ErrCode.NOT_FOUND, "partition " + partName
@@ -378,10 +378,10 @@ public class BackupJob extends AbstractJob {
                 String tblName = tblRef.getName().getTbl();
                 OlapTable tbl = (OlapTable) db.getTable(tblName);
                 List<Partition> partitions = Lists.newArrayList();
-                if (tblRef.getPartitions() == null || tblRef.getPartitions().isEmpty()) {
+                if (tblRef.getPartitionNames() == null) {
                     partitions.addAll(tbl.getPartitions());
                 } else {
-                    for (String partName : tblRef.getPartitions()) {
+                    for (String partName : tblRef.getPartitionNames().getPartitionNames()) {
                         Partition partition = tbl.getPartition(partName);
                         partitions.add(partition);
                     }
@@ -425,7 +425,9 @@ public class BackupJob extends AbstractJob {
                 String tblName = tableRef.getName().getTbl();
                 OlapTable tbl = (OlapTable) db.getTable(tblName);
                 // only copy visible indexes
-                OlapTable copiedTbl = tbl.selectiveCopy(tableRef.getPartitions(), true, IndexExtState.VISIBLE);
+                List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
+                        : tableRef.getPartitionNames().getPartitionNames();
+                OlapTable copiedTbl = tbl.selectiveCopy(reservedPartitions, true, IndexExtState.VISIBLE);
                 if (copiedTbl == null) {
                     status = new Status(ErrCode.COMMON_ERROR, "faild to copy table: " + tblName);
                     return;

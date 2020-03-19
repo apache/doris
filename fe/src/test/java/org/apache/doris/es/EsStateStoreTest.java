@@ -112,7 +112,7 @@ public class EsStateStoreTest {
         assertEquals(2, esTableState.getPartitionedIndexStates().size());
         RangePartitionInfo definedPartInfo = (RangePartitionInfo) esTable.getPartitionInfo();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTableState.getPartitionInfo();
-        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange();
+        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange(false);
         assertEquals(2, rangeMap.size());
         Range<PartitionKey> part0 = rangeMap.get(new Long(0));
         EsIndexState esIndexState1 = esTableState.getIndexState(0);
@@ -164,7 +164,7 @@ public class EsStateStoreTest {
         // check partition info
         RangePartitionInfo definedPartInfo = (RangePartitionInfo) esTable.getPartitionInfo();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTableState.getPartitionInfo();
-        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange();
+        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange(false);
         assertEquals(1, rangeMap.size());
         Range<PartitionKey> part0 = rangeMap.get(new Long(0));
         EsIndexState esIndexState1 = esTableState.getIndexState(0);

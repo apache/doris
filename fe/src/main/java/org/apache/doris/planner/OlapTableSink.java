@@ -222,7 +222,7 @@ public class OlapTableSink extends DataSink {
 
                 int partColNum = rangePartitionInfo.getPartitionColumns().size();
                 DistributionInfo selectedDistInfo = null;
-                for (Partition partition : table.getPartitions()) {
+                for (Partition partition : table.getAllPartitions()) {
                     if (!partitionIds.isEmpty() && !partitionIds.contains(partition.getId())) {
                         continue;
                     }
@@ -293,7 +293,11 @@ public class OlapTableSink extends DataSink {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
-        for (Partition partition : table.getPartitions()) {
+        for (Partition partition : table.getAllPartitions()) {
+            if (!partitionIds.isEmpty() && !partitionIds.contains(partition.getId())) {
+                continue;
+            }
+
             int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive

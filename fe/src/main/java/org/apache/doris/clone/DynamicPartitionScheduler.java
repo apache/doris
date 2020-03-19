@@ -40,7 +40,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.Maps;
@@ -200,20 +199,19 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         LOG.error("Keys size is not equl to column size.");
                         continue;
                     }
-                    for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
-                        // only support single column partition now
-                        try {
-                            RangeUtils.checkRangeIntersect(partitionKeyRange, addPartitionKeyRange);
-                        } catch (DdlException e) {
-                            isPartitionExists = true;
-                            if (addPartitionKeyRange.equals(partitionKeyRange)) {
-                                clearFailedMsg(olapTable.getName());
-                            } else {
-                                recordFailedMsg(olapTable.getName(), e.getMessage());
-                            }
-                            break;
+
+                    Range<PartitionKey> intersectRange = info.getAnyIntersectRange(addPartitionKeyRange, false);
+                    if (intersectRange != null) {
+                        isPartitionExists = true;
+                        if (addPartitionKeyRange.equals(intersectRange)) {
+                            clearFailedMsg(olapTable.getName());
+                        } else {
+                            recordFailedMsg(olapTable.getName(), "range " + addPartitionKeyRange
+                                    + " intersect with existing range: " + intersectRange);
                         }
+                        break;
                     }
+
                     if (isPartitionExists) {
                         continue;
                     }

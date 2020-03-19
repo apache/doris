@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
@@ -1216,12 +1217,9 @@ public class ShowExecutor {
                 boolean stop = false;
                 Collection<Partition> partitions = new ArrayList<Partition>();
                 if (showStmt.hasPartition()) {
-                    List<String> partitionNames = showStmt.getPartitionNames();
-                    for (String partName : partitionNames) {
-                        Partition partition = olapTable.getPartition(partName);
-                        if (partition == null) {
-                            partition = olapTable.getPartition(partName, true);
-                        }
+                    PartitionNames partitionNames = showStmt.getPartitionNames();
+                    for (String partName : partitionNames.getPartitionNames()) {
+                        Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
                         if (partition == null) {
                             throw new AnalysisException("Unknown partition: " + partName);
                         }
