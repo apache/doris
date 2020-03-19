@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
@@ -42,6 +43,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
@@ -89,7 +91,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -241,12 +242,7 @@ public class SchemaChangeHandler extends AlterHandler {
             // if not specify rollup index, column should be dropped from both base and rollup indexes.
             List<Long> indexIds = new ArrayList<Long>();
             indexIds.add(baseIndexId);
-            for (long indexId : olapTable.getIndexIdToSchema().keySet()) {
-                if (indexId == baseIndexId) {
-                    continue;
-                }
-                indexIds.add(indexId);
-            }
+            indexIds.addAll(olapTable.getIndexIdListExceptBaseIndex());
 
             // find column in base index and remove it
             List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
@@ -1070,11 +1066,12 @@ public class SchemaChangeHandler extends AlterHandler {
          */
         for (Map.Entry<Long, List<Column>> entry : changedIndexIdToSchema.entrySet()) {
             long originIndexId = entry.getKey();
+            MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(originIndexId);
             // 1. get new schema version/schema version hash, short key column count
-            int currentSchemaVersion = olapTable.getSchemaVersionByIndexId(originIndexId);
+            int currentSchemaVersion = currentIndexMeta.getSchemaVersion();
             int newSchemaVersion = currentSchemaVersion + 1;
             // generate schema hash for new index has to generate a new schema hash not equal to current schema hash
-            int currentSchemaHash = olapTable.getSchemaHashByIndexId(originIndexId);
+            int currentSchemaHash = currentIndexMeta.getSchemaHash();
             int newSchemaHash = Util.generateSchemaHash();
             while (currentSchemaHash == newSchemaHash) {
                 newSchemaHash = Util.generateSchemaHash();
@@ -1139,12 +1136,14 @@ public class SchemaChangeHandler extends AlterHandler {
         Iterator<Map.Entry<Long, AlterJobV2>> iter = alterJobsV2.entrySet().iterator();
         while (iter.hasNext()) {
             Map.Entry<Long, AlterJobV2> entry = iter.next();
-            AlterJobV2 alterJob = entry.getValue();
-            if (alterJob.isDone()) {
-                continue;
+            AlterJobV2 alterJobV2 = entry.getValue();
+            if (alterJobV2.isDone()) {
+                alterJobV2.clear();
+                finishedOrCancelledAlterJobsV2.add(alterJobV2);
+                iter.remove();
             }
-            alterJob.run();
         }
+        alterJobsV2.values().forEach(AlterJobV2::run);
     }
 
     @Deprecated
@@ -1263,19 +1262,19 @@ public class SchemaChangeHandler extends AlterHandler {
 
     @Override
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
-        List<List<Comparable>> schemaChangeJobInfos = new LinkedList<List<Comparable>>();
+        List<List<Comparable>> schemaChangeJobInfos = new LinkedList<>();
         getOldAlterJobInfos(db, schemaChangeJobInfos);
         getAlterJobV2Infos(db, schemaChangeJobInfos);
 
         // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
-        Collections.sort(schemaChangeJobInfos, comparator);
+        schemaChangeJobInfos.sort(comparator);
         return schemaChangeJobInfos;
     }
 
-    private void getAlterJobV2Infos(Database db, List<List<Comparable>> schemaChangeJobInfos) {
+    private void getAlterJobV2Infos(Database db, List<AlterJobV2> alterJobsV2, List<List<Comparable>> schemaChangeJobInfos) {
         ConnectContext ctx = ConnectContext.get();
-        for (AlterJobV2 alterJob : alterJobsV2.values()) {
+        for (AlterJobV2 alterJob : alterJobsV2) {
             if (alterJob.getDbId() != db.getId()) {
                 continue;
             }
@@ -1286,6 +1285,11 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             alterJob.getInfo(schemaChangeJobInfos);
         }
+    }
+
+    private void getAlterJobV2Infos(Database db, List<List<Comparable>> schemaChangeJobInfos) {
+        getAlterJobV2Infos(db, ImmutableList.copyOf(alterJobsV2.values()), schemaChangeJobInfos);
+        getAlterJobV2Infos(db, ImmutableList.copyOf(finishedOrCancelledAlterJobsV2), schemaChangeJobInfos);
     }
 
     @Deprecated

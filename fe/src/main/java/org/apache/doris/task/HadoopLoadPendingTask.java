@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -180,10 +181,11 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
         Map<String, EtlIndex> etlIndices = Maps.newHashMap();
 
         TableLoadInfo tableLoadInfo = job.getTableLoadInfo(table.getId());
-        for (Entry<Long, List<Column>> entry : table.getIndexIdToSchema().entrySet()) {
+        for (Entry<Long, MaterializedIndexMeta> entry : table.getIndexIdToMeta().entrySet()) {
             long indexId = entry.getKey();
+            MaterializedIndexMeta indexMeta = entry.getValue();
 
-            List<Column> indexColumns = entry.getValue();
+            List<Column> indexColumns = indexMeta.getSchema();
 
             Partition partition = table.getPartition(partitionId);
             if (partition == null) {
@@ -196,7 +198,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             etlIndex.setIndexId(indexId);
 
             // schema hash
-            int schemaHash = table.getSchemaHashByIndexId(indexId);
+            int schemaHash = indexMeta.getSchemaHash();
             etlIndex.setSchemaHash(schemaHash);
             tableLoadInfo.addIndexSchemaHash(indexId, schemaHash);
 

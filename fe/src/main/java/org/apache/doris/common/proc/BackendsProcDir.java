@@ -52,7 +52,7 @@ public class BackendsProcDir implements ProcDirInterface {
             .add("BePort").add("HttpPort").add("BrpcPort").add("LastStartTime").add("LastHeartbeat").add("Alive")
             .add("SystemDecommissioned").add("ClusterDecommissioned").add("TabletNum")
             .add("DataUsedCapacity").add("AvailCapacity").add("TotalCapacity").add("UsedPct")
-            .add("MaxDiskUsedPct").add("ErrMsg")
+            .add("MaxDiskUsedPct").add("ErrMsg").add("Version")
             .build();
 
     public static final int IP_INDEX = 2;
@@ -169,6 +169,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(String.format("%.2f", backend.getMaxDiskUsedPct() * 100) + " %");
 
             backendInfo.add(backend.getHeartbeatErrMsg());
+            backendInfo.add(backend.getVersion());
 
             comparableBackendInfos.add(backendInfo);
         }

@@ -62,7 +62,7 @@ public:
 
     // close the connection with the remote server. May be called
     // repeatedly.
-    Status close();
+    void close();
 
     // Set the connect timeout
     void set_conn_timeout(int ms) {

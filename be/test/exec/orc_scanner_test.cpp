@@ -161,7 +161,7 @@ TEST_F(OrcScannerTest, normal) {
         expr.nodes.push_back(cast_expr);
         expr.nodes.push_back(slot_ref);
 
-        params.expr_of_dest_slot.emplace(9, expr);
+        params.expr_of_dest_slot.emplace(8, expr);
         params.src_slot_ids.push_back(0);
     }
     //col2, col3
@@ -177,41 +177,8 @@ TEST_F(OrcScannerTest, normal) {
         TExpr expr;
         expr.nodes.push_back(slot_ref);
 
-        params.expr_of_dest_slot.emplace(9 + i, expr);
+        params.expr_of_dest_slot.emplace(8 + i, expr);
         params.src_slot_ids.push_back(i);
-    }
-    //col4 varchar -> date
-    {
-        TExprNode cast_expr;
-        cast_expr.node_type = TExprNodeType::CAST_EXPR;
-        cast_expr.type = date_type;
-        cast_expr.__set_opcode(TExprOpcode::CAST);
-        cast_expr.__set_num_children(1);
-        cast_expr.__set_output_scale(-1);
-        cast_expr.__isset.fn = true;
-        cast_expr.fn.name.function_name = "casttodate";
-        cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
-        cast_expr.fn.arg_types.push_back(varchar_type);
-        cast_expr.fn.ret_type = date_type;
-        cast_expr.fn.has_var_args = false;
-        cast_expr.fn.__set_signature("casttoint(VARCHAR(*))");
-        cast_expr.fn.__isset.scalar_fn = true;
-        cast_expr.fn.scalar_fn.symbol = "doris::CastFunctions::cast_to_date_val";
-
-        TExprNode slot_ref;
-        slot_ref.node_type = TExprNodeType::SLOT_REF;
-        slot_ref.type = varchar_type;
-        slot_ref.num_children = 0;
-        slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = 3;
-        slot_ref.slot_ref.tuple_id = 0;
-
-        TExpr expr;
-        expr.nodes.push_back(cast_expr);
-        expr.nodes.push_back(slot_ref);
-
-        params.expr_of_dest_slot.emplace(12, expr);
-        params.src_slot_ids.push_back(3);
     }
 
     //col5 varchar -> double
@@ -237,15 +204,15 @@ TEST_F(OrcScannerTest, normal) {
         slot_ref.type = varchar_type;
         slot_ref.num_children = 0;
         slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = 4;
+        slot_ref.slot_ref.slot_id = 3;
         slot_ref.slot_ref.tuple_id = 0;
 
         TExpr expr;
         expr.nodes.push_back(cast_expr);
         expr.nodes.push_back(slot_ref);
 
-        params.expr_of_dest_slot.emplace(13, expr);
-        params.src_slot_ids.push_back(4);
+        params.expr_of_dest_slot.emplace(11, expr);
+        params.src_slot_ids.push_back(3);
     }
 
     //col6 varchar -> float
@@ -271,18 +238,18 @@ TEST_F(OrcScannerTest, normal) {
         slot_ref.type = varchar_type;
         slot_ref.num_children = 0;
         slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = 5;
+        slot_ref.slot_ref.slot_id = 4;
         slot_ref.slot_ref.tuple_id = 0;
 
         TExpr expr;
         expr.nodes.push_back(cast_expr);
         expr.nodes.push_back(slot_ref);
 
-        params.expr_of_dest_slot.emplace(14, expr);
-        params.src_slot_ids.push_back(5);
+        params.expr_of_dest_slot.emplace(12, expr);
+        params.src_slot_ids.push_back(4);
     }
     //col7,col8
-    for (int i = 6; i <= 7; i++) {
+    for (int i = 5; i <= 6; i++) {
         TExprNode cast_expr;
         cast_expr.node_type = TExprNodeType::CAST_EXPR;
         cast_expr.type = int_type;
@@ -311,7 +278,7 @@ TEST_F(OrcScannerTest, normal) {
         expr.nodes.push_back(cast_expr);
         expr.nodes.push_back(slot_ref);
 
-        params.expr_of_dest_slot.emplace(9 + i, expr);
+        params.expr_of_dest_slot.emplace(8 + i, expr);
         params.src_slot_ids.push_back(i);
     }
 
@@ -322,14 +289,14 @@ TEST_F(OrcScannerTest, normal) {
         slot_ref.type = varchar_type;
         slot_ref.num_children = 0;
         slot_ref.__isset.slot_ref = true;
-        slot_ref.slot_ref.slot_id = 8;
+        slot_ref.slot_ref.slot_id = 7;
         slot_ref.slot_ref.tuple_id = 0;
 
         TExpr expr;
         expr.nodes.push_back(slot_ref);
 
-        params.expr_of_dest_slot.emplace(17, expr);
-        params.src_slot_ids.push_back(8);
+        params.expr_of_dest_slot.emplace(15, expr);
+        params.src_slot_ids.push_back(7);
     }
 
     params.__set_src_tuple_id(0);
@@ -357,17 +324,15 @@ TEST_F(OrcScannerTest, normal) {
     src_tuple_builder.add_slot(
             TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col3").column_pos(3).build());
     src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col4").column_pos(4).build());
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col5").column_pos(4).build());
     src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col5").column_pos(5).build());
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col6").column_pos(5).build());
     src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col6").column_pos(6).build());
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col7").column_pos(6).build());
     src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col7").column_pos(7).build());
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col8").column_pos(7).build());
     src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col8").column_pos(8).build());
-    src_tuple_builder.add_slot(
-            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col9").column_pos(9).build());
+            TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col9").column_pos(8).build());
     src_tuple_builder.build(&dtb);
 
     TTupleDescriptorBuilder dest_tuple_builder;
@@ -378,17 +343,15 @@ TEST_F(OrcScannerTest, normal) {
     dest_tuple_builder.add_slot(
                 TSlotDescriptorBuilder().string_type(65535).column_name("col3").column_pos(3).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_DATE).nullable(true).column_name("col4").column_pos(4).build());
+                TSlotDescriptorBuilder().type(TYPE_DOUBLE).column_name("col5").column_pos(4).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_DOUBLE).column_name("col5").column_pos(5).build());
+                TSlotDescriptorBuilder().type(TYPE_FLOAT).column_name("col6").column_pos(5).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_FLOAT).column_name("col6").column_pos(6).build());
+                TSlotDescriptorBuilder().type(TYPE_INT).column_name("col7").column_pos(6).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_INT).column_name("col7").column_pos(7).build());
+                TSlotDescriptorBuilder().type(TYPE_INT).column_name("col8").column_pos(7).build());
     dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().type(TYPE_INT).column_name("col8").column_pos(8).build());
-    dest_tuple_builder.add_slot(
-                TSlotDescriptorBuilder().string_type(65535).column_name("col9").column_pos(9).build());
+                TSlotDescriptorBuilder().string_type(65535).column_name("col9").column_pos(8).build());
     dest_tuple_builder.build(&dtb);
     t_desc_table = dtb.desc_tbl();
 
@@ -415,9 +378,9 @@ TEST_F(OrcScannerTest, normal) {
     bool eof = false;
 
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
-    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(0 null doris      null 1.567 1.567000031471252 12345 1 doris)");
+    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(0 null doris      1.567 1.567000031471252 12345 1 doris)");
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
-    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(1 true doris      2019-11-11 1.567 1.567000031471252 12345 1 doris)");
+    ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)), "(1 true doris      1.567 1.567000031471252 12345 1 doris)");
     ASSERT_FALSE(eof);
     for (int i = 2; i < 10; i++) {
         ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
@@ -569,6 +532,16 @@ TEST_F(OrcScannerTest, normal3) {
         node.__set_scalar_type(scalar_type);
         datetime_type.types.push_back(node);
     }
+    
+    TTypeDesc date_type;
+    {
+        TTypeNode node;
+        node.__set_type(TTypeNodeType::SCALAR);
+        TScalarType scalar_type;
+        scalar_type.__set_type(TPrimitiveType::DATE);
+        node.__set_scalar_type(scalar_type);
+        date_type.types.push_back(node);                                                        
+    }
 
     {
         for (int i = 0; i < 5; ++i) {
@@ -600,7 +573,7 @@ TEST_F(OrcScannerTest, normal3) {
             expr.nodes.push_back(cast_expr);
             expr.nodes.push_back(slot_ref);
 
-            params.expr_of_dest_slot.emplace(7 + i, expr);
+            params.expr_of_dest_slot.emplace(8 + i, expr);
             params.src_slot_ids.push_back(i);
         }
 
@@ -633,7 +606,7 @@ TEST_F(OrcScannerTest, normal3) {
             expr.nodes.push_back(cast_expr);
             expr.nodes.push_back(slot_ref);
 
-            params.expr_of_dest_slot.emplace(12, expr);
+            params.expr_of_dest_slot.emplace(13, expr);
             params.src_slot_ids.push_back(5);
         }
 
@@ -666,8 +639,40 @@ TEST_F(OrcScannerTest, normal3) {
             expr.nodes.push_back(cast_expr);
             expr.nodes.push_back(slot_ref);
 
-            params.expr_of_dest_slot.emplace(13, expr);
+            params.expr_of_dest_slot.emplace(14, expr);
             params.src_slot_ids.push_back(6);
+        }
+        {
+            TExprNode cast_expr;
+            cast_expr.node_type = TExprNodeType::CAST_EXPR;
+            cast_expr.type = date_type;
+            cast_expr.__set_opcode(TExprOpcode::CAST);
+            cast_expr.__set_num_children(1);
+            cast_expr.__set_output_scale(-1);
+            cast_expr.__isset.fn = true;
+            cast_expr.fn.name.function_name = "casttodate";
+            cast_expr.fn.binary_type = TFunctionBinaryType::BUILTIN;
+            cast_expr.fn.arg_types.push_back(varchar_type);
+            cast_expr.fn.ret_type = date_type;
+            cast_expr.fn.has_var_args = false;
+            cast_expr.fn.__set_signature("casttoint(VARCHAR(*))");
+            cast_expr.fn.__isset.scalar_fn = true;
+            cast_expr.fn.scalar_fn.symbol = "doris::CastFunctions::cast_to_date_val";
+
+            TExprNode slot_ref;
+            slot_ref.node_type = TExprNodeType::SLOT_REF;
+            slot_ref.type = varchar_type;
+            slot_ref.num_children = 0;
+            slot_ref.__isset.slot_ref = true;
+            slot_ref.slot_ref.slot_id = 7;
+            slot_ref.slot_ref.tuple_id = 0;
+
+            TExpr expr;
+            expr.nodes.push_back(cast_expr);
+            expr.nodes.push_back(slot_ref);
+
+            params.expr_of_dest_slot.emplace(15, expr);
+            params.src_slot_ids.push_back(7);
         }
     }
     params.__set_src_tuple_id(0);
@@ -702,6 +707,8 @@ TEST_F(OrcScannerTest, normal3) {
                 TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col6").column_pos(6).build());
     src_tuple_builder.add_slot(
                 TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col7").column_pos(7).build());
+    src_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().string_type(65535).nullable(true).column_name("col8").column_pos(8).build());
     src_tuple_builder.build(&dtb);
 
     TTupleDescriptorBuilder dest_tuple_builder;
@@ -719,6 +726,8 @@ TEST_F(OrcScannerTest, normal3) {
                 TSlotDescriptorBuilder().type(TYPE_TINYINT).column_name("col6").column_pos(6).build());
     dest_tuple_builder.add_slot(
                 TSlotDescriptorBuilder().type(TYPE_DATETIME).column_name("col7").column_pos(7).build());
+    dest_tuple_builder.add_slot(
+                TSlotDescriptorBuilder().type(TYPE_DATE).nullable(true).column_name("col8").column_pos(8).build());
 
     dest_tuple_builder.build(&dtb);
     t_desc_table = dtb.desc_tbl();
@@ -746,7 +755,7 @@ TEST_F(OrcScannerTest, normal3) {
     bool eof = false;
     ASSERT_TRUE(scanner.get_next(tuple, &tuple_pool, &eof).ok());
     ASSERT_EQ(Tuple::to_string(tuple, *_desc_tbl->get_tuple_descriptor(1)),
-                "(0.123456789 1.12 -1.1234500000 0.12345 0.000 1 2020-01-14 22:12:19)");
+                "(0.123456789 1.12 -1.1234500000 0.12345 0.000 1 2020-01-14 14:12:19 2020-02-10)");
     scanner.close();
 }
 

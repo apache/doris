@@ -174,7 +174,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
             // set BE id to -1 to release the BE slot
             routineLoadTaskInfo.setBeId(-1);
             routineLoadManager.getJob(routineLoadTaskInfo.getJobId())
-                    .updateState(JobState.STOPPED,
+                    .updateState(JobState.CANCELLED,
                             new ErrorReason(InternalErrorCode.META_NOT_FOUND_ERR, "meta not found: " + e.getMessage()),
                             false);
             throw e;

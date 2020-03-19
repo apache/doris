@@ -27,7 +27,10 @@ import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.alter.SystemHandler;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AddRollupClause;
+import org.apache.doris.analysis.AdminCheckTabletsStmt;
+import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminSetConfigStmt;
+import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
@@ -52,6 +55,7 @@ import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
+import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.FunctionName;
@@ -87,6 +91,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
+import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.clone.ColocateTableBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
@@ -105,6 +110,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
@@ -169,6 +175,7 @@ import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.persist.StorageInfo;
 import org.apache.doris.persist.TableInfo;
@@ -2935,10 +2942,7 @@ public class Catalog {
         DistributionInfo distributionInfo = null;
         OlapTable olapTable = null;
 
-        Map<Long, List<Column>> indexIdToSchema = null;
-        Map<Long, Integer> indexIdToSchemaHash = null;
-        Map<Long, Short> indexIdToShortKeyColumnCount = null;
-        Map<Long, TStorageType> indexIdToStorageType = null;
+        Map<Long, MaterializedIndexMeta> indexIdToMeta;
         Set<String> bfColumns = null;
 
         String partitionName = singlePartitionDesc.getPartitionName();
@@ -2983,8 +2987,8 @@ public class Catalog {
 
             Map<String, String> properties = singlePartitionDesc.getProperties();
             // partition properties should inherit table properties
-            Short replicationNum = olapTable.getReplicationNum();
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && replicationNum != null) {
+            Short replicationNum = olapTable.getDefaultReplicationNum();
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, replicationNum.toString());
             }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
@@ -3032,10 +3036,7 @@ public class Catalog {
                 groupSchema.checkReplicationNum(singlePartitionDesc.getReplicationNum());
             }
 
-            indexIdToShortKeyColumnCount = olapTable.getCopiedIndexIdToShortKeyColumnCount();
-            indexIdToSchemaHash = olapTable.getCopiedIndexIdToSchemaHash();
-            indexIdToStorageType = olapTable.getCopiedIndexIdToStorageType();
-            indexIdToSchema = olapTable.getCopiedIndexIdToSchema();
+            indexIdToMeta = olapTable.getCopiedIndexIdToMeta();
             bfColumns = olapTable.getCopiedBfColumns();
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
@@ -3045,10 +3046,7 @@ public class Catalog {
 
         Preconditions.checkNotNull(distributionInfo);
         Preconditions.checkNotNull(olapTable);
-        Preconditions.checkNotNull(indexIdToShortKeyColumnCount);
-        Preconditions.checkNotNull(indexIdToSchemaHash);
-        Preconditions.checkNotNull(indexIdToStorageType);
-        Preconditions.checkNotNull(indexIdToSchema);
+        Preconditions.checkNotNull(indexIdToMeta);
 
         // create partition outside db lock
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
@@ -3061,10 +3059,7 @@ public class Catalog {
                     olapTable.getId(),
                     olapTable.getBaseIndexId(),
                     partitionId, partitionName,
-                    indexIdToShortKeyColumnCount,
-                    indexIdToSchemaHash,
-                    indexIdToStorageType,
-                    indexIdToSchema,
+                    indexIdToMeta,
                     olapTable.getKeysType(),
                     distributionInfo,
                     dataProperty.getStorageMedium(),
@@ -3105,17 +3100,17 @@ public class Catalog {
                 // rollup index may be added or dropped during add partition operation.
                 // schema may be changed during add partition operation.
                 boolean metaChanged = false;
-                if (olapTable.getIndexNameToId().size() != indexIdToSchema.size()) {
+                if (olapTable.getIndexNameToId().size() != indexIdToMeta.size()) {
                     metaChanged = true;
                 } else {
                     // compare schemaHash
-                    for (Map.Entry<Long, Integer> entry : olapTable.getIndexIdToSchemaHash().entrySet()) {
+                    for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
                         long indexId = entry.getKey();
-                        if (!indexIdToSchemaHash.containsKey(indexId)) {
+                        if (!indexIdToMeta.containsKey(indexId)) {
                             metaChanged = true;
                             break;
                         }
-                        if (!indexIdToSchemaHash.get(indexId).equals(entry.getValue())) {
+                        if (indexIdToMeta.get(indexId).getSchemaHash() != entry.getValue().getSchemaHash()) {
                             metaChanged = true;
                             break;
                         }
@@ -3382,10 +3377,7 @@ public class Catalog {
 
     private Partition createPartitionWithIndices(String clusterName, long dbId, long tableId,
                                                  long baseIndexId, long partitionId, String partitionName,
-                                                 Map<Long, Short> indexIdToShortKeyColumnCount,
-                                                 Map<Long, Integer> indexIdToSchemaHash,
-                                                 Map<Long, TStorageType> indexIdToStorageType,
-                                                 Map<Long, List<Column>> indexIdToSchema,
+                                                 Map<Long, MaterializedIndexMeta> indexIdToMeta,
                                                  KeysType keysType,
                                                  DistributionInfo distributionInfo,
                                                  TStorageMedium storageMedium,
@@ -3408,7 +3400,7 @@ public class Catalog {
         indexMap.put(baseIndexId, baseIndex);
 
         // create rollup index if has
-        for (long indexId : indexIdToSchema.keySet()) {
+        for (long indexId : indexIdToMeta.keySet()) {
             if (indexId == baseIndexId) {
                 continue;
             }
@@ -3427,9 +3419,10 @@ public class Catalog {
         for (Map.Entry<Long, MaterializedIndex> entry : indexMap.entrySet()) {
             long indexId = entry.getKey();
             MaterializedIndex index = entry.getValue();
+            MaterializedIndexMeta indexMeta = indexIdToMeta.get(indexId);
 
             // create tablets
-            int schemaHash = indexIdToSchemaHash.get(indexId);
+            int schemaHash = indexMeta.getSchemaHash();
             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
             createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, versionHash,
                     replicationNum, tabletMeta, tabletIdSet);
@@ -3438,9 +3431,9 @@ public class Catalog {
             String errMsg = null;
 
             // add create replica task for olap
-            short shortKeyColumnCount = indexIdToShortKeyColumnCount.get(indexId);
-            TStorageType storageType = indexIdToStorageType.get(indexId);
-            List<Column> schema = indexIdToSchema.get(indexId);
+            short shortKeyColumnCount = indexMeta.getShortKeyColumnCount();
+            TStorageType storageType = indexMeta.getStorageType();
+            List<Column> schema = indexMeta.getSchema();
             int totalTaskNum = index.getTablets().size() * replicationNum;
             MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
             AgentBatchTask batchTask = new AgentBatchTask();
@@ -3566,16 +3559,7 @@ public class Catalog {
 
         // set base index info to table
         // this should be done before create partition.
-        // get base index storage type. default is COLUMN
         Map<String, String> properties = stmt.getProperties();
-        TStorageType baseIndexStorageType = null;
-        try {
-            baseIndexStorageType = PropertyAnalyzer.analyzeStorageType(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        Preconditions.checkNotNull(baseIndexStorageType);
-        olapTable.setStorageTypeToIndex(baseIndexId, baseIndexStorageType);
 
         // analyze bloom filter columns
         Set<String> bfColumns = null;
@@ -3655,7 +3639,15 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
 
-        // set index schema
+        // get base index storage type. default is COLUMN
+        TStorageType baseIndexStorageType = null;
+        try {
+            baseIndexStorageType = PropertyAnalyzer.analyzeStorageType(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        Preconditions.checkNotNull(baseIndexStorageType);
+        // set base index meta
         int schemaVersion = 0;
         try {
             schemaVersion = PropertyAnalyzer.analyzeSchemaVersion(properties);
@@ -3663,8 +3655,8 @@ public class Catalog {
             throw new DdlException(e.getMessage());
         }
         int schemaHash = Util.schemaHash(schemaVersion, baseSchema, bfColumns, bfFpp);
-        olapTable.setIndexSchemaInfo(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash,
-                shortKeyColumnCount);
+        olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash,
+                shortKeyColumnCount, baseIndexStorageType, keysType);
 
 
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
@@ -3672,15 +3664,7 @@ public class Catalog {
 
             Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
 
-            // set rollup index schema to olap table
-            List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause, olapTable, baseRollupIndex, false);
-            short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
-            int rollupSchemaHash = Util.schemaHash(schemaVersion, rollupColumns, bfColumns, bfFpp);
-            long rollupIndexId = getCurrentCatalog().getNextId();
-            olapTable.setIndexSchemaInfo(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion, rollupSchemaHash,
-                    rollupShortKeyColumnCount);
-
-            // set storage type for rollup index
+            // get storage type for rollup index
             TStorageType rollupIndexStorageType = null;
             try {
                 rollupIndexStorageType = PropertyAnalyzer.analyzeStorageType(addRollupClause.getProperties());
@@ -3688,7 +3672,14 @@ public class Catalog {
                 throw new DdlException(e.getMessage());
             }
             Preconditions.checkNotNull(rollupIndexStorageType);
-            olapTable.setStorageTypeToIndex(rollupIndexId, rollupIndexStorageType);
+            // set rollup index meta to olap table
+            List<Column> rollupColumns = getRollupHandler().checkAndPrepareMaterializedView(addRollupClause,
+                    olapTable, baseRollupIndex, false);
+            short rollupShortKeyColumnCount = Catalog.calcShortKeyColumnCount(rollupColumns, alterClause.getProperties());
+            int rollupSchemaHash = Util.schemaHash(schemaVersion, rollupColumns, bfColumns, bfFpp);
+            long rollupIndexId = getCurrentCatalog().getNextId();
+            olapTable.setIndexMeta(rollupIndexId, addRollupClause.getRollupName(), rollupColumns, schemaVersion,
+                    rollupSchemaHash, rollupShortKeyColumnCount, rollupIndexStorageType, keysType);
         }
 
         // analyze version info
@@ -3715,10 +3706,7 @@ public class Catalog {
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                         olapTable.getId(), olapTable.getBaseIndexId(),
                         partitionId, partitionName,
-                        olapTable.getIndexIdToShortKeyColumnCount(),
-                        olapTable.getIndexIdToSchemaHash(),
-                        olapTable.getIndexIdToStorageType(),
-                        olapTable.getIndexIdToSchema(),
+                        olapTable.getIndexIdToMeta(),
                         keysType,
                         distributionInfo,
                         partitionInfo.getDataProperty(partitionId).getStorageMedium(),
@@ -3748,10 +3736,7 @@ public class Catalog {
                     DataProperty dataProperty = rangePartitionInfo.getDataProperty(entry.getValue());
                     Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(), olapTable.getId(),
                             olapTable.getBaseIndexId(), entry.getValue(), entry.getKey(),
-                            olapTable.getIndexIdToShortKeyColumnCount(),
-                            olapTable.getIndexIdToSchemaHash(),
-                            olapTable.getIndexIdToStorageType(),
-                            olapTable.getIndexIdToSchema(),
+                            olapTable.getIndexIdToMeta(),
                             keysType, distributionInfo,
                             dataProperty.getStorageMedium(),
                             partitionInfo.getReplicationNum(entry.getValue()),
@@ -4061,11 +4046,9 @@ public class Catalog {
             }
 
             // 7. replicationNum
-            Short replicationNum = olapTable.getReplicationNum();
-            if (replicationNum != null) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
-                sb.append(replicationNum).append("\"");
-            }
+            Short replicationNum = olapTable.getDefaultReplicationNum();
+            sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
+            sb.append(replicationNum).append("\"");
 
             // 8. in memory
             sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
@@ -4170,19 +4153,21 @@ public class Catalog {
         // 3. rollup
         if (createRollupStmt != null && (table instanceof OlapTable)) {
             OlapTable olapTable = (OlapTable) table;
-            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
+            for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTable.getIndexIdToMeta().entrySet()) {
                 if (entry.getKey() == olapTable.getBaseIndexId()) {
                     continue;
                 }
+                MaterializedIndexMeta materializedIndexMeta = entry.getValue();
                 sb = new StringBuilder();
                 String indexName = olapTable.getIndexNameById(entry.getKey());
                 sb.append("ALTER TABLE ").append(table.getName()).append(" ADD ROLLUP ").append(indexName);
                 sb.append("(");
 
-                for (int i = 0; i < entry.getValue().size(); i++) {
-                    Column column = entry.getValue().get(i);
+                List<Column> indexSchema = materializedIndexMeta.getSchema();
+                for (int i = 0; i < indexSchema.size(); i++) {
+                    Column column = indexSchema.get(i);
                     sb.append(column.getName());
-                    if (i != entry.getValue().size() - 1) {
+                    if (i != indexSchema.size() - 1) {
                         sb.append(", ");
                     }
                 }
@@ -4943,6 +4928,10 @@ public class Catalog {
 
     public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
         this.alter.processCreateMaterializedView(stmt);
+    }
+
+    public void dropMaterializedView(DropMaterializedViewStmt stmt) throws DdlException, MetaNotFoundException {
+        this.alter.processDropMaterializedView(stmt);
     }
 
     /*
@@ -6256,10 +6245,7 @@ public class Catalog {
                 Partition newPartition = createPartitionWithIndices(db.getClusterName(),
                         db.getId(), copiedTbl.getId(), copiedTbl.getBaseIndexId(),
                         newPartitionId, entry.getKey(),
-                        copiedTbl.getIndexIdToShortKeyColumnCount(),
-                        copiedTbl.getIndexIdToSchemaHash(),
-                        copiedTbl.getIndexIdToStorageType(),
-                        copiedTbl.getIndexIdToSchema(),
+                        copiedTbl.getIndexIdToMeta(),
                         copiedTbl.getKeysType(),
                         copiedTbl.getDefaultDistributionInfo(),
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).getStorageMedium(),
@@ -6628,6 +6614,64 @@ public class Catalog {
             pluginMgr.uninstallPlugin(pluginName);
         } catch (Exception e) {
             LOG.warn("replay uninstall plugin failed.", e);
+        }
+    }
+
+    // entry of checking tablets operation
+    public void checkTablets(AdminCheckTabletsStmt stmt) {
+        CheckType type = stmt.getType();
+        switch (type) {
+            case CONSISTENCY:
+                consistencyChecker.addTabletsToCheck(stmt.getTabletIds());
+                break;
+            default:
+                break;
+        }
+    }
+
+    // Set specified replica's status. If replica does not exist, just ignore it.
+    public void setReplicaStatus(AdminSetReplicaStatusStmt stmt) {
+        long tabletId = stmt.getTabletId();
+        long backendId = stmt.getBackendId();
+        ReplicaStatus status = stmt.getStatus();
+        setReplicaStatusInternal(tabletId, backendId, status, false);
+    }
+
+    public void replaySetReplicaStatus(SetReplicaStatusOperationLog log) {
+        setReplicaStatusInternal(log.getTabletId(), log.getBackendId(), log.getReplicaStatus(), true);
+    }
+
+    private void setReplicaStatusInternal(long tabletId, long backendId, ReplicaStatus status, boolean isReplay) {
+        TabletMeta meta = tabletInvertedIndex.getTabletMeta(tabletId);
+        if (meta == null) {
+            LOG.info("tablet {} does not exist", tabletId);
+            return;
+        }
+        long dbId = meta.getDbId();
+        Database db = getDb(dbId);
+        if (db == null) {
+            LOG.info("database {} of tablet {} does not exist", dbId, tabletId);
+            return;
+        }
+        db.writeLock();
+        try {
+            Replica replica = tabletInvertedIndex.getReplica(tabletId, backendId);
+            if (replica == null) {
+                LOG.info("replica of tablet {} does not exist", tabletId);
+                return;
+            }
+            if (status == ReplicaStatus.BAD || status == ReplicaStatus.OK) {
+                if (replica.setBad(status == ReplicaStatus.BAD)) {
+                    if (!isReplay) {
+                        SetReplicaStatusOperationLog log = new SetReplicaStatusOperationLog(backendId, tabletId, status);
+                        getEditLog().logSetReplicaStatus(log);
+                    }
+                    LOG.info("set replica {} of tablet {} on backend {} as {}. is replay: {}",
+                            replica.getId(), tabletId, backendId, status, isReplay);
+                }
+            }
+        } finally {
+            db.writeUnlock();
         }
     }
 }

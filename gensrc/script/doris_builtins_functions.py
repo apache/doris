@@ -475,6 +475,8 @@ visible_functions = [
     [['ifnull'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
     [['ifnull'], 'DATE', ['DATE', 'DATE'], ''],
     [['ifnull'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
+    [['ifnull'], 'DATETIME', ['DATE', 'DATETIME'], ''],
+    [['ifnull'], 'DATETIME', ['DATETIME', 'DATE'], ''],
     [['ifnull'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['ifnull'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -730,7 +732,8 @@ non_null_result_with_null_param_functions = [
     'hll_hash',
     'concat_ws',
     'ifnull',
-    'null_or_empty'
+    'null_or_empty',
+    'coalesce'
 ]
 
 invisible_functions = [

@@ -17,17 +17,17 @@
 
 package org.apache.doris.planner;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.analysis.TupleId;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -38,9 +38,9 @@ import org.apache.doris.thrift.TUnionNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Node that merges the results of its child plans, Normally, this is done by
@@ -266,8 +266,10 @@ public abstract class SetOperationNode extends PlanNode {
         Preconditions.checkState(conjuncts.isEmpty());
         computeMemLayout(analyzer);
         computeStats(analyzer);
-        computePassthrough(analyzer);
-
+        // except Node must not reorder the child
+        if (!(this instanceof ExceptNode)) {
+            computePassthrough(analyzer);
+        }
         // drop resultExprs/constExprs that aren't getting materialized (= where the
         // corresponding output slot isn't being materialized)
         materializedResultExprLists_.clear();

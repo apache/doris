@@ -304,7 +304,7 @@ public class CreateTableStmt extends DdlStmt {
                         type = AggregateType.NONE;
                     }
                     for (int i = keysDesc.keysColumnSize(); i < columnDefs.size(); ++i) {
-                        columnDefs.get(i).setAggregateType(type, true);
+                        columnDefs.get(i).setAggregateType(type);
                     }
                 }
             }

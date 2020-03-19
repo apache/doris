@@ -113,24 +113,28 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     //     _runtime_state->mem_trackers()->push_back(_exec_env->process_mem_tracker());
     // }
 
-    if (request.query_options.mem_limit > 0) {
-        // we have a per-query limit
-        int64_t bytes_limit = request.query_options.mem_limit;
-        // NOTE: this MemTracker only for olap
-        _mem_tracker.reset(
-                new MemTracker(bytes_limit, "fragment mem-limit", _exec_env->process_mem_tracker()));
-        _runtime_state->set_fragment_mem_tracker(_mem_tracker.get());
-
-        if (bytes_limit > MemInfo::physical_mem()) {
-            LOG(WARNING) << "Memory limit "
-                         << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
-                         << " exceeds physical memory of "
-                         << PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES);
-        }
-
-        LOG(INFO) << "Using query memory limit: "
-                   << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
+    int64_t bytes_limit = request.query_options.mem_limit;
+    if (bytes_limit <= 0) {
+        // sometimes the request does not set the query mem limit, we use default one.
+        // TODO(cmy): we should not allow request without query mem limit.
+        bytes_limit = 2 * 1024 * 1024 * 1024L;
     }
+
+    if (bytes_limit > _exec_env->process_mem_tracker()->limit()) {
+        LOG(WARNING) << "Query memory limit "
+            << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
+            << " exceeds process memory limit of "
+            << PrettyPrinter::print(_exec_env->process_mem_tracker()->limit(), TUnit::BYTES)
+            << ". Using process memory limit instead";
+        bytes_limit = _exec_env->process_mem_tracker()->limit();
+    }
+    // NOTE: this MemTracker only for olap
+    _mem_tracker.reset(
+            new MemTracker(bytes_limit, "fragment mem-limit", _exec_env->process_mem_tracker()));
+    _runtime_state->set_fragment_mem_tracker(_mem_tracker.get());
+
+    LOG(INFO) << "Using query memory limit: "
+        << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
 
     RETURN_IF_ERROR(_runtime_state->create_block_mgr());
 

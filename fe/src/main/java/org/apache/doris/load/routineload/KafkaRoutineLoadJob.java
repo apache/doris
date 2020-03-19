@@ -20,7 +20,6 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -87,10 +86,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     public KafkaRoutineLoadJob(Long id, String name, String clusterName,
-            long dbId, long tableId, long replicationNum,
-            String brokerList,
-            String topic) {
-        super(id, name, clusterName, dbId, tableId, replicationNum, LoadDataSourceType.KAFKA);
+            long dbId, long tableId, String brokerList, String topic) {
+        super(id, name, clusterName, dbId, tableId, LoadDataSourceType.KAFKA);
         this.brokerList = brokerList;
         this.topic = topic;
         this.progress = new KafkaProgress();
@@ -343,15 +340,11 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
 
         long tableId = -1L;
-        long replicationNum = 0;
         db.readLock();
         try {
             unprotectedCheckMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
             Table table = db.getTable(stmt.getTableName());
             tableId = table.getId();
-            if (table instanceof OlapTable) {
-                replicationNum = ((OlapTable)table).getReplicationNum();
-            }
         } finally {
             db.readUnlock();
         }
@@ -359,7 +352,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // init kafka routine load job
         long id = Catalog.getInstance().getNextId();
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                db.getClusterName(), db.getId(), tableId, replicationNum,
+                db.getClusterName(), db.getId(), tableId,
                 stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
         kafkaRoutineLoadJob.setOptional(stmt);
         kafkaRoutineLoadJob.checkCustomProperties();

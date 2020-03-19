@@ -119,11 +119,7 @@ public class RollupJobV2 extends AlterJobV2 {
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
-        Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.get(partitionId);
-        if (tabletIdMap == null) {
-            tabletIdMap = Maps.newHashMap();
-            partitionIdToBaseRollupTabletIdMap.put(partitionId, tabletIdMap);
-        }
+        Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.computeIfAbsent(partitionId, k -> Maps.newHashMap());
         tabletIdMap.put(rollupTabletId, baseTabletId);
     }
 
@@ -133,6 +129,12 @@ public class RollupJobV2 extends AlterJobV2 {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    @Override
+    public void clear() {
+        partitionIdToBaseRollupTabletIdMap = null;
+        partitionIdToRollupIndex = null;
     }
 
     /*
@@ -152,6 +154,10 @@ public class RollupJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Database " + dbId + " does not exist");
         }
 
+        if (!checkTableStable(db)) {
+            return;
+        }
+
         // 1. create rollup replicas
         AgentBatchTask batchTask = new AgentBatchTask();
         // count total replica num
@@ -167,15 +173,6 @@ public class RollupJobV2 extends AlterJobV2 {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
-
-            boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
-                    Catalog.getCurrentCatalog().getTabletScheduler(),
-                    db.getClusterName());
-            if (!isStable) {
-                errMsg = "table is unstable";
-                LOG.warn("doing rollup job: " + jobId + " while table is not stable.");
-                return;
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
@@ -281,9 +278,8 @@ public class RollupJobV2 extends AlterJobV2 {
             partition.createRollupIndex(rollupIndex);
         }
 
-        tbl.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
-                rollupSchemaHash, rollupShortKeyColumnCount);
-        tbl.setStorageTypeToIndex(rollupIndexId, TStorageType.COLUMN);
+        tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
+                rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType);
     }
 
     /*
@@ -554,6 +550,7 @@ public class RollupJobV2 extends AlterJobV2 {
         out.writeLong(watershedTxnId);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

@@ -17,6 +17,12 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.base.Preconditions;
+import com.google.common.base.Predicate;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.apache.doris.analysis.AggregateInfo;
 import org.apache.doris.analysis.AnalyticInfo;
 import org.apache.doris.analysis.Analyzer;
@@ -57,13 +63,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
-
-import com.google.common.base.Preconditions;
-import com.google.common.base.Predicate;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -449,7 +448,7 @@ public class SingleNodePlanner {
                                 && child.getChild(0).getType().isNumericType()) {
                             returnColumns.add(((SlotRef) child.getChild(0)).getDesc().getColumn());
                         } else {
-                            turnOffReason = "aggExpr.getChild(0)[" + aggExpr.getChild(0).toSql()+ "] is not Numeric CastExpr";
+                            turnOffReason = "aggExpr.getChild(0)[" + aggExpr.getChild(0).toSql() + "] is not Numeric CastExpr";
                             aggExprValidate = false;
                             break;
                         }
@@ -569,7 +568,7 @@ public class SingleNodePlanner {
                             break;
                         }
                     } else if (aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)
-                    || aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)) {
+                            || aggExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)) {
                         if (col.getAggregationType() != AggregateType.BITMAP_UNION) {
                             turnOffReason =
                                     "Aggregate Operator not match: BITMAP_UNION <--> " + col.getAggregationType();
@@ -1310,9 +1309,9 @@ public class SingleNodePlanner {
         // TODO chenhao, remove evaluateOrderBy when SubQuery's default limit is removed.
         return inlineViewRef.getViewStmt().evaluateOrderBy() ? false :
                 (!inlineViewRef.getViewStmt().hasLimit()
-                         && !inlineViewRef.getViewStmt().hasOffset()
-                         && (!(inlineViewRef.getViewStmt() instanceof SelectStmt)
-                                     || !((SelectStmt) inlineViewRef.getViewStmt()).hasAnalyticInfo()));
+                        && !inlineViewRef.getViewStmt().hasOffset()
+                        && (!(inlineViewRef.getViewStmt() instanceof SelectStmt)
+                        || !((SelectStmt) inlineViewRef.getViewStmt()).hasAnalyticInfo()));
     }
 
     /**
@@ -1448,7 +1447,7 @@ public class SingleNodePlanner {
      * Throws if the JoinNode.init() fails.
      */
     private PlanNode createJoinNode(Analyzer analyzer, PlanNode outer, TableRef outerRef, TableRef innerRef,
-            SelectStmt selectStmt)
+                                    SelectStmt selectStmt)
             throws UserException, AnalysisException {
         materializeTableResultForCrossJoinOrCountStar(innerRef, analyzer);
         // the rows coming from the build node only need to have space for the tuple
@@ -1471,7 +1470,7 @@ public class SingleNodePlanner {
 
             // construct cross join node
             LOG.debug("Join between {} and {} requires at least one conjunctive equality predicate between the two tables",
-                    outerRef.getAliasAsName() ,innerRef.getAliasAsName());
+                    outerRef.getAliasAsName(), innerRef.getAliasAsName());
             // TODO If there are eq join predicates then we should construct a hash join
             CrossJoinNode result =
                     new CrossJoinNode(ctx_.getNextNodeId(), outer, inner, innerRef);
@@ -1524,13 +1523,13 @@ public class SingleNodePlanner {
     /**
      * Create a plan tree corresponding to 'setOperands' for the given SetOperationStmt.
      * The individual operands' plan trees are attached to a single SetOperationNode.
-     * If setOperationDistinctPlan is not null, it is expected to contain the plan for the
-     * distinct portion of the given SetOperationStmt. The setOperationDistinctPlan is then added
+     * If result is not null, it is expected to contain the plan for the
+     * distinct portion of the given SetOperationStmt. The result is then added
      * as a child of the returned SetOperationNode.
      */
     private SetOperationNode createSetOperationPlan(
             Analyzer analyzer, SetOperationStmt setOperationStmt, List<SetOperationStmt.SetOperand> setOperands,
-            PlanNode setOperationDistinctPlan, long defaultOrderByLimit)
+            PlanNode result, long defaultOrderByLimit)
             throws UserException, AnalysisException {
         SetOperationNode setOpNode;
         SetOperationStmt.Operation operation = null;
@@ -1567,7 +1566,7 @@ public class SingleNodePlanner {
             QueryStmt queryStmt = op.getQueryStmt();
             if (queryStmt instanceof SelectStmt) {
                 SelectStmt selectStmt = (SelectStmt) queryStmt;
-                if (selectStmt.getTableRefs().isEmpty()) {
+                if (selectStmt.getTableRefs().isEmpty() && setOpNode instanceof UnionNode) {
                     setOpNode.addConstExprList(selectStmt.getResultExprs());
                     continue;
                 }
@@ -1585,17 +1584,17 @@ public class SingleNodePlanner {
         // one is the root node, and the other is a distinct node in front, so the setOperationDistinctPlan will
         // be aggregate node, if this is a mixed operation
         // e.g. :
-        // a union b -> setOperationDistinctPlan == null
-        // a union b union all c -> setOperationDistinctPlan == null -> setOperationDistinctPlan == AggregationNode
-        // a union all b except c -> setOperationDistinctPlan == null -> setOperationDistinctPlan == UnionNode
-        // a union b except c -> setOperationDistinctPlan == null -> setOperationDistinctPlan == AggregationNode
-        if (setOperationDistinctPlan != null && setOperationDistinctPlan instanceof SetOperationNode) {
-            Preconditions.checkState(!setOperationDistinctPlan.getClass().equals(setOpNode.getClass()));
-            setOpNode.addChild(setOperationDistinctPlan, setOperationStmt.getResultExprs());
-        } else if (setOperationDistinctPlan != null) {
+        // a union b -> result == null
+        // a union b union all c -> result == null -> result == AggregationNode
+        // a union all b except c -> result == null -> result == UnionNode
+        // a union b except c -> result == null -> result == AggregationNode
+        if (result != null && result instanceof SetOperationNode) {
+            Preconditions.checkState(!result.getClass().equals(setOpNode.getClass()));
+            setOpNode.addChild(result, setOperationStmt.getResultExprs());
+        } else if (result != null) {
             Preconditions.checkState(setOperationStmt.hasDistinctOps());
-            Preconditions.checkState(setOperationDistinctPlan instanceof AggregationNode);
-            setOpNode.addChild(setOperationDistinctPlan,
+            Preconditions.checkState(result instanceof AggregationNode);
+            setOpNode.addChild(result,
                     setOperationStmt.getDistinctAggInfo().getGroupingExprs());
         }
         setOpNode.init(analyzer);
@@ -1652,8 +1651,8 @@ public class SingleNodePlanner {
                     final SelectStmt select = (SelectStmt) queryStmt;
                     op.getAnalyzer().registerConjuncts(opConjuncts, select.getTableRefIds());
                 } else if (queryStmt instanceof SetOperationStmt) {
-                    final SetOperationStmt union = (SetOperationStmt) queryStmt;
-                    op.getAnalyzer().registerConjuncts(opConjuncts, union.getTupleId().asList());
+                    final SetOperationStmt subSetOp = (SetOperationStmt) queryStmt;
+                    op.getAnalyzer().registerConjuncts(opConjuncts, subSetOp.getTupleId().asList());
                 } else {
                     if (selectHasTableRef) {
                         Preconditions.checkArgument(false);
@@ -1685,8 +1684,14 @@ public class SingleNodePlanner {
                 partialOperands.add(op);
             } else if (operation != null && op.getOperation() != operation) {
                 if (partialOperands.size() > 0) {
-                    result = createPartialSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
-                            defaultOrderByLimit);
+                    if (operation == SetOperationStmt.Operation.INTERSECT
+                            || operation == SetOperationStmt.Operation.EXCEPT) {
+                        result = createSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
+                                defaultOrderByLimit);
+                    } else {
+                        result = createUnionPartialSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
+                                defaultOrderByLimit);
+                    }
                     partialOperands.clear();
                 }
                 operation = op.getOperation();
@@ -1696,8 +1701,14 @@ public class SingleNodePlanner {
             }
         }
         if (partialOperands.size() > 0) {
-            result = createPartialSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
-                    defaultOrderByLimit);
+            if (operation == SetOperationStmt.Operation.INTERSECT
+                    || operation == SetOperationStmt.Operation.EXCEPT) {
+                result = createSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
+                        defaultOrderByLimit);
+            } else {
+                result = createUnionPartialSetOperationPlan(analyzer, setOperationStmt, partialOperands, result,
+                        defaultOrderByLimit);
+            }
         }
 
         if (setOperationStmt.hasAnalyticExprs() || hasConstantOp) {
@@ -1712,16 +1723,15 @@ public class SingleNodePlanner {
     // the second partial plan d intersect c
     // notice that when query is a union b the union operation is in right-hand child(b),
     // while the left-hand child(a)'s operation is null
-    private PlanNode createPartialSetOperationPlan(Analyzer analyzer, SetOperationStmt setOperationStmt,
-                                                   List<SetOperationStmt.SetOperand> setOperands,
-                                                   PlanNode setOperationDistinctPlan, long defaultOrderByLimit)
+    private PlanNode createUnionPartialSetOperationPlan(Analyzer analyzer, SetOperationStmt setOperationStmt,
+                                                        List<SetOperationStmt.SetOperand> setOperands,
+                                                        PlanNode result, long defaultOrderByLimit)
             throws UserException {
         boolean hasDistinctOps = false;
         boolean hasAllOps = false;
         List<SetOperationStmt.SetOperand> allOps = new ArrayList<>();
         List<SetOperationStmt.SetOperand> distinctOps = new ArrayList<>();
-        SetOperationStmt.Operation operation = null;
-        for (SetOperationStmt.SetOperand op: setOperands) {
+        for (SetOperationStmt.SetOperand op : setOperands) {
             if (op.getQualifier() == SetOperationStmt.Qualifier.DISTINCT) {
                 hasDistinctOps = true;
                 distinctOps.add(op);
@@ -1730,32 +1740,21 @@ public class SingleNodePlanner {
                 hasAllOps = true;
                 allOps.add(op);
             }
-            if (operation == null || operation == op.getOperation()) {
-                operation = op.getOperation();
-            } else {
-                operation = null;
-            }
         }
-        Preconditions.checkNotNull(operation, "invalid operation.");
-        if (operation == SetOperationStmt.Operation.INTERSECT || operation == SetOperationStmt.Operation.EXCEPT) {
-            setOperationDistinctPlan = createSetOperationPlan(
-                    analyzer, setOperationStmt, setOperands, setOperationDistinctPlan, defaultOrderByLimit);
-        } else {
-            // create DISTINCT tree
-            if (hasDistinctOps) {
-                setOperationDistinctPlan = createSetOperationPlan(
-                        analyzer, setOperationStmt, distinctOps, setOperationDistinctPlan, defaultOrderByLimit);
-                setOperationDistinctPlan = new AggregationNode(ctx_.getNextNodeId(), setOperationDistinctPlan,
-                        setOperationStmt.getDistinctAggInfo());
-                setOperationDistinctPlan.init(analyzer);
-            }
-            // create ALL tree
-            if (hasAllOps) {
-                setOperationDistinctPlan = createSetOperationPlan(analyzer, setOperationStmt, allOps,
-                        setOperationDistinctPlan, defaultOrderByLimit);
-            }
+        // create DISTINCT tree
+        if (hasDistinctOps) {
+            result = createSetOperationPlan(
+                    analyzer, setOperationStmt, distinctOps, result, defaultOrderByLimit);
+            result = new AggregationNode(ctx_.getNextNodeId(), result,
+                    setOperationStmt.getDistinctAggInfo());
+            result.init(analyzer);
         }
-        return setOperationDistinctPlan;
+        // create ALL tree
+        if (hasAllOps) {
+            result = createSetOperationPlan(analyzer, setOperationStmt, allOps,
+                    result, defaultOrderByLimit);
+        }
+        return result;
     }
 
     private PlanNode createAssertRowCountNode(PlanNode input, AssertNumRowsElement assertNumRowsElement,

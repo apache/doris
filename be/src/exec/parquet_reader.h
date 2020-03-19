@@ -76,7 +76,7 @@ public:
     Status read(Tuple* tuple, const std::vector<SlotDescriptor*>& tuple_slot_descs, MemPool* mem_pool, bool* eof);
     void close();
     Status size(int64_t* size);
-    Status init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs);
+    Status init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs, const std::string& timezone);
 
 private:
     void fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool, const uint8_t* value, int32_t len);
@@ -104,6 +104,8 @@ private:
     int _rows_of_group; // rows in a group.
     int _current_line_of_group;
     int _current_line_of_batch;
+    
+    std::string _timezone;
 };
 
 }

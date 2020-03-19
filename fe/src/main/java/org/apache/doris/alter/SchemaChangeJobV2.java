@@ -159,6 +159,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.storageFormat = storageFormat;
     }
 
+    @Override
+    public void clear() {
+        partitionIndexMap = null;
+        indexIdMap = null;
+        indexIdToName = null;
+        indexSchemaMap = null;
+        indexSchemaVersionAndHashMap = null;
+        indexShortKeyMap = null;
+    }
+
     /*
      * runPendingJob():
      * 1. Create all replicas of all shadow indexes and wait them finished.
@@ -173,6 +183,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         Database db = Catalog.getCurrentCatalog().getDb(dbId);
         if (db == null) {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
+        }
+
+        if (!checkTableStable(db)) {
+            return;
         }
 
         // 1. create replicas
@@ -190,15 +204,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 throw new AlterCancelException("Table " + tableId + " does not exist");
-            }
-
-            boolean isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
-                    Catalog.getCurrentCatalog().getTabletScheduler(),
-                    db.getClusterName());
-            if (!isStable) {
-                errMsg = "table is unstable";
-                LOG.warn("doing schema change job: " + jobId + " while table is not stable.");
-                return;
             }
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
@@ -314,11 +319,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         for (long shadowIdxId : indexIdMap.keySet()) {
-            tbl.setIndexSchemaInfo(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
+            tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
                     indexSchemaVersionAndHashMap.get(shadowIdxId).first,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).second,
-                    indexShortKeyMap.get(shadowIdxId));
-            tbl.setStorageTypeToIndex(shadowIdxId, TStorageType.COLUMN);
+                    indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN, null);
         }
 
         tbl.rebuildFullSchema();
@@ -882,6 +886,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

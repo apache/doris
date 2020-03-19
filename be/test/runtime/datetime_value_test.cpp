@@ -298,6 +298,14 @@ TEST_F(DateTimeValueTest, from_unixtime) {
     value.from_unixtime(570672000, TimezoneDatabase::default_time_zone);
     value.to_string(str);
     ASSERT_STREQ("1988-02-01 08:00:00", str);
+    
+    value.from_unixtime(253402271999, TimezoneDatabase::default_time_zone);
+    value.to_string(str);
+    ASSERT_STREQ("9999-12-31 23:59:59", str);
+    
+    value.from_unixtime(0, TimezoneDatabase::default_time_zone);
+    value.to_string(str);
+    ASSERT_STREQ("1970-01-01 08:00:00", str);
 }
 
 // Calculate format
@@ -513,6 +521,22 @@ TEST_F(DateTimeValueTest, from_date_format_str) {
             format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
     value.to_string(str);
     ASSERT_STREQ("1988-02-01 03:04:05", str);
+
+    // escape %
+    format_str = "%Y-%m-%d %H%%3A%i%%3A%s";
+    value_str = "2020-02-26 00%3A00%3A00";
+    ASSERT_TRUE(value.from_date_format_str(
+            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    value.to_string(str);
+    ASSERT_STREQ("2020-02-26 00:00:00", str);
+
+    // escape %
+    format_str = "%Y-%m-%d%%%% %H%%3A%i%%3A%s";
+    value_str = "2020-02-26%% 00%3A00%3A00";
+    ASSERT_TRUE(value.from_date_format_str(
+            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+    value.to_string(str);
+    ASSERT_STREQ("2020-02-26 00:00:00", str);
 }
 
 // Calculate format
@@ -539,8 +563,14 @@ TEST_F(DateTimeValueTest, from_date_format_str_invalid) {
     value_str = "2015 1 1";
     ASSERT_FALSE(value.from_date_format_str(
             format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+
     format_str = "%x %V %w";
     value_str = "2015 1 1";
+    ASSERT_FALSE(value.from_date_format_str(
+            format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
+
+    format_str = "%Y-%m-%d %H%3A%i%3A%s";
+    value_str = "2020-02-26 00%3A00%3A00";
     ASSERT_FALSE(value.from_date_format_str(
             format_str.c_str(), format_str.size(), value_str.c_str(), value_str.size()));
 }

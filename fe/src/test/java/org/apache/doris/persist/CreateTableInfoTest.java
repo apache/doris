@@ -72,9 +72,10 @@ public class CreateTableInfoTest {
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
         
         List<Column> columns = new ArrayList<Column>();
-        columns.add(new Column("column2", 
-                        ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", ""));
-        columns.add(new Column("column3", 
+        Column column2 = new Column("column2",
+                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+        columns.add(column2);
+        columns.add(new Column("column3",
                         ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
         columns.add(new Column("column4", 
                         ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
@@ -94,13 +95,14 @@ public class CreateTableInfoTest {
         Partition partition = new Partition(20000L, "table", index, distributionInfo);
         OlapTable table = new OlapTable(1000L, "table", columns, KeysType.AGG_KEYS, 
                                         new SinglePartitionInfo(), distributionInfo);
+        short shortKeyColumnCount = 1;
+        table.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
+
         List<Column> column = Lists.newArrayList();
-        short schemaHash = 1;
-        table.setIndexSchemaInfo(new Long(1), "test", column, 1, 1, schemaHash);
-        Deencapsulation.setField(table, "baseIndexId", 1);
-        Map<Long, TStorageType> indexIdToStorageType = Maps.newHashMap();
-        indexIdToStorageType.put(new Long(1), TStorageType.COLUMN);
-        Deencapsulation.setField(table, "indexIdToStorageType", indexIdToStorageType);
+        column.add(column2);
+        table.setIndexMeta(new Long(1), "test", column, 1, 1, shortKeyColumnCount,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+        Deencapsulation.setField(table, "baseIndexId", 1000);
         table.addPartition(partition);
         CreateTableInfo info = new CreateTableInfo("db1", table);
         info.write(dos);

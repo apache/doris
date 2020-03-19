@@ -24,6 +24,8 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "olap/fs/block_manager.h"
+#include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
 #include "util/file_utils.h"
@@ -31,27 +33,38 @@
 namespace doris {
 namespace segment_v2 {
 
+const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
+
 class BloomFilterIndexReaderWriterTest : public testing::Test {
    public:
-    BloomFilterIndexReaderWriterTest() { }
-    virtual ~BloomFilterIndexReaderWriterTest() {
+    virtual void SetUp() {
+        if (FileUtils::is_dir(dname)) {
+            std::set<std::string> files;
+            ASSERT_TRUE(FileUtils::list_dirs_files(dname, nullptr, &files,  Env::Default()).ok());
+            for (const auto& file : files) {
+              Status s = Env::Default()->delete_file(dname + "/" + file);
+              ASSERT_TRUE(s.ok()) << s.to_string();
+            }
+            ASSERT_TRUE(Env::Default()->delete_dir(dname).ok());
+        }
     }
 };
 
-const std::string dname = "./ut_dir/bloom_filter_index_reader_writer_test";
 
 template<FieldType type>
 void write_bloom_filter_index_file(const std::string& file_name, const void* values,
-                      size_t value_count, size_t null_count,
-                      ColumnIndexMetaPB* index_meta) {
+                                   size_t value_count, size_t null_count,
+                                   ColumnIndexMetaPB* index_meta) {
     const TypeInfo* type_info = get_type_info(type);
     using CppType = typename CppTypeTraits<type>::CppType;
     FileUtils::create_dir(dname);
     std::string fname = dname + "/" + file_name;
     {
-        std::unique_ptr<WritableFile> wfile;
-        auto st = Env::Default()->new_writable_file(fname, &wfile);
-        ASSERT_TRUE(st.ok());
+        std::unique_ptr<fs::WritableBlock> wblock;
+        fs::CreateBlockOptions opts({ fname });
+        Status st = fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
         std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
         BloomFilterOptions bf_options;
         BloomFilterIndexWriter::create(bf_options, type_info, &bloom_filter_index_writer);
@@ -67,8 +80,9 @@ void write_bloom_filter_index_file(const std::string& file_name, const void* val
             ASSERT_TRUE(st.ok());
             i += 1024;
         }
-        st = bloom_filter_index_writer->finish(wfile.get(), index_meta);
+        st = bloom_filter_index_writer->finish(wblock.get(), index_meta);
         ASSERT_TRUE(st.ok()) << "writer finish status:" << st.to_string();
+        ASSERT_TRUE(wblock->close().ok());
         ASSERT_EQ(BLOOM_FILTER_INDEX, index_meta->type());
         ASSERT_EQ(bf_options.strategy, index_meta->bloom_filter_index().hash_strategy());
     }
@@ -274,3 +288,4 @@ int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
+

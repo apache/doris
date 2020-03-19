@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
@@ -748,9 +749,8 @@ public class RollupJob extends AlterJob {
                 } // end for partitions
 
                 // set index's info
-                olapTable.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0,
-                                             rollupSchemaHash, rollupShortKeyColumnCount);
-                olapTable.setStorageTypeToIndex(rollupIndexId, rollupStorageType);
+                olapTable.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0, rollupSchemaHash,
+                        rollupShortKeyColumnCount, rollupStorageType, KeysType.fromThrift(rollupKeysType));
                 Preconditions.checkState(olapTable.getState() == OlapTableState.ROLLUP);
 
                 this.state = JobState.FINISHING;
@@ -883,9 +883,8 @@ public class RollupJob extends AlterJob {
                 }
             }
 
-            olapTable.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0,
-                                         rollupSchemaHash, rollupShortKeyColumnCount);
-            olapTable.setStorageTypeToIndex(rollupIndexId, rollupStorageType);
+            olapTable.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0, rollupSchemaHash,
+                    rollupShortKeyColumnCount, rollupStorageType, KeysType.fromThrift(rollupKeysType));
         } finally {
             db.writeUnlock();
         }

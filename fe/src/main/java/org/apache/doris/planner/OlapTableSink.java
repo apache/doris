@@ -25,6 +25,7 @@ import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
@@ -170,11 +171,12 @@ public class OlapTableSink extends DataSink {
             schemaParam.addToSlot_descs(slotDesc.toThrift());
         }
 
-        for (Map.Entry<Long, List<Column>> pair : table.getIndexIdToSchema().entrySet()) {
+        for (Map.Entry<Long, MaterializedIndexMeta> pair : table.getIndexIdToMeta().entrySet()) {
+            MaterializedIndexMeta indexMeta = pair.getValue();
             List<String> columns = Lists.newArrayList();
-            columns.addAll(pair.getValue().stream().map(Column::getName).collect(Collectors.toList()));
+            columns.addAll(indexMeta.getSchema().stream().map(Column::getName).collect(Collectors.toList()));
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
-                    table.getSchemaHashByIndexId(pair.getKey()));
+                    indexMeta.getSchemaHash());
             schemaParam.addToIndexes(indexSchema);
         }
         return schemaParam;

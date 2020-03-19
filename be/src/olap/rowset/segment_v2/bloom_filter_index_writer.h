@@ -27,7 +27,10 @@
 namespace doris {
 
 class TypeInfo;
-class WritableFile;
+
+namespace fs {
+class WritableBlock;
+}
 
 namespace segment_v2 {
 
@@ -47,7 +50,7 @@ public:
 
     virtual Status flush() = 0;
 
-    virtual Status finish(WritableFile* file, ColumnIndexMetaPB* index_meta) = 0;
+    virtual Status finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* index_meta) = 0;
 
     virtual uint64_t size() = 0;
 private:

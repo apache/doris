@@ -24,6 +24,7 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "olap/fs/fs_util.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -58,11 +59,14 @@ TEST_F(OrdinalPageIndexTest, normal) {
     }
     ColumnIndexMetaPB index_meta;
     {
-        std::unique_ptr<WritableFile> out_file;
-        ASSERT_TRUE(Env::Default()->new_writable_file(filename, &out_file).ok());
-        ASSERT_TRUE(builder.finish(out_file.get(), &index_meta).ok());
+        std::unique_ptr<fs::WritableBlock> wblock;
+        fs::CreateBlockOptions opts({ filename });
+        ASSERT_TRUE(fs::fs_util::block_mgr_for_ut()->create_block(opts, &wblock).ok());
+
+        ASSERT_TRUE(builder.finish(wblock.get(), &index_meta).ok());
         ASSERT_EQ(ORDINAL_INDEX, index_meta.type());
         ASSERT_FALSE(index_meta.ordinal_index().root_page().is_root_data_page());
+        ASSERT_TRUE(wblock->close().ok());
         LOG(INFO) << "index page size="
                   << index_meta.ordinal_index().root_page().root_page().size();
     }

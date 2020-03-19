@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -28,7 +29,6 @@ import org.apache.doris.common.UserException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -65,6 +65,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     private List<MVColumnItem> mvColumnItemList = Lists.newArrayList();
     private String baseIndexName;
     private String dbName;
+    private KeysType mvKeysType = KeysType.DUP_KEYS;
 
     public CreateMaterializedViewStmt(String mvName, SelectStmt selectStmt,
                                       Map<String, String> properties) {
@@ -93,6 +94,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return dbName;
     }
 
+    public KeysType getMVKeysType() {
+        return mvKeysType;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         // TODO(ml): remove it
@@ -103,19 +108,14 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         FeNameFormat.checkTableName(mvName);
         // TODO(ml): The mv name in from clause should pass the analyze without error.
         selectStmt.analyze(analyzer);
+        if (selectStmt.getAggInfo() != null) {
+            mvKeysType = KeysType.AGG_KEYS;
+        }
         analyzeSelectClause();
         analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             throw new AnalysisException("The where clause is not supported in add materialized view clause, expr:"
                                                 + selectStmt.getWhereClause().toSql());
-        }
-        if (selectStmt.getGroupByClause() != null) {
-            // TODO(ml): The metadata in fe does not support the deduplicate mv in base table
-            //           which keys type is duplicated.
-            if (selectStmt.getGroupByClause().getGroupingExprs().size() ==
-                    selectStmt.getSelectList().getItems().size()) {
-                throw new AnalysisException("The deduplicate materialized view is not yet supported");
-            }
         }
         if (selectStmt.getHavingPred() != null) {
             throw new AnalysisException("The having clause is not supported in add materialized view clause, expr:"
@@ -134,8 +134,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             throw new AnalysisException("The materialized view must contain at least one column");
         }
         boolean meetAggregate = false;
-        Set<String> mvKeyColumnNameSet = Sets.newHashSet();
-        Map<String, Set<String>> mvAggColumnNameToFunctionNames = Maps.newHashMap();
+        // TODO(ml): support same column with different aggregation function
+        Set<String> mvColumnNameSet = Sets.newHashSet();
         /**
          * 1. The columns of mv must be a single column or a aggregate column without any calculate.
          *    Also the children of aggregate column must be a single column without any calculate.
@@ -157,9 +157,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     throw new AnalysisException("The aggregate column should be after the single column");
                 }
                 SlotRef slotRef = (SlotRef) selectListItem.getExpr();
+                // check duplicate column
                 String columnName = slotRef.getColumnName().toLowerCase();
-                // check duplicate key
-                if (!mvKeyColumnNameSet.add(columnName)) {
+                if (!mvColumnNameSet.add(columnName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
@@ -188,19 +188,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                                                         + "Error function: " + functionCallExpr.toSqlImpl());
                 }
                 meetAggregate = true;
-                // check duplicate value
+                // check duplicate column
                 String columnName = slotRef.getColumnName().toLowerCase();
-                if (mvKeyColumnNameSet.contains(columnName)) {
+                if (!mvColumnNameSet.add(columnName)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
                 }
-                Set<String> functionNames = mvAggColumnNameToFunctionNames.get(columnName);
-                if (functionNames == null) {
-                    functionNames = Sets.newHashSet();
-                }
-                if (!functionNames.add(functionName.toLowerCase())) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnName);
-                }
-                mvAggColumnNameToFunctionNames.put(columnName, functionNames);
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;
@@ -230,10 +222,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     private void analyzeOrderByClause() throws AnalysisException {
         if (selectStmt.getOrderByElements() == null) {
             /**
-             * Materialized view includes the aggregation functions.
+             * The keys type of Materialized view is aggregation.
              * All of group by columns are keys of materialized view.
              */
-            if (beginIndexOfAggregation != -1) {
+            if (mvKeysType == KeysType.AGG_KEYS) {
                 for (MVColumnItem mvColumnItem : mvColumnItemList) {
                     if (mvColumnItem.getAggregationType() != null) {
                         break;
@@ -242,6 +234,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 }
                 return;
             }
+
             /**
              * There is no aggregation function in materialized view.
              * Supplement key of MV columns

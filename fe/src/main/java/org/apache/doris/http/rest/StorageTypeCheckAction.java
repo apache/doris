@@ -18,6 +18,7 @@
 package org.apache.doris.http.rest;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
@@ -76,10 +77,10 @@ public class StorageTypeCheckAction extends RestBaseAction {
 
                 OlapTable olapTbl = (OlapTable) tbl;
                 JSONObject indexObj = new JSONObject();
-                for (Map.Entry<Long, TStorageType> entry : olapTbl.getIndexIdToStorageType().entrySet()) {
-                    if (entry.getValue() == TStorageType.ROW) {
-                        String idxName = olapTbl.getIndexNameById(entry.getKey());
-                        indexObj.put(idxName, entry.getValue().name());
+                for (Map.Entry<Long, MaterializedIndexMeta> entry : olapTbl.getIndexIdToMeta().entrySet()) {
+                    MaterializedIndexMeta indexMeta = entry.getValue();
+                    if (indexMeta.getStorageType() == TStorageType.ROW) {
+                        indexObj.put(olapTbl.getIndexNameById(entry.getKey()), indexMeta.getStorageType().name());
                     }
                 }
                 root.put(tbl.getName(), indexObj);

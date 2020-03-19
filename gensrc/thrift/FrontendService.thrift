@@ -421,6 +421,7 @@ struct TMasterOpRequest {
     13: optional bool enableStrictMode
     // this can replace the "user" field
     14: optional Types.TUserIdentity current_user_ident
+    15: optional i32 stmtIdx  // the idx of the sql in multi statements
 }
 
 struct TColumnDefinition {

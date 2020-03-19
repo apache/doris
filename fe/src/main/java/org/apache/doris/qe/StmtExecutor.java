@@ -54,6 +54,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
@@ -63,6 +64,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.LoadEtlTask;
@@ -99,7 +101,7 @@ public class StmtExecutor {
 
     private ConnectContext context;
     private MysqlSerializer serializer;
-    private String originStmt;
+    private OriginStatement originStmt;
     private StatementBase parsedStmt;
     private Analyzer analyzer;
     private RuntimeProfile profile;
@@ -112,15 +114,26 @@ public class StmtExecutor {
     private ShowResultSet proxyResultSet = null;
     private PQueryStatistics statisticsForAuditLog;
 
-    public StmtExecutor(ConnectContext context, String stmt, boolean isProxy) {
+    // this constructor is mainly for proxy
+    public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
         this.context = context;
-        this.originStmt = stmt;
+        this.originStmt = originStmt;
         this.serializer = context.getSerializer();
         this.isProxy = isProxy;
     }
 
+    // this constructor is only for test now.
     public StmtExecutor(ConnectContext context, String stmt) {
-        this(context, stmt, false);
+        this(context, new OriginStatement(stmt, 0), false);
+    }
+
+    // constructor for receiving parsed stmt from connect processor
+    public StmtExecutor(ConnectContext ctx, StatementBase parsedStmt, OriginStatement originStmt) {
+        this.context = ctx;
+        this.originStmt = originStmt;
+        this.serializer = context.getSerializer();
+        this.isProxy = false;
+        this.parsedStmt = parsedStmt;
     }
 
     // At the end of query execution, we begin to add up profile
@@ -140,7 +153,7 @@ public class StmtExecutor {
         summaryProfile.addInfoString("Doris Version", Version.DORIS_BUILD_VERSION);
         summaryProfile.addInfoString(ProfileManager.USER, context.getQualifiedUser());
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, context.getDatabase());
-        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt);
+        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, originStmt.originStmt);
         profile.addChild(summaryProfile);
         if (coord != null) {
             coord.getQueryProfile().getCounterTotalTime().setValue(TimeUtils.getEstimatedTime(beginTimeInNanoSecond));
@@ -219,7 +232,7 @@ public class StmtExecutor {
             if (isForwardToMaster()) {
                 forwardToMaster();
                 return;
-            }  else {
+            } else {
                 LOG.debug("no need to transfer to Master. stmt: {}", context.getStmtId());
             }
 
@@ -261,14 +274,7 @@ public class StmtExecutor {
                     }
                 } catch (Throwable t) {
                     LOG.warn("handle insert stmt fail", t);
-                    InsertStmt insertStmt = (InsertStmt) parsedStmt;
-                    try {
-                        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                                insertStmt.getTransactionId(), 
-                                t.getMessage() == null ? "unknown reason" : t.getMessage());
-                    } catch (Exception abortTxnException) {
-                        LOG.warn("errors when abort txn", abortTxnException);
-                    }
+                    // the transaction of this insert may already begun, we will abort it at outer finally block.
                     throw t;
                 } finally {
                     QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
@@ -288,7 +294,7 @@ public class StmtExecutor {
             }
         } catch (IOException e) {
             LOG.warn("execute IOException ", e);
-            // the excetion happens when interact with client
+            // the exception happens when interact with client
             // this exception shows the connection is gone
             context.getState().setError(e.getMessage());
             throw e;
@@ -303,6 +309,21 @@ public class StmtExecutor {
             if (parsedStmt instanceof KillStmt) {
                 // ignore kill stmt execute err(not monitor it)
                 context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
+            }
+        } finally {
+            if (parsedStmt instanceof InsertStmt) {
+                InsertStmt insertStmt = (InsertStmt) parsedStmt;
+                // The transaction of a insert operation begin at analyze phase.
+                // So we should abort the transaction at this finally block if it encounter exception.
+                if (insertStmt.isTransactionBegin() && context.getState().getStateType() == MysqlStateType.ERR) {
+                    try {
+                        String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
+                        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                                insertStmt.getTransactionId(), (errMsg == null ? "unknown reason" : errMsg));
+                    } catch (Exception abortTxnException) {
+                        LOG.warn("errors when abort txn", abortTxnException);
+                    }
+                }
             }
         }
 
@@ -348,31 +369,35 @@ public class StmtExecutor {
                                                NotImplementedException {
         LOG.info("begin to analyze stmt: {}, forwarded stmt id: {}", context.getStmtId(), context.getForwardedStmtId());
 
-        // Parse statement with parser generated by CUP&FLEX
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), context.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        try {
-            parsedStmt = (StatementBase) parser.parse().value;
-            redirectStatus = parsedStmt.getRedirectStatus();
-        } catch (Error e) {
-            LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
-            throw new AnalysisException("sql parsing error, please check your sql");
-        } catch (AnalysisException e) {
-            LOG.info("analysis exception happened when parsing stmt {}, id: {}, error: {}",
-                     originStmt, context.getStmtId(), parser.getErrorMsg(originStmt), e);
-            String errorMessage = parser.getErrorMsg(originStmt);
-            if (errorMessage == null) {
-                throw  e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
+        // parsedStmt may already by set when constructing this StmtExecutor();
+        if (parsedStmt == null) {
+            // Parse statement with parser generated by CUP&FLEX
+            SqlScanner input = new SqlScanner(new StringReader(originStmt.originStmt), context.getSessionVariable().getSqlMode());
+            SqlParser parser = new SqlParser(input);
+            try {
+                parsedStmt = SqlParserUtils.getStmt(parser, originStmt.idx);
+
+            } catch (Error e) {
+                LOG.info("error happened when parsing stmt {}, id: {}", originStmt, context.getStmtId(), e);
+                throw new AnalysisException("sql parsing error, please check your sql");
+            } catch (AnalysisException e) {
+                String syntaxError = parser.getErrorMsg(originStmt.originStmt);
+                LOG.info("analysis exception happened when parsing stmt {}, id: {}, error: {}",
+                        originStmt, context.getStmtId(), syntaxError, e);
+                if (syntaxError == null) {
+                    throw  e;
+                } else {
+                    throw new AnalysisException(syntaxError, e);
+                }
+            } catch (Exception e) {
+                // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
+                // should be removed this try-catch clause future.
+                LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
+                        originStmt, context.getStmtId(), parser.getErrorMsg(originStmt.originStmt), e);
+                throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
-        } catch (Exception e) {
-            // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
-            // should be removed this try-catch clause future.
-            LOG.info("unexpected exception happened when parsing stmt {}, id: {}, error: {}",
-                     originStmt, context.getStmtId(), parser.getErrorMsg(originStmt), e);
-            throw new AnalysisException("Unexpected exception: " + e.getMessage());
         }
+        redirectStatus = parsedStmt.getRedirectStatus();
 
         // yiguolei: insertstmt's grammer analysis will write editlog, so that we check if the stmt should be forward to master here
         // if the stmt should be forward to master, then just return here and the master will do analysis again
@@ -546,7 +571,7 @@ public class StmtExecutor {
         coord = new Coordinator(context, analyzer, planner);
 
         QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), 
-                       new QeProcessorImpl.QueryInfo(context, originStmt, coord));
+                new QeProcessorImpl.QueryInfo(context, originStmt.originStmt, coord));
 
         coord.exec();
 
@@ -851,7 +876,7 @@ public class StmtExecutor {
             context.getState().setError(e.getMessage());
         } catch (Exception e) {
             // Maybe our bug
-            LOG.warn("DDL statement(" + originStmt + ") process failed.", e);
+            LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
             context.getState().setError("Unexpected exception: " + e.getMessage());
         }
     }

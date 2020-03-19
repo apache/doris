@@ -23,6 +23,7 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.SqlParserUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -153,7 +154,7 @@ public class View extends Table {
         SqlParser parser = new SqlParser(input);
         ParseNode node;
         try {
-            node = (ParseNode) parser.parse().value;
+            node = (ParseNode) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             LOG.info("stmt is {}", inlineViewDef);
             LOG.info("exception because: {}", e);

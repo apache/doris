@@ -1108,6 +1108,7 @@ bool DateTimeValue::from_date_format_str(
     bool strict_week_number_year_type = false;
     int strict_week_number_year = -1;
     bool usa_time = false;
+
     while (ptr < end && val < val_end) {
         // Skip space character
         while (val < val_end && isspace(*val)) {
@@ -1354,6 +1355,12 @@ bool DateTimeValue::from_date_format_str(
                     val++;
                 }
                 break;
+            case '%': // %%, escape the %
+                if ('%' != *val) {
+                    return false;
+                }
+                val++;
+                break;
             default:
                 return false;
             }
@@ -1550,13 +1557,28 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
     if (timestamp < 0 || timestamp > 253402271999L) {
         return false;
     }
+
     boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
     if (local_time_zone == nullptr) {
         return false;                            
     }
-    boost::local_time::local_date_time lt(boost::posix_time::from_time_t(timestamp), local_time_zone);
+
+    int64_t current_t = timestamp;
+    boost::posix_time::ptime time = boost::posix_time::ptime(boost::gregorian::date(1970,1,1));
+
+    while (current_t > 0) {
+        int32_t seconds_to_add = 0;
+        if(current_t >= std::numeric_limits<int32_t>::max()) {
+            seconds_to_add = std::numeric_limits<int32_t>::max();
+        } else {
+            seconds_to_add = static_cast<int32_t>(current_t);
+        }
+        current_t -= seconds_to_add;
+        time += boost::posix_time::seconds(seconds_to_add);
+    }
+    boost::local_time::local_date_time lt(time, local_time_zone);
     boost::posix_time::ptime local_ptime = lt.local_time();
-        
+
     _neg = 0;
     _type = TIME_DATETIME;
     _year = local_ptime.date().year();
@@ -1566,7 +1588,7 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
     _minute = local_ptime.time_of_day().minutes();
     _second = local_ptime.time_of_day().seconds();
     _microsecond = 0;
-
+    
     return true;
 }
 

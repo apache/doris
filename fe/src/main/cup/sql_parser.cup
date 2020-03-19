@@ -28,7 +28,6 @@ import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
 import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -133,25 +132,53 @@ parser code {:
         if (errorToken == null || stmt == null) {
             return null;
         }
-        String[] lines = stmt.split("\n");
+        String[] lines = stmt.split("\n", -1);
         StringBuffer result = new StringBuffer();
-        result.append(getErrorTypeMessage(errorToken.sym) + " at:\n");
+        result.append(getErrorTypeMessage(errorToken.sym) + " in line ");
+        result.append(errorToken.left);
+        result.append(":\n");
 
-        // print lines up to and including the one with the error
-        for (int i = 0; i < errorToken.left; ++i) {
-            result.append(lines[i]);
+        // errorToken_.left is the line number of error.
+        // errorToken_.right is the column number of the error.
+        // index is start from 0, so "minus 1" is the real error line idx
+        String errorLine = lines[errorToken.left - 1];
+        // If the error is that additional tokens are expected past the end,
+        // errorToken_.right will be past the end of the string.
+        int lastCharIndex = Math.min(errorLine.length(), errorToken.right);
+        int maxPrintLength = 60;
+        int errorLoc = 0;
+        if (errorLine.length() <= maxPrintLength) {
+            // The line is short. Print the entire line.
+            result.append(errorLine);
             result.append('\n');
+            errorLoc = errorToken.right;
+        } else {
+            // The line is too long. Print maxPrintLength/2 characters before the error and
+            // after the error.
+            int contextLength = maxPrintLength / 2 - 3;
+            String leftSubStr;
+            if (errorToken.right > maxPrintLength / 2) {
+                leftSubStr = "..." + errorLine.substring(errorToken.right - contextLength,
+                        lastCharIndex);
+            } else {
+                leftSubStr = errorLine.substring(0, errorToken.right);
+            }
+            errorLoc = leftSubStr.length();
+            result.append(leftSubStr);
+            if (errorLine.length() - errorToken.right > maxPrintLength / 2) {
+                result.append(errorLine.substring(errorToken.right,
+                            errorToken.right + contextLength) + "...");
+            } else {
+                result.append(errorLine.substring(lastCharIndex));
+            }
+            result.append("\n");
         }
+
         // print error indicator
-        for (int i = 0; i < errorToken.right - 1; ++i) {
+        for (int i = 0; i < errorLoc - 1; ++i) {
             result.append(' ');
         }
         result.append("^\n");
-        // print remaining lines
-        for (int i = errorToken.left; i < lines.length; ++i) {
-            result.append(lines[i]);
-            result.append('\n');
-        }
 
         // only report encountered and expected tokens for syntax errors
         if (errorToken.sym == SqlParserSymbols.UNMATCHED_STRING_LITERAL ||
@@ -163,10 +190,13 @@ parser code {:
         result.append("Encountered: ");
         String lastToken = SqlScanner.tokenIdMap.get(Integer.valueOf(errorToken.sym));
         if (lastToken != null) {
-        	result.append(lastToken);
+            result.append(lastToken);
+        } else if (SqlScanner.isKeyword((String) errorToken.value)) {
+            result.append("A reserved word cannot be used as an identifier: ").append((String) errorToken.value);
         } else {
-        	result.append("Unknown last token with id: " + errorToken.sym);
+            result.append("Unknown last token with id: " + errorToken.sym);
         }
+
         // Append expected tokens
         result.append('\n');
         result.append("Expected: ");
@@ -174,29 +204,30 @@ parser code {:
         Integer tokenId = null;
         for (int i = 0; i < expectedTokenIds.size(); ++i) {
             tokenId = expectedTokenIds.get(i);
-             // keywords hints
+            // keywords hints
             if (SqlScanner.isKeyword(lastToken) && tokenId.intValue() == SqlParserSymbols.IDENT) {
-            	result.append(String.format("%s is keyword, maybe `%s`", lastToken, lastToken) + ", ");
-            	continue;
+                result.append(String.format("%s is keyword, maybe `%s`", lastToken, lastToken) + ", ");
+                continue;
             }
 
-			if (reportExpectedToken(tokenId)) {
+            if (reportExpectedToken(tokenId)) {
                 expectedToken = SqlScanner.tokenIdMap.get(tokenId);
                 result.append(expectedToken + ", ");
             }
         }
         // remove trailing ", "
-        result.delete(result.length()-2, result.length());
+        result.delete(result.length() - 2, result.length());
         result.append('\n');
 
         return result.toString();
     }
+
 :};
 
 // Total keywords of doris
 terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_AND, KW_ANTI, KW_AS, KW_ASC, KW_AUTHORS,
     KW_BACKEND, KW_BACKUP, KW_BETWEEN, KW_BEGIN, KW_BIGINT, KW_BITMAP, KW_BITMAP_UNION, KW_BOOLEAN, KW_BOTH, KW_BROKER, KW_BACKENDS, KW_BY, KW_BUILTIN,
-    KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CLUSTER, KW_CLUSTERS,
+    KW_CANCEL, KW_CASE, KW_CAST, KW_CHAIN, KW_CHAR, KW_CHARSET, KW_CHECK, KW_CLUSTER, KW_CLUSTERS,
     KW_COLLATE, KW_COLLATION, KW_COLUMN, KW_COLUMNS, KW_COMMENT, KW_COMMIT, KW_COMMITTED,
     KW_CONFIG, KW_CONNECTION, KW_CONNECTION_ID, KW_CONSISTENT, KW_COUNT, KW_CREATE, KW_CROSS, KW_CUBE, KW_CURRENT, KW_CURRENT_USER,
     KW_DATA, KW_DATABASE, KW_DATABASES, KW_DATE, KW_DATETIME, KW_DAY, KW_DECIMAL, KW_DECOMMISSION, KW_DEFAULT, KW_DESC, KW_DESCRIBE,
@@ -223,7 +254,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
     KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
-    KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW,
+    KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STRING,
     KW_SUM, KW_SUPERUSER, KW_SYNC, KW_SYSTEM,
     KW_TABLE, KW_TABLES, KW_TABLET, KW_TASK, KW_TEMPORARY, KW_TERMINATED, KW_THAN, KW_TIME, KW_THEN, KW_TIMESTAMP, KW_TINYINT,
@@ -248,7 +279,8 @@ terminal String UNMATCHED_STRING_LITERAL;
 terminal String COMMENTED_PLAN_HINTS;
 
 // Statement that the result of this parser.
-nonterminal StatementBase query, stmt, show_stmt, show_param, help_stmt, load_stmt,
+nonterminal List<StatementBase> stmts;
+nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt,
     describe_stmt, alter_stmt,
@@ -459,24 +491,25 @@ precedence left LPAREN, RPAREN;
 // Support chaining of timestamp arithmetic exprs.
 precedence left KW_INTERVAL;
 precedence left KW_OVER;
-start with query;
+start with stmts;
 
-query ::=
+stmts ::=
     stmt:stmt
     {:
-        RESULT = stmt;
+        RESULT = Lists.newArrayList(stmt);
     :}
-    | stmt:stmt SEMICOLON
+    | stmts:stmts SEMICOLON stmt:stmt
     {:
-        RESULT = stmt;
+        stmts.add(stmt);
+        RESULT = stmts;
     :}
     | import_columns_stmt:stmt
     {:
-        RESULT = stmt;
+        RESULT = Lists.newArrayList(stmt);
     :}
     | import_where_stmt:stmt
     {:
-        RESULT = stmt;
+        RESULT = Lists.newArrayList(stmt);
     :}
     ;
 
@@ -961,6 +994,10 @@ opt_intermediate_type ::=
 create_stmt ::=
     /* Database */
     KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db
+    {:
+        RESULT = new CreateDbStmt(ifNotExists, db);
+    :}
+    | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db
     {:
         RESULT = new CreateDbStmt(ifNotExists, db);
     :}
@@ -1487,6 +1524,10 @@ drop_stmt ::=
     {:
         RESULT = new DropDbStmt(ifExists, db);
     :}
+    | KW_DROP KW_SCHEMA opt_if_exists:ifExists ident:db
+    {:
+        RESULT = new DropDbStmt(ifExists, db);
+    :}
     /* cluster */
     | KW_DROP KW_CLUSTER opt_if_exists:ifExists ident:cluster
     {:
@@ -1528,6 +1569,10 @@ drop_stmt ::=
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new DropIndexClause(indexName, tableName, false)));
     :}
+    | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
+    {:
+        RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
+    :}
     ;
 
 // Recover statement
@@ -1547,6 +1592,7 @@ recover_stmt ::=
     ;
 
 opt_agg_type ::=
+    /* not set */
     {: RESULT = null; :}
     | KW_SUM
     {:
@@ -2004,6 +2050,10 @@ show_param ::=
     :}
     /* Create database */
     | KW_CREATE KW_DATABASE ident:db
+    {:
+        RESULT = new ShowCreateDbStmt(db);
+    :}
+    | KW_CREATE KW_SCHEMA ident:db
     {:
         RESULT = new ShowCreateDbStmt(db);
     :}
@@ -4184,6 +4234,10 @@ admin_stmt ::=
     {:
         RESULT = new AdminShowReplicaDistributionStmt(table_ref);
     :}
+    | KW_ADMIN KW_SET KW_REPLICA KW_STATUS KW_PROPERTIES LPAREN key_value_map:prop RPAREN
+    {:
+        RESULT = new AdminSetReplicaStatusStmt(prop);
+    :}
     | KW_ADMIN KW_REPAIR KW_TABLE base_table_ref:table_ref
     {:
         RESULT = new AdminRepairTableStmt(table_ref);
@@ -4199,6 +4253,10 @@ admin_stmt ::=
     | KW_ADMIN KW_SHOW KW_FRONTEND KW_CONFIG
     {:
         RESULT = new AdminShowConfigStmt(AdminSetConfigStmt.ConfigType.FRONTEND);
+    :}
+    | KW_ADMIN KW_CHECK KW_TABLET LPAREN integer_list:tabletIds RPAREN opt_properties:properties
+    {:
+        RESULT = new AdminCheckTabletsStmt(tabletIds, properties);
     :}
     ;
 
@@ -4310,6 +4368,8 @@ keyword ::=
     | KW_CHAIN:id
     {: RESULT = id; :}
     | KW_CHARSET:id
+    {: RESULT = id; :}
+    | KW_CHECK:id
     {: RESULT = id; :}
     | KW_COLUMNS:id
     {: RESULT = id; :}
@@ -4452,6 +4512,8 @@ keyword ::=
     | KW_ROLLBACK:id
     {: RESULT = id; :}
     | KW_ROLLUP:id
+    {: RESULT = id; :}
+    | KW_SCHEMA:id
     {: RESULT = id; :}
     | KW_SERIALIZABLE:id
     {: RESULT = id; :}

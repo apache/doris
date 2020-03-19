@@ -113,9 +113,9 @@ This is a representation of [CIDR] (https://en.wikipedia.org/wiki/Classless_Inte
 
 **Note**: When priority networks is configured and FE or BE is started, only the correct IP binding of FE or BE is ensured. In ADD BACKEND or ADD FRONTEND statements, you also need to specify IP matching priority networks configuration, otherwise the cluster cannot be established. Give an example:
 
-BE is configured as `priority_networks = 10.1.3.0/24'.`
+BE is configured as `priority_networks = 10.1.3.0/24'.`.
 
-但是在 ADD BACKEND 时使用的是：`ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
+When you want to ADD BACKEND use ：`ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
 
 Then FE and BE will not be able to communicate properly.
 
@@ -258,6 +258,8 @@ Configure and start Follower or Observer. Follower and Observer are configured w
 
 `./bin/start_fe.sh --helper host:port --daemon`
 
+The host is the node IP of Leader, and the port is edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
+
 View the status of Follower or Observer. Connect to any booted FE using mysql-client and execute: SHOW PROC'/frontends'; you can view the FE currently joined the cluster and its corresponding roles.
 
 > Notes for FE expansion:
@@ -308,11 +310,11 @@ The DROP statement is as follows:
 
 **Note: DROP BACKEND will delete the BE directly and the data on it will not be recovered!!! So we strongly do not recommend DROP BACKEND to delete BE nodes. When you use this statement, there will be corresponding error-proof operation hints.**
 
-DECOMMISSION 语句如下：
+DECOMMISSION clause：
 
 ```ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```
 
-> DECOMMISSION 命令说明：
+> DECOMMISSION notes:
 > 
 > 1. This command is used to safely delete BE nodes. After the command is issued, Doris attempts to migrate the data on the BE to other BE nodes, and when all data is migrated, Doris automatically deletes the node.
 > 2. The command is an asynchronous operation. After execution, you can see that the BE node's isDecommission status is true through ``SHOW PROC '/backends';` Indicates that the node is offline.

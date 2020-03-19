@@ -37,6 +37,7 @@ public:
 template<FieldType field_type>
 void test_min() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
+    static const size_t kValSize = sizeof(CppType) + 1;  // '1' represent the leading bool flag.
     char buf[64];
 
     std::unique_ptr<MemTracker> tracker(new MemTracker(-1));
@@ -47,14 +48,14 @@ void test_min() {
     RowCursorCell dst(buf);
     // null
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = true;
         agg->init(&dst, val_buf, true, mem_pool.get(), &agg_object_pool);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 100;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -65,7 +66,7 @@ void test_min() {
     }
     // 200
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 200;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -76,7 +77,7 @@ void test_min() {
     }
     // 50
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 50;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -87,7 +88,7 @@ void test_min() {
     }
     // null
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = true;
         agg->update(&dst, val_buf, mem_pool.get());
         ASSERT_FALSE(*(bool*)(buf));
@@ -111,6 +112,7 @@ TEST_F(AggregateFuncTest, min) {
 template<FieldType field_type>
 void test_max() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
+    static const size_t kValSize = sizeof(CppType) + 1;  // '1' represent the leading bool flag.
 
     char buf[64];
 
@@ -122,14 +124,14 @@ void test_max() {
     RowCursorCell dst(buf);
     // null
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = true;
         agg->init(&dst, val_buf, true, mem_pool.get(), &agg_object_pool);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 100;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -140,7 +142,7 @@ void test_max() {
     }
     // 200
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 200;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -151,7 +153,7 @@ void test_max() {
     }
     // 50
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 50;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -162,7 +164,7 @@ void test_max() {
     }
     // null
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = true;
         agg->update(&dst, val_buf, mem_pool.get());
         ASSERT_FALSE(*(bool*)(buf));
@@ -185,6 +187,7 @@ TEST_F(AggregateFuncTest, max) {
 template<FieldType field_type>
 void test_sum() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
+    static const size_t kValSize = sizeof(CppType) + 1;  // '1' represent the leading bool flag.
 
     char buf[64];
     RowCursorCell dst(buf);
@@ -196,14 +199,14 @@ void test_sum() {
 
     // null
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = true;
         agg->init(&dst, val_buf, true, mem_pool.get(), &agg_object_pool);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 100;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -214,7 +217,7 @@ void test_sum() {
     }
     // 200
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 200;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -225,7 +228,7 @@ void test_sum() {
     }
     // 50
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 50;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -236,7 +239,7 @@ void test_sum() {
     }
     // null
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = true;
         agg->update(&dst, val_buf, mem_pool.get());
         ASSERT_FALSE(*(bool*)(buf));
@@ -259,6 +262,7 @@ TEST_F(AggregateFuncTest, sum) {
 template<FieldType field_type>
 void test_replace() {
     using CppType = typename CppTypeTraits<field_type>::CppType;
+    static const size_t kValSize = sizeof(CppType) + 1;  // '1' represent the leading bool flag.
 
     char buf[64];
     RowCursorCell dst(buf);
@@ -270,14 +274,14 @@ void test_replace() {
 
     // null
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = true;
         agg->init(&dst, val_buf, true, mem_pool.get(), &agg_object_pool);
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 100
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 100;
         memcpy(val_buf + 1, &val, sizeof(CppType));
@@ -288,14 +292,14 @@ void test_replace() {
     }
     // null
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = true;
         agg->update(&dst, val_buf, mem_pool.get());
         ASSERT_TRUE(*(bool*)(buf));
     }
     // 50
     {
-        char val_buf[16];
+        char val_buf[kValSize];
         *(bool*)val_buf = false;
         CppType val = 50;
         memcpy(val_buf + 1, &val, sizeof(CppType));
