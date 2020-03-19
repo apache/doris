@@ -171,7 +171,7 @@ public:
                      int64_t* actual_consume_ns) {
         add_batch_counter_map[_node_id] += _add_batch_counter;
         *serialize_batch_ns += _serialize_batch_ns;
-        LOG(DEBUG) << name() << " queue_push_ns: " << _queue_push_lock_ns;
+        LOG(INFO) << name() << " queue_push_ns: " << _queue_push_lock_ns;
         *queue_push_lock_ns += _queue_push_lock_ns;
         *actual_consume_ns += _actual_consume_ns;
     }
