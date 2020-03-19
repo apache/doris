@@ -46,12 +46,14 @@
 #include "olap/txn_manager.h"
 #include "olap/task/engine_task.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "olap/fs/fs_util.h"
 #include "runtime/heartbeat_flags.h"
 
 namespace doris {
 
 class DataDir;
 class EngineTask;
+class BlockManager;
 class MemTableFlushExecutor;
 class Tablet;
 
@@ -160,6 +162,7 @@ public:
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
+    fs::BlockManager* block_manager() { return _block_manager.get(); }
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
@@ -181,13 +184,6 @@ public:
             return BETA_ROWSET;
         }
         return _default_rowset_type;
-    }
-
-    RowsetTypePB compaction_rowset_type() const {
-        if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
-            return BETA_ROWSET;
-        }
-        return _compaction_rowset_type;
     }
 
     void set_heartbeat_flags(HeartbeatFlags* heartbeat_flags) {
@@ -334,10 +330,11 @@ private:
 
     std::unique_ptr<MemTableFlushExecutor> _memtable_flush_executor;
 
+    std::unique_ptr<fs::BlockManager> _block_manager;
+
     // Used to control the migration from segment_v1 to segment_v2, can be deleted in futrue.
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
-    RowsetTypePB _compaction_rowset_type;
 
     HeartbeatFlags* _heartbeat_flags;
 

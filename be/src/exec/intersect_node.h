@@ -58,6 +58,9 @@ private:
     int _build_tuple_size;
     int _build_tuple_row_size;
     std::vector<bool> _find_nulls;
+
+    RuntimeProfile::Counter* _build_timer;        // time to build hash table
+    RuntimeProfile::Counter* _probe_timer;        // time to probe
 };
 
 }; // namespace doris

@@ -298,6 +298,14 @@ TEST_F(DateTimeValueTest, from_unixtime) {
     value.from_unixtime(570672000, TimezoneDatabase::default_time_zone);
     value.to_string(str);
     ASSERT_STREQ("1988-02-01 08:00:00", str);
+    
+    value.from_unixtime(253402271999, TimezoneDatabase::default_time_zone);
+    value.to_string(str);
+    ASSERT_STREQ("9999-12-31 23:59:59", str);
+    
+    value.from_unixtime(0, TimezoneDatabase::default_time_zone);
+    value.to_string(str);
+    ASSERT_STREQ("1970-01-01 08:00:00", str);
 }
 
 // Calculate format
