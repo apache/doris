@@ -19,12 +19,13 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.external.EsIndexState;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -89,8 +90,7 @@ public class EsPartitionsProcDir implements ProcDirInterface {
                     colNames.add(column.getName());
                 }
                 partitionInfo.add(joiner.join(colNames));  // partition key
-                partitionInfo.add(rangePartitionInfo.getIdToRange().get(
-                        esIndexState.getPartitionId()).toString());  // range
+                partitionInfo.add(rangePartitionInfo.getRange(esIndexState.getPartitionId()).toString()); // range
                 partitionInfo.add("-");  // dis
                 partitionInfo.add(esIndexState.getShardRoutings().size());  // shards
                 partitionInfo.add(1);  //  replica num

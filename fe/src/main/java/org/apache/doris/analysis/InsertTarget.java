@@ -17,22 +17,20 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
-
 public class InsertTarget {
     private final TableName tblName;
-    private final List<String> partitions;
+    private final PartitionNames partitionNames;
 
-    public InsertTarget(TableName tblName, List<String> partitions) {
+    public InsertTarget(TableName tblName, PartitionNames partitionNames) {
         this.tblName = tblName;
-        this.partitions = partitions;
+        this.partitionNames = partitionNames;
     }
 
     public TableName getTblName() {
         return tblName;
     }
 
-    public List<String> getPartitions() {
-        return partitions;
+    public PartitionNames getPartitionNames() {
+        return partitionNames;
     }
 }
