@@ -81,6 +81,8 @@ public class StmtRewriter {
 
     private static void rewriteSelectStatement(SelectStmt stmt, Analyzer analyzer)
             throws AnalysisException {
+        // rewrite subquery in case when in select list
+        rewriteCaseWhenSubqueries(stmt, analyzer);
         // Rewrite all the subqueries in the FROM clause.
         for (TableRef tblRef: stmt.fromClause_) {
             if (!(tblRef instanceof InlineViewRef)) continue;
@@ -99,7 +101,6 @@ public class StmtRewriter {
             }
             rewriteWhereClauseSubqueries(stmt, analyzer);
         }
-        rewriteCaseWhenSubqueries(stmt, analyzer);
         stmt.sqlString_ = null;
         if (LOG.isDebugEnabled()) LOG.debug("rewritten stmt: " + stmt.toSql());
     }
