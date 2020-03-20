@@ -415,6 +415,10 @@ public abstract class QueryStmt extends StatementBase {
         limitElement = new LimitElement(newLimit);
     }
 
+    public void removeLimitElement() {
+        limitElement = LimitElement.NO_LIMIT;
+    }
+
     public long getOffset() {
         return limitElement.getOffset();
     }

@@ -129,6 +129,12 @@ public class OrderByElement {
 
         return strBuilder.toString();
     }
+
+    @Override
+    public String toString() {
+        return toSql();
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (obj == null) {

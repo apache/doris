@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
@@ -149,6 +150,10 @@ public class StmtRewriter {
         Expr havingPredicate = stmt.getHavingPred();
         Preconditions.checkState(havingPredicate != null);
         Preconditions.checkState(havingPredicate.getSubquery() != null);
+        // extract limit
+        long limit = stmt.getLimit();
+        // extract order by element
+        ArrayList<OrderByElement> orderByElements = stmt.getOrderByElements();
         // extract result of stmt
         List<Expr> leftExprList = stmt.getResultExprs();
         // extract table alias generator
@@ -163,7 +168,10 @@ public class StmtRewriter {
          */
         SelectStmt inlineViewQuery = (SelectStmt) stmt.clone();
         inlineViewQuery.reset();
+        // the having, order by and limit should be move to outer query
         inlineViewQuery.removeHavingClause();
+        inlineViewQuery.removeOrderByElements();
+        inlineViewQuery.removeLimitElement();
         // add a new alias for all of columns in subquery
         List<String> colAliasOfInlineView = Lists.newArrayList();
         for (int i = 0; i < inlineViewQuery.getSelectList().getItems().size(); ++i) {
@@ -183,16 +191,17 @@ public class StmtRewriter {
          * For example:
          * Having predicate: sum(cs_sales_price) >
          *                   (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk);
+         * Order by: sum(cs_sales_price), a.cs_item_sk
          * Columns which belong to outer query: sum(cs_sales_price), a.cs_item_sk
          * SMap: <cs_item_sk $ColumnA> <sum(cs_sales_price) $ColumnB>
          * After substitute: $ColumnB >
          *                   (select min(cs_sales_price) from catalog_sales b where $ColumnA = b.cs_item_sk)
+         * Order by: $ColumnB, $ColumnA
          */
         /*
          * Prepare select list of new query.
          * Generate a new select item for each original columns in select list
          */
-        havingPredicate.reset();
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
         SelectList newSelectList = new SelectList();
         for (int i = 0; i < inlineViewQuery.getSelectList().getItems().size(); i++) {
@@ -204,15 +213,21 @@ public class StmtRewriter {
             SelectListItem selectListItem = new SelectListItem(rightExpr, stmt.getColLabels().get(i));
             newSelectList.addItem(selectListItem);
         }
+        havingPredicate.reset();
         Expr newWherePredicate = havingPredicate.substitute(smap, analyzer,false);
         LOG.debug("Having predicate is changed to " + newWherePredicate.toSql());
+        ArrayList<OrderByElement> newOrderByElements = null;
+        if (orderByElements != null) {
+            newOrderByElements = OrderByElement.substitute(orderByElements, smap, analyzer);
+            LOG.debug("Order by is changed to " + Joiner.on(",").join(newOrderByElements);
+        }
 
         // construct rewritten query
         List<TableRef> newTableRefList = Lists.newArrayList();
         newTableRefList.add(inlineViewRef);
         FromClause newFromClause = new FromClause(newTableRefList);
-        SelectStmt result = new SelectStmt(newSelectList, newFromClause, newWherePredicate, null, null, null,
-                LimitElement.NO_LIMIT);
+        SelectStmt result = new SelectStmt(newSelectList, newFromClause, newWherePredicate, null, null,
+                newOrderByElements, new LimitElement(limit));
         result.setTableAliasGenerator(tableAliasGenerator);
         try {
             result.analyze(analyzer);
@@ -627,6 +642,8 @@ public class StmtRewriter {
         if (!hasEqJoinPred && !inlineView.isCorrelated()) {
             // TODO: Remove this when independent subquery evaluation is implemented.
             // TODO: Requires support for non-equi joins.
+            boolean hasGroupBy = ((SelectStmt) inlineView.getViewStmt()).hasGroupByClause();
+            // boolean hasGroupBy = false;
             if (!expr.getSubquery().returnsScalarColumn()) {
                 throw new AnalysisException("Unsupported predicate with subquery: "
                         + expr.toSql());
