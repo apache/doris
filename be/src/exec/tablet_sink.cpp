@@ -218,7 +218,8 @@ Status NodeChannel::mark_close() {
 Status NodeChannel::close_wait(RuntimeState* state) {
     auto st = none_of({_rpc_error, _is_cancelled, !_eos_is_produced});
     if (!st.ok()) {
-        return st.clone_and_prepend("already stopped, skip waiting for close. rpc_error/cancelled/!eos: ");
+        return st.clone_and_prepend(
+                "already stopped, skip waiting for close. rpc_error/cancelled/!eos: ");
     }
 
     // wait for finished, loop interval is difficult to determine, use yield
@@ -229,7 +230,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     {
         std::lock_guard<std::mutex> lg(_pending_batches_lock);
         DCHECK(_pending_batches.empty());
-        DCHECK(_cur_batch == false);
+        DCHECK(_cur_batch == nullptr);
     }
 
     if (_add_batches_finished) {
@@ -322,18 +323,19 @@ int NodeChannel::try_send_and_fetch_status() {
 }
 
 Status NodeChannel::none_of(std::initializer_list<bool> vars) {
-    bool none = true;
-    std::string vars_str;
-    for (auto var : vars) {
-        if (var) {
-            none = false;
+    bool none = std::none_of(vars.begin(), vars.end(), [](bool var) { return var; });
+    Status st = Stats::OK();
+    if (!none) {
+        std::string vars_str;
+        std::for_each(vars.begin(), vars.end(),
+                      [&vars_str](bool var) -> void { vars_str += (var ? "1/" : "0/"); });
+        if (!vars_str.empty()) {
+            vars_str.pop_back(); // 0/1/0/ -> 0/1/0
         }
-        vars_str += (var ? "1/" : "0/");
+        st = Status::InternalError(vars_str);
     }
-    if (!vars_str.empty()) {
-        vars_str.pop_back(); // 0/1/0/ -> 0/1/0
-    }
-    return none ? Status::OK() : Status::InternalError(vars_str);
+
+    return st;
 }
 
 IndexChannel::~IndexChannel() {}
