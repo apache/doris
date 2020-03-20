@@ -139,6 +139,14 @@ public class PluginInfo extends MetaObject implements Writable {
                     + "[version]");
         }
 
+        if (!Strings.isNullOrEmpty(soName)) {
+            throw new IllegalArgumentException("Only support FE plugin");
+        }
+
+        if (Strings.isNullOrEmpty(className)) {
+            throw new IllegalArgumentException("property [className] is missing for plugin [" + name + "]");
+        }
+
         return new PluginInfo(name, type, description, version, javaVersion, className, soName, source);
     }
 

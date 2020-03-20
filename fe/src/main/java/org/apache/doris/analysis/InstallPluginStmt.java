@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -41,6 +42,10 @@ public class InstallPluginStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
 
+        if (!Config.plugin_enable) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "INSTALL PLUGIN");
+        }
+
         // check operation privilege
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
@@ -49,7 +54,7 @@ public class InstallPluginStmt extends DdlStmt {
 
     @Override
     public String toSql() {
-        return "INSTALL PLUGIN FORM " + pluginPath;
+        return "INSTALL PLUGIN FROM " + pluginPath;
     }
 
     @Override

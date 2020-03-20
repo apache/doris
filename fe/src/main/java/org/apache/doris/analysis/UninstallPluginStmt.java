@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -40,6 +41,10 @@ public class UninstallPluginStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
+
+        if (!Config.plugin_enable) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "UNINSTALL PLUGIN");
+        }
 
         // check operation privilege
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {

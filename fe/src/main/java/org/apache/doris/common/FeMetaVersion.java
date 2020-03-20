@@ -163,6 +163,8 @@ public final class FeMetaVersion {
     public static final int VERSION_75 = 75;
     // multi statement
     public static final int VERSION_76 = 76;
+    // plugin support
+    public static final int VERSION_78 = 78;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_76;
+    public static final int VERSION_CURRENT = VERSION_78;
 }

@@ -54,7 +54,7 @@ public class PluginLoaderTest {
 
         try {
             PluginLoader util = new DynamicPluginLoader(PluginTestUtil.getTestPathString("source"), pf);
-            ((DynamicPluginLoader) util).installPath = PluginTestUtil.getTestPath("target");
+            ((DynamicPluginLoader) util).tempPath = PluginTestUtil.getTestPath("target");
             ((DynamicPluginLoader) util).movePlugin();
             assertTrue(Files.isDirectory(PluginTestUtil.getTestPath("source/test-plugin")));
             assertTrue(FileUtils.deleteQuietly(PluginTestUtil.getTestFile("source/test-plugin")));

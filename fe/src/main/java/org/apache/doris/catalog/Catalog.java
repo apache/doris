@@ -183,7 +183,6 @@ import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
-import org.apache.doris.qe.Auditor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
@@ -398,8 +397,6 @@ public class Catalog {
     
     private PluginMgr pluginMgr;
 
-    private Auditor auditor;
-
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -532,10 +529,8 @@ public class Catalog {
         this.metaDir = Config.meta_dir;
         this.bdbDir = this.metaDir + BDB_DIR;
         this.imageDir = this.metaDir + IMAGE_DIR;
-        
-        this.pluginMgr = new PluginMgr();
 
-        this.auditor = new Auditor(pluginMgr);
+        this.pluginMgr = new PluginMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -583,10 +578,6 @@ public class Catalog {
 
     public PluginMgr getPluginMgr() {
         return pluginMgr;
-    }
-
-    public Auditor getAuditor() {
-        return auditor;
     }
 
     public PaloAuth getAuth() {
@@ -639,10 +630,6 @@ public class Catalog {
 
     public static PluginMgr getCurrentPluginMgr() {
         return getCurrentCatalog().getPluginMgr();
-    }
-
-    public static Auditor getCurrentAuditor() {
-        return getCurrentCatalog().getAuditor();
     }
 
     // Use tryLock to avoid potential dead lock
@@ -6548,49 +6535,21 @@ public class Catalog {
 
     public void installPlugin(InstallPluginStmt stmt) throws UserException, IOException {
         PluginInfo pluginInfo = pluginMgr.installPlugin(stmt);
-        if (Config.plugin_enable) {
-            editLog.logInstallPlugin(pluginInfo);
-        }
+        editLog.logInstallPlugin(pluginInfo);
         LOG.info("install plugin = " + pluginInfo.getName());
     }
 
     public long savePlugins(DataOutputStream dos, long checksum) throws IOException {
-        if (!Config.plugin_enable) {
-            return checksum;
-        }
-
-        List<PluginInfo> list = pluginMgr.getAllDynamicPluginInfo();
-
-        int size = list.size();
-        checksum ^= size;
-
-        dos.writeInt(size);
-
-        for (PluginInfo pc : list) {
-            pc.write(dos);
-        }
-
+        Catalog.getCurrentPluginMgr().write(dos);
         return checksum;
     }
 
     public long loadPlugins(DataInputStream dis, long checksum) throws IOException {
-        if (!Config.plugin_enable) {
-            return checksum;
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_78) {
+            Catalog.getCurrentPluginMgr().readFields(dis);
         }
 
-        int size = dis.readInt();
-        long newChecksum = checksum ^ size;
-
-        for (int i = 0; i < size; i++) {
-            PluginInfo pluginInfo = PluginInfo.read(dis);
-            try {
-                pluginMgr.loadDynamicPlugin(pluginInfo);
-            } catch (Exception e) {
-                LOG.warn("load plugin failed.", e);
-            }
-        }
-
-        return newChecksum;
+        return checksum;
     }
 
     public void replayInstallPlugin(PluginInfo pluginInfo)  {
@@ -6602,16 +6561,16 @@ public class Catalog {
     }
 
     public void uninstallPlugin(UninstallPluginStmt stmt) throws IOException, UserException {
-        pluginMgr.uninstallPlugin(stmt.getPluginName());
-        if (Config.plugin_enable) {
-            editLog.logUninstallPlugin(stmt.getPluginName());
+        PluginInfo info = pluginMgr.uninstallPlugin(stmt.getPluginName());
+        if (null != info) {
+            editLog.logUninstallPlugin(info);
         }
         LOG.info("uninstall plugin = " + stmt.getPluginName());
     }
 
-    public void replayUninstallPlugin(String pluginName)  {
+    public void replayUninstallPlugin(PluginInfo pluginInfo)  {
         try {
-            pluginMgr.uninstallPlugin(pluginName);
+            pluginMgr.uninstallPlugin(pluginInfo.getName());
         } catch (Exception e) {
             LOG.warn("replay uninstall plugin failed.", e);
         }

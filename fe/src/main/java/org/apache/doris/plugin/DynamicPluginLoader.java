@@ -82,7 +82,7 @@ public class DynamicPluginLoader extends PluginLoader {
      * move plugin to Doris's PLUGIN_DIR and dynamic load the plugin class
      */
     public void install() throws UserException, IOException {
-        if (hasInstall()) {
+        if (hasInstalled()) {
             throw new UserException("Plugin " + pluginInfo.getName() + " is already install.");
         }
 
@@ -97,7 +97,7 @@ public class DynamicPluginLoader extends PluginLoader {
         plugin.init(pluginInfo, pluginContext);
     }
 
-    private boolean hasInstall() {
+    private boolean hasInstalled() {
         // check already install
         if (pluginInfo != null && installPath != null && Files.exists(installPath)) {
             return true;
@@ -130,7 +130,7 @@ public class DynamicPluginLoader extends PluginLoader {
      *
      */
     public void reload() throws IOException, UserException {
-        if (hasInstall()) {
+        if (hasInstalled()) {
             plugin = dynamicLoadPlugin(installPath);
             pluginInstallValid();
             plugin.init(pluginInfo, pluginContext);

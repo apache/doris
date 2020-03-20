@@ -221,8 +221,6 @@ public class StmtExecutor {
     //  IOException: talk with client failed.
     public void execute() throws Exception {
 
-        Catalog.getCurrentAuditor().notifyQueryEvent(context, originStmt.originStmt, AuditEvent.AUDIT_QUERY_START);
-
         long beginTimeInNanoSecond = TimeUtils.getStartTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         try {
@@ -327,7 +325,6 @@ public class StmtExecutor {
             }
         }
 
-        Catalog.getCurrentAuditor().notifyQueryEvent(context, originStmt.originStmt, AuditEvent.AUDIT_QUERY_END);
     }
 
     private void forwardToMaster() throws Exception {

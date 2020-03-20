@@ -529,8 +529,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_UNINSTALL_PLUGIN: {
-                data = new Text();
-                ((Text) data).readFields(in);
+                data = PluginInfo.read(in);
                 isRead = true;
                 break;
             }

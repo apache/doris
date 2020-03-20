@@ -730,8 +730,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_UNINSTALL_PLUGIN: {
-                    Text pluginName = (Text) journal.getData();
-                    catalog.replayUninstallPlugin(pluginName.toString());
+                    PluginInfo pluginInfo = (PluginInfo) journal.getData();
+                    catalog.replayUninstallPlugin(pluginInfo);
                     break;
                 }
                 case OperationType.OP_SET_REPLICA_STATUS: {
@@ -1269,8 +1269,8 @@ public class EditLog {
         logEdit(OperationType.OP_INSTALL_PLUGIN, plugin);
     }
 
-    public void logUninstallPlugin(String pluginName) {
-        logEdit(OperationType.OP_UNINSTALL_PLUGIN, new Text(pluginName));
+    public void logUninstallPlugin(PluginInfo plugin) {
+        logEdit(OperationType.OP_UNINSTALL_PLUGIN, plugin);
     }
 
     public void logSetReplicaStatus(SetReplicaStatusOperationLog log) {

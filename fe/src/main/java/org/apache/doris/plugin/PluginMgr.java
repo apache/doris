@@ -17,6 +17,8 @@
 
 package org.apache.doris.plugin;
 
+import java.io.DataInputStream;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
@@ -26,14 +28,15 @@ import java.util.Objects;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.kudu.client.shaded.com.google.common.collect.Lists;
+import org.apache.doris.common.io.Writable;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
-public class PluginMgr {
+public class PluginMgr implements Writable {
     private final static Logger LOG = LogManager.getLogger(PluginMgr.class);
 
     private final Map<String, PluginLoader>[] plugins;
@@ -54,16 +57,19 @@ public class PluginMgr {
      * Dynamic install plugin thought install statement
      */
     public PluginInfo installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
-        PluginLoader pluginLoader = new DynamicPluginLoader(pluginDir, stmt.getPluginPath());
+        PluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, stmt.getPluginPath());
 
         try {
             PluginInfo info = pluginLoader.getPluginInfo();
+
+            if (plugins[info.getTypeId()].containsKey(info.getName())) {
+                throw new UserException("plugin " + info.getName() + " has install.");
+            }
+
             // install plugin
             pluginLoader.install();
 
-            PluginLoader checkLoader = plugins[info.getTypeId()].putIfAbsent(info.getName(), pluginLoader);
-
-            if (checkLoader != null) {
+            if (plugins[info.getTypeId()].putIfAbsent(info.getName(), pluginLoader) != null) {
                 throw new UserException("plugin " + info.getName() + " has install.");
             }
 
@@ -77,15 +83,21 @@ public class PluginMgr {
     /**
      * Dynamic uninstall plugin
      */
-    public void uninstallPlugin(String name) throws IOException, UserException {
+    public PluginInfo uninstallPlugin(String name) throws IOException, UserException {
         for (PluginType type : PluginType.values()) {
             if (plugins[type.ordinal()].containsKey(name)) {
-                PluginLoader loader = plugins[type.ordinal()].remove(name);
+                PluginLoader loader = plugins[type.ordinal()].get(name);
 
-                // uninstall plugin
-                loader.uninstall();
+                if (null != loader) {
+                    // uninstall plugin
+                    loader.uninstall();
+                    plugins[type.ordinal()].remove(name);
+                    return loader.getPluginInfo();
+                }
             }
         }
+
+        return null;
     }
 
     /**
@@ -98,11 +110,11 @@ public class PluginMgr {
             return false;
         }
 
-        PluginLoader loader = new BuiltinPluginLoader(pluginDir, pluginInfo, plugin);
+        PluginLoader loader = new BuiltinPluginLoader(Config.plugin_dir, pluginInfo, plugin);
         PluginLoader checkLoader =
                 plugins[pluginInfo.getTypeId()].putIfAbsent(pluginInfo.getName(), loader);
 
-        return loader.equals(checkLoader);
+        return checkLoader == null;
     }
 
     /**
@@ -110,7 +122,7 @@ public class PluginMgr {
      * Just load dynamic plugin
      */
     public void loadDynamicPlugin(PluginInfo info) throws IOException, UserException {
-        DynamicPluginLoader pluginLoader = new DynamicPluginLoader(pluginDir, info);
+        DynamicPluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, info);
 
         try {
             // install plugin
@@ -182,4 +194,29 @@ public class PluginMgr {
         return list;
     }
 
+    public void readFields(DataInputStream dis) throws IOException {
+        int size = dis.readInt();
+
+        for (int i = 0; i < size; i++) {
+            PluginInfo pluginInfo = PluginInfo.read(dis);
+            try {
+                loadDynamicPlugin(pluginInfo);
+            } catch (Exception e) {
+                LOG.warn("load plugin failed.", e);
+            }
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        List<PluginInfo> list = getAllDynamicPluginInfo();
+
+        int size = list.size();
+
+        out.writeInt(size);
+
+        for (PluginInfo pc : list) {
+            pc.write(out);
+        }
+    }
 }
