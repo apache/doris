@@ -17,8 +17,8 @@
 
 package org.apache.doris.catalog;
 
-import mockit.Expectations;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.common.AnalysisException;
@@ -35,6 +35,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
+import mockit.Expectations;
 import mockit.Mocked;
 
 public class MetadataViewerTest {
@@ -57,7 +58,7 @@ public class MetadataViewerTest {
         getTabletStatusMethod = MetadataViewer.class.getDeclaredMethod("getTabletStatus", argTypes);
         getTabletStatusMethod.setAccessible(true);
 
-        argTypes = new Class[] { String.class, String.class, List.class };
+        argTypes = new Class[] { String.class, String.class, PartitionNames.class };
         getTabletDistributionMethod = MetadataViewer.class.getDeclaredMethod("getTabletDistribution", argTypes);
         getTabletDistributionMethod.setAccessible(true);
 
@@ -116,8 +117,7 @@ public class MetadataViewerTest {
     @Test
     public void testGetTabletDistribution()
             throws IllegalAccessException, IllegalArgumentException, InvocationTargetException {
-        List<String> partitions = Lists.newArrayList();
-        Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, partitions };
+        Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, null };
         List<List<String>> result = (List<List<String>>) getTabletDistributionMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
         System.out.println(result);

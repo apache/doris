@@ -63,6 +63,7 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.PartitionPersistInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.persist.RecoverInfo;
+import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
@@ -221,7 +222,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_BATCH_DROP_ROLLUP: {
-                data = ((BatchDropInfo) data).read(in);
+                data = BatchDropInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -530,6 +531,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UNINSTALL_PLUGIN: {
                 data = PluginInfo.read(in);
+                isRead = true;
+                break;
+            }              
+            case OperationType.OP_REMOVE_ALTER_JOB_V2: {
+                data = RemoveAlterJobV2OperationLog.read(in);
                 isRead = true;
                 break;
             }

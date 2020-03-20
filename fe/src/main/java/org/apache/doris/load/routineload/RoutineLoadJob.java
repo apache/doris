@@ -23,6 +23,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
@@ -146,7 +147,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // this code is used to verify be task request
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
-    protected List<String> partitions; // optional
+    protected PartitionNames partitions; // optional
     protected List<ImportColumnDesc> columnDescs; // optional
     protected Expr whereExpr; // optional
     protected ColumnSeparator columnSeparator; // optional
@@ -290,7 +291,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             if (routineLoadDesc.getColumnSeparator() != null) {
                 columnSeparator = routineLoadDesc.getColumnSeparator();
             }
-            if (routineLoadDesc.getPartitionNames() != null && routineLoadDesc.getPartitionNames().size() != 0) {
+            if (routineLoadDesc.getPartitionNames() != null) {
                 partitions = routineLoadDesc.getPartitionNames();
             }
         }
@@ -375,7 +376,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return endTimestamp;
     }
 
-    public List<String> getPartitions() {
+    public PartitionNames getPartitions() {
         return partitions;
     }
 
@@ -904,15 +905,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return;
         }
         
-        List<String> partitionNames = routineLoadDesc.getPartitionNames();
-        if (partitionNames == null || partitionNames.isEmpty()) {
+        PartitionNames partitionNames = routineLoadDesc.getPartitionNames();
+        if (partitionNames == null) {
             return;
         }
         
         // check partitions
         OlapTable olapTable = (OlapTable) table;
-        for (String partName : partitionNames) {
-            if (olapTable.getPartition(partName) == null) {
+        for (String partName : partitionNames.getPartitionNames()) {
+            if (olapTable.getPartition(partName, partitionNames.isTemp()) == null) {
                 throw new DdlException("Partition " + partName + " does not exist");
             }
         }
@@ -1157,7 +1158,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions));
+        jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs));
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());

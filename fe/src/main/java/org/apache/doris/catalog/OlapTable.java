@@ -154,10 +154,7 @@ public class OlapTable extends Table {
 
         this.keysType = keysType;
         this.partitionInfo = partitionInfo;
-        if (partitionInfo.getType() == PartitionType.RANGE) {
-            tempPartitions = new TempPartitions(((RangePartitionInfo) this.partitionInfo).getPartitionColumns());
-        }
-        
+
         this.defaultDistributionInfo = defaultDistributionInfo;
 
         this.bfColumns = null;
@@ -385,8 +382,8 @@ public class OlapTable extends Table {
                 rangePartitionInfo.idToReplicationNum.remove(entry.getValue());
                 rangePartitionInfo.idToReplicationNum.put(newPartId,
                                                           (short) restoreReplicationNum);
-                rangePartitionInfo.getIdToRange().put(newPartId,
-                                                      rangePartitionInfo.getIdToRange().remove(entry.getValue()));
+                rangePartitionInfo.getIdToRange(false).put(newPartId,
+                        rangePartitionInfo.getIdToRange(false).remove(entry.getValue()));
 
                 rangePartitionInfo.idToInMemory.put(newPartId, rangePartitionInfo.idToInMemory.remove(entry.getValue()));
                 idToPartition.put(newPartId, idToPartition.remove(entry.getValue()));
@@ -588,18 +585,62 @@ public class OlapTable extends Table {
         return dropPartition(-1, partitionName, true);
     }
 
-    public Collection<Partition> getPartitions() {
-        return idToPartition.values();
-    }
-
-    public Partition getPartition(long partitionId) {
-        return idToPartition.get(partitionId);
-    }
-
+    /*
+     * A table may contain both formal and temporary partitions.
+     * There are several methods to get the partition of a table.
+     * Typically divided into two categories:
+     * 
+     * 1. Get partition by id
+     * 2. Get partition by name
+     * 
+     * According to different requirements, the caller may want to obtain
+     * a formal partition or a temporary partition. These methods are
+     * described below in order to obtain the partition by using the correct method.
+     * 
+     * 1. Get by name
+     * 
+     * This type of request usually comes from a user with partition names. Such as
+     * `select * from tbl partition(p1);`.
+     * This type of request has clear information to indicate whether to obtain a
+     * formal or temporary partition.
+     * Therefore, we need to get the partition through this method:
+     * 
+     * `getPartition(String partitionName, boolean isTemp)`
+     * 
+     * To avoid modifying too much code, we leave the `getPartition(String
+     * partitionName)`, which is same as:
+     * 
+     * `getPartition(partitionName, false)`
+     * 
+     * 2. Get by id
+     * 
+     * This type of request usually means that the previous step has obtained
+     * certain partition ids in some way,
+     * so we only need to get the corresponding partition through this method:
+     * 
+     * `getPartition(long partitionId)`.
+     * 
+     * This method will try to get both formal partitions and temporary partitions.
+     * 
+     * 3. Get all partition instances
+     * 
+     * Depending on the requirements, the caller may want to obtain all formal
+     * partitions,
+     * all temporary partitions, or all partitions. Therefore we provide 3 methods,
+     * the caller chooses according to needs.
+     * 
+     * `getPartitions()`
+     * `getTempPartitions()`
+     * `getAllPartitions()`
+     *
+     */
+    
+    // get partition by name, not including temp partitions
     public Partition getPartition(String partitionName) {
-        return nameToPartition.get(partitionName);
+        return getPartition(partitionName, false);
     }
 
+    // get partition by name
     public Partition getPartition(String partitionName, boolean isTempPartition) {
         if (isTempPartition) {
             return tempPartitions.getPartition(partitionName);
@@ -608,6 +649,33 @@ public class OlapTable extends Table {
         }
     }
 
+    // get partition by id, including temp partitions
+    public Partition getPartition(long partitionId) {
+        Partition partition = idToPartition.get(partitionId);
+        if (partition == null) {
+            partition = tempPartitions.getPartition(partitionId);
+        }
+        return partition;
+    }
+    
+    // get all partitions except temp partitions
+    public Collection<Partition> getPartitions() {
+        return idToPartition.values();
+    }
+
+    // get only temp partitions
+    public Collection<Partition> getTempPartitions() {
+        return tempPartitions.getAllPartitions();
+    }
+
+    // get all partitions including temp partitions
+    public Collection<Partition> getAllPartitions() {
+        List<Partition> partitions = Lists.newArrayList(idToPartition.values());
+        partitions.addAll(tempPartitions.getAllPartitions());
+        return partitions;
+    }
+
+    // get all partitions' name except the temp partitions
     public Set<String> getPartitionNames() {
         return Sets.newHashSet(nameToPartition.keySet());
     }
@@ -616,7 +684,6 @@ public class OlapTable extends Table {
         if (bfColumns == null) {
             return null;
         }
-
         return Sets.newHashSet(bfColumns);
     }
 
@@ -760,6 +827,7 @@ public class OlapTable extends Table {
         return Math.abs((int) adler32.getValue());
     }
 
+    // get intersect partition names with the given table "anotherTbl". not including temp partitions
     public Status getIntersectPartNamesWith(OlapTable anotherTbl, List<String> intersectPartNames) {
         if (this.getPartitionInfo().getType() != anotherTbl.getPartitionInfo().getType()) {
             return new Status(ErrCode.COMMON_ERROR, "Table's partition type is different");
@@ -979,6 +1047,17 @@ public class OlapTable extends Table {
         // temp partitions
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
             tempPartitions = TempPartitions.read(in);
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_77) {
+                RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
+                if (tempRangeInfo != null) {
+                    for (long partitionId : tempRangeInfo.getIdToRange(false).keySet()) {
+                        ((RangePartitionInfo) this.partitionInfo).addPartition(partitionId, true,
+                                tempRangeInfo.getRange(partitionId), tempRangeInfo.getDataProperty(partitionId),
+                                tempRangeInfo.getReplicationNum(partitionId), tempRangeInfo.getIsInMemory(partitionId));
+                    }
+                }
+                tempPartitions.unsetPartitionInfo();
+            }
         }
 
         // In the present, the fullSchema could be rebuilt by schema change while the properties is changed by MV.
@@ -994,7 +1073,7 @@ public class OlapTable extends Table {
         return table instanceof OlapTable;
     }
 
-    public OlapTable selectiveCopy(Collection<String> reservedPartNames, boolean resetState, IndexExtState extState) {
+    public OlapTable selectiveCopy(Collection<String> reservedPartitions, boolean resetState, IndexExtState extState) {
         OlapTable copied = new OlapTable();
         if (!DeepCopy.copy(this, copied, OlapTable.class)) {
             LOG.warn("failed to copy olap table: " + getName());
@@ -1027,7 +1106,7 @@ public class OlapTable extends Table {
             }
         }
 
-        if (reservedPartNames == null || reservedPartNames.isEmpty()) {
+        if (reservedPartitions == null || reservedPartitions.isEmpty()) {
             // reserve all
             return copied;
         }
@@ -1036,7 +1115,7 @@ public class OlapTable extends Table {
         partNames.addAll(copied.getPartitionNames());
         
         for (String partName : partNames) {
-            if (!reservedPartNames.contains(partName)) {
+            if (!reservedPartitions.contains(partName)) {
                 copied.dropPartitionForBackup(partName);
             }
         }
@@ -1065,7 +1144,7 @@ public class OlapTable extends Table {
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             Range<PartitionKey> range = rangePartitionInfo.getRange(oldPartition.getId());
             rangePartitionInfo.dropPartition(oldPartition.getId());
-            rangePartitionInfo.addPartition(newPartition.getId(), range, dataProperty,
+            rangePartitionInfo.addPartition(newPartition.getId(), false, range, dataProperty,
                     replicationNum, isInMemory);
         } else {
             partitionInfo.dropPartition(oldPartition.getId());
@@ -1077,7 +1156,7 @@ public class OlapTable extends Table {
 
     public long getDataSize() {
         long dataSize = 0;
-        for (Partition partition : getPartitions()) {
+        for (Partition partition : getAllPartitions()) {
             dataSize += partition.getDataSize();
         }
         return dataSize;
@@ -1254,8 +1333,14 @@ public class OlapTable extends Table {
         }
     }
 
+    // drop temp partition. if needDropTablet is true, tablets of this temp partition
+    // will be dropped from tablet inverted index.
     public void dropTempPartition(String partitionName, boolean needDropTablet) {
-        tempPartitions.dropPartition(partitionName, needDropTablet);
+        Partition partition = getPartition(partitionName, true);
+        if (partition != null) {
+            partitionInfo.dropPartition(partition.getId());
+            tempPartitions.dropPartition(partitionName, needDropTablet);
+        }
     }
 
     /*
@@ -1277,7 +1362,6 @@ public class OlapTable extends Table {
     public void replaceTempPartitions(List<String> partitionNames, List<String> tempPartitionNames,
             boolean strictRange, boolean useTempPartitionName) throws DdlException {
         RangePartitionInfo rangeInfo = (RangePartitionInfo) partitionInfo;
-        RangePartitionInfo tempRangeInfo = tempPartitions.getPartitionInfo();
 
         if (strictRange) {
             // check if range of partitions and temp partitions are exactly same
@@ -1292,7 +1376,7 @@ public class OlapTable extends Table {
             for (String partName : tempPartitionNames) {
                 Partition partition = tempPartitions.getPartition(partName);
                 Preconditions.checkNotNull(partition);
-                tempRangeList.add(tempRangeInfo.getRange(partition.getId()));
+                tempRangeList.add(rangeInfo.getRange(partition.getId()));
             }
             RangeUtils.checkRangeListsMatch(rangeList, tempRangeList);
         } else {
@@ -1307,9 +1391,9 @@ public class OlapTable extends Table {
             for (String partName : tempPartitionNames) {
                 Partition partition = tempPartitions.getPartition(partName);
                 Preconditions.checkNotNull(partition);
-                replacePartitionRanges.add(tempRangeInfo.getRange(partition.getId()));
+                replacePartitionRanges.add(rangeInfo.getRange(partition.getId()));
             }
-            List<Range<PartitionKey>> sortedRangeList = rangeInfo.getRangeList(replacePartitionIds);
+            List<Range<PartitionKey>> sortedRangeList = rangeInfo.getRangeList(replacePartitionIds, false);
             RangeUtils.checkRangeConflict(sortedRangeList, replacePartitionRanges);
         }
         
@@ -1326,12 +1410,10 @@ public class OlapTable extends Table {
             Partition partition = tempPartitions.getPartition(partitionName);
             // add
             addPartition(partition);
-            rangeInfo.addPartition(partition.getId(), tempRangeInfo.getRange(partition.getId()),
-                    tempRangeInfo.getDataProperty(partition.getId()),
-                    tempRangeInfo.getReplicationNum(partition.getId()),
-                    tempRangeInfo.getIsInMemory(partition.getId()));
             // drop
-            dropTempPartition(partitionName, false /* do not drop the tablet */);
+            tempPartitions.dropPartition(partitionName, false);
+            // move the range from idToTempRange to idToRange
+            rangeInfo.moveRangeFromTempToFormal(partition.getId());
         }
 
         // 3. delete old partition's tablets in inverted index
@@ -1351,15 +1433,14 @@ public class OlapTable extends Table {
         }
     }
 
-    public PartitionInfo getTempPartitonRangeInfo() {
-        return tempPartitions.getPartitionInfo();
-    }
-
     public void addTempPartition(Partition partition) {
         tempPartitions.addPartition(partition);
     }
 
     public void dropAllTempPartitions() {
+        for (Partition partition : tempPartitions.getAllPartitions()) {
+            partitionInfo.dropPartition(partition.getId());
+        }
         tempPartitions.dropAll();
     }
 

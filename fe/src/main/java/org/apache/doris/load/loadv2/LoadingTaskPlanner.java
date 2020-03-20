@@ -20,9 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -93,7 +91,6 @@ public class LoadingTaskPlanner {
     public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)
             throws UserException {
         // Generate tuple descriptor
-        List<Expr> slotRefs = Lists.newArrayList();
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor();
         // use full schema to fill the descriptor table
         for (Column col : table.getFullSchema()) {
@@ -105,7 +102,6 @@ public class LoadingTaskPlanner {
             } else {
                 slotDesc.setIsNullable(false);
             }
-            slotRefs.add(new SlotRef(slotDesc));
         }
 
         // Generate plan trees
@@ -135,7 +131,7 @@ public class LoadingTaskPlanner {
             try {
                 fragment.finalize(analyzer, false);
             } catch (NotImplementedException e) {
-                LOG.info("Fragment finalize failed.{}", e);
+                LOG.info("Fragment finalize failed.{}", e.getMessage());
                 throw new UserException("Fragment finalize failed.");
             }
         }

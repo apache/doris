@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -62,8 +63,12 @@ public class AdminRepairTableStmt extends DdlStmt {
 
         tblRef.getName().setDb(dbName);
 
-        if (tblRef.getPartitions() != null && !tblRef.getPartitions().isEmpty()) {
-            partitions.addAll(tblRef.getPartitions());
+        PartitionNames partitionNames = tblRef.getPartitionNames();
+        if (partitionNames != null) {
+            if (partitionNames.isTemp()) {
+                throw new AnalysisException("Do not support (cancel)repair temporary partitions");
+            }
+            partitions.addAll(partitionNames.getPartitionNames());
         }
 
         timeoutS = 4 * 3600; // default 4 hours

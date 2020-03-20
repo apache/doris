@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -36,6 +37,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
@@ -273,37 +275,23 @@ public class OlapScanNode extends ScanNode {
         }
     }
 
-    private Collection<Long> partitionPrune(PartitionInfo partitionInfo) throws AnalysisException {
-        PartitionPruner partitionPruner = null;
-        switch(partitionInfo.getType()) {
-            case RANGE: {
-                BaseTableRef ref = (BaseTableRef) desc.getRef();
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                Map<Long, Range<PartitionKey>> keyRangeById = null;
-                if (ref.getPartitions() != null) {
-                    keyRangeById = Maps.newHashMap();
-                    for (String partName : ref.getPartitions()) {
-                        Partition part = olapTable.getPartition(partName);
-                        if (part == null) {
-                            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
-                        }
-                        keyRangeById.put(part.getId(), rangePartitionInfo.getRange(part.getId()));
-                    }
-                } else {
-                    keyRangeById = rangePartitionInfo.getIdToRange();
+    private Collection<Long> partitionPrune(RangePartitionInfo partitionInfo, PartitionNames partitionNames) throws AnalysisException {
+        Map<Long, Range<PartitionKey>> keyRangeById = null;
+        if (partitionNames != null) {
+            keyRangeById = Maps.newHashMap();
+            for (String partName : partitionNames.getPartitionNames()) {
+                Partition part = olapTable.getPartition(partName, partitionNames.isTemp());
+                if (part == null) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_SUCH_PARTITION, partName);
                 }
-                partitionPruner = new RangePartitionPruner(keyRangeById,
-                                                           rangePartitionInfo.getPartitionColumns(),
-                                                           columnFilters);
-                return partitionPruner.prune();
+                keyRangeById.put(part.getId(), partitionInfo.getRange(part.getId()));
             }
-            case UNPARTITIONED: {
-                return null;
-            }
-            default: {
-                return null;
-            }
+        } else {
+            keyRangeById = partitionInfo.getIdToRange(false);
         }
+        PartitionPruner partitionPruner = new RangePartitionPruner(keyRangeById,
+                partitionInfo.getPartitionColumns(), columnFilters);
+        return partitionPruner.prune();
     }
 
     private Collection<Long> distributionPrune(
@@ -417,7 +405,14 @@ public class OlapScanNode extends ScanNode {
     private void getScanRangeLocations(Analyzer analyzer) throws UserException {
         long start = System.currentTimeMillis();
         // Step1: compute partition ids
-        selectedPartitionIds = partitionPrune(olapTable.getPartitionInfo());
+        PartitionNames partitionNames = ((BaseTableRef) desc.getRef()).getPartitionNames();
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            selectedPartitionIds = partitionPrune((RangePartitionInfo) partitionInfo, partitionNames);
+        } else {
+            selectedPartitionIds = null;
+        }
+
         if (selectedPartitionIds == null) {
             selectedPartitionIds = Lists.newArrayList();
             for (Partition partition : olapTable.getPartitions()) {
@@ -608,18 +603,13 @@ public class OlapScanNode extends ScanNode {
         OlapScanNode olapScanNode = new OlapScanNode(id, desc, planNodeName);
         olapScanNode.numInstances = 1;
 
-        ArrayList<Partition> partitions = Lists.newArrayList(olapScanNode.olapTable.getPartitions());
-        Preconditions.checkState(!partitions.isEmpty());
-        olapScanNode.selectedIndexId = partitions.get(0).getBaseIndex().getId();
+        olapScanNode.selectedIndexId = olapScanNode.olapTable.getBaseIndexId();
         olapScanNode.selectedPartitionNum = 1;
         olapScanNode.selectedTabletsNum = 1;
         olapScanNode.totalTabletsNum = 1;
         olapScanNode.isPreAggregation = false;
-
         olapScanNode.isFinalized = true;
-
         olapScanNode.result.addAll(locationsList);
-        TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
 
         return olapScanNode;
     }

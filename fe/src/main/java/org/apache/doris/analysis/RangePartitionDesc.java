@@ -136,7 +136,8 @@ public class RangePartitionDesc extends PartitionDesc {
     }
 
     @Override
-    public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId) throws DdlException {
+    public PartitionInfo toPartitionInfo(List<Column> schema, Map<String, Long> partitionNameToId, boolean isTemp)
+            throws DdlException {
         List<Column> partitionColumns = Lists.newArrayList();
 
         // check and get partition column
@@ -178,7 +179,7 @@ public class RangePartitionDesc extends PartitionDesc {
         RangePartitionInfo rangePartitionInfo = new RangePartitionInfo(partitionColumns);
         for (SingleRangePartitionDesc desc : singleRangePartitionDescs) {
             long partitionId = partitionNameToId.get(desc.getPartitionName());
-            rangePartitionInfo.handleNewSinglePartitionDesc(desc, partitionId);
+            rangePartitionInfo.handleNewSinglePartitionDesc(desc, partitionId, isTemp);
         }
         return rangePartitionInfo;
     }

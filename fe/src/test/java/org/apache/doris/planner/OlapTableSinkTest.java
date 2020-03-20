@@ -32,13 +32,11 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Range;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -125,10 +123,8 @@ public class OlapTableSinkTest {
             dstTable.getPartitionInfo(); result = partInfo;
             partInfo.getType(); result = PartitionType.RANGE;
             partInfo.getPartitionColumns(); result = Lists.newArrayList(partKey);
-            partInfo.getRange(1); result = Range.lessThan(key);
             dstTable.getPartitions(); result = Lists.newArrayList(p1, p2);
             dstTable.getPartition(p1.getId()); result = p1;
-            index.getTablets(); result = Lists.newArrayList(new Tablet(1));
         }};
 
         OlapTableSink sink = new OlapTableSink(dstTable, tuple, Lists.newArrayList(p1.getId()));

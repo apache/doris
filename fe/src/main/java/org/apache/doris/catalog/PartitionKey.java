@@ -333,8 +333,8 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
     @Override
     public int hashCode() {
         int ret = types.size() * 1000;
-        for (int i = 0; i < types.size(); i++) {
-            ret += types.get(i).ordinal();
+        for (PrimitiveType type : types) {
+            ret += type.ordinal();
         }
         return ret;
     }

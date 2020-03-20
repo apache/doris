@@ -24,6 +24,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -219,7 +220,7 @@ public class ExportJob implements Writable {
     }
 
     private void registerToDesc() {
-        TableRef ref = new TableRef(tableName, null, partitions);
+        TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
         BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);

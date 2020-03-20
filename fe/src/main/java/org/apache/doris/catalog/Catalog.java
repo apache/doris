@@ -228,8 +228,6 @@ import org.apache.kudu.client.KuduClient;
 import org.apache.kudu.client.KuduException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.codehaus.jackson.JsonParseException;
-import org.codehaus.jackson.map.JsonMappingException;
 import org.codehaus.jackson.map.ObjectMapper;
 
 import java.io.BufferedInputStream;
@@ -1375,12 +1373,6 @@ public class Catalog {
             connection.setConnectTimeout(HTTP_TIMEOUT_SECOND * 1000);
             connection.setReadTimeout(HTTP_TIMEOUT_SECOND * 1000);
             return mapper.readValue(connection.getInputStream(), StorageInfo.class);
-        } catch (JsonParseException e) {
-            throw new IOException(e);
-        } catch (JsonMappingException e) {
-            throw new IOException(e);
-        } catch (IOException e) {
-            throw e;
         } finally {
             if (connection != null) {
                 connection.disconnect();
@@ -1461,8 +1453,7 @@ public class Catalog {
 
                 OlapTable olapTable = (OlapTable) table;
                 long tableId = olapTable.getId();
-                List<Partition> allPartitions = Lists.newArrayList(olapTable.getPartitions());
-                allPartitions.addAll(olapTable.getAllTempPartitions());
+                Collection<Partition> allPartitions = olapTable.getAllPartitions();
                 for (Partition partition : allPartitions) {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
@@ -1848,8 +1839,7 @@ public class Catalog {
 
         long checksum = 0;
         long saveImageStartTime = System.currentTimeMillis();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(curFile));
-        try {
+        try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(curFile))) {
             checksum = saveHeader(dos, replayedJournalId, checksum);
             checksum = saveMasterInfo(dos, checksum);
             checksum = saveFrontends(dos, checksum);
@@ -1871,8 +1861,6 @@ public class Catalog {
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             dos.writeLong(checksum);
-        } finally {
-            dos.close();
         }
 
         long saveImageEndTime = System.currentTimeMillis();
@@ -2220,7 +2208,7 @@ public class Catalog {
             // but service may be continued when there is no log being replayed.
             LOG.warn("meta out of date. current time: {}, synchronized time: {}, has log: {}, fe type: {}",
                     currentTimeMs, synchronizedTimeMs, hasLog, feType);
-            if (hasLog || (!hasLog && feType == FrontendNodeType.UNKNOWN)) {
+            if (hasLog || feType == FrontendNodeType.UNKNOWN) {
                 // 1. if we read log from BDB, which means master is still alive.
                 // So we need to set meta out of date.
                 // 2. if we didn't read any log from BDB and feType is UNKNOWN,
@@ -2958,10 +2946,6 @@ public class Catalog {
                 throw new DdlException("Only support adding partition to range partitioned table");
             }
 
-            if (isTempPartition) {
-                partitionInfo = olapTable.getTempPartitonRangeInfo();
-            }
-
             // check partition name
             if (olapTable.checkPartitionNameExist(partitionName)) {
                 if (singlePartitionDesc.isSetIfNotExists()) {
@@ -2984,7 +2968,7 @@ public class Catalog {
 
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
             singlePartitionDesc.analyze(rangePartitionInfo.getPartitionColumns().size(), properties);
-            rangePartitionInfo.checkAndCreateRange(singlePartitionDesc);
+            rangePartitionInfo.checkAndCreateRange(singlePartitionDesc, isTempPartition);
 
             // get distributionInfo
             List<Column> baseSchema = olapTable.getBaseSchema();
@@ -3110,16 +3094,13 @@ public class Catalog {
 
                 // check partition type
                 PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                if (isTempPartition) {
-                    partitionInfo = olapTable.getTempPartitonRangeInfo();
-                }
                 if (partitionInfo.getType() != PartitionType.RANGE) {
                     throw new DdlException("Only support adding partition to range partitioned table");
                 }
 
                 // update partition info
                 RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId);
+                rangePartitionInfo.handleNewSinglePartitionDesc(singlePartitionDesc, partitionId, isTempPartition);
 
                 if (isTempPartition) {
                     olapTable.addTempPartition(partition);
@@ -3156,14 +3137,13 @@ public class Catalog {
 
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
             if (info.isTempPartition()) {
-                partitionInfo = olapTable.getTempPartitonRangeInfo();
                 olapTable.addTempPartition(partition);
             } else {
                 olapTable.addPartition(partition);
             }
 
             ((RangePartitionInfo) partitionInfo).unprotectHandleNewSinglePartitionDesc(partition.getId(),
-                    info.getRange(), info.getDataProperty(), info.getReplicationNum(),
+                    info.isTempPartition(), info.getRange(), info.getDataProperty(), info.getReplicationNum(),
                     info.isInMemory());
 
             if (!isCheckpointThread()) {
@@ -3211,11 +3191,6 @@ public class Catalog {
         if (partitionInfo.getType() != PartitionType.RANGE) {
             throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
         }
-
-        if (isTempPartition) {
-            partitionInfo = olapTable.getTempPartitonRangeInfo();
-        }
-
 
         // drop
         if (isTempPartition) {
@@ -3506,7 +3481,7 @@ public class Catalog {
                     partitionNameToId.put(desc.getPartitionName(), partitionId);
                 }
             }
-            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId);
+            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
         } else {
             if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(stmt.getProperties())) {
                 throw new DdlException("Only support dynamic partition properties on range partition table");
@@ -3794,7 +3769,7 @@ public class Catalog {
         PartitionInfo partitionInfo = null;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
-            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId);
+            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
         } else {
             long partitionId = getNextId();
             // use table name as single partition name
@@ -4118,7 +4093,7 @@ public class Catalog {
             OlapTable olapTable = (OlapTable) table;
             RangePartitionInfo partitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
             boolean first = true;
-            for (Map.Entry<Long, Range<PartitionKey>> entry : partitionInfo.getSortedRangeMap()) {
+            for (Map.Entry<Long, Range<PartitionKey>> entry : partitionInfo.getSortedRangeMap(false)) {
                 if (first) {
                     first = false;
                     continue;
@@ -4175,7 +4150,7 @@ public class Catalog {
                 OlapTable olapTable = (OlapTable) table;
                 long dbId = db.getId();
                 long tableId = table.getId();
-                for (Partition partition : olapTable.getPartitions()) {
+                for (Partition partition : olapTable.getAllPartitions()) {
                     long partitionId = partition.getId();
                     TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(
                             partitionId).getStorageMedium();
@@ -4345,9 +4320,14 @@ public class Catalog {
             }
         } else if (table.getType() == TableType.ELASTICSEARCH) {
             esStateStore.deRegisterTable(tableId);
+        } else if (table.getType() == TableType.OLAP) {
+            // drop all temp partitions of this table, so that there is no temp partitions in recycle bin,
+            // which make things easier.
+            ((OlapTable) table).dropAllTempPartitions();
         }
 
         db.dropTable(table.getName());
+
         Catalog.getCurrentRecycleBin().recycleTable(db.getId(), table);
 
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
@@ -4587,7 +4567,7 @@ public class Catalog {
                     long tableId = table.getId();
                     OlapTable olapTable = (OlapTable) table;
                     PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-                    for (Partition partition : olapTable.getPartitions()) {
+                    for (Partition partition : olapTable.getAllPartitions()) {
                         long partitionId = partition.getId();
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
                         Preconditions.checkNotNull(dataProperty);
@@ -4829,8 +4809,7 @@ public class Catalog {
     public static short calcShortKeyColumnCount(List<Column> columns, Map<String, String> properties)
             throws DdlException {
         List<Column> indexColumns = new ArrayList<Column>();
-        for (int i = 0; i < columns.size(); i++) {
-            Column column = columns.get(i);
+        for (Column column : columns) {
             if (column.isKey()) {
                 indexColumns.add(column);
             }
@@ -6179,7 +6158,7 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbTbl.getDb());
         }
 
-        boolean truncateEntireTable = tblRef.getPartitions() == null || tblRef.getPartitions().isEmpty();
+        boolean truncateEntireTable = tblRef.getPartitionNames() == null;
         db.readLock();
         try {
             Table table = db.getTable(dbTbl.getTbl());
@@ -6197,7 +6176,7 @@ public class Catalog {
             }
             
             if (!truncateEntireTable) {
-                for (String partName: tblRef.getPartitions()) {
+                for (String partName : tblRef.getPartitionNames().getPartitionNames()) {
                     Partition partition = olapTable.getPartition(partName);
                     if (partition == null) {
                         throw new DdlException("Partition " + partName + " does not exist");
@@ -6313,7 +6292,7 @@ public class Catalog {
         }
         
         LOG.info("finished to truncate table {}, partitions: {}",
-                tblRef.getName().toSql(), tblRef.getPartitions());
+                tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 
     private void truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions, boolean isEntireTable) {
