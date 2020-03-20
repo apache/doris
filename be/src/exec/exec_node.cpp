@@ -30,7 +30,6 @@
 #include "exec/csv_scan_node.h"
 #include "exec/es_scan_node.h"
 #include "exec/es_http_scan_node.h"
-#include "exec/pre_aggregation_node.h"
 #include "exec/hash_join_node.h"
 #include "exec/broker_scan_node.h"
 #include "exec/cross_join_node.h"
@@ -390,10 +389,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
             *node = pool->add(new AggregationNode(pool, tnode, descs));
         }
         return Status::OK();
-
-        /*case TPlanNodeType::PRE_AGGREGATION_NODE:
-          *node = pool->add(new PreAggregationNode(pool, tnode, descs));
-          return Status::OK();*/
     case TPlanNodeType::HASH_JOIN_NODE:
         *node = pool->add(new HashJoinNode(pool, tnode, descs));
         return Status::OK();
