@@ -44,9 +44,7 @@ HashJoinNode::HashJoinNode(
     _match_all_build =
         (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN);
     _is_push_down = tnode.hash_join_node.is_push_down;
-    _build_unique = _join_op == TJoinOp::LEFT_ANTI_JOIN|| _join_op == TJoinOp::RIGHT_ANTI_JOIN
-        || _join_op == TJoinOp::RIGHT_SEMI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN 
-        || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+    _build_unique = _join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN;
 }
 
 HashJoinNode::~HashJoinNode() {
