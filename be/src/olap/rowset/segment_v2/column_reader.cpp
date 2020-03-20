@@ -138,20 +138,14 @@ bool ColumnReader::match_condition(CondColumn* cond) const {
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
+    _parse_zone_map(_zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get());
     return _zone_map_match_condition(
             _zone_map_index_meta->segment_zone_map(), min_value.get(), max_value.get(), cond);
 }
 
-bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
-                                             WrapperField* min_value_container,
-                                             WrapperField* max_value_container,
-                                             CondColumn* cond) const {
-    if (cond == nullptr) {
-        return true;
-    }
-    if (!zone_map.has_not_null() && !zone_map.has_null()) {
-        return false; // no data in this zone
-    }
+void ColumnReader::_parse_zone_map(const ZoneMapPB& zone_map,
+                         WrapperField* min_value_container,
+                         WrapperField* max_value_container) const {
     // min value and max value are valid if has_not_null is true
     if (zone_map.has_not_null()) {
         min_value_container->from_string(zone_map.min());
@@ -167,6 +161,19 @@ bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
             max_value_container->set_null();
         }
     }
+}
+
+bool ColumnReader::_zone_map_match_condition(const ZoneMapPB& zone_map,
+                                             WrapperField* min_value_container,
+                                             WrapperField* max_value_container,
+                                             CondColumn* cond) const {
+    if (!zone_map.has_not_null() && !zone_map.has_null()) {
+        return false; // no data in this zone
+    }
+
+    if (cond == nullptr) {
+        return true;
+    }
 
     return cond->eval({min_value_container, max_value_container});
 }
@@ -181,6 +188,7 @@ Status ColumnReader::_get_filtered_pages(CondColumn* cond_column,
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta.length()));
     std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type, _meta.length()));
     for (int32_t i = 0; i < page_size; ++i) {
+        _parse_zone_map(zone_maps[i], min_value.get(), max_value.get());
         if (_zone_map_match_condition(zone_maps[i], min_value.get(), max_value.get(), cond_column)) {
             bool should_read = true;
             for (auto& col_cond : delete_conditions) {
