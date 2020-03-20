@@ -219,7 +219,7 @@ public class StmtRewriter {
         ArrayList<OrderByElement> newOrderByElements = null;
         if (orderByElements != null) {
             newOrderByElements = OrderByElement.substitute(orderByElements, smap, analyzer);
-            LOG.debug("Order by is changed to " + Joiner.on(",").join(newOrderByElements);
+            LOG.debug("Order by is changed to " + Joiner.on(",").join(newOrderByElements));
         }
 
         // construct rewritten query
