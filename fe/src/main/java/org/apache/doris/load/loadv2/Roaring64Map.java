@@ -1312,6 +1312,9 @@ public class Roaring64Map {
      * @throws IOException Signals that an I/O exception has occurred.
      */
     public void serialize(DataOutput out) throws IOException {
+        if (highToBitmap.size() == 0) {
+            return;
+        }
         if (is32BitsEnough()) {
             out.write(BITMAP32);
             highToBitmap.get(0).serialize(out);
@@ -1363,28 +1366,29 @@ public class Roaring64Map {
 
     /*---------------------------- method below is new written for doris's own bitmap --------------------------------*/
 
-    /**
-     *  three cases to judge whether current bitmap contains long
-     *  for 32-bit integer casted to long,the high 32 bits(use >> to get) can only be 0 or -1
-     *  @return true means current bitmap contains 64-bit integer,otherwise only 32-bit integer
-     */
     public boolean is32BitsEnough() {
-        if (highToBitmap.size() == 0) {
-            return true;
+        return highToBitmap.size() == 1 && highToBitmap.get(0) != null;
+    }
+
+    public void add(long value) {
+        addLong(value);
+    }
+
+    public void add(int value) {
+        RoaringBitmap bitmap = (RoaringBitmap) highToBitmap.get(0);
+        if (bitmap == null) {
+            bitmap = (RoaringBitmap) newRoaringBitmap();
+            highToBitmap.put(0, bitmap);
         }
+        bitmap.add(value);
+    }
 
-        boolean containsKeyNeg1 = highToBitmap.containsKey(-1);
-        boolean containsKey0 = highToBitmap.containsKey(0);
-
-        if (highToBitmap.size() == 1 && (containsKey0 || containsKeyNeg1)) {
-            return true;
+    public boolean contains(int value) {
+        RoaringBitmap bitmap = (RoaringBitmap) highToBitmap.get(0);
+        if (bitmap == null) {
+            return false;
         }
-
-        if (highToBitmap.size() == 2 && (containsKey0 && containsKeyNeg1)) {
-            return true;
-        }
-
-        return false;
+        return bitmap.contains(value);
     }
 
 

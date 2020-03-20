@@ -35,7 +35,7 @@ public class BitmapValueTest {
 
     @Test
     public void testVarint64IntEncode() throws IOException {
-        long[] sourceValue = {-1, 0, 1000, Integer.MAX_VALUE, Long.MAX_VALUE};
+        long[] sourceValue = {0, 1000, Integer.MAX_VALUE, Long.MAX_VALUE};
         for (long value : sourceValue) {
             ByteArrayOutputStream byteArrayOutput = new ByteArrayOutputStream();
             DataOutput output = new DataOutputStream(byteArrayOutput);
@@ -347,6 +347,7 @@ public class BitmapValueTest {
         bitmapValue.add(-2);
         bitmapValue.add(Integer.MAX_VALUE);
         bitmapValue.add(-Integer.MAX_VALUE);
+        bitmapValue.add((long)1);
 
         Assert.assertTrue(bitmapValue.is32BitsEnough());
 
@@ -381,7 +382,7 @@ public class BitmapValueTest {
     public void testContains() {
         // empty
         BitmapValue bitmapValue = new BitmapValue();
-        Assert.assertTrue(bitmapValue.contains(1));
+        Assert.assertFalse(bitmapValue.contains(1));
 
         // single value
         bitmapValue.add(1);

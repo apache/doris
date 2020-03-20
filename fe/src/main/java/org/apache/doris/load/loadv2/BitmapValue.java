@@ -45,11 +45,29 @@ public class BitmapValue {
         bitmapType = EMPTY;
     }
 
-    // different from as Roaring64Map.addInt
-    // type cast here to make sure that positive and negative 32-bit integer 's high 32 bit limited to 0 or -1
-    // so that it's easy to tell whether current bitmapValue only contains 32-bit integer
     public void add(int value){
-        add((long)value);
+        switch (bitmapType) {
+            case EMPTY:
+                singleValue = value;
+                bitmapType = SINGLE_VALUE;
+                break;
+            case SINGLE_VALUE:
+                if (this.singleValue != value) {
+                    bitmap = new Roaring64Map();
+                    bitmap.add(value);
+                    // if singvalue is 32-bit enough,need to cast it to int and write to container at position 0 directly
+                    if (isLongValue32bitEnough(singleValue)) {
+                        bitmap.add((int)singleValue);
+                    } else {
+                        bitmap.add(singleValue);
+                    }
+                    bitmapType = BITMAP_VALUE;
+                }
+                break;
+            case BITMAP_VALUE:
+                bitmap.add(value);
+                break;
+        }
     }
 
     public void add(long value) {
@@ -59,9 +77,7 @@ public class BitmapValue {
                 bitmapType = SINGLE_VALUE;
                 break;
             case SINGLE_VALUE:
-                if (this.singleValue == value) {
-                    break;
-                } else {
+                if (this.singleValue != value) {
                     bitmap = new Roaring64Map();
                     bitmap.add(value);
                     bitmap.add(singleValue);
@@ -73,6 +89,7 @@ public class BitmapValue {
                 break;
         }
     }
+
     public boolean contains(long value) {
         switch (bitmapType) {
             case EMPTY:
@@ -80,7 +97,11 @@ public class BitmapValue {
             case SINGLE_VALUE:
                 return singleValue == value;
             case BITMAP_VALUE:
-                return bitmap.contains(value);
+                if (isLongValue32bitEnough(value)) {
+                    return bitmap.contains((int)value);
+                } else {
+                    return bitmap.contains(value);
+                }
             default:
                 return false;
         }
@@ -104,8 +125,8 @@ public class BitmapValue {
                 output.writeByte(EMPTY);
                 break;
             case SINGLE_VALUE:
-                boolean is32BitEnough = singleValue > Integer.MAX_VALUE;
-                if (is32BitEnough) {
+                // is 32-bit enough
+                if (isLongValue32bitEnough(singleValue)) {
                     output.write(SINGLE32);
                     output.writeInt((int)singleValue);
                 } else {
@@ -215,12 +236,11 @@ public class BitmapValue {
                     case SINGLE_VALUE:
                         long thisSingleValue = this.singleValue;
                         clear();
-                        this.bitmap = new Roaring64Map();
                         add(thisSingleValue);
                         add(other.singleValue);
                         break;
                     case BITMAP_VALUE:
-                        other.bitmap.add(this.singleValue);
+                        other.add(this.singleValue);
                         this.bitmap = other.bitmap;
                         this.bitmapType = BITMAP_VALUE;
                         break;
@@ -231,7 +251,7 @@ public class BitmapValue {
                     case EMPTY:
                         break;
                     case SINGLE_VALUE:
-                        this.bitmap.add(other.singleValue);
+                        this.add(other.singleValue);
                         break;
                     case BITMAP_VALUE:
                         this.bitmap.or(other.bitmap);
@@ -319,7 +339,6 @@ public class BitmapValue {
     public void clear() {
         this.bitmapType = EMPTY;
         this.bitmap = null;
-        this.singleValue = 0;
     }
 
     private void convertToSmallerType() {
@@ -335,6 +354,9 @@ public class BitmapValue {
         }
     }
 
+    private boolean isLongValue32bitEnough(long value) {
+        return value == ((int)value);
+    }
 
     // just for ut
     public int getBitmapType() {
