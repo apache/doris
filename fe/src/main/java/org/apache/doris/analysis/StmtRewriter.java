@@ -1009,11 +1009,11 @@ public class StmtRewriter {
             throws AnalysisException {
         if (expr instanceof Subquery) {
             if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
-                throw new AnalysisException("only support select subquery in case statement.");
+                throw new AnalysisException("Only support select subquery in case statement.");
             }
             SelectStmt subquery = (SelectStmt) ((Subquery) expr).getStatement();
-            if (subquery.getSelectList().getItems().size() != 1) {
-                throw new AnalysisException("only support scala select subquery in case statement.");
+            if (subquery.resultExprs.size() != 1) {
+                throw new AnalysisException("Only support select subquery produce one column in case statement.");
             }
             subquery.reset();
             String alias = stmt.getTableAliasGenerator().getNextAlias();
