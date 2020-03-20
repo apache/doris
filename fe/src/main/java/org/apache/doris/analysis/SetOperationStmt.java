@@ -188,6 +188,11 @@ public class SetOperationStmt extends QueryStmt {
         super.analyze(analyzer);
         Preconditions.checkState(operands.size() > 0);
 
+        // the first operand's operation usually null
+        if (operands.get(0).operation == null && operands.size() > 1) {
+            operands.get(0).setOperation(operands.get(1).getOperation());
+        }
+
         // Propagates DISTINCT from left to right,
         propagateDistinct();
 
@@ -649,7 +654,9 @@ public class SetOperationStmt extends QueryStmt {
             if (isAnalyzed()) {
                 return;
             }
-            if (queryStmt instanceof SelectStmt && ((SelectStmt) queryStmt).fromClause_.isEmpty()) {
+            // union statement support const expr, so not need to rewrite
+            if (operation != Operation.UNION && queryStmt instanceof SelectStmt
+                    && ((SelectStmt) queryStmt).fromClause_.isEmpty()) {
                 // rewrite select 1 to select * from (select 1) __DORIS_DUAL__ , because when using select 1 it will be
                 // transformed to a union node, select 1 is a literal, it doesn't have a tuple but will produce a slot,
                 // this will cause be core dump
