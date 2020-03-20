@@ -26,6 +26,7 @@
 #include "exprs/expr_context.h"
 #include "exec/aggregation_node.h"
 #include "exec/partitioned_aggregation_node.h"
+#include "exec/new_partitioned_aggregation_node.h"
 #include "exec/csv_scan_node.h"
 #include "exec/es_scan_node.h"
 #include "exec/es_http_scan_node.h"
@@ -382,6 +383,8 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::AGGREGATION_NODE:
         if (config::enable_partitioned_aggregation) {
             *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
+        } else if (config::enable_new_partitioned_aggregation) {
+            *node = pool->add(new NewPartitionedAggregationNode(pool, tnode, descs));
         } else {
             *node = pool->add(new AggregationNode(pool, tnode, descs));
         }
