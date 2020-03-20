@@ -216,7 +216,10 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
         str->swap(tmp);
         return;
     }
-
+    case TYPE_NULL: {
+        *str = "NULL";
+        return;
+    }
     default:
         print_value(value, type, scale, &out);
     }
