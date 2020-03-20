@@ -426,15 +426,13 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         new_tablet_meta->delete_alter_task();
 
         if (request.__isset.missing_version) {
-            new_tablet_meta->revise_inc_rs_metas(rs_metas);
-            vector<RowsetMetaSharedPtr> empty_rowsets;
-            new_tablet_meta->revise_rs_metas(empty_rowsets);
+            new_tablet_meta->revise_inc_rs_metas(std::move(rs_metas));
+            new_tablet_meta->revise_rs_metas(vector<RowsetMetaSharedPtr>());
         } else {
             // If this is a full clone, then should clear inc rowset metas because
             // related files is not created
-            vector<RowsetMetaSharedPtr> empty_rowsets;
-            new_tablet_meta->revise_inc_rs_metas(empty_rowsets);
-            new_tablet_meta->revise_rs_metas(rs_metas);
+            new_tablet_meta->revise_inc_rs_metas(vector<RowsetMetaSharedPtr>());
+            new_tablet_meta->revise_rs_metas(std::move(rs_metas));
         }
 
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION1) {
@@ -541,9 +539,9 @@ OLAPStatus SnapshotManager::_convert_beta_rowsets_to_alpha(const TabletMetaShare
     }
     if (res == OLAP_SUCCESS && modified) {
         if (is_incremental) {
-            new_tablet_meta->revise_inc_rs_metas(new_rowset_metas);
+            new_tablet_meta->revise_inc_rs_metas(std::move(new_rowset_metas));
         } else {
-            new_tablet_meta->revise_rs_metas(new_rowset_metas);
+            new_tablet_meta->revise_rs_metas(std::move(new_rowset_metas));
         }
     }
     return res;

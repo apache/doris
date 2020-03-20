@@ -518,20 +518,20 @@ void TabletMeta::modify_rs_metas(const vector<RowsetMetaSharedPtr>& to_add,
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
 }
 
-void TabletMeta::revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     WriteLock wrlock(&_meta_lock);
     // delete alter task
     _alter_task.reset();
 
-    _rs_metas = rs_metas;
+    _rs_metas = std::move(rs_metas);
 }
 
-void TabletMeta::revise_inc_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
+void TabletMeta::revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     WriteLock wrlock(&_meta_lock);
     // delete alter task
     _alter_task.reset();
 
-    _inc_rs_metas = rs_metas;
+    _inc_rs_metas = std::move(rs_metas);
 }
 
 OLAPStatus TabletMeta::add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
