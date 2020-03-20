@@ -888,6 +888,10 @@ public class Load {
             }
         }
 
+        // We make a copy of the columnExprs so that our subsequent changes
+        // to the columnExprs will not affect the original columnExprs.
+        List<ImportColumnDesc> copiedColumnExprs = Lists.newArrayList(columnExprs);
+
         // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
         boolean specifyFileFieldNames = columnExprs.stream().anyMatch(p -> p.isColumn());
