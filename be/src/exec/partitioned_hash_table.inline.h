@@ -18,14 +18,14 @@
 #ifndef DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_INLINE_H
 #define DORIS_BE_SRC_EXEC_NEW_PARTITIONED_HASH_TABLE_INLINE_H
 
-#include "exec/new_partitioned_hash_table.h"
+#include "exec/partitioned_hash_table.h"
 
 #include "exprs/expr.h"
 #include "exprs/expr_context.h"
 
 namespace doris {
 
-inline bool NewPartitionedHashTableCtx::EvalAndHashBuild(TupleRow* row) {
+inline bool PartitionedHashTableCtx::EvalAndHashBuild(TupleRow* row) {
   uint8_t* expr_values = expr_values_cache_.cur_expr_values();
   uint8_t* expr_values_null = expr_values_cache_.cur_expr_values_null();
   bool has_null = EvalBuildRow(row, expr_values, expr_values_null);
@@ -34,7 +34,7 @@ inline bool NewPartitionedHashTableCtx::EvalAndHashBuild(TupleRow* row) {
   return true;
 }
 
-inline bool NewPartitionedHashTableCtx::EvalAndHashProbe(TupleRow* row) {
+inline bool PartitionedHashTableCtx::EvalAndHashProbe(TupleRow* row) {
   uint8_t* expr_values = expr_values_cache_.cur_expr_values();
   uint8_t* expr_values_null = expr_values_cache_.cur_expr_values_null();
   bool has_null = EvalProbeRow(row, expr_values, expr_values_null);
@@ -43,7 +43,7 @@ inline bool NewPartitionedHashTableCtx::EvalAndHashProbe(TupleRow* row) {
   return true;
 }
 
-inline void NewPartitionedHashTableCtx::ExprValuesCache::NextRow() {
+inline void PartitionedHashTableCtx::ExprValuesCache::NextRow() {
   cur_expr_values_ += expr_values_bytes_per_row_;
   cur_expr_values_null_ += num_exprs_;
   ++cur_expr_values_hash_;
@@ -51,8 +51,8 @@ inline void NewPartitionedHashTableCtx::ExprValuesCache::NextRow() {
 }
 
 template <bool FORCE_NULL_EQUALITY>
-inline int64_t NewPartitionedHashTable::Probe(Bucket* buckets, int64_t num_buckets,
-    NewPartitionedHashTableCtx* ht_ctx, uint32_t hash, bool* found) {
+inline int64_t PartitionedHashTable::Probe(Bucket* buckets, int64_t num_buckets,
+    PartitionedHashTableCtx* ht_ctx, uint32_t hash, bool* found) {
   DCHECK(buckets != NULL);
   DCHECK_GT(num_buckets, 0);
   *found = false;
@@ -92,8 +92,8 @@ inline int64_t NewPartitionedHashTable::Probe(Bucket* buckets, int64_t num_bucke
   return Iterator::BUCKET_NOT_FOUND;
 }
 
-inline NewPartitionedHashTable::HtData* NewPartitionedHashTable::InsertInternal(
-    NewPartitionedHashTableCtx* ht_ctx, Status* status) {
+inline PartitionedHashTable::HtData* PartitionedHashTable::InsertInternal(
+    PartitionedHashTableCtx* ht_ctx, Status* status) {
   ++num_probes_;
   bool found = false;
   uint32_t hash = ht_ctx->expr_values_cache()->CurExprValuesHash();
@@ -110,7 +110,7 @@ inline NewPartitionedHashTable::HtData* NewPartitionedHashTable::InsertInternal(
   }
 }
 
-inline bool NewPartitionedHashTable::Insert(NewPartitionedHashTableCtx* ht_ctx,
+inline bool PartitionedHashTable::Insert(PartitionedHashTableCtx* ht_ctx,
     BufferedTupleStream3::FlatRowPtr flat_row, TupleRow* row, Status* status) {
   HtData* htdata = InsertInternal(ht_ctx, status);
   // If successful insert, update the contents of the newly inserted entry with 'idx'.
@@ -126,7 +126,7 @@ inline bool NewPartitionedHashTable::Insert(NewPartitionedHashTableCtx* ht_ctx,
 }
 
 template<const bool READ>
-inline void NewPartitionedHashTable::PrefetchBucket(uint32_t hash) {
+inline void PartitionedHashTable::PrefetchBucket(uint32_t hash) {
   int64_t bucket_idx = hash & (num_buckets_ - 1);
   // Two optional arguments:
   // 'rw': 1 means the memory access is write
@@ -136,8 +136,8 @@ inline void NewPartitionedHashTable::PrefetchBucket(uint32_t hash) {
   __builtin_prefetch(&buckets_[bucket_idx], READ ? 0 : 1, 1);
 }
 
-inline NewPartitionedHashTable::Iterator NewPartitionedHashTable::FindProbeRow(
-    NewPartitionedHashTableCtx* ht_ctx) {
+inline PartitionedHashTable::Iterator PartitionedHashTable::FindProbeRow(
+    PartitionedHashTableCtx* ht_ctx) {
   ++num_probes_;
   bool found = false;
   uint32_t hash = ht_ctx->expr_values_cache()->CurExprValuesHash();
@@ -150,8 +150,8 @@ inline NewPartitionedHashTable::Iterator NewPartitionedHashTable::FindProbeRow(
 }
 
 // TODO: support lazy evaluation like HashTable::Insert().
-inline NewPartitionedHashTable::Iterator NewPartitionedHashTable::FindBuildRowBucket(
-    NewPartitionedHashTableCtx* ht_ctx, bool* found) {
+inline PartitionedHashTable::Iterator PartitionedHashTable::FindBuildRowBucket(
+    PartitionedHashTableCtx* ht_ctx, bool* found) {
   ++num_probes_;
   uint32_t hash = ht_ctx->expr_values_cache()->CurExprValuesHash();
   int64_t bucket_idx = Probe<true>(buckets_, num_buckets_, ht_ctx, hash, found);
@@ -162,16 +162,16 @@ inline NewPartitionedHashTable::Iterator NewPartitionedHashTable::FindBuildRowBu
   return Iterator(this, ht_ctx->scratch_row(), bucket_idx, duplicates);
 }
 
-inline NewPartitionedHashTable::Iterator NewPartitionedHashTable::Begin(
-    const NewPartitionedHashTableCtx* ctx) {
+inline PartitionedHashTable::Iterator PartitionedHashTable::Begin(
+    const PartitionedHashTableCtx* ctx) {
   int64_t bucket_idx = Iterator::BUCKET_NOT_FOUND;
   DuplicateNode* node = NULL;
   NextFilledBucket(&bucket_idx, &node);
   return Iterator(this, ctx->scratch_row(), bucket_idx, node);
 }
 
-inline NewPartitionedHashTable::Iterator NewPartitionedHashTable::FirstUnmatched(
-    NewPartitionedHashTableCtx* ctx) {
+inline PartitionedHashTable::Iterator PartitionedHashTable::FirstUnmatched(
+    PartitionedHashTableCtx* ctx) {
   int64_t bucket_idx = Iterator::BUCKET_NOT_FOUND;
   DuplicateNode* node = NULL;
   NextFilledBucket(&bucket_idx, &node);
@@ -186,7 +186,7 @@ inline NewPartitionedHashTable::Iterator NewPartitionedHashTable::FirstUnmatched
   return it;
 }
 
-inline void NewPartitionedHashTable::NextFilledBucket(int64_t* bucket_idx, DuplicateNode** node) {
+inline void PartitionedHashTable::NextFilledBucket(int64_t* bucket_idx, DuplicateNode** node) {
   ++*bucket_idx;
   for (; *bucket_idx < num_buckets_; ++*bucket_idx) {
     if (buckets_[*bucket_idx].filled) {
@@ -199,7 +199,7 @@ inline void NewPartitionedHashTable::NextFilledBucket(int64_t* bucket_idx, Dupli
   *node = NULL;
 }
 
-inline void NewPartitionedHashTable::PrepareBucketForInsert(int64_t bucket_idx, uint32_t hash) {
+inline void PartitionedHashTable::PrepareBucketForInsert(int64_t bucket_idx, uint32_t hash) {
   DCHECK_GE(bucket_idx, 0);
   DCHECK_LT(bucket_idx, num_buckets_);
   Bucket* bucket = &buckets_[bucket_idx];
@@ -211,7 +211,7 @@ inline void NewPartitionedHashTable::PrepareBucketForInsert(int64_t bucket_idx, 
   bucket->hash = hash;
 }
 
-inline NewPartitionedHashTable::DuplicateNode* NewPartitionedHashTable::AppendNextNode(Bucket* bucket) {
+inline PartitionedHashTable::DuplicateNode* PartitionedHashTable::AppendNextNode(Bucket* bucket) {
   DCHECK_GT(node_remaining_current_page_, 0);
   bucket->bucketData.duplicates = next_node_;
   ++num_duplicate_nodes_;
@@ -219,7 +219,7 @@ inline NewPartitionedHashTable::DuplicateNode* NewPartitionedHashTable::AppendNe
   return next_node_++;
 }
 
-inline NewPartitionedHashTable::DuplicateNode* NewPartitionedHashTable::InsertDuplicateNode(
+inline PartitionedHashTable::DuplicateNode* PartitionedHashTable::InsertDuplicateNode(
     int64_t bucket_idx, Status* status) {
   DCHECK_GE(bucket_idx, 0);
   DCHECK_LT(bucket_idx, num_buckets_);
@@ -248,7 +248,7 @@ inline NewPartitionedHashTable::DuplicateNode* NewPartitionedHashTable::InsertDu
   return AppendNextNode(bucket);
 }
 
-inline TupleRow* IR_ALWAYS_INLINE NewPartitionedHashTable::GetRow(HtData& htdata, TupleRow* row) const {
+inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(HtData& htdata, TupleRow* row) const {
   if (stores_tuples()) {
     return reinterpret_cast<TupleRow*>(&htdata.tuple);
   } else {
@@ -258,7 +258,7 @@ inline TupleRow* IR_ALWAYS_INLINE NewPartitionedHashTable::GetRow(HtData& htdata
   }
 }
 
-inline TupleRow* IR_ALWAYS_INLINE NewPartitionedHashTable::GetRow(Bucket* bucket, TupleRow* row) const {
+inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::GetRow(Bucket* bucket, TupleRow* row) const {
   DCHECK(bucket != NULL);
   if (UNLIKELY(stores_duplicates() && bucket->hasDuplicates)) {
     DuplicateNode* duplicate = bucket->bucketData.duplicates;
@@ -269,7 +269,7 @@ inline TupleRow* IR_ALWAYS_INLINE NewPartitionedHashTable::GetRow(Bucket* bucket
   }
 }
 
-inline TupleRow* IR_ALWAYS_INLINE NewPartitionedHashTable::Iterator::GetRow() const {
+inline TupleRow* IR_ALWAYS_INLINE PartitionedHashTable::Iterator::GetRow() const {
   DCHECK(!AtEnd());
   DCHECK(table_ != NULL);
   DCHECK(scratch_row_ != NULL);
@@ -282,7 +282,7 @@ inline TupleRow* IR_ALWAYS_INLINE NewPartitionedHashTable::Iterator::GetRow() co
   }
 }
 
-inline Tuple* IR_ALWAYS_INLINE NewPartitionedHashTable::Iterator::GetTuple() const {
+inline Tuple* IR_ALWAYS_INLINE PartitionedHashTable::Iterator::GetTuple() const {
   DCHECK(!AtEnd());
   DCHECK(table_->stores_tuples());
   Bucket* bucket = &table_->buckets_[bucket_idx_];
@@ -295,14 +295,14 @@ inline Tuple* IR_ALWAYS_INLINE NewPartitionedHashTable::Iterator::GetTuple() con
   }
 }
 
-inline void NewPartitionedHashTable::Iterator::SetTuple(Tuple* tuple, uint32_t hash) {
+inline void PartitionedHashTable::Iterator::SetTuple(Tuple* tuple, uint32_t hash) {
   DCHECK(!AtEnd());
   DCHECK(table_->stores_tuples());
   table_->PrepareBucketForInsert(bucket_idx_, hash);
   table_->buckets_[bucket_idx_].bucketData.htdata.tuple = tuple;
 }
 
-inline void NewPartitionedHashTable::Iterator::SetMatched() {
+inline void PartitionedHashTable::Iterator::SetMatched() {
   DCHECK(!AtEnd());
   Bucket* bucket = &table_->buckets_[bucket_idx_];
   if (table_->stores_duplicates() && bucket->hasDuplicates) {
@@ -315,7 +315,7 @@ inline void NewPartitionedHashTable::Iterator::SetMatched() {
   table_->has_matches_ = true;
 }
 
-inline bool NewPartitionedHashTable::Iterator::IsMatched() const {
+inline bool PartitionedHashTable::Iterator::IsMatched() const {
   DCHECK(!AtEnd());
   Bucket* bucket = &table_->buckets_[bucket_idx_];
   if (table_->stores_duplicates() && bucket->hasDuplicates) {
@@ -324,13 +324,13 @@ inline bool NewPartitionedHashTable::Iterator::IsMatched() const {
   return bucket->matched;
 }
 
-inline void NewPartitionedHashTable::Iterator::SetAtEnd() {
+inline void PartitionedHashTable::Iterator::SetAtEnd() {
   bucket_idx_ = BUCKET_NOT_FOUND;
   node_ = NULL;
 }
 
 template<const bool READ>
-inline void NewPartitionedHashTable::Iterator::PrefetchBucket() {
+inline void PartitionedHashTable::Iterator::PrefetchBucket() {
   if (LIKELY(!AtEnd())) {
     // HashTable::PrefetchBucket() takes a hash value to index into the hash bucket
     // array. Passing 'bucket_idx_' here is sufficient.
@@ -339,7 +339,7 @@ inline void NewPartitionedHashTable::Iterator::PrefetchBucket() {
   }
 }
 
-inline void NewPartitionedHashTable::Iterator::Next() {
+inline void PartitionedHashTable::Iterator::Next() {
   DCHECK(!AtEnd());
   if (table_->stores_duplicates() && table_->buckets_[bucket_idx_].hasDuplicates &&
       node_->next != NULL) {
@@ -349,7 +349,7 @@ inline void NewPartitionedHashTable::Iterator::Next() {
   }
 }
 
-inline void NewPartitionedHashTable::Iterator::NextDuplicate() {
+inline void PartitionedHashTable::Iterator::NextDuplicate() {
   DCHECK(!AtEnd());
   if (table_->stores_duplicates() && table_->buckets_[bucket_idx_].hasDuplicates &&
       node_->next != NULL) {
@@ -360,7 +360,7 @@ inline void NewPartitionedHashTable::Iterator::NextDuplicate() {
   }
 }
 
-inline void NewPartitionedHashTable::Iterator::NextUnmatched() {
+inline void PartitionedHashTable::Iterator::NextUnmatched() {
   DCHECK(!AtEnd());
   Bucket* bucket = &table_->buckets_[bucket_idx_];
   // Check if there is any remaining unmatched duplicate node in the current bucket.
@@ -387,17 +387,17 @@ inline void NewPartitionedHashTable::Iterator::NextUnmatched() {
   }
 }
 
-inline void NewPartitionedHashTableCtx::set_level(int level) {
+inline void PartitionedHashTableCtx::set_level(int level) {
   DCHECK_GE(level, 0);
   DCHECK_LT(level, seeds_.size());
   level_ = level;
 }
 
-inline int64_t NewPartitionedHashTable::CurrentMemSize() const {
+inline int64_t PartitionedHashTable::CurrentMemSize() const {
   return num_buckets_ * sizeof(Bucket) + num_duplicate_nodes_ * sizeof(DuplicateNode);
 }
 
-inline int64_t NewPartitionedHashTable::NumInsertsBeforeResize() const {
+inline int64_t PartitionedHashTable::NumInsertsBeforeResize() const {
   return std::max<int64_t>(
       0, static_cast<int64_t>(num_buckets_ * MAX_FILL_FACTOR) - num_filled_buckets_);
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/new_partitioned_hash_table.inline.h"
+#include "exec/partitioned_hash_table.inline.h"
 
 #include <functional>
 #include <numeric>
@@ -77,7 +77,7 @@ static int64_t NULL_VALUE[] = {
   HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED, HashUtil::FNV_SEED
 };
 
-NewPartitionedHashTableCtx::NewPartitionedHashTableCtx(const std::vector<Expr*>& build_exprs,
+PartitionedHashTableCtx::PartitionedHashTableCtx(const std::vector<Expr*>& build_exprs,
     const std::vector<Expr*>& probe_exprs, bool stores_nulls,
     const std::vector<bool>& finds_nulls, int32_t initial_seed,
     int max_levels, MemPool* mem_pool, MemPool* expr_results_pool)
@@ -108,14 +108,14 @@ NewPartitionedHashTableCtx::NewPartitionedHashTableCtx(const std::vector<Expr*>&
   }
 }
 
-Status NewPartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, int num_build_tuples,
+Status PartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, int num_build_tuples,
         MemTracker* tracker, const RowDescriptor& row_desc, const RowDescriptor& row_desc_probe) {
 
   int scratch_row_size = sizeof(Tuple*) * num_build_tuples;
   scratch_row_ = reinterpret_cast<TupleRow*>(malloc(scratch_row_size));
   if (UNLIKELY(scratch_row_ == NULL)) {
       return Status::InternalError(Substitute("Failed to allocate $0 bytes for scratch row of "
-        "NewPartitionedHashTableCtx.", scratch_row_size));
+        "PartitionedHashTableCtx.", scratch_row_size));
   }
 
   // TODO chenhao replace ExprContext with ScalarFnEvaluator
@@ -141,20 +141,20 @@ Status NewPartitionedHashTableCtx::Init(ObjectPool* pool, RuntimeState* state, i
   return expr_values_cache_.Init(state, mem_pool_->mem_tracker(), build_exprs_);
 }
 
-Status NewPartitionedHashTableCtx::Create(ObjectPool* pool, RuntimeState* state,
+Status PartitionedHashTableCtx::Create(ObjectPool* pool, RuntimeState* state,
     const std::vector<Expr*>& build_exprs,
     const std::vector<Expr*>& probe_exprs, bool stores_nulls,
     const std::vector<bool>& finds_nulls, int32_t initial_seed, int max_levels,
     int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool, 
     MemTracker* tracker, const RowDescriptor& row_desc,
     const RowDescriptor& row_desc_probe,
-    scoped_ptr<NewPartitionedHashTableCtx>* ht_ctx) {
-  ht_ctx->reset(new NewPartitionedHashTableCtx(build_exprs, probe_exprs, stores_nulls,
+    scoped_ptr<PartitionedHashTableCtx>* ht_ctx) {
+  ht_ctx->reset(new PartitionedHashTableCtx(build_exprs, probe_exprs, stores_nulls,
       finds_nulls, initial_seed, max_levels, mem_pool, expr_results_pool));
   return (*ht_ctx)->Init(pool, state, num_build_tuples, tracker, row_desc, row_desc_probe);
 }
 
-Status NewPartitionedHashTableCtx::Open(RuntimeState* state) {
+Status PartitionedHashTableCtx::Open(RuntimeState* state) {
     // TODO chenhao replace ExprContext with ScalarFnEvaluator
     for (int i = 0; i < build_expr_evals_.size(); i++) {
         RETURN_IF_ERROR(build_expr_evals_[i]->open(state));
@@ -165,7 +165,7 @@ Status NewPartitionedHashTableCtx::Open(RuntimeState* state) {
     return Status::OK();
 }
 
-void NewPartitionedHashTableCtx::Close(RuntimeState* state) {
+void PartitionedHashTableCtx::Close(RuntimeState* state) {
   free(scratch_row_);
   scratch_row_ = NULL;
   expr_values_cache_.Close(mem_pool_->mem_tracker());
@@ -183,27 +183,27 @@ void NewPartitionedHashTableCtx::Close(RuntimeState* state) {
   probe_expr_evals_.clear();
 }
 
-void NewPartitionedHashTableCtx::FreeBuildLocalAllocations() {
+void PartitionedHashTableCtx::FreeBuildLocalAllocations() {
   //ExprContext::FreeLocalAllocations(build_expr_evals_);
 }
 
-void NewPartitionedHashTableCtx::FreeProbeLocalAllocations() {
+void PartitionedHashTableCtx::FreeProbeLocalAllocations() {
   //ExprContext::FreeLocalAllocations(probe_expr_evals_);
 }
 
-void NewPartitionedHashTableCtx::FreeLocalAllocations() {
+void PartitionedHashTableCtx::FreeLocalAllocations() {
   FreeBuildLocalAllocations();
   FreeProbeLocalAllocations();
 }
 
-uint32_t NewPartitionedHashTableCtx::Hash(const void* input, int len, uint32_t hash) const {
+uint32_t PartitionedHashTableCtx::Hash(const void* input, int len, uint32_t hash) const {
   /// Use CRC hash at first level for better performance. Switch to murmur hash at
   /// subsequent levels since CRC doesn't randomize well with different seed inputs.
   if (level_ == 0) return HashUtil::hash(input, len, hash);
   return HashUtil::murmur_hash2_64(input, len, hash);
 }
 
-uint32_t NewPartitionedHashTableCtx::HashRow(
+uint32_t PartitionedHashTableCtx::HashRow(
     const uint8_t* expr_values, const uint8_t* expr_values_null) const noexcept {
   DCHECK_LT(level_, seeds_.size());
   if (expr_values_cache_.var_result_offset() == -1) {
@@ -212,11 +212,11 @@ uint32_t NewPartitionedHashTableCtx::HashRow(
     return Hash(
         expr_values, expr_values_cache_.expr_values_bytes_per_row(), seeds_[level_]);
   } else {
-    return NewPartitionedHashTableCtx::HashVariableLenRow(expr_values, expr_values_null);
+    return PartitionedHashTableCtx::HashVariableLenRow(expr_values, expr_values_null);
   }
 }
 
-bool NewPartitionedHashTableCtx::EvalRow(TupleRow* row, const vector<ExprContext*>& ctxs,
+bool PartitionedHashTableCtx::EvalRow(TupleRow* row, const vector<ExprContext*>& ctxs,
     uint8_t* expr_values, uint8_t* expr_values_null) noexcept {
   bool has_null = false;
   for (int i = 0; i < ctxs.size(); ++i) {
@@ -241,7 +241,7 @@ bool NewPartitionedHashTableCtx::EvalRow(TupleRow* row, const vector<ExprContext
   return has_null;
 }
 
-uint32_t NewPartitionedHashTableCtx::HashVariableLenRow(const uint8_t* expr_values,
+uint32_t PartitionedHashTableCtx::HashVariableLenRow(const uint8_t* expr_values,
     const uint8_t* expr_values_null) const {
   uint32_t hash = seeds_[level_];
   int var_result_offset = expr_values_cache_.var_result_offset();
@@ -273,7 +273,7 @@ uint32_t NewPartitionedHashTableCtx::HashVariableLenRow(const uint8_t* expr_valu
 }
 
 template <bool FORCE_NULL_EQUALITY>
-bool NewPartitionedHashTableCtx::Equals(TupleRow* build_row, const uint8_t* expr_values,
+bool PartitionedHashTableCtx::Equals(TupleRow* build_row, const uint8_t* expr_values,
     const uint8_t* expr_values_null) const noexcept {
   for (int i = 0; i < build_expr_evals_.size(); ++i) {
     void* val = build_expr_evals_[i]->get_value(build_row);
@@ -293,12 +293,12 @@ bool NewPartitionedHashTableCtx::Equals(TupleRow* build_row, const uint8_t* expr
   return true;
 }
 
-template bool NewPartitionedHashTableCtx::Equals<true>(TupleRow* build_row,
+template bool PartitionedHashTableCtx::Equals<true>(TupleRow* build_row,
     const uint8_t* expr_values, const uint8_t* expr_values_null) const;
-template bool NewPartitionedHashTableCtx::Equals<false>(TupleRow* build_row,
+template bool PartitionedHashTableCtx::Equals<false>(TupleRow* build_row,
     const uint8_t* expr_values, const uint8_t* expr_values_null) const;
 
-NewPartitionedHashTableCtx::ExprValuesCache::ExprValuesCache()
+PartitionedHashTableCtx::ExprValuesCache::ExprValuesCache()
   : capacity_(0),
     cur_expr_values_(NULL),
     cur_expr_values_null_(NULL),
@@ -309,7 +309,7 @@ NewPartitionedHashTableCtx::ExprValuesCache::ExprValuesCache()
     expr_values_hash_array_(NULL),
     null_bitmap_(0) {}
 
-Status NewPartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
+Status PartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
     MemTracker* tracker, const std::vector<Expr*>& build_exprs) {
   // Initialize the number of expressions.
   num_exprs_ = build_exprs.size();
@@ -330,7 +330,7 @@ Status NewPartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
   int mem_usage = MemUsage(capacity_, expr_values_bytes_per_row_, num_exprs_);
   if (UNLIKELY(!tracker->try_consume(mem_usage))) {
     capacity_ = 0;
-    string details = Substitute("NewPartitionedHashTableCtx::ExprValuesCache failed to allocate $0 bytes.",
+    string details = Substitute("PartitionedHashTableCtx::ExprValuesCache failed to allocate $0 bytes.",
         mem_usage);
     return tracker->MemLimitExceeded(state, details, mem_usage);
   }
@@ -354,7 +354,7 @@ Status NewPartitionedHashTableCtx::ExprValuesCache::Init(RuntimeState* state,
   return Status::OK();
 }
 
-void NewPartitionedHashTableCtx::ExprValuesCache::Close(MemTracker* tracker) {
+void PartitionedHashTableCtx::ExprValuesCache::Close(MemTracker* tracker) {
   if (capacity_ == 0) return;
   cur_expr_values_ = NULL;
   cur_expr_values_null_ = NULL;
@@ -368,7 +368,7 @@ void NewPartitionedHashTableCtx::ExprValuesCache::Close(MemTracker* tracker) {
   tracker->release(mem_usage);
 }
 
-int NewPartitionedHashTableCtx::ExprValuesCache::MemUsage(int capacity,
+int PartitionedHashTableCtx::ExprValuesCache::MemUsage(int capacity,
     int expr_values_bytes_per_row, int num_exprs) {
   return expr_values_bytes_per_row * capacity + // expr_values_array_
       num_exprs * capacity +                    // expr_values_null_array_
@@ -376,23 +376,23 @@ int NewPartitionedHashTableCtx::ExprValuesCache::MemUsage(int capacity,
       Bitmap::MemUsage(capacity);               // null_bitmap_
 }
 
-uint8_t* NewPartitionedHashTableCtx::ExprValuesCache::ExprValuePtr(
+uint8_t* PartitionedHashTableCtx::ExprValuesCache::ExprValuePtr(
     uint8_t* expr_values, int expr_idx) const {
   return expr_values + expr_values_offsets_[expr_idx];
 }
 
-const uint8_t* NewPartitionedHashTableCtx::ExprValuesCache::ExprValuePtr(
+const uint8_t* PartitionedHashTableCtx::ExprValuesCache::ExprValuePtr(
     const uint8_t* expr_values, int expr_idx) const {
   return expr_values + expr_values_offsets_[expr_idx];
 }
 
-void NewPartitionedHashTableCtx::ExprValuesCache::ResetIterators() {
+void PartitionedHashTableCtx::ExprValuesCache::ResetIterators() {
   cur_expr_values_ = expr_values_array_.get();
   cur_expr_values_null_ = expr_values_null_array_.get();
   cur_expr_values_hash_ = expr_values_hash_array_.get();
 }
 
-void NewPartitionedHashTableCtx::ExprValuesCache::Reset() noexcept {
+void PartitionedHashTableCtx::ExprValuesCache::Reset() noexcept {
   ResetIterators();
   // Set the end pointer after resetting the other pointers so they point to
   // the same location.
@@ -400,24 +400,24 @@ void NewPartitionedHashTableCtx::ExprValuesCache::Reset() noexcept {
   null_bitmap_.SetAllBits(false);
 }
 
-void NewPartitionedHashTableCtx::ExprValuesCache::ResetForRead() {
+void PartitionedHashTableCtx::ExprValuesCache::ResetForRead() {
   // Record the end of hash values iterator to be used in AtEnd().
   // Do it before resetting the pointers.
   cur_expr_values_hash_end_ = cur_expr_values_hash_;
   ResetIterators();
 }
 
-constexpr double NewPartitionedHashTable::MAX_FILL_FACTOR;
-constexpr int64_t NewPartitionedHashTable::DATA_PAGE_SIZE;
+constexpr double PartitionedHashTable::MAX_FILL_FACTOR;
+constexpr int64_t PartitionedHashTable::DATA_PAGE_SIZE;
 
-NewPartitionedHashTable* NewPartitionedHashTable::Create(Suballocator* allocator, bool stores_duplicates,
+PartitionedHashTable* PartitionedHashTable::Create(Suballocator* allocator, bool stores_duplicates,
     int num_build_tuples, BufferedTupleStream3* tuple_stream, int64_t max_num_buckets,
     int64_t initial_num_buckets) {
-  return new NewPartitionedHashTable(config::enable_quadratic_probing, allocator, stores_duplicates,
+  return new PartitionedHashTable(config::enable_quadratic_probing, allocator, stores_duplicates,
       num_build_tuples, tuple_stream, max_num_buckets, initial_num_buckets);
 }
 
-NewPartitionedHashTable::NewPartitionedHashTable(bool quadratic_probing, Suballocator* allocator,
+PartitionedHashTable::PartitionedHashTable(bool quadratic_probing, Suballocator* allocator,
     bool stores_duplicates, int num_build_tuples, BufferedTupleStream3* stream,
     int64_t max_num_buckets, int64_t num_buckets)
   : allocator_(allocator),
@@ -443,7 +443,7 @@ NewPartitionedHashTable::NewPartitionedHashTable(bool quadratic_probing, Suballo
   DCHECK(stores_tuples_ || stream != NULL);
 }
 
-Status NewPartitionedHashTable::Init(bool* got_memory) {
+Status PartitionedHashTable::Init(bool* got_memory) {
   int64_t buckets_byte_size = num_buckets_ * sizeof(Bucket);
   RETURN_IF_ERROR(allocator_->Allocate(buckets_byte_size, &bucket_allocation_));
   if (bucket_allocation_ == nullptr) {
@@ -457,7 +457,7 @@ Status NewPartitionedHashTable::Init(bool* got_memory) {
   return Status::OK();
 }
 
-void NewPartitionedHashTable::Close() {
+void PartitionedHashTable::Close() {
   // Print statistics only for the large or heavily used hash tables.
   // TODO: Tweak these numbers/conditions, or print them always?
   const int64_t LARGE_HT = 128 * 1024;
@@ -472,8 +472,8 @@ void NewPartitionedHashTable::Close() {
   if (bucket_allocation_ != nullptr) allocator_->Free(move(bucket_allocation_));
 }
 
-Status NewPartitionedHashTable::CheckAndResize(
-    uint64_t buckets_to_fill, const NewPartitionedHashTableCtx* ht_ctx, bool* got_memory) {
+Status PartitionedHashTable::CheckAndResize(
+    uint64_t buckets_to_fill, const PartitionedHashTableCtx* ht_ctx, bool* got_memory) {
   uint64_t shift = 0;
   while (num_filled_buckets_ + buckets_to_fill >
          (num_buckets_ << shift) * MAX_FILL_FACTOR) {
@@ -484,8 +484,8 @@ Status NewPartitionedHashTable::CheckAndResize(
   return Status::OK();
 }
 
-Status NewPartitionedHashTable::ResizeBuckets(
-    int64_t num_buckets, const NewPartitionedHashTableCtx* ht_ctx, bool* got_memory) {
+Status PartitionedHashTable::ResizeBuckets(
+    int64_t num_buckets, const PartitionedHashTableCtx* ht_ctx, bool* got_memory) {
   DCHECK_EQ((num_buckets & (num_buckets - 1)), 0)
       << "num_buckets=" << num_buckets << " must be a power of 2";
   DCHECK_GT(num_buckets, num_filled_buckets_)
@@ -519,7 +519,7 @@ Status NewPartitionedHashTable::ResizeBuckets(
   // Walk the old table and copy all the filled buckets to the new (resized) table.
   // We do not have to do anything with the duplicate nodes. This operation is expected
   // to succeed.
-  for (NewPartitionedHashTable::Iterator iter = Begin(ht_ctx); !iter.AtEnd();
+  for (PartitionedHashTable::Iterator iter = Begin(ht_ctx); !iter.AtEnd();
        NextFilledBucket(&iter.bucket_idx_, &iter.node_)) {
     Bucket* bucket_to_copy = &buckets_[iter.bucket_idx_];
     bool found = false;
@@ -540,7 +540,7 @@ Status NewPartitionedHashTable::ResizeBuckets(
   return Status::OK();
 }
 
-bool NewPartitionedHashTable::GrowNodeArray(Status* status) {
+bool PartitionedHashTable::GrowNodeArray(Status* status) {
   std::unique_ptr<Suballocation> allocation;
   *status = allocator_->Allocate(DATA_PAGE_SIZE, &allocation);
   if (!status->ok() || allocation == nullptr) return false;
@@ -552,7 +552,7 @@ bool NewPartitionedHashTable::GrowNodeArray(Status* status) {
   return true;
 }
 
-void NewPartitionedHashTable::DebugStringTuple(std::stringstream& ss, HtData& htdata,
+void PartitionedHashTable::DebugStringTuple(std::stringstream& ss, HtData& htdata,
     const RowDescriptor* desc) {
   if (stores_tuples_) {
     ss << "(" << htdata.tuple << ")";
@@ -565,7 +565,7 @@ void NewPartitionedHashTable::DebugStringTuple(std::stringstream& ss, HtData& ht
   }
 }
 
-string NewPartitionedHashTable::DebugString(bool skip_empty, bool show_match,
+string PartitionedHashTable::DebugString(bool skip_empty, bool show_match,
     const RowDescriptor* desc) {
   std::stringstream ss;
   ss << std::endl;
@@ -602,7 +602,7 @@ string NewPartitionedHashTable::DebugString(bool skip_empty, bool show_match,
   return ss.str();
 }
 
-string NewPartitionedHashTable::PrintStats() const {
+string PartitionedHashTable::PrintStats() const {
   double curr_fill_factor = (double)num_filled_buckets_/(double)num_buckets_;
   double avg_travel = (double)travel_length_/(double)num_probes_;
   double avg_collisions = (double)num_hash_collisions_/(double)num_filled_buckets_;
