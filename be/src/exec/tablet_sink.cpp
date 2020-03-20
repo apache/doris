@@ -45,7 +45,7 @@ NodeChannel::~NodeChannel() {
         _open_closure = nullptr;
     }
     if (_add_batch_closure != nullptr) {
-        _add_batch_closure->release();
+        // it's safe to delete, but may take some time to wait until brpc joined
         delete _add_batch_closure;
         _add_batch_closure = nullptr;
     }
@@ -71,6 +71,7 @@ Status NodeChannel::init(RuntimeState* state) {
     if (_stub == nullptr) {
         LOG(WARNING) << "Get rpc stub failed, host=" << _node_info->host
                      << ", port=" << _node_info->brpc_port;
+        _rpc_error = true;
         return Status::InternalError("get rpc stub failed");
     }
 
@@ -120,6 +121,7 @@ Status NodeChannel::open_wait() {
         LOG(WARNING) << "failed to open tablet writer, error="
                      << berror(_open_closure->cntl.ErrorCode())
                      << ", error_text=" << _open_closure->cntl.ErrorText();
+        _rpc_error = true;
         return Status::InternalError("failed to open tablet writer");
     }
     Status status(_open_closure->result.status());
@@ -130,14 +132,14 @@ Status NodeChannel::open_wait() {
 
     // add batch closure
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
-    _add_batch_closure->addFailedHandler([&]() {
+    _add_batch_closure->addFailedHandler([this]() {
         _rpc_error = true;
         LOG(WARNING) << "NodeChannel add batch req rpc failed, load_id=" << _parent->_load_id
                      << ", node=" << node_info()->host << ":" << node_info()->brpc_port;
     });
 
     _add_batch_closure->addSuccessHandler(
-            [&](const PTabletWriterAddBatchResult& result, bool is_last_rpc) {
+            [this](const PTabletWriterAddBatchResult& result, bool is_last_rpc) {
                 Status status(result.status());
                 if (status.ok()) {
                     if (is_last_rpc) {
@@ -637,12 +639,14 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                 index_channel->for_each_node_channel(
                         [&](NodeChannel* ch) { WARN_IF_ERROR(ch->mark_close(), ""); });
             }
-            LOG(INFO) << "mark all NodeChannels as close";
+
             for (auto index_channel : _channels) {
                 index_channel->for_each_node_channel([&](NodeChannel* ch) {
-                    WARN_IF_ERROR(ch->close_wait(state),
-                                  "load_id=" + print_id(_load_id) +
-                                          ", txn_id=" + std::to_string(_txn_id));
+                    status = ch->close_wait(state);
+                    if (!status.ok()) {
+                        LOG(WARNING) << "close channel failed, load_id=" << print_id(_load_id)
+                                     << ", txn_id=" << _txn_id;
+                    }
                     ch->time_report(_node_add_batch_counter_map, &serialize_batch_ns,
                                     &queue_push_lock_ns, &actual_consume_ns);
                 });
@@ -684,7 +688,9 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
 
     // Sender join() must put after node channels mark_close/cancel.
     // But there is no specific sequence required between sender join() & close_wait().
-    _sender_thread.join();
+    if (_sender_thread.joinable()) {
+        _sender_thread.join();
+    }
 
     Expr::close(_output_expr_ctxs, state);
     _output_batch.reset();

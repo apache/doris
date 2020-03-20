@@ -72,17 +72,30 @@ struct AddBatchCounter {
     }
 };
 
+// It's very error-prone to guarantee the handler capture vars' & this closure's destruct sequence.
+// So using create() to get the closure pointer is recommended. We can delete the closure ptr before the capture vars destruction.
+// Delete this point is safe, don't worry about RPC callback will run after ReusableClosure deleted.
 template <typename T>
 class ReusableClosure : public google::protobuf::Closure {
 public:
     ReusableClosure() : cid(INVALID_BTHREAD_ID) {}
+    ~ReusableClosure() {
+        // shouldn't delete when Run() is calling or going to be called, wait for current Run() done.
+        join();
+    }
 
     static ReusableClosure<T>* create() { return new ReusableClosure<T>(); }
 
     void addFailedHandler(std::function<void()> fn) { failed_handler = fn; }
     void addSuccessHandler(std::function<void(const T&, bool)> fn) { success_handler = fn; }
 
-    // plz follow this order: reset() -> set_in_flight -> send brpc batch
+    void join() {
+        if (cid != INVALID_BTHREAD_ID) {
+            brpc::Join(cid);
+        }
+    }
+
+    // plz follow this order: reset() -> set_in_flight() -> send brpc batch
     void reset() {
         join();
         DCHECK(_packet_in_flight == false);
@@ -94,6 +107,8 @@ public:
         DCHECK(_packet_in_flight == false);
         _packet_in_flight = true;
     }
+
+    bool is_packet_in_flight() { return _packet_in_flight; }
 
     void end_mark() {
         DCHECK(_is_last_rpc == false);
@@ -111,19 +126,6 @@ public:
         }
         _packet_in_flight = false;
     }
-
-    void join() {
-        if (cid != INVALID_BTHREAD_ID) {
-            brpc::Join(cid);
-        }
-    }
-
-    void release() {
-        // shouldn't delete when Run() is calling or going to be called
-        join();
-    }
-
-    bool is_packet_in_flight() { return _packet_in_flight; }
 
     brpc::Controller cntl;
     T result;
@@ -279,6 +281,7 @@ public:
 
     Status send(RuntimeState* state, RowBatch* batch) override;
 
+    // close() will send RPCs too. If RPCs failed, return error.
     Status close(RuntimeState* state, Status close_status) override;
 
     // Returns the runtime profile for the sink.
