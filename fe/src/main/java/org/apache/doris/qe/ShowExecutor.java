@@ -101,7 +101,7 @@ import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
-import org.apache.doris.common.proc.SchemaChangeProcNode;
+import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
@@ -1069,8 +1069,8 @@ public class ShowExecutor {
         Preconditions.checkNotNull(procNodeI);
         List<List<String>> rows;
         //Only SchemaChangeProc support where/order by/limit syntax 
-        if (procNodeI instanceof SchemaChangeProcNode) {
-            rows = ((SchemaChangeProcNode) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+        if (procNodeI instanceof SchemaChangeProcDir) {
+            rows = ((SchemaChangeProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
                     showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
         } else {
             rows = procNodeI.fetchResult().getRows();
