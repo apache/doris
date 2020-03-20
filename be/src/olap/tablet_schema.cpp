@@ -268,7 +268,7 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, boo
     _is_nullable = is_nullable;
 }
 
-OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
+void TabletColumn::init_from_pb(const ColumnPB& column) {
     _unique_id = column.unique_id();
     _col_name = column.name();
     _type = TabletColumn::get_field_type_by_string(column.type());
@@ -308,10 +308,9 @@ OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
     }
-    return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
+void TabletColumn::to_schema_pb(ColumnPB* column) {
     column->set_unique_id(_unique_id);
     column->set_name(_col_name);
     column->set_type(get_string_by_field_type(_type));
@@ -336,7 +335,6 @@ OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
     if (_has_bitmap_index) {
         column->set_has_bitmap_index(_has_bitmap_index);
     }
-    return OLAP_SUCCESS;
 }
 
 TabletSchema::TabletSchema()
@@ -345,7 +343,7 @@ TabletSchema::TabletSchema()
       _num_null_columns(0),
       _num_short_key_columns(0) { }
 
-OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
+void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _keys_type = schema.keys_type();
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
@@ -371,10 +369,9 @@ OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
         _bf_fpp = BLOOM_FILTER_DEFAULT_FPP;
     }
     _is_in_memory = schema.is_in_memory();
-    return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
+void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     tablet_meta_pb->set_keys_type(_keys_type);
     for (auto& col : _cols) {
         ColumnPB* column = tablet_meta_pb->add_column();
@@ -388,8 +385,6 @@ OLAPStatus TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     }
     tablet_meta_pb->set_next_column_unique_id(_next_column_unique_id);
     tablet_meta_pb->set_is_in_memory(_is_in_memory);
-
-    return OLAP_SUCCESS;
 }
 
 size_t TabletSchema::row_size() const {
