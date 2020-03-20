@@ -34,37 +34,33 @@ TEST(StoragePageCacheTest, normal) {
     StoragePageCache::CacheKey key("abc", 0);
     StoragePageCache::CacheKey memory_key("mem", 0);
 
-    char* buf = new char[1024];
-    // insert normal page
     {
+        // insert normal page
+        char* buf = new char[1024];
         PageCacheHandle handle;
         Slice data(buf, 1024);
         cache.insert(key, data, &handle, false);
 
         ASSERT_EQ(handle.data().data, buf);
+
+        auto found = cache.lookup(key, &handle);
+        ASSERT_TRUE(found);
+        ASSERT_EQ(buf, handle.data().data);
     }
-    // insert in_memory page
+
     {
+        // insert in_memory page
+        char* buf = new char[1024];
         PageCacheHandle handle;
         Slice data(buf, 1024);
         cache.insert(memory_key, data, &handle, true);
 
         ASSERT_EQ(handle.data().data, buf);
-    }
-    // cache hit
-    {
-        PageCacheHandle handle;
-        auto found = cache.lookup(key, &handle);
+
+        auto found = cache.lookup(memory_key, &handle);
         ASSERT_TRUE(found);
-        ASSERT_EQ(buf, handle.data().data);
     }
-    // cache miss
-    {
-        PageCacheHandle handle;
-        StoragePageCache::CacheKey miss_key("abc", 1);
-        auto found = cache.lookup(miss_key, &handle);
-        ASSERT_FALSE(found);
-    }
+
     // put too many page to eliminate first page
     for (int i = 0; i < 10 * kNumShards; ++i) {
         StoragePageCache::CacheKey key("bcd", i);
@@ -72,18 +68,22 @@ TEST(StoragePageCacheTest, normal) {
         Slice data(new char[1024], 1024);
         cache.insert(key, data, &handle, false);
     }
+
+    // cache miss
+    {
+        PageCacheHandle handle;
+        StoragePageCache::CacheKey miss_key("abc", 1);
+        auto found = cache.lookup(miss_key, &handle);
+        ASSERT_FALSE(found);
+    }
+
     // cache miss for eliminated key
     {
         PageCacheHandle handle;
         auto found = cache.lookup(key, &handle);
         ASSERT_FALSE(found);
     }
-    // cache hit for in memory key
-    {
-        PageCacheHandle handle;
-        auto found = cache.lookup(memory_key, &handle);
-        ASSERT_TRUE(found);
-    }
+
 }
 
 } // namespace doris
