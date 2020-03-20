@@ -38,11 +38,11 @@ namespace doris {
 class Expr;
 class ExprContext;
 class MemTracker;
+class PartitionedHashTable;
 class RowDescriptor;
 class RuntimeState;
 class Tuple;
 class TupleRow;
-class PartitionedHashTable;
 
 /// Linear or quadratic probing hash table implementation tailored to the usage pattern
 /// for partitioned hash aggregation and hash joins. The hash table stores TupleRows and
