@@ -83,10 +83,10 @@ set(EXEC_FILES
     schema_scanner/schema_charsets_scanner.cpp
     schema_scanner/schema_collations_scanner.cpp
     schema_scanner/schema_helper.cpp
-    new_partitioned_hash_table.cc
-    new_partitioned_hash_table_ir.cc
-    new_partitioned_aggregation_node.cc
-    new_partitioned_aggregation_node_ir.cc
+    partitioned_hash_table.cc
+    partitioned_hash_table_ir.cc
+    partitioned_aggregation_node.cc
+    partitioned_aggregation_node_ir.cc
     local_file_writer.cpp
     broker_writer.cpp
     parquet_scanner.cpp

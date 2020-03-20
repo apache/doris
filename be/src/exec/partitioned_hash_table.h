@@ -42,7 +42,7 @@ class RowDescriptor;
 class RuntimeState;
 class Tuple;
 class TupleRow;
-class NewPartitionedHashTable;
+class PartitionedHashTable;
 
 /// Linear or quadratic probing hash table implementation tailored to the usage pattern
 /// for partitioned hash aggregation and hash joins. The hash table stores TupleRows and
@@ -102,7 +102,7 @@ class NewPartitionedHashTable;
 
 /// Control block for a hash table. This class contains the logic as well as the variables
 /// needed by a thread to operate on a hash table.
-class NewPartitionedHashTableCtx {
+class PartitionedHashTableCtx {
  public:
 
   /// Create a hash table context with the specified parameters, invoke Init() to
@@ -117,7 +117,7 @@ class NewPartitionedHashTableCtx {
       int num_build_tuples, MemPool* mem_pool, MemPool* expr_results_pool, 
       MemTracker* tracker, const RowDescriptor& row_desc,
       const RowDescriptor& row_desc_probe,
-      boost::scoped_ptr<NewPartitionedHashTableCtx>* ht_ctx);
+      boost::scoped_ptr<PartitionedHashTableCtx>* ht_ctx);
 
   /// Initialize the build and probe expression evaluators.
   Status Open(RuntimeState* state);
@@ -210,7 +210,7 @@ class NewPartitionedHashTableCtx {
 
     /// Allocates memory and initializes various data structures. Return error status
     /// if memory allocation leads to the memory limits of the exec node to be exceeded.
-    /// 'tracker' is the memory tracker of the exec node which owns this NewPartitionedHashTableCtx.
+    /// 'tracker' is the memory tracker of the exec node which owns this PartitionedHashTableCtx.
     Status Init(RuntimeState* state, MemTracker* tracker,
         const std::vector<Expr*>& build_exprs);
 
@@ -287,7 +287,7 @@ class NewPartitionedHashTableCtx {
     }
 
    private:
-    friend class NewPartitionedHashTableCtx;
+    friend class PartitionedHashTableCtx;
 
     /// Resets the iterators to the beginning of the cache values' arrays.
     void ResetIterators();
@@ -358,7 +358,7 @@ class NewPartitionedHashTableCtx {
   ExprValuesCache* ALWAYS_INLINE expr_values_cache() { return &expr_values_cache_; }
 
  private:
-  friend class NewPartitionedHashTable;
+  friend class PartitionedHashTable;
   friend class HashTableTest_HashEmpty_Test;
 
   /// Construct a hash table context.
@@ -378,7 +378,7 @@ class NewPartitionedHashTableCtx {
   ///       with '<=>' and others with '=', stores_nulls could distinguish between columns
   ///       in which nulls are stored and columns in which they are not, which could save
   ///       space by not storing some rows we know will never match.
-  NewPartitionedHashTableCtx(const std::vector<Expr*>& build_exprs,
+  PartitionedHashTableCtx(const std::vector<Expr*>& build_exprs,
       const std::vector<Expr*>& probe_exprs, bool stores_nulls,
       const std::vector<bool>& finds_nulls, int32_t initial_seed,
       int max_levels, MemPool* mem_pool, MemPool* expr_results_pool);
@@ -496,7 +496,7 @@ class NewPartitionedHashTableCtx {
 /// value, the one in the bucket. The data is either a tuple stream index or a Tuple*.
 /// This array of buckets is sparse, we are shooting for up to 3/4 fill factor (75%). The
 /// data allocated by the hash table comes from the BufferPool.
-class NewPartitionedHashTable {
+class PartitionedHashTable {
  private:
 
   /// Rows are represented as pointers into the BufferedTupleStream data with one
@@ -563,7 +563,7 @@ class NewPartitionedHashTable {
   ///    -1, if it unlimited.
   ///  - initial_num_buckets: number of buckets that the hash table should be initialized
   ///    with.
-  static NewPartitionedHashTable* Create(Suballocator* allocator, bool stores_duplicates,
+  static PartitionedHashTable* Create(Suballocator* allocator, bool stores_duplicates,
       int num_build_tuples, BufferedTupleStream3* tuple_stream, int64_t max_num_buckets,
       int64_t initial_num_buckets);
 
@@ -586,7 +586,7 @@ class NewPartitionedHashTable {
   /// only one tuple, a pointer to that tuple is stored. Otherwise the 'flat_row' pointer
   /// is stored. The 'row' is not copied by the hash table and the caller must guarantee
   /// it stays in memory. This will not grow the hash table.
-  bool IR_ALWAYS_INLINE Insert(NewPartitionedHashTableCtx* ht_ctx,
+  bool IR_ALWAYS_INLINE Insert(PartitionedHashTableCtx* ht_ctx,
       BufferedTupleStream3::FlatRowPtr flat_row, TupleRow* row,
       Status* status);
 
@@ -602,13 +602,13 @@ class NewPartitionedHashTable {
   /// row. The matching rows do not need to be evaluated since all the nodes of a bucket
   /// are duplicates. One scan can be in progress for each 'ht_ctx'. Used in the probe
   /// phase of hash joins.
-  Iterator IR_ALWAYS_INLINE FindProbeRow(NewPartitionedHashTableCtx* ht_ctx);
+  Iterator IR_ALWAYS_INLINE FindProbeRow(PartitionedHashTableCtx* ht_ctx);
 
   /// If a match is found in the table, return an iterator as in FindProbeRow(). If a
   /// match was not present, return an iterator pointing to the empty bucket where the key
   /// should be inserted. Returns End() if the table is full. The caller can set the data
   /// in the bucket using a Set*() method on the iterator.
-  Iterator IR_ALWAYS_INLINE FindBuildRowBucket(NewPartitionedHashTableCtx* ht_ctx, bool* found);
+  Iterator IR_ALWAYS_INLINE FindBuildRowBucket(PartitionedHashTableCtx* ht_ctx, bool* found);
 
   /// Returns number of elements inserted in the hash table
   int64_t size() const {
@@ -655,7 +655,7 @@ class NewPartitionedHashTable {
   /// inserted without need to resize. If there is not enough memory available to
   /// resize the hash table, Status::OK()() is returned and 'got_memory' is false. If a
   /// another error occurs, an error status may be returned.
-  Status CheckAndResize(uint64_t buckets_to_fill, const NewPartitionedHashTableCtx* ht_ctx,
+  Status CheckAndResize(uint64_t buckets_to_fill, const PartitionedHashTableCtx* ht_ctx,
       bool* got_memory);
 
   /// Returns the number of bytes allocated to the hash table from the block manager.
@@ -665,12 +665,12 @@ class NewPartitionedHashTable {
 
   /// Returns an iterator at the beginning of the hash table.  Advancing this iterator
   /// will traverse all elements.
-  Iterator Begin(const NewPartitionedHashTableCtx* ht_ctx);
+  Iterator Begin(const PartitionedHashTableCtx* ht_ctx);
 
   /// Return an iterator pointing to the first element (Bucket or DuplicateNode, if the
   /// bucket has duplicates) in the hash table that does not have its matched flag set.
   /// Used in right joins and full-outer joins.
-  Iterator FirstUnmatched(NewPartitionedHashTableCtx* ctx);
+  Iterator FirstUnmatched(PartitionedHashTableCtx* ctx);
 
   /// Return true if there was a least one match.
   bool HasMatches() const { return has_matches_; }
@@ -752,17 +752,17 @@ class NewPartitionedHashTable {
     void IR_ALWAYS_INLINE PrefetchBucket();
 
    private:
-    friend class NewPartitionedHashTable;
+    friend class PartitionedHashTable;
 
     ALWAYS_INLINE
-    Iterator(NewPartitionedHashTable* table, TupleRow* row, int bucket_idx, DuplicateNode* node)
+    Iterator(PartitionedHashTable* table, TupleRow* row, int bucket_idx, DuplicateNode* node)
       : table_(table),
         scratch_row_(row),
         bucket_idx_(bucket_idx),
         node_(node) {
     }
 
-    NewPartitionedHashTable* table_;
+    PartitionedHashTable* table_;
 
     /// Scratch buffer to hold generated rows. Not owned.
     TupleRow* scratch_row_;
@@ -782,7 +782,7 @@ class NewPartitionedHashTable {
   /// of calling this constructor directly.
   ///  - quadratic_probing: set to true when the probing algorithm is quadratic, as
   ///    opposed to linear.
-  NewPartitionedHashTable(bool quadratic_probing, Suballocator* allocator, bool stores_duplicates,
+  PartitionedHashTable(bool quadratic_probing, Suballocator* allocator, bool stores_duplicates,
       int num_build_tuples, BufferedTupleStream3* tuple_stream, int64_t max_num_buckets,
       int64_t initial_num_buckets);
 
@@ -811,13 +811,13 @@ class NewPartitionedHashTable {
   /// There are wrappers of this function that perform the Find and Insert logic.
   template <bool FORCE_NULL_EQUALITY>
   int64_t IR_ALWAYS_INLINE Probe(Bucket* buckets, int64_t num_buckets,
-      NewPartitionedHashTableCtx* ht_ctx, uint32_t hash, bool* found);
+      PartitionedHashTableCtx* ht_ctx, uint32_t hash, bool* found);
 
   /// Performs the insert logic. Returns the HtData* of the bucket or duplicate node
   /// where the data should be inserted. Returns NULL if the insert was not successful
   /// and either sets 'status' to OK if it failed because not enough reservation was
   /// available or the error if an error was encountered.
-  HtData* IR_ALWAYS_INLINE InsertInternal(NewPartitionedHashTableCtx* ht_ctx, Status* status);
+  HtData* IR_ALWAYS_INLINE InsertInternal(PartitionedHashTableCtx* ht_ctx, Status* status);
 
   /// Updates 'bucket_idx' to the index of the next non-empty bucket. If the bucket has
   /// duplicates, 'node' will be pointing to the head of the linked list of duplicates.
@@ -826,7 +826,7 @@ class NewPartitionedHashTable {
   void NextFilledBucket(int64_t* bucket_idx, DuplicateNode** node);
 
   /// Resize the hash table to 'num_buckets'. 'got_memory' is false on OOM.
-  Status ResizeBuckets(int64_t num_buckets, const NewPartitionedHashTableCtx* ht_ctx, bool* got_memory);
+  Status ResizeBuckets(int64_t num_buckets, const PartitionedHashTableCtx* ht_ctx, bool* got_memory);
 
   /// Appends the DuplicateNode pointed by next_node_ to 'bucket' and moves the next_node_
   /// pointer to the next DuplicateNode in the page, updating the remaining node counter.

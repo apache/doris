@@ -23,7 +23,7 @@
 #include <boost/scoped_ptr.hpp>
 
 #include "exec/exec_node.h"
-#include "exec/new_partitioned_hash_table.h"
+#include "exec/partitioned_hash_table.h"
 #include "runtime/buffered_tuple_stream3.h"
 #include "runtime/bufferpool/suballocator.h"
 #include "runtime/descriptors.h"  // for TupleId
@@ -117,10 +117,10 @@ class SlotDescriptor;
 /// There are so many contexts in use that a plain "ctx" variable should never be used.
 /// Likewise, it's easy to mixup the agg fn ctxs, there should be a way to simplify this.
 /// TODO: support an Init() method with an initial value in the UDAF interface.
-class NewPartitionedAggregationNode : public ExecNode {
+class PartitionedAggregationNode : public ExecNode {
  public:
   
-  NewPartitionedAggregationNode(ObjectPool* pool,
+  PartitionedAggregationNode(ObjectPool* pool,
       const TPlanNode& tnode, const DescriptorTbl& descs);
 
   virtual Status init(const TPlanNode& tnode, RuntimeState* state);
@@ -154,7 +154,7 @@ class NewPartitionedAggregationNode : public ExecNode {
   ///  MEM_LIMIT * (PARTITION_FANOUT ^ MAX_PARTITION_DEPTH).
   /// In the case where there is skew, repartitioning is unlikely to help (assuming a
   /// reasonable hash function).
-  /// Note that we need to have at least as many SEED_PRIMES in NewPartitionedHashTableCtx.
+  /// Note that we need to have at least as many SEED_PRIMES in PartitionedHashTableCtx.
   /// TODO: we can revisit and try harder to explicitly detect skew.
   static const int MAX_PARTITION_DEPTH = 16;
 
@@ -243,19 +243,19 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// The current partition and iterator to the next row in its hash table that we need
   /// to return in GetNext()
   Partition* output_partition_;
-  NewPartitionedHashTable::Iterator output_iterator_;
+  PartitionedHashTable::Iterator output_iterator_;
 
-  typedef Status (*ProcessBatchNoGroupingFn)(NewPartitionedAggregationNode*, RowBatch*);
+  typedef Status (*ProcessBatchNoGroupingFn)(PartitionedAggregationNode*, RowBatch*);
   /// Jitted ProcessBatchNoGrouping function pointer. Null if codegen is disabled.
   ProcessBatchNoGroupingFn process_batch_no_grouping_fn_;
 
   typedef Status (*ProcessBatchFn)(
-      NewPartitionedAggregationNode*, RowBatch*, NewPartitionedHashTableCtx*);
+      PartitionedAggregationNode*, RowBatch*, PartitionedHashTableCtx*);
   /// Jitted ProcessBatch function pointer. Null if codegen is disabled.
   ProcessBatchFn process_batch_fn_;
 
-  typedef Status (*ProcessBatchStreamingFn)(NewPartitionedAggregationNode*, bool,
-      RowBatch*, RowBatch*, NewPartitionedHashTableCtx*, int[PARTITION_FANOUT]);
+  typedef Status (*ProcessBatchStreamingFn)(PartitionedAggregationNode*, bool,
+      RowBatch*, RowBatch*, PartitionedHashTableCtx*, int[PARTITION_FANOUT]);
   /// Jitted ProcessBatchStreaming function pointer.  Null if codegen is disabled.
   ProcessBatchStreamingFn process_batch_streaming_fn_;
 
@@ -327,7 +327,7 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// Used for hash-related functionality, such as evaluating rows and calculating hashes.
   /// It also owns the evaluators for the grouping and build expressions used during hash
   /// table insertion and probing.
-  boost::scoped_ptr<NewPartitionedHashTableCtx> ht_ctx_;
+  boost::scoped_ptr<PartitionedHashTableCtx> ht_ctx_;
 
   /// Object pool that holds the Partition objects in hash_partitions_.
   boost::scoped_ptr<ObjectPool> partition_pool_;
@@ -340,7 +340,7 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// Cache for hash tables in 'hash_partitions_'. IMPALA-5788: For the case where we
   /// rebuild a spilled partition that fits in memory, all pointers in this array will
   /// point to the hash table that is a part of a single in-memory partition.
-  NewPartitionedHashTable* hash_tbls_[PARTITION_FANOUT];
+  PartitionedHashTable* hash_tbls_[PARTITION_FANOUT];
 
   /// All partitions that have been spilled and need further processing.
   std::deque<Partition*> spilled_partitions_;
@@ -358,7 +358,7 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// initially use small buffers. Streaming pre-aggregations do not spill and do not
   /// require an unaggregated stream.
   struct Partition {
-    Partition(NewPartitionedAggregationNode* parent, int level, int idx)
+    Partition(PartitionedAggregationNode* parent, int level, int idx)
       : parent(parent), is_closed(false), level(level), idx(idx) {}
 
     ~Partition();
@@ -392,7 +392,7 @@ class NewPartitionedAggregationNode : public ExecNode {
 
     bool is_spilled() const { return hash_tbl.get() == NULL; }
 
-    NewPartitionedAggregationNode* parent;
+    PartitionedAggregationNode* parent;
 
     /// If true, this partition is closed and there is nothing left to do.
     bool is_closed;
@@ -408,7 +408,7 @@ class NewPartitionedAggregationNode : public ExecNode {
     /// Hash table for this partition.
     /// Can be NULL if this partition is no longer maintaining a hash table (i.e.
     /// is spilled or we are passing through all rows for this partition).
-    boost::scoped_ptr<NewPartitionedHashTable> hash_tbl;
+    boost::scoped_ptr<PartitionedHashTable> hash_tbl;
 
     /// Clone of parent's agg_fn_evals_. Permanent allocations come from
     /// 'agg_fn_perm_pool' and result allocations come from the ExecNode's
@@ -438,8 +438,8 @@ class NewPartitionedAggregationNode : public ExecNode {
   boost::scoped_ptr<BufferedTupleStream3> serialize_stream_;
 
   /// Accessor for 'hash_tbls_' that verifies consistency with the partitions.
-  NewPartitionedHashTable* ALWAYS_INLINE GetHashTable(int partition_idx) {
-    NewPartitionedHashTable* ht = hash_tbls_[partition_idx];
+  PartitionedHashTable* ALWAYS_INLINE GetHashTable(int partition_idx) {
+    PartitionedHashTable* ht = hash_tbls_[partition_idx];
     DCHECK_EQ(ht, hash_partitions_[partition_idx]->hash_tbl.get());
     return ht;
   }
@@ -530,7 +530,7 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// This function is replaced by codegen. We pass in ht_ctx_.get() as an argument for
   /// performance.
   template<bool AGGREGATED_ROWS>
-  Status IR_ALWAYS_INLINE ProcessBatch(RowBatch* batch, NewPartitionedHashTableCtx* ht_ctx);
+  Status IR_ALWAYS_INLINE ProcessBatch(RowBatch* batch, PartitionedHashTableCtx* ht_ctx);
 
   /// Evaluates the rows in 'batch' starting at 'start_row_idx' and stores the results in
   /// the expression values cache in 'ht_ctx'. The number of rows evaluated depends on
@@ -538,13 +538,13 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// If it's not PREFETCH_NONE, hash table buckets for the computed hashes will be
   /// prefetched. Note that codegen replaces 'prefetch_mode' with a constant.
   template<bool AGGREGATED_ROWS>
-  void EvalAndHashPrefetchGroup(RowBatch* batch, int start_row_idx, NewPartitionedHashTableCtx* ht_ctx);
+  void EvalAndHashPrefetchGroup(RowBatch* batch, int start_row_idx, PartitionedHashTableCtx* ht_ctx);
 
   /// This function processes each individual row in ProcessBatch(). Must be inlined into
   /// ProcessBatch for codegen to substitute function calls with codegen'd versions.
   /// May spill partitions if not enough memory is available.
   template <bool AGGREGATED_ROWS>
-  Status IR_ALWAYS_INLINE ProcessRow(TupleRow* row, NewPartitionedHashTableCtx* ht_ctx);
+  Status IR_ALWAYS_INLINE ProcessRow(TupleRow* row, PartitionedHashTableCtx* ht_ctx);
 
   /// Create a new intermediate tuple in partition, initialized with row. ht_ctx is
   /// the context for the partition's hash table and hash is the precomputed hash of
@@ -552,10 +552,10 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// AGGREGATED_ROWS. Spills partitions if necessary to append the new intermediate
   /// tuple to the partition's stream. Must be inlined into ProcessBatch for codegen
   /// to substitute function calls with codegen'd versions.  insert_it is an iterator
-  /// for insertion returned from NewPartitionedHashTable::FindBuildRowBucket().
+  /// for insertion returned from PartitionedHashTable::FindBuildRowBucket().
   template<bool AGGREGATED_ROWS>
   Status IR_ALWAYS_INLINE AddIntermediateTuple(Partition* partition,
-      TupleRow* row, uint32_t hash, NewPartitionedHashTable::Iterator insert_it);
+      TupleRow* row, uint32_t hash, PartitionedHashTable::Iterator insert_it);
 
   /// Append a row to a spilled partition. May spill partitions if needed to switch to
   /// I/O buffers. Selects the correct stream according to the argument. Inlined into
@@ -597,7 +597,7 @@ class NewPartitionedAggregationNode : public ExecNode {
   ///     by ProcessBatchStreaming() when it inserts new rows.
   /// 'ht_ctx' is passed in as a way to avoid aliasing of 'this' confusing the optimiser.
   Status ProcessBatchStreaming(bool needs_serialize,
-      RowBatch* in_batch, RowBatch* out_batch, NewPartitionedHashTableCtx* ht_ctx,
+      RowBatch* in_batch, RowBatch* out_batch, PartitionedHashTableCtx* ht_ctx,
       int remaining_capacity[PARTITION_FANOUT]);
 
   /// Tries to add intermediate to the hash table 'hash_tbl' of 'partition' for streaming
@@ -608,8 +608,8 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// keeps track of how many more entries can be added to the hash table so we can avoid
   /// retrying inserts. It is decremented if an insert succeeds and set to zero if an
   /// insert fails. If an error occurs, returns false and sets 'status'.
-  bool IR_ALWAYS_INLINE TryAddToHashTable(NewPartitionedHashTableCtx* ht_ctx,
-      Partition* partition, NewPartitionedHashTable* hash_tbl, TupleRow* in_row, uint32_t hash,
+  bool IR_ALWAYS_INLINE TryAddToHashTable(PartitionedHashTableCtx* ht_ctx,
+      Partition* partition, PartitionedHashTable* hash_tbl, TupleRow* in_row, uint32_t hash,
       int* remaining_capacity, Status* status);
 
   /// Initializes hash_partitions_. 'level' is the level for the partitions to create.
@@ -622,7 +622,7 @@ class NewPartitionedAggregationNode : public ExecNode {
   /// 'num_rows' additional hash table entries. If there is not enough memory to
   /// resize the hash tables, may spill partitions. 'aggregated_rows' is true if
   /// we're currently partitioning aggregated rows.
-  Status CheckAndResizeHashPartitions(bool aggregated_rows, int num_rows, const NewPartitionedHashTableCtx* ht_ctx);
+  Status CheckAndResizeHashPartitions(bool aggregated_rows, int num_rows, const PartitionedHashTableCtx* ht_ctx);
 
   /// Prepares the next partition to return results from. On return, this function
   /// initializes output_iterator_ and output_partition_. This either removes
@@ -669,7 +669,7 @@ class NewPartitionedAggregationNode : public ExecNode {
 
   /// Calls finalizes on all tuples starting at 'it'.
   void CleanupHashTbl(const std::vector<NewAggFnEvaluator*>& agg_fn_evals,
-      NewPartitionedHashTable::Iterator it);
+      PartitionedHashTable::Iterator it);
 
     /// Compute minimum buffer reservation for grouping aggregations.
     /// We need one buffer per partition, which is used either as the write buffer for the
