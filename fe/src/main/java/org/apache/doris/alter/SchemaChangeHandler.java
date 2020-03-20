@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import com.google.common.collect.ImmutableList;
 import org.apache.doris.alter.AlterJob.JobState;
 import org.apache.doris.analysis.AddColumnClause;
 import org.apache.doris.analysis.AddColumnsClause;
@@ -82,6 +81,7 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -1133,16 +1133,6 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void runAlterJobV2() {
-        Iterator<Map.Entry<Long, AlterJobV2>> iter = alterJobsV2.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<Long, AlterJobV2> entry = iter.next();
-            AlterJobV2 alterJobV2 = entry.getValue();
-            if (alterJobV2.isDone()) {
-                alterJobV2.clear();
-                finishedOrCancelledAlterJobsV2.add(alterJobV2);
-                iter.remove();
-            }
-        }
         alterJobsV2.values().forEach(AlterJobV2::run);
     }
 
@@ -1289,7 +1279,6 @@ public class SchemaChangeHandler extends AlterHandler {
 
     private void getAlterJobV2Infos(Database db, List<List<Comparable>> schemaChangeJobInfos) {
         getAlterJobV2Infos(db, ImmutableList.copyOf(alterJobsV2.values()), schemaChangeJobInfos);
-        getAlterJobV2Infos(db, ImmutableList.copyOf(finishedOrCancelledAlterJobsV2), schemaChangeJobInfos);
     }
 
     @Deprecated
