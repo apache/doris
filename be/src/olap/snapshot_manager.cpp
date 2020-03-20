@@ -146,12 +146,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t 
         return res;
     }
     TabletMetaPB cloned_tablet_meta_pb;
-    res = cloned_tablet_meta.to_meta_pb(&cloned_tablet_meta_pb);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "fail to serialize tablet meta to pb object. "
-                     << " , cloned_meta_file=" << cloned_meta_file;
-        return res;
-    }
+    cloned_tablet_meta.to_meta_pb(&cloned_tablet_meta_pb);
 
     TabletMetaPB new_tablet_meta_pb;
     new_tablet_meta_pb = cloned_tablet_meta_pb;
@@ -162,7 +157,7 @@ OLAPStatus SnapshotManager::convert_rowset_ids(const string& clone_dir, int64_t 
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchema tablet_schema;
-    RETURN_NOT_OK(tablet_schema.init_from_pb(new_tablet_meta_pb.schema()));
+    tablet_schema.init_from_pb(new_tablet_meta_pb.schema());
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> _rs_version_map;
     for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
@@ -377,13 +372,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
             if (res != OLAP_SUCCESS) {
                 break;
             }
-            res = ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to load header. res=" << res
-                             << " tablet_id=" << ref_tablet->tablet_id()
-                             << " schema_hash=" << ref_tablet->schema_hash();
-                break;
-            }
+            ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
         } else {
             ReadLock rdlock(ref_tablet->get_header_lock_ptr());
             // get latest version
@@ -415,13 +404,7 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
                 break;
             }
 
-            res = ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
-            if (res != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to load header. res=" << res
-                             << " tablet_id=" << ref_tablet->tablet_id()
-                             << " schema_hash=" << ref_tablet->schema_hash();
-                break;
-            }
+            ref_tablet->generate_tablet_meta_copy(new_tablet_meta);
         }
 
         vector<RowsetMetaSharedPtr> rs_metas;
@@ -443,15 +426,13 @@ OLAPStatus SnapshotManager::_create_snapshot_files(
         new_tablet_meta->delete_alter_task();
 
         if (request.__isset.missing_version) {
-            new_tablet_meta->revise_inc_rs_metas(rs_metas);
-            vector<RowsetMetaSharedPtr> empty_rowsets;
-            new_tablet_meta->revise_rs_metas(empty_rowsets);
+            new_tablet_meta->revise_inc_rs_metas(std::move(rs_metas));
+            new_tablet_meta->revise_rs_metas(vector<RowsetMetaSharedPtr>());
         } else {
             // If this is a full clone, then should clear inc rowset metas because
             // related files is not created
-            vector<RowsetMetaSharedPtr> empty_rowsets;
-            new_tablet_meta->revise_inc_rs_metas(empty_rowsets);
-            new_tablet_meta->revise_rs_metas(rs_metas);
+            new_tablet_meta->revise_inc_rs_metas(vector<RowsetMetaSharedPtr>());
+            new_tablet_meta->revise_rs_metas(std::move(rs_metas));
         }
 
         if (snapshot_version == g_Types_constants.TSNAPSHOT_REQ_VERSION1) {
@@ -558,9 +539,9 @@ OLAPStatus SnapshotManager::_convert_beta_rowsets_to_alpha(const TabletMetaShare
     }
     if (res == OLAP_SUCCESS && modified) {
         if (is_incremental) {
-            res = new_tablet_meta->revise_inc_rs_metas(new_rowset_metas);
+            new_tablet_meta->revise_inc_rs_metas(std::move(new_rowset_metas));
         } else {
-            res = new_tablet_meta->revise_rs_metas(new_rowset_metas);
+            new_tablet_meta->revise_rs_metas(std::move(new_rowset_metas));
         }
     }
     return res;

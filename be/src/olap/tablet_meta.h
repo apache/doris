@@ -71,8 +71,8 @@ using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 class AlterTabletTask {
 public:
     AlterTabletTask() {}
-    OLAPStatus init_from_pb(const AlterTabletPB& alter_task);
-    OLAPStatus to_alter_pb(AlterTabletPB* alter_task);
+    void init_from_pb(const AlterTabletPB& alter_task);
+    void to_alter_pb(AlterTabletPB* alter_task);
 
     inline const AlterTabletState& alter_state() const { return _alter_state; }
     OLAPStatus set_alter_state(AlterTabletState alter_state);
@@ -122,42 +122,42 @@ public:
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     OLAPStatus create_from_file(const std::string& file_path);
     OLAPStatus save(const std::string& file_path);
-    static OLAPStatus save(const std::string& file_path, TabletMetaPB& tablet_meta_pb);
+    static OLAPStatus save(const std::string& file_path, const TabletMetaPB& tablet_meta_pb);
     static OLAPStatus reset_tablet_uid(const std::string& file_path);
     static std::string construct_header_file_path(const std::string& schema_hash_path,
-                                                  const int64_t tablet_id);
+                                                  int64_t tablet_id);
     OLAPStatus save_meta(DataDir* data_dir);
 
     OLAPStatus serialize(std::string* meta_binary);
     OLAPStatus deserialize(const std::string& meta_binary);
-    OLAPStatus init_from_pb(const TabletMetaPB& tablet_meta_pb);
+    void init_from_pb(const TabletMetaPB& tablet_meta_pb);
 
-    OLAPStatus to_meta_pb(TabletMetaPB* tablet_meta_pb);
-    OLAPStatus to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
+    void to_meta_pb(TabletMetaPB* tablet_meta_pb);
+    void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
 
-    inline const TabletUid tablet_uid() const;
-    inline const int64_t table_id() const;
-    inline const int64_t partition_id() const;
-    inline const int64_t tablet_id() const;
-    inline const int32_t schema_hash() const;
-    inline const int16_t shard_id() const;
+    inline TabletUid tablet_uid() const;
+    inline int64_t table_id() const;
+    inline int64_t partition_id() const;
+    inline int64_t tablet_id() const;
+    inline int32_t schema_hash() const;
+    inline int16_t shard_id() const;
     inline void set_shard_id(int32_t shard_id);
     inline int64_t creation_time() const;
     inline void set_creation_time(int64_t creation_time);
     inline int64_t cumulative_layer_point() const;
     inline void set_cumulative_layer_point(int64_t new_point);
 
-    inline const size_t num_rows() const;
+    inline size_t num_rows() const;
     // disk space occupied by tablet
-    inline const size_t tablet_footprint() const;
-    inline const size_t version_count() const;
+    inline size_t tablet_footprint() const;
+    inline size_t version_count() const;
     Version max_version() const;
 
-    inline const TabletState tablet_state() const;
-    inline OLAPStatus set_tablet_state(TabletState state);
+    inline TabletState tablet_state() const;
+    inline void set_tablet_state(TabletState state);
 
-    inline const bool in_restore_mode() const;
-    inline OLAPStatus set_in_restore_mode(bool in_restore_mode);
+    inline bool in_restore_mode() const;
+    inline void set_in_restore_mode(bool in_restore_mode);
 
     inline const TabletSchema& tablet_schema() const;
 
@@ -165,26 +165,26 @@ public:
 
     inline const std::vector<RowsetMetaSharedPtr>& all_rs_metas() const;
     OLAPStatus add_rs_meta(const RowsetMetaSharedPtr& rs_meta);
-    RowsetMetaSharedPtr acquire_rs_meta_by_version(const Version& version) const;
-    OLAPStatus delete_rs_meta_by_version(const Version& version,
-                                         std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
-    OLAPStatus modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
-                               const std::vector<RowsetMetaSharedPtr>& to_delete);
-    OLAPStatus revise_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas);
-    OLAPStatus revise_inc_rs_metas(const std::vector<RowsetMetaSharedPtr>& rs_metas);
+    void delete_rs_meta_by_version(const Version& version,
+                                   std::vector<RowsetMetaSharedPtr>* deleted_rs_metas);
+    void modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
+                         const std::vector<RowsetMetaSharedPtr>& to_delete);
+    void revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
 
+
+    void revise_inc_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas);
     inline const std::vector<RowsetMetaSharedPtr>& all_inc_rs_metas() const;
     OLAPStatus add_inc_rs_meta(const RowsetMetaSharedPtr& rs_meta);
-    OLAPStatus delete_inc_rs_meta_by_version(const Version& version);
+    void delete_inc_rs_meta_by_version(const Version& version);
     RowsetMetaSharedPtr acquire_inc_rs_meta_by_version(const Version& version) const;
 
-    OLAPStatus add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
-    OLAPStatus remove_delete_predicate_by_version(const Version& version);
+    void add_delete_predicate(const DeletePredicatePB& delete_predicate, int64_t version);
+    void remove_delete_predicate_by_version(const Version& version);
     DelPredicateArray delete_predicates() const;
     bool version_for_delete_predicate(const Version& version);
     AlterTabletTaskSharedPtr alter_task();
-    OLAPStatus add_alter_task(const AlterTabletTask& alter_task);
-    OLAPStatus delete_alter_task();
+    void add_alter_task(const AlterTabletTask& alter_task);
+    void delete_alter_task();
     OLAPStatus set_alter_state(AlterTabletState alter_state);
 
     std::string full_name() const;
@@ -203,16 +203,16 @@ private:
     OLAPStatus _save_meta(DataDir* data_dir);
 
 private:
-    int64_t _table_id;
-    int64_t _partition_id;
-    int64_t _tablet_id;
-    int32_t _schema_hash;
-    int32_t _shard_id;
-    int64_t _creation_time;
-    int64_t _cumulative_layer_point;
+    int64_t _table_id = 0;
+    int64_t _partition_id = 0;
+    int64_t _tablet_id = 0;
+    int32_t _schema_hash = 0;
+    int32_t _shard_id = 0;
+    int64_t _creation_time = 0;
+    int64_t _cumulative_layer_point = 0;
     TabletUid _tablet_uid;
 
-    TabletState _tablet_state;
+    TabletState _tablet_state = TABLET_NOTREADY;
     TabletSchema _schema;
     std::vector<RowsetMetaSharedPtr> _rs_metas;
     std::vector<RowsetMetaSharedPtr> _inc_rs_metas;
@@ -224,27 +224,27 @@ private:
     RWMutex _meta_lock;
 };
 
-inline const TabletUid TabletMeta::tablet_uid() const {
+inline TabletUid TabletMeta::tablet_uid() const {
     return _tablet_uid;
 }
 
-inline const int64_t TabletMeta::table_id() const {
+inline int64_t TabletMeta::table_id() const {
     return _table_id;
 }
 
-inline const int64_t TabletMeta::partition_id() const {
+inline int64_t TabletMeta::partition_id() const {
     return _partition_id;
 }
 
-inline const int64_t TabletMeta::tablet_id() const {
+inline int64_t TabletMeta::tablet_id() const {
     return _tablet_id;
 }
 
-inline const int32_t TabletMeta::schema_hash() const {
+inline int32_t TabletMeta::schema_hash() const {
     return _schema_hash;
 }
 
-inline const int16_t TabletMeta::shard_id() const {
+inline int16_t TabletMeta::shard_id() const {
     return _shard_id;
 }
 
@@ -268,7 +268,7 @@ inline void TabletMeta::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_layer_point = new_point;
 }
 
-inline const size_t TabletMeta::num_rows() const {
+inline size_t TabletMeta::num_rows() const {
     size_t num_rows = 0;
     for (auto& rs : _rs_metas) {
         num_rows += rs->num_rows();
@@ -276,7 +276,7 @@ inline const size_t TabletMeta::num_rows() const {
     return num_rows;
 }
 
-inline const size_t TabletMeta::tablet_footprint() const {
+inline size_t TabletMeta::tablet_footprint() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
         total_size += rs->data_disk_size();
@@ -284,26 +284,24 @@ inline const size_t TabletMeta::tablet_footprint() const {
     return total_size;
 }
 
-inline const size_t TabletMeta::version_count() const {
+inline size_t TabletMeta::version_count() const {
     return _rs_metas.size();
 }
 
-inline const TabletState TabletMeta::tablet_state() const {
+inline TabletState TabletMeta::tablet_state() const {
     return _tablet_state;
 }
 
-inline OLAPStatus TabletMeta::set_tablet_state(TabletState state) {
+inline void TabletMeta::set_tablet_state(TabletState state) {
     _tablet_state = state;
-    return OLAP_SUCCESS;
 }
 
-inline const bool TabletMeta::in_restore_mode() const {
+inline bool TabletMeta::in_restore_mode() const {
     return _in_restore_mode;
 }
 
-inline OLAPStatus TabletMeta::set_in_restore_mode(bool in_restore_mode) {
+inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
-    return OLAP_SUCCESS;
 }
 
 inline const TabletSchema& TabletMeta::tablet_schema() const {

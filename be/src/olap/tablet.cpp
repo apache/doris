@@ -128,7 +128,7 @@ OLAPStatus Tablet::set_tablet_state(TabletState state) {
         LOG(WARNING) << "could not change tablet state from shutdown to " << state;
         return OLAP_ERR_META_INVALID_ARGUMENT;
     }
-    RETURN_NOT_OK(_tablet_meta->set_tablet_state(state));
+    _tablet_meta->set_tablet_state(state);
     _state = state;
     return OLAP_SUCCESS;
 }
@@ -157,18 +157,11 @@ OLAPStatus Tablet::revise_tablet_meta(
     do {
         // load new local tablet_meta to operate on
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
-        RETURN_NOT_OK(generate_tablet_meta_copy(new_tablet_meta));
+        generate_tablet_meta_copy(new_tablet_meta);
 
         // delete versions from new local tablet_meta
         for (const Version& version : versions_to_delete) {
-            res = new_tablet_meta->delete_rs_meta_by_version(version, nullptr);
-            if (res != OLAP_SUCCESS) {
-                // TODO(lingbin): should we stop and return an non-ok status?
-                // Actually, this func always return Status::OK
-                LOG(WARNING) << "failed to delete version from new local tablet meta. tablet="
-                        << full_name() << ", version=" << version;
-                break;
-            }
+            new_tablet_meta->delete_rs_meta_by_version(version, nullptr);
             if (new_tablet_meta->version_for_delete_predicate(version)) {
                 new_tablet_meta->remove_delete_predicate_by_version(version);
             }
@@ -522,9 +515,9 @@ OLAPStatus Tablet::capture_rs_readers(const vector<Version>& version_path,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::add_delete_predicate(
+void Tablet::add_delete_predicate(
         const DeletePredicatePB& delete_predicate, int64_t version) {
-    return _tablet_meta->add_delete_predicate(delete_predicate, version);
+    _tablet_meta->add_delete_predicate(delete_predicate, version);
 }
 
 // TODO(lingbin): what is the difference between version_for_delete_predicate() and
@@ -551,7 +544,7 @@ OLAPStatus Tablet::add_alter_task(int64_t related_tablet_id,
     alter_task.set_related_tablet_id(related_tablet_id);
     alter_task.set_related_schema_hash(related_schema_hash);
     alter_task.set_alter_type(alter_type);
-    RETURN_NOT_OK(_tablet_meta->add_alter_task(alter_task));
+    _tablet_meta->add_alter_task(alter_task);
     LOG(INFO) << "successfully add alter task for tablet_id:" << this->tablet_id()
               << ", schema_hash:" << this->schema_hash()
               << ", related_tablet_id " << related_tablet_id
@@ -560,9 +553,9 @@ OLAPStatus Tablet::add_alter_task(int64_t related_tablet_id,
     return OLAP_SUCCESS;
 }
 
-OLAPStatus Tablet::delete_alter_task() {
+void Tablet::delete_alter_task() {
     LOG(INFO) << "delete alter task from table. tablet=" << full_name();
-    return _tablet_meta->delete_alter_task();
+    _tablet_meta->delete_alter_task();
 }
 
 OLAPStatus Tablet::set_alter_state(AlterTabletState state) {
@@ -1120,18 +1113,16 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     tablet_info->__set_version_count(_tablet_meta->version_count());
     tablet_info->__set_path_hash(_data_dir->path_hash());
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema().is_in_memory());
-    return;
 }
 
 // should use this method to get a copy of current tablet meta
 // there are some rowset meta in local meta store and in in-memory tablet meta
 // but not in tablet meta in local meta store
 // TODO(lingbin): do we need _meta_lock?
-OLAPStatus Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) {
+void Tablet::generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) {
     TabletMetaPB tablet_meta_pb;
-    RETURN_NOT_OK(_tablet_meta->to_meta_pb(&tablet_meta_pb));
-    RETURN_NOT_OK(new_tablet_meta->init_from_pb(tablet_meta_pb));
-    return OLAP_SUCCESS;
+    _tablet_meta->to_meta_pb(&tablet_meta_pb);
+    new_tablet_meta->init_from_pb(tablet_meta_pb);
 }
 
 }  // namespace doris
