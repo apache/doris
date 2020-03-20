@@ -94,7 +94,7 @@ import java.util.Map;
  * 				"file_paths": ["hdfs://hdfs_host:port/user/palo/test/file"],
  * 				"file_field_names": ["tmp_k1", "k2"],
  * 				"value_separator": ",",
- * 			    "line_delimiter": "\n"
+ * 			    "line_delimiter": "\n",
  * 				"column_mappings": {
  * 					"k1": {
  * 						"function_name": "strftime",
@@ -121,6 +121,9 @@ public class EtlJobConfig {
     private static final String ETL_OUTPUT_PATH_FORMAT = "%s%s/%d/%s/%d";
     private static final String ETL_OUTPUT_FILE_NAME_DESC = "label.tableId.partitionId.indexId.bucket.schemaHash";
     public static final String ETL_OUTPUT_FILE_NAME_NO_LABEL_FORMAT = "%d.%d.%d.%d.%d";
+
+    // config
+    public static final String JOB_CONFIG_FILE_NAME = "jobconfig.json";
 
     Map<Long, EtlTable> tables;
     String outputPath;

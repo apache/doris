@@ -24,6 +24,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlStatus;
+import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TEtlState;
 
@@ -56,7 +57,6 @@ public class SparkEtlJobHandler {
     private static final Logger LOG = LogManager.getLogger(SparkEtlJobHandler.class);
 
     private static final String JOB_CONFIG_DIR = PaloFe.DORIS_HOME_DIR + "/temp/job_conf";
-    private static final String JOB_CONFIG_FILE = "jobconfig.json";
     private static final String APP_RESOURCE = PaloFe.DORIS_HOME_DIR + "/lib/palo-fe.jar";
     private static final String MAIN_CLASS = "org.apache.doris.load.loadv2.etl.SparkEtlJob";
     private static final String ETL_JOB_NAME = "doris__%s";
@@ -80,7 +80,7 @@ public class SparkEtlJobHandler {
 
         // create job config file
         String configDirPath = JOB_CONFIG_DIR + "/" + loadJobId;
-        String configFilePath = configDirPath + "/" + JOB_CONFIG_FILE;
+        String configFilePath = configDirPath + "/" + EtlJobConfig.JOB_CONFIG_FILE_NAME;
         try {
             createJobConfigFile(configDirPath, configFilePath, loadJobId, jobJsonConfig);
         } catch (LoadException e) {
@@ -93,7 +93,7 @@ public class SparkEtlJobHandler {
                 .setAppResource(APP_RESOURCE)
                 .setMainClass(MAIN_CLASS)
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
-                .addAppArgs(configFilePath);
+                .addFile(configFilePath);
                 //.setDeployMode("cluster")
                 //.addSparkArg("--jars", "")
                 //addSparkArg("--files", "")

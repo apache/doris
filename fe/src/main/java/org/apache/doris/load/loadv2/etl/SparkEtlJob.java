@@ -24,6 +24,9 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
 
+import org.apache.spark.SparkConf;
+import org.apache.spark.SparkFiles;
+import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.SparkSession;
 
 import com.google.common.collect.Lists;
@@ -40,12 +43,13 @@ import java.util.Map;
 public class SparkEtlJob {
     private static final String BITMAP_TYPE = "bitmap";
 
-    private String configFilePath;
     private EtlJobConfig etlJobConfig;
     private boolean hasBitMapColumns;
+    private JavaSparkContext sc;
 
-    private SparkEtlJob(String configFilePath) {
-        this.configFilePath = configFilePath;
+    private void initSparkEnvironment() {
+        SparkConf conf = new SparkConf();
+        sc = new JavaSparkContext(conf);
     }
 
     private void initConfig() throws IOException {
@@ -55,8 +59,9 @@ public class SparkEtlJob {
             gsonBuilder.setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES);
             Gson gson = gsonBuilder.create();
 
-            br = new BufferedReader(new InputStreamReader(new FileInputStream(new File(configFilePath)),
-                                                          "UTF-8"));
+            br = new BufferedReader(new InputStreamReader(
+                    new FileInputStream(new File(SparkFiles.get(EtlJobConfig.JOB_CONFIG_FILE_NAME))),
+                    "UTF-8"));
             etlJobConfig = gson.fromJson(br.readLine(), EtlJobConfig.class);
             System.err.println("etl job configs: " + etlJobConfig.toString());
         } finally {
@@ -127,6 +132,17 @@ public class SparkEtlJob {
                                                           tableId, taskId);
 
         /*
+        System.err.println("distinctColumnList: " + distinctColumnList);
+        System.err.println("dorisOlapTableColumnList: " + dorisOlapTableColumnList);
+        System.err.println("mapSideJoinColumns: " + mapSideJoinColumns);
+        System.err.println("sourceHiveDBTableName: " + sourceHiveDBTableName);
+        System.err.println("sourceHiveFilter: " + sourceHiveFilter);
+        System.err.println("dorisHiveDB: " + dorisHiveDB);
+        System.err.println("distinctKeyTableName: " + distinctKeyTableName);
+        System.err.println("globalDictTableName: " + globalDictTableName);
+        System.err.println("dorisIntermediateHiveTable: " + dorisIntermediateHiveTable);
+        System.err.println("hasBitMapColumns: " + hasBitMapColumns);
+
         BuildGlobalDict buildGlobalDict = new BuildGlobalDict(distinctColumnList, dorisOlapTableColumnList,
                                                               mapSideJoinColumns, sourceHiveDBTableName,
                                                               sourceHiveFilter, dorisHiveDB, distinctKeyTableName,
@@ -165,20 +181,15 @@ public class SparkEtlJob {
     }
 
     private void run() throws Exception {
+        initSparkEnvironment();
         initConfig();
         checkConfig();
         processData();
     }
 
     public static void main(String[] args) {
-        if (args.length < 1) {
-            System.err.println("missing job config file path");
-            System.exit(-1);
-        }
-
-        SparkEtlJob etl = new SparkEtlJob(args[0]);
         try {
-            etl.run();
+            new SparkEtlJob().run();
         } catch (Exception e) {
             System.err.println("spark etl job run fail");
             e.printStackTrace();
