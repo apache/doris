@@ -46,7 +46,7 @@ HashJoinNode::HashJoinNode(
     _is_push_down = tnode.hash_join_node.is_push_down;
     _build_unique = _join_op == TJoinOp::LEFT_ANTI_JOIN|| _join_op == TJoinOp::RIGHT_ANTI_JOIN
         || _join_op == TJoinOp::RIGHT_SEMI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN 
-        || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
+        || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN
 }
 
 HashJoinNode::~HashJoinNode() {
