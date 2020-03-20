@@ -324,7 +324,7 @@ int NodeChannel::try_send_and_fetch_status() {
 
 Status NodeChannel::none_of(std::initializer_list<bool> vars) {
     bool none = std::none_of(vars.begin(), vars.end(), [](bool var) { return var; });
-    Status st = Stats::OK();
+    Status st = Status::OK();
     if (!none) {
         std::string vars_str;
         std::for_each(vars.begin(), vars.end(),
