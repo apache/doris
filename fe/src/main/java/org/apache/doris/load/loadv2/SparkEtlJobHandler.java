@@ -90,11 +90,11 @@ public class SparkEtlJobHandler {
         // spark cluster config
         SparkLauncher launcher = new SparkLauncher();
         launcher = launcher.setMaster(sparkMaster)
+                //.setDeployMode("cluster")
                 .setAppResource(APP_RESOURCE)
                 .setMainClass(MAIN_CLASS)
                 .setAppName(String.format(ETL_JOB_NAME, loadLabel))
                 .addFile(configFilePath);
-                //.setDeployMode("cluster")
                 //.addSparkArg("--jars", "")
                 //addSparkArg("--files", "")
         for (Map.Entry<String, String> entry : sparkConfigs.entrySet()) {
