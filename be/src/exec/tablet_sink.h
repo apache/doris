@@ -180,7 +180,7 @@ public:
 
     int64_t node_id() const { return _node_id; }
     const NodeInfo* node_info() const { return _node_info; }
-    std::string print_load_id() { return _load_id_str; }
+    std::string print_load_info() { return _load_info; }
     std::string name() const {
         return "NodeChannel[" + std::to_string(_index_id) + "-" + std::to_string(_node_id) + "]";
     }
@@ -192,7 +192,7 @@ private:
     int64_t _index_id = -1;
     int64_t _node_id = -1;
     int32_t _schema_hash = 0;
-    std::string _load_id_str;
+    std::string _load_info;
 
     TupleDescriptor* _tuple_desc = nullptr;
     const NodeInfo* _node_info = nullptr;
@@ -380,9 +380,6 @@ private:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _non_blocking_send_timer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
-
-    // BE id -> add_batch method counter
-    std::unordered_map<int64_t, AddBatchCounter> _node_add_batch_counter_map;
 
     // load mem limit is for remote load channel
     int64_t _load_mem_limit = -1;

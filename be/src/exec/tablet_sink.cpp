@@ -80,7 +80,9 @@ Status NodeChannel::init(RuntimeState* state) {
     _cur_add_batch_request.set_eos(false);
 
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
-    _load_id_str = print_id(_parent->_load_id);
+
+    _load_info = "load_id=" + print_id(_parent->_load_id) + ", txn_id" +
+                 std::to_string(_parent->_txn_id);
     return Status::OK();
 }
 
@@ -133,36 +135,36 @@ Status NodeChannel::open_wait() {
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this]() {
         _rpc_error = true;
-        LOG(WARNING) << "NodeChannel add batch req rpc failed, load_id=" << _load_id_str
+        LOG(WARNING) << "NodeChannel add batch req rpc failed, " << print_load_info()
                      << ", node=" << node_info()->host << ":" << node_info()->brpc_port;
     });
 
-    _add_batch_closure->addSuccessHandler([this](const PTabletWriterAddBatchResult& result,
-                                                 bool is_last_rpc) {
-        Status status(result.status());
-        if (status.ok()) {
-            if (is_last_rpc) {
-                for (auto& tablet : result.tablet_vec()) {
-                    TTabletCommitInfo commit_info;
-                    commit_info.tabletId = tablet.tablet_id();
-                    commit_info.backendId = _node_id;
-                    _tablet_commit_infos.emplace_back(std::move(commit_info));
+    _add_batch_closure->addSuccessHandler(
+            [this](const PTabletWriterAddBatchResult& result, bool is_last_rpc) {
+                Status status(result.status());
+                if (status.ok()) {
+                    if (is_last_rpc) {
+                        for (auto& tablet : result.tablet_vec()) {
+                            TTabletCommitInfo commit_info;
+                            commit_info.tabletId = tablet.tablet_id();
+                            commit_info.backendId = _node_id;
+                            _tablet_commit_infos.emplace_back(std::move(commit_info));
+                        }
+                        _add_batches_finished = true;
+                    }
+                } else {
+                    _rpc_error = true;
+                    LOG(WARNING) << "NodeChannel add batch req success but status isn't ok, "
+                                 << print_load_info() << ", node=" << node_info()->host << ":"
+                                 << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
                 }
-                _add_batches_finished = true;
-            }
-        } else {
-            _rpc_error = true;
-            LOG(WARNING) << "NodeChannel add batch req success but status isn't ok, load_id="
-                         << _load_id_str << ", node=" << node_info()->host << ":"
-                         << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
-        }
 
-        if (result.has_execution_time_us()) {
-            _add_batch_counter.add_batch_execution_time_us += result.execution_time_us();
-            _add_batch_counter.add_batch_wait_lock_time_us += result.wait_lock_time_us();
-            _add_batch_counter.add_batch_num++;
-        }
-    });
+                if (result.has_execution_time_us()) {
+                    _add_batch_counter.add_batch_execution_time_us += result.execution_time_us();
+                    _add_batch_counter.add_batch_wait_lock_time_us += result.wait_lock_time_us();
+                    _add_batch_counter.add_batch_num++;
+                }
+            });
 
     return status;
 }
@@ -560,7 +562,7 @@ Status OlapTableSink::open(RuntimeState* state) {
         index_channel->for_each_node_channel([&index_channel](NodeChannel* ch) {
             auto st = ch->open_wait();
             if (!st.ok()) {
-                LOG(WARNING) << "tablet open failed, load_id=" << ch->print_load_id()
+                LOG(WARNING) << "tablet open failed, " << ch->print_load_info()
                              << ", node=" << ch->node_info()->host << ":"
                              << ch->node_info()->brpc_port << ", errmsg=" << st.get_error_msg();
                 index_channel->mark_as_failed(ch);
@@ -636,22 +638,25 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
         SCOPED_TIMER(_profile->total_time_counter());
+        // BE id -> add_batch method counter
+        std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
         int64_t serialize_batch_ns = 0, queue_push_lock_ns = 0, actual_consume_ns = 0;
         {
             SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
                 index_channel->for_each_node_channel(
-                        [&](NodeChannel* ch) { WARN_IF_ERROR(ch->mark_close(), ""); });
+                        [](NodeChannel* ch) { WARN_IF_ERROR(ch->mark_close(), ""); });
             }
 
             for (auto index_channel : _channels) {
-                index_channel->for_each_node_channel([&](NodeChannel* ch) {
+                index_channel->for_each_node_channel([&status, &state, &node_add_batch_counter_map,
+                                                      &serialize_batch_ns, &queue_push_lock_ns,
+                                                      &actual_consume_ns](NodeChannel* ch) {
                     status = ch->close_wait(state);
                     if (!status.ok()) {
-                        LOG(WARNING) << "close channel failed, load_id=" << print_id(_load_id)
-                                     << ", txn_id=" << _txn_id;
+                        LOG(WARNING) << "close channel failed, " << ch->print_load_info();
                     }
-                    ch->time_report(_node_add_batch_counter_map, &serialize_batch_ns,
+                    ch->time_report(node_add_batch_counter_map, &serialize_batch_ns,
                                     &queue_push_lock_ns, &actual_consume_ns);
                 });
             }
@@ -678,7 +683,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         std::stringstream ss;
         ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
            << ", txn_id=" << _txn_id << ", node add batch time(ms)/wait lock time(ms)/num: ";
-        for (auto const& pair : _node_add_batch_counter_map) {
+        for (auto const& pair : node_add_batch_counter_map) {
             ss << "{" << pair.first << ":(" << (pair.second.add_batch_execution_time_us / 1000)
                << ")(" << (pair.second.add_batch_wait_lock_time_us / 1000) << ")("
                << pair.second.add_batch_num << ")} ";
