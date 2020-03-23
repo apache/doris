@@ -875,20 +875,21 @@ public class Load {
             Map<String, Pair<String, List<String>>> columnToHadoopFunction,
             Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
             Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
+        List<ImportColumnDesc> copiedColumnExprs = Lists.newArrayList(columnExprs);
         // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
-        boolean specifyFileFieldNames = columnExprs.stream().anyMatch(p -> p.isColumn());
+        boolean specifyFileFieldNames = copiedColumnExprs.stream().anyMatch(p -> p.isColumn());
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema();
             for (Column column : columns) {
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
                 LOG.debug("add base column {} to stream load task", column.getName());
-                columnExprs.add(columnDesc);
+                copiedColumnExprs.add(columnDesc);
             }
         }
         // generate a map for checking easily
         Map<String, Expr> columnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (ImportColumnDesc importColumnDesc : columnExprs) {
+        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
 
@@ -926,7 +927,7 @@ public class Load {
                      * (A, C) SET (B = func(xx), __doris_shadow_B = func(xx))
                      */
                     ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
-                    columnExprs.add(importColumnDesc);
+                    copiedColumnExprs.add(importColumnDesc);
                 } else {
                     /*
                      * eg:
@@ -936,7 +937,7 @@ public class Load {
                      */
                     ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
                             new SlotRef(null, originCol));
-                    columnExprs.add(importColumnDesc);
+                    copiedColumnExprs.add(importColumnDesc);
                 }
             } else {
                 /*
@@ -952,7 +953,7 @@ public class Load {
         // validate hadoop functions
         if (columnToHadoopFunction != null) {
             Map<String, String> columnNameMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-            for (ImportColumnDesc importColumnDesc : columnExprs) {
+            for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
                 if (importColumnDesc.isColumn()) {
                     columnNameMap.put(importColumnDesc.getColumnName(), importColumnDesc.getColumnName());
                 }
@@ -975,7 +976,7 @@ public class Load {
         }
 
         // init slot desc add expr map, also transform hadoop functions
-        for (ImportColumnDesc importColumnDesc : columnExprs) {
+        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
             String realColName = tbl.getColumn(columnName) == null ? columnName
