@@ -31,7 +31,9 @@
 
 namespace doris {
 
-class WritableFile;
+namespace fs {
+class WritableBlock;
+}
 
 namespace segment_v2 {
 
@@ -47,7 +49,7 @@ public:
 
     uint64_t size() { return _page_builder->size(); }
 
-    Status finish(WritableFile* file, ColumnIndexMetaPB* meta);
+    Status finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* meta);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(OrdinalIndexWriter);

@@ -21,9 +21,7 @@ import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.DecommissionBackendJob;
 import org.apache.doris.alter.RollupJob;
-import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.alter.SchemaChangeJob;
-import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
@@ -691,10 +689,10 @@ public class EditLog {
                     AlterJobV2 alterJob = (AlterJobV2) journal.getData();
                     switch (alterJob.getType()) {
                         case ROLLUP:
-                            catalog.getRollupHandler().replayAlterJobV2((RollupJobV2) alterJob);
+                            catalog.getRollupHandler().replayAlterJobV2(alterJob);
                             break;
                         case SCHEMA_CHANGE:
-                            catalog.getSchemaChangeHandler().replayAlterJobV2((SchemaChangeJobV2) alterJob);
+                            catalog.getSchemaChangeHandler().replayAlterJobV2(alterJob);
                             break;
                         default:
                             break;
@@ -723,6 +721,25 @@ public class EditLog {
                 case OperationType.OP_REPLACE_TEMP_PARTITION: {
                     ReplacePartitionOperationLog replaceTempPartitionLog = (ReplacePartitionOperationLog) journal.getData();
                     catalog.replayReplaceTempPartition(replaceTempPartitionLog);
+                    break;
+                }
+                case OperationType.OP_SET_REPLICA_STATUS: {
+                    SetReplicaStatusOperationLog log = (SetReplicaStatusOperationLog) journal.getData();
+                    catalog.replaySetReplicaStatus(log);
+                    break;
+                }
+                case OperationType.OP_REMOVE_ALTER_JOB_V2: {
+                    RemoveAlterJobV2OperationLog log = (RemoveAlterJobV2OperationLog) journal.getData();
+                    switch (log.getType()) {
+                        case ROLLUP:
+                            catalog.getRollupHandler().replayRemoveAlterJobV2(log);
+                            break;
+                        case SCHEMA_CHANGE:
+                            catalog.getSchemaChangeHandler().replayRemoveAlterJobV2(log);
+                            break;
+                        default:
+                            break;
+                    }
                     break;
                 }
                 default: {
@@ -1249,5 +1266,13 @@ public class EditLog {
 
     public void logReplaceTempPartition(ReplacePartitionOperationLog info) {
         logEdit(OperationType.OP_REPLACE_TEMP_PARTITION, info);
+    }
+
+    public void logSetReplicaStatus(SetReplicaStatusOperationLog log) {
+        logEdit(OperationType.OP_SET_REPLICA_STATUS, log);
+    }
+
+    public void logRemoveExpiredAlterJobV2(RemoveAlterJobV2OperationLog log) {
+        logEdit(OperationType.OP_REMOVE_ALTER_JOB_V2, log);
     }
 }

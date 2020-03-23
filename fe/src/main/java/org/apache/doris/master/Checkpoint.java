@@ -194,8 +194,7 @@ public class Checkpoint extends MasterDaemon {
                         }
                     }
                 }
-                deleteVersion = (minOtherNodesJournalId > checkPointVersion)
-                        ? checkPointVersion : minOtherNodesJournalId;
+                deleteVersion = Math.min(minOtherNodesJournalId, checkPointVersion);
             }
             editLog.deleteJournals(deleteVersion + 1);
             if (MetricRepo.isInit.get()) {

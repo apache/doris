@@ -812,17 +812,10 @@ OLAPStatus EngineCloneTask::_clone_full_data(Tablet* tablet, TabletMeta* cloned_
             }
 
             if (existed_in_src) {
-                OLAPStatus delete_res = cloned_tablet_meta->delete_rs_meta_by_version(local_version,
-                    &rs_metas_found_in_src);
-                if (delete_res != OLAP_SUCCESS) {
-                    LOG(WARNING) << "failed to delete existed version from clone src when full clone. "
-                                    << ", version=" << local_version.first << "-" << local_version.second;
-                    return delete_res;
-                } else {
-                    LOG(INFO) << "Delta has already existed in local header, no need to clone."
-                        << "tablet=" << tablet->full_name()
-                        << ", version='" << local_version.first<< "-" << local_version.second;
-                }
+                cloned_tablet_meta->delete_rs_meta_by_version(local_version, &rs_metas_found_in_src);
+                LOG(INFO) << "Delta has already existed in local header, no need to clone."
+                    << "tablet=" << tablet->full_name()
+                    << ", version='" << local_version.first<< "-" << local_version.second;
             } else {
                 // Delta labeled in local_version is not existed in clone header,
                 // some overlapping delta will be cloned to replace it.

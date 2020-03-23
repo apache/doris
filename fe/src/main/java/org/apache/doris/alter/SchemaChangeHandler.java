@@ -81,6 +81,7 @@ import org.apache.doris.thrift.TTaskType;
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -90,7 +91,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -1133,15 +1133,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     private void runAlterJobV2() {
-        Iterator<Map.Entry<Long, AlterJobV2>> iter = alterJobsV2.entrySet().iterator();
-        while (iter.hasNext()) {
-            Map.Entry<Long, AlterJobV2> entry = iter.next();
-            AlterJobV2 alterJob = entry.getValue();
-            if (alterJob.isDone()) {
-                continue;
-            }
-            alterJob.run();
-        }
+        alterJobsV2.values().forEach(AlterJobV2::run);
     }
 
     @Deprecated
@@ -1260,19 +1252,19 @@ public class SchemaChangeHandler extends AlterHandler {
 
     @Override
     public List<List<Comparable>> getAlterJobInfosByDb(Database db) {
-        List<List<Comparable>> schemaChangeJobInfos = new LinkedList<List<Comparable>>();
+        List<List<Comparable>> schemaChangeJobInfos = new LinkedList<>();
         getOldAlterJobInfos(db, schemaChangeJobInfos);
         getAlterJobV2Infos(db, schemaChangeJobInfos);
 
         // sort by "JobId", "PartitionName", "CreateTime", "FinishTime", "IndexName", "IndexState"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
-        Collections.sort(schemaChangeJobInfos, comparator);
+        schemaChangeJobInfos.sort(comparator);
         return schemaChangeJobInfos;
     }
 
-    private void getAlterJobV2Infos(Database db, List<List<Comparable>> schemaChangeJobInfos) {
+    private void getAlterJobV2Infos(Database db, List<AlterJobV2> alterJobsV2, List<List<Comparable>> schemaChangeJobInfos) {
         ConnectContext ctx = ConnectContext.get();
-        for (AlterJobV2 alterJob : alterJobsV2.values()) {
+        for (AlterJobV2 alterJob : alterJobsV2) {
             if (alterJob.getDbId() != db.getId()) {
                 continue;
             }
@@ -1283,6 +1275,10 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             alterJob.getInfo(schemaChangeJobInfos);
         }
+    }
+
+    private void getAlterJobV2Infos(Database db, List<List<Comparable>> schemaChangeJobInfos) {
+        getAlterJobV2Infos(db, ImmutableList.copyOf(alterJobsV2.values()), schemaChangeJobInfos);
     }
 
     @Deprecated

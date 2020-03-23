@@ -107,6 +107,11 @@ std::string get_build_version(bool compact) {
     return ss.str();
 }
 
+std::string get_short_version() {
+    static std::string short_version(std::string(DORIS_BUILD_VERSION) + "-" + DORIS_BUILD_SHORT_HASH);
+    return short_version;
+}
+
 std::string get_version_string(bool compact) {
     std::stringstream ss;
     ss << " version " << get_build_version(compact);

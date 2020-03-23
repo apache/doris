@@ -36,6 +36,7 @@
 #include "olap/data_dir.h"
 #include "olap/storage_engine.h"
 #include "olap/olap_cond.h"
+#include "runtime/exec_env.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -49,6 +50,7 @@ using std::string;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
+StorageEngine* k_engine = nullptr;
 
 void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_type,
         RowsetWriterContext* rowset_writer_context) {
@@ -112,7 +114,7 @@ void create_tablet_schema(KeysType keys_type, TabletSchema* tablet_schema) {
     column_2->set_is_key(true);
     column_2->set_is_nullable(false);
     column_2->set_is_bf_column(false);
-    
+
     ColumnPB* column_3 = tablet_schema_pb.add_column();
     column_3->set_unique_id(3);
     column_3->set_name("v1");
@@ -156,6 +158,14 @@ public:
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
+
+        doris::EngineOptions options;
+        options.store_paths = paths;
+        doris::StorageEngine::open(options, &k_engine);
+
+        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_storage_engine(k_engine);
+
         std::string data_path = config::storage_root_path + "/data";
         ASSERT_TRUE(FileUtils::create_dir(data_path).ok());
         std::string shard_path = data_path + "/0";
@@ -223,7 +233,7 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
         ASSERT_EQ(OLAP_SUCCESS, rowset_converter.convert_beta_to_alpha(
             src_rowset->rowset_meta(), _schema_hash_path, &dst_rowset_meta_pb));
     }
-    
+
     ASSERT_EQ(dst_type, dst_rowset_meta_pb.rowset_type());
     ASSERT_EQ(12345, dst_rowset_meta_pb.tablet_id());
     ASSERT_EQ(1024, dst_rowset_meta_pb.num_rows());
@@ -234,7 +244,7 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     RowsetSharedPtr dst_rowset;
     ASSERT_EQ(OLAP_SUCCESS, RowsetFactory::create_rowset(&tablet_schema,
             _schema_hash_path, dst_rowset_meta, &dst_rowset));
-    
+
     RowsetReaderSharedPtr dst_rowset_reader;
     ASSERT_EQ(OLAP_SUCCESS, dst_rowset->create_reader(&dst_rowset_reader));
     RowsetReaderContext rowset_reader_context;

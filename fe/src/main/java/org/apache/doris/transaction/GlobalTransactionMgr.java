@@ -377,7 +377,7 @@ public class GlobalTransactionMgr implements Writable {
             if (table == null) {
                 throw new MetaNotFoundException("Table does not exist: " + tableId);
             }
-            for (Partition partition : table.getPartitions()) {
+            for (Partition partition : table.getAllPartitions()) {
                 if (!tableToPartition.get(tableId).contains(partition.getId())) {
                     continue;
                 }

@@ -141,11 +141,7 @@ public class DomainResolver extends MasterDaemon {
                 return false;
             }
             return true;
-        } catch (IOException e) {
-            LOG.warn("failed to revole domain with BNS", e);
-            resolvedIPs.clear();
-            return false;
-        } catch (InterruptedException e) {
+        } catch (IOException | InterruptedException e) {
             LOG.warn("failed to revole domain with BNS", e);
             resolvedIPs.clear();
             return false;

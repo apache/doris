@@ -23,6 +23,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.catalog.Catalog;
@@ -43,12 +44,14 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.task.StreamLoadTask;
@@ -144,7 +147,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // this code is used to verify be task request
     protected long authCode;
     //    protected RoutineLoadDesc routineLoadDesc; // optional
-    protected List<String> partitions; // optional
+    protected PartitionNames partitions; // optional
     protected List<ImportColumnDesc> columnDescs; // optional
     protected Expr whereExpr; // optional
     protected ColumnSeparator columnSeparator; // optional
@@ -214,7 +217,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     // this is the origin stmt of CreateRoutineLoadStmt, we use it to persist the RoutineLoadJob,
     // because we can not serialize the Expressions contained in job.
-    protected String origStmt;
+    protected OriginStatement origStmt;
 
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     // TODO(ml): error sample
@@ -288,7 +291,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             if (routineLoadDesc.getColumnSeparator() != null) {
                 columnSeparator = routineLoadDesc.getColumnSeparator();
             }
-            if (routineLoadDesc.getPartitionNames() != null && routineLoadDesc.getPartitionNames().size() != 0) {
+            if (routineLoadDesc.getPartitionNames() != null) {
                 partitions = routineLoadDesc.getPartitionNames();
             }
         }
@@ -373,7 +376,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return endTimestamp;
     }
 
-    public List<String> getPartitions() {
+    public PartitionNames getPartitions() {
         return partitions;
     }
 
@@ -902,15 +905,15 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             return;
         }
         
-        List<String> partitionNames = routineLoadDesc.getPartitionNames();
-        if (partitionNames == null || partitionNames.isEmpty()) {
+        PartitionNames partitionNames = routineLoadDesc.getPartitionNames();
+        if (partitionNames == null) {
             return;
         }
         
         // check partitions
         OlapTable olapTable = (OlapTable) table;
-        for (String partName : partitionNames) {
-            if (olapTable.getPartition(partName) == null) {
+        for (String partName : partitionNames.getPartitionNames()) {
+            if (olapTable.getPartition(partName, partitionNames.isTemp()) == null) {
                 throw new DdlException("Partition " + partName + " does not exist");
             }
         }
@@ -1067,7 +1070,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         return false;
     }
 
-    public void setOrigStmt(String origStmt) {
+    public void setOrigStmt(OriginStatement origStmt) {
         this.origStmt = origStmt;
     }
 
@@ -1155,7 +1158,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     private String jobPropertiesToJsonString() {
         Map<String, String> jobProperties = Maps.newHashMap();
-        jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions));
+        jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs));
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
         jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
@@ -1233,7 +1236,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         out.writeLong(committedTaskNum);
         out.writeLong(abortedTaskNum);
 
-        Text.writeString(out, origStmt);
+        origStmt.write(out);
         out.writeInt(jobProperties.size());
         for (Map.Entry<String, String> entry : jobProperties.entrySet()) {
             Text.writeString(out, entry.getKey());
@@ -1289,7 +1292,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         committedTaskNum = in.readLong();
         abortedTaskNum = in.readLong();
 
-        origStmt = Text.readString(in);
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
+            String stmt = Text.readString(in);
+            origStmt = new OriginStatement(stmt, 0);
+        } else {
+            origStmt = OriginStatement.read(in);
+        }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_59) {
             int size = in.readInt();
@@ -1316,11 +1324,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         }
 
         // parse the origin stmt to get routine load desc
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt),
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(origStmt.originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         CreateRoutineLoadStmt stmt = null;
         try {
-            stmt = (CreateRoutineLoadStmt) parser.parse().value;
+            stmt = (CreateRoutineLoadStmt) SqlParserUtils.getStmt(parser, origStmt.idx);
             stmt.checkLoadProperties();
             setRoutineLoadDesc(stmt.getRoutineLoadDesc());
         } catch (Exception e) {

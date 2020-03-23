@@ -31,6 +31,7 @@ import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
 import com.google.common.base.Strings;
 
 import java.util.ArrayList;
@@ -40,7 +41,7 @@ public class ShowTabletStmt extends ShowStmt {
     private String dbName;
     private String tableName;
     private long tabletId;
-    private List<String> partitionNames;
+    private PartitionNames partitionNames;
     private Expr whereClause;
     private List<OrderByElement> orderByElements;
     private LimitElement limitElement;
@@ -57,7 +58,7 @@ public class ShowTabletStmt extends ShowStmt {
         this(dbTableName, tabletId, null, null, null,null);
     }
 
-    public ShowTabletStmt(TableName dbTableName, long tabletId, List<String> partitionNames,
+    public ShowTabletStmt(TableName dbTableName, long tabletId, PartitionNames partitionNames,
             Expr whereClause, List<OrderByElement> orderByElements, LimitElement limitElement) {
         if (dbTableName == null) {
             this.dbName = null;
@@ -105,7 +106,7 @@ public class ShowTabletStmt extends ShowStmt {
 
     public boolean hasPartition() { return partitionNames != null; }
 
-    public List<String> getPartitionNames() { return partitionNames; }
+    public PartitionNames getPartitionNames() { return partitionNames; }
     
     public boolean hasLimit() { return limitElement != null && limitElement.hasLimit(); }
 
@@ -137,6 +138,11 @@ public class ShowTabletStmt extends ShowStmt {
         } else {
             dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
+
+        if (partitionNames != null) {
+            partitionNames.analyze(analyzer);
+        }
+
         if (limitElement != null) {
             limitElement.analyze(analyzer);
         }

@@ -17,44 +17,49 @@
 
 #include "olap/rowset/beta_rowset_writer.h"
 
-#include <cmath> // lround
-#include <cstdio> // remove
-#include <cstring> // strerror_r
 #include <ctime> // time
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "env/env.h"
+#include "gutil/strings/substitute.h"
+#include "olap/fs/fs_util.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/row.h" // ContiguousRow
 #include "olap/row_cursor.h" // RowCursor
+#include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
-BetaRowsetWriter::BetaRowsetWriter()
-    : _rowset_meta(nullptr),
-      _num_segment(0),
-      _segment_writer(nullptr),
-      _num_rows_written(0),
-      _total_data_size(0),
-      _total_index_size(0) {
-    auto size = static_cast<double>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE);
-    size *= OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE;
-    _max_segment_size = static_cast<uint32_t>(lround(size));
-}
+// TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
+const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(
+        OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE * OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE);
+
+BetaRowsetWriter::BetaRowsetWriter() :
+        _rowset_meta(nullptr),
+        _num_segment(0),
+        _segment_writer(nullptr),
+        _num_rows_written(0),
+        _total_data_size(0),
+        _total_index_size(0) {}
 
 BetaRowsetWriter::~BetaRowsetWriter() {
-    if (!_rowset_build) { // abnormal exit, remove all files generated
-        _segment_writer.reset(nullptr); // ensure all files are closed
+    // TODO(lingbin): Should wrapper exception logic, no need to know file ops directly.
+    if (!_already_built) { // abnormal exit, remove all files generated
+        _segment_writer.reset(); // ensure all files are closed
+        Status st;
         for (int i = 0; i < _num_segment; ++i) {
-            auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix, _context.rowset_id, i);
-            if (::remove(path.c_str()) != 0) {
-                char errmsg[64];
-                LOG(WARNING) << "failed to delete file. err=" << strerror_r(errno, errmsg, 64)
-                             << ", path=" << path;
-            }
+            auto path = BetaRowset::segment_file_path(
+                    _context.rowset_path_prefix, _context.rowset_id, i);
+            // Even if an error is encountered, these files that have not been cleaned up
+            // will be cleaned up by the GC background. So here we only print the error
+            // message when we encounter an error.
+            WARN_IF_ERROR(Env::Default()->delete_file(path),
+                          strings::Substitute("Failed to delete file=$0", path));
         }
     }
 }
@@ -93,11 +98,11 @@ OLAPStatus BetaRowsetWriter::_add_row(const RowType& row) {
         LOG(WARNING) << "failed to append row: " << s.to_string();
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
-    if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= _max_segment_size ||
-            _segment_writer->num_rows_written() >= _context.max_rows_per_segment)) {
+    if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= MAX_SEGMENT_SIZE
+            || _segment_writer->num_rows_written() >= _context.max_rows_per_segment)) {
         RETURN_NOT_OK(_flush_segment_writer());
     }
-    _num_rows_written++;
+    ++_num_rows_written;
     return OLAP_SUCCESS;
 }
 
@@ -132,6 +137,13 @@ OLAPStatus BetaRowsetWriter::flush() {
 }
 
 RowsetSharedPtr BetaRowsetWriter::build() {
+    // TODO(lingbin): move to more better place, or in a CreateBlockBatch?
+    for (auto& wblock : _wblocks) {
+        wblock->close();
+    }
+    // When building a rowset, we must ensure that the current _segment_writer has been
+    // flushed, that is, the current _segment_wirter is nullptr
+    DCHECK(_segment_writer == nullptr) << "segment must be null when build rowset";
     _rowset_meta->set_num_rows(_num_rows_written);
     _rowset_meta->set_total_disk_size(_total_data_size);
     _rowset_meta->set_data_disk_size(_total_data_size);
@@ -158,15 +170,33 @@ RowsetSharedPtr BetaRowsetWriter::build() {
         LOG(WARNING) << "rowset init failed when build new rowset, res=" << status;
         return nullptr;
     }
-    _rowset_build = true;
+    _already_built = true;
     return rowset;
 }
 
 OLAPStatus BetaRowsetWriter::_create_segment_writer() {
-    auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix, _context.rowset_id, _num_segment);
+    auto path = BetaRowset::segment_file_path(_context.rowset_path_prefix,
+                                              _context.rowset_id,
+                                              _num_segment);
+    // TODO(lingbin): should use a more general way to get BlockManager object
+    // and tablets with the same type should share one BlockManager object;
+    fs::BlockManager* block_mgr = ExecEnv::GetInstance()->storage_engine()->block_manager();
+
+    std::unique_ptr<fs::WritableBlock> wblock;
+    fs::CreateBlockOptions opts({path});
+    DCHECK(block_mgr != nullptr);
+    Status st = block_mgr->create_block(opts, &wblock);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to create writable block. path=" << path;
+        return OLAP_ERR_INIT_FAILED;
+    }
+
+    DCHECK(wblock != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.whether_to_filter_value = _context.version.first == 0;
-    _segment_writer.reset(new segment_v2::SegmentWriter(path, _num_segment, _context.tablet_schema, writer_options));
+    _segment_writer.reset(new segment_v2::SegmentWriter(
+            wblock.get(), _num_segment, _context.tablet_schema, writer_options));
+    _wblocks.push_back(std::move(wblock));
     // TODO set write_mbytes_per_sec based on writer type (load/base compaction/cumulative compaction)
     auto s = _segment_writer->init(config::push_write_mbytes_per_sec);
     if (!s.ok()) {
@@ -174,21 +204,21 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer() {
         _segment_writer.reset(nullptr);
         return OLAP_ERR_INIT_FAILED;
     }
-    _num_segment++;
+    ++_num_segment;
     return OLAP_SUCCESS;
 }
 
 OLAPStatus BetaRowsetWriter::_flush_segment_writer() {
     uint64_t segment_size;
     uint64_t index_size;
-    auto s = _segment_writer->finalize(&segment_size, &index_size);
+    Status s = _segment_writer->finalize(&segment_size, &index_size);
     if (!s.ok()) {
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();
         return OLAP_ERR_WRITER_DATA_WRITE_ERROR;
     }
     _total_data_size += segment_size;
     _total_index_size += index_size;
-    _segment_writer.reset(nullptr);
+    _segment_writer.reset();
     return OLAP_SUCCESS;
 }
 

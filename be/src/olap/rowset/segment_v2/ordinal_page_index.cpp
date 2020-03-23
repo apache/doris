@@ -19,6 +19,7 @@
 
 #include "common/logging.h"
 #include "env/env.h"
+#include "olap/fs/block_manager.h"
 #include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_io.h"
@@ -34,8 +35,8 @@ void OrdinalIndexWriter::append_entry(ordinal_t ordinal, const PagePointer& data
     _last_pp = data_pp;
 }
 
-Status OrdinalIndexWriter::finish(WritableFile* file, ColumnIndexMetaPB* meta) {
-    CHECK(_page_builder->count() > 0) << "no entry has been added, file=" << file->filename();
+Status OrdinalIndexWriter::finish(fs::WritableBlock* wblock, ColumnIndexMetaPB* meta) {
+    CHECK(_page_builder->count() > 0) << "no entry has been added, filepath=" << wblock->path();
     meta->set_type(ORDINAL_INDEX);
     BTreeMetaPB* root_page_meta = meta->mutable_ordinal_index()->mutable_root_page();
 
@@ -50,7 +51,7 @@ Status OrdinalIndexWriter::finish(WritableFile* file, ColumnIndexMetaPB* meta) {
 
         // write index page (currently it's not compressed)
         PagePointer pp;
-        RETURN_IF_ERROR(PageIO::write_page(file, { page_body.slice() }, page_footer, &pp));
+        RETURN_IF_ERROR(PageIO::write_page(wblock, { page_body.slice() }, page_footer, &pp));
 
         root_page_meta->set_is_root_data_page(false);
         pp.to_proto(root_page_meta->mutable_root_page());
@@ -95,7 +96,7 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
     _pages.resize(_num_pages);
     for (int i = 0; i < _num_pages; i++) {
         Slice key = reader.get_key(i);
-        ordinal_t ordinal;
+        ordinal_t ordinal = 0;
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::decode_ascending(
                 &key, sizeof(ordinal_t), (uint8_t*) &ordinal, nullptr));
 

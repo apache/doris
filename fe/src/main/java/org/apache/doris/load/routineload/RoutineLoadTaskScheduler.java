@@ -168,7 +168,10 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         // create thrift object
         TRoutineLoadTask tRoutineLoadTask = null;
         try {
+            long startTime = System.currentTimeMillis();
             tRoutineLoadTask = routineLoadTaskInfo.createRoutineLoadTask();
+            LOG.debug("create routine load task cost(ms): {}, job id: {}", 
+                    (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
         } catch (MetaNotFoundException e) {
             // this means database or table has been dropped, just stop this routine load job.
             // set BE id to -1 to release the BE slot
@@ -189,7 +192,10 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
         }
 
         try {
+            long startTime = System.currentTimeMillis();
             submitTask(routineLoadTaskInfo.getBeId(), tRoutineLoadTask);
+            LOG.debug("send routine load task cost(ms): {}, job id: {}", 
+                    (System.currentTimeMillis() - startTime), routineLoadTaskInfo.getJobId());
         } catch (LoadException e) {
             // submit task failed (such as TOO_MANY_TASKS error), but txn has already begun.
             // Here we will still set the ExecuteStartTime of this task, which means

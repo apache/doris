@@ -39,12 +39,14 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.service.FrontendOptions;
@@ -86,7 +88,7 @@ public class BrokerLoadJob extends LoadJob {
     // this param is used to persist the expr of columns
     // the origin stmt is persisted instead of columns expr
     // the expr of columns will be reanalyze when the log is replayed
-    private String originStmt = "";
+    private OriginStatement originStmt;
 
     // include broker desc and data desc
     private BrokerFileGroupAggInfo fileGroupAggInfo = new BrokerFileGroupAggInfo();
@@ -102,12 +104,12 @@ public class BrokerLoadJob extends LoadJob {
         this.jobType = EtlJobType.BROKER;
     }
 
-    private BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, String originStmt)
+    private BrokerLoadJob(long dbId, String label, BrokerDesc brokerDesc, OriginStatement originStmt)
             throws MetaNotFoundException {
         super(dbId, label);
         this.timeoutSecond = Config.broker_load_default_timeout_second;
         this.brokerDesc = brokerDesc;
-        this.originStmt = Strings.nullToEmpty(originStmt);
+        this.originStmt = originStmt;
         this.jobType = EtlJobType.BROKER;
         this.authorizationInfo = gatherAuthInfo();
 
@@ -119,7 +121,7 @@ public class BrokerLoadJob extends LoadJob {
         }
     }
 
-    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt, String originStmt) throws DdlException {
+    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt, OriginStatement originStmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
         Database db = Catalog.getCurrentCatalog().getDb(stmt.getLabel().getDbName());
@@ -277,16 +279,16 @@ public class BrokerLoadJob extends LoadJob {
      */
     @Override
     public void analyze() {
-        if (Strings.isNullOrEmpty(originStmt)) {
+        if (originStmt == null || Strings.isNullOrEmpty(originStmt.originStmt)) {
             return;
         }
         // Reset dataSourceInfo, it will be re-created in analyze
         fileGroupAggInfo = new BrokerFileGroupAggInfo();
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt),
+        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(originStmt.originStmt),
                 Long.valueOf(sessionVariables.get(SessionVariable.SQL_MODE))));
         LoadStmt stmt = null;
         try {
-            stmt = (LoadStmt) parser.parse().value;
+            stmt = (LoadStmt) SqlParserUtils.getStmt(parser, originStmt.idx);
             for (DataDescription dataDescription : stmt.getDataDescriptions()) {
                 dataDescription.analyzeWithoutCheckPriv();
             }
@@ -455,6 +457,7 @@ public class BrokerLoadJob extends LoadJob {
                              .add("error_msg", "db has been deleted when job is loading")
                              .build(), e);
             cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+            return;
         }
         db.writeLock();
         try {
@@ -521,7 +524,7 @@ public class BrokerLoadJob extends LoadJob {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         brokerDesc.write(out);
-        Text.writeString(out, originStmt);
+        originStmt.write(out);
 
         out.writeInt(sessionVariables.size());
         for (Map.Entry<String, String> entry : sessionVariables.entrySet()) {
@@ -538,9 +541,14 @@ public class BrokerLoadJob extends LoadJob {
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_58) {
-            originStmt = Text.readString(in);
+            if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_76) {
+                String stmt = Text.readString(in);
+                originStmt = new OriginStatement(stmt, 0);
+            } else {
+                originStmt = OriginStatement.read(in);
+            }
         } else {
-            originStmt = "";
+            originStmt = new OriginStatement("", 0);
         }
         // The origin stmt does not be analyzed in here.
         // The reason is that it will thrown MetaNotFoundException when the tableId could not be found by tableName.

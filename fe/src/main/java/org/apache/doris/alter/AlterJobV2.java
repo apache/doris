@@ -17,6 +17,11 @@
 
 package org.apache.doris.alter;
 
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
@@ -111,6 +116,10 @@ public abstract class AlterJobV2 implements Writable {
         return System.currentTimeMillis() - createTimeMs > timeoutMs;
     }
 
+    public boolean isExpire() {
+        return isDone() && (System.currentTimeMillis() - finishedTimeMs) / 1000 > Config.history_job_keep_max_second;
+    }
+
     public boolean isDone() {
         return jobState.isFinalState();
     }
@@ -157,6 +166,44 @@ public abstract class AlterJobV2 implements Writable {
     public final boolean cancel(String errMsg) {
         synchronized (this) {
             return cancelImpl(errMsg);
+        }
+    }
+
+    /**
+    * should be call before executing the job.
+    * return false if table is not stable.
+    */
+    protected boolean checkTableStable(Database db) throws AlterCancelException {
+        OlapTable tbl = null;
+        boolean isStable = false;
+        db.readLock();
+        try {
+            tbl = (OlapTable) db.getTable(tableId);
+            if (tbl == null) {
+                throw new AlterCancelException("Table " + tableId + " does not exist");
+            }
+
+            isStable = tbl.isStable(Catalog.getCurrentSystemInfo(),
+                    Catalog.getCurrentCatalog().getTabletScheduler(), db.getClusterName());
+        } finally {
+            db.readUnlock();
+        }
+
+        db.writeLock();
+        try {
+            if (!isStable) {
+                errMsg = "table is unstable";
+                LOG.warn("wait table {} to be stable before doing {} job", tableId, type);
+                tbl.setState(OlapTableState.WAITING_STABLE);
+                return false;
+            } else {
+                // table is stable, set is to ROLLUP and begin altering.
+                LOG.info("table {} is stable, start {} job {}", tableId, type);
+                tbl.setState(type == JobType.ROLLUP ? OlapTableState.ROLLUP : OlapTableState.SCHEMA_CHANGE);
+                return true;
+            }
+        } finally {
+            db.writeUnlock();
         }
     }
 

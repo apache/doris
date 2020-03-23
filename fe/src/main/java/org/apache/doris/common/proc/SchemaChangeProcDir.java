@@ -17,21 +17,24 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.alter.AlterJobV2;
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.alter.SchemaChangeJobV2;
+import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LimitElement;
-import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
+
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,19 +44,19 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
-public class SchemaChangeProcNode implements ProcNodeInterface {
+public class SchemaChangeProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId").add("TableName").add("CreateTime").add("FinishTime")
             .add("IndexName").add("IndexId").add("OriginIndexId").add("SchemaVersion")
             .add("TransactionId").add("State").add("Msg").add("Progress").add("Timeout")
             .build();
 
-    private static final Logger LOG = LogManager.getLogger(SchemaChangeProcNode.class);
+    private static final Logger LOG = LogManager.getLogger(SchemaChangeProcDir.class);
 
     private SchemaChangeHandler schemaChangeHandler;
     private Database db;
 
-    public SchemaChangeProcNode(SchemaChangeHandler schemaChangeHandler, Database db) {
+    public SchemaChangeProcDir(SchemaChangeHandler schemaChangeHandler, Database db) {
         this.schemaChangeHandler = schemaChangeHandler;
         this.db = db;
     }
@@ -76,7 +79,7 @@ public class SchemaChangeProcNode implements ProcNodeInterface {
             switch (binaryPredicate.getOp()) {
                 case EQ:
                 case EQ_FOR_NULL:
-                    return leftVal == rightVal;
+                    return leftVal.equals(rightVal);
                 case GE:
                     return leftVal >= rightVal;
                 case GT:
@@ -86,7 +89,7 @@ public class SchemaChangeProcNode implements ProcNodeInterface {
                 case LT:
                     return leftVal < rightVal;
                 case NE:
-                    return leftVal != rightVal;
+                    return !leftVal.equals(rightVal);
                 default:
                     Preconditions.checkState(false, "No defined binary operator.");
             }
@@ -182,5 +185,32 @@ public class SchemaChangeProcNode implements ProcNodeInterface {
             }
         }
         throw new AnalysisException("Title name[" + columnName + "] does not exist");
+    }
+
+    @Override
+    public boolean register(String name, ProcNodeInterface node) {
+        return false;
+    }
+
+    @Override
+    public ProcNodeInterface lookup(String jobIdStr) throws AnalysisException {
+        if (Strings.isNullOrEmpty(jobIdStr)) {
+            throw new AnalysisException("Job id is null");
+        }
+
+        long jobId = -1L;
+        try {
+            jobId = Long.valueOf(jobIdStr);
+        } catch (Exception e) {
+            throw new AnalysisException("Job id is invalid");
+        }
+
+        Preconditions.checkState(jobId != -1L);
+        AlterJobV2 job = schemaChangeHandler.getUnfinishedAlterJobV2ByJobId(jobId);
+        if (job == null) {
+            return null;
+        }
+
+        return new SchemaChangeJobProcNode((SchemaChangeJobV2) job);
     }
 }

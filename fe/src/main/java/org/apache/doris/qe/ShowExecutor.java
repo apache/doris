@@ -22,6 +22,7 @@ import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
@@ -100,7 +101,7 @@ import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.LoadProcDir;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.proc.ProcNodeInterface;
-import org.apache.doris.common.proc.SchemaChangeProcNode;
+import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.proc.TabletsProcDir;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
@@ -1068,8 +1069,8 @@ public class ShowExecutor {
         Preconditions.checkNotNull(procNodeI);
         List<List<String>> rows;
         //Only SchemaChangeProc support where/order by/limit syntax 
-        if (procNodeI instanceof SchemaChangeProcNode) {
-            rows = ((SchemaChangeProcNode) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
+        if (procNodeI instanceof SchemaChangeProcDir) {
+            rows = ((SchemaChangeProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
                     showStmt.getOrderPairs(), showStmt.getLimitElement()).getRows();
         } else {
             rows = procNodeI.fetchResult().getRows();
@@ -1216,12 +1217,9 @@ public class ShowExecutor {
                 boolean stop = false;
                 Collection<Partition> partitions = new ArrayList<Partition>();
                 if (showStmt.hasPartition()) {
-                    List<String> partitionNames = showStmt.getPartitionNames();
-                    for (String partName : partitionNames) {
-                        Partition partition = olapTable.getPartition(partName);
-                        if (partition == null) {
-                            partition = olapTable.getPartition(partName, true);
-                        }
+                    PartitionNames partitionNames = showStmt.getPartitionNames();
+                    for (String partName : partitionNames.getPartitionNames()) {
+                        Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
                         if (partition == null) {
                             throw new AnalysisException("Unknown partition: " + partName);
                         }

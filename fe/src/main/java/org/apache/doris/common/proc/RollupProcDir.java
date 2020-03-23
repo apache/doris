@@ -88,7 +88,7 @@ public class RollupProcDir implements ProcDirInterface {
             return null;
         }
 
-        return new RollupJobProcDir((RollupJobV2) job);
+        return new RollupJobProcNode((RollupJobV2) job);
     }
 
 }

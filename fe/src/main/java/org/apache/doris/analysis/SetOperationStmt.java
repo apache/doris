@@ -29,6 +29,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -186,6 +187,11 @@ public class SetOperationStmt extends QueryStmt {
         if (isAnalyzed()) return;
         super.analyze(analyzer);
         Preconditions.checkState(operands.size() > 0);
+
+        // the first operand's operation usually null
+        if (operands.get(0).operation == null && operands.size() > 1) {
+            operands.get(0).setOperation(operands.get(1).getOperation());
+        }
 
         // Propagates DISTINCT from left to right,
         propagateDistinct();
@@ -474,7 +480,6 @@ public class SetOperationStmt extends QueryStmt {
         baseTblResultExprs = resultExprs;
     }
 
-
     /**
      * Marks the baseTblResultExprs of its operands as materialized, based on
      * which of the output slots have been marked.
@@ -648,6 +653,31 @@ public class SetOperationStmt extends QueryStmt {
         public void analyze(Analyzer parent) throws AnalysisException, UserException {
             if (isAnalyzed()) {
                 return;
+            }
+            // union statement support const expr, so not need to rewrite
+            if (operation != Operation.UNION && queryStmt instanceof SelectStmt
+                    && ((SelectStmt) queryStmt).fromClause_.isEmpty()) {
+                // rewrite select 1 to select * from (select 1) __DORIS_DUAL__ , because when using select 1 it will be
+                // transformed to a union node, select 1 is a literal, it doesn't have a tuple but will produce a slot,
+                // this will cause be core dump
+                QueryStmt inlineQuery = queryStmt.clone();
+                Map<String, Integer> map = new HashMap<>();
+                // rename select 2,2 to select 2 as 2_1, 2 as 2_2 to avoid duplicated column in inline view
+                for (int i = 0; i < ((SelectStmt) inlineQuery).selectList.getItems().size(); ++i) {
+                    SelectListItem item = ((SelectStmt) inlineQuery).selectList.getItems().get(i);
+                    String col = item.toColumnLabel();
+                    Integer count = map.get(col);
+                    count = (count == null) ? 1 : count + 1;
+                    map.put(col, count);
+                    if (count > 1) {
+                        ((SelectStmt) inlineQuery).selectList.getItems()
+                                .set(i, new SelectListItem(item.getExpr(), col + "_" + count.toString()));
+                    }
+                }
+                ((SelectStmt) queryStmt).fromClause_.add(new InlineViewRef("__DORIS_DUAL__", inlineQuery));
+                List<SelectListItem> slist = ((SelectStmt) queryStmt).selectList.getItems();
+                slist.clear();
+                slist.add(SelectListItem.createStarItem(null));
             }
             // Oracle and ms-SQLServer do not support INTERSECT ALL and EXCEPT ALL, postgres support it,
             // but it is very ambiguous

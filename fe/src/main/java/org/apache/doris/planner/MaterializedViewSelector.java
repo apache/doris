@@ -110,8 +110,7 @@ public class MaterializedViewSelector {
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
         LOG.info("The best materialized view is {} for scan node {} in query {}, cost {}",
                  bestIndexId, scanNode.getId(), selectStmt.toSql(), (System.currentTimeMillis() - start));
-        BestIndexInfo bestIndexInfo = new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
-        return bestIndexInfo;
+        return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
     }
 
     private Map<Long, List<Column>> predicates(OlapScanNode scanNode) {
@@ -482,11 +481,7 @@ public class MaterializedViewSelector {
 
     private void addAggregatedColumn(String columnName, String functionName, String tableName) {
         AggregatedColumn newAggregatedColumn = new AggregatedColumn(columnName, functionName);
-        Set<AggregatedColumn> aggregatedColumns = aggregateColumnsInQuery.get(tableName);
-        if (aggregatedColumns == null) {
-            aggregatedColumns = Sets.newHashSet();
-            aggregateColumnsInQuery.put(tableName, aggregatedColumns);
-        }
+        Set<AggregatedColumn> aggregatedColumns = aggregateColumnsInQuery.computeIfAbsent(tableName, k -> Sets.newHashSet());
         aggregatedColumns.add(newAggregatedColumn);
     }
 

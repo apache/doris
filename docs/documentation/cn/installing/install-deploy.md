@@ -254,6 +254,8 @@ FE 分为 Leader，Follower 和 Observer 三种角色。 默认一个集群，�
 
 `./bin/start_fe.sh --helper host:port --daemon`
 
+其中 host 为 Leader 所在节点 ip, port 为 Leader 的配置文件 fe.conf 中的 edit_log_port。--helper 参数仅在 follower 和 observer 第一次启动时才需要。
+
 查看 Follower 或 Observer 运行状态。使用 mysql-client 连接到任一已启动的 FE，并执行：SHOW PROC '/frontends'; 可以查看当前已加入集群的 FE 及其对应角色。
 
 > FE 扩容注意事项：  

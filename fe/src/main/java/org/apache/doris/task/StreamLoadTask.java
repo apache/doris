@@ -22,11 +22,13 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.ImportColumnsStmt;
 import org.apache.doris.analysis.ImportWhereStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.thrift.TFileFormatType;
@@ -34,7 +36,6 @@ import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 
 import org.apache.logging.log4j.LogManager;
@@ -56,7 +57,7 @@ public class StreamLoadTask {
     private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
     private Expr whereExpr;
     private ColumnSeparator columnSeparator;
-    private String partitions;
+    private PartitionNames partitions;
     private String path;
     private boolean negative;
     private boolean strictMode = false; // default is false
@@ -99,7 +100,7 @@ public class StreamLoadTask {
         return columnSeparator;
     }
 
-    public String getPartitions() {
+    public PartitionNames getPartitions() {
         return partitions;
     }
 
@@ -141,7 +142,12 @@ public class StreamLoadTask {
             setColumnSeparator(request.getColumnSeparator());
         }
         if (request.isSetPartitions()) {
-            partitions = request.getPartitions();
+            String[] partNames = request.getPartitions().trim().split("\\s*,\\s*");
+            if (request.isSetIsTempPartition()) {
+                partitions = new PartitionNames(request.isIsTempPartition(), Lists.newArrayList(partNames));
+            } else {
+                partitions = new PartitionNames(false, Lists.newArrayList(partNames));
+            }
         }
         switch (request.getFileType()) {
             case FILE_STREAM:
@@ -183,7 +189,7 @@ public class StreamLoadTask {
         }
         whereExpr = routineLoadJob.getWhereExpr();
         columnSeparator = routineLoadJob.getColumnSeparator();
-        partitions = routineLoadJob.getPartitions() == null ? null : Joiner.on(",").join(routineLoadJob.getPartitions());
+        partitions = routineLoadJob.getPartitions();
         strictMode = routineLoadJob.isStrictMode();
         timezone = routineLoadJob.getTimezone();
         timeout = (int) routineLoadJob.getMaxBatchIntervalS() * 2;
@@ -195,7 +201,7 @@ public class StreamLoadTask {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {
-            columnsStmt = (ImportColumnsStmt) parser.parse().value;
+            columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing columns, sql={}", columnsSQL, e);
             throw new AnalysisException("failed to parsing columns' header, maybe contain unsupported character");
@@ -223,7 +229,7 @@ public class StreamLoadTask {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(whereSQL)));
         ImportWhereStmt whereStmt;
         try {
-            whereStmt = (ImportWhereStmt) parser.parse().value;
+            whereStmt = (ImportWhereStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             LOG.warn("error happens when parsing where header, sql={}", whereSQL, e);
             throw new AnalysisException("failed to parsing where header, maybe contain unsupported character");
