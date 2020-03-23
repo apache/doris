@@ -33,7 +33,6 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.RandomDistributionInfo;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.SinglePartitionInfo;
@@ -84,7 +83,7 @@ public class SparkLoadPendingTaskTest {
 
         // partition and distribution infos
         long partitionId = 2L;
-        DistributionInfo distributionInfo = new RandomDistributionInfo(2);
+        DistributionInfo distributionInfo = new HashDistributionInfo(2, Lists.newArrayList(columns.get(0)));
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         Partition partition = new Partition(partitionId, "p1", null, distributionInfo);
         List<Partition> partitions = Lists.newArrayList(partition);
