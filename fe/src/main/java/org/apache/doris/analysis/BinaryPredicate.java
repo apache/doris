@@ -336,7 +336,7 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
 
-        // if children has subquery, it will be written and reanalyzed in the future.
+        // if children has subquery, it will be rewritten and reanalyzed in the future.
         if (contains(Subquery.class)) {
             return;
         }
@@ -575,4 +575,3 @@ public class BinaryPredicate extends Predicate implements Writable {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }
-
