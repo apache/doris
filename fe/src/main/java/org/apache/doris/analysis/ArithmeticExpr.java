@@ -232,7 +232,7 @@ public class ArithmeticExpr extends Expr {
         }
 
         analyzeSubqueryInChildren();
-        // if children has subquery, it will be written and reanalyzed in the future.
+        // if children has subquery, it will be rewritten and reanalyzed in the future.
         if (contains(Subquery.class)) {
             return;
         }
