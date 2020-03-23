@@ -50,7 +50,7 @@ public class StmtRewriter {
         if (parsedStmt instanceof QueryStmt) {
             QueryStmt analyzedStmt = (QueryStmt) parsedStmt;
             Preconditions.checkNotNull(analyzedStmt.analyzer);
-            parsedStmt = rewriteQueryStatement(analyzedStmt, analyzer);
+            return rewriteQueryStatement(analyzedStmt, analyzer);
         } else if (parsedStmt instanceof InsertStmt) {
             final InsertStmt insertStmt = (InsertStmt)parsedStmt;
             final QueryStmt analyzedStmt = (QueryStmt)insertStmt.getQueryStmt();
@@ -72,7 +72,7 @@ public class StmtRewriter {
             throws AnalysisException {
         Preconditions.checkNotNull(stmt);
         if (stmt instanceof SelectStmt) {
-            stmt = rewriteSelectStatement((SelectStmt) stmt, analyzer);
+            return rewriteSelectStatement((SelectStmt) stmt, analyzer);
         } else if (stmt instanceof SetOperationStmt) {
             rewriteUnionStatement((SetOperationStmt) stmt, analyzer);
         } else {
@@ -84,8 +84,9 @@ public class StmtRewriter {
 
     private static SelectStmt rewriteSelectStatement(SelectStmt stmt, Analyzer analyzer)
             throws AnalysisException {
+        SelectStmt result = stmt;
         // Rewrite all the subqueries in the FROM clause.
-        for (TableRef tblRef: stmt.fromClause_) {
+        for (TableRef tblRef: result.fromClause_) {
             if (!(tblRef instanceof InlineViewRef)) continue;
             InlineViewRef inlineViewRef = (InlineViewRef)tblRef;
             QueryStmt rewrittenQueryStmt = rewriteQueryStatement(inlineViewRef.getViewStmt(),
@@ -93,24 +94,24 @@ public class StmtRewriter {
             inlineViewRef.setViewStmt(rewrittenQueryStmt);
         }
         // Rewrite all the subqueries in the WHERE clause.
-        if (stmt.hasWhereClause()) {
+        if (result.hasWhereClause()) {
             // Push negation to leaf operands.
-            stmt.whereClause = Expr.pushNegationToOperands(stmt.whereClause);
+            result.whereClause = Expr.pushNegationToOperands(result.whereClause);
             // Check if we can rewrite the subqueries in the WHERE clause. OR predicates with
             // subqueries are not supported.
-            if (hasSubqueryInDisjunction(stmt.whereClause)) {
+            if (hasSubqueryInDisjunction(result.whereClause)) {
                 throw new AnalysisException("Subqueries in OR predicates are not supported: "
-                        + stmt.whereClause.toSql());
+                        + result.whereClause.toSql());
             }
-            rewriteWhereClauseSubqueries(stmt, analyzer);
+            rewriteWhereClauseSubqueries(result, analyzer);
         }
         // Rewrite all subquery in the having clause
-        if (stmt.getHavingPred() != null && stmt.getHavingPred().getSubquery() != null) {
-            stmt = rewriteHavingClauseSubqueries(stmt, analyzer);
+        if (result.getHavingPred() != null && result.getHavingPred().getSubquery() != null) {
+            result = rewriteHavingClauseSubqueries(result, analyzer);
         }
-        stmt.sqlString_ = null;
-        if (LOG.isDebugEnabled()) LOG.debug("rewritten stmt: " + stmt.toSql());
-        return stmt;
+        result.sqlString_ = null;
+        if (LOG.isDebugEnabled()) LOG.debug("rewritten stmt: " + result.toSql());
+        return result;
     }
 
     /**
@@ -141,6 +142,12 @@ public class StmtRewriter {
      *     from (select b.cs_item_sk, min(cs_sales_price) from catalog_sales b group by cs_item_sk) c
      * Rewritten correlated predicate:
      *     where c.cs_item_sk = a.cs_item_sk and a.sum_cs_sales_price > c.min(cs_sales_price)
+     * The final stmt:
+     * select a.cs_item_sk, a.sum_cs_sales_price from
+     *     (select cs_item_sk, sum(cs_sales_price) sum_cs_sales_price from catalog_sales group by cs_item_sk) a
+     *     join
+     *     (select b.cs_item_sk, min(b.cs_sales_price) min_cs_sales_price from catalog_sales b group by b.cs_item_sk) c
+     * where c.cs_item_sk = a.cs_item_sk and a.sum_cs_sales_price > c.min_cs_sales_price;
      *
      * @param stmt
      * @param analyzer
@@ -238,7 +245,7 @@ public class StmtRewriter {
 
         // rewrite where subquery
         result = rewriteSelectStatement(result, analyzer);
-        LOG.info("The final stmt is " + result.toSql());
+        LOG.debug("The final stmt is " + result.toSql());
         return result;
     }
 

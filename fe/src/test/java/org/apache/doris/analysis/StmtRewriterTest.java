@@ -48,6 +48,102 @@ public class StmtRewriterTest {
         dorisAssert.withTable(createTableSQL);
     }
 
+    /**
+     * The whole query plan is following:
+     +-----------------------------------------+
+     | Explain String                          |
+     +-----------------------------------------+
+     | PLAN FRAGMENT 0                         |
+     |  OUTPUT EXPRS:<slot 2> | <slot 3>       |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   RESULT SINK                           |
+     |                                         |
+     |   10:EXCHANGE                           |
+     |      tuple ids: 1 5                     |
+     |                                         |
+     | PLAN FRAGMENT 1                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: HASH_PARTITIONED: <slot 2> |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 10                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   4:CROSS JOIN                          |
+     |   |  cross join:                        |
+     |   |  predicates: <slot 3> > <slot 8>    |
+     |   |  tuple ids: 1 5                     |
+     |   |                                     |
+     |   |----9:EXCHANGE                       |
+     |   |       tuple ids: 5                  |
+     |   |                                     |
+     |   6:AGGREGATE (merge finalize)          |
+     |   |  output: sum(<slot 3>)              |
+     |   |  group by: <slot 2>                 |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   5:EXCHANGE                            |
+     |      tuple ids: 1                       |
+     |                                         |
+     | PLAN FRAGMENT 2                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 09                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   8:AGGREGATE (merge finalize)          |
+     |   |  output: avg(<slot 7>)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 5                       |
+     |   |                                     |
+     |   7:EXCHANGE                            |
+     |      tuple ids: 4                       |
+     |                                         |
+     | PLAN FRAGMENT 3                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 07                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   3:AGGREGATE (update serialize)        |
+     |   |  output: avg(`salary`)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 4                       |
+     |   |                                     |
+     |   2:OlapScanNode                        |
+     |      TABLE: all_type_table              |
+     |      PREAGGREGATION: ON                 |
+     |      rollup: all_type_table             |
+     |      tuple ids: 3                       |
+     |                                         |
+     | PLAN FRAGMENT 4                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 05                     |
+     |     HASH_PARTITIONED: <slot 2>          |
+     |                                         |
+     |   1:AGGREGATE (update serialize)        |
+     |   |  STREAMING                          |
+     |   |  output: sum(`salary`)              |
+     |   |  group by: `empid`                  |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   0:OlapScanNode                        |
+     |      TABLE: all_type_table              |
+     |      PREAGGREGATION: ON                 |
+     |      rollup: all_type_table             |
+     |      tuple ids: 0                       |
+     +-----------------------------------------+
+     *
+     * @throws Exception
+     */
     @Test
     public void testRewriteHavingClauseSubqueries() throws Exception {
         String subquery = "select avg(salary) from " + TABLE_NAME;
