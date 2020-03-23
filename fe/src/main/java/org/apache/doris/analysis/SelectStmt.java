@@ -52,6 +52,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
@@ -1177,11 +1178,10 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-
     @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
         Preconditions.checkState(isAnalyzed());
-        selectList.rewriteExprs(rewriter, analyzer);
+        rewriteSelectList(rewriter);
         for (TableRef ref : fromClause_) {
             ref.rewriteExprs(rewriter, analyzer);
         }
@@ -1208,6 +1208,83 @@ public class SelectStmt extends QueryStmt {
                 orderByElem.setExpr(rewriter.rewrite(orderByElem.getExpr(), analyzer));
             }
         }
+    }
+
+    private void rewriteSelectList(ExprRewriter rewriter) throws AnalysisException {
+        for (SelectListItem item : selectList.getItems()) {
+            if (!(item.getExpr() instanceof CaseExpr)) {
+                continue;
+            }
+            if (!item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
+                continue;
+            }
+            item.setExpr(rewriteSubquery(item.getExpr(), analyzer));
+        }
+
+        selectList.rewriteExprs(rewriter, analyzer);
+    }
+
+    /** rewrite subquery in case when to an inline view
+     *  subquery in case when statement like
+     *
+     * SELECT CASE
+     *         WHEN (
+     *             SELECT COUNT(*) / 2
+     *             FROM t
+     *         ) > k4 THEN (
+     *             SELECT AVG(k4)
+     *             FROM t
+     *         )
+     *         ELSE (
+     *             SELECT SUM(k4)
+     *             FROM t
+     *         )
+     *     END AS kk4
+     * FROM t;
+     * this statement will be rewrite to
+     *
+     * SELECT CASE
+     *         WHEN t1.a > k4 THEN t2.a
+     *         ELSE t3.a
+     *     END AS kk4
+     * FROM t, (
+     *         SELECT COUNT(*) / 2 AS a
+     *         FROM t
+     *     ) t1,  (
+     *         SELECT AVG(k4) AS a
+     *         FROM t
+     *     ) t2,  (
+     *         SELECT SUM(k4) AS a
+     *         FROM t
+     *     ) t3;
+     */
+    private Expr rewriteSubquery(Expr expr, Analyzer analyzer)
+            throws AnalysisException {
+        if (expr instanceof Subquery) {
+            if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
+                throw new AnalysisException("Only support select subquery in case statement.");
+            }
+            SelectStmt subquery = (SelectStmt) ((Subquery) expr).getStatement();
+            if (subquery.resultExprs.size() != 1) {
+                throw new AnalysisException("Only support select subquery produce one column in case statement.");
+            }
+            subquery.reset();
+            String alias = getTableAliasGenerator().getNextAlias();
+            String colAlias = getColumnAliasGenerator().getNextAlias();
+            InlineViewRef inlineViewRef = new InlineViewRef(alias, subquery, Arrays.asList(colAlias));
+            try {
+                inlineViewRef.analyze(analyzer);
+            } catch (UserException e) {
+                throw new AnalysisException(e.getMessage());
+            }
+            fromClause_.add(inlineViewRef);
+            expr = new SlotRef(inlineViewRef.getAliasAsName(), colAlias);
+        } else if (CollectionUtils.isNotEmpty(expr.getChildren())) {
+            for (int i = 0; i < expr.getChildren().size(); ++i) {
+                expr.setChild(i, rewriteSubquery(expr.getChild(i), analyzer));
+            }
+        }
+        return expr;
     }
 
     @Override

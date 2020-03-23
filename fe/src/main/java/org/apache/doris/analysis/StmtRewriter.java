@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
@@ -31,7 +30,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -81,8 +79,6 @@ public class StmtRewriter {
 
     private static void rewriteSelectStatement(SelectStmt stmt, Analyzer analyzer)
             throws AnalysisException {
-        // rewrite subquery in case when in select list
-        rewriteCaseWhenSubqueries(stmt, analyzer);
         // Rewrite all the subqueries in the FROM clause.
         for (TableRef tblRef: stmt.fromClause_) {
             if (!(tblRef instanceof InlineViewRef)) continue;
@@ -956,82 +952,6 @@ public class StmtRewriter {
         }
         smap.put(subquery, subquerySubstitute);
         return exprWithSubquery.substitute(smap, analyzer, false);
-    }
-
-    /** rewrite subquery in case when to an inline view
-     *  subquery in case when statement like
-     *
-     * SELECT CASE
-     *         WHEN (
-     *             SELECT COUNT(*) / 2
-     *             FROM t
-     *         ) > k4 THEN (
-     *             SELECT AVG(k4)
-     *             FROM t
-     *         )
-     *         ELSE (
-     *             SELECT SUM(k4)
-     *             FROM t
-     *         )
-     *     END AS kk4
-     * FROM t;
-     * this statement will be rewrite to
-     *
-     * SELECT CASE
-     *         WHEN t1.a > k4 THEN t2.a
-     *         ELSE t3.a
-     *     END AS kk4
-     * FROM t, (
-     *         SELECT COUNT(*) / 2 AS a
-     *         FROM t
-     *     ) t1,  (
-     *         SELECT AVG(k4) AS a
-     *         FROM t
-     *     ) t2,  (
-     *         SELECT SUM(k4) AS a
-     *         FROM t
-     *     ) t3;
-     */
-    private static void rewriteCaseWhenSubqueries(SelectStmt stmt, Analyzer analyzer) throws AnalysisException {
-        for (SelectListItem item: stmt.getSelectList().getItems()) {
-            if (!(item.getExpr() instanceof CaseExpr)) {
-                continue;
-            }
-            if (!item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
-                continue;
-            }
-            item.setExpr(rewriteCaseWhenSubquery(item.getExpr(), stmt, analyzer));
-        }
-
-    }
-
-    private static Expr rewriteCaseWhenSubquery(Expr expr, SelectStmt stmt, Analyzer analyzer)
-            throws AnalysisException {
-        if (expr instanceof Subquery) {
-            if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
-                throw new AnalysisException("Only support select subquery in case statement.");
-            }
-            SelectStmt subquery = (SelectStmt) ((Subquery) expr).getStatement();
-            if (subquery.resultExprs.size() != 1) {
-                throw new AnalysisException("Only support select subquery produce one column in case statement.");
-            }
-            subquery.reset();
-            String alias = stmt.getTableAliasGenerator().getNextAlias();
-            String colAlias = stmt.getColumnAliasGenerator().getNextAlias();
-            InlineViewRef inlineViewRef = new InlineViewRef(alias, subquery, Arrays.asList(colAlias));
-            try {
-                inlineViewRef.analyze(analyzer);
-            } catch (UserException e) {
-                throw new AnalysisException(e.getMessage());
-            }
-            stmt.fromClause_.add(inlineViewRef);
-            expr = new SlotRef(new TableName(null, alias), colAlias);
-        } else if (CollectionUtils.isNotEmpty(expr.getChildren())) {
-            for (int i = 0; i < expr.getChildren().size(); ++i) {
-                expr.setChild(i, rewriteCaseWhenSubquery(expr.getChild(i), stmt, analyzer));
-            }
-        }
-        return expr;
     }
 }
 
