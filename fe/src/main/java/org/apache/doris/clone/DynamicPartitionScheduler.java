@@ -150,7 +150,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
             } catch (AnalysisException e) {
                 // keys.size is always equal to column.size, cannot reach this exception
-                LOG.error("Keys size is not equal to column size.");
+                LOG.warn("Keys size is not equal to column size. Error=" + e.getMessage());
                 continue;
             }
             for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
@@ -211,7 +211,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             reservePartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
         } catch (AnalysisException e) {
             // keys.size is always equal to column.size, cannot reach this exception
-            LOG.error("Keys size is not equal to column size.");
+            LOG.warn("Keys size is not equal to column size. Error=" + e.getMessage());
             return dropPartitionClauses;
         }
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
@@ -246,7 +246,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 continue;
             }
 
-            ArrayList<AddPartitionClause> addPartitionClauses;
+            ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
             ArrayList<DropPartitionClause> dropPartitionClauses;
             String tableName;
             boolean skipAddPartition = false;
@@ -285,7 +285,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                     continue;
                 }
 
-                addPartitionClauses = getAddPartitionClause(olapTable, partitionColumn, partitionFormat);
+                if (!skipAddPartition) {
+                    addPartitionClauses = getAddPartitionClause(olapTable, partitionColumn, partitionFormat);
+                }
                 dropPartitionClauses = getDropPartitionClause(olapTable, partitionColumn, partitionFormat);
                 tableName = olapTable.getName();
             } finally {
