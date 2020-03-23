@@ -57,9 +57,9 @@ public class TimeUtilsTest {
         Assert.assertNotNull(TimeUtils.getStartTime());
         Assert.assertTrue(TimeUtils.getEstimatedTime(0L) > 0);
 
-        Assert.assertEquals(-2209017600000L, TimeUtils.MIN_DATE.getTime());
+        Assert.assertEquals(-62167420800000L, TimeUtils.MIN_DATE.getTime());
         Assert.assertEquals(253402185600000L, TimeUtils.MAX_DATE.getTime());
-        Assert.assertEquals(-2209017600000L, TimeUtils.MIN_DATETIME.getTime());
+        Assert.assertEquals(-62167420800000L, TimeUtils.MIN_DATETIME.getTime());
         Assert.assertEquals(253402271999000L, TimeUtils.MAX_DATETIME.getTime());
     }
 
@@ -74,6 +74,7 @@ public class TimeUtilsTest {
         validDateList.add("9999-12-31");
         validDateList.add("1900-01-01");
         validDateList.add("2013-2-28");
+        validDateList.add("0000-01-01");
         for (String validDate : validDateList) {
             try {
                 TimeUtils.parseDate(validDate, PrimitiveType.DATE);
@@ -112,6 +113,7 @@ public class TimeUtilsTest {
         validDateTimeList.add("2013-2-28 23:59:59");
         validDateTimeList.add("2013-2-28 2:3:4");
         validDateTimeList.add("2014-05-07 19:8:50");
+        validDateTimeList.add("0000-01-01 00:00:00");
         for (String validDateTime : validDateTimeList) {
             try {
                 TimeUtils.parseDate(validDateTime, PrimitiveType.DATETIME);

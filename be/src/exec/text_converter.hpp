@@ -129,11 +129,6 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc,
             parse_result = StringParser::PARSE_FAILURE;
             break;
         }
-        // For compatibility with DPP, which only support years after 1900 
-        if (ts_slot->year() < 1900) {
-            parse_result = StringParser::PARSE_FAILURE;
-            break;
-        }
 
         ts_slot->cast_to_date();
         break;
@@ -143,11 +138,6 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc,
         DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
         if (!ts_slot->from_date_str(data, len)) {
             parse_result = StringParser::PARSE_FAILURE;
-        }
-        // For compatibility with DPP, which only support years after 1900 
-        if (ts_slot->year() < 1900) {
-            parse_result = StringParser::PARSE_FAILURE;
-            break;
         }
 
         ts_slot->to_datetime();
