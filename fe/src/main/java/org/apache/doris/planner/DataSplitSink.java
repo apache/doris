@@ -34,7 +34,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.thrift.TAggregationType;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -371,7 +370,7 @@ public class DataSplitSink extends DataSink {
                 for (Column col : rangePartitionInfo.getPartitionColumns()) {
                     partitionExprs.add(exprByCol.get(col.getName()));
                 }
-                for (Partition part : tbl.getPartitions()) {
+                for (Partition part : tbl.getAllPartitions()) {
                     if (targetPartitionIds != null && !targetPartitionIds.contains(part.getId())) {
                         continue;
                     }
@@ -383,8 +382,7 @@ public class DataSplitSink extends DataSink {
                             distInfo.getBucketNum()));
                 }
             } else if (partInfo.getType() == PartitionType.UNPARTITIONED) {
-                Preconditions.checkState(tbl.getPartitions().size() == 1,
-                        ErrorCode.ERR_BAD_PARTS_IN_UNPARTITION_TABLE.getDeclaringClass());
+                Preconditions.checkState(tbl.getPartitions().size() == 1, tbl.getId());
                 for (Partition part : tbl.getPartitions()) {
                     DistributionInfo distInfo = part.getDistributionInfo();
                     parts.add(new EtlRangePartitionInfo(

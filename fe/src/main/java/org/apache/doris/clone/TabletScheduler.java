@@ -509,9 +509,13 @@ public class TabletScheduler extends MasterDaemon {
             }
 
             if (statusPair.first != TabletStatus.VERSION_INCOMPLETE  
-                    && (partition.getState() != PartitionState.NORMAL || tableState != OlapTableState.NORMAL)) {
+                    && (partition.getState() != PartitionState.NORMAL || tableState != OlapTableState.NORMAL)
+                    && tableState != OlapTableState.WAITING_STABLE) {
                 // If table is under ALTER process(before FINISHING), do not allow to add or delete replica.
                 // VERSION_INCOMPLETE will repair the replica in place, which is allowed.
+                // The WAITING_STABLE state is an exception. This state indicates that the table is
+                // executing an alter job, but the alter job is in a PENDING state and is waiting for
+                // the table to become stable. In this case, we allow the tablet repair to proceed.
                 throw new SchedException(Status.UNRECOVERABLE,
                     "table is in alter process, but tablet status is " + statusPair.first.name());
             }

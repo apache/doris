@@ -31,8 +31,8 @@ public:
     TabletColumn();
     TabletColumn(FieldAggregationMethod agg, FieldType type);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
-    OLAPStatus init_from_pb(const ColumnPB& column);
-    OLAPStatus to_schema_pb(ColumnPB* column);
+    void init_from_pb(const ColumnPB& column);
+    void to_schema_pb(ColumnPB* column);
 
     inline int32_t unique_id() const { return _unique_id; }
     inline std::string name() const { return _col_name; }
@@ -88,8 +88,8 @@ private:
 class TabletSchema {
 public:
     TabletSchema();
-    OLAPStatus init_from_pb(const TabletSchemaPB& schema);
-    OLAPStatus to_schema_pb(TabletSchemaPB* tablet_meta_pb);
+    void init_from_pb(const TabletSchemaPB& schema);
+    void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
     size_t row_size() const;
     size_t field_index(const std::string& field_name) const;
     const TabletColumn& column(size_t ordinal) const;
@@ -118,8 +118,8 @@ private:
     CompressKind _compress_kind;
     size_t _next_column_unique_id;
 
-    bool _has_bf_fpp;
-    double _bf_fpp;
+    bool _has_bf_fpp = false;
+    double _bf_fpp = 0;
     bool _is_in_memory = false;
 };
 

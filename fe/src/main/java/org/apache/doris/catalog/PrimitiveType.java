@@ -26,7 +26,6 @@ import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
-import java.util.List;
 
 public enum PrimitiveType {
     INVALID_TYPE("INVALID_TYPE", -1, TPrimitiveType.INVALID_TYPE),

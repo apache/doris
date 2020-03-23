@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
@@ -175,11 +176,10 @@ public class StreamLoadPlanner {
     private List<Long> getAllPartitionIds() throws DdlException {
         List<Long> partitionIds = Lists.newArrayList();
 
-        String partitionsStr = streamLoadTask.getPartitions();
-        if (partitionsStr != null) {
-            String[] partNames = partitionsStr.trim().split("\\s*,\\s*");
-            for (String partName : partNames) {
-                Partition part = destTable.getPartition(partName);
+        PartitionNames partitionNames = streamLoadTask.getPartitions();
+        if (partitionNames != null) {
+            for (String partName : partitionNames.getPartitionNames()) {
+                Partition part = destTable.getPartition(partName, partitionNames.isTemp());
                 if (part == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
                 }

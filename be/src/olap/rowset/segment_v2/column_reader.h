@@ -157,6 +157,10 @@ private:
                                    WrapperField* max_value_container,
                                    CondColumn* cond) const;
 
+    void _parse_zone_map(const ZoneMapPB& zone_map,
+                         WrapperField* min_value_container,
+                         WrapperField* max_value_container) const;
+
     Status _get_filtered_pages(CondColumn* cond_column,
                                const std::vector<CondColumn*>& delete_conditions,
                                std::vector<uint32_t>* delete_partial_filtered_pages,

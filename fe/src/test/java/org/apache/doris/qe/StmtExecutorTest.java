@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DdlStmt;
@@ -60,6 +58,8 @@ import java.util.SortedMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import java_cup.runtime.Symbol;
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class StmtExecutorTest {
     private ConnectContext ctx;
@@ -205,7 +205,7 @@ public class StmtExecutorTest {
                 queryStmt.rewriteExprs((ExprRewriter) any);
                 minTimes = 0;
 
-                Symbol symbol = new Symbol(0, queryStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(queryStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -259,7 +259,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = null;
 
-                Symbol symbol = new Symbol(0, showStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(showStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -294,7 +294,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = null;
 
-                Symbol symbol = new Symbol(0, showStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(showStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -329,7 +329,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                Symbol symbol = new Symbol(0, killStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(killStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -371,7 +371,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                Symbol symbol = new Symbol(0, killStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(killStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -427,7 +427,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                Symbol symbol = new Symbol(0, killStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(killStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -478,7 +478,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                Symbol symbol = new Symbol(0, killStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(killStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -509,7 +509,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                Symbol symbol = new Symbol(0, setStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(setStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -537,7 +537,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                Symbol symbol = new Symbol(0, setStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(setStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -566,7 +566,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                Symbol symbol = new Symbol(0, ddlStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(ddlStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -577,7 +577,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any,  anyString);
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any, (OriginStatement) any);
                 minTimes = 0;
             }
         };
@@ -599,7 +599,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                Symbol symbol = new Symbol(0, ddlStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(ddlStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -610,7 +610,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any,  anyString);
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any, (OriginStatement) any);
                 minTimes = 0;
                 result = new DdlException("ddl fail");
             }
@@ -633,7 +633,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = RedirectStatus.NO_FORWARD;
 
-                Symbol symbol = new Symbol(0, ddlStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(ddlStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -644,7 +644,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any,  anyString);
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any, (OriginStatement) any);
                 minTimes = 0;
                 result = new Exception("bug");
             }
@@ -675,7 +675,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = "testCluster";
 
-                Symbol symbol = new Symbol(0, useStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;
@@ -707,7 +707,7 @@ public class StmtExecutorTest {
                 minTimes = 0;
                 result = "testCluster";
 
-                Symbol symbol = new Symbol(0, useStmt);
+                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
                 parser.parse();
                 minTimes = 0;
                 result = symbol;

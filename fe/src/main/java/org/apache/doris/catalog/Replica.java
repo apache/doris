@@ -63,13 +63,15 @@ public class Replica implements Writable {
         DEAD, // backend is not available
         VERSION_ERROR, // missing version
         MISSING, // replica does not exist
-        SCHEMA_ERROR // replica's schema hash does not equal to index's schema hash
+        SCHEMA_ERROR, // replica's schema hash does not equal to index's schema hash
+        BAD // replica is broken.
     }
     
     @SerializedName(value = "id")
     private long id;
     @SerializedName(value = "backendId")
     private long backendId;
+    // the version could be queried
     @SerializedName(value = "version")
     private long version;
     @SerializedName(value = "versionHash")
@@ -81,13 +83,15 @@ public class Replica implements Writable {
     private long rowCount = 0;
     @SerializedName(value = "state")
     private ReplicaState state;
-    
+
+    // the last load failed version
     @SerializedName(value = "lastFailedVersion")
     private long lastFailedVersion = -1L;
     @SerializedName(value = "lastFailedVersionHash")
     private long lastFailedVersionHash = 0L;
     // not serialized, not very important
     private long lastFailedTimestamp = 0;
+    // the last load successful version
     @SerializedName(value = "lastSuccessVersion")
     private long lastSuccessVersion = -1L;
     @SerializedName(value = "lastSuccessVersionHash")

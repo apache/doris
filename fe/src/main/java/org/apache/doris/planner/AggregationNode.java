@@ -205,19 +205,6 @@ public class AggregationNode extends PlanNode {
     private void updateplanNodeName() {
         StringBuilder sb = new StringBuilder();
         sb.append("AGGREGATE");
-    /*
-    if (aggInfo.isMerge() || needsFinalize) {
-      sb.append(" (");
-      if (aggInfo.isMerge() && needsFinalize) {
-        sb.append("merge finalize");
-      } else if (aggInfo.isMerge()) {
-        sb.append("merge");
-      } else {
-        sb.append("finalize");
-      }
-      sb.append(")");
-    }
-    */
         sb.append(" (");
         if (aggInfo.isMerge()) {
             sb.append("merge");

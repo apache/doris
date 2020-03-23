@@ -96,12 +96,10 @@ public class HashDistributionPruner implements DistributionPruner {
             // return all SubPartition
             return Lists.newArrayList(bucketsList);
         }
-        
-        if (null != inPredicate) {
-            if (!(inPredicate.getChild(0) instanceof SlotRef)) {
-                // return all SubPartition
-                return Lists.newArrayList(bucketsList);
-            }
+
+        if (!(inPredicate.getChild(0) instanceof SlotRef)) {
+            // return all SubPartition
+            return Lists.newArrayList(bucketsList);
         }
         Set<Long> resultSet = Sets.newHashSet();
         int inElementNum = inPredicate.getInElementNum();
@@ -111,9 +109,7 @@ public class HashDistributionPruner implements DistributionPruner {
             LiteralExpr expr = (LiteralExpr) inPredicate.getChild(i);
             hashKey.pushColumn(expr, keyColumn.getDataType());
             Collection<Long> subList = prune(columnId + 1, hashKey, newComplex);
-            for (Long subPartitionId : subList) {
-                resultSet.add(subPartitionId);
-            }
+            resultSet.addAll(subList);
             hashKey.popColumn();
             if (resultSet.size() >= bucketsList.size()) {
                 break;

@@ -85,7 +85,7 @@ public class InsertStmt extends DdlStmt {
     public static final String STREAMING = "STREAMING";
 
     private final TableName tblName;
-    private final Set<String> targetPartitionNames;
+    private final PartitionNames targetPartitionNames;
     // parsed from targetPartitionNames. empty means no partition specified
     private List<Long> targetPartitionIds = Lists.newArrayList();
     private final List<String> targetColumnNames;
@@ -127,13 +127,7 @@ public class InsertStmt extends DdlStmt {
 
     public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
         this.tblName = target.getTblName();
-        List<String> tmpPartitions = target.getPartitions();
-        if (tmpPartitions != null) {
-            targetPartitionNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-            targetPartitionNames.addAll(tmpPartitions);
-        } else {
-            targetPartitionNames = null;
-        }
+        this.targetPartitionNames = target.getPartitionNames();
         this.label = label;
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
@@ -246,6 +240,10 @@ public class InsertStmt extends DdlStmt {
         return db;
     }
 
+    public boolean isTransactionBegin() {
+        return isTransactionBegin;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -263,8 +261,8 @@ public class InsertStmt extends DdlStmt {
         }
 
         // check partition
-        if (targetPartitionNames != null && targetPartitionNames.isEmpty()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_ON_NONPARTITIONED);
+        if (targetPartitionNames != null) {
+            targetPartitionNames.analyze(analyzer);
         }
 
         // set target table and
@@ -315,17 +313,13 @@ public class InsertStmt extends DdlStmt {
         if (targetTable instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) targetTable;
 
-            if (olapTable.getPartitions().size() == 0) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, tblName);
-            }
-
             // partition
             if (targetPartitionNames != null) {
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
                 }
-                for (String partName : targetPartitionNames) {
-                    Partition part = olapTable.getPartition(partName);
+                for (String partName : targetPartitionNames.getPartitionNames()) {
+                    Partition part = olapTable.getPartition(partName, targetPartitionNames.isTemp());
                     if (part == null) {
                         ErrorReport.reportAnalysisException(
                                 ErrorCode.ERR_UNKNOWN_PARTITION, partName, targetTable.getName());

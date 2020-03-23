@@ -85,6 +85,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STRICT_RANGE = "strict_range";
     public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
 
+    public static final String PROPERTIES_TYPE = "type";
+
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
         if (properties == null) {
@@ -410,5 +412,15 @@ public class PropertyAnalyzer {
             return Boolean.parseBoolean(val);
         }
         return defaultVal;
+    }
+
+    // analyze property like : "type" = "xxx";
+    public static String analyzeType(Map<String, String> properties) throws AnalysisException {
+        String type = null;
+        if (properties != null && properties.containsKey(PROPERTIES_TYPE)) {
+            type = properties.get(PROPERTIES_TYPE);
+            properties.remove(PROPERTIES_TYPE);
+        }
+        return type;
     }
 }

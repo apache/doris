@@ -67,8 +67,9 @@ static bool _cmp_tablet_by_create_time(const TabletSharedPtr& a, const TabletSha
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
     : _tablet_map_lock_shard_size(tablet_map_lock_shard_size),
       _last_update_stat_ms(0) {
-    _tablet_map_lock_array = new RWMutex[tablet_map_lock_shard_size];
-    _tablet_map_array = new tablet_map_t[tablet_map_lock_shard_size];
+    DCHECK_GT(_tablet_map_lock_shard_size, 0);
+    _tablet_map_lock_array = new RWMutex[_tablet_map_lock_shard_size];
+    _tablet_map_array = new tablet_map_t[_tablet_map_lock_shard_size];
 }
 
 TabletManager::~TabletManager() {

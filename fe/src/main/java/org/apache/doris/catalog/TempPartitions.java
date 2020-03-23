@@ -18,11 +18,15 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -35,20 +39,16 @@ import java.util.Map;
 // user can load data into some of the temp partitions,
 // and then replace the formal partitions with these temp partitions
 // to make a overwrite load.
-public class TempPartitions implements Writable {
+public class TempPartitions implements Writable, GsonPostProcessable {
+    @SerializedName(value = "idToPartition")
     private Map<Long, Partition> idToPartition = Maps.newHashMap();
     private Map<String, Partition> nameToPartition = Maps.newHashMap();
-    private RangePartitionInfo partitionInfo;
+    @Deprecated
+    // the range info of temp partitions has been moved to "partitionInfo" in OlapTable.
+    // this field is deprecated.
+    private RangePartitionInfo partitionInfo = null;
 
     public TempPartitions() {
-    }
-
-    public TempPartitions(List<Column> partCols) {
-        partitionInfo = new RangePartitionInfo(partCols);
-    }
-
-    public RangePartitionInfo getPartitionInfo() {
-        return partitionInfo;
     }
 
     public void addPartition(Partition partition) {
@@ -65,12 +65,6 @@ public class TempPartitions implements Writable {
         if (partition != null) {
             idToPartition.remove(partition.getId());
             nameToPartition.remove(partitionName);
-
-            Preconditions.checkState(partitionInfo.getType() == PartitionType.RANGE);
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-            // drop partition info
-            rangePartitionInfo.dropPartition(partition.getId());
-
             if (!Catalog.isCheckpointThread() && needDropTablet) {
                 TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -102,6 +96,16 @@ public class TempPartitions implements Writable {
         return idToPartition.isEmpty();
     }
 
+    @Deprecated
+    public RangePartitionInfo getPartitionInfo() {
+        return partitionInfo;
+    }
+
+    @Deprecated
+    public void unsetPartitionInfo() {
+        partitionInfo = null;
+    }
+
     // drop all temp partitions
     public void dropAll() {
         for (String partName : nameToPartition.keySet()) {
@@ -111,24 +115,19 @@ public class TempPartitions implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        // PartitionInfo is hard to serialized by GSON, so I have to use the old way...
-        int size = idToPartition.size();
-        out.writeInt(size);
-        for (Partition partition : idToPartition.values()) {
-            partition.write(out);
-        }
-        if (partitionInfo != null) {
-            out.writeBoolean(true);
-            partitionInfo.write(out);
-        } else {
-            out.writeBoolean(false);
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
     public static TempPartitions read(DataInput in) throws IOException {
-        TempPartitions tempPartitions = new TempPartitions();
-        tempPartitions.readFields(in);
-        return tempPartitions;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_77) {
+            TempPartitions tempPartitions = new TempPartitions();
+            tempPartitions.readFields(in);
+            return tempPartitions;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, TempPartitions.class);
+        }
     }
 
     private void readFields(DataInput in) throws IOException {
@@ -140,6 +139,13 @@ public class TempPartitions implements Writable {
         }
         if (in.readBoolean()) {
             partitionInfo = (RangePartitionInfo) RangePartitionInfo.read(in);
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() {
+        for (Partition partition : idToPartition.values()) {
+            nameToPartition.put(partition.getName(), partition);
         }
     }
 }

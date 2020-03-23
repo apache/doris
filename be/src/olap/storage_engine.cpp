@@ -50,6 +50,7 @@
 #include "olap/rowset/column_data_writer.h"
 #include "olap/olap_snapshot_converter.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
+#include "olap/fs/fs_util.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -115,8 +116,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
         _txn_manager(new TxnManager()),
         _rowset_id_generator(new UniqueRowsetIdGenerator(options.backend_uid)),
         _memtable_flush_executor(nullptr),
+        _block_manager(nullptr),
         _default_rowset_type(ALPHA_ROWSET),
-        _compaction_rowset_type(ALPHA_ROWSET),
         _heartbeat_flags(nullptr) {
     if (_s_instance == nullptr) {
         _s_instance = this;
@@ -124,7 +125,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
-    clear();
+    _clear();
 }
 
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
@@ -173,6 +174,10 @@ OLAPStatus StorageEngine::_open() {
 
     _memtable_flush_executor.reset(new MemTableFlushExecutor());
     _memtable_flush_executor->init(dirs);
+
+    fs::BlockManagerOptions bm_opts;
+    bm_opts.read_only = false;
+    _block_manager.reset(fs::fs_util::file_block_mgr(Env::Default(), bm_opts));
 
     _parse_default_rowset_type();
 
@@ -425,7 +430,7 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
     return !tablet_info_vec.empty();
 }
 
-OLAPStatus StorageEngine::clear() {
+void StorageEngine::_clear() {
     // 删除lru中所有内容,其实进程退出这么做本身意义不大,但对单测和更容易发现问题还是有很大意义的
     delete FileHandler::get_fd_cache();
     FileHandler::set_fd_cache(nullptr);
@@ -433,12 +438,13 @@ OLAPStatus StorageEngine::clear() {
 
     std::lock_guard<std::mutex> l(_store_lock);
     for (auto& store_pair : _store_map) {
+        store_pair.second->stop_bg_worker();
         delete store_pair.second;
         store_pair.second = nullptr;
     }
     _store_map.clear();
 
-    return OLAP_SUCCESS;
+    _stop_bg_worker = true;
 }
 
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) {
@@ -703,14 +709,6 @@ void StorageEngine::_parse_default_rowset_type() {
     } else {
         _default_rowset_type = ALPHA_ROWSET;
     }
-
-    std::string compaction_rowset_type_config = config::compaction_rowset_type;
-    boost::to_upper(compaction_rowset_type_config);
-    if (compaction_rowset_type_config == "BETA") {
-        _compaction_rowset_type = BETA_ROWSET;
-    } else {
-        _compaction_rowset_type = ALPHA_ROWSET;
-    }
 }
 
 void StorageEngine::start_delete_unused_rowset() {
@@ -719,10 +717,10 @@ void StorageEngine::start_delete_unused_rowset() {
         if (it->second.use_count() != 1) {
             ++it;
         } else if (it->second->need_delete_file()) {
-            LOG(INFO) << "start to remove rowset:" << it->second->rowset_id()
+            VLOG(3) << "start to remove rowset:" << it->second->rowset_id()
                     << ", version:" << it->second->version().first << "-" << it->second->version().second;
             OLAPStatus status = it->second->remove();
-            LOG(INFO) << "remove rowset:" << it->second->rowset_id() << " finished. status:" << status;
+            VLOG(3) << "remove rowset:" << it->second->rowset_id() << " finished. status:" << status;
             it = _unused_rowsets.erase(it);
         }
     }
@@ -732,7 +730,7 @@ void StorageEngine::start_delete_unused_rowset() {
 void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     if (rowset == nullptr) { return; }
     _gc_mutex.lock();
-    LOG(INFO) << "add unused rowset, rowset id:" << rowset->rowset_id()
+    VLOG(3) << "add unused rowset, rowset id:" << rowset->rowset_id()
             << ", version:" << rowset->version().first
             << "-" << rowset->version().second
             << ", unique id:" << rowset->unique_id();
@@ -928,71 +926,6 @@ bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id)
     }
     _gc_mutex.unlock();
     return false;
-}
-
-void* StorageEngine::_path_gc_thread_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
-    LOG(INFO) << "try to start path gc thread!";
-    uint32_t interval = config::path_gc_check_interval_second;
-    if (interval <= 0) {
-        LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
-            << "will be forced set to half hour";
-        interval = 1800; // 0.5 hour
-    }
-
-    while (true) {
-        LOG(INFO) << "try to perform path gc!";
-        // perform path gc by rowset id
-        ((DataDir*)arg)->perform_path_gc_by_rowsetid();
-        usleep(interval * 1000000);
-    }
-
-    return nullptr;
-}
-
-void* StorageEngine::_path_scan_thread_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-
-    LOG(INFO) << "try to start path scan thread!";
-    uint32_t interval = config::path_scan_interval_second;
-    if (interval <= 0) {
-        LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
-            << "will be forced set to one day";
-        interval = 24 * 3600; // one day
-    }
-
-    while (true) {
-        LOG(INFO) << "try to perform path scan!";
-        ((DataDir*)arg)->perform_path_scan();
-        usleep(interval * 1000000);
-    }
-
-    return nullptr;
-}
-
-void* StorageEngine::_tablet_checkpoint_callback(void* arg) {
-#ifdef GOOGLE_PROFILER
-    ProfilerRegisterThread();
-#endif
-    LOG(INFO) << "try to start tablet meta checkpoint thread!";
-    while (true) {
-        LOG(INFO) << "begin to do tablet meta checkpoint:" << ((DataDir*)arg)->path();
-        int64_t start_time = UnixMillis();
-        _tablet_manager->do_tablet_meta_checkpoint((DataDir*)arg);
-        int64_t used_time = (UnixMillis() - start_time) / 1000;
-        if (used_time < config::tablet_meta_checkpoint_min_interval_secs) {
-            sleep(config::tablet_meta_checkpoint_min_interval_secs - used_time);
-        } else {
-            sleep(1);
-        }
-    }
-
-    return nullptr;
 }
 
 }  // namespace doris

@@ -104,5 +104,4 @@ public class LoadStmtTest {
 
         Assert.fail("No exception throws.");
     }
-
 }

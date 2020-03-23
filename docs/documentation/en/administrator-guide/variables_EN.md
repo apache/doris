@@ -315,3 +315,7 @@ SET forward_to_master = concat('tr', 'u', 'e');
 * `use_v2_rollup`
 
     Used to control the sql query to use segment v2 rollup index to get data. This variable is only used for validation when upgrading to segment v2 feature. Otherwise, not recommended to use.
+
+* `rewrite_count_distinct_to_bitmap_hll`
+
+    Whether to rewrite count distinct queries of bitmap and HLL types as bitmap_union_count and hll_union_agg.

@@ -26,15 +26,16 @@ public class MysqlOkPacket extends MysqlPacket {
     private static final int PACKET_OK_INDICATOR = 0X00;
     // TODO(zhaochun): following are not used in palo
     private static final long LAST_INSERT_ID = 0;
-    private static final int STATUS_FLAGS = 0;
     private final String infoMessage;
     private long affectedRows = 0;
     private int warningRows = 0;
+    private int serverStatus = 0;
 
     public MysqlOkPacket(QueryState state) {
         infoMessage = state.getInfoMessage();
         affectedRows = state.getAffectedRows();
         warningRows = state.getWarningRows();
+        serverStatus = state.serverStatus;
     }
 
     @Override
@@ -46,10 +47,10 @@ public class MysqlOkPacket extends MysqlPacket {
         serializer.writeVInt(affectedRows);
         serializer.writeVInt(LAST_INSERT_ID);
         if (capability.isProtocol41()) {
-            serializer.writeInt2(STATUS_FLAGS);
+            serializer.writeInt2(serverStatus);
             serializer.writeInt2(warningRows);
         } else if (capability.isTransactions()) {
-            serializer.writeInt2(STATUS_FLAGS);
+            serializer.writeInt2(serverStatus);
         }
 
         if (capability.isSessionTrack()) {

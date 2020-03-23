@@ -52,7 +52,7 @@ public class CreateRoutineLoadStmtTest {
         String kafkaPartitionString = "1,2,3";
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
-        PartitionNames partitionNames = new PartitionNames(partitionNameString);
+        PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
         ColumnSeparator columnSeparator = new ColumnSeparator(",");
 
         // duplicate load property
@@ -99,7 +99,7 @@ public class CreateRoutineLoadStmtTest {
         String timeZone = "8:00";
         List<String> partitionNameString = Lists.newArrayList();
         partitionNameString.add("p1");
-        PartitionNames partitionNames = new PartitionNames(partitionNameString);
+        PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
         ColumnSeparator columnSeparator = new ColumnSeparator(",");
 
         // duplicate load property
@@ -131,7 +131,7 @@ public class CreateRoutineLoadStmtTest {
 
         Assert.assertNotNull(createRoutineLoadStmt.getRoutineLoadDesc());
         Assert.assertEquals(columnSeparator, createRoutineLoadStmt.getRoutineLoadDesc().getColumnSeparator());
-        Assert.assertEquals(partitionNames.getPartitionNames(), createRoutineLoadStmt.getRoutineLoadDesc().getPartitionNames());
+        Assert.assertEquals(partitionNames.getPartitionNames(), createRoutineLoadStmt.getRoutineLoadDesc().getPartitionNames().getPartitionNames());
         Assert.assertEquals(2, createRoutineLoadStmt.getDesiredConcurrentNum());
         Assert.assertEquals(0, createRoutineLoadStmt.getMaxErrorNum());
         Assert.assertEquals(serverAddress, createRoutineLoadStmt.getKafkaBrokerList());

@@ -76,7 +76,6 @@ public class LoadJobScheduler extends MasterDaemon {
                                  .build(), e);
                 loadJob.cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.ETL_SUBMIT_FAIL, e.getMessage()),
                         false, true);
-                continue;
             } catch (DuplicatedRequestException e) {
                 // should not happen in load job scheduler, there is no request id.
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, loadJob.getId())

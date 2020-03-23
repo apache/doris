@@ -40,17 +40,17 @@ private:
                 TTabletId tablet_id, TSchemaHash schema_hash,
                 TStorageMedium::type storage_medium);
     
-    OLAPStatus _generate_new_header(DataDir* store, const uint64_t new_shard,
-                                    const TabletSharedPtr& tablet,
-                                    const std::vector<RowsetSharedPtr>& consistent_rowsets,
-                                    TabletMetaSharedPtr new_tablet_meta);
+    void _generate_new_header(DataDir* store, const uint64_t new_shard,
+                              const TabletSharedPtr& tablet,
+                              const std::vector<RowsetSharedPtr>& consistent_rowsets,
+                              TabletMetaSharedPtr new_tablet_meta);
     
     // TODO: hkp
     // rewrite this function
     OLAPStatus _copy_index_and_data_files(
             const std::string& header_path,
             const TabletSharedPtr& ref_tablet,
-            std::vector<RowsetSharedPtr>& consistent_rowsets);
+            const std::vector<RowsetSharedPtr>& consistent_rowsets) const;
 
 private:
     const TStorageMediumMigrateReq& _storage_medium_migrate_req;

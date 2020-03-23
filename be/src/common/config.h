@@ -337,8 +337,7 @@ namespace config {
 
     // for partition
     CONF_Bool(enable_partitioned_hash_join, "false")
-    CONF_Bool(enable_partitioned_aggregation, "false")
-    CONF_Bool(enable_new_partitioned_aggregation, "true")
+    CONF_Bool(enable_partitioned_aggregation, "true")
 
     // for kudu
     // "The maximum size of the row batch queue, for Kudu scanners."
@@ -499,7 +498,6 @@ namespace config {
     // config for default rowset type
     // Valid configs: ALPHA, BETA
     CONF_String(default_rowset_type, "ALPHA");
-    CONF_String(compaction_rowset_type, "ALPHA");
 
     // brpc config, 200M
     CONF_Int64(brpc_max_body_size, "209715200")

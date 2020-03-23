@@ -58,7 +58,7 @@ OLAPStatus AlphaRowset::create_reader(std::shared_ptr<RowsetReader>* result) {
 }
 
 OLAPStatus AlphaRowset::remove() {
-    LOG(INFO) << "begin to remove files in rowset " << unique_id()
+    VLOG(3) << "begin to remove files in rowset " << unique_id()
             << ", version:" << start_version() << "-" << end_version()
             << ", tabletid:" << _rowset_meta->tablet_id();
     for (auto segment_group : _segment_groups) {
@@ -166,7 +166,9 @@ OLAPStatus AlphaRowset::split_range(
     RowBlockPosition step_pos;
 
     std::shared_ptr<SegmentGroup> largest_segment_group = _segment_group_with_largest_size();
-    if (largest_segment_group == nullptr) {
+    if (largest_segment_group == nullptr || largest_segment_group->current_num_rows_per_row_block() == 0) {
+        LOG(WARNING) << "failed to get largest_segment_group. is null: " << (largest_segment_group == nullptr)
+                << ". version: " << start_version() << "-" << end_version();
         ranges->emplace_back(start_key.to_tuple());
         ranges->emplace_back(end_key.to_tuple());
         return OLAP_SUCCESS;

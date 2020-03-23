@@ -35,6 +35,7 @@ import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
@@ -309,8 +310,8 @@ public class Load {
             formatType = params.get(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE);
         }
 
-        DataDescription dataDescription = new DataDescription(tableName, partitionNames, filePaths,
-                columnNames, columnSeparator, formatType, false, null);
+        DataDescription dataDescription = new DataDescription(tableName, new PartitionNames(false, partitionNames),
+                filePaths, columnNames, columnSeparator, formatType, false, null);
         dataDescription.setLineDelimiter(lineDelimiter);
         dataDescription.setBeAddr(beAddr);
         // parse hll param pair
@@ -633,7 +634,6 @@ public class Load {
 
             // check partition
             if (dataDescription.getPartitionNames() != null &&
-                    !dataDescription.getPartitionNames().isEmpty() &&
                     ((OlapTable) table).getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
@@ -802,19 +802,19 @@ public class Load {
 
             // partitions of this source
             OlapTable olapTable = (OlapTable) table;
-            List<String> partitionNames = dataDescription.getPartitionNames();
-            if (partitionNames == null || partitionNames.isEmpty()) {
-                partitionNames = new ArrayList<String>();
+            PartitionNames partitionNames = dataDescription.getPartitionNames();
+            if (partitionNames == null) {
                 for (Partition partition : olapTable.getPartitions()) {
-                    partitionNames.add(partition.getName());
+                    sourcePartitionIds.add(partition.getId());
                 }
-            }
-            for (String partitionName : partitionNames) {
-                Partition partition = olapTable.getPartition(partitionName);
-                if (partition == null) {
-                    throw new DdlException("Partition [" + partitionName + "] does not exist");
+            } else {
+                for (String partitionName : partitionNames.getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(partitionName, partitionNames.isTemp());
+                    if (partition == null) {
+                        throw new DdlException("Partition [" + partitionName + "] does not exist");
+                    }
+                    sourcePartitionIds.add(partition.getId());
                 }
-                sourcePartitionIds.add(partition.getId());
             }
         } finally {
             db.readUnlock();
@@ -875,20 +875,37 @@ public class Load {
             Map<String, Pair<String, List<String>>> columnToHadoopFunction,
             Map<String, Expr> exprsByName, Analyzer analyzer, TupleDescriptor srcTupleDesc,
             Map<String, SlotDescriptor> slotDescByName, TBrokerScanRangeParams params) throws UserException {
+        // check mapping column exist in schema
+        // !! all column mappings are in columnExprs !!
+        for (ImportColumnDesc importColumnDesc : columnExprs) {
+            if (importColumnDesc.isColumn()) {
+                continue;
+            }
+
+            String mappingColumnName = importColumnDesc.getColumnName();
+            if (tbl.getColumn(mappingColumnName) == null) {
+                throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
+            }
+        }
+
+        // We make a copy of the columnExprs so that our subsequent changes
+        // to the columnExprs will not affect the original columnExprs.
+        List<ImportColumnDesc> copiedColumnExprs = Lists.newArrayList(columnExprs);
+
         // If user does not specify the file field names, generate it by using base schema of table.
         // So that the following process can be unified
-        boolean specifyFileFieldNames = columnExprs.stream().anyMatch(p -> p.isColumn());
+        boolean specifyFileFieldNames = copiedColumnExprs.stream().anyMatch(p -> p.isColumn());
         if (!specifyFileFieldNames) {
             List<Column> columns = tbl.getBaseSchema();
             for (Column column : columns) {
                 ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
                 LOG.debug("add base column {} to stream load task", column.getName());
-                columnExprs.add(columnDesc);
+                copiedColumnExprs.add(columnDesc);
             }
         }
         // generate a map for checking easily
         Map<String, Expr> columnExprMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        for (ImportColumnDesc importColumnDesc : columnExprs) {
+        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
 
@@ -926,7 +943,7 @@ public class Load {
                      * (A, C) SET (B = func(xx), __doris_shadow_B = func(xx))
                      */
                     ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), mappingExpr);
-                    columnExprs.add(importColumnDesc);
+                    copiedColumnExprs.add(importColumnDesc);
                 } else {
                     /*
                      * eg:
@@ -936,7 +953,7 @@ public class Load {
                      */
                     ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
                             new SlotRef(null, originCol));
-                    columnExprs.add(importColumnDesc);
+                    copiedColumnExprs.add(importColumnDesc);
                 }
             } else {
                 /*
@@ -952,7 +969,7 @@ public class Load {
         // validate hadoop functions
         if (columnToHadoopFunction != null) {
             Map<String, String> columnNameMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-            for (ImportColumnDesc importColumnDesc : columnExprs) {
+            for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
                 if (importColumnDesc.isColumn()) {
                     columnNameMap.put(importColumnDesc.getColumnName(), importColumnDesc.getColumnName());
                 }
@@ -960,10 +977,6 @@ public class Load {
             for (Entry<String, Pair<String, List<String>>> entry : columnToHadoopFunction.entrySet()) {
                 String mappingColumnName = entry.getKey();
                 Column mappingColumn = tbl.getColumn(mappingColumnName);
-                if (mappingColumn == null) {
-                    throw new DdlException("Mapping column is not in table. column: " + mappingColumnName);
-                }
-
                 Pair<String, List<String>> function = entry.getValue();
                 try {
                     DataDescription.validateMappingFunction(function.first, function.second, columnNameMap,
@@ -975,7 +988,7 @@ public class Load {
         }
 
         // init slot desc add expr map, also transform hadoop functions
-        for (ImportColumnDesc importColumnDesc : columnExprs) {
+        for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
             String realColName = tbl.getColumn(columnName) == null ? columnName

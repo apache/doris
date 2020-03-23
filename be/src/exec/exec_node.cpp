@@ -23,35 +23,33 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "exec/aggregation_node.h"
-#include "exec/partitioned_aggregation_node.h"
-#include "exec/new_partitioned_aggregation_node.h"
-#include "exec/csv_scan_node.h"
-#include "exec/es_scan_node.h"
-#include "exec/es_http_scan_node.h"
-#include "exec/pre_aggregation_node.h"
-#include "exec/hash_join_node.h"
+#include "exec/analytic_eval_node.h"
+#include "exec/assert_num_rows_node.h"
 #include "exec/broker_scan_node.h"
 #include "exec/cross_join_node.h"
+#include "exec/csv_scan_node.h"
 #include "exec/empty_set_node.h"
-#include "exec/mysql_scan_node.h"
-#include "exec/schema_scan_node.h"
+#include "exec/es_http_scan_node.h"
+#include "exec/es_scan_node.h"
+#include "exec/except_node.h"
 #include "exec/exchange_node.h"
+#include "exec/hash_join_node.h"
+#include "exec/intersect_node.h"
 #include "exec/merge_join_node.h"
 #include "exec/merge_node.h"
+#include "exec/mysql_scan_node.h"
 #include "exec/olap_rewrite_node.h"
 #include "exec/olap_scan_node.h"
-#include "exec/topn_node.h"
+#include "exec/partitioned_aggregation_node.h"
+#include "exec/repeat_node.h"
+#include "exec/schema_scan_node.h"
+#include "exec/select_node.h"
 #include "exec/sort_node.h"
 #include "exec/spill_sort_node.h"
-#include "exec/analytic_eval_node.h"
-#include "exec/select_node.h"
+#include "exec/topn_node.h"
 #include "exec/union_node.h"
-#include "exec/intersect_node.h"
-#include "exec/except_node.h"
-#include "exec/repeat_node.h"
-#include "exec/assert_num_rows_node.h"
+#include "exprs/expr_context.h"
 #include "runtime/exec_env.h"
 #include "runtime/descriptors.h"
 #include "runtime/initial_reservations.h"
@@ -384,16 +382,10 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::AGGREGATION_NODE:
         if (config::enable_partitioned_aggregation) {
             *node = pool->add(new PartitionedAggregationNode(pool, tnode, descs));
-        } else if (config::enable_new_partitioned_aggregation) {
-            *node = pool->add(new NewPartitionedAggregationNode(pool, tnode, descs));
         } else {
             *node = pool->add(new AggregationNode(pool, tnode, descs));
         }
         return Status::OK();
-
-        /*case TPlanNodeType::PRE_AGGREGATION_NODE:
-          *node = pool->add(new PreAggregationNode(pool, tnode, descs));
-          return Status::OK();*/
     case TPlanNodeType::HASH_JOIN_NODE:
         *node = pool->add(new HashJoinNode(pool, tnode, descs));
         return Status::OK();
@@ -446,9 +438,9 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new IntersectNode(pool, tnode, descs));
         return Status::OK();
 
-    // case TPlanNodeType::EXCEPT_NODE:
-    //     *node = pool->add(new ExceptNode(pool, tnode, descs));
-    //     return Status::OK();
+    case TPlanNodeType::EXCEPT_NODE:
+        *node = pool->add(new ExceptNode(pool, tnode, descs));
+        return Status::OK();
 
     case TPlanNodeType::BROKER_SCAN_NODE:
         *node = pool->add(new BrokerScanNode(pool, tnode, descs));
