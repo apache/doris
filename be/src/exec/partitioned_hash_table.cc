@@ -235,7 +235,7 @@ bool PartitionedHashTableCtx::EvalRow(TupleRow* row, const vector<ExprContext*>&
       expr_values_null[i] = false;
       DCHECK_LE(build_exprs_[i]->type().get_slot_size(),
           sizeof(NULL_VALUE));
-      RawValue::write(val, loc, build_exprs_[i]->type(), nullptr);
+      RawValue::write(val, loc, build_exprs_[i]->type(), expr_results_pool_);
     }
   }
   return has_null;
