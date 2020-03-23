@@ -107,7 +107,8 @@ import java.util.Map;
  *      }
  *  },
  * 	"output_path": "hdfs://hdfs_host:port/user/output/10003/label1/1582599203397",
- * 	"output_file_pattern": "label1.%d.%d.%d.%d.%d"
+ * 	"output_file_pattern": "label1.%d.%d.%d.%d.%d",
+ * 	"label": "label0"
  * }
  */
 public class EtlJobConfig {
