@@ -201,8 +201,8 @@ private:
     int _rpc_timeout_ms = 60000;
     int64_t _next_packet_seq = 0;
 
-    std::atomic<bool> _rpc_error{false};
-    std::atomic<bool> _is_cancelled{false};
+    // user cancel or get some errors
+    std::atomic<bool> _cancelled{false};
 
     std::atomic<bool> _send_finished{false};
     std::atomic<bool> _add_batches_finished{false};
