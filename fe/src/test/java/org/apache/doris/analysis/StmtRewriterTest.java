@@ -21,6 +21,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -36,20 +37,27 @@ public class StmtRewriterTest {
     private static DorisAssert dorisAssert;
 
     @BeforeClass
-    public void beforeClass() throws Exception{
+    public static void beforeClass() throws Exception{
         FeConstants.runningUnitTest = true;
         UtFrameUtils.createMinDorisCluster(runningDir);
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase(DB_NAME).useDatabase(DB_NAME);
-        String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME + " (empid int, name varchar, "
-                + "deptno int, salary int, commission int) partition by range (empid) "
-                + "(partition p1 values less than MAXVALUE) "
+        String createTableSQL = "create table " + DB_NAME + "." + TABLE_NAME + " (empid int, name varchar, " +
+                "deptno int, salary int, commission int) "
                 + "distributed by hash(empid) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(createTableSQL);
     }
 
     @Test
-    public void testRewriteHavingClauseSubqueries() {
+    public void testRewriteHavingClauseSubqueries() throws Exception {
+        String subquery = "select avg(salary) from " + TABLE_NAME;
+        String query = "select empid, sum(salary) from " + TABLE_NAME + " group by empid having sum(salary) > (" +
+                subquery + ");";
+        dorisAssert.query(query).explainContains("CROSS JOIN", "predicates: <slot 3> > <slot 8>");
+    }
 
+    @AfterClass
+    public static void afterClass() throws Exception {
+        UtFrameUtils.cleanDorisFeDir(baseDir);
     }
 }
