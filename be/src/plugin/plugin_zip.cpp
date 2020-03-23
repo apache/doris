@@ -54,7 +54,7 @@ Status PluginZip::extract(const std::string& target_dir, const std::string& plug
     std::string plugin_install_path = Substitute("$0/$1", target_dir, plugin_name);
 
     if (FileUtils::check_exist(plugin_install_path)) {
-        return Status::IOError(Substitute("plugin $0 already install!", plugin_name));
+        return Status::AlreadyExist(Substitute("plugin $0 already install!", plugin_name));
     }
 
     if (!FileUtils::check_exist(target_dir)) {

@@ -73,6 +73,11 @@ struct TDisk {
     7: optional Types.TStorageMedium storage_medium
 }
 
+struct TPluginInfo {
+    1: required string plugin_name
+    2: required i32 type
+}
+
 struct TReportRequest {
     1: required Types.TBackend backend
     2: optional i64 report_version
@@ -84,6 +89,8 @@ struct TReportRequest {
     // the max compaction score of all tablets on a backend,
     // this field should be set along with tablet report
     8: optional i64 tablet_max_compaction_score
+    // plugin list
+    9: optional list<TPluginInfo> plugins
 }
 
 struct TMasterResult {

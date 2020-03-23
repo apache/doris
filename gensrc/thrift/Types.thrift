@@ -165,7 +165,9 @@ enum TTaskType {
     STREAM_LOAD,
     UPDATE_TABLET_META_INFO,
     // this type of task will replace both ROLLUP and SCHEMA_CHANGE
-    ALTER
+    ALTER,
+    INSTALL_PLUGIN,
+    UNINSTALL_PLUGIN
 }
 
 enum TStmtType {

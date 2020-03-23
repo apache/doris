@@ -22,6 +22,8 @@
 #include <memory>
 #include <vector>
 
+#include "gen_cpp/Types_types.h"
+
 #include "common/status.h"
 #include "plugin/plugin.h"
 
@@ -41,6 +43,14 @@ public:
     virtual std::shared_ptr<Plugin>& plugin() {
         return _plugin;
     };
+    
+    const std::string& name() { 
+        return _name;
+    }
+    
+    int type() {
+        return _type;
+    }
 
 protected:
     virtual Status open_valid();
@@ -66,6 +76,7 @@ public:
     };
 
     ~DynamicPluginLoader() {
+        // just close plugin, but don't clean install path (maybe other plugin has used)
         WARN_IF_ERROR(close_plugin(), "close plugin failed.");
     };
 
@@ -91,9 +102,7 @@ private:
 
 class BuiltinPluginLoader : public PluginLoader {
 public:
-    BuiltinPluginLoader(const std::string& name, int type, Plugin* plugin): PluginLoader(name, type) {
-        _plugin.reset(plugin);
-    }
+    BuiltinPluginLoader(const std::string& name, int type, Plugin* plugin);
     
     ~BuiltinPluginLoader() {
         WARN_IF_ERROR(uninstall(), "close plugin failed.");

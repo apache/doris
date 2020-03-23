@@ -251,6 +251,21 @@ struct TUpdateTabletMetaInfoReq {
     1: optional list<TTabletMetaInfo> tabletMetaInfos
 }
 
+struct TPluginMetaInfo {
+    1: required string name
+    2: required i32 type
+    3: optional string so_name
+    4: optional string source
+}
+
+struct TInstallPluginReq {
+    1: optional list<TPluginMetaInfo> plugin_infos
+}
+
+struct TUninstallPluginReq {
+    1: optional list<TPluginMetaInfo> plugin_infos
+}
+
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type
@@ -279,6 +294,8 @@ struct TAgentTaskRequest {
     24: optional TAlterTabletReqV2 alter_tablet_req_v2
     25: optional i64 recv_time // time the task is inserted to queue
     26: optional TUpdateTabletMetaInfoReq update_tablet_meta_info_req
+    27: optional TInstallPluginReq install_plugin_req
+    28: optional TUninstallPluginReq uninstall_plugin_req
 }
 
 struct TAgentResult {

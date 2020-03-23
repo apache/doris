@@ -23,3 +23,4 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test/plugin")
 
 ADD_BE_TEST(plugin_zip_test)
 ADD_BE_TEST(plugin_loader_test)
+ADD_BE_TEST(plugin_mgr_test)

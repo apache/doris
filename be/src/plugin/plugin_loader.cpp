@@ -68,7 +68,9 @@ Status DynamicPluginLoader::install() {
 
     // plugin init
     // todo: what should be send?
-    _plugin->init(nullptr);
+    if (_plugin->init != nullptr) {
+        _plugin->init(&_plugin->handler);
+    }
 
     return Status::OK();
 }
@@ -93,7 +95,7 @@ Status DynamicPluginLoader::open_plugin() {
     RETURN_IF_ERROR(dynamic_lookup(_plugin_handler, (_name + PLUGIN_VERSION_SYMBOL).c_str(), &symbol));
 
     if (DORIS_PLUGIN_VERSION > *(int*) symbol) {
-        return Status::InternalError("plugin compile version to old");
+        return Status::InternalError("plugin compile version too old");
     }
 
     RETURN_IF_ERROR(dynamic_lookup(_plugin_handler, (_name + PLUGIN_SIZE_SYMBOL).c_str(), &symbol));
@@ -106,7 +108,7 @@ Status DynamicPluginLoader::open_plugin() {
     // check Plugin declaration
     RETURN_IF_ERROR(dynamic_lookup(_plugin_handler, (_name + PLUGIN_STRUCT_SYMBOL).c_str(), &symbol));
 
-    Plugin* end_plugin = (Plugin*) (symbol + plugin_size);
+    Plugin* end_plugin = (Plugin*) ((char*) symbol + plugin_size);
 
     if (end_plugin->handler != nullptr || end_plugin->init != nullptr || end_plugin->close != nullptr) {
         return Status::InternalError("plugin struct error");
@@ -137,8 +139,10 @@ Status DynamicPluginLoader::close_plugin() {
     if (_plugin.get() != nullptr) {
         RETURN_IF_ERROR(close_valid());
 
-        // todo: what should be send?
-        _plugin->close(nullptr);
+        if (_plugin->close != nullptr) {
+            // todo: what should be send?
+            _plugin->close(&_plugin->handler);
+        }
     }
 
     // builtin plugin don't need dynamic uninstall
@@ -150,10 +154,19 @@ Status DynamicPluginLoader::close_plugin() {
     return Status::OK();
 }
 
+BuiltinPluginLoader::BuiltinPluginLoader(const std::string& name, int type, doris::Plugin* plugin) :
+        PluginLoader(name, type) {
+    _plugin = std::make_shared<Plugin>();
+    std::memcpy(_plugin.get(), plugin, sizeof(Plugin));
+}
+
 Status BuiltinPluginLoader::install() {
     RETURN_IF_ERROR(open_valid());
+    LOG(INFO) << "plugin: " << _plugin.get();
     
-    _plugin->init(nullptr);
+    if (_plugin->init != nullptr) {
+        _plugin->init(&_plugin->handler);
+    }
     
     return Status::OK();
 }
@@ -166,8 +179,10 @@ Status BuiltinPluginLoader::uninstall() {
     if (_plugin.get() != nullptr) {
         RETURN_IF_ERROR(close_valid());
 
-        // todo: what should be send?
-        _plugin->close(nullptr);
+        if (_plugin->close != nullptr) {
+            // todo: what should be send?
+            _plugin->close(&_plugin->handler);
+        }
         
         _plugin.reset();
     }

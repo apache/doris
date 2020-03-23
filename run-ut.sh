@@ -311,6 +311,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/heartbeat_flags_test
 
 # Runing plugin test
 ${DORIS_TEST_BINARY_DIR}/Plugin/plugin/plugin_loader_test
+${DORIS_TEST_BINARY_DIR}/Plugin/plugin/plugin_mgr_test
 ${DORIS_TEST_BINARY_DIR}/Plugin/plugin/plugin_zip_test
 
 # Running agent unittest

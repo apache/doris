@@ -15,14 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_PLUGIN_PLUGIN_MANAGER_H
-#define DORIS_BE_PLUGIN_PLUGIN_MANAGER_H
+#ifndef DORIS_BE_PLUGIN_PLUGIN_MGR_H
+#define DORIS_BE_PLUGIN_PLUGIN_MGR_H
 
 
 #include <string>
 #include <unordered_map>
 #include <memory>
 #include <mutex>
+
+#include "gen_cpp/MasterService_types.h"
+#include "gen_cpp/AgentService_types.h"
 
 #include "common/status.h"
 #include "plugin/plugin_loader.h"
@@ -33,17 +36,17 @@ namespace doris {
 
 typedef std::unordered_map<std::string, std::unique_ptr<PluginLoader>> PluginLoaderMap;
 
-class PluginManager {
+class PluginMgr {
 
 public:
     
-    PluginManager() {}
+    PluginMgr() {}
     
-    ~PluginManager() {}
+    ~PluginMgr() {}
     
-//    Status load_plugin(Plugin* plugin);
-//    
-//    Status unload_plugin(Plugin* plugin);
+    Status install_plugin(const TPluginMetaInfo& info);
+    
+    Status uninstall_plugin(const TPluginMetaInfo& info);
 
     Status register_builtin_plugin(const std::string& name, int type, Plugin* plugin);
     
@@ -52,6 +55,8 @@ public:
     Status get_plugin(const std::string& name, std::shared_ptr<Plugin>* plugin);
 
     Status get_plugin_list(int type, std::vector<std::shared_ptr<Plugin>>* plugin_list);
+    
+    Status get_all_plugin_info(std::vector<TPluginInfo>* plugin_info_list);
 
 private:
     PluginLoaderMap _plugins[PLUGIN_TYPE_MAX];

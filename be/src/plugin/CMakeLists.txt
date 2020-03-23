@@ -23,6 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/plugin")
 
 add_library(Plugin STATIC
         plugin_loader.cpp
-        plugin_manager.cpp
+        plugin_mgr.cpp
         plugin_zip.cpp
         )
