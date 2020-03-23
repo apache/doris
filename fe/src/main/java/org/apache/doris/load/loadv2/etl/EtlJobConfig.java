@@ -48,7 +48,6 @@ import java.util.Map;
  * 				    "is_allow_null": false,
  * 					"aggregation_type": "NONE"
  *              }],
- *              "distribution_column_refs": ["k2"],
  * 				"schema_hash": 1294206574,
  * 			    "index_type": "DUPLICATE",
  * 			    "is_base_index": true
@@ -67,7 +66,6 @@ import java.util.Map;
  * 				    "is_allow_null": false,
  * 					"aggregation_type": "SUM"
  *              }],
- *              "distribution_column_refs": ["k2"],
  * 				"schema_hash": 1294206575,
  * 			    "index_type": "AGGREGATE",
  * 			    "is_base_index": false
@@ -75,6 +73,7 @@ import java.util.Map;
  * 			"partition_info": {
  * 				"partition_type": "RANGE",
  * 				"partition_column_refs": ["k1"],
+ *              "distribution_column_refs": ["k2"],
  * 				"partitions": [{
  * 				    "partition_id": 10020,
  * 					"start_keys": [-100],
@@ -128,13 +127,15 @@ public class EtlJobConfig {
     Map<Long, EtlTable> tables;
     String outputPath;
     String outputFilePattern;
+    String label;
     // private EtlErrorHubInfo hubInfo;
 
-    public EtlJobConfig(Map<Long, EtlTable> tables, String outputFilePattern) {
+    public EtlJobConfig(Map<Long, EtlTable> tables, String outputFilePattern, String label) {
         this.tables = tables;
         // set outputPath when submit etl job
         this.outputPath = null;
         this.outputFilePattern = outputFilePattern;
+        this.label = label;
     }
 
     @Override
@@ -143,6 +144,7 @@ public class EtlJobConfig {
                 "tables=" + tables +
                 ", outputPath='" + outputPath + '\'' +
                 ", outputFilePattern='" + outputFilePattern + '\'' +
+                ", label='" + label + '\'' +
                 '}';
     }
 
@@ -240,16 +242,14 @@ public class EtlJobConfig {
     public static class EtlIndex {
         long indexId;
         List<EtlColumn> columns;
-        List<String> distributionColumnRefs;
         int schemaHash;
         String indexType;
         boolean isBaseIndex;
 
-        public EtlIndex(long indexId, List<EtlColumn> etlColumns, List<String> distributionColumnRefs,
-                        int schemaHash, String indexType, boolean isBaseIndex) {
+        public EtlIndex(long indexId, List<EtlColumn> etlColumns, int schemaHash,
+                        String indexType, boolean isBaseIndex) {
             this.indexId = indexId;
             this.columns =  etlColumns;
-            this.distributionColumnRefs = distributionColumnRefs;
             this.schemaHash = schemaHash;
             this.indexType = indexType;
             this.isBaseIndex = isBaseIndex;
@@ -260,7 +260,6 @@ public class EtlJobConfig {
             return "EtlIndex{" +
                     "indexId=" + indexId +
                     ", columns=" + columns +
-                    ", distributionColumnRefs=" + distributionColumnRefs +
                     ", schemaHash=" + schemaHash +
                     ", indexType='" + indexType + '\'' +
                     ", isBaseIndex=" + isBaseIndex +
@@ -271,12 +270,14 @@ public class EtlJobConfig {
     public static class EtlPartitionInfo {
         String partitionType;
         List<String> partitionColumnRefs;
+        List<String> distributionColumnRefs;
         List<EtlPartition> partitions;
 
         public EtlPartitionInfo(String partitionType, List<String> partitionColumnRefs,
-                                List<EtlPartition> etlPartitions) {
+                                List<String> distributionColumnRefs, List<EtlPartition> etlPartitions) {
             this.partitionType = partitionType;
             this.partitionColumnRefs = partitionColumnRefs;
+            this.distributionColumnRefs = distributionColumnRefs;
             this.partitions = etlPartitions;
         }
 
@@ -285,6 +286,7 @@ public class EtlJobConfig {
             return "EtlPartitionInfo{" +
                     "partitionType='" + partitionType + '\'' +
                     ", partitionColumnRefs=" + partitionColumnRefs +
+                    ", distributionColumnRefs=" + distributionColumnRefs +
                     ", partitions=" + partitions +
                     '}';
         }
@@ -322,7 +324,7 @@ public class EtlJobConfig {
         List<String> filePaths;
         List<String> fileFieldNames;
         List<String> columnsFromPath;
-        String valueSeparator;
+        String columnSeparator;
         String lineDelimiter;
         boolean isNegative;
         String fileFormat;
@@ -333,12 +335,12 @@ public class EtlJobConfig {
         String hiveTableName;
 
         public EtlFileGroup(List<String> filePaths, List<String> fileFieldNames, List<String> columnsFromPath,
-                            String valueSeparator, String lineDelimiter, boolean isNegative, String fileFormat,
+                            String columnSeparator, String lineDelimiter, boolean isNegative, String fileFormat,
                             Map<String, EtlColumnMapping> columnMappings, String where, List<Long> partitions) {
             this.filePaths = filePaths;
             this.fileFieldNames = fileFieldNames;
             this.columnsFromPath = columnsFromPath;
-            this.valueSeparator = valueSeparator;
+            this.columnSeparator = columnSeparator;
             this.lineDelimiter = lineDelimiter;
             this.isNegative = isNegative;
             this.fileFormat = fileFormat;
@@ -357,7 +359,7 @@ public class EtlJobConfig {
                     "filePaths=" + filePaths +
                     ", fileFieldNames=" + fileFieldNames +
                     ", columnsFromPath=" + columnsFromPath +
-                    ", valueSeparator='" + valueSeparator + '\'' +
+                    ", columnSeparator='" + columnSeparator + '\'' +
                     ", lineDelimiter='" + lineDelimiter + '\'' +
                     ", isNegative=" + isNegative +
                     ", fileFormat='" + fileFormat + '\'' +

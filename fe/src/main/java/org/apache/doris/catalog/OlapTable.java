@@ -563,6 +563,7 @@ public class OlapTable extends Table {
     }
 
     public KeysType getKeysTypeByIndexId(long indexId) {
+        boolean hasUniqueAggregateType = false;
         List<Column> allColumns = this.getSchemaByIndexId(indexId);
         for (Column column : allColumns) {
             if (column.isKey()) {
@@ -570,12 +571,17 @@ public class OlapTable extends Table {
             }
 
             AggregateType aggregateType = column.getAggregationType();
-            if (aggregateType == AggregateType.SUM) {
+            if (aggregateType == AggregateType.SUM || aggregateType == AggregateType.HLL_UNION
+                    || aggregateType == AggregateType.BITMAP_UNION) {
                 return KeysType.AGG_KEYS;
             } else if (aggregateType.isReplaceFamily() || aggregateType == AggregateType.MAX
                     || aggregateType == AggregateType.MIN) {
-                return KeysType.UNIQUE_KEYS;
+                hasUniqueAggregateType = true;
             }
+        }
+
+        if (hasUniqueAggregateType) {
+            return KeysType.UNIQUE_KEYS;
         }
         return KeysType.DUP_KEYS;
     }

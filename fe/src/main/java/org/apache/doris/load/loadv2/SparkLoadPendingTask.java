@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -174,7 +175,7 @@ public class SparkLoadPendingTask extends LoadTask {
             }
 
             String outputFilePattern = loadLabel + "." + EtlJobConfig.ETL_OUTPUT_FILE_NAME_NO_LABEL_FORMAT;
-            etlJobConfig = new EtlJobConfig(tables, outputFilePattern);
+            etlJobConfig = new EtlJobConfig(tables, outputFilePattern, loadLabel);
         } finally {
             db.readUnlock();
         }
@@ -228,28 +229,13 @@ public class SparkLoadPendingTask extends LoadTask {
                 etlColumns.add(createEtlColumn(column));
             }
 
-            // distribution column refs
-            List<String> distributionColumnRefs = Lists.newArrayList();
+            // check distribution type
             DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
-            switch (distributionInfo.getType()) {
-                case HASH:
-                    HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
-                    for (Column column : hashDistributionInfo.getDistributionColumns()) {
-                        distributionColumnRefs.add(column.getName());
-                    }
-                    break;
-                case RANDOM:
-                    for (Column column : entry.getValue()) {
-                        if (!column.isKey()) {
-                            break;
-                        }
-                        distributionColumnRefs.add(column.getName());
-                    }
-                    break;
-                default:
-                    String errMsg = "unknown distribution type. type: " + distributionInfo.getType().name();
-                    LOG.warn(errMsg);
-                    throw new LoadException(errMsg);
+            if (distributionInfo.getType() != DistributionInfoType.HASH) {
+                // RANDOM not supported
+                String errMsg = "Unsupported distribution type. type: " + distributionInfo.getType().name();
+                LOG.warn(errMsg);
+                throw new LoadException(errMsg);
             }
 
             // index type
@@ -274,7 +260,7 @@ public class SparkLoadPendingTask extends LoadTask {
             // is base index
             boolean isBaseIndex = indexId == table.getBaseIndexId() ? true : false;
 
-            etlIndexes.add(new EtlIndex(indexId, etlColumns, distributionColumnRefs, schemaHash, indexType, isBaseIndex));
+            etlIndexes.add(new EtlIndex(indexId, etlColumns, schemaHash, indexType, isBaseIndex));
         }
 
         return etlIndexes;
@@ -394,7 +380,15 @@ public class SparkLoadPendingTask extends LoadTask {
             }
         }
 
-        return new EtlPartitionInfo(type.typeString, partitionColumnRefs, etlPartitions);
+        // distribution column refs
+        List<String> distributionColumnRefs = Lists.newArrayList();
+        DistributionInfo distributionInfo = table.getDefaultDistributionInfo();
+        Preconditions.checkState(distributionInfo.getType() == DistributionInfoType.HASH);
+        for (Column column : ((HashDistributionInfo) distributionInfo).getDistributionColumns()) {
+            distributionColumnRefs.add(column.getName());
+        }
+
+        return new EtlPartitionInfo(type.typeString, partitionColumnRefs, distributionColumnRefs, etlPartitions);
     }
 
     private EtlFileGroup createEtlFileGroup(BrokerFileGroup fileGroup, Set<Long> tablePartitionIds) {
