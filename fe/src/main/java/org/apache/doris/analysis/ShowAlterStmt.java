@@ -29,7 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.RollupProcDir;
-import org.apache.doris.common.proc.SchemaChangeProcNode;
+import org.apache.doris.common.proc.SchemaChangeProcDir;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
@@ -164,7 +164,7 @@ public class ShowAlterStmt extends ShowStmt {
                     throw new AnalysisException("Should order by column");
                 }
                 SlotRef slotRef = (SlotRef) orderByElement.getExpr();
-                int index = SchemaChangeProcNode.analyzeColumn(slotRef.getColumnName());
+                int index = SchemaChangeProcDir.analyzeColumn(slotRef.getColumnName());
                 OrderByPair orderByPair = new OrderByPair(index, !orderByElement.getIsAsc());
                 orderByPairs.add(orderByPair);
             }
@@ -242,7 +242,7 @@ public class ShowAlterStmt extends ShowStmt {
         if (type == AlterType.ROLLUP) {
             titleNames = RollupProcDir.TITLE_NAMES;
         } else if (type == AlterType.COLUMN) {
-            titleNames = SchemaChangeProcNode.TITLE_NAMES;
+            titleNames = SchemaChangeProcDir.TITLE_NAMES;
         }
 
         for (String title : titleNames) {

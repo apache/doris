@@ -30,12 +30,10 @@ EngineStorageMigrationTask::EngineStorageMigrationTask(TStorageMediumMigrateReq&
 }
 
 OLAPStatus EngineStorageMigrationTask::execute() {
-    OLAPStatus res = OLAP_SUCCESS;
-    res = _storage_medium_migrate(
+    return _storage_medium_migrate(
         _storage_medium_migrate_req.tablet_id,
         _storage_medium_migrate_req.schema_hash,
         _storage_medium_migrate_req.storage_medium);
-    return res;
 }
 
 OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
@@ -156,13 +154,11 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
         }
         
         Status st = FileUtils::create_dir(schema_hash_path);
-
         if (!st.ok()) {
             res = OLAP_ERR_CANNOT_CREATE_DIR;
             LOG(WARNING) << "fail to create path. path=" << schema_hash_path << ", error:" << st.to_string();
             break;
         }
-
 
         // migrate all index and data files but header file
         res = _copy_index_and_data_files(schema_hash_path, tablet, consistent_rowsets);
@@ -171,17 +167,12 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
             break;
         }
         tablet->obtain_header_rdlock();
-        res = _generate_new_header(stores[0], shard, tablet, consistent_rowsets, new_tablet_meta);
-        if (res != OLAP_SUCCESS) {
-            tablet->release_header_lock();
-            LOG(WARNING) << "fail to generate new header file from the old. res=" << res;
-            break;
-        }
+        _generate_new_header(stores[0], shard, tablet, consistent_rowsets, new_tablet_meta);
         tablet->release_header_lock();
         std::string new_meta_file = schema_hash_path + "/" + std::to_string(tablet_id) + ".hdr";
         res = new_tablet_meta->save(new_meta_file);
         if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "failed to save met to path" << new_meta_file;
+            LOG(WARNING) << "failed to save meta to path" << new_meta_file;
             break;
         }
 
@@ -234,40 +225,31 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
 }
 
 // TODO(ygl): lost some infomation here, such as cumulative layer point
-OLAPStatus EngineStorageMigrationTask::_generate_new_header(
+void EngineStorageMigrationTask::_generate_new_header(
         DataDir* store, const uint64_t new_shard,
         const TabletSharedPtr& tablet,
         const std::vector<RowsetSharedPtr>& consistent_rowsets,
         TabletMetaSharedPtr new_tablet_meta) {
-    if (store == nullptr) {
-        LOG(WARNING) << "fail to generate new header for store is null";
-        return OLAP_ERR_HEADER_INIT_FAILED;
-    }
-    OLAPStatus res = tablet->generate_tablet_meta_copy(new_tablet_meta);
-    if (res != OLAP_SUCCESS) {
-        LOG(WARNING) << "could not generate new tablet meta. "
-                     << "tablet:" << tablet->full_name();
-        return res;
-    }
+    DCHECK(store != nullptr);
+    tablet->generate_tablet_meta_copy(new_tablet_meta);
 
     vector<RowsetMetaSharedPtr> rs_metas;
     for (auto& rs : consistent_rowsets) {
         rs_metas.push_back(rs->rowset_meta());
     }
-    new_tablet_meta->revise_rs_metas(rs_metas);
+    new_tablet_meta->revise_rs_metas(std::move(rs_metas));
     new_tablet_meta->set_shard_id(new_shard);
     // should not save new meta here, because new tablet may failed
     // should not remove the old meta here, because the new header maybe not valid
     // remove old meta after the new tablet is loaded successfully
-    return res;
 }
 
 OLAPStatus EngineStorageMigrationTask::_copy_index_and_data_files(
         const string& schema_hash_path,
         const TabletSharedPtr& ref_tablet,
-        std::vector<RowsetSharedPtr>& consistent_rowsets) {
+        const std::vector<RowsetSharedPtr>& consistent_rowsets) const {
     OLAPStatus status = OLAP_SUCCESS;
-    for (auto& rs : consistent_rowsets) {
+    for (const auto& rs : consistent_rowsets) {
         status = rs->copy_files_to(schema_hash_path);
         if (status != OLAP_SUCCESS) {
             Status ret = FileUtils::remove_all(schema_hash_path);

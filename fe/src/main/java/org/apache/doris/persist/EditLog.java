@@ -728,6 +728,20 @@ public class EditLog {
                     catalog.replaySetReplicaStatus(log);
                     break;
                 }
+                case OperationType.OP_REMOVE_ALTER_JOB_V2: {
+                    RemoveAlterJobV2OperationLog log = (RemoveAlterJobV2OperationLog) journal.getData();
+                    switch (log.getType()) {
+                        case ROLLUP:
+                            catalog.getRollupHandler().replayRemoveAlterJobV2(log);
+                            break;
+                        case SCHEMA_CHANGE:
+                            catalog.getSchemaChangeHandler().replayRemoveAlterJobV2(log);
+                            break;
+                        default:
+                            break;
+                    }
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1256,5 +1270,9 @@ public class EditLog {
 
     public void logSetReplicaStatus(SetReplicaStatusOperationLog log) {
         logEdit(OperationType.OP_SET_REPLICA_STATUS, log);
+    }
+
+    public void logRemoveExpiredAlterJobV2(RemoveAlterJobV2OperationLog log) {
+        logEdit(OperationType.OP_REMOVE_ALTER_JOB_V2, log);
     }
 }

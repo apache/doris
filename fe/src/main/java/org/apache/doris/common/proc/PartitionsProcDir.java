@@ -217,16 +217,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             }
 
             Joiner joiner = Joiner.on(", ");
-            PartitionInfo tblPartitionInfo;
-            if (isTempPartition) {
-                tblPartitionInfo = olapTable.getTempPartitonRangeInfo();
-                if (tblPartitionInfo == null) {
-                    // not temp partitons in this table, return empty result
-                    return partitionInfos;
-                }
-            } else {
-                tblPartitionInfo = olapTable.getPartitionInfo();
-            }
+            PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
             for (String partName : partitionsNames) {
                 Partition partition = olapTable.getPartition(partName, isTempPartition);
                 long partitionId = partition.getId();

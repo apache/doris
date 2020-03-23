@@ -124,12 +124,10 @@ public class MysqlServer {
                     } catch (InterruptedException e1) {
                        // Do nothing
                     }
-                    continue;
                 } catch (Throwable e) {
                     // NotYetBoundException
                     // SecurityException
                     LOG.warn("Query server failed when calling accept.", e);
-                    continue;
                 }
             }
         }

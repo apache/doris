@@ -30,8 +30,8 @@ import java.util.Map;
 // eg:
 // ALTER TABLE tbl REPLACE PARTITION (p1, p2, p3) WITH TEMPORARY PARTITION(tp1, tp2);
 public class ReplacePartitionClause extends AlterTableClause {
-    private List<String> partitionNames;
-    private List<String> tempPartitionNames;
+    private PartitionNames partitionNames;
+    private PartitionNames tempPartitionNames;
     private Map<String, String> properties = Maps.newHashMap();
 
     // "isStrictMode" is got from property "strict_range", and default is true.
@@ -51,7 +51,7 @@ public class ReplacePartitionClause extends AlterTableClause {
     //      but if "use_temp_partition_name" is true, the partition names will be "tp1" and "tp2".
     private boolean useTempPartitionName;
 
-    public ReplacePartitionClause(List<String> partitionNames, List<String> tempPartitionNames,
+    public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
             Map<String, String> properties) {
         this.partitionNames = partitionNames;
         this.tempPartitionNames = tempPartitionNames;
@@ -60,11 +60,11 @@ public class ReplacePartitionClause extends AlterTableClause {
     }
 
     public List<String> getPartitionNames() {
-        return partitionNames;
+        return partitionNames.getPartitionNames();
     }
 
     public List<String> getTempPartitionNames() {
-        return tempPartitionNames;
+        return tempPartitionNames.getPartitionNames();
     }
 
     public boolean isStrictRange() {
@@ -77,12 +77,15 @@ public class ReplacePartitionClause extends AlterTableClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (partitionNames.isEmpty()) {
+        if (partitionNames == null || tempPartitionNames == null) {
             throw new AnalysisException("No partition specified");
         }
 
-        if (tempPartitionNames.isEmpty()) {
-            throw new AnalysisException("No temp partition specified");
+        partitionNames.analyze(analyzer);
+        tempPartitionNames.analyze(analyzer);
+
+        if (partitionNames.isTemp() || !tempPartitionNames.isTemp()) {
+            throw new AnalysisException("Only support replace partitions with temp partitions");
         }
 
         this.isStrictRange = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_STRICT_RANGE, true);
@@ -103,9 +106,9 @@ public class ReplacePartitionClause extends AlterTableClause {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("REPLACE PARTITION(");
-        sb.append(Joiner.on(", ").join(partitionNames)).append(")");
+        sb.append(Joiner.on(", ").join(partitionNames.getPartitionNames())).append(")");
         sb.append(" WITH TEMPORARY PARTITION(");
-        sb.append(Joiner.on(", ").join(tempPartitionNames)).append(")");
+        sb.append(Joiner.on(", ").join(tempPartitionNames.getPartitionNames())).append(")");
         return sb.toString();
     }
 

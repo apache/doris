@@ -75,7 +75,6 @@ public class BDBJournalCursor implements JournalCursor {
             if (fromKey >= db) {
                 dbName = Long.toString(db);
                 nextDbPositionIndex++;
-                continue;
             } else {
                 break;
             }
@@ -94,7 +93,7 @@ public class BDBJournalCursor implements JournalCursor {
         if (currentKey > toKey) {
             return ret;
         }
-        Long key = new Long(currentKey);
+        Long key = currentKey;
         DatabaseEntry theKey = new DatabaseEntry();
         TupleBinding<Long> myBinding = TupleBinding.getPrimitiveBinding(Long.class);
         myBinding.objectToEntry(key, theKey);
@@ -124,12 +123,10 @@ public class BDBJournalCursor implements JournalCursor {
                     database = environment.openDatabase(dbNames.get(nextDbPositionIndex).toString());
                     nextDbPositionIndex++;
                     tryTimes = 0;
-                    continue;
                 } else if (tryTimes < maxTryTime) {
                     tryTimes++;
                     LOG.warn("fail to get journal {}, will try again. status: {}", currentKey, operationStatus);
                     Thread.sleep(3000);
-                    continue;
                 } else if (operationStatus == OperationStatus.NOTFOUND) {
                     // In the case:
                     // On non-master FE, the replayer will first get the max journal id,
@@ -143,7 +140,7 @@ public class BDBJournalCursor implements JournalCursor {
                     throw new Exception(
                             "Failed to find key " + currentKey + " in database " + database.getDatabaseName());
                 } else {
-                    LOG.error("fail to get journal {}, status: {}, will exit", currentKey);
+                    LOG.error("fail to get journal {}, status: {}, will exit", currentKey, operationStatus);
                     System.exit(-1);
                 }
             }

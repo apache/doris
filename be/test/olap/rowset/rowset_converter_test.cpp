@@ -36,6 +36,7 @@
 #include "olap/data_dir.h"
 #include "olap/storage_engine.h"
 #include "olap/olap_cond.h"
+#include "runtime/exec_env.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -49,6 +50,7 @@ using std::string;
 namespace doris {
 
 static const uint32_t MAX_PATH_LEN = 1024;
+StorageEngine* k_engine = nullptr;
 
 void create_rowset_writer_context(TabletSchema* tablet_schema, RowsetTypePB dst_type,
         RowsetWriterContext* rowset_writer_context) {
@@ -156,6 +158,14 @@ public:
         ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
         std::vector<StorePath> paths;
         paths.emplace_back(config::storage_root_path, -1);
+
+        doris::EngineOptions options;
+        options.store_paths = paths;
+        doris::StorageEngine::open(options, &k_engine);
+
+        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_storage_engine(k_engine);
+
         std::string data_path = config::storage_root_path + "/data";
         ASSERT_TRUE(FileUtils::create_dir(data_path).ok());
         std::string shard_path = data_path + "/0";

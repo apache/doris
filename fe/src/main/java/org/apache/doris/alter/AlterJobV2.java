@@ -117,7 +117,7 @@ public abstract class AlterJobV2 implements Writable {
     }
 
     public boolean isExpire() {
-       return (System.currentTimeMillis() - finishedTimeMs) / 1000 > Config.history_job_keep_max_second;
+        return isDone() && (System.currentTimeMillis() - finishedTimeMs) / 1000 > Config.history_job_keep_max_second;
     }
 
     public boolean isDone() {
@@ -168,11 +168,6 @@ public abstract class AlterJobV2 implements Writable {
             return cancelImpl(errMsg);
         }
     }
-
-    /**
-     * clear some date structure in this job to save memory
-     */
-    public abstract void clear();
 
     /**
     * should be call before executing the job.

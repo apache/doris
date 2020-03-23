@@ -131,12 +131,6 @@ public class RollupJobV2 extends AlterJobV2 {
         this.storageFormat = storageFormat;
     }
 
-    @Override
-    public void clear() {
-        partitionIdToBaseRollupTabletIdMap = null;
-        partitionIdToRollupIndex = null;
-    }
-
     /*
      * runPendingJob():
      * 1. Create all rollup replicas and wait them finished.

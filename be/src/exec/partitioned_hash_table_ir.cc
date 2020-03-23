@@ -18,12 +18,17 @@
 #ifdef IR_COMPILE
 #include "exec/partitioned_hash_table.h"
 
-namespace doris {
+using namespace doris;
 
-uint32_t PartitionedHashTableCtx::get_hash_seed() const {
-    return _seeds[_level];
+uint32_t PartitionedHashTableCtx::GetHashSeed() const { return seeds_[level_]; }
+
+ExprContext* const* PartitionedHashTableCtx::build_expr_evals() const {
+  return build_expr_evals_.data();
 }
 
-} // end namespace doris
+ExprContext* const* PartitionedHashTableCtx::probe_expr_evals() const {
+  return probe_expr_evals_.data();
+}
 
 #endif
+

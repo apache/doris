@@ -173,7 +173,7 @@ public class ShowMetaInfoAction extends RestBaseAction {
 
                 OlapTable olapTable = (OlapTable) table;
                 long tableSize = 0;
-                for (Partition partition : olapTable.getPartitions()) {
+                for (Partition partition : olapTable.getAllPartitions()) {
                     long partitionSize = 0;
                     for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         long indexSize = 0;

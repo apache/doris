@@ -19,7 +19,6 @@ package org.apache.doris.planner;
 
 
 import org.apache.doris.analysis.CreateDbStmt;
-import org.apache.doris.analysis.CreateDbStmtTest;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
@@ -30,7 +29,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.codehaus.jackson.map.ser.StdSerializers;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -307,6 +305,10 @@ public class QueryPlanTest {
         Assert.assertEquals(2, stmts.size());
         
         sql = "SHOW VARIABLES LIKE 'lower_case_%';;;";
+        stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
+        Assert.assertEquals(1, stmts.size());
+        
+        sql = "SHOW VARIABLES LIKE 'lower_case_%';;;SHOW VARIABLES LIKE 'lower_case_%';";
         stmts = UtFrameUtils.parseAndAnalyzeStmts(sql, connectContext);
         Assert.assertEquals(4, stmts.size());
 

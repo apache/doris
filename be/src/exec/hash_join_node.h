@@ -88,6 +88,7 @@ private:
     bool _match_all_probe;  // output all rows coming from the probe input
     bool _match_one_build;  // match at most one build row to each probe row
     bool _match_all_build;  // output all rows coming from the build input
+    bool _build_unique;     // build a hash table without duplicated rows
 
     bool _matched_probe;  // if true, we have matched the current probe row
     bool _eos;  // if true, nothing left to return in get_next()

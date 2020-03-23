@@ -259,7 +259,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
         ColumnSeparator columnSeparator = null;
         ImportColumnsStmt importColumnsStmt = null;
         ImportWhereStmt importWhereStmt = null;
-        List<String> partitionNames = null;
+        PartitionNames partitionNames = null;
         for (ParseNode parseNode : loadPropertyList) {
             if (parseNode instanceof ColumnSeparator) {
                 // check column separator
@@ -285,9 +285,8 @@ public class CreateRoutineLoadStmt extends DdlStmt {
                 if (partitionNames != null) {
                     throw new AnalysisException("repeat setting of partition names");
                 }
-                PartitionNames partitionNamesNode = (PartitionNames) parseNode;
-                partitionNamesNode.analyze(null);
-                partitionNames = partitionNamesNode.getPartitionNames();
+                partitionNames = (PartitionNames) parseNode;
+                partitionNames.analyze(null);
             }
         }
         routineLoadDesc = new RoutineLoadDesc(columnSeparator, importColumnsStmt, importWhereStmt,
