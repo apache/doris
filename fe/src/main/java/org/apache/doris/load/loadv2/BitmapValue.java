@@ -17,6 +17,8 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.roaringbitmap.Util;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -24,7 +26,11 @@ import java.io.IOException;
 /**
  *
  *  doris's own java version bitmap
- *  Keep compatibility with doris be's bitmap_value.h
+ *  try to keep compatibility with doris be's bitmap_value.h,but still has some difference from bitmap_value.h
+ *  major difference from be:
+ *      1. java bitmap support integer range [0, Long.MAX],while be's bitmap support range [0, Long.MAX * 2]
+ *          Now Long.MAX_VALUE is enough for doris's spark load and support unsigned integer in java need to pay more
+ *      2. getSizeInBytes method is different from fe to be, details description see method comment
  */
 public class BitmapValue {
 
@@ -45,29 +51,8 @@ public class BitmapValue {
         bitmapType = EMPTY;
     }
 
-    public void add(int value){
-        switch (bitmapType) {
-            case EMPTY:
-                singleValue = value;
-                bitmapType = SINGLE_VALUE;
-                break;
-            case SINGLE_VALUE:
-                if (this.singleValue != value) {
-                    bitmap = new Roaring64Map();
-                    bitmap.add(value);
-                    // if singvalue is 32-bit enough,need to cast it to int and write to container at position 0 directly
-                    if (isLongValue32bitEnough(singleValue)) {
-                        bitmap.add((int)singleValue);
-                    } else {
-                        bitmap.add(singleValue);
-                    }
-                    bitmapType = BITMAP_VALUE;
-                }
-                break;
-            case BITMAP_VALUE:
-                bitmap.add(value);
-                break;
-        }
+    public void add(int value) {
+        add(Util.toUnsignedLong(value));
     }
 
     public void add(long value) {
@@ -85,9 +70,13 @@ public class BitmapValue {
                 }
                 break;
             case BITMAP_VALUE:
-                bitmap.add(value);
+                bitmap.addLong(value);
                 break;
         }
+    }
+
+    public boolean contains(int value) {
+        return contains(Util.toUnsignedLong(value));
     }
 
     public boolean contains(long value) {
@@ -97,11 +86,7 @@ public class BitmapValue {
             case SINGLE_VALUE:
                 return singleValue == value;
             case BITMAP_VALUE:
-                if (isLongValue32bitEnough(value)) {
-                    return bitmap.contains((int)value);
-                } else {
-                    return bitmap.contains(value);
-                }
+                return bitmap.contains(value);
             default:
                 return false;
         }
@@ -147,7 +132,7 @@ public class BitmapValue {
             case EMPTY:
                 break;
             case SINGLE32:
-                singleValue = input.readInt();
+                singleValue = Util.toUnsignedLong(input.readInt());
                 this.bitmapType = SINGLE_VALUE;
                 break;
             case SINGLE64:
@@ -301,6 +286,14 @@ public class BitmapValue {
         return ret;
     }
 
+    /**
+     *  usage note:
+     *      now getSizeInBytes is different from be' impl
+     *      The reason is that java's roaring didn't implement method #shrinkToFit but be's getSizeInBytes need it
+     *      Implementing java's shrinkToFit means refactor roaring whose fields are all unaccess in Doris Fe's package
+     *      That would be an another big project
+     */
+    // TODO(wb): keep getSizeInBytes consistent with be and refactor roaring
     public long getSizeInBytes() {
         long size = 0;
         switch (bitmapType) {
@@ -308,14 +301,14 @@ public class BitmapValue {
                 size = 1;
                 break;
             case SINGLE_VALUE:
-                if (singleValue <= Integer.MAX_VALUE) {
-                    size = 4;
+                if (isLongValue32bitEnough(singleValue)) {
+                    size = 1 + 4;
                 } else {
-                    size = 8;
+                    size = 1 + 8;
                 }
                 break;
             case BITMAP_VALUE:
-                size = bitmap.getSizeInBytes();
+                size = 1 + bitmap.getSizeInBytes();
         }
         return size;
     }
@@ -355,7 +348,7 @@ public class BitmapValue {
     }
 
     private boolean isLongValue32bitEnough(long value) {
-        return value == ((int)value);
+        return value >> 32 == 0;
     }
 
     // just for ut
@@ -365,7 +358,16 @@ public class BitmapValue {
 
     // just for ut
     public boolean is32BitsEnough() {
-        return this.bitmap.is32BitsEnough();
+        switch (bitmapType) {
+            case EMPTY:
+                return true;
+            case SINGLE_VALUE:
+                return isLongValue32bitEnough(singleValue);
+            case BITMAP_VALUE:
+                return bitmap.is32BitsEnough();
+            default:
+                return false;
+        }
     }
 
 

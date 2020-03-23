@@ -309,7 +309,9 @@ public class BitmapValueTest {
 
         // single value
         BitmapValue serializeSingleValueBitmapValue = new BitmapValue();
-        serializeBitmapValue.add(1);
+        // unsigned 32-bit
+        long unsigned32bit = Integer.MAX_VALUE;
+        serializeSingleValueBitmapValue.add(unsigned32bit + 1);
         ByteArrayOutputStream singleValueOutputStream = new ByteArrayOutputStream();
         DataOutput singleValueOutput = new DataOutputStream(singleValueOutputStream);
         serializeSingleValueBitmapValue.serialize(singleValueOutput);
@@ -344,15 +346,14 @@ public class BitmapValueTest {
         BitmapValue bitmapValue = new BitmapValue();
         bitmapValue.add(0);
         bitmapValue.add(2);
-        bitmapValue.add(-2);
         bitmapValue.add(Integer.MAX_VALUE);
-        bitmapValue.add(-Integer.MAX_VALUE);
-        bitmapValue.add((long)1);
+        // unsigned 32-bit
+        long unsigned32bit = Integer.MAX_VALUE;
+        bitmapValue.add(unsigned32bit + 1);
 
         Assert.assertTrue(bitmapValue.is32BitsEnough());
 
         bitmapValue.add(Long.MAX_VALUE);
-        bitmapValue.add(-Long.MAX_VALUE);
         Assert.assertFalse(bitmapValue.is32BitsEnough());
     }
 

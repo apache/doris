@@ -1370,28 +1370,6 @@ public class Roaring64Map {
         return highToBitmap.size() == 1 && highToBitmap.get(0) != null;
     }
 
-    public void add(long value) {
-        addLong(value);
-    }
-
-    public void add(int value) {
-        RoaringBitmap bitmap = (RoaringBitmap) highToBitmap.get(0);
-        if (bitmap == null) {
-            bitmap = (RoaringBitmap) newRoaringBitmap();
-            highToBitmap.put(0, bitmap);
-        }
-        bitmap.add(value);
-    }
-
-    public boolean contains(int value) {
-        RoaringBitmap bitmap = (RoaringBitmap) highToBitmap.get(0);
-        if (bitmap == null) {
-            return false;
-        }
-        return bitmap.contains(value);
-    }
-
-
     /*---------------  method below fetched from org.roaringbitmap.longlong RoaringIntPacking  -----------------------*/
     /**
      *
