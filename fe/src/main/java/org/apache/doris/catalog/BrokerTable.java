@@ -23,11 +23,11 @@ import org.apache.doris.thrift.TBrokerTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 import org.apache.commons.lang.StringEscapeUtils;
-import org.apache.kudu.client.shaded.com.google.common.base.Strings;
-import org.apache.kudu.client.shaded.com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

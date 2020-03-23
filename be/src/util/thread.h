@@ -107,7 +107,7 @@ public:
     const std::string& category() const;
     std::string to_string() const;
 
-    // The current thread of execution, or NULL if the current thread isn't a kudu::Thread.
+    // The current thread of execution, or NULL if the current thread isn't a doris::Thread.
     // This call is signal-safe.
     static Thread* current_thread();
 
@@ -126,7 +126,7 @@ public:
     // Returns the system thread ID (tid on Linux) for the current thread. Note
     // that this is a static method and thus can be used from any thread,
     // including the main thread of the process. This is in contrast to
-    // Thread::tid(), which only works on kudu::Threads.
+    // Thread::tid(), which only works on doris::Threads.
     //
     // Thread::tid() will return the same value, but the value is cached in the
     // Thread object, so will be faster to call.

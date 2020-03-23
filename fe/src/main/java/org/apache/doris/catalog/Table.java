@@ -51,7 +51,6 @@ public class Table extends MetaObject implements Writable {
         SCHEMA,
         INLINE_VIEW,
         VIEW,
-        KUDU,
         BROKER,
         ELASTICSEARCH
     }
@@ -176,8 +175,6 @@ public class Table extends MetaObject implements Writable {
             table = new MysqlTable();
         } else if (type == TableType.VIEW) {
             table = new View();
-        } else if (type == TableType.KUDU) {
-            table = new KuduTable();
         } else if (type == TableType.BROKER) {
             table = new BrokerTable();
         } else if (type == TableType.ELASTICSEARCH) {

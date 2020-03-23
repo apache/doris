@@ -242,7 +242,7 @@ public class Analyzer {
             // expr rewrites can be disabled via a query option. When rewrites are enabled
             // BetweenPredicates should be rewritten first to help trigger other rules.
             rules.add(BetweenToCompoundRule.INSTANCE);
-            // Binary predicates must be rewritten to a canonical form for both Kudu predicate
+            // Binary predicates must be rewritten to a canonical form for both predicate
             // pushdown and Parquet row group pruning based on min/max statistics.
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
