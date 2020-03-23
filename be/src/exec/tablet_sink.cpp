@@ -69,7 +69,7 @@ Status NodeChannel::init(RuntimeState* state) {
     if (_stub == nullptr) {
         LOG(WARNING) << "Get rpc stub failed, host=" << _node_info->host
                      << ", port=" << _node_info->brpc_port;
-        _rpc_error = true;
+        _cancelled = true;
         return Status::InternalError("get rpc stub failed");
     }
 
@@ -122,7 +122,7 @@ Status NodeChannel::open_wait() {
         LOG(WARNING) << "failed to open tablet writer, error="
                      << berror(_open_closure->cntl.ErrorCode())
                      << ", error_text=" << _open_closure->cntl.ErrorText();
-        _rpc_error = true;
+        _cancelled = true;
         return Status::InternalError("failed to open tablet writer");
     }
     Status status(_open_closure->result.status());
@@ -134,7 +134,7 @@ Status NodeChannel::open_wait() {
     // add batch closure
     _add_batch_closure = ReusableClosure<PTabletWriterAddBatchResult>::create();
     _add_batch_closure->addFailedHandler([this]() {
-        _rpc_error = true;
+        _cancelled = true;
         LOG(WARNING) << "NodeChannel add batch req rpc failed, " << print_load_info()
                      << ", node=" << node_info()->host << ":" << node_info()->brpc_port;
     });
@@ -153,7 +153,7 @@ Status NodeChannel::open_wait() {
                         _add_batches_finished = true;
                     }
                 } else {
-                    _rpc_error = true;
+                    _cancelled = true;
                     LOG(WARNING) << "NodeChannel add batch req success but status isn't ok, "
                                  << print_load_info() << ", node=" << node_info()->host << ":"
                                  << node_info()->brpc_port << ", errmsg=" << status.get_error_msg();
@@ -171,9 +171,9 @@ Status NodeChannel::open_wait() {
 
 Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // If add_row() when _eos_is_produced==true, there must be sth wrong, we can only mark this channel as failed.
-    auto st = none_of({_rpc_error, _is_cancelled, _eos_is_produced});
+    auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
-        return st.clone_and_prepend("already stopped, can't add_row. rpc_error/cancelled/eos: ");
+        return st.clone_and_prepend("already stopped, can't add_row. cancelled/eos: ");
     }
 
     // We use OlapTableSink mem_tracker which has the same ancestor of _plan node,
@@ -207,10 +207,10 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
 }
 
 Status NodeChannel::mark_close() {
-    auto st = none_of({_rpc_error, _is_cancelled, _eos_is_produced});
+    auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
         return st.clone_and_prepend(
-                "already stopped, can't mark as closed. rpc_error/cancelled/eos: ");
+                "already stopped, can't mark as closed. cancelled/eos: ");
     }
 
     _cur_add_batch_request.set_eos(true);
@@ -225,14 +225,14 @@ Status NodeChannel::mark_close() {
 }
 
 Status NodeChannel::close_wait(RuntimeState* state) {
-    auto st = none_of({_rpc_error, _is_cancelled, !_eos_is_produced});
+    auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
         return st.clone_and_prepend(
-                "already stopped, skip waiting for close. rpc_error/cancelled/!eos: ");
+                "already stopped, skip waiting for close. cancelled/!eos: ");
     }
 
     // wait for finished, loop interval is difficult to determine, use yield
-    while (!_add_batches_finished && !_rpc_error) {
+    while (!_add_batches_finished && !_cancelled) {
         std::this_thread::yield();
     }
 
@@ -255,7 +255,7 @@ Status NodeChannel::close_wait(RuntimeState* state) {
 void NodeChannel::cancel() {
     // we don't need to wait last rpc finished, cause closure's release/reset will join.
     // But do we need brpc::StartCancel(call_id)?
-    _is_cancelled = true;
+    _cancelled = true;
 
     PTabletWriterCancelRequest request;
     request.set_allocated_id(&_parent->_load_id);
@@ -280,7 +280,7 @@ void NodeChannel::cancel() {
 }
 
 int NodeChannel::try_send_and_fetch_status() {
-    auto st = none_of({_rpc_error, _is_cancelled, _send_finished});
+    auto st = none_of({_cancelled, _send_finished});
     if (!st.ok()) {
         return 0;
     }
