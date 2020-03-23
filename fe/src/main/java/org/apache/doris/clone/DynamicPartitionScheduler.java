@@ -150,7 +150,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
             } catch (AnalysisException e) {
                 // keys.size is always equal to column.size, cannot reach this exception
-                LOG.warn("Keys size is not equal to column size. Error=" + e.getMessage());
+                LOG.warn("Keys size is not equal to column size. Error={}", e.getMessage());
                 continue;
             }
             for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
@@ -211,7 +211,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             reservePartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
         } catch (AnalysisException e) {
             // keys.size is always equal to column.size, cannot reach this exception
-            LOG.warn("Keys size is not equal to column size. Error=" + e.getMessage());
+            LOG.warn("Keys size is not equal to column size. Error={}", e.getMessage());
             return dropPartitionClauses;
         }
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
