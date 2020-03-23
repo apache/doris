@@ -830,11 +830,6 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                 }
                 break;
             }
-            case TYPE_DATE:
-            case TYPE_DATETIME: {
-                DateTimeValue* date_val = (DateTimeValue*)slot;
-                break;
-            }
             case TYPE_HLL: {
                 Slice* hll_val = (Slice*)slot;
                 if (!HyperLogLog::is_valid(*hll_val)) {
