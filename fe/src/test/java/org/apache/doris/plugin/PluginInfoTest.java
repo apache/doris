@@ -31,6 +31,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.DigitalVersion;
+import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.junit.Before;
 import org.junit.Test;
 

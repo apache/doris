@@ -20,6 +20,7 @@ ut_dir
 log
 meta
 fe_plugins/*/target
+fe_plugins/output
 fe/mocked
 
 

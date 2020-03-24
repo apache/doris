@@ -46,6 +46,17 @@ public class PluginInfo extends MetaObject implements Writable {
 
     private static final String DEFAULT_PLUGIN_PROPERTIES = "plugin.properties";
 
+    /**
+     * Describe the type of plugin
+     */
+    public enum PluginType {
+        AUDIT,
+        IMPORT,
+        STORAGE;
+
+        public static int MAX_PLUGIN_SIZE = PluginType.values().length;
+    }
+
     @SerializedName("name")
     protected String name;
 
@@ -71,6 +82,14 @@ public class PluginInfo extends MetaObject implements Writable {
     protected String source;
 
     public PluginInfo() { }
+
+    public PluginInfo(String name, PluginType type, String description) {
+        this.name = name;
+        this.type = type;
+        this.description = description;
+        this.version = DigitalVersion.CURRENT_PLUGIN_VERSION;
+        this.javaVersion = DigitalVersion.JDK_1_8_0;
+    }
 
     public PluginInfo(String name, PluginType type, String description, DigitalVersion version,
                          DigitalVersion javaVersion,

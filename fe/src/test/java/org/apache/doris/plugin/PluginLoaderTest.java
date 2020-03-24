@@ -28,6 +28,7 @@ import java.util.Map;
 import org.apache.commons.io.FileUtils;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DigitalVersion;
+import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -54,7 +55,7 @@ public class PluginLoaderTest {
 
         try {
             PluginLoader util = new DynamicPluginLoader(PluginTestUtil.getTestPathString("source"), pf);
-            ((DynamicPluginLoader) util).tempPath = PluginTestUtil.getTestPath("target");
+            ((DynamicPluginLoader) util).installPath = PluginTestUtil.getTestPath("target");
             ((DynamicPluginLoader) util).movePlugin();
             assertTrue(Files.isDirectory(PluginTestUtil.getTestPath("source/test-plugin")));
             assertTrue(FileUtils.deleteQuietly(PluginTestUtil.getTestFile("source/test-plugin")));

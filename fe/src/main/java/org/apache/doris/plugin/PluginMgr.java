@@ -29,6 +29,8 @@ import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.plugin.PluginLoader.PluginStatus;
+import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -41,41 +43,32 @@ public class PluginMgr implements Writable {
 
     private final Map<String, PluginLoader>[] plugins;
 
-    private String pluginDir;
-
     public PluginMgr() {
-        plugins =  new Map[PluginType.MAX_PLUGIN_SIZE];
+        plugins = new Map[PluginType.MAX_PLUGIN_SIZE];
 
         for (int i = 0; i < PluginType.MAX_PLUGIN_SIZE; i++) {
             plugins[i] = Maps.newConcurrentMap();
         }
-
-        this.pluginDir = Config.plugin_dir;
     }
 
-    /**
-     * Dynamic install plugin thought install statement
-     */
     public PluginInfo installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
         PluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, stmt.getPluginPath());
+        pluginLoader.setStatus(PluginStatus.INSTALLING);
 
         try {
             PluginInfo info = pluginLoader.getPluginInfo();
 
-            if (plugins[info.getTypeId()].containsKey(info.getName())) {
-                throw new UserException("plugin " + info.getName() + " has install.");
+            if (plugins[info.getTypeId()].putIfAbsent(info.getName(), pluginLoader) != null) {
+                pluginLoader.uninstall();
+                throw new UserException("plugin " + info.getName() + " has already been installed.");
             }
 
             // install plugin
             pluginLoader.install();
-
-            if (plugins[info.getTypeId()].putIfAbsent(info.getName(), pluginLoader) != null) {
-                throw new UserException("plugin " + info.getName() + " has install.");
-            }
-
+            pluginLoader.setStatus(PluginStatus.INSTALLED);
             return info;
         } catch (IOException | UserException e) {
-            pluginLoader.uninstall();
+            pluginLoader.setStatus(PluginStatus.ERROR);
             throw e;
         }
     }
@@ -84,14 +77,18 @@ public class PluginMgr implements Writable {
      * Dynamic uninstall plugin
      */
     public PluginInfo uninstallPlugin(String name) throws IOException, UserException {
-        for (PluginType type : PluginType.values()) {
-            if (plugins[type.ordinal()].containsKey(name)) {
-                PluginLoader loader = plugins[type.ordinal()].get(name);
+        for (int i = 0; i < PluginType.MAX_PLUGIN_SIZE; i++) {
+            if (plugins[i].containsKey(name)) {
+                PluginLoader loader = plugins[i].get(name);
 
-                if (null != loader) {
+                if (null != loader && loader.isDynamicPlugin()) {
+                    loader.pluginUninstallValid();
+                    loader.setStatus(PluginStatus.UNINSTALLING);
                     // uninstall plugin
                     loader.uninstall();
-                    plugins[type.ordinal()].remove(name);
+                    plugins[i].remove(name);
+
+                    loader.setStatus(PluginStatus.UNINSTALLED);
                     return loader.getPluginInfo();
                 }
             }
@@ -118,44 +115,51 @@ public class PluginMgr implements Writable {
     }
 
     /**
-     *
-     * Just load dynamic plugin
+     * Load plugin:
+     * - if has already benn installed, return
+     * - if not installed, install
      */
     public void loadDynamicPlugin(PluginInfo info) throws IOException, UserException {
         DynamicPluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, info);
 
         try {
-            // install plugin
-            pluginLoader.reload();
-
             PluginLoader checkLoader = plugins[info.getTypeId()].putIfAbsent(info.getName(), pluginLoader);
 
             if (checkLoader != null) {
                 throw new UserException(
-                        "plugin " + info.getName() + " has install.");
+                        "plugin " + info.getName() + " has already been installed.");
             }
+
+            pluginLoader.setStatus(PluginStatus.INSTALLING);
+            // install plugin
+            pluginLoader.reload();
+            pluginLoader.setStatus(PluginStatus.INSTALLED);
         } catch (IOException | UserException e) {
-            pluginLoader.uninstall();
+            pluginLoader.setStatus(PluginStatus.ERROR);
             throw e;
         }
     }
 
-    public final Plugin getPlugin(String name, PluginType type) {
+    public final Plugin getActivePlugin(String name, PluginType type) {
         PluginLoader loader = plugins[type.ordinal()].get(name);
 
-        if (null != loader) {
+        if (null != loader && loader.getStatus() == PluginStatus.INSTALLED) {
             return loader.getPlugin();
         }
 
         return null;
     }
 
-    public final List<Plugin> getPluginList(PluginType type) {
+    public final List<Plugin> getActivePluginList(PluginType type) {
         Map<String, PluginLoader> m = plugins[type.ordinal()];
 
         List<Plugin> l = Lists.newArrayListWithCapacity(m.size());
 
-        m.values().forEach(d -> l.add(d.getPlugin()));
+        m.values().forEach(d -> {
+            if (d.getStatus() == PluginStatus.INSTALLED) {
+                l.add(d.getPlugin());
+            }
+        });
 
         return Collections.unmodifiableList(l);
     }
@@ -178,13 +182,13 @@ public class PluginMgr implements Writable {
         return list;
     }
 
-    public final List<PluginInfo> getAllPluginInfo() {
-        List<PluginInfo> list = Lists.newArrayList();
+    public final List<PluginLoader> getAllPluginLoader() {
+        List<PluginLoader> list = Lists.newArrayList();
 
         for (Map<String, PluginLoader> map : plugins) {
             map.values().forEach(loader -> {
                 try {
-                    list.add(loader.getPluginInfo());
+                    list.add(loader);
                 } catch (Exception e) {
                     LOG.warn("load plugin from {} failed", loader.source, e);
                 }
@@ -198,8 +202,8 @@ public class PluginMgr implements Writable {
         int size = dis.readInt();
 
         for (int i = 0; i < size; i++) {
-            PluginInfo pluginInfo = PluginInfo.read(dis);
             try {
+                PluginInfo pluginInfo = PluginInfo.read(dis);
                 loadDynamicPlugin(pluginInfo);
             } catch (Exception e) {
                 LOG.warn("load plugin failed.", e);

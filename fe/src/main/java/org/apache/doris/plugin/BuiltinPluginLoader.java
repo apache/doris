@@ -26,11 +26,7 @@ public class BuiltinPluginLoader extends PluginLoader {
     BuiltinPluginLoader(String path, PluginInfo info, Plugin plugin) {
         super(path, info);
         this.plugin = plugin;
-    }
-
-    @Override
-    public boolean isBuiltinPlugin() {
-        return true;
+        this.status = PluginStatus.INSTALLED;
     }
 
     @Override

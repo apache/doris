@@ -38,8 +38,6 @@ import org.apache.logging.log4j.Logger;
 public class DynamicPluginLoader extends PluginLoader {
     private final static Logger LOG = LogManager.getLogger(DynamicPluginLoader.class);
 
-    protected Path tempPath;
-
     protected Path installPath;
 
     DynamicPluginLoader(String pluginPath, String source) {
@@ -49,7 +47,6 @@ public class DynamicPluginLoader extends PluginLoader {
     DynamicPluginLoader(String pluginPath, PluginInfo info) {
         super(pluginPath, info);
         this.installPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());
-        this.tempPath = installPath;
     }
 
     @Override
@@ -67,13 +64,15 @@ public class DynamicPluginLoader extends PluginLoader {
             return pluginInfo;
         }
 
-        // download plugin and extract
-        PluginZip zip = new PluginZip(source);
-        Path target = Files.createTempDirectory(pluginDir, ".install_");
+        if (installPath == null) {
+            // download plugin and extract
+            PluginZip zip = new PluginZip(source);
+            Path target = Files.createTempDirectory(pluginDir, ".install_");
 
-        tempPath = zip.extract(target);
+            installPath = zip.extract(target);
+        }
 
-        pluginInfo = PluginInfo.readFromProperties(tempPath, source);
+        pluginInfo = PluginInfo.readFromProperties(installPath, source);
 
         return pluginInfo;
     }
@@ -99,8 +98,11 @@ public class DynamicPluginLoader extends PluginLoader {
 
     private boolean hasInstalled() {
         // check already install
-        if (pluginInfo != null && installPath != null && Files.exists(installPath)) {
-            return true;
+        if (pluginInfo != null) {
+            Path targetPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());
+            if (Files.exists(targetPath)) {
+                return true;
+            }
         }
 
         return false;
@@ -119,15 +121,10 @@ public class DynamicPluginLoader extends PluginLoader {
                 && Files.isSameFile(installPath.getParent(), pluginDir)) {
             FileUtils.deleteQuietly(installPath.toFile());
         }
-
-        if (null != tempPath && Files.exists(tempPath)) {
-            FileUtils.deleteQuietly(tempPath.toFile());
-        }
     }
 
     /**
-     * reload plugin if plugin has install, else will re-install
-     *
+     * reload plugin if plugin has already been installed, else will re-install
      */
     public void reload() throws IOException, UserException {
         if (hasInstalled()) {
@@ -139,7 +136,6 @@ public class DynamicPluginLoader extends PluginLoader {
             // re-install
             this.pluginInfo = null;
             this.installPath = null;
-            this.tempPath = null;
 
             install();
         }
@@ -206,24 +202,23 @@ public class DynamicPluginLoader extends PluginLoader {
      */
     Path movePlugin() throws UserException, IOException {
 
-        if (tempPath == null || !Files.exists(tempPath)) {
-            throw new UserException("Install plugin " + pluginInfo.getName() + " failed, cause install path isn't "
+        if (installPath == null || !Files.exists(installPath)) {
+            throw new UserException("Install plugin " + pluginInfo.getName() + " failed, because install path isn't "
                     + "exists.");
         }
 
         Path targetPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());
         if (Files.exists(targetPath)) {
-            if (!Files.isSameFile(tempPath, targetPath)) {
+            if (!Files.isSameFile(installPath, targetPath)) {
                 throw new UserException(
-                        "Install plugin " + pluginInfo.getName() + " failed. cause " + tempPath.toString()
+                        "Install plugin " + pluginInfo.getName() + " failed. because " + installPath.toString()
                                 + " exists");
             }
         } else {
-            Files.move(tempPath, targetPath, StandardCopyOption.ATOMIC_MOVE);
+            Files.move(installPath, targetPath, StandardCopyOption.ATOMIC_MOVE);
         }
 
         // move success
-        tempPath = null;
         installPath = targetPath;
 
         return installPath;

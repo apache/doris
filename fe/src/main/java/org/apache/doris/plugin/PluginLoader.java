@@ -25,6 +25,15 @@ import java.util.Objects;
 import org.apache.doris.common.UserException;
 
 public abstract class PluginLoader {
+
+    public enum PluginStatus {
+        INSTALLING,
+        INSTALLED,
+        UNINSTALLING,
+        UNINSTALLED,
+        ERROR,
+    }
+
     protected final Path pluginDir;
 
     protected String source;
@@ -35,11 +44,14 @@ public abstract class PluginLoader {
 
     protected PluginContext pluginContext;
 
+    protected PluginStatus status;
+
     protected PluginLoader(String path, String source) {
         this.pluginDir = FileSystems.getDefault().getPath(path);
         this.source = source;
         this.plugin = null;
         this.pluginInfo = null;
+        this.pluginContext = new PluginContext();
     }
 
     protected PluginLoader(String path, PluginInfo info) {
@@ -47,15 +59,12 @@ public abstract class PluginLoader {
         this.source = info.getSource();
         this.plugin = null;
         this.pluginInfo = info;
+        this.pluginContext = new PluginContext();
     }
 
     public abstract void install() throws UserException, IOException;
 
     public abstract void uninstall() throws IOException, UserException;
-
-    public boolean isBuiltinPlugin() {
-        return false;
-    }
 
     public boolean isDynamicPlugin() {
         return false;
@@ -69,11 +78,19 @@ public abstract class PluginLoader {
         return plugin;
     }
 
-    protected void pluginInstallValid() throws UserException {
+    public void setStatus(PluginStatus status) {
+        this.status = status;
+    }
+
+    public PluginStatus getStatus() {
+        return status;
+    }
+
+    public void pluginInstallValid() throws UserException {
 
     }
 
-    protected void pluginUninstallValid() throws UserException {
+    public void pluginUninstallValid() throws UserException {
         // check plugin flags
         if ((plugin.flags() & Plugin.PLUGIN_NOT_DYNAMIC_UNINSTALL) > 0) {
             throw new UserException("plugin " + pluginInfo + " not allow dynamic uninstall");
