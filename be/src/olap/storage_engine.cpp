@@ -33,6 +33,7 @@
 #include <rapidjson/document.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "env/env.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/lru_cache.h"

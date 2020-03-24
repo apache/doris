@@ -23,7 +23,6 @@
 #include "olap/fs/fs_util.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_io.h"
-#include "util/file_manager.h"
 
 namespace doris {
 namespace segment_v2 {

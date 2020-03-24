@@ -30,8 +30,6 @@
 #include "olap/rowset/segment_v2/parsed_page.h"
 #include "util/block_compression.h"
 #include "util/slice.h"
-#include "util/file_cache.h"
-#include "util/file_manager.h"
 
 namespace doris {
 

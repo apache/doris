@@ -126,7 +126,6 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
 Status SegmentIterator::_init() {
     DorisMetrics::segment_read_total.increment(1);
     // get file handle from file descriptor of segment
-    // RETURN_IF_ERROR(FileManager::instance()->open_file(_segment->_fname, &_file_handle));
     fs::BlockManager* block_mgr = fs::fs_util::block_manager();
     RETURN_IF_ERROR(block_mgr->open_block(_segment->_fname, &_rblock));
     _row_bitmap.addRange(0, _segment->num_rows());

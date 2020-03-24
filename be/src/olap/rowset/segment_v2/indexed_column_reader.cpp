@@ -21,7 +21,6 @@
 #include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
 #include "olap/rowset/segment_v2/page_io.h"
-#include "util/file_manager.h"
 
 namespace doris {
 namespace segment_v2 {

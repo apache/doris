@@ -28,7 +28,6 @@
 #include "util/slice.h" // Slice
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
-#include "util/file_manager.h"
 
 namespace doris {
 namespace segment_v2 {
