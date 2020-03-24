@@ -30,7 +30,6 @@ import org.apache.doris.analysis.AdminCheckTabletsStmt;
 import org.apache.doris.analysis.AdminCheckTabletsStmt.CheckType;
 import org.apache.doris.analysis.AdminSetConfigStmt;
 import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
