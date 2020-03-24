@@ -228,7 +228,6 @@ public class StmtRewriter {
             rightExpr.analyze(analyzer);
             smap.put(leftExpr, rightExpr);
         }
-        havingClause.reset();
         Expr newWherePredicate = havingClause.substitute(smap, analyzer, false);
         LOG.debug("Having predicate is changed to " + newWherePredicate.toSql());
         ArrayList<OrderByElement> newOrderByElements = null;
