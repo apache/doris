@@ -22,8 +22,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Queues;
 
-import org.apache.kudu.client.shaded.com.google.common.collect.Queues;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 

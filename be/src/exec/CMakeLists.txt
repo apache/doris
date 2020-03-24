@@ -109,14 +109,6 @@ if (WITH_LZO)
     )
 endif()
 
-if(EXISTS "${BASE_DIR}/src/exec/kudu_util.cpp")
-    set(EXEC_FILES ${EXEC_FILES}
-        #kudu_scan_node.cpp
-        #kudu_scanner.cpp
-        #kudu_util.cpp
-    )
-endif()
-
 add_library(Exec STATIC
     ${EXEC_FILES}
 )

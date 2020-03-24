@@ -196,7 +196,6 @@ public class ExportStmt extends StatementBase {
                 case OLAP:
                     break;
                 case BROKER:
-                case KUDU:
                 case SCHEMA:
                 case INLINE_VIEW:
                 case VIEW:

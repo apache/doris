@@ -39,4 +39,4 @@ string BlockId::join_strings(const vector<BlockId>& blocks) {
     return ::JoinStrings(strings, ",");
 }
 
-} // namespace kudu
+} // namespace doris
