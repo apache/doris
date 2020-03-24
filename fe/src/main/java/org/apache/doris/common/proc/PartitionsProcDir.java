@@ -51,10 +51,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 
@@ -209,18 +209,23 @@ public class PartitionsProcDir implements ProcDirInterface {
         List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
         db.readLock();
         try {
-            Set<String> partitionsNames;
-            if (isTempPartition) {
-                partitionsNames = olapTable.getAllTempPartitions().stream().map(p -> p.getName()).collect(Collectors.toSet());
+            List<Long> partitionIds;
+            PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
+
+            // for range partitions, we return partitions in ascending range order by default.
+            // this is to be consistent with the behaviour before 0.12
+            if (tblPartitionInfo.getType() == PartitionType.RANGE) {
+                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) tblPartitionInfo;
+                partitionIds = rangePartitionInfo.getSortedRangeMap(isTempPartition).stream()
+                        .map(Map.Entry::getKey).collect(Collectors.toList());
             } else {
-                partitionsNames = olapTable.getPartitions().stream().map(p -> p.getName()).collect(Collectors.toSet());
+                Collection<Partition> partitions = isTempPartition ? olapTable.getTempPartitions() : olapTable.getPartitions();
+                partitionIds = partitions.stream().map(Partition::getId).collect(Collectors.toList());
             }
 
             Joiner joiner = Joiner.on(", ");
-            PartitionInfo tblPartitionInfo = olapTable.getPartitionInfo();
-            for (String partName : partitionsNames) {
-                Partition partition = olapTable.getPartition(partName, isTempPartition);
-                long partitionId = partition.getId();
+            for (Long partitionId : partitionIds) {
+                Partition partition = olapTable.getPartition(partitionId);
 
                 List<Comparable> partitionInfo = new ArrayList<Comparable>();
                 String partitionName = partition.getName();
