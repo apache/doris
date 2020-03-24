@@ -30,6 +30,7 @@ namespace doris {
 
 class BlockId;
 class Env;
+class FileCache;
 class MemTracker;
 class RandomAccessFile;
 
@@ -112,6 +113,9 @@ private:
     std::unique_ptr<MemTracker> _mem_tracker;
 
     // DISALLOW_COPY_AND_ASSIGN(FileBlockManager);
+
+    // Underlying cache instance. Caches opened files.
+    std::unique_ptr<FileCache<RandomAccessFile>> _file_cache;
 };
 
 } // namespace fs

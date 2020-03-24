@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/config.h"
 #include "env/env.h"
 #include "env/env_util.h"
 #include "gutil/strings/substitute.h"
@@ -32,6 +33,7 @@
 #include "olap/fs/block_manager_metrics.h"
 #include "runtime/mem_tracker.h"
 #include "util/doris_metrics.h"
+#include "util/file_cache.h"
 #include "util/metrics.h"
 #include "util/path_util.h"
 #include "util/slice.h"
@@ -379,6 +381,8 @@ FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts) :
     if (_opts.enable_metric) {
         _metrics.reset(new internal::BlockManagerMetrics());
     }
+
+    _file_cache = new FileCache<RandomAccessFile>("Readable file cache", config::file_descriptor_cache_capacity);
 }
 
 FileBlockManager::~FileBlockManager() {
