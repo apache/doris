@@ -312,7 +312,7 @@ enum TTableType {
     MYSQL_TABLE,
     OLAP_TABLE,
     SCHEMA_TABLE,
-    KUDU_TABLE,
+    KUDU_TABLE, // Deprecated
     BROKER_TABLE,
     ES_TABLE
 }

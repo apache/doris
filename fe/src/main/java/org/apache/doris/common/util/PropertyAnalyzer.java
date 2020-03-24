@@ -27,7 +27,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
@@ -62,8 +61,6 @@ public class PropertyAnalyzer {
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
     
-    public static final String PROPERTIES_KUDU_MASTER_ADDRS = "kudu_master_addrs";
-
     public static final String PROPERTIES_COLUMN_SEPARATOR = "column_separator";
     public static final String PROPERTIES_LINE_DELIMITER = "line_delimiter";
 
@@ -337,30 +334,6 @@ public class PropertyAnalyzer {
         }
 
         return bfFpp;
-    }
-
-    public static String analyzeKuduMasterAddr(Map<String, String> properties, String kuduMasterAddr)
-            throws AnalysisException {
-        String returnAddr = kuduMasterAddr;
-        if (properties != null && properties.containsKey(PROPERTIES_KUDU_MASTER_ADDRS)) {
-            String addrsStr = properties.get(PROPERTIES_KUDU_MASTER_ADDRS);
-            String[] addrArr = addrsStr.split(",");
-            if (addrArr.length == 0) {
-                throw new AnalysisException("Kudu master address is set empty");
-            }
-
-            returnAddr = "";
-            for (int i = 0; i < addrArr.length; i++) {
-                Pair<String, Integer> hostPort = SystemInfoService.validateHostAndPort(addrArr[i]);
-                returnAddr += hostPort.first + ":" + hostPort.second + ",";
-            }
-            // remove last comma
-            returnAddr = returnAddr.substring(0, returnAddr.length() - 1);
-
-            properties.remove(PROPERTIES_KUDU_MASTER_ADDRS);
-        }
-
-        return returnAddr;
     }
 
     public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {

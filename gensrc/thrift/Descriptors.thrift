@@ -215,45 +215,6 @@ struct TMySQLTable {
   6: required string table
 }
 
-// Parameters needed for hash partitioning
-struct TKuduPartitionByHashParam {
-  1: required list<string> columns
-  2: required i32 num_partitions
-}
-
-struct TKuduRangePartition {
-  1: optional list<Exprs.TExpr> lower_bound_values
-  2: optional bool is_lower_bound_inclusive
-  3: optional list<Exprs.TExpr> upper_bound_values
-  4: optional bool is_upper_bound_inclusive
-}
-
-// A range partitioning is identified by a list of columns and a list of range partitions.
-struct TKuduPartitionByRangeParam {
-  1: required list<string> columns
-  2: optional list<TKuduRangePartition> range_partitions
-}
-
-// Parameters for the PARTITION BY clause.
-struct TKuduPartitionParam {
-  1: optional TKuduPartitionByHashParam by_hash_param;
-  2: optional TKuduPartitionByRangeParam by_range_param;
-}
-
-// Represents a Kudu table
-struct TKuduTable {
-  1: required string table_name
-
-  // Network address of a master host in the form of 0.0.0.0:port
-  2: required list<string> master_addresses
-
-  // Name of the key columns
-  3: required list<string> key_columns
-
-  // Partitioning
-  4: required list<TKuduPartitionParam> partition_by
-}
-
 struct TEsTable {
 }
 
@@ -279,7 +240,6 @@ struct TTableDescriptor {
   10: optional TMySQLTable mysqlTable
   11: optional TOlapTable olapTable
   12: optional TSchemaTable schemaTable
-  13: optional TKuduTable kuduTable
   14: optional TBrokerTable BrokerTable
   15: optional TEsTable esTable
 }

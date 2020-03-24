@@ -40,7 +40,7 @@ enum TPlanNodeType {
   META_SCAN_NODE,
   ANALYTIC_EVAL_NODE,
   OLAP_REWRITE_NODE,
-  KUDU_SCAN_NODE,
+  KUDU_SCAN_NODE, // Deprecated
   BROKER_SCAN_NODE,
   EMPTY_SET_NODE, 
   UNION_NODE,
@@ -181,7 +181,7 @@ struct TEsScanRange {
 struct TScanRange {
   // one of these must be set for every TScanRange2
   4: optional TPaloScanRange palo_scan_range
-  5: optional binary kudu_scan_token
+  5: optional binary kudu_scan_token // Decrepated
   6: optional TBrokerScanRange broker_scan_range
   7: optional TEsScanRange es_scan_range
 }
@@ -589,10 +589,6 @@ struct TOlapRewriteNode {
     3: required Types.TTupleId output_tuple_id
 }
 
-struct TKuduScanNode {
-  1: required Types.TTupleId tuple_id
-}
-
 // This contains all of the information computed by the plan as part of the resource
 // profile that is needed by the backend to execute.
 struct TBackendResourceProfile {
@@ -650,7 +646,6 @@ struct TPlanNode {
   24: optional TMetaScanNode meta_scan_node
   25: optional TAnalyticNode analytic_node
   26: optional TOlapRewriteNode olap_rewrite_node
-  27: optional TKuduScanNode kudu_scan_node
   28: optional TUnionNode union_node
   29: optional TBackendResourceProfile resource_profile
   30: optional TEsScanNode es_scan_node
