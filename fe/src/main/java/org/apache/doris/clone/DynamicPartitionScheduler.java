@@ -40,6 +40,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.TimeUtils;
 
 import com.google.common.collect.Maps;
@@ -152,7 +153,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 LOG.warn("Keys size is not equal to column size. Error={}", e.getMessage());
                 continue;
             }
-            for (Range<PartitionKey> partitionKeyRange : info.getIdToRange().values()) {
+            for (Range<PartitionKey> partitionKeyRange : info.getIdToRange(false).values()) {
                 // only support single column partition now
                 try {
                     RangeUtils.checkRangeIntersect(partitionKeyRange, addPartitionKeyRange);
@@ -215,7 +216,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         }
         RangePartitionInfo info = (RangePartitionInfo) (olapTable.getPartitionInfo());
 
-        List<Map.Entry<Long, Range<PartitionKey>>> idToRanges = new ArrayList<>(info.getIdToRange().entrySet());
+        List<Map.Entry<Long, Range<PartitionKey>>> idToRanges = new ArrayList<>(info.getIdToRange(false).entrySet());
         idToRanges.sort(Comparator.comparing(o -> o.getValue().upperEndpoint()));
         for (Map.Entry<Long, Range<PartitionKey>> idToRange : idToRanges) {
             try {
