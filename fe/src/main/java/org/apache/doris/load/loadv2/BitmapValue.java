@@ -43,6 +43,8 @@ public class BitmapValue {
     public static final int SINGLE_VALUE = 1;
     public static final int BITMAP_VALUE = 2;
 
+    public static final long UNSIGNED_32BIT_INT_MAX_VALUE = 4294967295L;
+
     private int bitmapType;
     private long singleValue;
     private Roaring64Map bitmap;
@@ -152,39 +154,36 @@ public class BitmapValue {
 
     // In-place bitwise AND (intersection) operation. The current bitmap is modified.
     public void and(BitmapValue other) {
-        switch (bitmapType) {
+        switch (other.bitmapType) {
             case EMPTY:
+                clear();
                 break;
             case SINGLE_VALUE:
-                switch (other.bitmapType) {
+                switch (this.bitmapType) {
                     case EMPTY:
-                        clear();
                         break;
                     case SINGLE_VALUE:
-                        if (this.singleValue == other.singleValue) {
-                            break;
+                        if (this.singleValue != other.singleValue) {
+                            clear();
                         }
-                        clear();
                         break;
                     case BITMAP_VALUE:
-                        if (other.bitmap.contains(singleValue)) {
-                            break;
+                        if (!this.bitmap.contains(other.singleValue)) {
+                            clear();
+                        } else {
+                            clear();
+                            this.singleValue = other.singleValue;
+                            this.bitmapType = SINGLE_VALUE;
                         }
-                        clear();
                         break;
                 }
                 break;
             case BITMAP_VALUE:
-                switch (other.bitmapType) {
+                switch (this.bitmapType) {
                     case EMPTY:
-                        clear();
                         break;
                     case SINGLE_VALUE:
-                        if (this.bitmap.contains(other.singleValue)) {
-                            clear();
-                            this.bitmapType = SINGLE_VALUE;
-                            this.singleValue = other.singleValue;
-                        } else {
+                        if (!other.bitmap.contains(this.singleValue)) {
                             clear();
                         }
                         break;
@@ -199,48 +198,25 @@ public class BitmapValue {
 
     // In-place bitwise OR (union) operation. The current bitmap is modified.
     public void or(BitmapValue other) {
-        switch (bitmapType) {
+        switch (other.bitmapType) {
             case EMPTY:
-                switch (other.bitmapType) {
-                    case EMPTY:
-                        break;
-                    case SINGLE_VALUE:
-                        this.singleValue = other.singleValue;
-                        this.bitmapType = SINGLE_VALUE;
-                        break;
-                    case BITMAP_VALUE:
-                        this.bitmap = other.bitmap;
-                        this.bitmapType = BITMAP_VALUE;
-                        break;
-                }
                 break;
             case SINGLE_VALUE:
-                switch (other.bitmapType) {
+                add(other.singleValue);
+                break;
+            case BITMAP_VALUE:
+                switch (this.bitmapType) {
                     case EMPTY:
-                        break;
-                    case SINGLE_VALUE:
-                        long thisSingleValue = this.singleValue;
-                        clear();
-                        add(thisSingleValue);
-                        add(other.singleValue);
-                        break;
-                    case BITMAP_VALUE:
-                        other.add(this.singleValue);
                         this.bitmap = other.bitmap;
                         this.bitmapType = BITMAP_VALUE;
                         break;
-                }
-                break;
-            case BITMAP_VALUE:
-                switch (other.bitmapType) {
-                    case EMPTY:
-                        break;
                     case SINGLE_VALUE:
-                        this.add(other.singleValue);
+                        this.bitmap = other.bitmap;
+                        this.bitmap.add(this.singleValue);
+                        this.bitmapType = BITMAP_VALUE;
                         break;
                     case BITMAP_VALUE:
                         this.bitmap.or(other.bitmap);
-                        this.bitmapType = BITMAP_VALUE;
                         break;
                 }
                 break;
@@ -249,39 +225,18 @@ public class BitmapValue {
 
     public boolean equals(BitmapValue other) {
         boolean ret = false;
-        switch (bitmapType) {
+        if (this.bitmapType != other.bitmapType) {
+            return false;
+        }
+        switch (other.bitmapType) {
             case EMPTY:
-                switch (other.bitmapType) {
-                    case EMPTY:
-                        ret = true;
-                        break;
-                    case SINGLE_VALUE:
-                    case BITMAP_VALUE:
-                        ret = false;
-                        break;
-                }
+                ret = true;
                 break;
             case SINGLE_VALUE:
-                switch (other.bitmapType) {
-                    case EMPTY:
-                    case BITMAP_VALUE:
-                        break;
-                    case SINGLE_VALUE:
-                        ret = this.singleValue == other.singleValue;
-                        break;
-                }
+                ret = this.singleValue == other.singleValue;
                 break;
             case BITMAP_VALUE:
-                switch (other.bitmapType) {
-                    case EMPTY:
-                    case SINGLE_VALUE:
-                        ret = false;
-                        break;
-                    case BITMAP_VALUE:
-                        ret = bitmap.equals(other.bitmap);
-                        break;
-                }
-                break;
+                ret = bitmap.equals(other.bitmap);
         }
         return ret;
     }
@@ -331,6 +286,7 @@ public class BitmapValue {
 
     public void clear() {
         this.bitmapType = EMPTY;
+        this.singleValue = -1;
         this.bitmap = null;
     }
 
@@ -348,7 +304,7 @@ public class BitmapValue {
     }
 
     private boolean isLongValue32bitEnough(long value) {
-        return value >> 32 == 0;
+        return value <= UNSIGNED_32BIT_INT_MAX_VALUE;
     }
 
     // just for ut
