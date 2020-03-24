@@ -1,1 +1,1 @@
-docs/documentation/en/community/pull-request_EN.md
+docs/documentation/en/community/how-to-contribute_EN.md
