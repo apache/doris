@@ -43,7 +43,6 @@ import java.util.Set;
 public class InsertLoadJob extends LoadJob {
 
     private long tableId;
-
     // only for log replay
     public InsertLoadJob() {
         super();

@@ -222,7 +222,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public long getDbId() {
         return dbId;
     }
-
     public String getLabel() {
         return label;
     }

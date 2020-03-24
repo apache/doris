@@ -121,10 +121,10 @@ public class GlobalTransactionMgr implements Writable {
         return callbackFactory;
     }
 
-    public long beginTransaction(long dbId, String label, String coordinator, LoadJobSourceType sourceType,
+    public long beginTransaction(long dbId, List<Long> tableIdList, String label, String coordinator, LoadJobSourceType sourceType,
             long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
-        return beginTransaction(dbId, label, null, coordinator, sourceType, -1, timeoutSecond);
+        return beginTransaction(dbId, tableIdList, label, null, coordinator, sourceType, -1, timeoutSecond);
     }
     
     /**
@@ -140,7 +140,7 @@ public class GlobalTransactionMgr implements Writable {
      * @throws DuplicatedRequestException
      * @throws IllegalTransactionParameterException
      */
-    public long beginTransaction(long dbId, String label, TUniqueId requestId,
+    public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
             String coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
 
@@ -196,7 +196,7 @@ public class GlobalTransactionMgr implements Writable {
           
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
-            TransactionState transactionState = new TransactionState(dbId, tid, label, requestId, sourceType,
+            TransactionState transactionState = new TransactionState(dbId, tableIdList, tid, label, requestId, sourceType,
                     coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
             unprotectUpsertTransactionState(transactionState);
@@ -802,12 +802,12 @@ public class GlobalTransactionMgr implements Writable {
     }
     
     // check if there exists a load job before the endTransactionId have all finished
-    // load job maybe started but could not know the affected table id, so that we not check by table
-    public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId) {
+    public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList) {
         readLock();
         try {
             for (Map.Entry<Long, TransactionState> entry : idToTransactionState.entrySet()) {
-                if (entry.getValue().getDbId() != dbId || !entry.getValue().isRunning()) {
+                if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
+                        tableIdList) || !entry.getValue().isRunning()) {
                     continue;
                 }
                 if (entry.getKey() <= endTransactionId) {
@@ -820,6 +820,23 @@ public class GlobalTransactionMgr implements Writable {
             readUnlock();
         }
         return true;
+    }
+
+    // check if there exists a intersection between the source tableId list and target tableId list
+    // if one of them is null or empty, we think the two lists have intersection
+    public boolean isIntersectionNotEmpty(List<Long> sourceTableIdList, List<Long> targetTableIdList) {
+        if (sourceTableIdList == null || sourceTableIdList.isEmpty() || targetTableIdList == null ||
+                targetTableIdList.isEmpty()) {
+            return true;
+        }
+        for (int i = 0; i < sourceTableIdList.size(); i++) {
+            for (int j = 0; j < targetTableIdList.size(); j++) {
+                if (sourceTableIdList.get(i).longValue() == targetTableIdList.get(j).longValue()) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
     
     /*
