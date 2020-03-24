@@ -100,6 +100,11 @@ public abstract class QueryStmt extends StatementBase {
     // used by hll
     protected boolean fromInsert = false;
 
+    // order by elements which has been analyzed
+    // For example: select k1 a from t order by a;
+    // this parameter: order by t.k1
+    protected List<OrderByElement> orderByElementsAfterAnalyzed;
+
     /////////////////////////////////////////
     // END: Members that need to be reset()
 
@@ -225,6 +230,14 @@ public abstract class QueryStmt extends StatementBase {
             nullsFirstParams.add(orderByElement.getNullsFirstParam());
         }
         substituteOrdinalsAliases(orderingExprs, "ORDER BY", analyzer);
+
+        // save the order by element after analyzed
+        orderByElementsAfterAnalyzed = Lists.newArrayList();
+        for (int i = 0; i < orderByElements.size(); i++) {
+            OrderByElement orderByElement = new OrderByElement(orderingExprs.get(i), isAscOrder.get(i),
+                    nullsFirstParams.get(i));
+            orderByElementsAfterAnalyzed.add(orderByElement);
+        }
 
         if (!analyzer.isRootAnalyzer() && hasOffset() && !hasLimit()) {
             throw new AnalysisException("Order-by with offset without limit not supported" +
@@ -392,6 +405,10 @@ public abstract class QueryStmt extends StatementBase {
         return orderByElements;
     }
 
+    public List<OrderByElement> getOrderByElementsAfterAnalyzed() {
+        return orderByElementsAfterAnalyzed;
+    }
+
     public void removeOrderByElements() {
         orderByElements = null;
     }
@@ -529,6 +546,7 @@ public abstract class QueryStmt extends StatementBase {
         baseTblResultExprs.clear();
         aliasSMap.clear();
         ambiguousAliasList.clear();
+        orderByElementsAfterAnalyzed = null;
         sortInfo = null;
         evaluateOrderBy = false;
         fromInsert = false;

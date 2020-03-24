@@ -22,7 +22,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
 import org.apache.doris.common.UserException;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Iterables;
@@ -153,17 +152,14 @@ public class StmtRewriter {
      * @param analyzer
      */
     private static SelectStmt rewriteHavingClauseSubqueries(SelectStmt stmt, Analyzer analyzer) throws AnalysisException {
-        // extract having predicate
-        Expr havingPredicate = stmt.getHavingPred();
-        Preconditions.checkState(havingPredicate != null);
-        Preconditions.checkState(havingPredicate.getSubquery() != null);
-        // extract limit
+        // prepare parameters
+        SelectList selectList = stmt.getSelectList();
+        Expr havingClause = stmt.getHavingClauseAfterAnaylzed();
+        List<FunctionCallExpr> aggregateExprs = stmt.getAggInfo().getAggregateExprs();
+        Preconditions.checkState(havingClause != null);
+        Preconditions.checkState(havingClause.getSubquery() != null);
+        List<OrderByElement> orderByElements = stmt.getOrderByElementsAfterAnalyzed();
         long limit = stmt.getLimit();
-        // extract order by element
-        ArrayList<OrderByElement> orderByElements = stmt.getOrderByElements();
-        // extract result of stmt
-        List<Expr> leftExprList = stmt.getResultExprs();
-        // extract table alias generator
         TableAliasGenerator tableAliasGenerator = stmt.getTableAliasGenerator();
 
         /*
@@ -172,6 +168,16 @@ public class StmtRewriter {
          * Query: select cs_item_sk, sum(cs_sales_price) from catalog_sales a group by cs_item_sk having ...;
          * Inline view:
          *     from (select cs_item_sk $ColumnA, sum(cs_sales_price) $ColumnB from catalog_sales a group by cs_item_sk) $TableA
+         *
+         * Add missing aggregation columns in select list
+         * For example:
+         * Query: select cs_item_sk from catalog_sales a group by cs_item_sk having sum(cs_sales_price) > 1
+         * SelectList: select cs_item_sk
+         * AggregateExprs:  sum(cs_sales_price)
+         * Add missing aggregation columns: select cs_item_sk, sum(cs_sales_price)
+         * Inline view:
+         *     from (select cs_item_sk $ColumnA, sum(cs_sales_price) $ColumnB from catalog_sales a group by
+         *     cs_item_sk) $TableA
          */
         SelectStmt inlineViewQuery = (SelectStmt) stmt.clone();
         inlineViewQuery.reset();
@@ -179,6 +185,8 @@ public class StmtRewriter {
         inlineViewQuery.removeHavingClause();
         inlineViewQuery.removeOrderByElements();
         inlineViewQuery.removeLimitElement();
+        // add missing aggregation columns
+        inlineViewQuery.setSelectList(addMissingAggregationColumns(selectList, aggregateExprs));
         // add a new alias for all of columns in subquery
         List<String> colAliasOfInlineView = Lists.newArrayList();
         for (int i = 0; i < inlineViewQuery.getSelectList().getItems().size(); ++i) {
@@ -196,38 +204,50 @@ public class StmtRewriter {
         /*
          * Columns which belong to outer query can substitute for output columns of inline view
          * For example:
-         * Having predicate: sum(cs_sales_price) >
+         * Having clause: sum(cs_sales_price) >
          *                   (select min(cs_sales_price) from catalog_sales b where a.cs_item_sk = b.cs_item_sk);
          * Order by: sum(cs_sales_price), a.cs_item_sk
+         * Select list: cs_item_sk, sum(cs_sales_price)
          * Columns which belong to outer query: sum(cs_sales_price), a.cs_item_sk
          * SMap: <cs_item_sk $ColumnA> <sum(cs_sales_price) $ColumnB>
-         * After substitute: $ColumnB >
+         * After substitute
+         * Having clause: $ColumnB >
          *                   (select min(cs_sales_price) from catalog_sales b where $ColumnA = b.cs_item_sk)
          * Order by: $ColumnB, $ColumnA
+         * Select list: $ColumnA cs_item_sk, $ColumnB sum(cs_sales_price)
          */
         /*
          * Prepare select list of new query.
          * Generate a new select item for each original columns in select list
          */
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
-        SelectList newSelectList = new SelectList();
-        for (int i = 0; i < inlineViewQuery.getSelectList().getItems().size(); i++) {
-            Expr leftExpr = leftExprList.get(i);
+        List<SelectListItem> inlineViewItems = inlineViewQuery.getSelectList().getItems();
+        for (int i = 0; i < inlineViewItems.size(); i++) {
+            Expr leftExpr = inlineViewItems.get(i).getExpr();
             Expr rightExpr = new SlotRef(inlineViewRef.getAliasAsName(), colAliasOfInlineView.get(i));
             rightExpr.analyze(analyzer);
             smap.put(leftExpr, rightExpr);
-            // construct outer query select list
-            SelectListItem selectListItem = new SelectListItem(rightExpr, stmt.getColLabels().get(i));
-            newSelectList.addItem(selectListItem);
         }
-        havingPredicate.reset();
-        Expr newWherePredicate = havingPredicate.substitute(smap, analyzer,false);
+        havingClause.reset();
+        Expr newWherePredicate = havingClause.substitute(smap, analyzer, false);
         LOG.debug("Having predicate is changed to " + newWherePredicate.toSql());
         ArrayList<OrderByElement> newOrderByElements = null;
         if (orderByElements != null) {
-            newOrderByElements = OrderByElement.substitute(orderByElements, smap, analyzer);
-            LOG.debug("Order by is changed to " + Joiner.on(",").join(newOrderByElements));
+            newOrderByElements = Lists.newArrayList();
+            for (OrderByElement orderByElement : orderByElements) {
+                OrderByElement newOrderByElement = new OrderByElement(orderByElement.getExpr().substitute(smap),
+                        orderByElement.getIsAsc(), orderByElement.getNullsFirstParam());
+                newOrderByElements.add(newOrderByElement);
+                LOG.debug("Order by element is changed to " + newOrderByElement.toSql());
+            }
         }
+        List<SelectListItem> newSelectItems = Lists.newArrayList();
+        for (SelectListItem item : selectList.getItems()) {
+            SelectListItem newItem = new SelectListItem(item.getExpr().substitute(smap), item.getAlias());
+            newSelectItems.add(newItem);
+            LOG.debug("New select item is changed to "+ newItem.toString());
+        }
+        SelectList newSelectList = new SelectList(newSelectItems, selectList.isDistinct());
 
         // construct rewritten query
         List<TableRef> newTableRefList = Lists.newArrayList();
@@ -246,6 +266,31 @@ public class StmtRewriter {
         // rewrite where subquery
         result = rewriteSelectStatement(result, analyzer);
         LOG.debug("The final stmt is " + result.toSql());
+        return result;
+    }
+
+    /**
+     * Add missing aggregation columns
+     *
+     * @param selectList:     select a, sum(v1)
+     * @param aggregateExprs: sum(v1), sum(v2)
+     * @return select a, sum(v1), sum(v2)
+     */
+    private static SelectList addMissingAggregationColumns(SelectList selectList,
+            List<FunctionCallExpr> aggregateExprs) {
+        SelectList result = selectList.clone();
+        for (FunctionCallExpr functionCallExpr : aggregateExprs) {
+            boolean columnExists = false;
+            for (SelectListItem selectListItem : result.getItems()) {
+                if (selectListItem.getExpr().equals(functionCallExpr)) {
+                    columnExists = true;
+                }
+            }
+            if (!columnExists) {
+                SelectListItem selectListItem = new SelectListItem(functionCallExpr, null);
+                result.addItem(selectListItem);
+            }
+        }
         return result;
     }
 

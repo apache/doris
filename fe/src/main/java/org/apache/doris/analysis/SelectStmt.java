@@ -95,6 +95,11 @@ public class SelectStmt extends QueryStmt {
     // if we have grouping extensions like cube or rollup or grouping sets
     private GroupingInfo groupingInfo;
 
+    // having clause which has been analyzed
+    // For example: select k1, sum(k2) a from t group by k1 having a>1;
+    // this parameter: having sum(t.k2) > 1
+    private Expr havingClauseAfterAnaylzed;
+
     // END: Members that need to be reset()
     // ///////////////////////////////////////
 
@@ -171,6 +176,7 @@ public class SelectStmt extends QueryStmt {
         if (havingClause != null) {
             havingClause.reset();
         }
+        havingClauseAfterAnaylzed = null;
         havingPred = null;
         aggInfo = null;
         analyticInfo = null;
@@ -194,6 +200,10 @@ public class SelectStmt extends QueryStmt {
         return selectList;
     }
 
+    public void setSelectList(SelectList selectList) {
+        this.selectList = selectList;
+    }
+
     public ValueList getValueList() {
         return valueList;
     }
@@ -203,6 +213,10 @@ public class SelectStmt extends QueryStmt {
      */
     public Expr getHavingPred() {
         return havingPred;
+    }
+
+    public Expr getHavingClauseAfterAnaylzed() {
+        return havingClauseAfterAnaylzed;
     }
 
     public List<TableRef> getTableRefs() {
@@ -869,10 +883,10 @@ public class SelectStmt extends QueryStmt {
              *                     (select min(k1) from table b where a.key=b.k2);
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
-            havingPred = havingClause.substitute(aliasSMap, analyzer, false);
-            havingPred.checkReturnsBool("HAVING clause", true);
+            havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+            havingClauseAfterAnaylzed.checkReturnsBool("HAVING clause", true);
             // can't contain analytic exprs
-            Expr analyticExpr = havingPred.findFirstOf(AnalyticExpr.class);
+            Expr analyticExpr = havingClauseAfterAnaylzed.findFirstOf(AnalyticExpr.class);
             if (analyticExpr != null) {
                 throw new AnalysisException(
                         "HAVING clause must not contain analytic expressions: "
@@ -882,13 +896,13 @@ public class SelectStmt extends QueryStmt {
 
         if (groupByClause == null && !selectList.isDistinct()
                 && !TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
-                && (havingPred == null || !havingPred.contains(Expr.isAggregatePredicate()))
+                && (havingClauseAfterAnaylzed == null || !havingClauseAfterAnaylzed.contains(Expr.isAggregatePredicate()))
                 && (sortInfo == null || !TreeNode.contains(sortInfo.getOrderingExprs(),
                 Expr.isAggregatePredicate()))) {
             // We're not computing aggregates but we still need to register the HAVING
             // clause which could, e.g., contain a constant expression evaluating to false.
-            if (havingPred != null) {
-                analyzer.registerConjuncts(havingPred, true);
+            if (havingClauseAfterAnaylzed != null) {
+                analyzer.registerConjuncts(havingClauseAfterAnaylzed, true);
             }
             return;
         }
@@ -909,7 +923,7 @@ public class SelectStmt extends QueryStmt {
         if (selectList.isDistinct()
                 && (groupByClause != null
                             || TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
-                            || (havingPred != null && havingPred.contains(Expr.isAggregatePredicate())))) {
+                            || (havingClauseAfterAnaylzed != null && havingClauseAfterAnaylzed.contains(Expr.isAggregatePredicate())))) {
             throw new AnalysisException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY");
         }
 
@@ -930,8 +944,8 @@ public class SelectStmt extends QueryStmt {
         // of this statement.
         ArrayList<FunctionCallExpr> aggExprs = Lists.newArrayList();
         TreeNode.collect(resultExprs, Expr.isAggregatePredicate(), aggExprs);
-        if (havingPred != null) {
-            havingPred.collect(Expr.isAggregatePredicate(), aggExprs);
+        if (havingClauseAfterAnaylzed != null) {
+            havingClauseAfterAnaylzed.collect(Expr.isAggregatePredicate(), aggExprs);
         }
         if (sortInfo != null) {
             // TODO: Avoid evaluating aggs in ignored order-bys
@@ -1011,8 +1025,8 @@ public class SelectStmt extends QueryStmt {
         if (LOG.isDebugEnabled()) {
             LOG.debug("post-agg selectListExprs: " + Expr.debugString(resultExprs));
         }
-        if (havingPred != null) {
-            havingPred = havingPred.substitute(combinedSmap, analyzer, false);
+        if (havingClauseAfterAnaylzed != null) {
+            havingPred = havingClauseAfterAnaylzed.substitute(combinedSmap, analyzer, false);
             analyzer.registerConjuncts(havingPred, true, finalAggInfo.getOutputTupleId().asList());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("post-agg havingPred: " + havingPred.debugString());
