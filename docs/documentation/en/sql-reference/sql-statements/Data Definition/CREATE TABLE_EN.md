@@ -67,9 +67,9 @@ Syntax:
             fractional part: 0 ~ 9
             Not support scientific notation
         DATE(3 Bytes)
-            Range: 1900-01-01 ~ 9999-12-31
+            Range: 0000-01-01 ~ 9999-12-31
         DATETIME(8 Bytes)
-            Range: 1900-01-01 00:00:00 ~ 9999-12-31 23:59:59
+            Range: 0000-01-01 00:00:00 ~ 9999-12-31 23:59:59
         CHAR[(length)]
             Fixed length string. Range: 1 ~ 255. Default: 1
         VARCHAR[(length)]
