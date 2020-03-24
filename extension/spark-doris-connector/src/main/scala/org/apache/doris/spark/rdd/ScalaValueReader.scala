@@ -128,11 +128,11 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
   protected val schema: Schema =
     SchemaUtils.convertToSchema(openResult.getSelected_columns)
 
-  protected val asyncThread: Thread = new Thread(new Runnable {
-    override def run(): Unit = {
+  protected val asyncThread: Thread = new Thread {
+    override def run {
       val nextBatchParams = new TScanNextBatchParams
       nextBatchParams.setContext_id(contextId)
-      while(!eos.get) {
+      while (!eos.get) {
         nextBatchParams.setOffset(offset)
         val nextResult = client.getNext(nextBatchParams)
         eos.set(nextResult.isEos)
@@ -144,7 +144,7 @@ class ScalaValueReader(partition: PartitionDefinition, settings: Settings) {
         }
       }
     }
-  })
+  }
 
   protected val asyncThreadStarted: Boolean = {
     var started = false
