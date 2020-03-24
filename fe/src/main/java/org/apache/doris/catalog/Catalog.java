@@ -52,6 +52,7 @@ import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DistributionDesc;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
@@ -59,7 +60,6 @@ import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.LinkDbStmt;
@@ -86,8 +86,6 @@ import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
-import org.apache.doris.catalog.KuduPartition.KuduRange;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -116,7 +114,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
-import org.apache.doris.common.util.KuduUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -221,11 +218,6 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.kudu.ColumnSchema;
-import org.apache.kudu.Schema;
-import org.apache.kudu.client.CreateTableOptions;
-import org.apache.kudu.client.KuduClient;
-import org.apache.kudu.client.KuduException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -2893,9 +2885,6 @@ public class Catalog {
         } else if (engineName.equals("mysql")) {
             createMysqlTable(db, stmt);
             return;
-        } else if (engineName.equals("kudu")) {
-            createKuduTable(db, stmt);
-            return;
         } else if (engineName.equals("broker")) {
             createBrokerTable(db, stmt);
             return;
@@ -3788,91 +3777,6 @@ public class Catalog {
         return esTable;
     }
 
-    private Table createKuduTable(Database db, CreateTableStmt stmt) throws DdlException {
-        String tableName = stmt.getTableName();
-
-        // 1. create kudu schema
-        List<ColumnSchema> kuduColumns = null;
-        List<Column> baseSchema = stmt.getColumns();
-        kuduColumns = KuduUtil.generateKuduColumn(baseSchema);
-        Schema kuduSchema = new Schema(kuduColumns);
-
-        CreateTableOptions kuduCreateOpts = new CreateTableOptions();
-
-        // 2. distribution
-        Preconditions.checkNotNull(stmt.getDistributionDesc());
-        HashDistributionDesc hashDistri = (HashDistributionDesc) stmt.getDistributionDesc();
-        kuduCreateOpts.addHashPartitions(hashDistri.getDistributionColumnNames(), hashDistri.getBuckets());
-        KuduPartition hashPartition = KuduPartition.createHashPartition(hashDistri.getDistributionColumnNames(),
-                hashDistri.getBuckets());
-
-        // 3. partition, if exist
-        KuduPartition rangePartition = null;
-        if (stmt.getPartitionDesc() != null) {
-            RangePartitionDesc rangePartitionDesc = (RangePartitionDesc) stmt.getPartitionDesc();
-            List<KuduRange> kuduRanges = Lists.newArrayList();
-            KuduUtil.setRangePartitionInfo(kuduSchema, rangePartitionDesc, kuduCreateOpts, kuduRanges);
-            rangePartition = KuduPartition.createRangePartition(rangePartitionDesc.getPartitionColNames(), kuduRanges);
-        }
-
-        Map<String, String> properties = stmt.getProperties();
-        // 4. replication num
-        short replicationNum = FeConstants.default_replication_num;
-        try {
-            replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, replicationNum);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        kuduCreateOpts.setNumReplicas(replicationNum);
-
-        // 5. analyze kudu master addr
-        String kuduMasterAddrs = Config.kudu_master_addresses;
-        try {
-            kuduMasterAddrs = PropertyAnalyzer.analyzeKuduMasterAddr(properties, kuduMasterAddrs);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-
-        if (properties != null && !properties.isEmpty()) {
-            // here, all properties should be checked
-            throw new DdlException("Unknown properties: " + properties);
-        }
-
-        // 6. create table
-        LOG.info("create table: {} in kudu with kudu master: [{}]", tableName, kuduMasterAddrs);
-        KuduClient client = new KuduClient.KuduClientBuilder(Config.kudu_master_addresses).build();
-        org.apache.kudu.client.KuduTable table = null;
-        try {
-            client.createTable(tableName, kuduSchema, kuduCreateOpts);
-            table = client.openTable(tableName);
-        } catch (KuduException e) {
-            LOG.warn("failed to create kudu table: {}", tableName, e);
-            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, e.getMessage());
-        }
-
-        // 7. add table to catalog
-        long tableId = getNextId();
-        KuduTable kuduTable = new KuduTable(tableId, baseSchema, table);
-        kuduTable.setRangeParititon(rangePartition);
-        kuduTable.setHashPartition(hashPartition);
-        kuduTable.setMasterAddrs(kuduMasterAddrs);
-        kuduTable.setKuduTableId(table.getTableId());
-
-        if (!db.createTableWithLock(kuduTable, false, stmt.isSetIfNotExists())) {
-            // try to clean the obsolate table
-            try {
-                client.deleteTable(tableName);
-            } catch (KuduException e) {
-                LOG.warn("failed to delete table {} after failed creating table", tableName, e);
-            }
-            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName, "table already exists");
-        }
-
-        LOG.info("successfully create table[{}-{}]", tableName, tableId);
-
-        return kuduTable;
-    }
-
     private void createBrokerTable(Database db, CreateTableStmt stmt) throws DdlException {
         String tableName = stmt.getTableName();
 
@@ -3907,8 +3811,8 @@ public class Catalog {
 
         // 1.2 other table type
         sb.append("CREATE ");
-        if (table.getType() == TableType.KUDU || table.getType() == TableType.MYSQL
-                || table.getType() == TableType.ELASTICSEARCH) {
+        if (table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH
+                || table.getType() == TableType.BROKER) {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
@@ -4304,21 +4208,7 @@ public class Catalog {
             return false;
         }
 
-        if (table.getType() == TableType.KUDU) {
-            KuduTable kuduTable = (KuduTable) table;
-            KuduClient client = KuduUtil.createKuduClient(kuduTable.getMasterAddrs());
-            try {
-                // open the table again to check if it is the same table
-                org.apache.kudu.client.KuduTable kTable = client.openTable(kuduTable.getName());
-                if (!kTable.getTableId().equalsIgnoreCase(kuduTable.getKuduTableId())) {
-                    LOG.warn("kudu table {} is changed before replay. skip it", kuduTable.getName());
-                } else {
-                    client.deleteTable(kuduTable.getName());
-                }
-            } catch (KuduException e) {
-                LOG.warn("failed to delete kudu table {} when replay", kuduTable.getName(), e);
-            }
-        } else if (table.getType() == TableType.ELASTICSEARCH) {
+        if (table.getType() == TableType.ELASTICSEARCH) {
             esStateStore.deRegisterTable(tableId);
         } else if (table.getType() == TableType.OLAP) {
             // drop all temp partitions of this table, so that there is no temp partitions in recycle bin,

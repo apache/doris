@@ -226,12 +226,6 @@ public class Config extends ConfigBase {
     @ConfField public static String priority_networks = "";
 
     /*
-     * Kudu is currently not supported.
-     */
-    @ConfField public static String kudu_master_addresses = "127.0.0.1:8030";
-    @ConfField public static int kudu_client_timeout_ms = 500;
-
-    /*
      * If true, FE will reset bdbje replication group(that is, to remove all electable nodes info)
      * and is supposed to start as Master.
      * If all the electable nodes can not start, we can copy the meta data

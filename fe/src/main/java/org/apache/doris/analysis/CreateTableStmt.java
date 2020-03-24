@@ -31,9 +31,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.KuduUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.external.EsUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -87,7 +85,6 @@ public class CreateTableStmt extends DdlStmt {
         engineNames = Sets.newHashSet();
         engineNames.add("olap");
         engineNames.add("mysql");
-        engineNames.add("kudu");
         engineNames.add("broker");
         engineNames.add("elasticsearch");
     }
@@ -258,54 +255,47 @@ public class CreateTableStmt extends DdlStmt {
 
         // analyze key desc
         if (!(engineName.equals("mysql") || engineName.equals("broker"))) {
-            if (engineName.equals("kudu")) {
-                if (keysDesc == null) {
-                    throw new AnalysisException("create kudu table should contains keys desc");
+            // olap table
+            if (keysDesc == null) {
+                List<String> keysColumnNames = Lists.newArrayList();
+                int keyLength = 0;
+                boolean hasAggregate = false;
+                for (ColumnDef columnDef : columnDefs) {
+                    if (columnDef.getAggregateType() != null) {
+                        hasAggregate = true;
+                        break;
+                    }
                 }
-                KuduUtil.analyzeKeyDesc(keysDesc);
-            } else {
-                // olap table
-                if (keysDesc == null) {
-                    List<String> keysColumnNames = Lists.newArrayList();
-                    int keyLength = 0;
-                    boolean hasAggregate = false;
+                if (hasAggregate) {
                     for (ColumnDef columnDef : columnDefs) {
-                        if (columnDef.getAggregateType() != null) {
-                            hasAggregate = true;
-                            break;
+                        if (columnDef.getAggregateType() == null) {
+                            keysColumnNames.add(columnDef.getName());
                         }
                     }
-                    if (hasAggregate) {
-                        for (ColumnDef columnDef : columnDefs) {
-                            if (columnDef.getAggregateType() == null) {
-                                keysColumnNames.add(columnDef.getName());
-                            }
+                    keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
+                } else {
+                    for (ColumnDef columnDef : columnDefs) {
+                        keyLength += columnDef.getType().getStorageLayoutBytes();
+                        if (keysColumnNames.size() < FeConstants.shortkey_max_column_count
+                                || keyLength < FeConstants.shortkey_maxsize_bytes) {
+                            keysColumnNames.add(columnDef.getName());
                         }
-                        keysDesc = new KeysDesc(KeysType.AGG_KEYS, keysColumnNames);
-                    } else {
-                        for (ColumnDef columnDef : columnDefs) {
-                            keyLength += columnDef.getType().getStorageLayoutBytes();
-                            if (keysColumnNames.size() < FeConstants.shortkey_max_column_count
-                                    || keyLength < FeConstants.shortkey_maxsize_bytes) {
-                                keysColumnNames.add(columnDef.getName());
-                            }
-                        }
-                        keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                     }
+                    keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
+            }
 
-                keysDesc.analyze(columnDefs);
-                for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
-                    columnDefs.get(i).setIsKey(true);
+            keysDesc.analyze(columnDefs);
+            for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
+                columnDefs.get(i).setIsKey(true);
+            }
+            if (keysDesc.getKeysType() != KeysType.AGG_KEYS) {
+                AggregateType type = AggregateType.REPLACE;
+                if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
+                    type = AggregateType.NONE;
                 }
-                if (keysDesc.getKeysType() != KeysType.AGG_KEYS) {
-                    AggregateType type = AggregateType.REPLACE;
-                    if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
-                        type = AggregateType.NONE;
-                    }
-                    for (int i = keysDesc.keysColumnSize(); i < columnDefs.size(); ++i) {
-                        columnDefs.get(i).setAggregateType(type);
-                    }
+                for (int i = keysDesc.keysColumnSize(); i < columnDefs.size(); ++i) {
+                    columnDefs.get(i).setAggregateType(type);
                 }
             }
         } else {
@@ -329,12 +319,7 @@ public class CreateTableStmt extends DdlStmt {
         boolean hasBitmap = false;
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
-            if (engineName.equals("kudu")) {
-                // KuduUtil.analyzeColumn(columnDef, keysDesc);
-                throw new NotImplementedException("");
-            } else {
-                columnDef.analyze(engineName.equals("olap"));
-            }
+            columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isHllType()) {
                 if (columnDef.isKey()) {
@@ -393,8 +378,6 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("Create olap table should contain distribution desc");
             }
             distributionDesc.analyze(columnSet);
-        } else if (engineName.equals("kudu")) {
-            KuduUtil.analyzePartitionAndDistributionDesc(keysDesc, partitionDesc, distributionDesc);
         } else if (engineName.equalsIgnoreCase("elasticsearch")) {
             EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
         } else {
@@ -471,7 +454,7 @@ public class CreateTableStmt extends DdlStmt {
             }
         } else {
             if (isExternal) {
-                throw new AnalysisException("Do not support external table with engine name = olap or kudu");
+                throw new AnalysisException("Do not support external table with engine name = olap");
             }
         }
     }

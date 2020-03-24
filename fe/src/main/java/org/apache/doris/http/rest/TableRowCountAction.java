@@ -85,7 +85,7 @@ public class TableRowCountAction extends RestBaseAction {
                 if (table == null) {
                     throw new DorisHttpException(HttpResponseStatus.NOT_FOUND, "Table [" + tableName + "] " + "does not exists");
                 }
-                // just only support OlapTable, ignore others such as ESTable, KuduTable
+                // just only support OlapTable, ignore others such as ESTable
                 if (!(table instanceof OlapTable)) {
                     // Forbidden
                     throw new DorisHttpException(HttpResponseStatus.FORBIDDEN, "Table [" + tableName + "] "

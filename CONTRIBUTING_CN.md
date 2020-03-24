@@ -1,0 +1,1 @@
+docs/documentation/cn/community/how-to-contribute.md

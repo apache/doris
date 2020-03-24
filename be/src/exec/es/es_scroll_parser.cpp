@@ -455,10 +455,6 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                 }
 
-                if (ts_slot->year() < 1900) {
-                    RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-                }
-
                 if (type == TYPE_DATE) {
                     ts_slot->cast_to_date();
                 } else {

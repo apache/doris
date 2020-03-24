@@ -155,23 +155,6 @@ std::string EsTableDescriptor::debug_string() const {
     return out.str();
 }
 
-KuduTableDescriptor::KuduTableDescriptor(const TTableDescriptor& tdesc)
-  : TableDescriptor(tdesc),
-    table_name_(tdesc.kuduTable.table_name),
-    key_columns_(tdesc.kuduTable.key_columns),
-    master_addresses_(tdesc.kuduTable.master_addresses) {
-}
-
-std::string KuduTableDescriptor::DebugString() const {
-  std::stringstream out;
-  out << "KuduTable(" << TableDescriptor::debug_string() << " table=" << table_name_;
-  out << " master_addrs=[" << boost::join(master_addresses_, ",") << "]";
-  out << " key_columns=[";
-  out << join(key_columns_, ":");
-  out << "])";
-  return out.str();
-}
-
 MySQLTableDescriptor::MySQLTableDescriptor(const TTableDescriptor& tdesc)
     : TableDescriptor(tdesc),
       _mysql_db(tdesc.mysqlTable.db),

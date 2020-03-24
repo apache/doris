@@ -76,6 +76,3 @@ set_target_properties(Gutil PROPERTIES COMPILE_FLAGS "-funsigned-char -Wno-depre
 #  DEPS ${GUTIL_LIBS}
   # Disable warnings which trigger a lot in the Google code:
 #  COMPILE_FLAGS "-funsigned-char -Wno-deprecated -Wno-char-subscripts")
-
-#add_kudu_test(strings/string_util-test)
-

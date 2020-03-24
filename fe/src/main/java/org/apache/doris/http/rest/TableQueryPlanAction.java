@@ -139,7 +139,7 @@ public class TableQueryPlanAction extends RestBaseAction {
                     throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
                                                  "Table [" + tableName + "] " + "does not exists");
                 }
-                // just only support OlapTable, ignore others such as ESTable, KuduTable
+                // just only support OlapTable, ignore others such as ESTable
                 if (table.getType() != Table.TableType.OLAP) {
                     // Forbidden
                     throw new DorisHttpException(HttpResponseStatus.FORBIDDEN,

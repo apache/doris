@@ -27,10 +27,10 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.meta.MetaContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 
-import org.apache.kudu.client.shaded.com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
