@@ -245,7 +245,7 @@ public class StmtRewriter {
         for (SelectListItem item : selectList.getItems()) {
             SelectListItem newItem = new SelectListItem(item.getExpr().substitute(smap), item.getAlias());
             newSelectItems.add(newItem);
-            LOG.debug("New select item is changed to "+ newItem.toString());
+            LOG.debug("New select item is changed to "+ newItem.toSql());
         }
         SelectList newSelectList = new SelectList(newSelectItems, selectList.isDistinct());
 
@@ -281,9 +281,10 @@ public class StmtRewriter {
         SelectList result = selectList.clone();
         for (FunctionCallExpr functionCallExpr : aggregateExprs) {
             boolean columnExists = false;
-            for (SelectListItem selectListItem : result.getItems()) {
+            for (SelectListItem selectListItem : selectList.getItems()) {
                 if (selectListItem.getExpr().equals(functionCallExpr)) {
                     columnExists = true;
+                    break;
                 }
             }
             if (!columnExists) {
