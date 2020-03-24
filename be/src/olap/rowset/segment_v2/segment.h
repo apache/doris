@@ -34,7 +34,6 @@
 
 namespace doris {
 
-class RandomAccessFile;
 class SegmentGroup;
 class TabletSchema;
 class ShortKeyIndexDecoder;

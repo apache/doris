@@ -25,12 +25,12 @@
 
 #include "common/status.h"
 #include "olap/fs/block_manager.h"
+#include "util/file_cache.h"
 
 namespace doris {
 
 class BlockId;
 class Env;
-class FileCache;
 class MemTracker;
 class RandomAccessFile;
 
