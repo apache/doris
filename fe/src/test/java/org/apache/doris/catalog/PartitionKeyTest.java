@@ -134,7 +134,7 @@ public class PartitionKeyTest {
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("-128"), new PartitionValue("-32768"),
                 new PartitionValue("-2147483648"), new PartitionValue("-9223372036854775808"),
                 new PartitionValue("-170141183460469231731687303715884105728"),
-                new PartitionValue("1900-01-01"), new PartitionValue("1900-01-01 00:00:00")),
+                new PartitionValue("0000-01-01"), new PartitionValue("0000-01-01 00:00:00")),
                 allColumns);
         pk2 = PartitionKey.createInfinityPartitionKey(allColumns, false);
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
