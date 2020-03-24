@@ -154,6 +154,7 @@ public class StmtRewriter {
     private static SelectStmt rewriteHavingClauseSubqueries(SelectStmt stmt, Analyzer analyzer) throws AnalysisException {
         // prepare parameters
         SelectList selectList = stmt.getSelectList();
+        List<String> columnLables = stmt.getColLabels();
         Expr havingClause = stmt.getHavingClauseAfterAnaylzed();
         List<FunctionCallExpr> aggregateExprs = stmt.getAggInfo().getAggregateExprs();
         Preconditions.checkState(havingClause != null);
@@ -192,7 +193,7 @@ public class StmtRewriter {
         List<String> colAliasOfInlineView = Lists.newArrayList();
         List<Expr> leftExprList = Lists.newArrayList();
         for (int i = 0; i < selectListOfInlineViewQuery.getItems().size(); ++i) {
-            leftExprList.add(selectListOfInlineViewQuery.getItems().get(i).getExpr());
+            leftExprList.add(selectListOfInlineViewQuery.getItems().get(i).getExpr().clone());
             colAliasOfInlineView.add(inlineViewQuery.getColumnAliasGenerator().getNextAlias());
         }
         InlineViewRef inlineViewRef = new InlineViewRef(tableAliasGenerator.getNextAlias(), inlineViewQuery,
@@ -231,21 +232,23 @@ public class StmtRewriter {
             rightExpr.analyze(analyzer);
             smap.put(leftExpr, rightExpr);
         }
+        havingClause.reset();
         Expr newWherePredicate = havingClause.substitute(smap, analyzer, false);
         LOG.debug("Having predicate is changed to " + newWherePredicate.toSql());
         ArrayList<OrderByElement> newOrderByElements = null;
         if (orderByElements != null) {
             newOrderByElements = Lists.newArrayList();
             for (OrderByElement orderByElement : orderByElements) {
-                OrderByElement newOrderByElement = new OrderByElement(orderByElement.getExpr().substitute(smap),
+                OrderByElement newOrderByElement = new OrderByElement(orderByElement.getExpr().reset().substitute(smap),
                         orderByElement.getIsAsc(), orderByElement.getNullsFirstParam());
                 newOrderByElements.add(newOrderByElement);
                 LOG.debug("Order by element is changed to " + newOrderByElement.toSql());
             }
         }
         List<SelectListItem> newSelectItems = Lists.newArrayList();
-        for (SelectListItem item : selectList.getItems()) {
-            SelectListItem newItem = new SelectListItem(item.getExpr().substitute(smap), item.getAlias());
+        for (int i = 0; i < selectList.getItems().size(); i++) {
+            SelectListItem newItem = new SelectListItem(selectList.getItems().get(i).getExpr().reset().substitute(smap),
+                    columnLables.get(i));
             newSelectItems.add(newItem);
             LOG.debug("New select item is changed to "+ newItem.toSql());
         }
@@ -290,7 +293,7 @@ public class StmtRewriter {
                 }
             }
             if (!columnExists) {
-                SelectListItem selectListItem = new SelectListItem(functionCallExpr, null);
+                SelectListItem selectListItem = new SelectListItem(functionCallExpr.clone().reset(), null);
                 result.addItem(selectListItem);
             }
         }
