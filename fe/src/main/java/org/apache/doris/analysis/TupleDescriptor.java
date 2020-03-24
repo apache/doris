@@ -261,7 +261,7 @@ public class TupleDescriptor {
 
     public void getTableNameToColumnNames(Map<String, Set<String>> tupleDescToColumnNames) {
         for (SlotDescriptor slotDescriptor : slots) {
-            if (slotDescriptor.isMaterialized() == false) {
+            if (!slotDescriptor.isMaterialized()) {
                 continue;
             }
             if (slotDescriptor.getColumn() != null) {
