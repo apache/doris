@@ -186,10 +186,13 @@ public class StmtRewriter {
         inlineViewQuery.removeOrderByElements();
         inlineViewQuery.removeLimitElement();
         // add missing aggregation columns
-        inlineViewQuery.setSelectList(addMissingAggregationColumns(selectList, aggregateExprs));
+        SelectList selectListOfInlineViewQuery = addMissingAggregationColumns(selectList, aggregateExprs);
+        inlineViewQuery.setSelectList(selectListOfInlineViewQuery);
         // add a new alias for all of columns in subquery
         List<String> colAliasOfInlineView = Lists.newArrayList();
-        for (int i = 0; i < inlineViewQuery.getSelectList().getItems().size(); ++i) {
+        List<Expr> leftExprList = Lists.newArrayList();
+        for (int i = 0; i < selectListOfInlineViewQuery.getItems().size(); ++i) {
+            leftExprList.add(selectListOfInlineViewQuery.getItems().get(i).getExpr());
             colAliasOfInlineView.add(inlineViewQuery.getColumnAliasGenerator().getNextAlias());
         }
         InlineViewRef inlineViewRef = new InlineViewRef(tableAliasGenerator.getNextAlias(), inlineViewQuery,
@@ -223,7 +226,7 @@ public class StmtRewriter {
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
         List<SelectListItem> inlineViewItems = inlineViewQuery.getSelectList().getItems();
         for (int i = 0; i < inlineViewItems.size(); i++) {
-            Expr leftExpr = inlineViewItems.get(i).getExpr();
+            Expr leftExpr = leftExprList.get(i);
             Expr rightExpr = new SlotRef(inlineViewRef.getAliasAsName(), colAliasOfInlineView.get(i));
             rightExpr.analyze(analyzer);
             smap.put(leftExpr, rightExpr);
