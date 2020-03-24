@@ -3793,7 +3793,8 @@ public class Catalog {
 
         // 1.2 other table type
         sb.append("CREATE ");
-        if (table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH) {
+        if (table.getType() == TableType.MYSQL || table.getType() == TableType.ELASTICSEARCH
+                || table.getType() == TableType.BROKER) {
             sb.append("EXTERNAL ");
         }
         sb.append("TABLE ");
