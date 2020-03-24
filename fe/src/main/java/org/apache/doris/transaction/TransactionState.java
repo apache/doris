@@ -584,7 +584,7 @@ public class TransactionState implements Writable {
             timeoutMs = in.readLong();
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_78) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
             tableIdList = new ArrayList<>(1);
             int tableListSize = in.readInt();
             for (int i = 0; i < tableListSize; i++) {
