@@ -1444,10 +1444,6 @@ public class OlapTable extends Table {
         tempPartitions.dropAll();
     }
 
-    public Collection<Partition> getAllTempPartitions() {
-        return tempPartitions.getAllPartitions();
-    }
-
     public boolean existTempPartitions() {
         return !tempPartitions.isEmpty();
     }

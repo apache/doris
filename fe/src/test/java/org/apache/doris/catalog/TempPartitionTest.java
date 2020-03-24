@@ -578,7 +578,7 @@ public class TempPartitionTest {
 
         OlapTable readTbl = (OlapTable) Table.read(in);
         Assert.assertEquals(tbl.getId(), readTbl.getId());
-        Assert.assertEquals(tbl.getAllTempPartitions().size(), readTbl.getAllTempPartitions().size());
+        Assert.assertEquals(tbl.getTempPartitions().size(), readTbl.getTempPartitions().size());
         file.delete();
     }
 
