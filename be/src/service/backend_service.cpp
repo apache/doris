@@ -17,6 +17,7 @@
 
 #include "service/backend_service.h"
 
+#include <arrow/record_batch.h>
 #include <boost/shared_ptr.hpp>
 #include <gperftools/heap-profiler.h>
 #include <memory>
@@ -31,12 +32,12 @@
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/DorisExternalService_types.h"
 #include "gen_cpp/Types_types.h"
+#include "gutil/strings/substitute.h"
 #include "olap/storage_engine.h"
 
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/data_stream_mgr.h"
-#include "runtime/pull_load_task_mgr.h"
 #include "runtime/export_task_mgr.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
@@ -49,6 +50,7 @@
 #include "util/blocking_queue.hpp"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
+#include "util/arrow/row_batch.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
 #include "util/url_coding.h"
@@ -68,12 +70,6 @@ using apache::thrift::concurrency::PosixThreadFactory;
 BackendService::BackendService(ExecEnv* exec_env) :
         _exec_env(exec_env),
         _agent_server(new AgentServer(exec_env, *exec_env->master_info())) {
-#if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
-    // tcmalloc and address sanitizer can not be used together
-    if (!config::heap_profile_dir.empty()) {
-        HeapProfilerStart(config::heap_profile_dir.c_str());
-    }
-#endif
     char buf[64];
     DateTimeValue value = DateTimeValue::local_time();
     value.to_string(buf);
@@ -170,35 +166,6 @@ void BackendService::fetch_data(TFetchDataResult& return_val,
     status.set_t_status(&return_val);
 }
 
-void BackendService::register_pull_load_task(
-        TStatus& t_status, const TUniqueId& id, int num_senders) {
-    Status status = _exec_env->pull_load_task_mgr()->register_task(id, num_senders);
-    status.to_thrift(&t_status);
-}
-
-void BackendService::deregister_pull_load_task(TStatus& t_status, const TUniqueId& id) {
-    Status status = _exec_env->pull_load_task_mgr()->deregister_task(id);
-    status.to_thrift(&t_status);
-}
-
-void BackendService::report_pull_load_sub_task_info(
-        TStatus& t_status, const TPullLoadSubTaskInfo& task_info) {
-    Status status = _exec_env->pull_load_task_mgr()->report_sub_task_info(task_info);
-    status.to_thrift(&t_status);
-}
-
-void BackendService::fetch_pull_load_task_info(
-        TFetchPullLoadTaskInfoResult& result, const TUniqueId& id) {
-    Status status = _exec_env->pull_load_task_mgr()->fetch_task_info(id, &result);
-    status.to_thrift(&result.status);
-}
-
-void BackendService::fetch_all_pull_load_task_infos(
-        TFetchAllPullLoadTaskInfosResult& result) {
-    Status status = _exec_env->pull_load_task_mgr()->fetch_all_task_infos(&result);
-    status.to_thrift(&result.status);
-}
-
 void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
 //    VLOG_ROW << "submit_export_task. request  is "
 //            << apache::thrift::ThriftDebugString(request).c_str();
@@ -247,22 +214,21 @@ void BackendService::erase_export_task(TStatus& t_status, const TUniqueId& task_
 }
 
 void BackendService::get_tablet_stat(TTabletStatResult& result) {
-    StorageEngine::instance()->tablet_manager()->get_tablet_stat(result);
+    StorageEngine::instance()->tablet_manager()->get_tablet_stat(&result);
 }
 
 void BackendService::submit_routine_load_task(
         TStatus& t_status, const std::vector<TRoutineLoadTask>& tasks) {
-    
+
     for (auto& task : tasks) {
         Status st = _exec_env->routine_load_task_executor()->submit_task(task);
         if (!st.ok()) {
             LOG(WARNING) << "failed to submit routine load task. job id: " <<  task.job_id
                     << " task id: " << task.id;
+            return st.to_thrift(&t_status);
         }
     }
 
-    // we do not care about each task's submit result. just return OK.
-    // FE will handle the failure.
     return Status::OK().to_thrift(&t_status);
 }
 
@@ -300,9 +266,9 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
     u_int64_t offset = params.offset;
     TStatus t_status;
     std::shared_ptr<ScanContext> context;
-    Status context_st = _exec_env->external_scan_context_mgr()->get_scan_context(context_id, &context);
-    if (!context_st.ok()) {
-        context_st.to_thrift(&t_status);
+    Status st = _exec_env->external_scan_context_mgr()->get_scan_context(context_id, &context);
+    if (!st.ok()) {
+        st.to_thrift(&t_status);
         result_.status = t_status;
         return;
     }
@@ -310,27 +276,37 @@ void BackendService::get_next(TScanBatchResult& result_, const TScanNextBatchPar
         LOG(ERROR) << "getNext error: context offset [" <<  context->offset<<" ]" << " ,client offset [ " << offset << " ]";
         // invalid offset
         t_status.status_code = TStatusCode::NOT_FOUND;
-        std::stringstream msg;
-        msg << "context_id: " << context_id << " send offset: " << offset << "diff with context offset: " << context->offset; 
-        t_status.error_msgs.push_back(msg.str());
+        t_status.error_msgs.push_back(strings::Substitute(
+                "context_id=$0, send_offset=$1, context_offset=$2",
+                context_id, offset, context->offset));
         result_.status = t_status;
     } else {
         // during accessing, should disabled last_access_time
         context->last_access_time = -1;
         TUniqueId fragment_instance_id = context->fragment_instance_id;
-        std::shared_ptr<TScanRowBatch> rows_per_col;
+        std::shared_ptr<arrow::RecordBatch> record_batch;
         bool eos;
-        auto fetch_st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &rows_per_col, &eos);
-        if (fetch_st.ok()) {
+
+        st = _exec_env->result_queue_mgr()->fetch_result(fragment_instance_id, &record_batch, &eos);
+        if (st.ok()) {
             result_.__set_eos(eos);
-            // when eos = true  rows_per_col = nullptr
             if (!eos) {
-                result_.__set_rows(*rows_per_col);
-                context->offset += (*rows_per_col).num_rows;
+                std::string record_batch_str;
+                st = serialize_record_batch(*record_batch, &record_batch_str);
+                st.to_thrift(&t_status);
+                if (st.ok()) {
+                    // avoid copy large string
+                    result_.rows = std::move(record_batch_str);
+                    // set __isset
+                    result_.__isset.rows = true;
+                    context->offset += record_batch->num_rows();
+                }
             }
+        } else {
+            LOG(WARNING) << "fragment_instance_id [" << print_id(fragment_instance_id) << "] fetch result status [" << st.to_string() + "]";
+            st.to_thrift(&t_status);
+            result_.status = t_status;
         }
-        fetch_st.to_thrift(&t_status);
-        result_.status = t_status;
     }
     context->last_access_time = time(NULL);
 }

@@ -31,6 +31,7 @@ public class Daemon extends Thread {
     private long intervalMs;
     private AtomicBoolean isStop;
     private Runnable runnable;
+    private AtomicBoolean isStart = new AtomicBoolean(false);
     
     private MetaContext metaContext = null;
 
@@ -74,6 +75,13 @@ public class Daemon extends Thread {
         return runnable;
     }
     
+    @Override
+    public synchronized void start() {
+        if (isStart.compareAndSet(false, true)) {
+            super.start();
+        }
+    }
+
     public void setMetaContext(MetaContext metaContext) {
         this.metaContext = metaContext;
     }

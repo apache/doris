@@ -20,6 +20,7 @@ package org.apache.doris.service;
 import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
 
 import org.apache.doris.analysis.SetType;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -31,6 +32,7 @@ import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
@@ -101,6 +103,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -145,9 +148,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Catalog catalog = Catalog.getCurrentCatalog();
         List<String> dbNames = catalog.getDbNames();
         LOG.debug("get db names: {}", dbNames);
+        
+        UserIdentity currentUser = null;
+        if (params.isSetCurrent_user_ident()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
         for (String fullName : dbNames) {
-            if (!catalog.getAuth().checkDbPriv(params.user_ip, fullName, params.user,
-                                               PrivPredicate.SHOW)) {
+            if (!catalog.getAuth().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
                 continue;
             }
 
@@ -181,10 +190,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // database privs should be checked in analysis phrase
 
         Database db = Catalog.getInstance().getDb(params.db);
+        UserIdentity currentUser = null;
+        if (params.isSetCurrent_user_ident()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
         if (db != null) {
             for (String tableName : db.getTableNamesWithLock()) {
                 LOG.debug("get table: {}, wait to check", tableName);
-                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(params.user_ip, params.db, params.user,
+                if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
                                                                         tableName, PrivPredicate.SHOW)) {
                     continue;
                 }
@@ -217,12 +232,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // database privs should be checked in analysis phrase
 
         Database db = Catalog.getInstance().getDb(params.db);
+        UserIdentity currentUser = null;
+        if (params.isSetCurrent_user_ident()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
         if (db != null) {
             db.readLock();
             try {
                 for (Table table : db.getTables()) {
-                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(params.user_ip, params.db, params.user,
-                                                                            table.getName(), PrivPredicate.SHOW)) {
+                    if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
+                            table.getName(), PrivPredicate.SHOW)) {
                         continue;
                     }
 
@@ -262,9 +283,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setColumns(columns);
 
         // database privs should be checked in analysis phrase
-
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(params.user_ip, params.db, params.user,
-                                                                params.getTable_name(), PrivPredicate.SHOW)) {
+        UserIdentity currentUser = null;
+        if (params.isSetCurrent_user_ident()) {
+            currentUser = UserIdentity.fromThrift(params.current_user_ident);
+        } else {
+            currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
+        }
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser, params.db,
+                params.getTable_name(), PrivPredicate.SHOW)) {
             return result;
         }
 
@@ -539,6 +565,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
 
+        // add this log so that we can track this stmt
+        LOG.info("receive forwarded stmt {} from FE: {}", params.getStmt_id(), clientAddr.getHostname());
         ConnectContext context = new ConnectContext(null);
         ConnectProcessor processor = new ConnectProcessor(context);
         TMasterOpResult result = processor.proxyExecute(params);
@@ -551,16 +579,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         final String fullUserName = ClusterNamespace.getFullName(cluster, user);
         final String fullDbName = ClusterNamespace.getFullName(cluster, db);
-
-        if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(fullUserName,
-                                                                      clientIp,
-                                                                      passwd)) {
-            throw new AuthenticationException("Access denied for "
-                                                      + fullUserName + "@" + clientIp);
+        List<UserIdentity> currentUser = Lists.newArrayList();
+        if (!Catalog.getCurrentCatalog().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser)) {
+            throw new AuthenticationException("Access denied for " + fullUserName + "@" + clientIp);
         }
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(clientIp, fullDbName,
-                                                                fullUserName, tbl, predicate)) {
+        Preconditions.checkState(currentUser.size() == 1);
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
             throw new AuthenticationException(
                     "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
         }
@@ -607,6 +632,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setStatus(status);
         try {
             result.setTxnId(loadTxnBeginImpl(request, clientAddr));
+        } catch (DuplicatedRequestException e) {
+            // this is a duplicate request, just return previous txn id
+            LOG.info("deplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            result.setTxnId(e.getTxnId());
         } catch (LabelAlreadyUsedException e) {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
             status.addToError_msgs(e.getMessage());
@@ -673,7 +702,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 status.addToError_msgs("transaction commit successfully, BUT data will be visible later");
             }
         } catch (UserException e) {
-            LOG.warn("failed to commit: {}", e.getMessage());
+            LOG.warn("failed to commit txn: {}: {}", request.getTxnId(), e.getMessage());
             status.setStatus_code(TStatusCode.ANALYSIS_ERROR);
             status.addToError_msgs(e.getMessage());
         } catch (Throwable e) {

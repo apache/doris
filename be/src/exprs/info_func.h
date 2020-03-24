@@ -39,10 +39,6 @@ protected:
 
     InfoFunc(const TExprNode& node);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) override {
-        return get_codegend_compute_fn_wrapper(state, fn);
-    }
-
     virtual StringVal get_string_val(ExprContext* context, TupleRow*);
     virtual BigIntVal get_big_int_val(ExprContext* context, TupleRow*);
 

@@ -24,6 +24,14 @@
 #include "runtime/result_queue_mgr.h"
 #include "util/blocking_queue.hpp"
 
+namespace arrow {
+
+class MemoryPool;
+class RecordBatch;
+class Schema;
+
+}
+
 namespace doris {
 
 class ObjectPool;
@@ -35,8 +43,6 @@ class BufferControlBlock;
 class ExprContext;
 class ResultWriter;
 class MemTracker;
-class TScanRowBatch;
-class TScanColumnData;
 class TupleRow;
 
 // used to push data to blocking queue
@@ -68,14 +74,13 @@ public:
 private:
 
     Status prepare_exprs(RuntimeState* state);
-
-    Status add_per_col(RuntimeState* state, TupleRow* row, std::shared_ptr<TScanRowBatch> result);
-
+    
     ObjectPool* _obj_pool;
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;
+    std::shared_ptr<arrow::Schema> _arrow_schema;
 
-    shared_block_queue_t _queue;
+    BlockQueueSharedPtr _queue;
 
     RuntimeProfile* _profile; // Allocated from _pool
 

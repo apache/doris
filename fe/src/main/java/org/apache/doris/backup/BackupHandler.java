@@ -23,6 +23,7 @@ import org.apache.doris.analysis.BackupStmt.BackupType;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.backup.AbstractJob.JobType;
@@ -42,7 +43,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
@@ -70,7 +71,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
 
-public class BackupHandler extends Daemon implements Writable {
+public class BackupHandler extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(BackupHandler.class);
     
     public static final int SIGNATURE_VERSION = 1;
@@ -155,7 +156,7 @@ public class BackupHandler extends Daemon implements Writable {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         if (!isInit) {
             if (!init()) {
                 return;
@@ -288,8 +289,17 @@ public class BackupHandler extends Daemon implements Writable {
                 }
 
                 OlapTable olapTbl = (OlapTable) tbl;
-                if (tblRef.getPartitions() != null && !tblRef.getPartitions().isEmpty()) {
-                    for (String partName : tblRef.getPartitions()) {
+                if (olapTbl.existTempPartitions()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backup table with temp partitions");
+                }
+                
+                PartitionNames partitionNames = tblRef.getPartitionNames();
+                if (partitionNames != null) {
+                    if (partitionNames.isTemp()) {
+                        ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Do not support backuping temp partitions");
+                    }
+
+                    for (String partName : partitionNames.getPartitionNames()) {
                         Partition partition = olapTbl.getPartition(partName);
                         if (partition == null) {
                             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
@@ -299,7 +309,8 @@ public class BackupHandler extends Daemon implements Writable {
                 }
 
                 // copy a table with selected partitions for calculating the signature
-                OlapTable copiedTbl = olapTbl.selectiveCopy(tblRef.getPartitions(), true, IndexExtState.VISIBLE);
+                List<String> reservedPartitions = partitionNames == null ? null : partitionNames.getPartitionNames();
+                OlapTable copiedTbl = olapTbl.selectiveCopy(reservedPartitions, true, IndexExtState.VISIBLE);
                 if (copiedTbl == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                                    "Failed to copy table " + tblName + " with selected partitions");
@@ -397,9 +408,14 @@ public class BackupHandler extends Daemon implements Writable {
                                                "Table " + tblName + " does not exist in snapshot " + jobInfo.name);
             }
             BackupTableInfo tblInfo = jobInfo.getTableInfo(tblName);
-            if (tblRef.getPartitions() != null && !tblRef.getPartitions().isEmpty()) {
+            PartitionNames partitionNames = tblRef.getPartitionNames();
+            if (partitionNames != null) {
+                if (partitionNames.isTemp()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Do not support restoring temporary partitions");
+                }
                 // check the selected partitions
-                for (String partName : tblRef.getPartitions()) {
+                for (String partName : partitionNames.getPartitionNames()) {
                     if (!tblInfo.containsPart(partName)) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                                        "Partition " + partName + " of table " + tblName
@@ -414,7 +430,7 @@ public class BackupHandler extends Daemon implements Writable {
             }
 
             // only retain restore partitions
-            tblInfo.retainPartitions(tblRef.getPartitions());
+            tblInfo.retainPartitions(partitionNames == null ? null : partitionNames.getPartitionNames());
             allTbls.add(tblName);
         }
         
@@ -565,7 +581,6 @@ public class BackupHandler extends Daemon implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         repoMgr = RepositoryMgr.read(in);
 

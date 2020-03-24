@@ -52,6 +52,7 @@ public:
     virtual ~Field() = default;
 
     inline size_t size() const { return _type_info->size(); }
+    inline int32_t length() const { return _length; }
     inline size_t field_size() const { return size() + 1; }
     inline size_t index_size() const { return _index_size; }
 
@@ -143,7 +144,7 @@ public:
 
     // Used to compare short key index. Because short key will truncate
     // a varchar column, this function will handle in this condition.
-    template<typename LhsCellType, typename RhsCellType> 
+    template<typename LhsCellType, typename RhsCellType>
     inline int index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const;
 
     // Copy source cell's content to destination cell directly.
@@ -158,6 +159,19 @@ public:
             return;
         }
         return _type_info->direct_copy(dst->mutable_cell_ptr(), src.cell_ptr());
+    }
+
+    // deep copy source cell' content to destination cell.
+    // For string type, this will allocate data form pool,
+    // and copy srouce's conetent.
+    template<typename DstCellType, typename SrcCellType>
+    void copy_object(DstCellType* dst, const SrcCellType& src, MemPool* pool) const {
+        bool is_null = src.is_null();
+        dst->set_is_null(is_null);
+        if (is_null) {
+            return;
+        }
+        _type_info->copy_object(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
     }
 
     // deep copy source cell' content to destination cell.
@@ -184,6 +198,11 @@ public:
     // for string like type, shallow copy only copies Slice, not the actual data pointed by slice.
     inline void shallow_copy_content(char* dst, const char* src) const {
         _type_info->shallow_copy(dst, src);
+    }
+
+    //convert and copy field from src to desc
+    inline OLAPStatus convert_from(char* dest, const char* src, const TypeInfo* src_type, MemPool* mem_pool) const {
+        return _type_info->convert_from(dest, src, src_type, mem_pool);
     }
 
     // Copy srouce content to destination in index format.
@@ -222,10 +241,17 @@ public:
     const TypeInfo* type_info() const { return _type_info; }
     bool is_nullable() const { return _is_nullable; }
 
+    // similar to `full_encode_ascending`, but only encode part (the first `index_size` bytes) of the value.
+    // only applicable to string type
     void encode_ascending(const void* value, std::string* buf) const {
         _key_coder->encode_ascending(value, _index_size, buf);
     }
-    
+
+    // encode the provided `value` into `buf`.
+    void full_encode_ascending(const void* value, std::string* buf) const {
+        _key_coder->full_encode_ascending(value, buf);
+    }
+
     Status decode_ascending(Slice* encoded_key, uint8_t* cell_ptr, MemPool* pool) const {
         return _key_coder->decode_ascending(encoded_key, _index_size, cell_ptr, pool);
     }
@@ -477,6 +503,7 @@ public:
             case OLAP_FIELD_AGGREGATION_MIN:
             case OLAP_FIELD_AGGREGATION_MAX:
             case OLAP_FIELD_AGGREGATION_REPLACE:
+            case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
                 switch (column.type()) {
                     case OLAP_FIELD_TYPE_CHAR:
                         return new CharField(column);

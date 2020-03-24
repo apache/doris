@@ -82,7 +82,6 @@ void do_check(RowsetMeta rowset_meta) {
     ASSERT_EQ(VISIBLE, rowset_meta.rowset_state());
     ASSERT_EQ(2, rowset_meta.start_version());
     ASSERT_EQ(2, rowset_meta.end_version());
-    ASSERT_EQ(8391828013814912580, rowset_meta.version_hash());
     ASSERT_EQ(3929, rowset_meta.num_rows());
     ASSERT_EQ(84699, rowset_meta.total_disk_size());
     ASSERT_EQ(84464, rowset_meta.data_disk_size());
@@ -124,7 +123,6 @@ void do_check_for_alpha(AlphaRowsetMeta alpha_rowset_meta) {
     ASSERT_EQ(VISIBLE, alpha_rowset_meta.rowset_state());
     ASSERT_EQ(2, alpha_rowset_meta.start_version());
     ASSERT_EQ(2, alpha_rowset_meta.end_version());
-    ASSERT_EQ(8391828013814912580, alpha_rowset_meta.version_hash());
     ASSERT_EQ(3929, alpha_rowset_meta.num_rows());
     ASSERT_EQ(84699, alpha_rowset_meta.total_disk_size());
     ASSERT_EQ(84464, alpha_rowset_meta.data_disk_size());

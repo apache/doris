@@ -24,14 +24,15 @@ import com.google.common.base.Strings;
 
 import java.util.Map;
 
-// rename table
-public class ColumnRenameClause extends AlterClause {
+// rename column
+public class ColumnRenameClause extends AlterTableClause {
     private String colName;
     private String newColName;
 
     public ColumnRenameClause(String colName, String newColName) {
         this.colName = colName;
         this.newColName = newColName;
+        this.needTableStable = false;
     }
 
     public String getColName() {

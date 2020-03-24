@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SysVariableDesc;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Type;
@@ -133,41 +134,42 @@ public class VariableMgr {
     // Set value to a variable
     private static boolean setValue(Object obj, Field field, String value) throws DdlException {
         VarAttr attr = field.getAnnotation(VarAttr.class);
+        String convertedVal = VariableVarConverters.convert(attr.name(), value);
         try {
             switch (field.getType().getSimpleName()) {
                 case "boolean":
-                    if (value.equalsIgnoreCase("ON")
-                            || value.equalsIgnoreCase("TRUE")
-                            || value.equalsIgnoreCase("1")) {
+                    if (convertedVal.equalsIgnoreCase("ON")
+                            || convertedVal.equalsIgnoreCase("TRUE")
+                            || convertedVal.equalsIgnoreCase("1")) {
                         field.setBoolean(obj, true);
-                    } else if (value.equalsIgnoreCase("OFF")
-                            || value.equalsIgnoreCase("FALSE")
-                            || value.equalsIgnoreCase("0")) {
+                    } else if (convertedVal.equalsIgnoreCase("OFF")
+                            || convertedVal.equalsIgnoreCase("FALSE")
+                            || convertedVal.equalsIgnoreCase("0")) {
                         field.setBoolean(obj, false);
                     } else {
                         throw new IllegalAccessException();
                     }
                     break;
                 case "byte":
-                    field.setByte(obj, Byte.valueOf(value));
+                    field.setByte(obj, Byte.valueOf(convertedVal));
                     break;
                 case "short":
-                    field.setShort(obj, Short.valueOf(value));
+                    field.setShort(obj, Short.valueOf(convertedVal));
                     break;
                 case "int":
-                    field.setInt(obj, Integer.valueOf(value));
+                    field.setInt(obj, Integer.valueOf(convertedVal));
                     break;
                 case "long":
-                    field.setLong(obj, Long.valueOf(value));
+                    field.setLong(obj, Long.valueOf(convertedVal));
                     break;
                 case "float":
-                    field.setFloat(obj, Float.valueOf(value));
+                    field.setFloat(obj, Float.valueOf(convertedVal));
                     break;
                 case "double":
-                    field.setDouble(obj, Double.valueOf(value));
+                    field.setDouble(obj, Double.valueOf(convertedVal));
                     break;
                 case "String":
-                    field.set(obj, value);
+                    field.set(obj, convertedVal);
                     break;
                 default:
                     // Unsupported type variable.
@@ -204,7 +206,6 @@ public class VariableMgr {
         }
     }
 
-
     // Get from show name to field
     public static void setVar(SessionVariable sessionVariable, SetVar setVar) throws DdlException {
         VarContext ctx = ctxByVarName.get(setVar.getVariable());
@@ -215,7 +216,9 @@ public class VariableMgr {
         checkUpdate(setVar, ctx.getFlag());
         // Check variable time_zone value is valid
         if (setVar.getVariable().toLowerCase().equals("time_zone")) {
-            TimeUtils.checkTimeZoneValid(setVar.getValue().getStringValue());
+            setVar = new SetVar(
+                    setVar.getType(), setVar.getVariable(),
+                    new StringLiteral(TimeUtils.checkTimeZoneValidAndStandardize(setVar.getValue().getStringValue())));
         }
 
         // To modify to default value.
@@ -240,12 +243,13 @@ public class VariableMgr {
             }
             writeGlobalVariableUpdate(globalSessionVariable, "update global variables");
         } else {
-            // Only session
+            // set global variable should not affect variables of current session.
+            // global variable will only make effect when connecting in.
             setValue(sessionVariable, ctx.getField(), value);
         }
     }
 
-    // global variable persisitence
+    // global variable persistence
     public static void write(DataOutputStream out) throws IOException {
         globalSessionVariable.write(out);
     }
@@ -418,6 +422,15 @@ public class VariableMgr {
                     row.add(getValue(sessionVar, ctx.getField()));
                 } else {
                     row.add(getValue(ctx.getObj(), ctx.getField()));
+                }
+
+                if (row.size() > 1 && row.get(0).equalsIgnoreCase(SessionVariable.SQL_MODE)) {
+                    try {
+                        row.set(1, SqlModeHelper.decode(Long.valueOf(row.get(1))));
+                    } catch (DdlException e) {
+                        row.set(1, "");
+                        LOG.warn("Decode sql mode failed");
+                    }
                 }
 
                 rows.add(row);

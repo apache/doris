@@ -31,32 +31,48 @@
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "olap/comparison_predicate.h"
+#include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
 #include "util/slice.h"
+#include "util/file_utils.h"
 
 using std::string;
 
 namespace doris {
 
+static const uint32_t MAX_PATH_LEN = 1024;
+StorageEngine* k_engine = nullptr;
+
 class BetaRowsetTest : public testing::Test {
 protected:
-    const string kRowsetDir = "./ut_dir/beta_rowset_test";
     OlapReaderStatistics _stats;
 
     void SetUp() override {
-        OLAPStatus s;
-        if (check_dir_existed(kRowsetDir)) {
-            s = remove_all_dir(kRowsetDir);
-            ASSERT_EQ(OLAP_SUCCESS, s);
-        }
-        s = create_dir(kRowsetDir);
-        ASSERT_EQ(OLAP_SUCCESS, s);
+        char buffer[MAX_PATH_LEN];
+        getcwd(buffer, MAX_PATH_LEN);
+        config::storage_root_path = std::string(buffer) + "/data_test";
+
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
+
+        std::vector<StorePath> paths;
+        paths.emplace_back(config::storage_root_path, -1);
+
+        doris::EngineOptions options;
+        options.store_paths = paths;
+        doris::StorageEngine::open(options, &k_engine);
+
+        ExecEnv* exec_env = doris::ExecEnv::GetInstance();
+        exec_env->set_storage_engine(k_engine);
+
+        const string rowset_dir = "./data_test/data/beta_rowset_test";
+        ASSERT_TRUE(FileUtils::create_dir(rowset_dir).ok());
     }
+
     void TearDown() override {
-        if (check_dir_existed(kRowsetDir)) {
-            auto s = remove_all_dir(kRowsetDir);
-            ASSERT_EQ(OLAP_SUCCESS, s);
+        if (FileUtils::check_exist(config::storage_root_path)) {
+            ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
         }
     }
 
@@ -112,12 +128,11 @@ protected:
         rowset_writer_context->tablet_schema_hash = 1111;
         rowset_writer_context->partition_id = 10;
         rowset_writer_context->rowset_type = BETA_ROWSET;
-        rowset_writer_context->rowset_path_prefix = kRowsetDir;
+        rowset_writer_context->rowset_path_prefix = "./data_test/data/beta_rowset_test";
         rowset_writer_context->rowset_state = VISIBLE;
         rowset_writer_context->tablet_schema = tablet_schema;
         rowset_writer_context->version.first = 10;
         rowset_writer_context->version.second = 10;
-        rowset_writer_context->version_hash = 110;
     }
 
     void create_and_init_rowset_reader(Rowset* rowset, RowsetReaderContext& context, RowsetReaderSharedPtr* result) {

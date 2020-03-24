@@ -26,6 +26,7 @@ import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
@@ -43,14 +44,13 @@ public class CancelStreamLoad extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
-            throws DdlException {
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response) throws DdlException {
 
         if (redirectToMaster(request, response)) {
             return;
         }
 
-        final String clusterName = authInfo.cluster;
+        final String clusterName = ConnectContext.get().getClusterName();
         if (Strings.isNullOrEmpty(clusterName)) {
             throw new DdlException("No cluster selected.");
         }

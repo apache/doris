@@ -525,6 +525,7 @@ void MiniLoadAction::free_handler_ctx(void* param) {
         if (streaming_ctx != nullptr) {
             // sender is going, make receiver know it
             if (streaming_ctx->body_sink != nullptr) {
+                LOG(WARNING) << "cancel stream load " << streaming_ctx->id.to_string() << " because sender failed";
                 streaming_ctx->body_sink->cancel();
             }
             if (streaming_ctx->unref()) {

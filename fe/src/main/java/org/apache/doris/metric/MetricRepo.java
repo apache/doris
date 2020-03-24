@@ -23,8 +23,8 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadJob.JobState;
+import org.apache.doris.load.loadv2.JobState;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.persist.EditLog;
@@ -38,6 +38,7 @@ import com.codahale.metrics.MetricRegistry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.Timer;
@@ -50,6 +51,9 @@ public final class MetricRepo {
     private static final DorisMetricRegistry PALO_METRIC_REGISTER = new DorisMetricRegistry();
     
     public static AtomicBoolean isInit = new AtomicBoolean(false);
+
+    public static final String TABLET_NUM = "tablet_num";
+    public static final String TABLET_MAX_COMPACTION_SCORE = "tablet_max_compaction_score";
 
     public static LongCounterMetric COUNTER_REQUEST_ALL;
     public static LongCounterMetric COUNTER_QUERY_ALL;
@@ -76,6 +80,7 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Double> GAUGE_QUERY_PER_SECOND;
     public static GaugeMetricImpl<Double> GAUGE_REQUEST_PER_SECOND;
     public static GaugeMetricImpl<Double> GAUGE_QUERY_ERR_RATE;
+    public static GaugeMetricImpl<Long> GAUGE_MAX_TABLET_COMPACTION_SCORE;
 
     private static Timer metricTimer = new Timer();
     private static MetricCalculator metricCalculator = new MetricCalculator();
@@ -87,17 +92,17 @@ public final class MetricRepo {
 
         // 1. gauge
         // load jobs
-        Load load = Catalog.getInstance().getLoadInstance();
+        LoadManager loadManger = Catalog.getCurrentCatalog().getLoadManager();
         for (EtlJobType jobType : EtlJobType.values()) {
             for (JobState state : JobState.values()) {
-                GaugeMetric<Integer> gauge = (GaugeMetric<Integer>) new GaugeMetric<Integer>("job",
+                GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                         "job statistics") {
                     @Override
-                    public Integer getValue() {
+                    public Long getValue() {
                         if (!Catalog.getInstance().isMaster()) {
-                            return 0;
+                            return 0L;
                         }
-                        return load.getLoadJobNumByTypeAndState(jobType, state);
+                        return loadManger.getLoadJobNum(state, jobType);
                     }
                 };
                 gauge.addLabel(new MetricLabel("job", "load"))
@@ -114,17 +119,17 @@ public final class MetricRepo {
                 continue;
             }
             
-            GaugeMetric<Integer> gauge = (GaugeMetric<Integer>) new GaugeMetric<Integer>("job",
+            GaugeMetric<Long> gauge = (GaugeMetric<Long>) new GaugeMetric<Long>("job",
                     "job statistics") {
                 @Override
-                public Integer getValue() {
+                public Long getValue() {
                     if (!Catalog.getInstance().isMaster()) {
-                        return 0;
+                        return 0L;
                     }
                     if (jobType == JobType.SCHEMA_CHANGE) {
-                        return alter.getSchemaChangeHandler().getAlterJobNumByState(org.apache.doris.alter.AlterJob.JobState.RUNNING);
+                        return alter.getSchemaChangeHandler().getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
                     } else {
-                        return alter.getRollupHandler().getAlterJobNumByState(org.apache.doris.alter.AlterJob.JobState.RUNNING);
+                        return alter.getMaterializedViewHandler().getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING);
                     }
                 }
             };
@@ -135,7 +140,7 @@ public final class MetricRepo {
         }
 
         // capacity
-        generateTabletNumMetrics();
+        generateBackendsTabletMetrics();
 
         // connections
         GaugeMetric<Integer> conections = (GaugeMetric<Integer>) new GaugeMetric<Integer>(
@@ -182,9 +187,13 @@ public final class MetricRepo {
         GAUGE_REQUEST_PER_SECOND = new GaugeMetricImpl<>("rps", "request per second");
         GAUGE_REQUEST_PER_SECOND.setValue(0.0);
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_REQUEST_PER_SECOND);
-        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", "query_error_rate");
+        GAUGE_QUERY_ERR_RATE = new GaugeMetricImpl<>("query_err_rate", "query error rate");
         PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_QUERY_ERR_RATE);
         GAUGE_QUERY_ERR_RATE.setValue(0.0);
+        GAUGE_MAX_TABLET_COMPACTION_SCORE = new GaugeMetricImpl<>("max_tablet_compaction_score",
+                "max tablet compaction score of all backends");
+        PALO_METRIC_REGISTER.addPaloMetrics(GAUGE_MAX_TABLET_COMPACTION_SCORE);
+        GAUGE_MAX_TABLET_COMPACTION_SCORE.setValue(0L);
 
         // 2. counter
         COUNTER_REQUEST_ALL = new LongCounterMetric("request_total", "total request");
@@ -193,9 +202,9 @@ public final class MetricRepo {
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ALL);
         COUNTER_QUERY_ERR = new LongCounterMetric("query_err", "total error query");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_QUERY_ERR);
-        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", "total laod submit");
+        COUNTER_LOAD_ADD = new LongCounterMetric("load_add", "total load submit");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_ADD);
-        COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", "total laod finished");
+        COUNTER_LOAD_FINISHED = new LongCounterMetric("load_finished", "total load finished");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_LOAD_FINISHED);
         COUNTER_EDIT_LOG_WRITE = new LongCounterMetric("edit_log_write", "counter of edit log write into bdbje");
         PALO_METRIC_REGISTER.addPaloMetrics(COUNTER_EDIT_LOG_WRITE);
@@ -229,8 +238,7 @@ public final class MetricRepo {
 
         // 3. histogram
         HISTO_QUERY_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("query", "latency", "ms"));
-        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency",
-                                                                                     "ms"));
+        HISTO_EDIT_LOG_WRITE_LATENCY = METRIC_REGISTER.histogram(MetricRegistry.name("editlog", "write", "latency", "ms"));
 
         isInit.set(true);
 
@@ -239,14 +247,14 @@ public final class MetricRepo {
         }
     }
 
+    // to generate the metrics related to tablets of each backends
     // this metric is reentrant, so that we can add or remove metric along with the backend add or remove
     // at runtime.
-    public static void generateTabletNumMetrics() {
-        final String TABLET_NUM = "tablet_num";
-        // remove all previous 'tablet_num' metric
+    public static void generateBackendsTabletMetrics() {
+        // remove all previous 'tablet' metric
         PALO_METRIC_REGISTER.removeMetrics(TABLET_NUM);
+        PALO_METRIC_REGISTER.removeMetrics(TABLET_MAX_COMPACTION_SCORE);
 
-        LOG.info("begin to generate capacity metrics");
         SystemInfoService infoService = Catalog.getCurrentSystemInfo();
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
 
@@ -267,9 +275,24 @@ public final class MetricRepo {
                     return (long) invertedIndex.getTabletNumByBackendId(beId);
                 }
             };
-
             tabletNum.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
             PALO_METRIC_REGISTER.addPaloMetrics(tabletNum);
+
+            // max compaction score of tablets on each backends
+            GaugeMetric<Long> tabletMaxCompactionScore = (GaugeMetric<Long>) new GaugeMetric<Long>(
+                    TABLET_MAX_COMPACTION_SCORE,
+                    "tablet max compaction score") {
+                @Override
+                public Long getValue() {
+                    if (!Catalog.getInstance().isMaster()) {
+                        return 0L;
+                    }
+                    return be.getTabletMaxCompactionScore();
+                }
+            };
+            tabletMaxCompactionScore.addLabel(new MetricLabel("backend", be.getHost() + ":" + be.getHeartbeatPort()));
+            PALO_METRIC_REGISTER.addPaloMetrics(tabletMaxCompactionScore);
+
         } // end for backends
     }
 
@@ -294,12 +317,14 @@ public final class MetricRepo {
             visitor.visitHistogram(sb, entry.getKey(), entry.getValue());
         }
         
-        // master info
-        if (Catalog.getInstance().isMaster()) {
-            visitor.getNodeInfo(sb);
-        }
+        // node info
+        visitor.getNodeInfo(sb);
 
         return sb.toString();
+    }
+
+    public static synchronized List<Metric> getMetricsByName(String name) {
+        return PALO_METRIC_REGISTER.getPaloMetricsByName(name);
     }
 
     public static void addMetric(Metric<?> metric) {

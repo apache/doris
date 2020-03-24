@@ -17,73 +17,101 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.analysis.ShowAlterStmt.AlterType;
+import mockit.Expectations;
+import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FakeCatalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.SystemInfoService;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class ShowLoadStmtTest {
     private Analyzer analyzer;
     private Catalog catalog;
 
     private SystemInfoService systemInfoService;
 
+    FakeCatalog fakeCatalog;
 
     @Before
     public void setUp() {
-        systemInfoService = EasyMock.createMock(SystemInfoService.class);
-        EasyMock.replay(systemInfoService);
+        fakeCatalog = new FakeCatalog();
+
+        systemInfoService = AccessTestUtil.fetchSystemInfoService();
+        FakeCatalog.setSystemInfo(systemInfoService);
 
         catalog = AccessTestUtil.fetchAdminCatalog();
+        FakeCatalog.setCatalog(catalog);
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        PowerMock.replay(Catalog.class);
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
+        new Expectations(analyzer) {
+            {
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "testCluster:testDb";
 
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("testCluster:testDb").anyTimes();
-        EasyMock.expect(analyzer.getQualifiedUser()).andReturn("testCluster:testUser").anyTimes();
-        EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
-        EasyMock.expect(analyzer.getCatalog()).andReturn(catalog).anyTimes();
-        EasyMock.replay(analyzer);
+                analyzer.getQualifiedUser();
+                minTimes = 0;
+                result = "testCluster:testUser";
+
+                analyzer.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+
+                analyzer.getCatalog();
+                minTimes = 0;
+                result = catalog;
+            }
+        };
     }
 
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        ShowAlterStmt stmt = new ShowAlterStmt(AlterType.COLUMN, null);
+        ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW ALTER COLUMN FROM `testCluster:testDb`", stmt.toString());
-
-        stmt = new ShowAlterStmt(AlterType.ROLLUP, null);
-        stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW ALTER ROLLUP FROM `testCluster:testDb`", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb`", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
     public void testNoDb() throws UserException, AnalysisException {
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("").anyTimes();
-        EasyMock.expect(analyzer.getClusterName()).andReturn("testCluster").anyTimes();
-        EasyMock.replay(analyzer);
+        new Expectations(analyzer) {
+            {
+                analyzer.getDefaultDb();
+                minTimes = 0;
+                result = "";
 
-        ShowAlterStmt stmt = new ShowAlterStmt(AlterType.ROLLUP, null);
+                analyzer.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+            }
+        };
+
+        ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
+    }
+
+    @Test
+    public void testWhere() throws UserException, AnalysisException {
+        ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb`", stmt.toString());
+
+        SlotRef slotRef = new SlotRef(null, "label");
+        StringLiteral stringLiteral = new StringLiteral("abc");
+        BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, slotRef, stringLiteral);
+        stmt = new ShowLoadStmt(null, binaryPredicate, null, new LimitElement(10));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` = \'abc\' LIMIT 10", stmt.toString());
+
+        LikePredicate likePredicate = new LikePredicate(org.apache.doris.analysis.LikePredicate.Operator.LIKE,
+                                                        slotRef, stringLiteral);
+        stmt = new ShowLoadStmt(null, likePredicate, null, new LimitElement(10));
+        stmt.analyze(analyzer);
+        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` LIKE \'abc\' LIMIT 10", stmt.toString());
     }
 }

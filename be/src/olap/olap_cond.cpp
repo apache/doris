@@ -459,7 +459,50 @@ bool Cond::eval(const BloomFilter& bf) const {
         break;
     }
 
-    return false;
+    return true;
+}
+
+bool Cond::eval(const segment_v2::BloomFilter* bf) const {
+    //通过单列上BloomFilter对block进行过滤。
+    switch (op) {
+    case OP_EQ: {
+        bool existed = false;
+        if (operand_field->is_string_type()) {
+            Slice* slice = (Slice*)(operand_field->ptr());
+            existed = bf->test_bytes(slice->data, slice->size);
+        } else {
+            existed = bf->test_bytes(operand_field->ptr(), operand_field->size());
+        }
+        return existed;
+    }
+    case OP_IN: {
+        FieldSet::const_iterator it = operand_set.begin();
+        for (; it != operand_set.end(); ++it) {
+            bool existed = false;
+            if ((*it)->is_string_type()) {
+                Slice* slice = (Slice*)((*it)->ptr());
+                existed = bf->test_bytes(slice->data, slice->size);
+            } else {
+                existed = bf->test_bytes((*it)->ptr(), (*it)->size());
+            }
+            if (existed) { return true; }
+        }
+        return false;
+    }
+    case OP_IS: {
+        // IS [NOT] NULL can only used in to filter IS NULL predicate.
+        if (operand_field->is_null()) {
+            return bf->test_bytes(nullptr, 0);
+        } else {
+            // is not null
+            return !bf->test_bytes(nullptr, 0);
+        }
+    }
+    default:
+        break;
+    }
+
+    return true;
 }
 
 CondColumn::~CondColumn() {
@@ -541,6 +584,16 @@ int CondColumn::del_eval(const std::pair<WrapperField*, WrapperField*>& statisti
 
 bool CondColumn::eval(const BloomFilter& bf) const {
     //通过一列上的所有BloomFilter索引信息对block进行过滤
+    for (auto& each_cond : _conds) {
+        if (!each_cond->eval(bf)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool CondColumn::eval(const segment_v2::BloomFilter* bf) const {
     for (auto& each_cond : _conds) {
         if (!each_cond->eval(bf)) {
             return false;

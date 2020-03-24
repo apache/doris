@@ -1,11 +1,30 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # INSERT
 ## description
 ### Syntax
 
 ```
 INSERT INTO table_name
+    [ PARTITION (p1, ...) ]
     [ WITH LABEL label]
-    [ PARTITION (, ...) ]
     [ (column [, ...]) ]
     [ [ hint [, ...] ] ]
     { VALUES ( { expression | DEFAULT } [, ...] ) [, ...] | query }
@@ -15,9 +34,9 @@ INSERT INTO table_name
 
 > tablet_name: 导入数据的目的表。可以是 `db_name.table_name` 形式
 >
-> label: 为 Insert 任务指定一个 label
+> partitions: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
 >
-> partition_names: 指定待导入的分区，必须是 `table_name` 中存在的分区，多个分区名称用逗号分隔
+> label: 为 Insert 任务指定一个 label
 >
 > column_name: 指定的目的列，必须是 `table_name` 中存在的列
 >
@@ -69,10 +88,10 @@ INSERT INTO test SELECT * FROM test2;
 INSERT INTO test (c1, c2) SELECT * from test2;
 ```
 
-4. 向 `test` 表中导入一个查询语句结果，并指定 label
+4. 向 `test` 表中导入一个查询语句结果，并指定 partition 和 label
 
 ```
-INSERT INTO test WITH LABEL `label1` SELECT * FROM test2;
+INSERT INTO test PARTITION(p1, p2) WITH LABEL `label1` SELECT * FROM test2;
 INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
 ```
 

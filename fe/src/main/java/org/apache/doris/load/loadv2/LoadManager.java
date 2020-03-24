@@ -33,13 +33,19 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TUniqueId;
+import org.apache.doris.transaction.GlobalTransactionMgr;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -91,13 +97,13 @@ public class LoadManager implements Writable{
      * @param stmt
      * @throws DdlException
      */
-    public void createLoadJobFromStmt(LoadStmt stmt, String originStmt) throws DdlException {
+    public void createLoadJobFromStmt(LoadStmt stmt, OriginStatement originStmt) throws DdlException {
         Database database = checkDb(stmt.getLabel().getDbName());
         long dbId = database.getId();
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(dbId, stmt.getLabel().getLabelName(), null);
+            checkLabelUsed(dbId, stmt.getLabel().getLabelName());
             if (stmt.getBrokerDesc() == null) {
                 throw new DdlException("LoadManager only support the broker load.");
             }
@@ -135,23 +141,22 @@ public class LoadManager implements Writable{
         LoadJob loadJob = null;
         writeLock();
         try {
-            checkLabelUsed(database.getId(), request.getLabel(), request.getRequest_id());
             loadJob = new MiniLoadJob(database.getId(), request);
-            createLoadJob(loadJob);
+            // call unprotectedExecute before adding load job. so that if job is not started ok, no need to add.
+            // NOTICE(cmy): this order is only for Mini Load, because mini load's unprotectedExecute() only do beginTxn().
+            // for other kind of load job, execute the job after adding job.
             // Mini load job must be executed before release write lock.
             // Otherwise, the duplicated request maybe get the transaction id before transaction of mini load is begun.
             loadJob.unprotectedExecute();
+            createLoadJob(loadJob);
         } catch (DuplicatedRequestException e) {
-            LOG.info(new LogBuilder(LogKey.LOAD_JOB, e.getDuplicatedRequestId())
-                             .add("msg", "the duplicated request returns the txn id "
-                                     + "which was created by the same mini load")
-                             .build());
-            return dbIdToLabelToLoadJobs.get(database.getId()).get(request.getLabel())
-                    .stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst()
-                    .get().getTransactionId();
+            // this is a duplicate request, just return previous txn id
+            LOG.info("deplicate request for mini load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            return e.getTxnId();
         } catch (UserException e) {
             if (loadJob != null) {
-                loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false);
+                loadJob.cancelJobWithoutCheck(new FailMsg(LOAD_RUN_FAIL, e.getMessage()), false,
+                        false /* no need to write edit log, because createLoadJob log is not wrote yet */);
             }
             throw e;
         } finally {
@@ -185,7 +190,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(stmt.getLabel().getDbName());
         writeLock();
         try {
-            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName(), null);
+            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName());
             Catalog.getCurrentCatalog().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
         } finally {
             writeUnlock();
@@ -211,7 +216,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
         writeLock();
         try {
-            checkLabelUsed(database.getId(), request.getLabel(), null);
+            checkLabelUsed(database.getId(), request.getLabel());
             return Catalog.getCurrentCatalog().getLoadInstance().addMiniLoadJob(request);
         } finally {
             writeUnlock();
@@ -222,7 +227,7 @@ public class LoadManager implements Writable{
         Database database = checkDb(fullDbName);
         writeLock();
         try {
-            checkLabelUsed(database.getId(), label, null);
+            checkLabelUsed(database.getId(), label);
             Catalog.getCurrentCatalog().getLoadInstance()
                     .registerMiniLabel(fullDbName, label, System.currentTimeMillis());
         } finally {
@@ -237,6 +242,7 @@ public class LoadManager implements Writable{
                          .build());
     }
 
+    // add load job and also add to to callback factory
     private void createLoadJob(LoadJob loadJob) {
         addLoadJob(loadJob);
         // add callback before txn created, because callback will be performed on replay without txn begin
@@ -296,7 +302,7 @@ public class LoadManager implements Writable{
             if (loadJobList == null) {
                 throw new DdlException("Load job does not exist");
             }
-            Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isCompleted()).findFirst();
+            Optional<LoadJob> loadJobOptional = loadJobList.stream().filter(entity -> !entity.isTxnDone()).findFirst();
             if (!loadJobOptional.isPresent()) {
                 throw new DdlException("There is no uncompleted job which label is " + stmt.getLabel());
             }
@@ -310,6 +316,15 @@ public class LoadManager implements Writable{
 
     public void replayEndLoadJob(LoadJobFinalOperation operation) {
         LoadJob job = idToLoadJob.get(operation.getId());
+        if (job == null) {
+            // This should not happen.
+            // Last time I found that when user submit a job with already used label, an END_LOAD_JOB edit log
+            // will be wrote but the job is not added to 'idToLoadJob', so this job here we got will be null.
+            // And this bug has been fixed.
+            // Just add a log here to observe.
+            LOG.warn("job does not exist when replaying end load job edit log: {}", operation);
+            return;
+        }
         job.unprotectReadEndOperation(operation);
         LOG.info(new LogBuilder(LogKey.LOAD_JOB, operation.getId())
                          .add("operation", operation)
@@ -327,6 +342,15 @@ public class LoadManager implements Writable{
             List<LoadJob> loadJobList = labelToLoadJobs.values().stream()
                     .flatMap(entity -> entity.stream()).collect(Collectors.toList());
             return (int) loadJobList.stream().filter(entity -> entity.getState() == jobState).count();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public long getLoadJobNum(JobState jobState, EtlJobType jobType) {
+        readLock();
+        try {
+            return idToLoadJob.values().stream().filter(j -> j.getState() == jobState && j.getJobType() == jobType).count();
         } finally {
             readUnlock();
         }
@@ -351,6 +375,7 @@ public class LoadManager implements Writable{
         }
     }
 
+    // only for those jobs which transaction is not started
     public void processTimeoutJobs() {
         idToLoadJob.values().stream().forEach(entity -> entity.processTimeout());
     }
@@ -506,7 +531,7 @@ public class LoadManager implements Writable{
      * @param requestId: the uuid of each txn request from BE
      * @throws LabelAlreadyUsedException throw exception when label has been used by an unfinished job.
      */
-    private void checkLabelUsed(long dbId, String label, TUniqueId requestId)
+    private void checkLabelUsed(long dbId, String label)
             throws DdlException {
         // if label has been used in old load jobs
         Catalog.getCurrentCatalog().getLoadInstance().isLabelUsed(dbId, label);
@@ -518,11 +543,6 @@ public class LoadManager implements Writable{
                 Optional<LoadJob> loadJobOptional =
                         labelLoadJobs.stream().filter(entity -> entity.getState() != JobState.CANCELLED).findFirst();
                 if (loadJobOptional.isPresent()) {
-                    LoadJob loadJob = loadJobOptional.get();
-                    if (loadJob.getRequestId() != null && requestId != null && loadJob.getRequestId().equals(requestId)) {
-                        throw new DuplicatedRequestException(String.valueOf(loadJob.getId()),
-                                "The request is duplicated with " + loadJob.getId());
-                    }
                     LOG.warn("Failed to add load job when label {} has been used.", label);
                     throw new LabelAlreadyUsedException(label);
                 }
@@ -574,6 +594,100 @@ public class LoadManager implements Writable{
         }
     }
 
+    // This method is only for bug fix. And should be call after image and edit log are replayed.
+    public void fixLoadJobMetaBugs(GlobalTransactionMgr txnMgr) {
+        for (LoadJob job : idToLoadJob.values()) {
+            /*
+             * Bug 1:
+             * in previous implementation, there is a bug that when the job's corresponding transaction is
+             * COMMITTED but not VISIBLE, the load job's state is LOADING, so that the job may be CANCELLED
+             * by timeout checker, which is not right.
+             * So here we will check each LOADING load jobs' txn status, if it is COMMITTED, change load job's
+             * state to COMMITTED.
+             * this method should be removed at next upgrading.
+             * only mini load job will be in LOADING state when persist, because mini load job is executed before writing
+             * edit log.
+             */
+            if (job.getState() == JobState.LOADING) {
+                // unfortunately, transaction id in load job is also not persisted, so we have to traverse
+                // all transactions to find it.
+                TransactionState txn = txnMgr.getTransactionStateByCallbackIdAndStatus(job.getCallbackId(),
+                        Sets.newHashSet(TransactionStatus.COMMITTED));
+                if (txn != null) {
+                    job.updateState(JobState.COMMITTED);
+                    LOG.info("transfer load job {} state from LOADING to COMMITTED, because txn {} is COMMITTED."
+                            + " label: {}, db: {}", job.getId(), txn.getTransactionId(), job.getLabel(), job.getDbId());
+                    continue;
+                }
+            }
+
+            /*
+             * Bug 2:
+             * There is bug in Doris version 0.10.15. When a load job in PENDING or LOADING
+             * state was replayed from image (not through the edit log), we forgot to add
+             * the corresponding callback id in the CallbackFactory. As a result, the
+             * subsequent finish txn edit logs cannot properly finish the job during the
+             * replay process. This results in that when the FE restarts, these load jobs
+             * that should have been completed are re-entered into the pending state,
+             * resulting in repeated submission load tasks.
+             * 
+             * Those wrong images are unrecoverable, so that we have to cancel all load jobs
+             * in PENDING or LOADING state when restarting FE, to avoid submit jobs
+             * repeatedly.
+             * 
+             * This code can be remove when upgrading from 0.11.x to future version.
+             */
+            if (job.getState() == JobState.LOADING || job.getState() == JobState.PENDING) {
+                JobState prevState = job.getState();
+                TransactionState txn = txnMgr.getTransactionStateByCallbackId(job.getCallbackId());
+                if (txn != null) {
+                    // the txn has already been committed or visible, change job's state to committed or finished
+                    if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                        job.updateState(JobState.COMMITTED);
+                        LOG.info("transfer load job {} state from {} to COMMITTED, because txn {} is COMMITTED",
+                                job.getId(), prevState, txn.getTransactionId());
+                    } else if (txn.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                        job.updateState(JobState.FINISHED);
+                        LOG.info("transfer load job {} state from {} to FINISHED, because txn {} is VISIBLE",
+                                job.getId(), prevState, txn.getTransactionId());
+                    } else if (txn.getTransactionStatus() == TransactionStatus.ABORTED) {
+                        job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "fe restart"), false, false);
+                        LOG.info("transfer load job {} state from {} to CANCELLED, because txn {} is ABORTED",
+                                job.getId(), prevState, txn.getTransactionId());
+                    } else {
+                        // pending txn, do nothing
+                    }
+                    continue;
+                }
+
+                if (job.getJobType() == EtlJobType.MINI) {
+                    // for mini load job, just set it as CANCELLED, because mini load is a synchronous load.
+                    // it would be failed if FE restart.
+                    job.cancelJobWithoutCheck(new FailMsg(CancelType.LOAD_RUN_FAIL, "fe restart"), false, false);
+                    LOG.info("transfer mini load job {} state from {} to CANCELLED, because transaction status is unknown"
+                            + ". label: {}, db: {}",
+                            job.getId(), prevState, job.getLabel(), job.getDbId());
+                } else {
+                    // txn is not found. here are 2 cases:
+                    // 1. txn is not start yet, so we can just set job to CANCELLED, and user need to submit the job again.
+                    // 2. because of the bug, txn is ABORTED of VISIBLE, and job is not finished. and txn is expired and
+                    //    be removed from transaction manager. So we don't know this job is finished or cancelled.
+                    //    in this case, the job should has been submitted long ago (otherwise the txn could not have been 
+                    //    removed by expiration). 
+                    // Without affecting the first case of job, we set the job finish time to be the same as the create time. 
+                    // In this way, the second type of job will be automatically cleared after running removeOldLoadJob();
+                    
+                    // use CancelType.UNKNOWN, so that we can set finish time to be the same as the create time
+                    job.cancelJobWithoutCheck(new FailMsg(CancelType.TXN_UNKNOWN, "transaction status is unknown"), false, false);
+                    LOG.info("finish load job {} from {} to CANCELLED, because transaction status is unknown. label: {}, db: {}, create: {}",
+                            job.getId(), prevState, job.getLabel(), job.getDbId(), TimeUtils.longToTimeString(job.getCreateTimestamp()));
+                }
+            }
+        }
+
+        removeOldLoadJob();
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         List<LoadJob> loadJobs = idToLoadJob.values().stream().filter(this::needSave).collect(Collectors.toList());
@@ -584,7 +698,6 @@ public class LoadManager implements Writable{
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

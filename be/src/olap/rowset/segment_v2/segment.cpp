@@ -21,12 +21,14 @@
 #include "env/env.h" // RandomAccessFile
 #include "gutil/strings/substitute.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
+#include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 #include "util/slice.h" // Slice
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
+#include "util/file_manager.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -54,54 +56,23 @@ Segment::Segment(
 Segment::~Segment() = default;
 
 Status Segment::_open() {
-    RETURN_IF_ERROR(Env::Default()->new_random_access_file(_fname, &_input_file));
     RETURN_IF_ERROR(_parse_footer());
     RETURN_IF_ERROR(_create_column_readers());
     return Status::OK();
 }
 
-Status Segment::new_iterator(
-        const Schema& schema,
-        const StorageReadOptions& read_options,
-        std::unique_ptr<RowwiseIterator>* iter) {
-
+Status Segment::new_iterator(const Schema& schema,
+                             const StorageReadOptions& read_options,
+                             std::unique_ptr<RowwiseIterator>* iter) {
+    DCHECK_NOTNULL(read_options.stats);
     // trying to prune the current segment by segment-level zone map
     if (read_options.conditions != nullptr) {
         for (auto& column_condition : read_options.conditions->columns()) {
             int32_t column_id = column_condition.first;
-            auto entry = _column_id_to_footer_ordinal.find(column_id);
-            if (entry == _column_id_to_footer_ordinal.end()) {
+            if (_column_readers[column_id] == nullptr || !_column_readers[column_id]->has_zone_map()) {
                 continue;
             }
-            auto& c_meta = _footer.columns(entry->second);
-            if (!c_meta.has_zone_map()) {
-                continue;
-            }
-            auto& c_zone_map = c_meta.zone_map();
-            if (!c_zone_map.has_not_null() && !c_zone_map.has_null()) {
-                // no data
-                iter->reset(new EmptySegmentIterator(schema));
-                return Status::OK();
-            }
-            // TODO Logic here and the similar logic in ColumnReader::_get_filtered_pages should be unified.
-            TypeInfo* type_info = get_type_info((FieldType)c_meta.type());
-            if (type_info == nullptr) {
-                return Status::NotSupported(Substitute("unsupported typeinfo, type=$0", c_meta.type()));
-            }
-            FieldType type = type_info->type();
-            std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> max_value(WrapperField::create_by_type(type));
-            if (c_zone_map.has_not_null()) {
-                min_value->from_string(c_zone_map.min());
-                max_value->from_string(c_zone_map.max());
-            }
-            if (c_zone_map.has_null()) {
-                min_value->set_null();
-                if (!c_zone_map.has_not_null()) {
-                    max_value->set_null();
-                }
-            }
-            if (!column_condition.second->eval({min_value.get(), max_value.get()})) {
+            if (!_column_readers[column_id]->match_condition(column_condition.second)) {
                 // any condition not satisfied, return.
                 iter->reset(new EmptySegmentIterator(schema));
                 return Status::OK();
@@ -117,15 +88,18 @@ Status Segment::new_iterator(
 
 Status Segment::_parse_footer() {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
+    OpenedFileHandle<RandomAccessFile> file_handle;
+    RETURN_IF_ERROR(FileManager::instance()->open_file(_fname, &file_handle));
+    RandomAccessFile* input_file = file_handle.file();
     uint64_t file_size;
-    RETURN_IF_ERROR(_input_file->size(&file_size));
+    RETURN_IF_ERROR(input_file->size(&file_size));
 
     if (file_size < 12) {
         return Status::Corruption(Substitute("Bad segment file $0: file size $1 < 12", _fname, file_size));
     }
 
     uint8_t fixed_buf[12];
-    RETURN_IF_ERROR(_input_file->read_at(file_size - 12, Slice(fixed_buf, 12)));
+    RETURN_IF_ERROR(input_file->read_at(file_size - 12, Slice(fixed_buf, 12)));
 
     // validate magic number
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
@@ -140,7 +114,7 @@ Status Segment::_parse_footer() {
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(_input_file->read_at(file_size - 12 - footer_length, footer_buf));
+    RETURN_IF_ERROR(input_file->read_at(file_size - 12 - footer_length, footer_buf));
 
     // validate footer PB's checksum
     uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
@@ -160,15 +134,25 @@ Status Segment::_parse_footer() {
 
 Status Segment::_load_index() {
     return _load_index_once.call([this] {
-        // read short key index content
-        _sk_index_buf.resize(_footer.short_key_index_page().size());
-        Slice slice(_sk_index_buf.data(), _sk_index_buf.size());
-        RETURN_IF_ERROR(_input_file->read_at(_footer.short_key_index_page().offset(), slice));
+        // read and parse short key index page
+        OpenedFileHandle<RandomAccessFile> file_handle;
+        RETURN_IF_ERROR(FileManager::instance()->open_file(_fname, &file_handle));
 
-        // Parse short key index
-        _sk_index_decoder.reset(new ShortKeyIndexDecoder(_sk_index_buf));
-        RETURN_IF_ERROR(_sk_index_decoder->parse());
-        return Status::OK();
+        PageReadOptions opts;
+        opts.file = file_handle.file();
+        opts.page_pointer = PagePointer(_footer.short_key_index_page());
+        opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
+        OlapReaderStatistics tmp_stats;
+        opts.stats = &tmp_stats;
+
+        Slice body;
+        PageFooterPB footer;
+        RETURN_IF_ERROR(PageIO::read_and_decompress_page(opts, &_sk_index_handle, &body, &footer));
+        DCHECK_EQ(footer.type(), SHORT_KEY_PAGE);
+        DCHECK(footer.has_short_key_page_footer());
+
+        _sk_index_decoder.reset(new ShortKeyIndexDecoder);
+        return _sk_index_decoder->parse(body, footer.short_key_page_footer());
     });
 }
 
@@ -187,9 +171,11 @@ Status Segment::_create_column_readers() {
         }
 
         ColumnReaderOptions opts;
+        opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
+        // pass Descriptor<RandomAccessFile>* to column reader
         RETURN_IF_ERROR(ColumnReader::create(
-            opts, _footer.columns(iter->second), _footer.num_rows(), _input_file.get(), &reader));
+            opts, _footer.columns(iter->second), _footer.num_rows(), _fname, &reader));
         _column_readers[ordinal] = std::move(reader);
     }
     return Status::OK();
@@ -198,18 +184,28 @@ Status Segment::_create_column_readers() {
 Status Segment::new_column_iterator(uint32_t cid, ColumnIterator** iter) {
     if (_column_readers[cid] == nullptr) {
         const TabletColumn& tablet_column = _tablet_schema->column(cid);
-        if (!tablet_column.has_default_value()) {
+        if (!tablet_column.has_default_value() && !tablet_column.is_nullable()) {
             return Status::InternalError("invalid nonexistent column without default value.");
         }
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
-                new DefaultValueColumnIterator(tablet_column.default_value(),
-                tablet_column.is_nullable(), tablet_column.type()));
+                new DefaultValueColumnIterator(tablet_column.has_default_value(),
+                tablet_column.default_value(),
+                tablet_column.is_nullable(),
+                tablet_column.type(),
+                tablet_column.length()));
         ColumnIteratorOptions iter_opts;
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
         *iter = default_value_iter.release();
         return Status::OK();
     }
     return _column_readers[cid]->new_iterator(iter);
+}
+
+Status Segment::new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter) {
+    if (_column_readers[cid] != nullptr && _column_readers[cid]->has_bitmap_index()) {
+        return _column_readers[cid]->new_bitmap_index_iterator(iter);
+    }
+    return Status::OK();
 }
 
 }

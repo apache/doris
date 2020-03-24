@@ -29,7 +29,10 @@ namespace doris {
 class WrapperField {
 public:
     static WrapperField* create(const TabletColumn& column, uint32_t len = 0);
-    static WrapperField* create_by_type(const FieldType& type);
+    static WrapperField* create_by_type(const FieldType& type) {
+        return create_by_type(type, 0);
+    }
+    static WrapperField* create_by_type(const FieldType& type, int32_t var_length);
 
     WrapperField(Field* rep, size_t variable_len, bool is_string_type);
 

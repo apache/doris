@@ -126,7 +126,6 @@ public class ColocateGroupSchema implements Writable {
         out.writeShort(replicationNum);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         groupId = GroupId.read(in);
         int size = in.readInt();

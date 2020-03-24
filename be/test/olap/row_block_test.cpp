@@ -41,8 +41,6 @@ public:
     }
     void TearDown() {
     }
-    void SetRows(RowBlock& row_block) {
-    }
 };
 
 void init_tablet_schema(TabletSchema* tablet_schema) {

@@ -115,8 +115,7 @@ public class AgentTaskQueue {
         }
 
         PushTask pushTask = (PushTask) task;
-        if (pushTask.getVersion() != version || pushTask.getVersionHash() != versionHash
-                || pushTask.getPushType() != pushType) {
+        if (pushTask.getVersion() != version || pushTask.getPushType() != pushType) {
             return;
         }
 

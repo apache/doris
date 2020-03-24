@@ -19,11 +19,11 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -66,18 +66,10 @@ public class IndexInfoProcDir implements ProcDirInterface {
                 // indices order
                 List<Long> indices = Lists.newArrayList();
                 indices.add(olapTable.getBaseIndexId());
-                for (Long indexId : olapTable.getIndexIdToSchema().keySet()) {
-                    if (indexId != olapTable.getBaseIndexId()) {
-                        indices.add(indexId);
-                    }
-                }
+                indices.addAll(olapTable.getIndexIdListExceptBaseIndex());
 
                 for (long indexId : indices) {
-                    int schemaVersion = olapTable.getSchemaVersionByIndexId(indexId);
-                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
-                    short shortKeyColumnCount = olapTable.getShortKeyColumnCountByIndexId(indexId);
-                    TStorageType storageType = olapTable.getStorageTypeByIndexId(indexId);
-                    String indexName = olapTable.getIndexNameById(indexId);
+                    MaterializedIndexMeta indexMeta = olapTable.getIndexIdToMeta().get(indexId);
 
                     String type = olapTable.getKeysType().name();
                     StringBuilder builder = new StringBuilder();
@@ -92,11 +84,11 @@ public class IndexInfoProcDir implements ProcDirInterface {
                     builder.append(Joiner.on(", ").join(columnNames)).append(")");
 
                     result.addRow(Lists.newArrayList(String.valueOf(indexId),
-                            indexName,
-                            String.valueOf(schemaVersion),
-                            String.valueOf(schemaHash),
-                            String.valueOf(shortKeyColumnCount),
-                            storageType.name(),
+                            olapTable.getIndexNameById(indexId),
+                            String.valueOf(indexMeta.getSchemaVersion()),
+                            String.valueOf(indexMeta.getSchemaHash()),
+                            String.valueOf(indexMeta.getShortKeyColumnCount()),
+                            indexMeta.getStorageType().name(),
                             builder.toString()));
                 }
             } else {

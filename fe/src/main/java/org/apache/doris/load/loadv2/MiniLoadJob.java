@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -33,12 +34,16 @@ import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Sets;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Set;
 
 public class MiniLoadJob extends LoadJob {
+    private static final Logger LOG = LogManager.getLogger(MiniLoadJob.class);
 
     private String tableName;
 
@@ -60,7 +65,6 @@ public class MiniLoadJob extends LoadJob {
         if (request.isSetMax_filter_ratio()) {
             this.maxFilterRatio = request.getMax_filter_ratio();
         }
-        this.isCancellable = false;
         this.createTimestamp = request.getCreate_timestamp();
         this.loadStartTimestamp = createTimestamp;
         this.authorizationInfo = gatherAuthInfo();
@@ -86,9 +90,10 @@ public class MiniLoadJob extends LoadJob {
     }
 
     @Override
-    public void beginTxn() throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+    public void beginTxn()
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, label, null, "FE: " + FrontendOptions.getLocalHostAddress(),
+                .beginTransaction(dbId, label, requestId, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
                                   timeoutSecond);
     }
@@ -101,6 +106,12 @@ public class MiniLoadJob extends LoadJob {
     private void updateLoadingStatue(TransactionState txnState) {
         MiniLoadTxnCommitAttachment miniLoadTxnCommitAttachment =
                 (MiniLoadTxnCommitAttachment) txnState.getTxnCommitAttachment();
+        if (miniLoadTxnCommitAttachment == null) {
+            // aborted txn may not has attachment
+            LOG.info("no miniLoadTxnCommitAttachment, txn id: {} status: {}", txnState.getTransactionId(),
+                    txnState.getTransactionStatus());
+            return;
+        }
         loadingStatus.replaceCounter(DPP_ABNORMAL_ALL, String.valueOf(miniLoadTxnCommitAttachment.getFilteredRows()));
         loadingStatus.replaceCounter(DPP_NORMAL_ALL, String.valueOf(miniLoadTxnCommitAttachment.getLoadedRows()));
         if (miniLoadTxnCommitAttachment.getErrorLogUrl() != null) {
@@ -114,7 +125,6 @@ public class MiniLoadJob extends LoadJob {
         Text.writeString(out, tableName);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         tableName = Text.readString(in);

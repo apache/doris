@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # 权限管理
 
 Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了表级别细粒度的权限控制，基于角色的权限访问控制，并且支持白名单机制。
@@ -8,7 +27,7 @@ Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了�
 
     在权限系统中，一个用户被识别为一个 User Identity（用户标识）。用户标识由两部分组成：username 和 userhost。其中 username 为用户名，由英文大小写组成。userhost 表示该用户链接来自的 IP。user_identity 以 username@'userhost' 的方式呈现，表示来自 userhost 的 username。
     
-    user_identity 的另一种表现方式为 username@['domain']，其中 domain 为域名，可以通过 DNS 会 BNS（百度名字服务）解析为一组 ip。最终表现为一组 username@'userhost'，所以后面我们统一使用 username@'userhost' 来表示。
+    user_identity 的另一种表现方式为 username@['domain']，其中 domain 为域名，可以通过 DNS 或 BNS（百度名字服务）解析为一组 ip。最终表现为一组 username@'userhost'，所以后面我们统一使用 username@'userhost' 来表示。
     
 2. 权限 Privilege
 
@@ -34,7 +53,7 @@ Doris 新的权限管理系统参照了 Mysql 的权限管理机制，做到了�
 6. 删除角色：DROP ROLE
 7. 查看当前用户权限：SHOW GRANTS
 8. 查看所有用户权限：SHOW ALL GRANTS
-9. 查看已创建的角色：SHOW ROELS
+9. 查看已创建的角色：SHOW ROLES
 10. 查看用户属性：SHOW PROPERTY
 
 关于以上命令的详细帮助，可以通过 mysql 客户端连接 Doris 后，使用 help + command 获取帮助。如 `HELP CREATE USER`。
@@ -82,7 +101,7 @@ Doris 目前支持以下几种权限
     
 ## ADMIN/GRANT 权限说明
 
-ADMIN\_PRIV 和 GRANT\_PRIV 权限同时拥有**“授予权限”**的权限，较为特殊。这里对和这两个权限相关的操作逐一说明。
+ADMIN\_PRIV 和 GRANT\_PRIV 权限同时拥有**授予权限**的权限，较为特殊。这里对和这两个权限相关的操作逐一说明。
 
 1. CREATE USER
 
@@ -169,6 +188,14 @@ ADMIN\_PRIV 和 GRANT\_PRIV 权限同时拥有**“授予权限”**的权限，
 
 8. 拥有 GLOBAL 层级 GRANT_PRIV 其实等同于拥有 ADMIN\_PRIV，因为该层级的 GRANT\_PRIV 有授予任意权限的权限，请谨慎使用。
 
+9. `current_user()` 和 `user()`
+
+    用户可以通过 `SELECT current_user();` 和 `SELECT user();` 分别查看 `current_user` 和 `user`。其中 `current_user` 表示当前用户是以哪种身份通过认证系统的，而 `user` 则是用户当前实际的 `user_identity`。举例说明：
+
+    假设创建了 `user1@'192.%'` 这个用户，然后以为来自 192.168.10.1 的用户 user1 登陆了系统，则此时的 `current_user` 为 `user1@'192.%'`，而 `user` 为 `user1@'192.168.10.1'`。
+
+    所有的权限都是赋予某一个 `current_user` 的，真实用户拥有对应的 `current_user` 的所有权限。
+
 ## 最佳实践
 
 这里举例一些 Doris 权限系统的使用场景。
@@ -183,6 +210,8 @@ ADMIN\_PRIV 和 GRANT\_PRIV 权限同时拥有**“授予权限”**的权限，
 
     一个集群内有多个业务，每个业务可能使用一个或多个数据。每个业务需要管理自己的用户。在这种场景下。管理员用户可以为每个数据库创建一个拥有 DATABASE 层级 GRANT 权限的用户。该用户仅可以对用户进行指定的数据库的授权。
 
+3. 黑名单
 
+    Doris 本身不支持黑名单，只有白名单功能，但我们可以通过某些方式来模拟黑名单。假设先创建了名为 `user@'192.%'` 的用户，表示允许来自 `192.*` 的用户登录。此时如果想禁止来自 `192.168.10.1` 的用户登录。则可以再创建一个用户 `cmy@'192.168.10.1'` 的用户，并设置一个新的密码。因为 `192.168.10.1` 的优先级高于 `192.%`，所以来自 `192.168.10.1` 将不能再使用旧密码进行登录。
 
     

@@ -17,6 +17,18 @@
 
 package org.apache.doris.analysis;
 
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -41,6 +53,8 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.thrift.TQueryGlobals;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -50,23 +64,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
-
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.IdentityHashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-//import org.apache.doris.catalog.InlineView;
 
 /**
  * Repository of analysis state for single select block.
@@ -245,7 +242,7 @@ public class Analyzer {
             // expr rewrites can be disabled via a query option. When rewrites are enabled
             // BetweenPredicates should be rewritten first to help trigger other rules.
             rules.add(BetweenToCompoundRule.INSTANCE);
-            // Binary predicates must be rewritten to a canonical form for both Kudu predicate
+            // Binary predicates must be rewritten to a canonical form for both predicate
             // pushdown and Parquet row group pruning based on min/max statistics.
             rules.add(NormalizeBinaryPredicatesRule.INSTANCE);
             rules.add(FoldConstantsRule.INSTANCE);
@@ -590,6 +587,28 @@ public class Analyzer {
     }
 
     /**
+     * Register a virtual column, and it is not a real column exist in table,
+     * so it does not need to resolve.
+     */
+    public SlotDescriptor registerVirtualColumnRef(String colName, Type type, TupleDescriptor tupleDescriptor)
+            throws AnalysisException {
+        // Make column name case insensitive
+        String key = colName;
+        SlotDescriptor result = slotRefMap.get(key);
+        if (result != null) {
+            result.setMultiRef(true);
+            return result;
+        }
+
+        result = addSlotDescriptor(tupleDescriptor);
+        Column col = new Column(colName, type);
+        result.setColumn(col);
+        result.setIsNullable(true);
+        slotRefMap.put(key, result);
+        return result;
+    }
+
+    /**
      * Resolves column name in context of any of the registered table aliases.
      * Returns null if not found or multiple bindings to different tables exist,
      * otherwise returns the table alias.
@@ -821,7 +840,7 @@ public class Analyzer {
             return;
         }
         BinaryPredicate binaryPred = (BinaryPredicate) e;
-        if (binaryPred.getOp() != BinaryPredicate.Operator.EQ) {
+        if (!binaryPred.getOp().isEquivalence()) {
             return;
         }
         if (tupleIds.size() < 2) {
@@ -1044,23 +1063,16 @@ public class Analyzer {
         return uniqueTableAliasSet_;
     }
 
-    public List<Expr> getAllConjunt(TupleId id) {
+    public List<Expr> getAllConjuncts(TupleId id) {
         List<ExprId> conjunctIds = tuplePredicates.get(id);
         if (conjunctIds == null) {
             return null;
         }
         List<Expr> result = Lists.newArrayList();
-        List<ExprId> ojClauseConjuncts = null;
         for (ExprId conjunctId : conjunctIds) {
             Expr e = globalState.conjuncts.get(conjunctId);
             Preconditions.checkState(e != null);
-            if (ojClauseConjuncts != null) {
-                if (ojClauseConjuncts.contains(conjunctId)) {
-                    result.add(e);
-                }
-            } else {
-                result.add(e);
-            }
+            result.add(e);
         }
         return result;
     }
@@ -1406,7 +1418,7 @@ public class Analyzer {
      * the i-th expr among all expr lists is compatible.
      * Throw an AnalysisException if the types are incompatible.
      */
-    public void castToUnionCompatibleTypes(List<List<Expr>> exprLists)
+    public void castToSetOpsCompatibleTypes(List<List<Expr>> exprLists)
             throws AnalysisException {
         if (exprLists == null || exprLists.size() < 2) return;
 

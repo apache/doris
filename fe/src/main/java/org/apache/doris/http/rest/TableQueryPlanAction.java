@@ -37,8 +37,8 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TMemoryScratchSink;
@@ -53,6 +53,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.codehaus.jackson.map.ObjectMapper;
@@ -75,6 +77,8 @@ import io.netty.handler.codec.http.HttpResponseStatus;
  */
 public class TableQueryPlanAction extends RestBaseAction {
 
+    public static final Logger LOG = LogManager.getLogger(TableQueryPlanAction.class);
+
     public TableQueryPlanAction(ActionController controller) {
         super(controller);
     }
@@ -89,7 +93,7 @@ public class TableQueryPlanAction extends RestBaseAction {
     }
 
     @Override
-    protected void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    protected void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
@@ -116,10 +120,12 @@ public class TableQueryPlanAction extends RestBaseAction {
             if (Strings.isNullOrEmpty(sql)) {
                 throw new DorisHttpException(HttpResponseStatus.BAD_REQUEST, "POST body must contains [sql] root object");
             }
+            LOG.info("receive SQL statement [{}] from external service [ user [{}]] for database [{}] table [{}]",
+                    sql, ConnectContext.get().getCurrentUserIdentity(), dbName, tableName);
 
-            String fullDbName = ClusterNamespace.getFullName(authInfo.cluster, dbName);
+            String fullDbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(), dbName);
             // check privilege for select, otherwise return HTTP 401
-            checkTblAuth(authInfo, fullDbName, tableName, PrivPredicate.SELECT);
+            checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tableName, PrivPredicate.SELECT);
             Database db = Catalog.getCurrentCatalog().getDb(fullDbName);
             if (db == null) {
                 throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
@@ -133,22 +139,15 @@ public class TableQueryPlanAction extends RestBaseAction {
                     throw new DorisHttpException(HttpResponseStatus.NOT_FOUND,
                                                  "Table [" + tableName + "] " + "does not exists");
                 }
-                // just only support OlapTable, ignore others such as ESTable, KuduTable
+                // just only support OlapTable, ignore others such as ESTable
                 if (table.getType() != Table.TableType.OLAP) {
                     // Forbidden
                     throw new DorisHttpException(HttpResponseStatus.FORBIDDEN,
                                                  "only support OlapTable currently, but Table [" + tableName + "] "
                                                     + "is not a OlapTable");
                 }
-                // construct ConnectContext  for analyzer
-                ConnectContext context = new ConnectContext(null);
-                context.setCatalog(Catalog.getCurrentCatalog());
-                context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-                context.setQualifiedUser(authInfo.fullUserName);
-                context.setRemoteIP(authInfo.remoteIp);
-                context.setThreadLocalInfo();
                 // parse/analysis/plan the sql and acquire tablet distributions
-                handleQuery(context, fullDbName, tableName, sql, resultMap);
+                handleQuery(ConnectContext.get(), fullDbName, tableName, sql, resultMap);
             } finally {
                 db.readUnlock();
             }
@@ -185,7 +184,7 @@ public class TableQueryPlanAction extends RestBaseAction {
     private void handleQuery(ConnectContext context, String requestDb, String requestTable, String sql,
                              Map<String, Object> result) throws DorisHttpException {
         // use SE to resolve sql
-        StmtExecutor stmtExecutor = new StmtExecutor(context, sql, false);
+        StmtExecutor stmtExecutor = new StmtExecutor(context, new OriginStatement(sql, 0), false);
         try {
             TQueryOptions tQueryOptions = context.getSessionVariable().toThrift();
             // Conduct Planner create SingleNodePlan#createPlanFragments

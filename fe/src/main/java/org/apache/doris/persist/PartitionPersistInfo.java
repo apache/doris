@@ -17,11 +17,13 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.catalog.RangePartitionInfo;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.RangeUtils;
 
 import com.google.common.collect.Range;
 
@@ -37,12 +39,15 @@ public class PartitionPersistInfo implements Writable {
     private Range<PartitionKey> range;
     private DataProperty dataProperty;
     private short replicationNum;
+    private boolean isInMemory = false;
+    private boolean isTempPartition = false;
     
     public PartitionPersistInfo() {
     }
 
     public PartitionPersistInfo(long dbId, long tableId, Partition partition, Range<PartitionKey> range,
-                                DataProperty dataProperty, short replicationNum) {
+                                DataProperty dataProperty, short replicationNum,
+                                boolean isInMemory, boolean isTempPartition) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partition = partition;
@@ -51,6 +56,8 @@ public class PartitionPersistInfo implements Writable {
         this.dataProperty = dataProperty;
 
         this.replicationNum = replicationNum;
+        this.isInMemory = isInMemory;
+        this.isTempPartition = isTempPartition;
     }
     
     public Long getDbId() {
@@ -77,24 +84,41 @@ public class PartitionPersistInfo implements Writable {
         return replicationNum;
     }
 
+    public boolean isInMemory() {
+        return isInMemory;
+    }
+
+    public boolean isTempPartition() {
+        return isTempPartition;
+    }
+
     public void write(DataOutput out) throws IOException {
         out.writeLong(dbId);
         out.writeLong(tableId);
         partition.write(out);
 
-        RangePartitionInfo.writeRange(out, range);
+        RangeUtils.writeRange(out, range);
         dataProperty.write(out);
         out.writeShort(replicationNum);
+        out.writeBoolean(isInMemory);
+        out.writeBoolean(isTempPartition);
     }
- 
+
     public void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
         partition = Partition.read(in);
 
-        range = RangePartitionInfo.readRange(in);
+        range = RangeUtils.readRange(in);
         dataProperty = DataProperty.read(in);
         replicationNum = in.readShort();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
+            isInMemory = in.readBoolean();
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_74) {
+            isTempPartition = in.readBoolean();
+        }
     }
     
     public boolean equals(Object obj) {

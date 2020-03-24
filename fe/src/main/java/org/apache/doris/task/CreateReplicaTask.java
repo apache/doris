@@ -19,17 +19,21 @@ package org.apache.doris.task;
 
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCreateTabletReq;
+import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletSchema;
 import org.apache.doris.thrift.TTaskType;
+import org.apache.doris.thrift.TStorageFormat;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -56,6 +60,11 @@ public class CreateReplicaTask extends AgentTask {
     private Set<String> bfColumns;
     private double bfFpp;
 
+    // indexes
+    private List<Index> indexes;
+
+    private boolean isInMemory;
+
     // used for synchronous process
     private MarkedCountDownLatch<Long, Long> latch;
 
@@ -65,11 +74,15 @@ public class CreateReplicaTask extends AgentTask {
     private long baseTabletId = -1;
     private int baseSchemaHash = -1;
 
+    private TStorageFormat storageFormat = null;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              short shortKeyColumnCount, int schemaHash, long version, long versionHash,
                              KeysType keysType, TStorageType storageType,
                              TStorageMedium storageMedium, List<Column> columns,
-                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch) {
+                             Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
+                             List<Index> indexes,
+                             boolean isInMemory) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
@@ -85,9 +98,12 @@ public class CreateReplicaTask extends AgentTask {
         this.columns = columns;
 
         this.bfColumns = bfColumns;
+        this.indexes = indexes;
         this.bfFpp = bfFpp;
 
         this.latch = latch;
+
+        this.isInMemory = isInMemory;
     }
     
     public void countDownLatch(long backendId, long tabletId) {
@@ -120,6 +136,10 @@ public class CreateReplicaTask extends AgentTask {
         this.baseSchemaHash = baseSchemaHash;
     }
 
+    public void setStorageFormat(TStorageFormat storageFormat) {
+        this.storageFormat = storageFormat;
+    }
+
     public TCreateTabletReq toThrift() {
         TCreateTabletReq createTabletReq = new TCreateTabletReq();
         createTabletReq.setTablet_id(tabletId);
@@ -146,9 +166,19 @@ public class CreateReplicaTask extends AgentTask {
         }
         tSchema.setColumns(tColumns);
 
+        if (CollectionUtils.isNotEmpty(indexes)) {
+            List<TOlapTableIndex> tIndexes = new ArrayList<>();
+            for (Index index : indexes) {
+                tIndexes.add(index.toThrift());
+            }
+            tSchema.setIndexes(tIndexes);
+            storageFormat = TStorageFormat.V2;
+        }
+
         if (bfColumns != null) {
             tSchema.setBloom_filter_fpp(bfFpp);
         }
+        tSchema.setIs_in_memory(isInMemory);
         createTabletReq.setTablet_schema(tSchema);
 
         createTabletReq.setVersion(version);
@@ -164,6 +194,10 @@ public class CreateReplicaTask extends AgentTask {
         if (baseTabletId != -1) {
             createTabletReq.setBase_tablet_id(baseTabletId);
             createTabletReq.setBase_schema_hash(baseSchemaHash);
+        }
+
+        if (storageFormat != null) {
+            createTabletReq.setStorage_format(storageFormat);
         }
 
         return createTabletReq;

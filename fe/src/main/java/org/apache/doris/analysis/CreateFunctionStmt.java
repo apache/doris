@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSortedMap;
-import org.apache.commons.codec.binary.Hex;
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
@@ -27,9 +24,15 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSortedMap;
+
+import org.apache.commons.codec.binary.Hex;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -131,6 +134,11 @@ public class CreateFunctionStmt extends DdlStmt {
     }
 
     private void computeObjectChecksum() throws IOException, NoSuchAlgorithmException {
+        if (FeConstants.runningUnitTest) {
+            // skip checking checksum when running ut
+            checksum = "";
+            return;
+        }
         URL url = new URL(objectFile);
         URLConnection urlConnection = url.openConnection();
         InputStream inputStream = urlConnection.getInputStream();

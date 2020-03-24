@@ -47,6 +47,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Root of the expr node hierarchy.
@@ -123,9 +124,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 }
             };
     */
-
     // Returns true if an Expr is a builtin aggregate function.
-    public final static com.google.common.base.Predicate<Expr> IS_BUILTIN_AGG_FN =
+    public final static com.google.common.base.Predicate<Expr> CORRELATED_SUBQUERY_SUPPORT_AGG_FN =
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) {
@@ -141,6 +141,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     }
                 }
             };
+
 
     public final static com.google.common.base.Predicate<Expr> IS_TRUE_LITERAL =
             new com.google.common.base.Predicate<Expr>() {
@@ -168,6 +169,12 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             new com.google.common.base.Predicate<Expr>() {
                 @Override
                 public boolean apply(Expr arg) { return arg instanceof BinaryPredicate; }
+            };
+
+    public static final com.google.common.base.Predicate<Expr> IS_NULL_LITERAL =
+            new com.google.common.base.Predicate<Expr>() {
+                @Override
+                public boolean apply(Expr arg) { return arg instanceof NullLiteral; }
             };
 
     /* TODO(zc)
@@ -964,11 +971,16 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     @Override
     public int hashCode() {
+        // in group by clause, group by list need to remove duplicate exprs, the expr may be not not analyzed, the id
+        // may be null
         if (id == null) {
-            throw new UnsupportedOperationException("Expr.hashCode() is not implemented");
-        } else {
-            return id.asInt();
+            int result = 31 * Objects.hashCode(type) + Objects.hashCode(opcode);
+            for (Expr child : children) {
+                result = 31 * result + Objects.hashCode(child);
+            }
+            return result;
         }
+        return id.asInt();
     }
 
     /**
@@ -1094,6 +1106,13 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public void getIds(List<TupleId> tupleIds, List<SlotId> slotIds) {
         for (Expr child : children) {
             child.getIds(tupleIds, slotIds);
+        }
+    }
+
+    public void getTableNameToColumnNames(Map<String, Set<String>> tableNameToColumnNames) {
+        Preconditions.checkState(tableNameToColumnNames != null);
+        for (Expr child : children) {
+            child.getTableNameToColumnNames(tableNameToColumnNames);
         }
     }
 
@@ -1448,7 +1467,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         throw new IOException("Not implemented serializable ");
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         throw new IOException("Not implemented serializable ");
     }

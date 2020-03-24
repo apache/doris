@@ -22,6 +22,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 
 add_subdirectory(rowset)
+add_subdirectory(fs)
 
 add_library(Olap STATIC
     aggregate_func.cpp
@@ -47,7 +48,6 @@ add_library(Olap STATIC
     memtable.cpp
     memtable_flush_executor.cpp
     merger.cpp
-    new_status.cpp
     null_predicate.cpp
     olap_cond.cpp
     olap_index.cpp
@@ -83,22 +83,31 @@ add_library(Olap STATIC
     types.cpp 
     utils.cpp
     wrapper_field.cpp
+    rowset/segment_v2/bitmap_index_reader.cpp
+    rowset/segment_v2/bitmap_index_writer.cpp
     rowset/segment_v2/bitshuffle_page.cpp
     rowset/segment_v2/bitshuffle_wrapper.cpp
     rowset/segment_v2/column_reader.cpp
     rowset/segment_v2/column_writer.cpp
     rowset/segment_v2/encoding_info.cpp
+    rowset/segment_v2/index_page.cpp
+    rowset/segment_v2/indexed_column_reader.cpp
+    rowset/segment_v2/indexed_column_writer.cpp
     rowset/segment_v2/ordinal_page_index.cpp
-    rowset/segment_v2/page_compression.cpp
+    rowset/segment_v2/page_io.cpp
     rowset/segment_v2/binary_dict_page.cpp
+    rowset/segment_v2/binary_prefix_page.cpp
     rowset/segment_v2/segment.cpp
     rowset/segment_v2/segment_iterator.cpp
     rowset/segment_v2/empty_segment_iterator.cpp
     rowset/segment_v2/segment_writer.cpp
-    rowset/segment_v2/column_zone_map.cpp
+    rowset/segment_v2/block_split_bloom_filter.cpp
+    rowset/segment_v2/bloom_filter_index_reader.cpp
+    rowset/segment_v2/bloom_filter_index_writer.cpp
+    rowset/segment_v2/bloom_filter.cpp
+    rowset/segment_v2/zone_map_index.cpp
     task/engine_batch_load_task.cpp
     task/engine_checksum_task.cpp
-    task/engine_clear_alter_task.cpp
     task/engine_clone_task.cpp
     task/engine_storage_migration_task.cpp
     task/engine_publish_version_task.cpp

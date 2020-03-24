@@ -67,7 +67,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _batch.reset(new RowBatch(row_desc, state->batch_size(), _parent->_mem_tracker));
 
     _stub = state->exec_env()->brpc_stub_cache()->get_stub(
-        _node_info->host, _node_info->brpc_port);
+            _node_info->host, _node_info->brpc_port);
     if (_stub == nullptr) {
         LOG(WARNING) << "Get rpc stub failed, host=" << _node_info->host
             << ", port=" << _node_info->brpc_port;
@@ -79,7 +79,7 @@ Status NodeChannel::init(RuntimeState* state) {
     _add_batch_request.set_index_id(_index_id);
     _add_batch_request.set_sender_id(_parent->_sender_id);
 
-    _rpc_timeout_ms = config::tablet_writer_rpc_timeout_sec * 1000;
+    _rpc_timeout_ms = state->query_options().query_timeout * 1000;
     return Status::OK();
 }
 
@@ -97,6 +97,7 @@ void NodeChannel::open() {
     request.set_num_senders(_parent->_num_senders);
     request.set_need_gen_rollup(_parent->_need_gen_rollup);
     request.set_load_mem_limit(_parent->_load_mem_limit);
+    request.set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
 
     _open_closure = new RefCountClosure<PTabletWriterOpenResult>();
     _open_closure->ref();
@@ -200,7 +201,7 @@ Status NodeChannel::_wait_in_flight_packet() {
         return Status::OK();
     }
 
-    SCOPED_RAW_TIMER(_parent->mutable_wait_in_flight_packet_ns()); 
+    SCOPED_RAW_TIMER(_parent->mutable_wait_in_flight_packet_ns());
     _add_batch_closure->join();
     _has_in_flight_packet = false;
     if (_add_batch_closure->cntl.Failed()) {
@@ -225,7 +226,7 @@ Status NodeChannel::_send_cur_batch(bool eos) {
     _add_batch_request.set_eos(eos);
     _add_batch_request.set_packet_seq(_next_packet_seq);
     if (_batch->num_rows() > 0) {
-        SCOPED_RAW_TIMER(_parent->mutable_serialize_batch_ns()); 
+        SCOPED_RAW_TIMER(_parent->mutable_serialize_batch_ns());
         _batch->serialize(_add_batch_request.mutable_row_batch());
     }
 
@@ -259,8 +260,6 @@ IndexChannel::~IndexChannel() {
 
 Status IndexChannel::init(RuntimeState* state,
                           const std::vector<TTabletWithPartition>& tablets) {
-    // nodeId -> tabletIds
-    std::map<int64_t, std::vector<int64_t>> tablets_by_node;
     for (auto& tablet : tablets) {
         auto location = _parent->_location->find_tablet(tablet.tablet_id);
         if (location == nullptr) {
@@ -273,7 +272,7 @@ Status IndexChannel::init(RuntimeState* state,
             auto it = _node_channels.find(node_id);
             if (it == std::end(_node_channels)) {
                 channel = _parent->_pool->add(
-                    new NodeChannel(_parent, _index_id, node_id, _schema_hash));
+                        new NodeChannel(_parent, _index_id, node_id, _schema_hash));
                 _node_channels.emplace(node_id, channel);
             } else {
                 channel = it->second;
@@ -423,6 +422,12 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
 
+    if (table_sink.__isset.load_channel_timeout_s) {
+        _load_channel_timeout_s = table_sink.load_channel_timeout_s;
+    } else {
+        _load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
+    }
+
     return Status::OK();
 }
 
@@ -431,11 +436,10 @@ Status OlapTableSink::prepare(RuntimeState* state) {
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
-    
+
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile(_pool, "OlapTableSink"));
-    _mem_tracker = _pool->add(
-        new MemTracker(-1, "OlapTableSink", state->instance_mem_tracker()));
+    _mem_tracker = _pool->add(new MemTracker(-1, "OlapTableSink", state->instance_mem_tracker()));
 
     SCOPED_TIMER(_profile->total_time_counter());
 
@@ -467,7 +471,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
             }
         }
     }
-    
+
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
     _output_batch.reset(new RowBatch(*_output_row_desc, state->batch_size(), _mem_tracker));
 
@@ -513,8 +517,7 @@ Status OlapTableSink::prepare(RuntimeState* state) {
     _close_timer = ADD_TIMER(_profile, "CloseTime");
     _wait_in_flight_packet_timer = ADD_TIMER(_profile, "WaitInFlightPacketTime");
     _serialize_batch_timer = ADD_TIMER(_profile, "SerializeBatchTime");
-    // use query mem limit as load mem limit for remote load channels
-    _load_mem_limit = state->query_mem_tracker()->limit();
+    _load_mem_limit = state->get_load_mem_limit();
 
     // open all channels
     auto& partitions = _partition->get_partitions();
@@ -659,19 +662,24 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
         auto src_row = input_batch->get_row(i);
         Tuple* dst_tuple = (Tuple*)output_batch->tuple_data_pool()->allocate(
             _output_tuple_desc->byte_size());
-        bool exist_null_value_for_not_null_col = false;
+        bool ignore_this_row = false;
         for (int j = 0; j < _output_expr_ctxs.size(); ++j) {
             auto src_val = _output_expr_ctxs[j]->get_value(src_row);
             auto slot_desc = _output_tuple_desc->slots()[j];
-            if (slot_desc->is_nullable()) {
-                if (src_val == nullptr) {
-                    dst_tuple->set_null(slot_desc->null_indicator_offset());
-                    continue;
-                } else {
-                    dst_tuple->set_not_null(slot_desc->null_indicator_offset());
+            // The following logic is similar to BaseScanner::fill_dest_tuple
+            // Todo(kks): we should unify it
+            if (src_val == nullptr) {
+                // Only when the expr return value is null, we will check the error message.
+                std::string expr_error = _output_expr_ctxs[j]->get_error_msg();
+                if (!expr_error.empty()) {
+                    state->append_error_msg_to_file(slot_desc->col_name(), expr_error);
+                    _number_filtered_rows++;
+                    ignore_this_row = true;
+                    // The ctx is reused, so must clear the error state and message.
+                    _output_expr_ctxs[j]->clear_error_msg();
+                    break;
                 }
-            } else {
-                if (src_val == nullptr) {
+                if (!slot_desc->is_nullable()) {
                     std::stringstream ss;
                     ss << "null value for not null column, column=" << slot_desc->col_name();
 #if BE_TEST
@@ -679,16 +687,21 @@ void OlapTableSink::_convert_batch(RuntimeState* state, RowBatch* input_batch, R
 #else
                     state->append_error_msg_to_file("", ss.str());
 #endif
-                    exist_null_value_for_not_null_col = true;
                     _number_filtered_rows++;
+                    ignore_this_row = true;
                     break;
                 }
+                dst_tuple->set_null(slot_desc->null_indicator_offset());
+                continue;
+            }
+            if (slot_desc->is_nullable()) {
+                dst_tuple->set_not_null(slot_desc->null_indicator_offset());
             }
             void* slot = dst_tuple->get_slot(slot_desc->tuple_offset());
             RawValue::write(src_val, slot, slot_desc->type(), _output_batch->tuple_data_pool());
         }
 
-        if (!exist_null_value_for_not_null_col) {
+        if (!ignore_this_row) {
             output_batch->get_row(commit_rows)->set_tuple(0, dst_tuple);
             commit_rows++;
         }
@@ -712,12 +725,6 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
             case TYPE_VARCHAR: {
                 // Fixed length string
                 StringValue* str_val = (StringValue*)slot;
-                // todo(kks): varchar(0) means bitmap_union agg type
-                // we will remove this special handle when we add a special type for bitmap_union
-                if (desc->type().type == TYPE_VARCHAR && desc->type().len == 0) {
-                    continue;
-                }
-
                 if (str_val->len > desc->type().len) {
                     std::stringstream ss;
                     ss << "the length of input is too long than schema. "
@@ -811,27 +818,6 @@ int OlapTableSink::_validate_data(RuntimeState* state, RowBatch* batch, Bitmap* 
                         << ", value=" << dec_val.to_string()
                         << ", precision=" << desc->type().precision
                         << ", scale=" << desc->type().scale;
-#if BE_TEST
-                    LOG(INFO) << ss.str();
-#else
-                    state->append_error_msg_to_file("", ss.str());
-#endif
-                    filtered_rows++;
-                    row_valid = false;
-                    filter_bitmap->Set(row_no, true);
-                    continue;
-                }
-                break;
-            }
-            case TYPE_DATE:
-            case TYPE_DATETIME: {
-                static DateTimeValue s_min_value = DateTimeValue(19000101000000UL);
-                // static DateTimeValue s_max_value = DateTimeValue(99991231235959UL);
-                DateTimeValue* date_val = (DateTimeValue*)slot;
-                if (*date_val < s_min_value) {
-                    std::stringstream ss;
-                    ss << "datetime value is not valid, column=" << desc->col_name()
-                        << ", value=" << date_val->debug_string();
 #if BE_TEST
                     LOG(INFO) << ss.str();
 #else

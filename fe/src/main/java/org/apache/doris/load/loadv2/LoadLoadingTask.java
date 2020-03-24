@@ -58,13 +58,16 @@ public class LoadLoadingTask extends LoadTask {
     private final boolean strictMode;
     private final long txnId;
     private final String timezone;
+    // timeout of load job, in seconds
+    private final long timeoutS;
 
     private LoadingTaskPlanner planner;
 
     public LoadLoadingTask(Database db, OlapTable table,
                            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
                            long jobDeadlineMs, long execMemLimit, boolean strictMode,
-                           long txnId, LoadTaskCallback callback, String timezone) {
+                           long txnId, LoadTaskCallback callback, String timezone,
+                           long timeoutS) {
         super(callback);
         this.db = db;
         this.table = table;
@@ -77,11 +80,12 @@ public class LoadLoadingTask extends LoadTask {
         this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL);
         this.retryTime = 2; // 2 times is enough
         this.timezone = timezone;
+        this.timeoutS = timeoutS;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList, int fileNum) throws UserException {
         this.loadId = loadId;
-        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode, timezone);
+        planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups, strictMode, timezone, this.timeoutS);
         planner.plan(loadId, fileStatusList, fileNum);
     }
 
@@ -103,6 +107,14 @@ public class LoadLoadingTask extends LoadTask {
                 planner.getFragments(), planner.getScanNodes(), db.getClusterName(), planner.getTimezone());
         curCoordinator.setQueryType(TQueryType.LOAD);
         curCoordinator.setExecMemoryLimit(execMemLimit);
+        /*
+         * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.
+         * And the variable 'load_mem_limit' does not make any effect.
+         * However, in order to ensure the consistency of semantics when executing on the BE side, 
+         * and to prevent subsequent modification from incorrectly setting the load_mem_limit, 
+         * here we use exec_mem_limit to directly override the load_mem_limit property.
+         */
+        curCoordinator.setLoadMemLimit(execMemLimit);
         curCoordinator.setTimeout((int) (getLeftTimeMs() / 1000));
 
         try {

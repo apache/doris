@@ -33,9 +33,9 @@ public:
     ScrollParser();
     ~ScrollParser();
 
-    Status parse(const std::string& scroll_result);
+    Status parse(const std::string& scroll_result, bool exactly_once = false);
     Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, 
-                MemPool* mem_pool, bool* line_eof);
+                MemPool* mem_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
 
     const std::string& get_scroll_id();
     int get_total();

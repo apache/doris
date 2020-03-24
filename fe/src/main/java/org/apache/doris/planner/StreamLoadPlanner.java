@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.AggregateType;
@@ -26,7 +27,10 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.task.StreamLoadTask;
@@ -107,8 +111,9 @@ public class StreamLoadPlanner {
         scanNode.finalize(analyzer);
 
         // create dest sink
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, streamLoadTask.getPartitions());
-        olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId());
+        List<Long> partitionIds = getAllPartitionIds();
+        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
+        olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId(), streamLoadTask.getTimeout());
         olapTableSink.finalize();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
@@ -145,6 +150,8 @@ public class StreamLoadPlanner {
         queryOptions.setQuery_type(TQueryType.LOAD);
         queryOptions.setQuery_timeout(streamLoadTask.getTimeout());
         queryOptions.setMem_limit(streamLoadTask.getMemLimit());
+        // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
+        queryOptions.setLoad_mem_limit(streamLoadTask.getMemLimit());
         params.setQuery_options(queryOptions);
         TQueryGlobals queryGlobals = new TQueryGlobals();
         queryGlobals.setNow_string(DATE_FORMAT.format(new Date()));
@@ -163,5 +170,22 @@ public class StreamLoadPlanner {
 
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;
+    }
+
+    // get all specified partition ids. return an empty list if no partition is specified.
+    private List<Long> getAllPartitionIds() throws DdlException {
+        List<Long> partitionIds = Lists.newArrayList();
+
+        PartitionNames partitionNames = streamLoadTask.getPartitions();
+        if (partitionNames != null) {
+            for (String partName : partitionNames.getPartitionNames()) {
+                Partition part = destTable.getPartition(partName, partitionNames.isTemp());
+                if (part == null) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
+                }
+                partitionIds.add(part.getId());
+            }
+        }
+        return partitionIds;
     }
 }

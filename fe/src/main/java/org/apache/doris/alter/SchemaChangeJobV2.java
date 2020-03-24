@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable;
@@ -32,6 +33,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -42,6 +44,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
@@ -55,12 +58,14 @@ import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.Table.Cell;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -95,8 +100,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private Set<String> bfColumns = null;
     private double bfFpp = 0;
 
+    // alter index info
+    private boolean indexChange = false;
+    private List<Index> indexes = null;
+
     // The schema change job will wait all transactions before this txn id finished, then send the schema change tasks.
     protected long watershedTxnId = -1;
+
+    private TStorageFormat storageFormat = null;
 
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
@@ -139,6 +150,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.bfFpp = bfFpp;
     }
 
+    public void setAlterIndexInfo(boolean indexChange, List<Index> indexes) {
+        this.indexChange = indexChange;
+        this.indexes = indexes;
+    }
+
+    public void setStorageFormat(TStorageFormat storageFormat) {
+        this.storageFormat = storageFormat;
+    }
+
     /*
      * runPendingJob():
      * 1. Create all replicas of all shadow indexes and wait them finished.
@@ -155,6 +175,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
 
+        if (!checkTableStable(db)) {
+            return;
+        }
+
         // 1. create replicas
         AgentBatchTask batchTask = new AgentBatchTask();
         // count total replica num
@@ -164,13 +188,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 totalReplicaNum += tablet.getReplicas().size();
             }
         }
-        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
+        MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalReplicaNum);
         db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
             if (tbl == null) {
                 throw new AlterCancelException("Table " + tableId + " does not exist");
-            } 
+            }
+
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
@@ -200,9 +225,13 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     shadowShortKeyColumnCount, shadowSchemaHash,
                                     Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
                                     tbl.getKeysType(), TStorageType.COLUMN, storageMedium,
-                                    shadowSchema, bfColumns, bfFpp, countDownLatch);
+                                    shadowSchema, bfColumns, bfFpp, countDownLatch, indexes,
+                                    tbl.isInMemory());
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId), originSchemaHash);
-                            
+                            if (this.storageFormat != null) {
+                                createReplicaTask.setStorageFormat(this.storageFormat);
+                            }
+
                             batchTask.addTask(createReplicaTask);
                         } // end for rollupReplicas
                     } // end for rollupTablets
@@ -216,8 +245,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // send all tasks and wait them finished
             AgentTaskQueue.addBatchTask(batchTask);
             AgentTaskExecutor.submit(batchTask);
-            // max timeout is 1 min
-            long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum, 60000);
+            long timeout = Math.min(Config.tablet_create_timeout_second * 1000L * totalReplicaNum, 
+                Config.max_create_table_timeout_second * 1000L);
             boolean ok = false;
             try {
                 ok = countDownLatch.await(timeout, TimeUnit.MILLISECONDS);
@@ -280,11 +309,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         for (long shadowIdxId : indexIdMap.keySet()) {
-            tbl.setIndexSchemaInfo(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
+            tbl.setIndexMeta(shadowIdxId, indexIdToName.get(shadowIdxId), indexSchemaMap.get(shadowIdxId),
                     indexSchemaVersionAndHashMap.get(shadowIdxId).first,
                     indexSchemaVersionAndHashMap.get(shadowIdxId).second,
-                    indexShortKeyMap.get(shadowIdxId));
-            tbl.setStorageTypeToIndex(shadowIdxId, TStorageType.COLUMN);
+                    indexShortKeyMap.get(shadowIdxId), TStorageType.COLUMN, null);
         }
 
         tbl.rebuildFullSchema();
@@ -396,6 +424,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         if (!schemaChangeBatchTask.isFinished()) {
             LOG.info("schema change tasks not finished. job: {}", jobId);
+            List<AgentTask> tasks = schemaChangeBatchTask.getUnfinishedTasks(2000);
+            for (AgentTask task : tasks) {
+                if (task.getFailedTimes() >= 3) {
+                    throw new AlterCancelException("schema change task failed after try three times: " + task.getErrorMsg());
+                }
+            }
             return;
         }
 
@@ -516,6 +550,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         // update bloom filter
         if (hasBfChange) {
             tbl.setBloomFilterInfo(bfColumns, bfFpp);
+        }
+        // update index
+        if (indexChange) {
+            tbl.setIndexes(indexes);
         }
 
         tbl.setState(OlapTableState.NORMAL);
@@ -822,6 +860,20 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         out.writeLong(watershedTxnId);
+
+        // index
+        out.writeBoolean(indexChange);
+        if (indexChange) {
+            if (CollectionUtils.isNotEmpty(indexes)) {
+                out.writeBoolean(true);
+                out.writeInt(indexes.size());
+                for (Index index : indexes) {
+                    index.write(out);
+                }
+            } else {
+                out.writeBoolean(false);
+            }
+        }
     }
 
     @Override
@@ -884,5 +936,21 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         watershedTxnId = in.readLong();
+
+        // index
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
+            indexChange = in.readBoolean();
+            if (indexChange) {
+                if (in.readBoolean()) {
+                    int indexCount = in.readInt();
+                    this.indexes = new ArrayList<>();
+                    for (int i = 0; i < indexCount; ++i) {
+                        this.indexes.add(Index.read(in));
+                    }
+                } else {
+                    this.indexes = null;
+                }
+            }
+        }
     }
 }

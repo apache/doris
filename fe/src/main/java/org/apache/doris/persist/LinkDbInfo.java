@@ -64,7 +64,6 @@ public class LinkDbInfo implements Writable {
 
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         cluster = Text.readString(in);
         name = Text.readString(in);

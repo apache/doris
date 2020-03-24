@@ -193,7 +193,6 @@ public class MysqlTable extends Table {
         Text.writeString(out, mysqlTableName);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

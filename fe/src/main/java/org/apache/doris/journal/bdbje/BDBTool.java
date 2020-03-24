@@ -65,7 +65,7 @@ public class BDBTool {
             env = new Environment(new File(metaPath), envConfig);
         } catch (DatabaseException e) {
             e.printStackTrace();
-            System.err.println("Failed to open BDBJE env: " + Catalog.BDB_DIR + ". exit");
+            System.err.println("Failed to open BDBJE env: " + Catalog.getCurrentCatalog().getBdbDir() + ". exit");
             return false;
         }
         Preconditions.checkNotNull(env);

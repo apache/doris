@@ -33,9 +33,9 @@
 #include "runtime/qsorter.h"
 #include "runtime/descriptors.h"
 #include "gen_cpp/Types_types.h"
-#include "util/count_down_latch.hpp"
+#include "util/countdown_latch.h"
 #include "util/debug_util.h"
-#include "util/thread_pool.hpp"
+#include "util/priority_thread_pool.hpp"
 #include "olap/field.h"
 
 namespace doris {
@@ -942,7 +942,7 @@ Status DppSink::finish(RuntimeState* state) {
         }
     }
 
-    latch.await();
+    latch.wait();
 
     // Set output files in runtime state
     collect_output(&state->output_files());

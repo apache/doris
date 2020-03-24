@@ -18,11 +18,12 @@
 package org.apache.doris.rpc;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.proto.PCancelPlanFragmentRequest;
 import org.apache.doris.proto.PCancelPlanFragmentResult;
-import org.apache.doris.proto.PPlanFragmentCancelReason;
 import org.apache.doris.proto.PExecPlanFragmentResult;
 import org.apache.doris.proto.PFetchDataResult;
+import org.apache.doris.proto.PPlanFragmentCancelReason;
 import org.apache.doris.proto.PProxyRequest;
 import org.apache.doris.proto.PProxyResult;
 import org.apache.doris.proto.PTriggerProfileReportResult;
@@ -31,6 +32,8 @@ import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.baidu.bjf.remoting.protobuf.utils.JDKCompilerHelper;
+import com.baidu.bjf.remoting.protobuf.utils.compiler.JdkCompiler;
 import com.baidu.jprotobuf.pbrpc.client.ProtobufRpcProxy;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClient;
 import com.baidu.jprotobuf.pbrpc.transport.RpcClientOptions;
@@ -52,6 +55,11 @@ public class BackendServiceProxy {
     private Map<TNetworkAddress, PBackendService> serviceMap;
 
     private static BackendServiceProxy INSTANCE;
+
+    static {
+        int javaRuntimeVersion = JdkUtils.getJavaVersionAsInteger(System.getProperty("java.version"));
+        JDKCompilerHelper.setCompiler(new JdkCompiler(JdkCompiler.class.getClassLoader(), String.valueOf(javaRuntimeVersion)));
+    }
 
     public BackendServiceProxy() {
         final RpcClientOptions rpcOptions = new RpcClientOptions();
@@ -102,12 +110,12 @@ public class BackendServiceProxy {
             } catch (NoSuchElementException noSuchElementException) {
                 LOG.warn("Execute plan fragment retry failed, address={}:{}",
                         address.getHostname(), address.getPort(), noSuchElementException);
-                throw new RpcException(e.getMessage());               
+                throw new RpcException(address.hostname, e.getMessage());
             }
         } catch (Throwable e) {
             LOG.warn("Execute plan fragment catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
-            throw new RpcException(e.getMessage());
+            throw new RpcException(address.hostname, e.getMessage());
         }
     }
 
@@ -135,12 +143,12 @@ public class BackendServiceProxy {
             } catch (NoSuchElementException noSuchElementException) {
                 LOG.warn("Cancel plan fragment retry failed, address={}:{}",
                         address.getHostname(), address.getPort(), noSuchElementException);
-                throw new RpcException(e.getMessage());            
+                throw new RpcException(address.hostname, e.getMessage());
             }
         } catch (Throwable e) {
             LOG.warn("Cancel plan fragment catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
-            throw new RpcException(e.getMessage());
+            throw new RpcException(address.hostname, e.getMessage());
         }
     }
 
@@ -152,7 +160,7 @@ public class BackendServiceProxy {
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
-            throw new RpcException(e.getMessage());
+            throw new RpcException(address.hostname, e.getMessage());
         }
     }
 
@@ -164,7 +172,7 @@ public class BackendServiceProxy {
         } catch (Throwable e) {
             LOG.warn("fetch data catch a exception, address={}:{}",
                     address.getHostname(), address.getPort(), e);
-            throw new RpcException(e.getMessage());
+            throw new RpcException(address.hostname, e.getMessage());
         }
     }
 
@@ -175,7 +183,7 @@ public class BackendServiceProxy {
             return service.getInfo(request);
         } catch (Throwable e) {
             LOG.warn("failed to get info, address={}:{}", address.getHostname(), address.getPort(), e);
-            throw new RpcException(e.getMessage());
+            throw new RpcException(address.hostname, e.getMessage());
         }
     }
 }

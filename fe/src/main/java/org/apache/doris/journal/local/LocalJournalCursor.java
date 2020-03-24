@@ -28,6 +28,7 @@ import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.persist.BatchDropInfo;
 import org.apache.doris.persist.ConsistencyCheckInfo;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.DatabaseInfo;
@@ -240,8 +241,7 @@ public final class LocalJournalCursor implements JournalCursor {
                 break;
             }
             case OperationType.OP_DROP_PARTITION: {
-                DropPartitionInfo info = new DropPartitionInfo();
-                info.readFields(in);
+                DropPartitionInfo info = DropPartitionInfo.read(in);
                 ret.setData(info);
                 break;
             }
@@ -286,6 +286,11 @@ public final class LocalJournalCursor implements JournalCursor {
             case OperationType.OP_DROP_ROLLUP: {
                 DropInfo info = DropInfo.read(in);
                 ret.setData(info);
+                break;
+            }
+            case OperationType.OP_BATCH_DROP_ROLLUP: {
+                BatchDropInfo batchDropInfo = BatchDropInfo.read(in);
+                ret.setData(batchDropInfo);
                 break;
             }
             case OperationType.OP_RENAME_TABLE:

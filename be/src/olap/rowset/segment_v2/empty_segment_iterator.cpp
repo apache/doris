@@ -24,6 +24,7 @@ EmptySegmentIterator::EmptySegmentIterator(const doris::Schema &schema): _schema
 
 Status EmptySegmentIterator::next_batch(RowBlockV2* block) {
     block->set_num_rows(0);
+    block->set_selected_size(0);
     return Status::EndOfFile("no more data in segment");
 }
 

@@ -25,11 +25,17 @@
 
 #include "common/status.h"
 #include "gen_cpp/Types_types.h"
+#include "gen_cpp/olap_file.pb.h"
 #include "olap/olap_common.h"
-#include "olap/storage_engine.h"
 #include "olap/rowset/rowset_id_generator.h"
+#include "util/mutex.h"
 
 namespace doris {
+
+class Tablet;
+class TabletManager;
+class TabletMeta;
+class TxnManager;
 
 // A DataDir used to manange data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
@@ -37,14 +43,16 @@ class DataDir {
 public:
     DataDir(const std::string& path,
             int64_t capacity_bytes = -1,
+            TStorageMedium::type storage_medium = TStorageMedium::HDD,
             TabletManager* tablet_manager = nullptr,
             TxnManager* txn_manager = nullptr);
     ~DataDir();
 
     Status init();
+    void stop_bg_worker();
 
     const std::string& path() const { return _path; }
-    const size_t path_hash() const { return _path_hash; }
+    size_t path_hash() const { return _path_hash; }
     bool is_used() const { return _is_used; }
     void set_is_used(bool is_used) { _is_used = is_used; }
     int32_t cluster_id() const { return _cluster_id; }
@@ -53,7 +61,7 @@ public:
         DataDirInfo info;
         info.path = _path;
         info.path_hash = _path_hash;
-        info.capacity = _capacity_bytes;
+        info.disk_capacity = _disk_capacity_bytes;
         info.available = _available_bytes;
         info.is_used = _is_used;
         info.storage_medium = _storage_medium;
@@ -67,7 +75,6 @@ public:
     void health_check();
 
     OLAPStatus get_shard(uint64_t* shard);
-
 
     OlapMeta* get_meta() { return _meta; }
 
@@ -104,10 +111,6 @@ public:
     // this is a producer function. After scan, it will notify the perform_path_gc function to gc
     void perform_path_scan();
 
-    // this function is a consumer function
-    // this function will collect garbage paths scaned by last function
-    void perform_path_gc();
-
     void perform_path_gc_by_rowsetid();
 
     OLAPStatus remove_old_meta_and_files();
@@ -129,7 +132,7 @@ public:
 private:
     std::string _cluster_id_path() const { return _path + CLUSTER_ID_PREFIX; }
     Status _init_cluster_id();
-    Status _init_extension_and_capacity();
+    Status _init_capacity();
     Status _init_file_system();
     Status _init_meta();
 
@@ -149,12 +152,14 @@ private:
     bool _check_pending_ids(const std::string& id);
 
 private:
+    bool _stop_bg_worker = false;
+
     std::string _path;
-    int64_t _path_hash;
+    size_t _path_hash;
     // user specified capacity
     int64_t _capacity_bytes;
-    // the actual avaiable capacity of the disk of this data dir
-    // NOTICE that _available_byte smay be larger than _capacity_bytes, if capacity is set
+    // the actual available capacity of the disk of this data dir
+    // NOTICE that _available_bytes may be larger than _capacity_bytes, if capacity is set
     // by user, not the disk's actual capacity
     int64_t _available_bytes;
     // the actual capacity of the disk of this data dir
@@ -186,7 +191,7 @@ private:
 
     std::set<std::string> _all_check_paths;
     std::mutex _check_path_mutex;
-    std::condition_variable cv;
+    std::condition_variable _cv;
 
     std::set<std::string> _pending_path_ids;
     RWMutex _pending_path_mutex;

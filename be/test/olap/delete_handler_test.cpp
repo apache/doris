@@ -33,6 +33,7 @@
 #include "olap/utils.h"
 #include "olap/options.h"
 #include "util/logging.h"
+#include "util/file_utils.h"
 
 using namespace std;
 using namespace doris;
@@ -48,12 +49,13 @@ void set_up() {
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";
-    remove_all_dir(config::storage_root_path);
-    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
-    create_dir(config::storage_root_path);
+    FileUtils::remove_all(config::storage_root_path);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
     config::min_file_descriptor_number = 1000;
+    config::tablet_map_shard_size = 1;
 
     doris::EngineOptions options;
     options.store_paths = paths;
@@ -64,8 +66,8 @@ void tear_down() {
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";
-    remove_all_dir(config::storage_root_path);
-    remove_all_dir(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
+    FileUtils::remove_all(config::storage_root_path);
+    FileUtils::remove_all(string(getenv("DORIS_HOME")) + UNUSED_PREFIX);
 }
 
 void set_default_create_tablet_request(TCreateTabletReq* request) {
@@ -163,8 +165,8 @@ protected:
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        FileUtils::remove_all(config::storage_root_path);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -183,10 +185,7 @@ protected:
         tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
@@ -272,8 +271,8 @@ protected:
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        FileUtils::remove_all(config::storage_root_path);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -292,10 +291,7 @@ protected:
         tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
@@ -609,8 +605,8 @@ protected:
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = string(buffer) + "/data_delete_condition";
-        remove_all_dir(config::storage_root_path);
-        ASSERT_EQ(create_dir(config::storage_root_path), OLAP_SUCCESS);
+        FileUtils::remove_all(config::storage_root_path);
+        ASSERT_TRUE(FileUtils::create_dir(config::storage_root_path).ok());
 
         // 1. Prepare for query split key.
         // create base tablet
@@ -633,10 +629,7 @@ protected:
         _delete_handler.finalize();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
-        while (0 == access(_tablet_path.c_str(), F_OK)) {
-            sleep(1);
-        }
-        ASSERT_EQ(OLAP_SUCCESS, remove_all_dir(config::storage_root_path));
+        ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
@@ -675,8 +668,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeletePredicatePB del_pred;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred, 1);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    tablet->add_delete_predicate(del_pred, 1);
 
     conditions.clear();
     condition.column_name = "k1";
@@ -688,8 +680,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeletePredicatePB del_pred_2;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_2, 2);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    tablet->add_delete_predicate(del_pred_2, 2);
 
     conditions.clear();
     condition.column_name = "k2";
@@ -701,8 +692,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeletePredicatePB del_pred_3;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_3);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_3, 3);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    tablet->add_delete_predicate(del_pred_3, 3);
 
     conditions.clear();
     condition.column_name = "k2";
@@ -714,8 +704,7 @@ TEST_F(TestDeleteHandler, InitSuccess) {
     DeletePredicatePB del_pred_4;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_4);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_4, 4);
-    ASSERT_EQ(OLAP_SUCCESS, res);
+    tablet->add_delete_predicate(del_pred_4, 4);
 
     // 从header文件中取出版本号小于等于7的过滤条件
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
@@ -757,7 +746,7 @@ TEST_F(TestDeleteHandler, FilterDataSubconditions) {
     DeletePredicatePB del_pred;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred, 1);
+    tablet->add_delete_predicate(del_pred, 1);
 
     // 指定版本号为10以载入Header中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
@@ -818,7 +807,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     DeletePredicatePB del_pred;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred, 1);
+    tablet->add_delete_predicate(del_pred, 1);
 
     // 过滤条件2
     conditions.clear();
@@ -831,7 +820,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     DeletePredicatePB del_pred_2;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_2, 2);
+    tablet->add_delete_predicate(del_pred_2, 2);
 
     // 过滤条件3
     conditions.clear();
@@ -844,7 +833,7 @@ TEST_F(TestDeleteHandler, FilterDataConditions) {
     DeletePredicatePB del_pred_3;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_3);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_3, 3);
+    tablet->add_delete_predicate(del_pred_3, 3);
 
     // 指定版本号为4以载入meta中的所有过滤条件(在这个case中，只有过滤条件1)
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);
@@ -896,7 +885,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     DeletePredicatePB del_pred;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred, 3);
+    tablet->add_delete_predicate(del_pred, 3);
 
     // 过滤条件2
     conditions.clear();
@@ -909,7 +898,7 @@ TEST_F(TestDeleteHandler, FilterDataVersion) {
     DeletePredicatePB del_pred_2;
     res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred_2);
     ASSERT_EQ(OLAP_SUCCESS, res);
-    res = tablet->add_delete_predicate(del_pred_2, 4);
+    tablet->add_delete_predicate(del_pred_2, 4);
 
     // 指定版本号为4以载入meta中的所有过滤条件(过滤条件1，过滤条件2)
     res = _delete_handler.init(tablet->tablet_schema(), tablet->delete_predicates(), 4);

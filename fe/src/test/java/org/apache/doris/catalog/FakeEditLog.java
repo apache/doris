@@ -18,11 +18,14 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.RollupJob;
 import org.apache.doris.alter.SchemaChangeJob;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.RoutineLoadOperation;
+import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionState;
 
 import java.util.HashMap;
@@ -89,11 +92,24 @@ public class FakeEditLog extends MockUp<EditLog> {
     
     @Mock
     public void logOpRoutineLoadJob(RoutineLoadOperation operation) {
+    }
 
+    @Mock
+    public void logBackendStateChange(Backend be) {
     }
 
     @Mock
     public void logAlterJob(AlterJobV2 alterJob) {
+
+    }
+
+    @Mock
+    public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
+
+    }
+
+    @Mock
+    public void logDynamicPartition(ModifyTablePropertyOperationLog info) {
 
     }
 

@@ -28,6 +28,7 @@
 
 using doris::segment_v2::PageBuilderOptions;
 using doris::segment_v2::PageDecoderOptions;
+using doris::operator<<;
 
 namespace doris {
 class FrameOfReferencePageTest : public testing::Test {
@@ -53,13 +54,13 @@ public:
         builder_options.data_page_size = 256 * 1024;
         PageBuilderType for_page_builder(builder_options);
         for_page_builder.add(reinterpret_cast<const uint8_t *>(src), &size);
-        Slice s = for_page_builder.finish();
+        OwnedSlice s = for_page_builder.finish();
         ASSERT_EQ(size, for_page_builder.count());
-        LOG(INFO) << "FrameOfReference Encoded size for 10k values: " << s.size
+        LOG(INFO) << "FrameOfReference Encoded size for " << size << " values: " << s.slice().size
                   << ", original size:" << size * sizeof(CppType);
 
         PageDecoderOptions decoder_options;
-        PageDecoderType for_page_decoder(s, decoder_options);
+        PageDecoderType for_page_decoder(s.slice(), decoder_options);
         Status status = for_page_decoder.init();
         ASSERT_TRUE(status.ok());
         ASSERT_EQ(0, for_page_decoder.current_index());
@@ -141,6 +142,57 @@ TEST_F(FrameOfReferencePageTest, TestInt64BlockEncoderSequence) {
 
     test_encode_decode_page_template<OLAP_FIELD_TYPE_BIGINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_BIGINT>,
             segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_BIGINT> >(ints.get(), size);
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_DATETIME, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATETIME>,
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATETIME> >(ints.get(), size);
+}
+
+TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderSequence) {
+    const uint32_t size = 1311;
+
+    std::unique_ptr<uint24_t[]> ints(new uint24_t[size]);
+    // to guarantee the last value is 0xFFFFFF
+    uint24_t first_value = 0xFFFFFF - size + 1;
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = first_value + i;
+    }
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_DATE, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>,
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE> >(ints.get(), size);
+}
+
+TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderSequence) {
+    const uint32_t size = 1000;
+
+    std::unique_ptr<int128_t[]> ints(new int128_t[size]);
+    // to guarantee the last value is numeric_limits<uint128_t>::max()
+    int128_t first_value = numeric_limits<int128_t>::max() - size + 1;
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = first_value + i;
+    }
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_LARGEINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_LARGEINT>,
+            segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT> >(ints.get(), size);
+}
+
+TEST_F(FrameOfReferencePageTest, TestInt24BlockEncoderMinMax) {
+
+    std::unique_ptr<uint24_t[]> ints(new uint24_t[2]);
+    ints.get()[0] = 0;
+    ints.get()[1] = 0xFFFFFF;
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_DATE, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_DATE>,
+        segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_DATE> >(ints.get(), 2);
+}
+
+TEST_F(FrameOfReferencePageTest, TestInt128BlockEncoderMinMax) {
+
+    std::unique_ptr<int128_t[]> ints(new int128_t[2]);
+    ints.get()[0] = numeric_limits<int128_t>::min();
+    ints.get()[1] = numeric_limits<int128_t>::max();
+
+    test_encode_decode_page_template<OLAP_FIELD_TYPE_LARGEINT, segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_LARGEINT>,
+        segment_v2::FrameOfReferencePageDecoder<OLAP_FIELD_TYPE_LARGEINT> >(ints.get(), 2);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
@@ -153,10 +205,29 @@ TEST_F(FrameOfReferencePageTest, TestInt32SequenceBlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
     page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
-    Slice s = page_builder.finish();
+    OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 1 /8 packing value = 20
-    // header: 1 + 1 + 4 = 6
-    ASSERT_EQ(26, s.size);
+    // footer: (1 + 1) * 1 + 1 + 4 = 7
+    ASSERT_EQ(27, s.slice().size);
+}
+
+TEST_F(FrameOfReferencePageTest, TestFirstLastValue) {
+    size_t size = 128;
+    std::unique_ptr<int32_t[]> ints(new int32_t[size]);
+    for (int i = 0; i < size; i++) {
+        ints.get()[i] = i;
+    }
+    PageBuilderOptions builder_options;
+    builder_options.data_page_size = 256 * 1024;
+    segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
+    page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
+    OwnedSlice s = page_builder.finish();
+    int32_t first_value = -1;
+    page_builder.get_first_value(&first_value);
+    ASSERT_EQ(0, first_value);
+    int32_t last_value = 0;
+    page_builder.get_last_value(&last_value);
+    ASSERT_EQ(127, last_value);
 }
 
 TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
@@ -169,10 +240,36 @@ TEST_F(FrameOfReferencePageTest, TestInt32NormalBlockEncoderSize) {
     builder_options.data_page_size = 256 * 1024;
     segment_v2::FrameOfReferencePageBuilder<OLAP_FIELD_TYPE_INT> page_builder(builder_options);
     page_builder.add(reinterpret_cast<const uint8_t *>(ints.get()), &size);
-    Slice s = page_builder.finish();
+    OwnedSlice s = page_builder.finish();
     // body: 4 bytes min value + 128 * 7 /8 packing value = 116
-    // header: 1 + 1 + 4 = 6
-    ASSERT_EQ(122, s.size);
+    // footer: (1 + 1) * 1 + 1 + 4 = 7
+    ASSERT_EQ(123, s.slice().size);
+}
+
+TEST_F(FrameOfReferencePageTest, TestFindBitsOfInt) {
+    int8_t bits_3 = 0x06;
+    ASSERT_EQ(3, bits(bits_3));
+
+    uint8_t bits_4 = 0x0F;
+    ASSERT_EQ(4, bits(bits_4));
+
+    int32_t bits_17 = 0x000100FF;
+    ASSERT_EQ(17, bits(bits_17));
+
+    int64_t bits_33 = 0x00000001FFFFFFFF;
+    ASSERT_EQ(33, bits(bits_33));
+
+    int128_t bits_0 = 0;
+    ASSERT_EQ(0, bits(bits_0));
+
+    int128_t bits_127 = numeric_limits<int128_t>::max();
+    ASSERT_EQ(127, bits(bits_127));
+
+    uint128_t bits_128 = numeric_limits<uint128_t>::max();
+    ASSERT_EQ(128, bits(bits_128));
+
+    int128_t bits_65 = ((int128_t)1) << 64;
+    ASSERT_EQ(65, bits(bits_65));
 }
 
 }

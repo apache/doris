@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Stream load
 
 Stream load is a synchronous way of importing. Users import local files or data streams into Doris by sending HTTP protocol requests. Stream load synchronously executes the import and returns the import result. Users can directly determine whether the import is successful by the return body of the request.
@@ -47,8 +66,7 @@ Users can also operate through other HTTP clients.
 ```
 curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load
 
-The following attributes are supported in Header:
-label， column_separator， columns， where， max_filter_ratio， partitions
+The properties supported in the header are described in "Load Parameters" below
 The format is: - H "key1: value1"
 ```
 
@@ -65,7 +83,7 @@ The detailed syntax for creating imports helps to execute ``HELP STREAM LOAD`` v
 
 	Stream load uses the HTTP protocol to create the imported protocol and signs it through the Basic Access authentication. The Doris system verifies user identity and import permissions based on signatures.
 
-#### Import Task Parameters
+#### Load Parameters
 
 Stream load uses HTTP protocol, so all parameters related to import tasks are set in the header. The significance of some parameters of the import task parameters of Stream load is mainly introduced below.
 
@@ -153,7 +171,7 @@ The following main explanations are given for the Stream load import result para
 
 	"Publish Timeout": This state also indicates that the import has been completed, except that the data may be delayed and visible without retrying.
 
-	"Label Already Exists"：Label 重复，需更换 Label。
+	"Label Already Exists"：Label duplicate, need to be replaced Label.
 
 	"Fail": Import failed.
 	

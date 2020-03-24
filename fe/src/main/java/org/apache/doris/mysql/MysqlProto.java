@@ -102,7 +102,7 @@ public class MysqlProto {
             return false;
         }
        
-        context.setCurrentUserIdentitfy(currentUserIdentity.get(0));
+        context.setCurrentUserIdentity(currentUserIdentity.get(0));
         context.setQualifiedUser(qualifiedUser);
         return true;
     }

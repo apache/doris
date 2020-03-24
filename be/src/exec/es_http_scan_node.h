@@ -99,6 +99,7 @@ private:
     std::vector<std::thread> _scanner_threads;
     std::vector<std::promise<Status>> _scanners_status;
     std::map<std::string, std::string> _properties;
+    std::map<std::string, std::string> _docvalue_context;
     std::vector<TScanRangeParams> _scan_ranges;
     std::vector<std::string> _column_names;
 

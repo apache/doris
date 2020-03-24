@@ -93,9 +93,7 @@ public class TypeDef implements ParseNode {
         int len = scalarType.getLength();
         // len is decided by child, when it is -1.
 
-        // todo(kks) : varchar(0) for bitmap_union agg type,
-        // we should forbid the len equal zero when we add a special type for bitmap_union
-        if (len < 0) {
+        if (len <= 0) {
           throw new AnalysisException(name + " size must be > 0: " + len);
         }
         if (scalarType.getLength() > maxLen) {

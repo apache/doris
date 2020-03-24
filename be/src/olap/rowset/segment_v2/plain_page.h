@@ -57,12 +57,17 @@ public:
         return Status::OK();
     }
 
-    Slice finish() override {
+    OwnedSlice finish() override {
         encode_fixed32_le((uint8_t *) &_buffer[0], _count);
-        return Slice(_buffer.data(),  PLAIN_PAGE_HEADER_SIZE + _count * SIZE_OF_TYPE);
+        if (_count > 0) {
+            _first_value.assign_copy(&_buffer[PLAIN_PAGE_HEADER_SIZE], SIZE_OF_TYPE);
+            _last_value.assign_copy(&_buffer[PLAIN_PAGE_HEADER_SIZE + (_count - 1) * SIZE_OF_TYPE], SIZE_OF_TYPE);
+        }
+        return _buffer.build();
     }
 
     void reset() override {
+        _buffer.reserve(_options.data_page_size + 1024);
         _count = 0;
         _buffer.clear();
         _buffer.resize(PLAIN_PAGE_HEADER_SIZE);
@@ -76,14 +81,20 @@ public:
         return _buffer.size();
     }
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     release() should be called after finish
-    //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t *ret = _buffer.release();
-        _buffer.reserve(_options.data_page_size + 1024);
-        (void) ret;
+    Status get_first_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, _first_value.data(), SIZE_OF_TYPE);
+        return Status::OK();
+    }
+
+    Status get_last_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, _last_value.data(), SIZE_OF_TYPE);
+        return Status::OK();
     }
 
 private:
@@ -94,6 +105,8 @@ private:
     enum {
         SIZE_OF_TYPE = TypeTraits<Type>::size
     };
+    faststring _first_value;
+    faststring _last_value;
 };
 
 
@@ -141,6 +154,44 @@ public:
         DCHECK_LE(pos, _num_elems);
 
         _cur_idx = pos;
+        return Status::OK();
+    }
+
+    Status seek_at_or_after_value(const void* value, bool* exact_match) override {
+        DCHECK(_parsed) << "Must call init() firstly";
+
+        if (_num_elems == 0) {
+            return Status::NotFound("page is empty");
+        }
+
+        size_t left = 0;
+        size_t right = _num_elems;
+
+        const void* mid_value = nullptr;
+
+        // find the first value >= target. after loop,
+        // - left == index of first value >= target when found
+        // - left == _num_elems when not found (all values < target)
+        while (left < right) {
+            size_t mid = left + (right - left) / 2;
+            mid_value = &_data[PLAIN_PAGE_HEADER_SIZE + mid * SIZE_OF_TYPE];
+            if (TypeTraits<Type>::cmp(mid_value, value) < 0) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+        if (left >= _num_elems) {
+            return Status::NotFound("all value small than the value");
+        }
+        const void* find_value = &_data[PLAIN_PAGE_HEADER_SIZE + left * SIZE_OF_TYPE];
+        if (TypeTraits<Type>::cmp(find_value, value) == 0) {
+            *exact_match = true;
+        } else {
+            *exact_match = false;
+        }
+
+        _cur_idx = left;
         return Status::OK();
     }
 

@@ -77,7 +77,7 @@ public class FeNameFormat {
     
     public static void checkUserName(String userName) throws AnalysisException {
         if (Strings.isNullOrEmpty(userName) || !userName.matches(COMMON_NAME_REGEX)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CANNOT_USER, "CREATE USER", userName);
+            throw new AnalysisException("invalid user name: " + userName);
         }
     }
 

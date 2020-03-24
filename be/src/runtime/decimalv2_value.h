@@ -92,7 +92,7 @@ public:
         return success;
     }
 
-    DecimalV2Value(int128_t int_value) {
+    explicit DecimalV2Value(int128_t int_value) {
         _value = int_value;
     }
 
@@ -318,9 +318,6 @@ public:
     bool is_zero() const {
         return _value == 0;
     }
-
-    // For C++/IR interop, we need to be able to look up types by name.
-    static const char* _s_llvm_class_name;
 
 private:
 

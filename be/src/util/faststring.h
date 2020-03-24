@@ -25,6 +25,7 @@
 #include "gutil/macros.h"
 #include "gutil/port.h"
 #include "gutil/strings/fastmem.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -84,20 +85,20 @@ class faststring {
     ASAN_UNPOISON_MEMORY_REGION(data_, len_);
   }
 
-  // Releases the underlying array; after this, the buffer is left empty.
-  //
-  // NOTE: the data pointer returned by release() is not necessarily the pointer
-  uint8_t *release() {
-    uint8_t *ret = data_;
+  // Return the buffer built so far and reset `this` to the initial status (size() == 0).
+  // NOTE: the returned data pointer is not necessarily the pointer returned by data()
+  OwnedSlice build() {
+    uint8_t* ret = data_;
     if (ret == initial_data_) {
       ret = new uint8_t[len_];
       memcpy(ret, data_, len_);
     }
+    OwnedSlice result(ret, len_);
     len_ = 0;
     capacity_ = kInitialCapacity;
     data_ = initial_data_;
     ASAN_POISON_MEMORY_REGION(data_, capacity_);
-    return ret;
+    return result;
   }
 
   // Reserve space for the given total amount of data. If the current capacity is already
@@ -208,10 +209,10 @@ class faststring {
   // Reallocates the internal storage to fit only the current data.
   //
   // This may revert to using internal storage if the current length is shorter than
-  // kInitialCapacity. Note that, in that case, after this call, capacity() will return
-  // a capacity larger than the data length.
+  // kInitialCapacity. In that case, after this call, capacity() will go down to
+  // kInitialCapacity.
   //
-  // Any pointers within this instance are invalidated.
+  // Any pointers within this instance may be invalidated.
   void shrink_to_fit() {
     if (data_ == initial_data_ || capacity_ == len_) return;
     ShrinkToFitInternal();
@@ -235,12 +236,12 @@ class faststring {
 
     // Call the non-inline slow path - this reduces the number of instructions
     // on the hot path.
-    GrowByAtLeast(count);
+    GrowToAtLeast(len_ + count);
   }
 
-  // The slow path of MakeRoomFor. Grows the buffer by either
+  // The slow path of EnsureRoomForAppend. Grows the buffer by either
   // 'count' bytes, or 50%, whichever is more.
-  void GrowByAtLeast(size_t count);
+  void GrowToAtLeast(size_t newcapacity);
 
   // Grow the array to the given capacity, which must be more than
   // the current capacity.
@@ -251,7 +252,10 @@ class faststring {
   uint8_t* data_;
   uint8_t initial_data_[kInitialCapacity];
   size_t len_;
+  // NOTE: we will make a initial buffer as part of the object, so the smallest
+  // possible value of capacity_ is kInitialCapacity.
   size_t capacity_;
 };
 
 } // namespace doris
+

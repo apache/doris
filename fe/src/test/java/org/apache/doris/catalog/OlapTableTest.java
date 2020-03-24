@@ -17,10 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Mock;
+import mockit.MockUp;
+
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
 import org.apache.doris.common.util.UnitTestUtil;
+
+import com.google.common.collect.Lists;
 
 import org.junit.Test;
 
@@ -29,23 +35,15 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.List;
 
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
-
 public class OlapTableTest {
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Test
     public void test() throws IOException {
         
-        new NonStrictExpectations(Catalog.class) {
-            {
-                Catalog.getCurrentCatalogJournalVersion();
-                minTimes = 0;
-                result = FeConstants.meta_version;
+        new MockUp<Catalog>() {
+            @Mock
+            int getCurrentCatalogJournalVersion() {
+                return FeConstants.meta_version;
             }
         };
 
@@ -57,6 +55,8 @@ public class OlapTableTest {
                 continue;
             }
             OlapTable tbl = (OlapTable) table;
+            tbl.setIndexes(Lists.newArrayList(new Index("index", Lists.newArrayList("col"), IndexDef.IndexType.BITMAP
+                    , "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();

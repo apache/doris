@@ -25,27 +25,23 @@ namespace doris {
 
 using std::map;
 
-EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publish_version_req, 
-                                                   vector<TTabletId>* error_tablet_ids)
-    : _publish_version_req(publish_version_req), 
-      _error_tablet_ids(error_tablet_ids) {}
+EnginePublishVersionTask::EnginePublishVersionTask(TPublishVersionRequest& publish_version_req,
+                                                   vector<TTabletId>* error_tablet_ids) :
+        _publish_version_req(publish_version_req),
+        _error_tablet_ids(error_tablet_ids) {}
 
 OLAPStatus EnginePublishVersionTask::finish() {
-    LOG(INFO) << "begin to process publish version. transaction_id="
-              << _publish_version_req.transaction_id;
-
-    int64_t transaction_id = _publish_version_req.transaction_id;
     OLAPStatus res = OLAP_SUCCESS;
+    int64_t transaction_id = _publish_version_req.transaction_id;
+    LOG(INFO) << "begin to process publish version. transaction_id=" << transaction_id;
 
     // each partition
-    for (auto& partitionVersionInfo
-         : _publish_version_req.partition_version_infos) {
-
-        int64_t partition_id = partitionVersionInfo.partition_id;
+    for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
+        int64_t partition_id = par_ver_info.partition_id;
         // get all partition related tablets and check whether the tablet have the related version
         std::set<TabletInfo> partition_related_tablet_infos;
-        StorageEngine::instance()->tablet_manager()->get_partition_related_tablets(partition_id, 
-            &partition_related_tablet_infos);
+        StorageEngine::instance()->tablet_manager()->get_partition_related_tablets(
+                partition_id, &partition_related_tablet_infos);
         if (_publish_version_req.strict_mode && partition_related_tablet_infos.empty()) {
             LOG(INFO) << "could not find related tablet for partition " << partition_id
                       << ", skip publish version";
@@ -53,10 +49,11 @@ OLAPStatus EnginePublishVersionTask::finish() {
         }
 
         map<TabletInfo, RowsetSharedPtr> tablet_related_rs;
-        StorageEngine::instance()->txn_manager()->get_txn_related_tablets(transaction_id, partition_id, &tablet_related_rs);
+        StorageEngine::instance()->txn_manager()->get_txn_related_tablets(
+                transaction_id, partition_id, &tablet_related_rs);
 
-        Version version(partitionVersionInfo.version, partitionVersionInfo.version);
-        VersionHash version_hash = partitionVersionInfo.version_hash;
+        Version version(par_ver_info.version, par_ver_info.version);
+        VersionHash version_hash = par_ver_info.version_hash;
 
         // each tablet
         for (auto& tablet_rs : tablet_related_rs) {
@@ -64,11 +61,11 @@ OLAPStatus EnginePublishVersionTask::finish() {
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
             LOG(INFO) << "begin to publish version on tablet. "
-                    << "tablet_id=" << tablet_info.tablet_id
-                    << ", schema_hash=" << tablet_info.schema_hash
-                    << ", version=" << version.first
-                    << ", version_hash=" << version_hash
-                    << ", transaction_id=" << transaction_id;
+                << "tablet_id=" << tablet_info.tablet_id
+                << ", schema_hash=" << tablet_info.schema_hash
+                << ", version=" << version.first
+                << ", version_hash=" << version_hash
+                << ", transaction_id=" << transaction_id;
             // if rowset is null, it means this be received write task, but failed during write
             // and receive fe's publish version task
             // this be must return as an error tablet
@@ -79,9 +76,8 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 res = OLAP_ERR_PUSH_ROWSET_NOT_FOUND;
                 continue;
             }
-            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_info.tablet_id, 
-                tablet_info.schema_hash, tablet_info.tablet_uid);
-
+            TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                    tablet_info.tablet_id, tablet_info.schema_hash, tablet_info.tablet_uid);
             if (tablet == nullptr) {
                 LOG(WARNING) << "can't get tablet when publish version. tablet_id=" << tablet_info.tablet_id
                              << " schema_hash=" << tablet_info.schema_hash;
@@ -90,32 +86,34 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 continue;
             }
 
-            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(partition_id, tablet, 
-                transaction_id, version, version_hash);
-            
+            publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
+                    partition_id, tablet, transaction_id, version, version_hash);
             if (publish_status != OLAP_SUCCESS) {
-                LOG(WARNING) << "failed to publish for rowset_id:" << rowset->rowset_id()
-                             << "tablet id: " << tablet_info.tablet_id
-                             << "txn id:" << transaction_id;
+                LOG(WARNING) << "failed to publish version. rowset_id=" << rowset->rowset_id()
+                             << ", tablet_id=" << tablet_info.tablet_id
+                             << ", txn_id=" << transaction_id;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
                 res = publish_status;
                 continue;
             }
+
             // add visible rowset to tablet
             publish_status = tablet->add_inc_rowset(rowset);
-            if (publish_status != OLAP_SUCCESS && publish_status != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
-                LOG(WARNING) << "add visible rowset to tablet failed rowset_id:" << rowset->rowset_id()
-                             << "tablet id: " << tablet_info.tablet_id
-                             << "txn id:" << transaction_id
-                             << "res:" << publish_status;
+            if (publish_status != OLAP_SUCCESS
+                    && publish_status != OLAP_ERR_PUSH_VERSION_ALREADY_EXIST) {
+                LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id="
+                             << rowset->rowset_id()
+                             << ", tablet_id=" << tablet_info.tablet_id
+                             << ", txn_id=" << transaction_id
+                             << ", res=" << publish_status;
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
                 res = publish_status;
                 continue;
             }
             partition_related_tablet_infos.erase(tablet_info);
             LOG(INFO) << "publish version successfully on tablet. tablet=" << tablet->full_name()
-                      << ", transaction_id=" << transaction_id << ", version=" << version.first
-                      << ", res=" << publish_status;
+                << ", transaction_id=" << transaction_id << ", version=" << version.first
+                << ", res=" << publish_status;
         }
 
         // check if the related tablet remained all have the version
@@ -125,7 +123,7 @@ OLAPStatus EnginePublishVersionTask::finish() {
                 break;
             }
             TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
-                tablet_info.tablet_id, tablet_info.schema_hash);
+                    tablet_info.tablet_id, tablet_info.schema_hash);
             if (tablet == nullptr) {
                 _error_tablet_ids->push_back(tablet_info.tablet_id);
             } else {

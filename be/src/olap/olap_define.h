@@ -37,7 +37,7 @@ static const uint32_t OLAP_DEFAULT_MAX_UNPACKED_ROW_BLOCK_SIZE = 1024 * 1024 * 1
 // 列存储文件的块大小,由于可能会被全部载入内存,所以需要严格控制大小, 这里定义为256MB
 static const uint32_t OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE = 268435456;
 // 列存储文件大小的伸缩性
-static const float OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.9f;
+static const double OLAP_COLUMN_FILE_SEGMENT_SIZE_SCALE = 0.9;
 // 在列存储文件中, 数据分块压缩, 每个块的默认压缩前的大小
 static const uint32_t OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE = 10 * 1024;
 // 在列存储文件中, 对字符串使用字典编码的字典大小门限
@@ -52,8 +52,6 @@ static constexpr uint32_t OLAP_COMPACTION_DEFAULT_CANDIDATE_SIZE = 10;
 
 // the max length supported for varchar type
 static const uint16_t OLAP_STRING_MAX_LENGTH = 65535;
-
-static const int32_t PREFERRED_SNAPSHOT_VERSION = 3;
 
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
@@ -166,6 +164,8 @@ enum OLAPStatus {
     OLAP_ERR_VERSION_ALREADY_MERGED = -230,
     OLAP_ERR_LZO_DISABLED = -231,
     OLAP_ERR_DISK_REACH_CAPACITY_LIMIT = -232,
+    OLAP_ERR_TOO_MANY_TRANSACTIONS = -233,
+    OLAP_ERR_INVALID_SNAPSHOT_VERSION = -234,
 
     // CommandExecutor
     // [-300, -400)
@@ -229,6 +229,7 @@ enum OLAPStatus {
     OLAP_ERR_BE_TRY_BE_LOCK_ERROR = -809,
     OLAP_ERR_BE_INVALID_NEED_MERGED_VERSIONS = -810,
     OLAP_ERR_BE_ERROR_DELETE_ACTION = -811,
+    OLAP_ERR_BE_SEGMENTS_OVERLAPPING = -812,
 
     // PUSH
     // [-900, -1000)
@@ -245,9 +246,9 @@ enum OLAPStatus {
     OLAP_ERR_PUSH_INPUT_DATA_ERROR = -910,
     OLAP_ERR_PUSH_TRANSACTION_ALREADY_EXIST = -911,
     // only support realtime push api, batch process is deprecated and is removed
-    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912, 
-    OLAP_ERR_PUSH_COMMIT_ROWSET = -913, 
-    OLAP_ERR_PUSH_ROWSET_NOT_FOUND = -914, 
+    OLAP_ERR_PUSH_BATCH_PROCESS_REMOVED = -912,
+    OLAP_ERR_PUSH_COMMIT_ROWSET = -913,
+    OLAP_ERR_PUSH_ROWSET_NOT_FOUND = -914,
 
     // SegmentGroup
     // [-1000, -1100)
@@ -361,7 +362,8 @@ enum OLAPStatus {
     OLAP_ERR_ROWSET_INVALID = -3108,
     OLAP_ERR_ROWSET_LOAD_FAILED = -3109,
     OLAP_ERR_ROWSET_READER_INIT = -3110,
-    OLAP_ERR_ROWSET_READ_FAILED = -3111
+    OLAP_ERR_ROWSET_READ_FAILED = -3111,
+    OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION = -3112
 };
 
 enum ColumnFamilyIndex {

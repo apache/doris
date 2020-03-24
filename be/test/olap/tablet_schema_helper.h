@@ -24,7 +24,8 @@
 
 namespace doris {
 
-TabletColumn create_int_key(int32_t id, bool is_nullable = true) {
+TabletColumn create_int_key(int32_t id, bool is_nullable = true,
+        bool is_bf_column = false, bool has_bitmap_index = false) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
@@ -33,6 +34,8 @@ TabletColumn create_int_key(int32_t id, bool is_nullable = true) {
     column._is_nullable = is_nullable;
     column._length = 4;
     column._index_length = 4;
+    column._is_bf_column = is_bf_column;
+    column._has_bitmap_index = has_bitmap_index;
     return column;
 }
 
@@ -40,7 +43,8 @@ TabletColumn create_int_key(int32_t id, bool is_nullable = true) {
 TabletColumn create_int_value(
         int32_t id,
         FieldAggregationMethod agg_method = OLAP_FIELD_AGGREGATION_SUM,
-        bool is_nullable = true, const std::string default_value = "") {
+        bool is_nullable = true, const std::string default_value = "",
+        bool is_bf_column = false, bool has_bitmap_index = false) {
     TabletColumn column;
     column._unique_id = id;
     column._col_name = std::to_string(id);
@@ -54,6 +58,8 @@ TabletColumn create_int_value(
         column._has_default_value = true;
         column._default_value = default_value;
     }
+    column._is_bf_column = is_bf_column;
+    column._has_bitmap_index = has_bitmap_index;
     return column;
 }
 
@@ -80,6 +86,19 @@ TabletColumn create_varchar_key(int32_t id, bool is_nullable = true) {
     column._index_length = 4;
     return column;
 }
+
+template<FieldType type>
+TabletColumn create_with_default_value(std::string default_value) {
+    TabletColumn column;
+    column._type = type;
+    column._is_nullable = true;
+    column._aggregation = OLAP_FIELD_AGGREGATION_NONE;
+    column._has_default_value = true;
+    column._default_value = default_value;
+    column._length = 4;
+    return column;
+}
+
 
 void set_column_value_by_type(FieldType fieldType, int src, char* target, MemPool* pool, size_t _length = 0) {
     if (fieldType == OLAP_FIELD_TYPE_CHAR) {

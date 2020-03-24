@@ -17,9 +17,7 @@
 
 package org.apache.doris.service;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ThriftServer;
-import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.thrift.FrontendService;
 
 import org.apache.logging.log4j.LogManager;
@@ -28,7 +26,7 @@ import org.apache.thrift.TProcessor;
 
 import java.io.IOException;
 
-// Palo frontend thrift server
+// Doris frontend thrift server
 public class FeServer {
     private static final Logger LOG = LogManager.getLogger(FeServer.class);
     
@@ -39,32 +37,12 @@ public class FeServer {
         this.port = port;
     }
 
-    public void setup(String[] args) throws Exception {
-        // Catalog init
-        Catalog.getInstance().initialize(args);
-    }
-
     public void start() throws IOException {
-        while (true) {
-            FrontendNodeType type = Catalog.getInstance().getFeType();
-            if (type == FrontendNodeType.INIT || type == FrontendNodeType.UNKNOWN 
-                    || type == FrontendNodeType.MASTER && !Catalog.getInstance().canWrite()) {
-                try {
-                    // waiting to become OBSERVER or MASTER which can write
-                    Thread.sleep(1000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                continue;
-            }
-
-            // setup frontend server
-            TProcessor tprocessor = new FrontendService.Processor<FrontendService.Iface>(
-                    new FrontendServiceImpl(ExecuteEnv.getInstance()));
-            server = new ThriftServer(port, tprocessor);
-            server.start();
-            LOG.info("thrift server started.");
-            break;
-        }
+        // setup frontend server
+        TProcessor tprocessor = new FrontendService.Processor<FrontendService.Iface>(
+                new FrontendServiceImpl(ExecuteEnv.getInstance()));
+        server = new ThriftServer(port, tprocessor);
+        server.start();
+        LOG.info("thrift server started.");
     }
 }

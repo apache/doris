@@ -257,9 +257,11 @@ private:
     RuntimeProfile::Counter* _vec_cond_timer = nullptr;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
 
     RuntimeProfile::Counter* _block_seek_timer = nullptr;
+    RuntimeProfile::Counter* _block_seek_counter = nullptr;
     RuntimeProfile::Counter* _block_convert_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
@@ -273,6 +275,11 @@ private:
     // page read from cache
     // used by segment v2
     RuntimeProfile::Counter* _cached_pages_num_counter = nullptr;
+
+    // row count filtered by bitmap inverted index
+    RuntimeProfile::Counter* _bitmap_index_filter_counter = nullptr;
+    // time fro bitmap inverted index read and filter
+    RuntimeProfile::Counter* _bitmap_index_filter_timer = nullptr;
 };
 
 } // namespace doris

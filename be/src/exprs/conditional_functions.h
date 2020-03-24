@@ -23,10 +23,6 @@
 #include "exprs/expr.h"
 #include "udf/udf.h"
 
-namespace llvm {
-class Function;
-}
-
 namespace doris {
 
 class TupleRow;
@@ -57,8 +53,6 @@ public:
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
-
     virtual std::string debug_string() const { 
         return Expr::debug_string("IfNullExpr"); 
     }
@@ -86,7 +80,6 @@ public:
     // virtual DecimalVal get_decimal_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual std::string debug_string() const { 
         return Expr::debug_string("NullIfExpr"); 
     }
@@ -115,7 +108,6 @@ public:
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual std::string debug_string() const { 
         return Expr::debug_string("IfExpr"); 
     }
@@ -145,7 +137,6 @@ public:
     virtual DecimalV2Val get_decimalv2_val(ExprContext* context, TupleRow* row);
     virtual LargeIntVal get_large_int_val(ExprContext* context, TupleRow* row);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn);
     virtual std::string debug_string() const { return Expr::debug_string("CoalesceExpr"); }
 
 protected:

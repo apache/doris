@@ -26,6 +26,7 @@
 #include "runtime/string_value.hpp"
 #include "runtime/vectorized_row_batch.h"
 #include "util/logging.h"
+#include "olap/row_block2.h"
 
 namespace doris {
 
@@ -189,6 +190,70 @@ TEST_IN_LIST_PREDICATE(int16_t, SMALLINT, "SMALLINT")
 TEST_IN_LIST_PREDICATE(int32_t, INT, "INT")
 TEST_IN_LIST_PREDICATE(int64_t, BIGINT, "BIGINT")
 TEST_IN_LIST_PREDICATE(int128_t, LARGEINT, "LARGEINT")
+
+#define TEST_IN_LIST_PREDICATE_V2(TYPE, TYPE_NAME, FIELD_TYPE) \
+TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN_V2) { \
+    TabletSchema tablet_schema; \
+    SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
+                 "REPLACE", 1, false, true, &tablet_schema); \
+    int size = 10; \
+    Schema schema(tablet_schema); \
+    RowBlockV2 block(schema, size); \
+    std::set<TYPE> values; \
+    values.insert(4); \
+    values.insert(5); \
+    values.insert(6); \
+    ColumnPredicate* pred = new InListPredicate<TYPE>(0, std::move(values)); \
+    uint16_t sel[10]; \
+    for (int i = 0; i < 10; ++i) { \
+        sel[i] = i; \
+    } \
+    uint16_t selected_size = 10; \
+    ColumnBlock column = block.column_block(0); \
+    /* for non nulls */ \
+    for (int i = 0; i < size; ++i) { \
+        column.set_is_null(i, false); \
+        uint8_t* value = column.mutable_cell_ptr(i); \
+        *((TYPE*)value) = i; \
+    } \
+    \
+    pred->evaluate(&column, sel, &selected_size); \
+    ASSERT_EQ(selected_size, 3); \
+    ASSERT_EQ(*((TYPE*)column.cell_ptr(sel[0])), 4); \
+    ASSERT_EQ(*((TYPE*)column.cell_ptr(sel[1])), 5); \
+    ASSERT_EQ(*((TYPE*)column.cell_ptr(sel[2])), 6); \
+    \
+    /* for has nulls */ \
+    TabletSchema tablet_schema2; \
+    SetTabletSchema(std::string("TYPE_NAME##_COLUMN"), FIELD_TYPE, \
+                 "REPLACE", 1, true, true, &tablet_schema2); \
+    Schema schema2(tablet_schema2); \
+    RowBlockV2 block2(schema2, size); \
+    ColumnBlock column2 = block2.column_block(0); \
+    for (int i = 0; i < size; ++i) { \
+        if (i % 2 == 0) { \
+            column2.set_is_null(i, true); \
+        } else { \
+            column2.set_is_null(i, false); \
+            uint8_t* value = column2.mutable_cell_ptr(i); \
+            *((TYPE*)value) = i; \
+        } \
+    } \
+    for (int i = 0; i < 10; ++i) { \
+        sel[i] = i; \
+    } \
+    selected_size = 10; \
+    \
+    pred->evaluate(&column2, sel, &selected_size); \
+    ASSERT_EQ(selected_size, 1); \
+    ASSERT_EQ(*((TYPE*)column2.cell_ptr(sel[0])), 5); \
+} \
+
+TEST_IN_LIST_PREDICATE_V2(int8_t, TINYINT, "TINYINT")
+TEST_IN_LIST_PREDICATE_V2(int16_t, SMALLINT, "SMALLINT")
+TEST_IN_LIST_PREDICATE_V2(int32_t, INT, "INT")
+TEST_IN_LIST_PREDICATE_V2(int64_t, BIGINT, "BIGINT")
+TEST_IN_LIST_PREDICATE_V2(int128_t, LARGEINT, "LARGEINT")
 
 TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     TabletSchema tablet_schema;

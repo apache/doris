@@ -36,7 +36,7 @@ BooleanVal UtilityFunctions::sleep(
     if (milliseconds.is_null) {
         return BooleanVal::null();
     }
-    usleep(milliseconds.val * 1000);
+    usleep(milliseconds.val * 1000 * 1000);
     return BooleanVal(true);
 }
 

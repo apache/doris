@@ -130,6 +130,25 @@ public:
     static doris_udf::StringVal day_name(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val);
 
+    // timestamp function
+    template <TimeUnit unit>
+    static doris_udf::BigIntVal timestamp_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal years_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal months_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal weeks_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal days_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal hours_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal minutes_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+    static doris_udf::BigIntVal seconds_diff(
+            doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& ts_val1, const doris_udf::DateTimeVal& ts_val2);
+
     // TimeZone correlation functions.
     static doris_udf::DateTimeVal timestamp(
         doris_udf::FunctionContext* ctx, const doris_udf::DateTimeVal& val);
@@ -140,6 +159,7 @@ public:
             const doris_udf::IntVal& count, bool is_add);
     static doris_udf::DateTimeVal now(doris_udf::FunctionContext* context);
     static doris_udf::DoubleVal curtime(doris_udf::FunctionContext* context);
+    static doris_udf::DateTimeVal curdate(doris_udf::FunctionContext* context);
     static doris_udf::DateTimeVal utc_timestamp(doris_udf::FunctionContext* context);
     /// Returns the current time.
     static doris_udf::IntVal to_unix(doris_udf::FunctionContext* context);
@@ -165,6 +185,10 @@ public:
     // Helper function to check date/time format strings.
     // TODO: eventually return format converted from Java to Boost.
     static bool check_format(const StringVal& format, DateTimeValue& t);
+
+    // In order to support 0.11 grayscale upgrade
+    // Todo(kks): remove this method when 0.12 release
+    static StringVal convert_format(doris_udf::FunctionContext* ctx, const StringVal& format);
 
     // Issue a warning for a bad format string.
     static void report_bad_format(const StringVal* format);

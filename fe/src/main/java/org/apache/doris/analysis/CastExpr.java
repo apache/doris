@@ -103,12 +103,12 @@ public class CastExpr extends Expr {
                 if (fromType.isStringType() && toType.isBoolean()) {
                     continue;
                 }
-                // Disable casting from boolean to decimal
+                // Disable casting from boolean to decimal or datetime or date
                 if (fromType.isBoolean() &&
-                        (toType == Type.DECIMAL || toType == Type.DECIMALV2)) {
+                        (toType == Type.DECIMAL || toType == Type.DECIMALV2 ||
+                                toType == Type.DATETIME || toType == Type.DATE)) {
                     continue;
                 }
-
                 // Disable no-op casts
                 if (fromType.equals(toType)) {
                     continue;
@@ -176,7 +176,7 @@ public class CastExpr extends Expr {
         Type childType = getChild(0).getType();
 
         // this cast may result in loss of precision, but the user requested it
-        if (childType.equals(type)) {
+        if (childType.matchesType(type)) {
             noOp = true;
             return;
         }
@@ -271,9 +271,9 @@ public class CastExpr extends Expr {
     }
 
     private Expr castTo(LiteralExpr value) throws AnalysisException {
-        Preconditions.checkArgument(!(value instanceof NullLiteral)
-            && !type.isNull());
-        if (type.isIntegerType()) {
+        if (value instanceof NullLiteral) {
+            return value;
+        } else if (type.isIntegerType()) {
             return new IntLiteral(value.getLongValue(), type);
         } else if (type.isLargeIntType()) {
             return new LargeIntLiteral(value.getStringValue());

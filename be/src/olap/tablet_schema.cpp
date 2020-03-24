@@ -70,6 +70,8 @@ FieldType TabletColumn::get_field_type_by_string(const std::string& type_str) {
         type = OLAP_FIELD_TYPE_LIST;
     } else if (0 == upper_type_str.compare("MAP")) {
         type = OLAP_FIELD_TYPE_MAP;
+    } else if (0 == upper_type_str.compare("OBJECT")) {
+        type = OLAP_FIELD_TYPE_OBJECT;
     } else {
         LOG(WARNING) << "invalid type string. [type='" << type_str << "']";
         type = OLAP_FIELD_TYPE_UNKNOWN;
@@ -93,6 +95,8 @@ FieldAggregationMethod TabletColumn::get_aggregation_type_by_string(const std::s
         aggregation_type = OLAP_FIELD_AGGREGATION_MAX;
     } else if (0 == upper_str.compare("REPLACE")) {
         aggregation_type = OLAP_FIELD_AGGREGATION_REPLACE;
+    } else if (0 == upper_str.compare("REPLACE_IF_NOT_NULL")) {
+        aggregation_type = OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL;
     } else if (0 == upper_str.compare("HLL_UNION")) {
         aggregation_type = OLAP_FIELD_AGGREGATION_HLL_UNION;
     } else if (0 == upper_str.compare("BITMAP_UNION")) {
@@ -160,6 +164,7 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
         case OLAP_FIELD_TYPE_BOOL:
             return "BOOLEAN";
+
         case OLAP_FIELD_TYPE_HLL:
             return "HLL";
 
@@ -171,6 +176,9 @@ std::string TabletColumn::get_string_by_field_type(FieldType type) {
 
         case OLAP_FIELD_TYPE_MAP:
             return "MAP";
+
+        case OLAP_FIELD_TYPE_OBJECT:
+            return "OBJECT";
 
         default:
             return "UNKNOWN";
@@ -193,6 +201,9 @@ std::string TabletColumn::get_string_by_aggregation_type(FieldAggregationMethod 
 
         case OLAP_FIELD_AGGREGATION_REPLACE:
             return "REPLACE";
+
+        case OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL:
+            return "REPLACE_IF_NOT_NULL";
 
         case OLAP_FIELD_AGGREGATION_HLL_UNION:
             return "HLL_UNION";
@@ -226,13 +237,15 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
             return 4;
         case TPrimitiveType::DOUBLE:
             return 8;
+        case TPrimitiveType::OBJECT:
+            return 16;
         case TPrimitiveType::CHAR:
             return string_length;
         case TPrimitiveType::VARCHAR:
         case TPrimitiveType::HLL:
             return string_length + sizeof(OLAP_STRING_MAX_LENGTH);
-        case TPrimitiveType::DECIMAL:    
-        case TPrimitiveType::DECIMALV2:    
+        case TPrimitiveType::DECIMAL:
+        case TPrimitiveType::DECIMALV2:
             return 12; // use 12 bytes in olap engine.
         default:
             OLAP_LOG_WARNING("unknown field type. [type=%d]", type);
@@ -240,7 +253,8 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     }
 }
 
-TabletColumn::TabletColumn() {}
+TabletColumn::TabletColumn() :
+    _aggregation(OLAP_FIELD_AGGREGATION_NONE) {}
 
 TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType type) {
     _aggregation = agg;
@@ -254,14 +268,14 @@ TabletColumn::TabletColumn(FieldAggregationMethod agg, FieldType filed_type, boo
     _is_nullable = is_nullable;
 }
 
-OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
-    _unique_id = column.unique_id(); 
+void TabletColumn::init_from_pb(const ColumnPB& column) {
+    _unique_id = column.unique_id();
     _col_name = column.name();
     _type = TabletColumn::get_field_type_by_string(column.type());
     _is_key = column.is_key();
     _is_nullable = column.is_nullable();
 
-    _has_default_value = column.has_default_value(); 
+    _has_default_value = column.has_default_value();
     if (_has_default_value) {
         _default_value = column.default_value();
     }
@@ -282,6 +296,11 @@ OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
     } else {
         _is_bf_column = false;
     }
+    if (column.has_has_bitmap_index()) {
+        _has_bitmap_index = column.has_bitmap_index();
+    } else {
+        _has_bitmap_index = false;
+    }
     _has_referenced_column = column.has_referenced_column_id();
     if (_has_referenced_column) {
         _referenced_column_id = column.referenced_column_id();
@@ -289,10 +308,9 @@ OLAPStatus TabletColumn::init_from_pb(const ColumnPB& column) {
     if (column.has_aggregation()) {
         _aggregation = get_aggregation_type_by_string(column.aggregation());
     }
-    return OLAP_SUCCESS;
 }
 
-OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
+void TabletColumn::to_schema_pb(ColumnPB* column) {
     column->set_unique_id(_unique_id);
     column->set_name(_col_name);
     column->set_type(get_string_by_field_type(_type));
@@ -314,7 +332,9 @@ OLAPStatus TabletColumn::to_schema_pb(ColumnPB* column) {
     if (_has_referenced_column) {
         column->set_referenced_column_id(_referenced_column_id);
     }
-    return OLAP_SUCCESS;
+    if (_has_bitmap_index) {
+        column->set_has_bitmap_index(_has_bitmap_index);
+    }
 }
 
 TabletSchema::TabletSchema()
@@ -323,7 +343,7 @@ TabletSchema::TabletSchema()
       _num_null_columns(0),
       _num_short_key_columns(0) { }
 
-OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
+void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _keys_type = schema.keys_type();
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
@@ -343,15 +363,15 @@ OLAPStatus TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _next_column_unique_id = schema.next_column_unique_id();
     if (schema.has_bf_fpp()) {
         _has_bf_fpp = true;
-        _bf_fpp = schema.bf_fpp(); 
+        _bf_fpp = schema.bf_fpp();
     } else {
         _has_bf_fpp = false;
         _bf_fpp = BLOOM_FILTER_DEFAULT_FPP;
     }
-    return OLAP_SUCCESS;
+    _is_in_memory = schema.is_in_memory();
 }
 
-OLAPStatus TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
+void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
     tablet_meta_pb->set_keys_type(_keys_type);
     for (auto& col : _cols) {
         ColumnPB* column = tablet_meta_pb->add_column();
@@ -364,8 +384,7 @@ OLAPStatus TabletSchema::to_schema_pb(TabletSchemaPB* tablet_meta_pb) {
         tablet_meta_pb->set_bf_fpp(_bf_fpp);
     }
     tablet_meta_pb->set_next_column_unique_id(_next_column_unique_id);
-
-    return OLAP_SUCCESS;
+    tablet_meta_pb->set_is_in_memory(_is_in_memory);
 }
 
 size_t TabletSchema::row_size() const {

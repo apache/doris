@@ -42,6 +42,7 @@ const i64 DEFAULT_PARTITION_ID = -1;
 enum TQueryType {
     SELECT,
     LOAD,
+    EXTERNAL
 }
 
 enum TErrorHubType {
@@ -96,7 +97,7 @@ struct TQueryOptions {
   15: optional bool is_report_success = 0
   16: optional i32 codegen_level = 0
   // INT64::MAX
-  17: optional i64 kudu_latest_observed_ts = 9223372036854775807
+  17: optional i64 kudu_latest_observed_ts = 9223372036854775807 // Deprecated
   18: optional TQueryType query_type = TQueryType.SELECT
   19: optional i64 min_reservation = 0
   20: optional i64 max_reservation = 107374182400
@@ -126,6 +127,9 @@ struct TQueryOptions {
 
   // multithreaded degree of intra-node parallelism
   27: optional i32 mt_dop = 0;
+  // if this is a query option for LOAD, load_mem_limit should be set to limit the mem comsuption
+  // of load channel.
+  28: optional i64 load_mem_limit = 0;
 }
 
 // A scan range plus the parameters needed to execute that scan.

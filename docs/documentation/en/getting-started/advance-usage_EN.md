@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Advanced Use Guide
 
 Here we introduce some of Doris's advanced features.
@@ -21,8 +40,8 @@ Schema of Table 1 is as follows:
 +----------+-------------+------+-------+---------+-------+
 | siteid   | int(11)     | No   | true  | 10      |       |
 | citycode | smallint(6) | No   | true  | N/A     |       |
-1242, 1242, 1246, Varchar (32), 1244, 1244, True'124; 124;
-S/PV.124; PV.124; Bigint (20); No.124; fals_124; 0_124; Sum_124;
+| username | varchar(32) | No   | true  |         |       |
+| pv       | bigint(20)  | No   | false | 0       | SUM   |
 +----------+-------------+------+-------+---------+-------+
 ```
 
@@ -36,7 +55,7 @@ After successful submission, you can view the progress of the job by following c
 
 When the job state is FINISHED, the job is completed. The new Schema is in force.
 
-After ALTER TABLE is completed, you can view the latest Schema through `DESC TABLE'.
+After ALTER TABLE is completed, you can view the latest Schema through `DESC TABLE`.
 
 ```
 mysql> DESC table1;
@@ -45,9 +64,9 @@ mysql> DESC table1;
 +----------+-------------+------+-------+---------+-------+
 | siteid   | int(11)     | No   | true  | 10      |       |
 | citycode | smallint(6) | No   | true  | N/A     |       |
-1242, 1242, 1246, Varchar (32), 1244, 1244, True'124; 124;
-S/PV.124; PV.124; Bigint (20); No.124; fals_124; 0_124; Sum_124;
-UV Bigint (20) False 0 Sum 20 False 0 0 Sum 20 False 20 False False 0 Ultraviolet Ultraviolet Ultraviolet Ultraviolet
+| username | varchar(32) | No   | true  |         |       |
+| pv       | bigint(20)  | No   | false | 0       | SUM   |
+| uv       | bigint(20)  | No   | false | 0       | SUM   |
 +----------+-------------+------+-------+---------+-------+
 5 rows in set (0.00 sec)
 ```
@@ -72,9 +91,9 @@ Schema of Table 1 is as follows:
 +----------+-------------+------+-------+---------+-------+
 | siteid   | int(11)     | No   | true  | 10      |       |
 | citycode | smallint(6) | No   | true  | N/A     |       |
-1242, 1242, 1246, Varchar (32), 1244, 1244, True'124; 124;
-S/PV.124; PV.124; Bigint (20); No.124; fals_124; 0_124; Sum_124;
-UV Bigint (20) False 0 Sum 20 False 0 0 Sum 20 False 20 False False 0 Ultraviolet Ultraviolet Ultraviolet Ultraviolet
+| username | varchar(32) | No   | true  |         |       |
+| pv       | bigint(20)  | No   | false | 0       | SUM   |
+| uv       | bigint(20)  | No   | false | 0       | SUM   |
 +----------+-------------+------+-------+---------+-------+
 ```
 
@@ -97,12 +116,12 @@ mysql> desc table1 all;
 +-------------+----------+-------------+------+-------+---------+-------+
 | table1      | siteid   | int(11)     | No   | true  | 10      |       |
 |             | citycode | smallint(6) | No   | true  | N/A     |       |
-1.1.2.1.2.1.1.2.2.1.1.1.1.2.1.1.2 124; "Username" - 124; Varchar (32) 124; No.124; True_124; "124";
-Regulation 124; 1246; 12420; 12424; 12444; 1244; 1240; 1240; 1244;
-UV = 124; UV = 124; Bigint (20) False 0 Sum
+|             | username | varchar(32) | No   | true  |         |       |
+|             | pv       | bigint(20)  | No   | false | 0       | SUM   |
+|             | uv       | bigint(20)  | No   | false | 0       | SUM   |
 |             |          |             |      |       |         |       |
 | rollup_city | citycode | smallint(6) | No   | true  | N/A     |       |
-Regulation 124; 1246; 12420; 12424; 12444; 1244; 1240; 1240; 1244;
+|             | pv       | bigint(20)  | No   | false | 0       | SUM   |
 +-------------+----------+-------------+------+-------+---------+-------+
 8 rows in set (0.01 sec)
 ```
@@ -113,7 +132,7 @@ The following command can be used to cancel the job currently being executed:
 
 After Rollup is established, the query does not need to specify Rollup to query. Or specify the original table for query. The program automatically determines whether Rollup should be used. Whether Rollup is hit or not can be viewed by the `EXPLAIN your_sql;'command.
 
-For more help, see `HELP ALTER TABLE'.
+For more help, see `HELP ALTER TABLE`.
 
 ## 2 Query of Data Table
 
@@ -121,7 +140,7 @@ For more help, see `HELP ALTER TABLE'.
 
 To prevent a user's query from consuming too much memory. Queries are controlled in memory. A query task uses no more than 2GB of memory by default on a single BE node.
 
-When users use it, if they find a `Memory limit exceeded'error, they usually exceed the memory limit.
+When users use it, if they find a `Memory limit exceeded` error, they usually exceed the memory limit.
 
 Users should try to optimize their SQL statements when they encounter memory overrun.
 
@@ -132,23 +151,23 @@ Display query memory limits:
 ```
 mysql> SHOW VARIABLES LIKE "%mem_limit%";
 +---------------+------------+
-1.1.1.1.2.2.1.2.2.2.2.2.1.1 Amended as follows:
+| Variable_name | Value      |
 +---------------+------------+
-*124th; execution *limit *124; 21474848 *124;
+| exec_mem_limit| 2147483648 |
 +---------------+------------+
 1 row in set (0.00 sec)
 ```
 
-` The unit of exec_mem_limit is byte, and the value of `exec_mem_limit'can be changed by the `SET' command. If changed to 8GB.
+The unit of `exec_mem_limit` is byte, and the value of `exec_mem_limit` can be changed by the `SET` command. If changed to 8GB.
 
 `SET exec_mem_limit = 8589934592;`
 
 ```
 mysql> SHOW VARIABLES LIKE "%mem_limit%";
 +---------------+------------+
-1.1.1.1.2.2.1.2.2.2.2.2.1.1 Amended as follows:
+| Variable_name | Value      |
 +---------------+------------+
-124th; self -imposed limit 124; 8589934592
+| exec_mem_limit| 8589934592 |
 +---------------+------------+
 1 row in set (0.00 sec)
 ```
@@ -165,21 +184,21 @@ View the current timeout settings:
 ```
 mysql> SHOW VARIABLES LIKE "%query_timeout%";
 +---------------+-------+
-1.1.1.1.2.2.1.2.2.2.2.2.1.1 Amended as follows:
+| Variable_name | Value |
 +---------------+-------+
-124QUERY WENT TIMEOUT $124; 300 1244;
+| QUERY_TIMEOUT | 300   |
 +---------------+-------+
 1 row in set (0.00 sec)
 ```
 
 Modify the timeout to 1 minute:
 
-SET query timeout =60;'
+`SET query timeout =60;`
 
 >* The current timeout check interval is 5 seconds, so timeouts less than 5 seconds are not very accurate.
->* The above modifications are also session level. Global validity can be modified by `SET GLOBAL'.
+>* The above modifications are also session level. Global validity can be modified by `SET GLOBAL`.
 
-35; "3535; 2.3 broadcast / shufle join"
+### 2.3 Broadcast/Shuffle Join
 
 By default, the system implements Join by conditionally filtering small tables, broadcasting them to the nodes where the large tables are located, forming a memory Hash table, and then streaming out the data of the large tables Hash Join. However, if the amount of data filtered by small tables can not be put into memory, Join will not be able to complete at this time. The usual error should be caused by memory overrun first.
 
@@ -190,7 +209,7 @@ Use Broadcast Join (default):
 ```
 mysql> select sum(table1.pv) from table1 join table2 where table1.siteid = 2;
 +--------------------+
-+ 124; Sum (`Table1'`PV `124);
+| sum(`table1`.`pv`) |
 +--------------------+
 |                 10 |
 +--------------------+
@@ -202,19 +221,19 @@ Use Broadcast Join (explicitly specified):
 ```
 mysql> select sum(table1.pv) from table1 join [broadcast] table2 where table1.siteid = 2;
 +--------------------+
-+ 124; Sum (`Table1'`PV `124);
+| sum(`table1`.`pv`) |
 +--------------------+
 |                 10 |
 +--------------------+
 1 row in set (0.20 sec)
 ```
 
-20351;29992929292Join:
+Shuffle Join:
 
 ```
 mysql> select sum(table1.pv) from table1 join [shuffle] table2 where table1.siteid = 2;
 +--------------------+
-+ 124; Sum (`Table1'`PV `124);
+| sum(`table1`.`pv`) |
 +--------------------+
 |                 10 |
 +--------------------+
@@ -227,11 +246,11 @@ When multiple FE nodes are deployed, users can deploy load balancing layers on t
 
 Here are some highly available solutions:
 
-** The first **
+**The first**
 
 I retry and load balancing in application layer code. For example, if a connection is found to be dead, it will automatically retry on other connections. Application-level code retry requires the application to configure multiple Doris front-end node addresses.
 
-** Second **
+**Second**
 
 If you use MySQL JDBC connector to connect Doris, you can use jdbc's automatic retry mechanism:
 
@@ -239,8 +258,8 @@ If you use MySQL JDBC connector to connect Doris, you can use jdbc's automatic r
 jdbc:mysql:/[host:port],[host:port].../[database][? propertyName1][=propertyValue1][&propertyName2][=propertyValue2]...
 ```
 
-** The third **
+**The third**
 
 Applications can connect to and deploy MySQL Proxy on the same machine by configuring MySQL Proxy's Failover and Load Balance functions.
 
-`http://dev.mysql.com /doc /refman /5.6 /en /mysql -proxy -using.html `
+`http://dev.mysql.com/doc/refman/5.6/en/mysql-proxy-using.html`

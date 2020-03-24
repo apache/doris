@@ -17,6 +17,7 @@
 
 package org.apache.doris.metric;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
 import org.apache.doris.monitor.jvm.JvmStats.Threads;
@@ -53,6 +54,8 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     public static final String REQUEST_PER_SECOND = "rps";
     public static final String QUERY_ERR_RATE = "query_err_rate";
 
+    public static final String MAX_TABLET_COMPACTION_SCORE = "max_tablet_compaction_score";
+
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
     static {
         CORE_METRICS.put(MAX_JOURMAL_ID, TYPE_LONG);
@@ -61,6 +64,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         CORE_METRICS.put(QUERY_PER_SECOND, TYPE_DOUBLE);
         CORE_METRICS.put(REQUEST_PER_SECOND, TYPE_DOUBLE);
         CORE_METRICS.put(QUERY_ERR_RATE, TYPE_DOUBLE);
+        CORE_METRICS.put(MAX_TABLET_COMPACTION_SCORE, TYPE_LONG);
     }
 
     public SimpleCoreMetricVisitor(String prefix) {
@@ -123,6 +127,11 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
 
     @Override
     public void getNodeInfo(StringBuilder sb) {
-        return;
+        long feDeadNum = Catalog.getCurrentCatalog().getFrontends(null).stream().filter(f -> !f.isAlive()).count();
+        long beDeadNum = Catalog.getCurrentSystemInfo().getIdToBackend().values().stream().filter(b -> !b.isAlive()).count();
+        long brokerDeadNum =  Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count();
+        sb.append(prefix + "_frontend_dead_num").append(" ").append(String.valueOf(feDeadNum)).append("\n");
+        sb.append(prefix + "_backend_dead_num").append(" ").append(String.valueOf(beDeadNum)).append("\n");
+        sb.append(prefix + "_broker_dead_num").append(" ").append(String.valueOf(brokerDeadNum)).append("\n");
     }
 }

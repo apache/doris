@@ -20,6 +20,8 @@
 #include <string>
 #include <vector>
 
+#include <roaring/roaring.hh>
+
 #include "common/logging.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "gutil/strings/substitute.h"
@@ -113,6 +115,11 @@ class RowRanges {
 public:
     RowRanges() : _count(0) { }
 
+    void clear() {
+        _ranges.clear();
+        _count = 0;
+    }
+
     // Creates a new RowRanges object with the single range [0, row_count).
     static RowRanges create_single(uint64_t row_count) {
         RowRanges ranges;
@@ -192,6 +199,14 @@ public:
         *result = std::move(tmp_range);
     }
 
+    static Roaring ranges_to_roaring(const RowRanges& ranges) {
+        Roaring result;
+        for (auto it = ranges._ranges.begin(); it != ranges._ranges.end(); ++it) {
+            result.addRange(it->from(), it->to());
+        }
+        return result;
+    }
+
     size_t count() {
         return _count;
     }
@@ -252,11 +267,13 @@ public:
         return result;
     }
 
-private:
     // Adds a range to the end of the list of ranges. It maintains the disjunct ascending order(*) of the ranges by
     // trying to union the specified range to the last ranges in the list. The specified range shall be larger(*) than
     // the last one or might be overlapped with some of the last ones.
     void add(const RowRange& range) {
+        if (range.count() == 0) {
+            return;
+        }
         RowRange range_to_add = range;
         for (int i = _ranges.size() - 1; i >= 0; --i) {
             const RowRange last = _ranges[i];

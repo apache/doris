@@ -25,8 +25,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Joiner;
-
 // TRUNCATE TABLE tbl [PARTITION(p1, p2, ...)]
 public class TruncateTableStmt extends DdlStmt {
 
@@ -56,6 +54,15 @@ public class TruncateTableStmt extends DdlStmt {
                 tblRef.getName().getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }
+
+        // check partition if specified. do not support truncate temp partitions
+        PartitionNames partitionNames = tblRef.getPartitionNames();
+        if (partitionNames != null) {
+            partitionNames.analyze(analyzer);
+            if (partitionNames.isTemp()) {
+                throw new AnalysisException("Not support truncate temp partitions");
+            }
+        }
     }
 
     @Override
@@ -63,10 +70,8 @@ public class TruncateTableStmt extends DdlStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("TRUNCATE TABLE ");
         sb.append(tblRef.getName().toSql());
-        if (tblRef.getPartitions() != null && !tblRef.getPartitions().isEmpty()) {
-            sb.append(" PARTITION (");
-            sb.append(Joiner.on(", ").join(tblRef.getPartitions()));
-            sb.append(")");
+        if (tblRef.getPartitionNames() != null) {
+            sb.append(tblRef.getPartitionNames().toSql());
         }
         return sb.toString();
     }

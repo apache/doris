@@ -37,13 +37,13 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.stream.Collectors;
 
 /**
  * This class extends the primary identifier of a Backend with ephemeral state,
@@ -61,6 +61,7 @@ public class Backend implements Writable {
 
     private long id;
     private String host;
+    private String version;
 
     private int heartbeatPort; // heartbeat
     private AtomicInteger bePort; // be
@@ -88,8 +89,14 @@ public class Backend implements Writable {
     // after init it, this variable is set to true.
     private boolean initPathInfo = false;
 
+    private long lastMissingHeartbeatTime = -1;
+    // the max tablet compaction score of this backend.
+    // this field is set by tablet report, and just for metric monitor, no need to persist.
+    private AtomicLong tabletMaxCompactionScore = new AtomicLong(0);
+
     public Backend() {
         this.host = "";
+        this.version = "";
         this.lastUpdateMs = new AtomicLong();
         this.lastStartTime = new AtomicLong();
         this.isAlive = new AtomicBoolean();
@@ -109,6 +116,7 @@ public class Backend implements Writable {
     public Backend(long id, String host, int heartbeatPort) {
         this.id = id;
         this.host = host;
+        this.version = "";
         this.heartbeatPort = heartbeatPort;
         this.bePort = new AtomicInteger(-1);
         this.httpPort = new AtomicInteger(-1);
@@ -131,6 +139,10 @@ public class Backend implements Writable {
 
     public String getHost() {
         return host;
+    }
+
+    public String getVersion() {
+        return version;
     }
 
     public int getBePort() {
@@ -159,26 +171,21 @@ public class Backend implements Writable {
 
     // for test only
     public void updateOnce(int bePort, int httpPort, int beRpcPort) {
-        boolean isChanged = false;
         if (this.bePort.get() != bePort) {
-            isChanged = true;
             this.bePort.set(bePort);
         }
 
         if (this.httpPort.get() != httpPort) {
-            isChanged = true;
             this.httpPort.set(httpPort);
         }
 
         if (this.beRpcPort.get() != beRpcPort) {
-            isChanged = true;
             this.beRpcPort.set(beRpcPort);
         }
 
         long currentTime = System.currentTimeMillis();
         this.lastUpdateMs.set(currentTime);
         if (!isAlive.get()) {
-            isChanged = true;
             this.lastStartTime.set(currentTime);
             LOG.info("{} is alive,", this.toString());
             this.isAlive.set(true);
@@ -233,6 +240,10 @@ public class Backend implements Writable {
 
     public void setLastStartTime(long currentTime) {
         this.lastStartTime.set(currentTime);
+    }
+
+    public long getLastMissingHeartbeatTime() {
+        return lastMissingHeartbeatTime;
     }
 
     public boolean isAlive() {
@@ -345,7 +356,6 @@ public class Backend implements Writable {
     }
 
     public void updateDisks(Map<String, TDisk> backendDisks) {
-
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         // The very first time to init the path info
         if (!initPathInfo) {
@@ -353,11 +363,12 @@ public class Backend implements Writable {
             for (DiskInfo diskInfo : disks.values()) {
                 if (diskInfo.getPathHash() == 0) {
                     allPathHashUpdated = false;
+                    break;
                 }
             }
             if (allPathHashUpdated) {
                 initPathInfo = true;
-                Catalog.getCurrentSystemInfo().updatePathInfo(disks.values().stream().collect(Collectors.toList()), Lists.newArrayList());
+                Catalog.getCurrentSystemInfo().updatePathInfo(new ArrayList<>(disks.values()), Lists.newArrayList());
             }
         }
 
@@ -426,8 +437,6 @@ public class Backend implements Writable {
             // log disk changing
             Catalog.getInstance().getEditLog().logBackendStateChange(this);
         }
-        
-
     }
 
     public static Backend read(DataInput in) throws IOException {
@@ -464,7 +473,6 @@ public class Backend implements Writable {
         out.writeInt(brpcPort.get());
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         host = Text.readString(in);
@@ -549,8 +557,6 @@ public class Backend implements Writable {
                 return BackendState.using;
             case 1:
                 return BackendState.offline;
-            case 2:
-                return BackendState.free;
             default:
                 return BackendState.free;
         }
@@ -574,6 +580,11 @@ public class Backend implements Writable {
     public boolean handleHbResponse(BackendHbResponse hbResponse) {
         boolean isChanged = false;
         if (hbResponse.getStatus() == HbStatus.OK) {
+            if (!this.version.equals(hbResponse.getVersion())) {
+                isChanged = true;
+                this.version = hbResponse.getVersion();
+            }
+
             if (this.bePort.get() != hbResponse.getBePort()) {
                 isChanged = true;
                 this.bePort.set(hbResponse.getBePort());
@@ -607,9 +618,18 @@ public class Backend implements Writable {
             }
 
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
+            lastMissingHeartbeatTime = System.currentTimeMillis();
         }
 
         return isChanged;
+    }
+
+    public void setTabletMaxCompactionScore(long compactionScore) {
+        tabletMaxCompactionScore.set(compactionScore);
+    }
+
+    public long getTabletMaxCompactionScore() {
+        return tabletMaxCompactionScore.get();
     }
 }
 

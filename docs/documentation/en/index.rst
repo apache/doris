@@ -8,11 +8,13 @@ You can simply click "Edit on Github" at right top of a page, and edit the docum
 
 .. toctree::
 
+    downloads/index
     installing/index
     getting-started/index
     administrator-guide/index
     extending-doris/index
     internal/index
     sql-reference/index
+    developer-guide/index
     community/index
 

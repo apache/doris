@@ -138,4 +138,34 @@ public final class FeMetaVersion {
     public static final int VERSION_63 = 63;
     // for table create time
     public static final int VERSION_64 = 64;
+
+    // support sql mode, change sql_mode from string to long
+    public static final int VERSION_65 = 65;
+    // routine load/stream load persist session variables
+    public static final int VERSION_66 = 66;
+    // load_mem_limit session variable
+    public static final int VERSION_67 = 67;
+    // for es table context
+    public static final int VERSION_68 = 68;
+    // modify password checking logic
+    public static final int VERSION_69 = 69;
+    // for indexes
+    public static final int VERSION_70 = 70;
+    // dynamic partition
+    public static final int VERSION_71 = 71;
+    // in memory table
+    public static final int VERSION_72 = 72;
+    // broker persist isAlive
+    public static final int VERSION_73 = 73;
+    // temp partitions
+    public static final int VERSION_74 = 74;
+    // support materialized index meta while there is different keys type in different materialized index
+    public static final int VERSION_75 = 75;
+    // multi statement
+    public static final int VERSION_76 = 76;
+    // load to temp partitions
+    public static final int VERSION_77 = 77;
+
+    // note: when increment meta version, should assign the latest version to VERSION_CURRENT
+    public static final int VERSION_CURRENT = VERSION_77;
 }

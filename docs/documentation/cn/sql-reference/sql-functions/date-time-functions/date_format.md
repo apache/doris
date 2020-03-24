@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # date_format
 ## description
 ### Syntax
@@ -5,7 +24,7 @@
 `VARCHAR DATE_FORMAT(DATETIME date, VARCHAR format)`
 
 
-将日期类型按照format的类型转化位字符串，
+将日期类型按照format的类型转化为字符串，
 当前支持最大128字节的字符串，如果返回值长度超过128，则返回NULL
 
 date 参数是合法的日期。format 规定日期/时间的输出格式。
@@ -72,7 +91,9 @@ date 参数是合法的日期。format 规定日期/时间的输出格式。
 
 %Y | 年，4 位          
                            
-%y | 年，2 位                                    
+%y | 年，2 位
+
+%% | 用于表示 %
 
 ## example
 
@@ -118,6 +139,13 @@ mysql> select date_format('2006-06-01', '%d');
 +------------------------------------------+
 | 01                                       |
 +------------------------------------------+
+
+mysql> select date_format('2006-06-01', '%%%d');
++--------------------------------------------+
+| date_format('2006-06-01 00:00:00', '%%%d') |
++--------------------------------------------+
+| %01                                        |
++--------------------------------------------+
 ```
 
 ## keyword

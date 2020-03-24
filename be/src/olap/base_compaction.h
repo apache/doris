@@ -45,6 +45,10 @@ protected:
     }
 
 private:
+    // check if all input rowsets are non overlapping among segments.
+    // a rowset with overlapping segments should be compacted by cumulative compaction first.
+    OLAPStatus _check_rowset_overlapping(const vector<RowsetSharedPtr>& rowsets);
+
     DISALLOW_COPY_AND_ASSIGN(BaseCompaction);
 };
 

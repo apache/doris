@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -32,8 +33,6 @@ import org.junit.Test;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class AlterTableStmtTest {
     private Analyzer analyzer;
@@ -41,23 +40,22 @@ public class AlterTableStmtTest {
     @Mocked
     private PaloAuth auth;
 
-    static {
-        Startup.initializeIfPossible();
-    }
-
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -71,6 +69,20 @@ public class AlterTableStmtTest {
         AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
         stmt.analyze(analyzer);
         Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` DROP COLUMN `col1`, \nDROP COLUMN `col2`",
+                stmt.toSql());
+        Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
+        Assert.assertEquals(2, stmt.getOps().size());
+    }
+
+    @Test
+    public void testAddRollup() throws UserException {
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "testTbl", null));
+        ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "testTbl", null));
+        AlterTableStmt stmt = new AlterTableStmt(new TableName("testDb", "testTbl"), ops);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("ALTER TABLE `testCluster:testDb`.`testTbl` ADD ROLLUP `index1` (`col1`, `col2`) FROM `testTbl`, \n" +
+                        " `index2` (`col2`, `col3`) FROM `testTbl`",
                 stmt.toSql());
         Assert.assertEquals("testCluster:testDb", stmt.getTbl().getDb());
         Assert.assertEquals(2, stmt.getOps().size());

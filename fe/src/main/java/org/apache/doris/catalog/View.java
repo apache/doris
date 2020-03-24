@@ -23,6 +23,7 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.SqlParserUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -66,6 +67,9 @@ public class View extends Table {
     // Corresponds to Hive's viewExpandedText, but is not identical to the SQL
     // Hive would produce in view creation.
     private String inlineViewDef;
+
+    // for persist
+    private long sqlMode = 0L;
 
     // View definition created by parsing inlineViewDef_ into a QueryStmt.
     // 'queryStmt' is a strong reference, which is used when this view is created directly from a QueryStmt
@@ -127,8 +131,9 @@ public class View extends Table {
         return retStmt;
     }
 
-    public void setInlineViewDef(String inlineViewDef) {
+    public void setInlineViewDefWithSqlMode(String inlineViewDef, long sqlMode) {
         this.inlineViewDef = inlineViewDef;
+        this.sqlMode = sqlMode;
     }
 
     public String getInlineViewDef() {
@@ -145,11 +150,11 @@ public class View extends Table {
         Preconditions.checkNotNull(inlineViewDef);
         // Parse the expanded view definition SQL-string into a QueryStmt and
         // populate a view definition.
-        SqlScanner input = new SqlScanner(new StringReader(inlineViewDef));
+        SqlScanner input = new SqlScanner(new StringReader(inlineViewDef), sqlMode);
         SqlParser parser = new SqlParser(input);
         ParseNode node;
         try {
-            node = (ParseNode) parser.parse().value;
+            node = (ParseNode) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             LOG.info("stmt is {}", inlineViewDef);
             LOG.info("exception because: {}", e);
@@ -198,7 +203,6 @@ public class View extends Table {
         Text.writeString(out, inlineViewDef);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         // just do not want to modify the meta version, so leave originalViewDef here but set it as empty

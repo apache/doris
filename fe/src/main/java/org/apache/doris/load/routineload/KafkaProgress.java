@@ -139,7 +139,6 @@ public class KafkaProgress extends RoutineLoadProgress {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int size = in.readInt();

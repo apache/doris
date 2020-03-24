@@ -22,7 +22,7 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
-// used to compatible with older our thrift protocol
+// used to compatible with our older thrift protocol
 public class AttachmentRequest {
     protected byte[] serializedRequest;
     protected byte[] serializedResult;

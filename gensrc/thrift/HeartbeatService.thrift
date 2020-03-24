@@ -18,6 +18,8 @@ namespace java org.apache.doris.thrift
 include "Status.thrift"
 include "Types.thrift"
 
+const i64 IS_SET_DEFAULT_ROWSET_TO_BETA_BIT = 0x01;
+
 struct TMasterInfo {
     1: required Types.TNetworkAddress network_address
     2: required Types.TClusterId cluster_id
@@ -25,6 +27,7 @@ struct TMasterInfo {
     4: optional string token 
     5: optional string backend_ip
     6: optional Types.TPort http_port
+    7: optional i64 heartbeat_flags
 }
 
 struct TBackendInfo {
@@ -32,6 +35,7 @@ struct TBackendInfo {
     2: required Types.TPort http_port
     3: optional Types.TPort be_rpc_port
     4: optional Types.TPort brpc_port
+    5: optional string version
 }
 
 struct THeartbeatResult {

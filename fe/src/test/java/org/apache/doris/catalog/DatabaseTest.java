@@ -19,18 +19,17 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.thrift.TStorageType;
 
-import org.easymock.EasyMock;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -40,36 +39,47 @@ import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
+import mockit.Expectations;
+import mockit.Mocked;
+
 public class DatabaseTest {
 
     private Database db;
     private long dbId = 10000;
 
+    @Mocked
     private Catalog catalog;
+    @Mocked
     private EditLog editLog;
 
     @Before
     public void Setup() {
         db = new Database(dbId, "dbTest");
+        new Expectations() {
+            {
+                editLog.logCreateTable((CreateTableInfo) any);
+                minTimes = 0;
 
-        editLog = EasyMock.createMock(EditLog.class);
-        editLog.logCreateTable(EasyMock.anyObject(CreateTableInfo.class));
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(editLog);
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
 
-        catalog = EasyMock.createMock(Catalog.class);
-        EasyMock.expect(catalog.getEditLog()).andReturn(editLog);
-        EasyMock.replay(catalog);
+        new Expectations(catalog) {
+            {
+                Catalog.getInstance();
+                minTimes = 0;
+                result = catalog;
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+                Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
+                result = FeConstants.meta_version;
+            }
+        };
     }
 
     @Test
@@ -147,9 +157,10 @@ public class DatabaseTest {
         // db2
         Database db2 = new Database(2, "db2");
         List<Column> columns = new ArrayList<Column>();
-        columns.add(new Column("column2", 
-                        ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", ""));
-        columns.add(new Column("column3", 
+        Column column2 = new Column("column2",
+                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+        columns.add(column2);
+        columns.add(new Column("column3",
                         ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
         columns.add(new Column("column4", 
                         ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
@@ -168,6 +179,15 @@ public class DatabaseTest {
         Partition partition = new Partition(20000L, "table", index, new RandomDistributionInfo(10));
         OlapTable table = new OlapTable(1000, "table", columns, KeysType.AGG_KEYS,
                                         new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        short shortKeyColumnCount = 1;
+        table.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
+
+        List<Column> column = Lists.newArrayList();
+        column.add(column2);
+        table.setIndexMeta(new Long(1), "test", column, 1, 1, shortKeyColumnCount,
+                TStorageType.COLUMN, KeysType.AGG_KEYS);
+        table.setIndexMeta(new Long(1), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
+        Deencapsulation.setField(table, "baseIndexId", 1);
         table.addPartition(partition);
         db2.createTable(table);
         db2.write(dos);

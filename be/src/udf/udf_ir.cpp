@@ -36,6 +36,10 @@ int FunctionContext::get_num_args() const {
     return _impl->_arg_types.size();
 }
 
+int FunctionContext::get_num_constant_args() const {
+    return _impl->_constant_args.size();
+}
+
 const FunctionContext::TypeDesc& FunctionContext::get_return_type() const {
     return _impl->_return_type;
 }

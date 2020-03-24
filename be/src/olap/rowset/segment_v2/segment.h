@@ -26,7 +26,7 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
 #include "olap/iterators.h"
-#include "olap/rowset/segment_v2/common.h" // rowid_t
+#include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -43,6 +43,8 @@ class StorageReadOptions;
 
 namespace segment_v2 {
 
+
+class BitmapIndexIterator;
 class ColumnReader;
 class ColumnIterator;
 class Segment;
@@ -75,22 +77,11 @@ public:
 
     uint32_t num_rows() const { return _footer.num_rows(); }
 
-private:
-    friend class SegmentIterator;
-
-    DISALLOW_COPY_AND_ASSIGN(Segment);
-    Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema);
-    // open segment file and read the minimum amount of necessary information (footer)
-    Status _open();
-    Status _parse_footer();
-    Status _create_column_readers();
-
     Status new_column_iterator(uint32_t cid, ColumnIterator** iter);
-    size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
 
-    // Load and decode short key index.
-    // May be called multiple times, subsequent calls will no op.
-    Status _load_index();
+    Status new_bitmap_index_iterator(uint32_t cid, BitmapIndexIterator** iter);
+
+    size_t num_short_keys() const { return _tablet_schema->num_short_key_columns(); }
 
     uint32_t num_rows_per_block() const {
         DCHECK(_load_index_once.has_called() && _load_index_once.stored_result().ok());
@@ -114,13 +105,29 @@ private:
         return _sk_index_decoder->num_items() - 1;
     }
 
+    // only used by UT
+    const SegmentFooterPB& footer() const {
+        return _footer;
+    }
+
 private:
+    DISALLOW_COPY_AND_ASSIGN(Segment);
+    Segment(std::string fname, uint32_t segment_id, const TabletSchema* tablet_schema);
+    // open segment file and read the minimum amount of necessary information (footer)
+    Status _open();
+    Status _parse_footer();
+    Status _create_column_readers();
+    // Load and decode short key index.
+    // May be called multiple times, subsequent calls will no op.
+    Status _load_index();
+
+private:
+    friend class SegmentIterator;
     std::string _fname;
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
 
     SegmentFooterPB _footer;
-    std::unique_ptr<RandomAccessFile> _input_file;
 
     // Map from column unique id to column ordinal in footer's ColumnMetaPB
     // If we can't find unique id from it, it means this segment is created
@@ -134,8 +141,8 @@ private:
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;
-    // used to store short key index
-    faststring _sk_index_buf;
+    // used to hold short key index page in memory
+    PageHandle _sk_index_handle;
     // short key index decoder
     std::unique_ptr<ShortKeyIndexDecoder> _sk_index_decoder;
 };

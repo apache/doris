@@ -195,7 +195,6 @@ public abstract class LoadErrorHub {
             }
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             type = HubType.valueOf(Text.readString(in));
             switch (type) {

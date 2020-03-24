@@ -80,6 +80,12 @@ BigIntVal HllFunctions::hll_finalize(FunctionContext*, const StringVal &src) {
     return result;
 }
 
+BigIntVal HllFunctions::hll_get_value(FunctionContext*, const StringVal &src) {
+    auto* src_hll = reinterpret_cast<HyperLogLog*>(src.ptr);
+    BigIntVal result(src_hll->estimate_cardinality());
+    return result;
+}
+
 BigIntVal HllFunctions::hll_cardinality(FunctionContext* ctx, const StringVal& input) {
     if (input.is_null) {
         return BigIntVal::null();

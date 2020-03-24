@@ -172,16 +172,7 @@ public class SystemInfoService {
         LOG.info("finished to add {} ", newBackend);
 
         // backends is changed, regenerated tablet number metrics
-        MetricRepo.generateTabletNumMetrics();
-    }
-
-    public void checkBackendsExist(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
-        for (Pair<String, Integer> pair : hostPortPairs) {
-            // check if exist
-            if (getBackendWithHeartbeatPort(pair.first, pair.second) == null) {
-                throw new DdlException("Backend does not exist[" + pair.first + ":" + pair.second + "]");
-            }
-        }
+        MetricRepo.generateBackendsTabletMetrics();
     }
 
     public void dropBackends(List<Pair<String, Integer>> hostPortPairs) throws DdlException {
@@ -239,7 +230,7 @@ public class SystemInfoService {
         LOG.info("finished to drop {}", droppedBackend);
 
         // backends is changed, regenerated tablet number metrics
-        MetricRepo.generateTabletNumMetrics();
+        MetricRepo.generateBackendsTabletMetrics();
     }
 
     // only for test
@@ -431,7 +422,7 @@ public class SystemInfoService {
      * @return
      */
     public List<Long> calculateDecommissionBackends(String clusterName, int shrinkNum) {
-        LOG.info("calculate decommission backend in cluster: {}. decommission num:", clusterName, shrinkNum);
+        LOG.info("calculate decommission backend in cluster: {}. decommission num: {}", clusterName, shrinkNum);
 
         final List<Long> decomBackendIds = Lists.newArrayList();
         ImmutableMap<Long, Backend> idToBackends = idToBackendRef.get();
@@ -451,11 +442,7 @@ public class SystemInfoService {
             }
         }
 
-        List<List<Backend>> hostList = Lists.newArrayList();
-        for (List<Backend> list : hostBackendsMapInCluster.values()) {
-            hostList.add(list);
-        }
-
+        List<List<Backend>> hostList = Lists.newArrayList(hostBackendsMapInCluster.values());
         Collections.sort(hostList, hostBackendsListComparator);
 
         // in each cycle, choose one backend from the host which has maximal backends num.
@@ -476,7 +463,7 @@ public class SystemInfoService {
 
         if (decomBackendIds.size() != shrinkNum) {
             LOG.info("failed to get enough backends to shrink in cluster: {}. required: {}, get: {}",
-                     shrinkNum, decomBackendIds.size());
+                    clusterName, shrinkNum, decomBackendIds.size());
             return null;
         }
 
@@ -639,10 +626,9 @@ public class SystemInfoService {
 
         if (needAlive) {
             for (Backend backend : copiedBackends.values()) {
-                if (name.equals(backend.getOwnerClusterName())) {
-                    if (backend != null && backend.isAlive()) {
-                        ret.add(backend);
-                    }
+                if (backend != null && name.equals(backend.getOwnerClusterName())
+                    && backend.isAlive()) {
+                    ret.add(backend);
                 }
             }
         } else {
@@ -694,10 +680,9 @@ public class SystemInfoService {
 
         if (needAlive) {
             for (Backend backend : copiedBackends.values()) {
-                if (clusterName.equals(backend.getOwnerClusterName())) {
-                    if (backend != null && backend.isAlive()) {
-                        ret.add(backend.getId());
-                    }
+                if (backend != null && clusterName.equals(backend.getOwnerClusterName())
+                    && backend.isAlive()) {
+                    ret.add(backend.getId());
                 }
             }
         } else {
@@ -976,7 +961,7 @@ public class SystemInfoService {
             }
 
             // validate port
-            heartbeatPort = Integer.valueOf(pair[1]);
+            heartbeatPort = Integer.parseInt(pair[1]);
 
             if (heartbeatPort <= 0 || heartbeatPort >= 65536) {
                 throw new AnalysisException("Port is out of range: " + heartbeatPort);
@@ -1046,6 +1031,13 @@ public class SystemInfoService {
     public void updateBackendState(Backend be) {
         long id = be.getId();
         Backend memoryBe = getBackend(id);
+        if (memoryBe == null) {
+            // backend may already be dropped. this may happen when
+            // 1. SystemHandler drop the decommission backend
+            // 2. at same time, user try to cancel the decommission of that backend.
+            // These two operations do not guarantee the order.
+            return;
+        }
         memoryBe.setBePort(be.getBePort());
         memoryBe.setAlive(be.isAlive());
         memoryBe.setDecommissioned(be.isDecommissioned());

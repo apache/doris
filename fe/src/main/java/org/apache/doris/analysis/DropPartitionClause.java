@@ -26,13 +26,17 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // clause which is used to add one column to
-public class DropPartitionClause extends AlterClause {
+public class DropPartitionClause extends AlterTableClause {
     private boolean ifExists;
     private String partitionName;
+    // true if this is to drop a temp partition
+    private boolean isTempPartition;
 
-    public DropPartitionClause(boolean ifExists, String partitionName) {
+    public DropPartitionClause(boolean ifExists, String partitionName, boolean isTempPartition) {
         this.ifExists = ifExists;
         this.partitionName = partitionName;
+        this.isTempPartition = isTempPartition;
+        this.needTableStable = false;
     }
 
     public boolean isSetIfExists() {
@@ -41,6 +45,10 @@ public class DropPartitionClause extends AlterClause {
 
     public String getPartitionName() {
         return partitionName;
+    }
+
+    public boolean isTempPartition() {
+        return isTempPartition;
     }
 
     @Override

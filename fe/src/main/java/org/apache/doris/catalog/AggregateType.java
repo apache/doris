@@ -30,6 +30,7 @@ public enum AggregateType {
     MIN("MIN"),
     MAX("MAX"),
     REPLACE("REPLACE"),
+    REPLACE_IF_NOT_NULL("REPLACE_IF_NOT_NULL"),
     HLL_UNION("HLL_UNION"),
     NONE("NONE"),
     BITMAP_UNION("BITMAP_UNION");
@@ -85,13 +86,16 @@ public enum AggregateType {
 
         primitiveTypeList.clear();
         compatibilityMap.put(REPLACE, EnumSet.allOf(PrimitiveType.class));
+
+        primitiveTypeList.clear();
+        compatibilityMap.put(REPLACE_IF_NOT_NULL, EnumSet.allOf(PrimitiveType.class));
        
         primitiveTypeList.clear();
         primitiveTypeList.add(PrimitiveType.HLL);
         compatibilityMap.put(HLL_UNION, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
-        primitiveTypeList.add(PrimitiveType.VARCHAR);
+        primitiveTypeList.add(PrimitiveType.BITMAP);
         compatibilityMap.put(BITMAP_UNION, EnumSet.copyOf(primitiveTypeList));
     
         compatibilityMap.put(NONE, EnumSet.allOf(PrimitiveType.class));
@@ -119,6 +123,16 @@ public enum AggregateType {
         return checkCompatibility(this, priType);
     }
 
+    public boolean isReplaceFamily() {
+        switch (this) {
+            case REPLACE:
+            case REPLACE_IF_NOT_NULL:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public TAggregationType toThrift() {
         switch (this) {
             case SUM:
@@ -129,6 +143,8 @@ public enum AggregateType {
                 return TAggregationType.MIN;
             case REPLACE:
                 return TAggregationType.REPLACE;
+            case REPLACE_IF_NOT_NULL:
+                return TAggregationType.REPLACE_IF_NOT_NULL;
             case NONE:
                 return TAggregationType.NONE;
             case HLL_UNION:

@@ -25,6 +25,10 @@ public class MetaNotFoundException extends UserException {
         super(msg);
     }
 
+    public MetaNotFoundException(InternalErrorCode errcode, String msg) {
+        super(errcode, msg);
+    }
+
     public MetaNotFoundException(String msg, Throwable e) {
         super(msg, e);
     }

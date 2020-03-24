@@ -26,7 +26,7 @@
 #include "runtime/string_value.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/bitmap.h"
+#include "util/bitmap_value.h"
 
 namespace doris {
 
@@ -396,6 +396,54 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_CHAR>
         : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE, OLAP_FIELD_TYPE_VARCHAR> {
 };
 
+// REPLACE_IF_NOT_NULL
+
+template <FieldType field_type>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, field_type> :
+        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, field_type>  {
+    typedef typename FieldTypeTraits<field_type>::CppType CppType;
+
+    static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
+        bool src_null = src.is_null();
+        if (src_null) {
+            // Ignore it if src is NULL
+            return;
+        }
+
+        dst->set_is_null(false);
+        memcpy(dst->mutable_cell_ptr(), src.cell_ptr(), sizeof(CppType));
+    }
+};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_VARCHAR> :
+        public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_VARCHAR> {
+    static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
+        bool src_null = src.is_null();
+        if (src_null) {
+            // Ignore it if src is NULL
+            return;
+        }
+
+        bool dst_null = dst->is_null();
+        dst->set_is_null(false);
+        Slice* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        const Slice* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
+        if (mem_pool == nullptr || (!dst_null && dst_slice->size >= src_slice->size)) {
+            memory_copy(dst_slice->data, src_slice->data, src_slice->size);
+            dst_slice->size = src_slice->size;
+        } else {
+            dst_slice->data = (char*)mem_pool->allocate(src_slice->size);
+            memory_copy(dst_slice->data, src_slice->data, src_slice->size);
+            dst_slice->size = src_slice->size;
+        }
+    }
+};
+
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_CHAR>
+        : public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL, OLAP_FIELD_TYPE_VARCHAR> {
+};
 // when data load, after hll_hash fucntion, hll_union column won't be null
 // so when init, update hll, the src is not null
 template <>
@@ -446,7 +494,7 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_HLL_UNION, OLAP_FIELD_TYPE_HLL
 // when data load, after bitmap_init fucntion, bitmap_union column won't be null
 // so when init, update bitmap, the src is not null
 template <>
-struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR> {
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {
     static void init(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool, ObjectPool* agg_pool) {
         DCHECK_EQ(src_null, false);
         dst->set_not_null();
@@ -455,10 +503,11 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
 
         // we use zero size represent this slice is a agg object
         dst_slice->size = 0;
-        auto* bitmap = new RoaringBitmap(src_slice->data);
+        auto bitmap = new BitmapValue(src_slice->data);
+
         dst_slice->data = (char*) bitmap;
 
-        mem_pool->mem_tracker()->consume(sizeof(RoaringBitmap));
+        mem_pool->mem_tracker()->consume(sizeof(BitmapValue));
 
         agg_pool->add(bitmap);
     }
@@ -466,30 +515,38 @@ struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_
     static void update(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool) {
         DCHECK_EQ(src.is_null(), false);
 
-        auto* dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
-        auto* src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-        auto* dst_bitmap = reinterpret_cast<RoaringBitmap*>(dst_slice->data);
+        auto dst_slice = reinterpret_cast<Slice*>(dst->mutable_cell_ptr());
+        DCHECK_EQ(dst_slice->size, 0);
+        auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst_slice->data);
+        auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
 
         // fixme(kks): trick here, need improve
         if (mem_pool == nullptr) { // for query
-            RoaringBitmap src_bitmap = RoaringBitmap(src_slice->data);
-            dst_bitmap->merge(src_bitmap);
+            (*dst_bitmap) |= BitmapValue(src_slice->data);
         } else {   // for stream load
-            auto* src_bitmap = reinterpret_cast<RoaringBitmap*>(src_slice->data);
-            dst_bitmap->merge(*src_bitmap);
+            DCHECK_EQ(src_slice->size, 0);
+            (*dst_bitmap) |= *reinterpret_cast<BitmapValue*>(src_slice->data);
         }
     }
 
-    // The RoaringBitmap object memory will be released by ObjectPool
+    // The BitmapValue object memory will be released by ObjectPool
     static void finalize(RowCursorCell* src, MemPool* mem_pool) {
-        auto *slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
-        auto *bitmap = reinterpret_cast<RoaringBitmap*>(slice->data);
+        auto slice = reinterpret_cast<Slice*>(src->mutable_cell_ptr());
+        DCHECK_EQ(slice->size, 0);
+        auto bitmap = reinterpret_cast<BitmapValue*>(slice->data);
 
-        slice->size = bitmap->size();
+        slice->size = bitmap->getSizeInBytes();
         slice->data = (char*)mem_pool->allocate(slice->size);
-        bitmap->serialize(slice->data);
+        bitmap->write(slice->data);
     }
 };
+
+
+// for backward compatibility
+template <>
+struct AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_VARCHAR> :
+    public AggregateFuncTraits<OLAP_FIELD_AGGREGATION_BITMAP_UNION, OLAP_FIELD_TYPE_OBJECT> {};
+
 
 template<FieldAggregationMethod aggMethod, FieldType fieldType>
 struct AggregateTraits : public AggregateFuncTraits<aggMethod, fieldType> {

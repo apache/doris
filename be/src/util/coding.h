@@ -11,6 +11,8 @@
 
 #include <string>
 
+#include "olap/olap_common.h"
+
 #include "gutil/endian.h"
 #include "util/slice.h"
 
@@ -51,6 +53,15 @@ inline void encode_fixed64_le(uint8_t* buf, uint64_t val) {
 #endif
 }
 
+inline void encode_fixed128_le(uint8_t* buf, uint128_t val) {
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    memcpy(buf, &val, sizeof(val));
+#else
+    uint128_t res = gbswap_128(val);
+    memcpy(buf, &res, sizeof(res));
+#endif
+}
+
 inline uint8_t decode_fixed8(const uint8_t* buf) {
     return *buf;
 }
@@ -85,6 +96,16 @@ inline uint64_t decode_fixed64_le(const uint8_t* buf) {
 #endif
 }
 
+inline uint128_t decode_fixed128_le(const uint8_t* buf) {
+    uint128_t res;
+    memcpy(&res, buf, sizeof(res));
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    return res;
+#else
+    return gbswap_128(res);
+#endif
+}
+
 template<typename T>
 inline void put_fixed32_le(T* dst, uint32_t val) {
     uint8_t buf[sizeof(val)];
@@ -96,6 +117,23 @@ template<typename T>
 inline void put_fixed64_le(T* dst, uint64_t val) {
     uint8_t buf[sizeof(val)];
     encode_fixed64_le(buf, val);
+    dst->append((char*)buf, sizeof(buf));
+}
+
+// Returns the length of the varint32 or varint64 encoding of "v"
+inline int varint_length(uint64_t v) {
+    int len = 1;
+    while (v >= 128) {
+        v >>= 7;
+        len++;
+    }
+    return len;
+}
+
+template<typename T>
+inline void put_fixed128_le(T* dst, uint128_t val) {
+    uint8_t buf[sizeof(val)];
+    encode_fixed128_le(buf, val);
     dst->append((char*)buf, sizeof(buf));
 }
 
@@ -144,6 +182,12 @@ inline void put_varint64(T* dst, uint64_t v) {
 }
 
 template<typename T>
+inline void put_length_prefixed_slice(T* dst, const Slice& value) {
+    put_varint32(dst, value.get_size());
+    dst->append(value.get_data(), value.get_size());
+}
+
+template<typename T>
 inline void put_varint64_varint32(T* dst, uint64_t v1, uint32_t v2) {
     uint8_t buf[15];
     uint8_t* ptr = encode_varint64(buf, v1);
@@ -151,6 +195,9 @@ inline void put_varint64_varint32(T* dst, uint64_t v1, uint32_t v2) {
     dst->append((char*)buf, static_cast<size_t>(ptr - buf));
 }
 
+// parse a varint32 from the start of `input` into `val`.
+// on success, return true and advance `input` past the parsed value.
+// on failure, return false and `input` is not modified.
 inline bool get_varint32(Slice* input, uint32_t* val) {
     const uint8_t* p = (const uint8_t*)input->data;
     const uint8_t* limit = p + input->size;
@@ -163,6 +210,9 @@ inline bool get_varint32(Slice* input, uint32_t* val) {
     }
 }
 
+// parse a varint64 from the start of `input` into `val`.
+// on success, return true and advance `input` past the parsed value.
+// on failure, return false and `input` is not modified.
 inline bool get_varint64(Slice* input, uint64_t* val) {
     const uint8_t* p = (const uint8_t*)input->data;
     const uint8_t* limit = p + input->size;
@@ -175,4 +225,18 @@ inline bool get_varint64(Slice* input, uint64_t* val) {
     }
 }
 
+// parse a length-prefixed-slice from the start of `input` into `val`.
+// on success, return true and advance `input` past the parsed value.
+// on failure, return false and `input` may or may not be modified.
+inline bool get_length_prefixed_slice(Slice* input, Slice* val) {
+    uint32_t len;
+    if (get_varint32(input, &len) && input->get_size() >= len) {
+        *val = Slice(input->get_data(), len);
+        input->remove_prefix(len);
+        return true;
+    } else {
+        return false;
+    }
 }
+
+} // namespace doris

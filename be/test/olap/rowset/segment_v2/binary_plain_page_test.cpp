@@ -52,10 +52,19 @@ public:
 
         Slice *ptr = &slices[0];
         Status ret = page_builder.add(reinterpret_cast<const uint8_t *>(ptr), &count);
-        
-        Slice s = page_builder.finish();
+
+        OwnedSlice owned_slice = page_builder.finish();
+
+        //check first value and last value
+        Slice first_value;
+        page_builder.get_first_value(&first_value);
+        ASSERT_EQ(slices[0], first_value);
+        Slice last_value;
+        page_builder.get_last_value(&last_value);
+        ASSERT_EQ(slices[count - 1], last_value);
+
         PageDecoderOptions decoder_options;
-        PageDecoderType page_decoder(s, decoder_options);
+        PageDecoderType page_decoder(owned_slice.slice(), decoder_options);
         Status status = page_decoder.init();
         ASSERT_TRUE(status.ok());
 

@@ -25,9 +25,6 @@
 #include <string>
 #include <sstream>
 
-#include "boost/lexical_cast.hpp"
-#include <boost/filesystem.hpp>
-
 #include "agent/cgroups_mgr.h"
 #include "env/env.h"
 #include "http/http_channel.h"
@@ -35,12 +32,10 @@
 #include "http/http_request.h"
 #include "http/http_response.h"
 #include "http/http_status.h"
-#include "util/defer_op.h"
+#include "runtime/exec_env.h"
 #include "util/file_utils.h"
 #include "util/filesystem_util.h"
-#include "runtime/exec_env.h"
-
-using boost::filesystem::canonical;
+#include "util/path_util.h"
 
 namespace doris {
 
@@ -53,14 +48,17 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
     _exec_env(exec_env),
     _download_type(NORMAL) {
     for (auto& dir : allow_dirs) {
-        _allow_paths.emplace_back(canonical(dir).string());
+        std::string p;
+        WARN_IF_ERROR(FileUtils::canonicalize(dir, &p), "canonicalize path " + dir + " failed");
+        _allow_paths.emplace_back(std::move(p));
     }
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir) :
     _exec_env(exec_env),
     _download_type(ERROR_LOG) {
-    _error_log_root_dir = canonical(error_log_root_dir).string();
+    WARN_IF_ERROR(FileUtils::canonicalize(error_log_root_dir, &_error_log_root_dir),
+                  "canonicalize path " + error_log_root_dir + " failed");
 }
 
 void DownloadAction::handle_normal(
@@ -187,8 +185,7 @@ void DownloadAction::do_file_response(const std::string& file_path, HttpRequest 
 
     if (req->method() == HttpMethod::HEAD) {
         close(fd);
-        req->add_output_header(HttpHeaders::CONTENT_LENGTH,
-                               boost::lexical_cast<std::string>(file_size).c_str());
+        req->add_output_header(HttpHeaders::CONTENT_LENGTH, std::to_string(file_size).c_str());
         HttpChannel::send_reply(req);
         return;
     }
@@ -196,26 +193,9 @@ void DownloadAction::do_file_response(const std::string& file_path, HttpRequest 
     HttpChannel::send_file(req, fd, 0, file_size);
 }
 
-// If 'file_name' contains a dot but does not consist solely of one or to two dots,
-// returns the substring of file_name starting at the rightmost dot and ending at the path's end.
-// Otherwise, returns an empty string
-std::string DownloadAction::get_file_extension(const std::string& file_name) {
-    // Get file Extention
-    std::string file_extension;
-    for (int i = file_name.size() - 1; i > 0; --i) {
-        if (file_name[i] == '/') {
-            break;
-        }
-        if (file_name[i] == '.' && file_name[i-1] != '.') {
-            return std::string(file_name, i);
-        }
-    }
-    return file_extension;
-}
-
 // Do a simple decision, only deal a few type
 std::string DownloadAction::get_content_type(const std::string& file_name) {
-    std::string file_ext = get_file_extension(file_name);
+    std::string file_ext = path_util::file_extension(file_name);
     LOG(INFO) << "file_name: " << file_name << "; file extension: [" << file_ext << "]";
     if (file_ext == std::string(".html")
             || file_ext == std::string(".htm")) {
@@ -229,7 +209,7 @@ std::string DownloadAction::get_content_type(const std::string& file_name) {
     } else {
         return "text/plain; charset=utf-8";
     }
-    return std::string();
+    return "";
 }
 
 Status DownloadAction::check_token(HttpRequest *req) {
@@ -247,13 +227,12 @@ Status DownloadAction::check_token(HttpRequest *req) {
 
 Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
     DCHECK_EQ(_download_type, NORMAL);
-    boost::system::error_code errcode;
-    boost::filesystem::path path = canonical(file_path, errcode);
-    if (errcode.value() != boost::system::errc::success) {
-        return Status::InternalError("file path is invalid: " + file_path);
-    }
 
-    std::string canonical_file_path = path.string();
+    std::string canonical_file_path;
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(file_path, &canonical_file_path),
+                              Status::InternalError("file path is invalid: " + file_path),
+                              "file path is invalid: " + file_path);
+
     for (auto& allow_path : _allow_paths) {
         if (FileSystemUtil::contain_path(allow_path, canonical_file_path)) {
             return Status::OK();
@@ -265,13 +244,12 @@ Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
 
 Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
     DCHECK_EQ(_download_type, ERROR_LOG);
-    boost::system::error_code errcode;
-    boost::filesystem::path path = canonical(file_path, errcode);
-    if (errcode.value() != boost::system::errc::success) {
-        return Status::InternalError("file path is invalid: " + file_path);
-    }
 
-    std::string canonical_file_path = path.string();
+    std::string canonical_file_path;
+    RETURN_WITH_WARN_IF_ERROR(FileUtils::canonicalize(file_path, &canonical_file_path),
+                              Status::InternalError("file path is invalid: " + file_path),
+                              "file path is invalid: " + file_path);
+
     if (FileSystemUtil::contain_path(_error_log_root_dir, canonical_file_path)) {
         return Status::OK();
     }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.common.proc;
 
-import org.apache.doris.alter.RollupHandler;
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -74,7 +74,7 @@ public class JobsProcDir implements ProcDirInterface {
         } else if (jobTypeName.equals(ROLLUP)) {
             return new RollupProcDir(catalog.getRollupHandler(), db);
         } else if (jobTypeName.equals(SCHEMA_CHANGE)) {
-            return new SchemaChangeProcNode(catalog.getSchemaChangeHandler(), db);
+            return new SchemaChangeProcDir(catalog.getSchemaChangeHandler(), db);
         } else if (jobTypeName.equals(EXPORT)) {
             return new ExportProcNode(catalog.getExportMgr(), db);
         } else {
@@ -118,12 +118,12 @@ public class JobsProcDir implements ProcDirInterface {
                                          cancelledNum.toString(), totalNum.toString()));
 
         // rollup
-        RollupHandler rollupHandler = Catalog.getInstance().getRollupHandler();
-        pendingNum = rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
-        runningNum = rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
-                + rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING, dbId);
-        finishedNum = rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.FINISHED, dbId);
-        cancelledNum = rollupHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.CANCELLED, dbId);
+        MaterializedViewHandler materializedViewHandler = Catalog.getInstance().getRollupHandler();
+        pendingNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.PENDING, dbId);
+        runningNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.WAITING_TXN, dbId)
+                + materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.RUNNING, dbId);
+        finishedNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.FINISHED, dbId);
+        cancelledNum = materializedViewHandler.getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState.CANCELLED, dbId);
         totalNum = pendingNum + runningNum + finishedNum + cancelledNum;
         result.addRow(Lists.newArrayList(ROLLUP, pendingNum.toString(), runningNum.toString(), finishedNum.toString(),
                                          cancelledNum.toString(), totalNum.toString()));

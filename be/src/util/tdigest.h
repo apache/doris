@@ -33,10 +33,10 @@
  */
 
 // T-Digest :  Percentile and Quantile Estimation of Big Data
-// A new data structure for accurate on-line accumulation of rank-based statistics 
+// A new data structure for accurate on-line accumulation of rank-based statistics
 // such as quantiles and trimmed means.
-// See original paper: "Computing extremely accurate quantiles using t-digest" 
-// by Ted Dunning and Otmar Ertl for more details 
+// See original paper: "Computing extremely accurate quantiles using t-digest"
+// by Ted Dunning and Otmar Ertl for more details
 // https://github.com/tdunning/t-digest/blob/07b8f2ca2be8d0a9f04df2feadad5ddc1bb73c88/docs/t-digest-paper/histo.pdf.
 // https://github.com/derrickburns/tdigest
 
@@ -54,12 +54,13 @@
 
 #include "common/logging.h"
 #include "util/debug_util.h"
+#include "util/radix_sort.h"
 #include "udf/udf.h"
 
 namespace doris {
 
-using Value = double;
-using Weight = double;
+using Value = float;
+using Weight = float;
 using Index = size_t;
 
 const size_t kHighWater = 40000;
@@ -73,6 +74,10 @@ public:
     inline Value mean() const noexcept { return _mean; }
 
     inline Weight weight() const noexcept { return _weight; }
+
+    inline Value& mean() noexcept { return _mean; }
+
+    inline Weight& weight() noexcept { return _weight; }
 
     inline void add(const Centroid &c) {
         DCHECK_GT(c._weight, 0);
@@ -114,6 +119,22 @@ struct CentroidComparator {
 };
 
 class TDigest {
+
+    struct TDigestRadixSortTraits
+    {
+        using Element = Centroid;
+        using Key = Value;
+        using CountType = uint32_t;
+        using KeyBits = uint32_t;
+
+        static constexpr size_t PART_SIZE_BITS = 8;
+
+        using Transform = RadixSortFloatTransform<KeyBits>;
+        using Allocator = RadixSortMallocAllocator;
+
+        static Key & extractKey(Element& elem) { return elem.mean();   }
+
+    };
 
     class TDigestComparator {
     public:
@@ -415,7 +436,7 @@ public:
             }
         }
     }
-        
+
     uint32_t serialized_size() {
         return sizeof(Value) * 5 + sizeof(Index) * 2 + sizeof(size_t) * 3
                + _processed.size() * sizeof(Centroid)
@@ -612,7 +633,7 @@ private:
     // when complete, _unprocessed will be empty and _processed will have at most _max_processed centroids
     inline void process() {
         CentroidComparator cc;
-        std::sort(_unprocessed.begin(), _unprocessed.end(), cc);
+        RadixSort<TDigestRadixSortTraits>::executeLSD(_unprocessed.data(), _unprocessed.size());
         auto count = _unprocessed.size();
         _unprocessed.insert(_unprocessed.end(), _processed.cbegin(), _processed.cend());
         std::inplace_merge(_unprocessed.begin(), _unprocessed.begin() + count, _unprocessed.end(), cc);

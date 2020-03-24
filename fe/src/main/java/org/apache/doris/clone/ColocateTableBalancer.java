@@ -32,7 +32,7 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -55,7 +55,7 @@ import java.util.stream.IntStream;
 /**
  * ColocateTableBalancer is responsible for tablets' repair and balance of colocated tables.
  */
-public class ColocateTableBalancer extends Daemon {
+public class ColocateTableBalancer extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(ColocateTableBalancer.class);
 
     private static final long CHECK_INTERVAL_MS = 20 * 1000L; // 20 second
@@ -87,7 +87,7 @@ public class ColocateTableBalancer extends Daemon {
      * 3. Balance group:
      *      Try balance group, and skip groups which contains unavailable backends.
      */
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         relocateGroup();
         matchGroup();
         balanceGroup();
@@ -149,8 +149,8 @@ public class ColocateTableBalancer extends Daemon {
                 // But in previous version we had a bug that replicas of a tablet may be located on same host.
                 // we have to check it.
                 List<List<Long>> backendsPerBucketsSeq = colocateIndex.getBackendsPerBucketSeq(groupId);
-                Set<String> hosts = Sets.newHashSet();
                 OUT: for (List<Long> backendIds : backendsPerBucketsSeq) {
+                    Set<String> hosts = Sets.newHashSet();
                     for (Long beId : backendIds) {
                         Backend be = infoService.getBackend(beId);
                         if (be == null) {
@@ -171,7 +171,6 @@ public class ColocateTableBalancer extends Daemon {
                     continue;
                 }
             }
-            Preconditions.checkState(unavailableBeId != -1);
 
             // find the first bucket which contains the unavailable backend
             LOG.info("backend {} is unavailable in colocate group {}", unavailableBeId, groupId);

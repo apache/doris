@@ -844,12 +844,8 @@ public class SchemaChangeJob extends AlterJob {
                     int schemaVersion = changedIndexIdToSchemaVersion.get(indexId);
                     int schemaHash = changedIndexIdToSchemaHash.get(indexId);
                     short shortKeyColumnCount = changedIndexIdToShortKeyColumnCount.get(indexId);
-                    olapTable.setIndexSchemaInfo(indexId, null, entry.getValue(), schemaVersion, schemaHash,
-                                                 shortKeyColumnCount);
-
-                    if (newStorageType != null) {
-                        olapTable.setIndexStorageType(indexId, newStorageType);
-                    }
+                    olapTable.setIndexMeta(indexId, null, entry.getValue(), schemaVersion, schemaHash,
+                            shortKeyColumnCount, newStorageType, null);
                 }
 
                 // 3. update base schema if changed
@@ -1012,12 +1008,9 @@ public class SchemaChangeJob extends AlterJob {
                 int schemaVersion = getSchemaVersionByIndexId(indexId);
                 int schemaHash = getSchemaHashByIndexId(indexId);
                 short shortKeyColumnCount = getShortKeyColumnCountByIndexId(indexId);
-                olapTable.setIndexSchemaInfo(indexId, null, entry.getValue(), schemaVersion, schemaHash,
-                                             shortKeyColumnCount);
+                olapTable.setIndexMeta(indexId, null, entry.getValue(), schemaVersion, schemaHash,
+                        shortKeyColumnCount, newStorageType, null);
 
-                if (newStorageType != null) {
-                    olapTable.setIndexStorageType(indexId, newStorageType);
-                }
                 if (indexId == olapTable.getBaseIndexId()) {
                     olapTable.setNewFullSchema(entry.getValue());
                 }
@@ -1044,7 +1037,9 @@ public class SchemaChangeJob extends AlterJob {
         db.writeLock();
         try {
             OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            olapTable.setState(OlapTableState.NORMAL);
+            if (olapTable != null) {
+                olapTable.setState(OlapTableState.NORMAL);
+            }
         } finally {
             db.writeUnlock();
         }
@@ -1268,7 +1263,6 @@ public class SchemaChangeJob extends AlterJob {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

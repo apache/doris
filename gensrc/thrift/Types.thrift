@@ -73,7 +73,8 @@ enum TPrimitiveType {
   VARCHAR,
   HLL,
   DECIMALV2,
-  TIME
+  TIME,
+  OBJECT
 }
 
 enum TTypeNodeType {
@@ -130,7 +131,8 @@ enum TAggregationType {
     REPLACE,
     HLL_UNION,
     NONE,
-    BITMAP_UNION
+    BITMAP_UNION,
+    REPLACE_IF_NOT_NULL
 }
 
 enum TPushType {
@@ -314,7 +316,7 @@ enum TTableType {
     MYSQL_TABLE,
     OLAP_TABLE,
     SCHEMA_TABLE,
-    KUDU_TABLE,
+    KUDU_TABLE, // Deprecated
     BROKER_TABLE,
     ES_TABLE
 }
@@ -370,3 +372,16 @@ enum TLoadSourceType {
     RAW,
     KAFKA,
 }
+
+// represent a user identity
+struct TUserIdentity {
+    1: optional string username
+    2: optional string host
+    3: optional bool is_domain
+}
+
+const i32 TSNAPSHOT_REQ_VERSION1 = 3; // corresponding to alpha rowset
+const i32 TSNAPSHOT_REQ_VERSION2 = 4; // corresponding to beta rowset
+// the snapshot request should always set prefer snapshot version to TPREFER_SNAPSHOT_REQ_VERSION
+const i32 TPREFER_SNAPSHOT_REQ_VERSION = TSNAPSHOT_REQ_VERSION2;
+

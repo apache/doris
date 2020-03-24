@@ -19,21 +19,19 @@
 #define DORIS_BE_SRC_DELTA_WRITER_H
 
 #include "olap/tablet.h"
-#include "olap/schema_change.h"
-#include "runtime/descriptors.h"
-#include "runtime/tuple.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "olap/rowset/rowset_writer.h"
-#include "util/blocking_queue.hpp"
 
 namespace doris {
 
-class FlushHandler;
+class FlushToken;
 class MemTable;
 class MemTracker;
 class Schema;
-class SegmentGroup;
 class StorageEngine;
+class Tuple;
+class TupleDescriptor;
+class SlotDescriptor;
 
 enum WriteType {
     LOAD = 1,
@@ -54,22 +52,25 @@ struct WriteRequest {
     const std::vector<SlotDescriptor*>* slots;
 };
 
+// Writer for a particular (load, index, tablet).
+// This class is NOT thread-safe, external synchronization is required.
 class DeltaWriter {
 public:
     static OLAPStatus open(WriteRequest* req, MemTracker* mem_tracker, DeltaWriter** writer);
 
-    DeltaWriter(WriteRequest* req, MemTracker* mem_tracker, StorageEngine* storage_engine);
+    ~DeltaWriter();
 
     OLAPStatus init();
-
-    ~DeltaWriter();
 
     OLAPStatus write(Tuple* tuple);
     // flush the last memtable to flush queue, must call it before close_wait()
     OLAPStatus close();
-    // wait for all memtables being flushed
+    // wait for all memtables to be flushed.
+    // mem_consumption() should be 0 after this function returns.
     OLAPStatus close_wait(google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec);
 
+    // abandon current memtable and wait for all pending-flushing memtables to be destructed.
+    // mem_consumption() should be 0 after this function returns.
     OLAPStatus cancel();
 
     // submit current memtable to flush queue, and wait all memtables in flush queue
@@ -82,10 +83,14 @@ public:
     int64_t mem_consumption() const;
 
 private:
+    DeltaWriter(WriteRequest* req, MemTracker* parent, StorageEngine* storage_engine);
+
     // push a full memtable to flush executor
     OLAPStatus _flush_memtable_async();
 
     void _garbage_collection();
+
+    void _reset_mem_table();
 
 private:
     bool _is_init = false;
@@ -96,12 +101,12 @@ private:
     TabletSharedPtr _new_tablet;
     std::unique_ptr<RowsetWriter> _rowset_writer;
     std::shared_ptr<MemTable> _mem_table;
-    Schema* _schema;
+    std::unique_ptr<Schema> _schema;
     const TabletSchema* _tablet_schema;
     bool _delta_written_success;
 
     StorageEngine* _storage_engine;
-    std::shared_ptr<FlushHandler> _flush_handler;
+    std::unique_ptr<FlushToken> _flush_token;
     std::unique_ptr<MemTracker> _mem_tracker;
 };
 

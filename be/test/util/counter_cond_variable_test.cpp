@@ -64,17 +64,13 @@ TEST_F(CounterCondVariableTest, test) {
     std::thread submit(submitter);
     std::thread wait1(waiter);
     std::thread wait2(waiter);
-    std::thread work1(worker);
-    std::thread work2(worker);
+    std::thread work(worker);
 
     submit.join();
     wait1.join();
     wait2.join();
-    work1.join();
-    work2.join();
+    work.join();
 
-    g_cond.inc(10);
-    g_cond.dec_to_zero();
     g_cond.block_wait();
 }
 

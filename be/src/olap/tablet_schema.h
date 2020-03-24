@@ -31,8 +31,8 @@ public:
     TabletColumn();
     TabletColumn(FieldAggregationMethod agg, FieldType type);
     TabletColumn(FieldAggregationMethod agg, FieldType filed_type, bool is_nullable);
-    OLAPStatus init_from_pb(const ColumnPB& column);
-    OLAPStatus to_schema_pb(ColumnPB* column);
+    void init_from_pb(const ColumnPB& column);
+    void to_schema_pb(ColumnPB* column);
 
     inline int32_t unique_id() const { return _unique_id; }
     inline std::string name() const { return _col_name; }
@@ -40,6 +40,7 @@ public:
     inline bool is_key() const { return _is_key; }
     inline bool is_nullable() const { return _is_nullable; }
     inline bool is_bf_column() const { return _is_bf_column; }
+    inline bool has_bitmap_index() const {return _has_bitmap_index; }
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     bool has_reference_column() const { return _has_referenced_column; }
@@ -80,13 +81,15 @@ private:
     bool _has_referenced_column;
     int32_t _referenced_column_id;
     std::string _referenced_column;
+
+    bool _has_bitmap_index = false;
 };
 
 class TabletSchema {
 public:
     TabletSchema();
-    OLAPStatus init_from_pb(const TabletSchemaPB& schema);
-    OLAPStatus to_schema_pb(TabletSchemaPB* tablet_meta_pb);
+    void init_from_pb(const TabletSchemaPB& schema);
+    void to_schema_pb(TabletSchemaPB* tablet_meta_pb);
     size_t row_size() const;
     size_t field_index(const std::string& field_name) const;
     const TabletColumn& column(size_t ordinal) const;
@@ -100,6 +103,10 @@ public:
     inline CompressKind compress_kind() const { return _compress_kind; }
     inline size_t next_column_unique_id() const { return _next_column_unique_id; }
     inline double bloom_filter_fpp() const { return _bf_fpp; }
+    inline bool is_in_memory() const {return _is_in_memory; }
+    inline void set_is_in_memory (bool is_in_memory) {
+        _is_in_memory = is_in_memory;
+    }
 private:
     KeysType _keys_type;
     std::vector<TabletColumn> _cols;
@@ -111,8 +118,9 @@ private:
     CompressKind _compress_kind;
     size_t _next_column_unique_id;
 
-    bool _has_bf_fpp;
-    double _bf_fpp;
+    bool _has_bf_fpp = false;
+    double _bf_fpp = 0;
+    bool _is_in_memory = false;
 };
 
 } // namespace doris

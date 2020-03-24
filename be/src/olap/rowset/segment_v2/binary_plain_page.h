@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "common/logging.h"
 #include "util/coding.h"
 #include "util/faststring.h"
 #include "olap/olap_common.h"
@@ -67,6 +68,7 @@ public:
             _offsets.push_back(offset);
             _buffer.append(src->data, src->size);
 
+            _last_value_size = src->size;
             _size_estimate += src->size;
             _size_estimate += sizeof(uint32_t);
 
@@ -78,16 +80,19 @@ public:
         return Status::OK();
     }
 
-    Slice finish() override {
+    OwnedSlice finish() override {
+        DCHECK(!_finished);
         _finished = true;
-
         // Set up trailer
-        for (int i = 0; i < _offsets.size(); i++) {
-            put_fixed32_le(&_buffer, _offsets[i]);
+        for (uint32_t _offset : _offsets) {
+            put_fixed32_le(&_buffer, _offset);
         }
         put_fixed32_le(&_buffer, _offsets.size());
-
-        return Slice(_buffer);
+        if (_offsets.size() > 0) {
+            _copy_value_at(0, &_first_value);
+            _copy_value_at(_offsets.size() - 1, &_last_value);
+        }
+        return _buffer.build();
     }
 
     void reset() override {
@@ -97,9 +102,10 @@ public:
         _size_estimate = sizeof(uint32_t);
         _prepared_size = sizeof(uint32_t);
         _finished = false;
+        _last_value_size = 0;
     }
 
-    size_t count() const {
+    size_t count() const override {
         return _offsets.size();
     }
 
@@ -107,14 +113,21 @@ public:
         return _size_estimate;
     }
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     release() should be called after finish
-    //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buffer.release();
-        _buffer.reserve(_options.data_page_size);
-        (void) ret;
+    Status get_first_value(void* value) const override {
+        DCHECK(_finished);
+        if (_offsets.size() == 0) {
+            return Status::NotFound("page is empty");
+        }
+        *reinterpret_cast<Slice*>(value) = Slice(_first_value);
+        return Status::OK();
+    }
+    Status get_last_value(void* value) const override {
+        DCHECK(_finished);
+        if (_offsets.size() == 0) {
+            return Status::NotFound("page is empty");
+        }
+        *reinterpret_cast<Slice*>(value) = Slice(_last_value);
+        return Status::OK();
     }
 
     void update_prepared_size(size_t added_size) {
@@ -123,6 +136,12 @@ public:
     }
 
 private:
+    void _copy_value_at(size_t idx, faststring* value) const {
+        size_t value_size = (idx < _offsets.size() - 1) ?
+                            _offsets[idx + 1] - _offsets[idx] : _last_value_size;
+        value->assign_copy(&_buffer[_offsets[idx]], value_size);
+    }
+
     faststring _buffer;
     size_t _size_estimate;
     size_t _prepared_size;
@@ -130,6 +149,10 @@ private:
     std::vector<uint32_t> _offsets;
     bool _finished;
     PageBuilderOptions _options;
+    // size of last added value
+    uint32_t _last_value_size = 0;
+    faststring _first_value;
+    faststring _last_value;
 };
 
 

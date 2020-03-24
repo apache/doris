@@ -55,6 +55,10 @@ Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
     // use TEsScanNode
     _properties = tnode.es_scan_node.properties;
+
+    if (tnode.es_scan_node.__isset.docvalue_context) {
+        _docvalue_context = tnode.es_scan_node.docvalue_context;
+    }
     return Status::OK();
 }
 
@@ -162,7 +166,12 @@ Status EsHttpScanNode::start_scanners() {
 }
 
 Status EsHttpScanNode::collect_scanners_status() {
-    for (int i = 0; i < _scan_ranges.size(); i++) {
+    // NOTE. if open() was called, but set_range() was NOT called for some reason.
+    // then close() was called. 
+    // there would cause a core because _scanners_status's iterator was in [0, _scan_ranges) other than [0, _scanners_status)
+    // it is said that the fragment-call-frame is calling scan-node in this way....
+    // in my options, it's better fixed in fragment-call-frame. e.g. call close() according the return value of open()
+    for (int i = 0; i < _scanners_status.size(); i++) {
         std::future<Status> f = _scanners_status[i].get_future();
         RETURN_IF_ERROR(f.get());
     }
@@ -333,7 +342,7 @@ Status EsHttpScanNode::scanner_scan(
             memset(tuple, 0, _tuple_desc->num_null_bytes());
 
             // Get from scanner
-            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof));
+            RETURN_IF_ERROR(scanner->get_next(tuple, tuple_pool, &scanner_eof, _docvalue_context));
             if (scanner_eof) {
                 continue;
             }
@@ -425,8 +434,13 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     properties[ESScanReader::KEY_SHARD] = std::to_string(es_scan_range.shard_id);
     properties[ESScanReader::KEY_BATCH_SIZE] = std::to_string(_runtime_state->batch_size());
     properties[ESScanReader::KEY_HOST_PORT] = get_host_port(es_scan_range.es_hosts);
+    // push down limit to Elasticsearch
+    if (limit() != -1 && limit() <= _runtime_state->batch_size()) {
+        properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(limit());
+    }
     properties[ESScanReader::KEY_QUERY] 
-        = ESScrollQueryBuilder::build(properties, _column_names, _predicates);
+        = ESScrollQueryBuilder::build(properties, _column_names, _predicates, _docvalue_context);
+
 
     // start scanner to scan
     std::unique_ptr<EsHttpScanner> scanner(new EsHttpScanner(

@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Mocked;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.common.FeConstants;
 
@@ -28,26 +29,20 @@ import java.io.FileOutputStream;
 import java.util.LinkedList;
 import java.util.List;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class MaterializedIndexTest {
 
     private MaterializedIndex index;
     private long indexId;
 
     private List<Column> columns;
+    @Mocked
     private Catalog catalog;
+
+    private FakeCatalog fakeCatalog;
 
     @Before
     public void setUp() {
@@ -59,12 +54,9 @@ public class MaterializedIndexTest {
         columns.add(new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.REPLACE, "", ""));
         index = new MaterializedIndex(indexId, IndexState.NORMAL);
 
-        catalog = EasyMock.createMock(Catalog.class);
-
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        FakeCatalog.setCatalog(catalog);
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test

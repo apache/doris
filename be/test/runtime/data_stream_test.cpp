@@ -24,7 +24,6 @@
 #include <gtest/gtest.h>
 
 #include "common/status.h"
-#include "codegen/llvm_codegen.h"
 #include "exprs/slot_ref.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
@@ -712,7 +711,6 @@ int main(int argc, char** argv) {
     doris::CpuInfo::init();
     doris::DiskInfo::init();
     doris::MemInfo::init();
-    doris::LlvmCodeGen::initialize_llvm();
 
     return RUN_ALL_TESTS();
 }

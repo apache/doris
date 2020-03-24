@@ -30,6 +30,7 @@ import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,12 +64,15 @@ public class Tablet extends MetaObject implements Writable {
         NEED_FURTHER_REPAIR, // one of replicas need a definite repair.
     }
 
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "replicas")
     private List<Replica> replicas;
-
+    @SerializedName(value = "checkedVersion")
     private long checkedVersion;
+    @SerializedName(value = "checkedVersionHash")
     private long checkedVersionHash;
-
+    @SerializedName(value = "isConsistent")
     private boolean isConsistent;
 
     // last time that the tablet checker checks this tablet.
@@ -211,6 +215,11 @@ public class Tablet extends MetaObject implements Writable {
                 continue;
             }
 
+            // Skip the missing version replica
+            if (replica.getLastFailedVersion() > 0) {
+                continue;
+            }
+
             ReplicaState state = replica.getState();
             if (state.canQuery()) {
                 // replica.getSchemaHash() == -1 is for compatibility
@@ -312,7 +321,6 @@ public class Tablet extends MetaObject implements Writable {
         out.writeLong(checkedVersionHash);
         out.writeBoolean(isConsistent);
     }
-
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -418,8 +426,7 @@ public class Tablet extends MetaObject implements Writable {
             }
             alive++;
 
-            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion
-                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() != visibleVersionHash)) {
+            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
                 // this replica is alive but version incomplete
                 continue;
             }
@@ -530,8 +537,7 @@ public class Tablet extends MetaObject implements Writable {
 
         // 2. check version completeness
         for (Replica replica : replicas) {
-            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion
-                    || (replica.getVersion() == visibleVersion && replica.getVersionHash() != visibleVersionHash)) {
+            if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
                 // this replica is alive but version incomplete
                 return TabletStatus.VERSION_INCOMPLETE;
             }

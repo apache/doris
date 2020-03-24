@@ -73,7 +73,8 @@ public:
         TYPE_HLL,
         TYPE_STRING,
         TYPE_FIXED_BUFFER,
-        TYPE_DECIMALV2
+        TYPE_DECIMALV2,
+        TYPE_OBJECT
     };
 
     struct TypeDesc {
@@ -202,6 +203,9 @@ public:
     // Returns the number of arguments to this function (not including the FunctionContext*
     // argument).
     int get_num_args() const;
+
+    // Returns _constant_args size
+    int get_num_constant_args() const;
 
     // Returns the type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns NULL if arg_idx is invalid.

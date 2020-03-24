@@ -21,6 +21,8 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
+import com.google.gson.annotations.SerializedName;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,30 +63,45 @@ public class Replica implements Writable {
         DEAD, // backend is not available
         VERSION_ERROR, // missing version
         MISSING, // replica does not exist
-        SCHEMA_ERROR // replica's schema hash does not equal to index's schema hash
+        SCHEMA_ERROR, // replica's schema hash does not equal to index's schema hash
+        BAD // replica is broken.
     }
     
+    @SerializedName(value = "id")
     private long id;
+    @SerializedName(value = "backendId")
     private long backendId;
+    // the version could be queried
+    @SerializedName(value = "version")
     private long version;
+    @SerializedName(value = "versionHash")
     private long versionHash;
     private int schemaHash = -1;
-
+    @SerializedName(value = "dataSize")
     private long dataSize = 0;
+    @SerializedName(value = "rowCount")
     private long rowCount = 0;
+    @SerializedName(value = "state")
     private ReplicaState state;
-    
+
+    // the last load failed version
+    @SerializedName(value = "lastFailedVersion")
     private long lastFailedVersion = -1L;
+    @SerializedName(value = "lastFailedVersionHash")
     private long lastFailedVersionHash = 0L;
     // not serialized, not very important
     private long lastFailedTimestamp = 0;
+    // the last load successful version
+    @SerializedName(value = "lastSuccessVersion")
     private long lastSuccessVersion = -1L;
+    @SerializedName(value = "lastSuccessVersionHash")
     private long lastSuccessVersionHash = 0L;
 
 	private AtomicLong versionCount = new AtomicLong(-1);
 
     private long pathHash = -1;
 
+    // bad means this Replica is unrecoverable and we will delete it
     private boolean bad = false;
 
     /*
@@ -301,7 +318,6 @@ public class Replica implements Writable {
             long lastFailedVersion, long lastFailedVersionHash, 
             long lastSuccessVersion, long lastSuccessVersionHash, 
             long newDataSize, long newRowCount) {
-
         LOG.debug("before update: {}", this.toString());
 
         if (newVersion < this.version) {
@@ -334,8 +350,7 @@ public class Replica implements Writable {
                     this.version, lastFailedVersion, lastFailedVersionHash, new Exception());
         }
         
-        if (lastFailedVersion != this.lastFailedVersion
-                || this.lastFailedVersionHash != lastFailedVersionHash) {
+        if (lastFailedVersion != this.lastFailedVersion) {
             // Case 2:
             if (lastFailedVersion > this.lastFailedVersion) {
                 this.lastFailedVersion = lastFailedVersion;
@@ -358,9 +373,7 @@ public class Replica implements Writable {
         }
         
         // Case 4:
-        if (this.version > this.lastFailedVersion 
-                || this.version == this.lastFailedVersion && this.versionHash == this.lastFailedVersionHash
-                || this.version == this.lastFailedVersion && this.lastFailedVersionHash == 0 && this.versionHash != 0) {
+        if (this.version >= this.lastFailedVersion) {
             this.lastFailedVersion = -1;
             this.lastFailedVersionHash = 0;
             this.lastFailedTimestamp = -1;
@@ -368,14 +381,6 @@ public class Replica implements Writable {
                 this.version = this.lastSuccessVersion;
                 this.versionHash = this.lastSuccessVersionHash;
             }
-        }
-
-        // case 5:
-        if (this.version == this.lastSuccessVersion && this.versionHash == this.lastSuccessVersionHash
-                && this.version == this.lastFailedVersion && this.versionHash != this.lastFailedVersionHash) {
-            this.lastFailedVersion = -1;
-            this.lastFailedVersionHash = 0;
-            this.lastFailedTimestamp = -1;
         }
 
         LOG.debug("after update {}", this.toString());
@@ -406,8 +411,7 @@ public class Replica implements Writable {
             return true;
         }
 
-        if (this.version < expectedVersion
-                || (this.version == expectedVersion && this.versionHash != expectedVersionHash)) {
+        if (this.version < expectedVersion) {
             LOG.debug("replica version does not catch up with version: {}-{}. replica: {}",
                       expectedVersion, expectedVersionHash, this);
             return false;
@@ -479,7 +483,6 @@ public class Replica implements Writable {
         out.writeLong(lastSuccessVersionHash);
     }
      
-    @Override
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         backendId = in.readLong();

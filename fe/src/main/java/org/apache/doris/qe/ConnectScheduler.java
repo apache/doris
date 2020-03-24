@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.mysql.MysqlProto;
+import org.apache.doris.mysql.nio.NConnectContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Lists;
@@ -81,6 +82,10 @@ public class ConnectScheduler {
             return false;
         }
         context.setConnectionId(nextConnectionId.getAndAdd(1));
+        // no necessary for nio.
+        if(context instanceof NConnectContext){
+            return true;
+        }
         if (executor.submit(new LoopHandler(context)) == null) {
             LOG.warn("Submit one thread failed.");
             return false;
@@ -171,7 +176,12 @@ public class ConnectScheduler {
                 ConnectProcessor processor = new ConnectProcessor(context);
                 processor.loop();
             } catch (Exception e) {
-                LOG.warn("connect processor exception because ", e);
+                // for unauthrorized access such lvs probe request, may cause exception, just log it in debug level
+                if (context.getCurrentUserIdentity() != null) {
+                    LOG.warn("connect processor exception because ", e);
+                } else {
+                    LOG.debug("connect processor exception because ", e);
+                }
             } finally {
                 unregisterConnection(context);
                 context.cleanup();

@@ -20,7 +20,6 @@
 #include "olap/rowset/segment_v2/page_builder.h" // for PageBuilder
 #include "olap/rowset/segment_v2/page_decoder.h" // for PageDecoder
 #include "olap/rowset/segment_v2/options.h" // for PageBuilderOptions/PageDecoderOptions
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "util/frame_of_reference_coding.h"
 
 namespace doris {
@@ -43,16 +42,24 @@ public:
 
     Status add(const uint8_t* vals, size_t* count) override {
         DCHECK(!_finished);
+        if (*count == 0) {
+            return Status::OK();
+        }
         auto new_vals = reinterpret_cast<const CppType*>(vals);
+        if (_count == 0) {
+            _first_val = *new_vals;
+        }
         _encoder->put_batch(new_vals, *count);
         _count += *count;
+        _last_val = new_vals[*count - 1];
         return Status::OK();
     }
 
-    Slice finish() override {
+    OwnedSlice finish() override {
+        DCHECK(!_finished);
         _finished = true;
         _encoder->flush();
-        return Slice(_buf.data(), _buf.size());
+        return _buf.build();
     }
 
     void reset() override {
@@ -69,13 +76,20 @@ public:
         return _buf.size();
     }
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     release() should be called after finish
-    //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buf.release();
-        (void)ret;
+    Status get_first_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_first_val, sizeof(CppType));
+        return Status::OK();
+    }
+
+    Status get_last_value(void* value) const override {
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_last_val, sizeof(CppType));
+        return Status::OK();
     }
 
 private:
@@ -85,6 +99,8 @@ private:
     bool _finished;
     std::unique_ptr<ForEncoder<CppType>> _encoder;
     faststring _buf;
+    CppType _first_val;
+    CppType _last_val;
 };
 
 template<FieldType Type>
@@ -122,6 +138,16 @@ public:
         int32_t skip_num = pos - _cur_index;
         _decoder->skip(skip_num);
         _cur_index = pos;
+        return Status::OK();
+    }
+
+    Status seek_at_or_after_value(const void* value, bool* exact_match) override {
+        DCHECK(_parsed) << "Must call init() firstly";
+        bool found = _decoder->seek_at_or_after_value(value, exact_match);
+        if (!found) {
+            return Status::NotFound("not found");
+        }
+        _cur_index = _decoder->current_index();
         return Status::OK();
     }
 

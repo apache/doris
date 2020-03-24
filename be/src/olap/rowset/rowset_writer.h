@@ -28,7 +28,6 @@ namespace doris {
 
 class ContiguousRow;
 class RowCursor;
-class RowsetWriter;
 
 class RowsetWriter {
 public:
@@ -62,8 +61,6 @@ public:
     virtual int64_t num_rows() = 0;
 
     virtual RowsetId rowset_id() = 0;
-
-    virtual DataDir* data_dir() = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(RowsetWriter);

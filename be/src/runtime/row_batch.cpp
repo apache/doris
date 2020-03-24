@@ -55,7 +55,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, int capacity, MemTracker* mem_
     _tuple_ptrs_size = _capacity * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    if (config::enable_partitioned_aggregation || config::enable_new_partitioned_aggregation) {
+    if (config::enable_partitioned_aggregation) {
         _mem_tracker->consume(_tuple_ptrs_size);
         _tuple_ptrs = reinterpret_cast<Tuple**>(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != NULL);
@@ -89,7 +89,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
     _tuple_ptrs_size = _num_rows * _num_tuples_per_row * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    if (config::enable_partitioned_aggregation || config::enable_new_partitioned_aggregation) {
+    if (config::enable_partitioned_aggregation) {
         _mem_tracker->consume(_tuple_ptrs_size);
         _tuple_ptrs = reinterpret_cast<Tuple**>(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != nullptr);
@@ -153,6 +153,12 @@ RowBatch::RowBatch(const RowDescriptor& row_desc,
                 StringValue* string_val = tuple->get_string_slot(slot->tuple_offset());
                 int offset = reinterpret_cast<intptr_t>(string_val->ptr);
                 string_val->ptr = reinterpret_cast<char*>(tuple_data + offset);
+
+                // Why we do this mask? Field len of StringValue is changed from int to size_t in
+                // Doris 0.11. When upgrading, some bits of len sent from 0.10 is random value,
+                // this works fine in version 0.10, however in 0.11 this will lead to an invalid
+                // length. So we make the high bits zero here.
+                string_val->len &= 0x7FFFFFFFL;
             }
         }
     }
@@ -181,7 +187,7 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
     _tuple_ptrs_size = _num_rows * input_batch.row_tuples.size() * sizeof(Tuple*);
     DCHECK_GT(_tuple_ptrs_size, 0);
     // TODO: switch to Init() pattern so we can check memory limit and return Status.
-    if (config::enable_partitioned_aggregation || config::enable_new_partitioned_aggregation) {
+    if (config::enable_partitioned_aggregation) {
         _mem_tracker->consume(_tuple_ptrs_size);
         _tuple_ptrs = reinterpret_cast<Tuple**>(malloc(_tuple_ptrs_size));
         DCHECK(_tuple_ptrs != NULL);
@@ -251,6 +257,12 @@ RowBatch::RowBatch(const RowDescriptor& row_desc, const TRowBatch& input_batch, 
 
                 int offset = reinterpret_cast<intptr_t>(string_val->ptr);
                 string_val->ptr = reinterpret_cast<char*>(tuple_data + offset);
+
+                // Why we do this mask? Field len of StringValue is changed from int to size_t in
+                // Doris 0.11. When upgrading, some bits of len sent from 0.10 is random value,
+                // this works fine in version 0.10, however in 0.11 this will lead to an invalid
+                // length. So we make the high bits zero here.
+                string_val->len &= 0x7FFFFFFFL;
             }
         }
     }
@@ -276,7 +288,7 @@ void RowBatch::clear() {
     for (int i = 0; i < _blocks.size(); ++i) {
         _blocks[i]->del();
     }
-    if (config::enable_partitioned_aggregation || config::enable_new_partitioned_aggregation) {
+    if (config::enable_partitioned_aggregation) {
         DCHECK(_tuple_ptrs != NULL);
         free(_tuple_ptrs);
         _mem_tracker->release(_tuple_ptrs_size);
@@ -486,7 +498,7 @@ void RowBatch::reset() {
     }
     _blocks.clear();
     _auxiliary_mem_usage = 0;
-    if (!config::enable_partitioned_aggregation && !config::enable_new_partitioned_aggregation) {
+    if (!config::enable_partitioned_aggregation) {
         _tuple_ptrs = reinterpret_cast<Tuple**>(_tuple_data_pool->allocate(_tuple_ptrs_size));
     }
     _need_to_return = false;
@@ -578,7 +590,7 @@ void RowBatch::acquire_state(RowBatch* src) {
     _num_rows = src->_num_rows;
     _capacity = src->_capacity;
     _need_to_return = src->_need_to_return;
-    if (!config::enable_partitioned_aggregation && !config::enable_new_partitioned_aggregation) {
+    if (!config::enable_partitioned_aggregation) {
         // Tuple pointers are allocated from tuple_data_pool_ so are transferred.
         _tuple_ptrs = src->_tuple_ptrs;
         src->_tuple_ptrs = NULL;

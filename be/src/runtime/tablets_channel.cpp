@@ -18,6 +18,7 @@
 #include "runtime/tablets_channel.h"
 
 #include "exec/tablet_info.h"
+#include "gutil/strings/substitute.h"
 #include "olap/delta_writer.h"
 #include "olap/memtable.h"
 #include "runtime/row_batch.h"
@@ -25,10 +26,8 @@
 
 namespace doris {
 
-TabletsChannel::TabletsChannel(
-        const TabletsChannelKey& key,
-        MemTracker* mem_tracker): 
-    _key(key), _closed_senders(64) {
+TabletsChannel::TabletsChannel(const TabletsChannelKey& key, MemTracker* mem_tracker):
+        _key(key), _state(kInitialized), _closed_senders(64) {
     _mem_tracker.reset(new MemTracker(-1, "tablets channel", mem_tracker));
 }
 
@@ -42,11 +41,13 @@ TabletsChannel::~TabletsChannel() {
 
 Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
     std::lock_guard<std::mutex> l(_lock);
-    if (_opened) {
+    if (_state == kOpened) {
         // Normal case, already open by other sender
         return Status::OK();
     }
-    LOG(INFO) << "open tablets channel: " << _key;
+    LOG(INFO) << "open tablets channel: " << _key
+              << ", tablets num: " << params.tablets().size()
+              << ", timeout(s): " << params.load_channel_timeout_s();
     _txn_id = params.txn_id();
     _index_id = params.index_id();
     _schema = new OlapTableSchemaParam();
@@ -60,14 +61,16 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& params) {
 
     RETURN_IF_ERROR(_open_all_writers(params));
 
-    _opened = true;
+    _state = kOpened;
     return Status::OK();
 }
 
 Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
     DCHECK(params.tablet_ids_size() == params.row_batch().num_rows());
     std::lock_guard<std::mutex> l(_lock);
-    DCHECK(_opened);
+    if (_state == kFinished) {
+        return _close_status;
+    }
     auto next_seq = _next_seqs[params.sender_id()];
     // check packet
     if (params.packet_seq() < next_seq) {
@@ -87,17 +90,16 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBatchRequest& params) {
         auto tablet_id = params.tablet_ids(i);
         auto it = _tablet_writers.find(tablet_id);
         if (it == std::end(_tablet_writers)) {
-            std::stringstream ss;
-            ss << "unknown tablet to append data, tablet=" << tablet_id;
-            return Status::InternalError(ss.str());
+            return Status::InternalError(strings::Substitute(
+                    "unknown tablet to append data, tablet=$0", tablet_id));
         }
         auto st = it->second->write(row_batch.get_row(i)->get_tuple(0));
         if (st != OLAP_SUCCESS) {
-            std::stringstream ss;
-            ss << "tablet writer write failed, tablet_id=" << it->first
-                << ", transaction_id=" << _txn_id << ", err=" << st;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
+            const std::string& err_msg = strings::Substitute(
+                    "tablet writer write failed, tablet_id=$0, txn_id=$1, err=$2",
+                    it->first, _txn_id, st);
+            LOG(WARNING) << err_msg;
+            return Status::InternalError(err_msg);
         }
     }
     _next_seqs[params.sender_id()]++;
@@ -108,6 +110,9 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         const google::protobuf::RepeatedField<int64_t>& partition_ids,
         google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec) {
     std::lock_guard<std::mutex> l(_lock);
+    if (_state == kFinished) {
+        return _close_status;
+    }
     if (_closed_senders.Get(sender_id)) {
         // Double close from one sender, just return OK
         *finished = (_num_remaining_senders == 0);
@@ -121,6 +126,7 @@ Status TabletsChannel::close(int sender_id, bool* finished,
     _num_remaining_senders--;
     *finished = (_num_remaining_senders == 0);
     if (*finished) {
+        _state = kFinished;
         // All senders are closed
         // 1. close all delta writers
         std::vector<DeltaWriter*> need_wait_writers;
@@ -146,17 +152,24 @@ Status TabletsChannel::close(int sender_id, bool* finished,
         }
 
         // 2. wait delta writers and build the tablet vector
-        for (auto writer : need_wait_writers) { 
+        for (auto writer : need_wait_writers) {
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
             writer->close_wait(tablet_vec);
         }
+        // TODO(gaodayue) clear and destruct all delta writers to make sure all memory are freed
+        // DCHECK_EQ(_mem_tracker->consumption(), 0);
     }
     return Status::OK();
 }
 
 Status TabletsChannel::reduce_mem_usage() {
     std::lock_guard<std::mutex> l(_lock);
+    if (_state == kFinished) {
+        // TabletsChannel is closed without LoadChannel's lock,
+        // therefore it's possible for reduce_mem_usage() to be called right after close()
+        return _close_status;
+    }
     // find tablet writer with largest mem consumption
     int64_t max_consume = 0L;
     DeltaWriter* writer = nullptr;
@@ -164,14 +177,14 @@ Status TabletsChannel::reduce_mem_usage() {
         if (it.second->mem_consumption() > max_consume) {
             max_consume = it.second->mem_consumption();
             writer = it.second;
-        } 
+        }
     }
 
     if (writer == nullptr || max_consume == 0) {
         // barely not happend, just return OK
         return Status::OK();
     }
-    
+
     VLOG(3) << "pick the delte writer to flush, with mem consumption: " << max_consume
             << ", channel key: " << _key;
     OLAPStatus st = writer->flush_memtable_and_wait();
@@ -203,7 +216,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         WriteRequest request;
         request.tablet_id = tablet.tablet_id();
         request.schema_hash = schema_hash;
-        request.write_type = LOAD;
+        request.write_type = WriteType::LOAD;
         request.txn_id = _txn_id;
         request.partition_id = tablet.partition_id();
         request.load_id = params.id();
@@ -230,9 +243,14 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
 
 Status TabletsChannel::cancel() {
     std::lock_guard<std::mutex> l(_lock);
+    if (_state == kFinished) {
+        return _close_status;
+    }
     for (auto& it : _tablet_writers) {
         it.second->cancel();
     }
+    DCHECK_EQ(_mem_tracker->consumption(), 0);
+    _state = kFinished;
     return Status::OK();
 }
 

@@ -17,10 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.thrift.TExprNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.apache.doris.thrift.TExprNode;
 import com.google.common.base.Preconditions;
 
 /**
@@ -67,6 +67,11 @@ public class ExistsPredicate extends Predicate {
         strBuilder.append("EXISTS ");
         strBuilder.append(getChild(0).toSql());
         return strBuilder.toString();
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Boolean.hashCode(notExists);
     }
 }
 

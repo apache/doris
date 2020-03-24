@@ -206,7 +206,7 @@ public class Database extends MetaObject implements Writable {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                for (Partition partition : olapTable.getPartitions()) {
+                for (Partition partition : olapTable.getAllPartitions()) {
                     for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         // skip ROLLUP index
                         if (mIndex.getState() == IndexState.ROLLUP) {
@@ -226,7 +226,7 @@ public class Database extends MetaObject implements Writable {
             } // end for groups
 
             long leftDataQuota = dataQuotaBytes - usedDataQuota;
-            return leftDataQuota > 0L ? leftDataQuota : 0L;
+            return Math.max(leftDataQuota, 0L);
         } finally {
             readUnlock();
         }
@@ -311,18 +311,13 @@ public class Database extends MetaObject implements Writable {
     }
 
     public List<Table> getTables() {
-        List<Table> tables = new ArrayList<Table>(idToTable.values());
-        return tables;
+        return new ArrayList<Table>(idToTable.values());
     }
 
     public Set<String> getTableNamesWithLock() {
         readLock();
         try {
-            Set<String> tableNames = new HashSet<String>();
-            for (String name : this.nameToTable.keySet()) {
-                tableNames.add(name);
-            }
-            return tableNames;
+            return new HashSet<String>(this.nameToTable.keySet());
         } finally {
             readUnlock();
         }
@@ -353,7 +348,7 @@ public class Database extends MetaObject implements Writable {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
-                for (Partition partition : olapTable.getPartitions()) {
+                for (Partition partition : olapTable.getAllPartitions()) {
                     short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
                     if (ret < replicationNum) {
                         ret = replicationNum;
@@ -415,7 +410,6 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

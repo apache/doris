@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "codegen/llvm_codegen.h"
 #include "common/logging.h"
 #include "exprs/aggregate_functions.h"
 #include "exprs/agg_fn.h"
@@ -41,7 +40,6 @@
 
 using namespace doris;
 using namespace doris_udf;
-using namespace llvm;
 using std::move;
 
 // typedef for builtin aggregate functions. Unfortunately, these type defs don't
@@ -89,7 +87,6 @@ typedef StringVal (*SerializeFn)(FunctionContext*, const StringVal&);
 typedef AnyVal (*GetValueFn)(FunctionContext*, const AnyVal&);
 typedef AnyVal (*FinalizeFn)(FunctionContext*, const AnyVal&);
 
-const char* NewAggFnEvaluator::LLVM_CLASS_NAME = "class.impala::NewAggFnEvaluator";
 const int DEFAULT_MULTI_DISTINCT_COUNT_STRING_BUFFER_SIZE = 1024;
 
 NewAggFnEvaluator::NewAggFnEvaluator(const AggFn& agg_fn, MemPool* mem_pool, MemTracker* tracker, bool is_clone)
@@ -268,6 +265,7 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_HLL:
+    case TYPE_OBJECT:
       *reinterpret_cast<StringValue*>(slot) =
           StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
       return;
@@ -281,7 +279,7 @@ void NewAggFnEvaluator::SetDstSlot(const AnyVal* src, const SlotDescriptor& dst_
                     *reinterpret_cast<const DecimalVal*>(src));
         return;
     case TYPE_DECIMALV2:
-        *reinterpret_cast<PackedInt128*>(slot) = 
+        *reinterpret_cast<PackedInt128*>(slot) =
             reinterpret_cast<const DecimalV2Val*>(src)->val;
         return;
     default:
@@ -369,7 +367,8 @@ inline void NewAggFnEvaluator::set_any_val(
 
     case TYPE_CHAR:
     case TYPE_VARCHAR:
-    case TYPE_HLL: 
+    case TYPE_HLL:
+    case TYPE_OBJECT:
         reinterpret_cast<const StringValue*>(slot)->to_string_val(
                 reinterpret_cast<StringVal*>(dst));
         return;
@@ -386,7 +385,7 @@ inline void NewAggFnEvaluator::set_any_val(
         return;
 
     case TYPE_DECIMALV2:
-        reinterpret_cast<DecimalV2Val*>(dst)->val = 
+        reinterpret_cast<DecimalV2Val*>(dst)->val =
             reinterpret_cast<const PackedInt128*>(slot)->value;
         return;
 
@@ -642,7 +641,8 @@ void NewAggFnEvaluator::SerializeOrFinalize(Tuple* src,
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
-    case TYPE_HLL:{
+    case TYPE_HLL:
+    case TYPE_OBJECT: {
       typedef StringVal(*Fn)(FunctionContext*, AnyVal*);
       StringVal v = reinterpret_cast<Fn>(fn)(
           agg_fn_ctx_.get(), staging_intermediate_val_);

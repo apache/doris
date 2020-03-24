@@ -1,3 +1,23 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
+
 # Installation and deployment
 
 This document mainly introduces the hardware and software environment needed to deploy Doris, the proposed deployment mode, cluster expansion and scaling, and common problems in the process of cluster building and running.
@@ -67,7 +87,6 @@ Doris instances communicate directly over the network. The following table shows
 | Instance Name | Port Name | Default Port | Communication Direction | Description|
 | ---|---|---|---|---|
 | BE | be_port | 9060 | FE - > BE | BE for receiving requests from FE|
-| BE | be\_rpc_port | 9070 | BE < - > BE | port used by RPC between BE | BE|
 | BE | webserver\_port | 8040 | BE <--> BE | BE|
 | BE | heartbeat\_service_port | 9050 | FE - > BE | the heart beat service port (thrift) on BE, used to receive heartbeat from FE|
 | BE | brpc\_port* | 8060 | FE < - > BE, BE < - > BE | BE for communication between BEs|
@@ -81,7 +100,6 @@ Doris instances communicate directly over the network. The following table shows
 > 
 > 1. When deploying multiple FE instances, make sure that the http port configuration of FE is the same.
 > 2. Make sure that each port has access in its proper direction before deployment.
-> 3. brpc port replaced be rpc_port after version 0.8.2
 
 #### IP binding
 
@@ -95,9 +113,9 @@ This is a representation of [CIDR] (https://en.wikipedia.org/wiki/Classless_Inte
 
 **Note**: When priority networks is configured and FE or BE is started, only the correct IP binding of FE or BE is ensured. In ADD BACKEND or ADD FRONTEND statements, you also need to specify IP matching priority networks configuration, otherwise the cluster cannot be established. Give an example:
 
-BE is configured as `priority_networks = 10.1.3.0/24'.`
+BE is configured as `priority_networks = 10.1.3.0/24'.`.
 
-但是在 ADD BACKEND 时使用的是：`ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
+When you want to ADD BACKEND use ：`ALTER SYSTEM ADD BACKEND "192.168.0.1:9050";`
 
 Then FE and BE will not be able to communicate properly.
 
@@ -120,7 +138,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 * Configure FE
 
 	1. The configuration file is conf/fe.conf. Note: `meta_dir`: Metadata storage location. The default is fe/palo-meta/. The directory needs to be **created manually** by.
-	2. JAVA_OPTS in fe.conf defaults to a maximum heap memory of 2GB for java, and it is recommended that the production environment be adjusted to more than 8G.
+	2. JAVA_OPTS in fe.conf defaults to a maximum heap memory of 4GB for java, and it is recommended that the production environment be adjusted to more than 8G.
 
 * Start FE
 
@@ -240,6 +258,8 @@ Configure and start Follower or Observer. Follower and Observer are configured w
 
 `./bin/start_fe.sh --helper host:port --daemon`
 
+The host is the node IP of Leader, and the port is edit\_log\_port in Lead's configuration file fe.conf. The --helper is only required when follower/observer is first startup.
+
 View the status of Follower or Observer. Connect to any booted FE using mysql-client and execute: SHOW PROC'/frontends'; you can view the FE currently joined the cluster and its corresponding roles.
 
 > Notes for FE expansion:
@@ -290,11 +310,11 @@ The DROP statement is as follows:
 
 **Note: DROP BACKEND will delete the BE directly and the data on it will not be recovered!!! So we strongly do not recommend DROP BACKEND to delete BE nodes. When you use this statement, there will be corresponding error-proof operation hints.**
 
-DECOMMISSION 语句如下：
+DECOMMISSION clause：
 
 ```ALTER SYSTEM DECOMMISSION BACKEND "be_host:be_heartbeat_service_port";```
 
-> DECOMMISSION 命令说明：
+> DECOMMISSION notes:
 > 
 > 1. This command is used to safely delete BE nodes. After the command is issued, Doris attempts to migrate the data on the BE to other BE nodes, and when all data is migrated, Doris automatically deletes the node.
 > 2. The command is an asynchronous operation. After execution, you can see that the BE node's isDecommission status is true through ``SHOW PROC '/backends';` Indicates that the node is offline.

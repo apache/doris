@@ -21,8 +21,6 @@
 #include <string>
 #include <iostream>
 
-#include <llvm/IR/InstrTypes.h>
-
 #include "common/object_pool.h"
 #include "exprs/predicate.h"
 #include "gen_cpp/Exprs_types.h"
@@ -41,10 +39,6 @@ protected:
 
     // virtual Status prepare(RuntimeState* state, const RowDescriptor& desc);
     virtual std::string debug_string() const;
-
-   
-    Status codegen_compare_fn(
-        RuntimeState* state, llvm::Function** fn, llvm::CmpInst::Predicate pred);
 };
 
 #define BIN_PRED_CLASS_DEFINE(CLASS) \
@@ -55,7 +49,6 @@ protected:
         virtual Expr* clone(ObjectPool* pool) const override { \
             return pool->add(new CLASS(*this)); }  \
         \
-        virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn); \
         virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row); \
     };
 
@@ -89,7 +82,6 @@ BIN_PRED_CLASSES_DEFINE(DecimalV2Val)
         virtual Expr* clone(ObjectPool* pool) const override { \
             return pool->add(new CLASS(*this)); }  \
         \
-        virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn); \
         virtual BooleanVal get_boolean_val(ExprContext* context, TupleRow* row); \
     };
 

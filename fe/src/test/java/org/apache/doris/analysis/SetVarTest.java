@@ -23,12 +23,12 @@ import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.doris.qe.SqlModeHelper;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class SetVarTest {
     private Analyzer analyzer;
@@ -37,10 +37,6 @@ public class SetVarTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {

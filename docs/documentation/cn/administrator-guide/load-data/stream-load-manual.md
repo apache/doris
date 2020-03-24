@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Stream load
 
 Stream load 是一个同步的导入方式，用户通过发送 HTTP 协议发送请求将本地文件或数据流导入到 Doris 中。Stream load 同步执行导入并返回导入结果。用户可直接通过请求的返回体判断本次导入是否成功。
@@ -47,8 +66,7 @@ Stream load 通过 HTTP 协议提交和传输数据。这里通过 `curl` 命令
 ```
 curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load
 
-Header 中支持如下属性：
-label， column_separator， columns， where， max_filter_ratio， partitions
+Header 中支持属性见下面的 ‘导入任务参数’ 说明 
 格式为: -H "key1:value1"
 ```
 
@@ -110,7 +128,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
     columns: c2,c1
     
     表达式变换例子：原始文件有两列，目标表也有两列（c1,c2）但是原始文件的两列均需要经过函数变换才能对应目标表的两列，则写法如下：
-    columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = mouth(tmp_c2)
+    columns: tmp_c1, tmp_c2, c1 = year(tmp_c1), c2 = month(tmp_c2)
     其中 tmp_*是一个占位符，代表的是原始文件中的两个原始列。
     ```
 
@@ -120,7 +138,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
 + strict\_mode
 
-    Stream load 导入可以开启 strict mode 模式。开启方式为在 HEADER 中声明 ```strict_mode=true``` 。默认的 strict mode 为开启。
+    Stream load 导入可以开启 strict mode 模式。开启方式为在 HEADER 中声明 ```strict_mode=true``` 。默认的 strict mode 为关闭。
 
     strict mode 模式的意思是：对于导入过程中的列类型转换进行严格过滤。严格过滤的策略如下：
 
@@ -230,7 +248,7 @@ Stream load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
     导入任务的超时时间(以秒为单位)，导入任务在设定的 timeout 时间内未完成则会被系统取消，变成 CANCELLED。
     
-    默认的 timeout 时间为 600 秒。如果导入的源文件无法再规定时间内完成导入，用户可以在 stream load 请求中设置单独的超时时间。
+    默认的 timeout 时间为 600 秒。如果导入的源文件无法在规定时间内完成导入，用户可以在 stream load 请求中设置单独的超时时间。
 
     或者调整 FE 的参数```stream_load_default_timeout_second``` 来设置全局的默认超时时间。
 

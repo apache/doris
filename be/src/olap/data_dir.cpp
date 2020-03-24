@@ -41,14 +41,15 @@
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/olap_snapshot_converter.h"
+#include "olap/rowset/rowset_meta_manager.h"
+#include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_factory.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet_meta_manager.h"
 #include "olap/utils.h" // for check_dir_existed
 #include "service/backend_options.h"
 #include "util/file_utils.h"
 #include "util/string_util.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/rowset/rowset_meta_manager.h"
-#include "olap/rowset/alpha_rowset_meta.h"
-#include "olap/rowset/rowset_factory.h"
 
 namespace doris {
 
@@ -56,20 +57,22 @@ static const char* const kMtabPath = "/etc/mtab";
 static const char* const kTestFilePath = "/.testfile";
 
 DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
-        TabletManager* tablet_manager, TxnManager* txn_manager)
-        : _path(path),
-        _capacity_bytes(capacity_bytes),
-        _available_bytes(0),
-        _disk_capacity_bytes(0),
-        _is_used(false),
-        _tablet_manager(tablet_manager),
-        _txn_manager(txn_manager),
-        _cluster_id(-1),
-        _to_be_deleted(false),
-        _current_shard(0),
-        _test_file_read_buf(nullptr),
-        _test_file_write_buf(nullptr),
-        _meta(nullptr) {
+                 TStorageMedium::type storage_medium,
+                 TabletManager* tablet_manager, TxnManager* txn_manager)
+    : _path(path),
+      _capacity_bytes(capacity_bytes),
+      _available_bytes(0),
+      _disk_capacity_bytes(0),
+      _storage_medium(storage_medium),
+      _is_used(false),
+      _tablet_manager(tablet_manager),
+      _txn_manager(txn_manager),
+      _cluster_id(-1),
+      _to_be_deleted(false),
+      _current_shard(0),
+      _test_file_read_buf(nullptr),
+      _test_file_write_buf(nullptr),
+      _meta(nullptr) {
 }
 
 DataDir::~DataDir() {
@@ -93,7 +96,7 @@ Status DataDir::init() {
         LOG(WARNING) << "fail to allocate memory. size=" <<  TEST_FILE_BUF_SIZE;
         return Status::InternalError("No memory");
     }
-    if (!check_dir_existed(_path)) {
+    if (!FileUtils::check_exist(_path)) {
         LOG(WARNING) << "opendir failed, path=" << _path;
         return Status::InternalError("opendir failed");
     }
@@ -105,12 +108,17 @@ Status DataDir::init() {
 
     RETURN_IF_ERROR(update_capacity());
     RETURN_IF_ERROR(_init_cluster_id());
-    RETURN_IF_ERROR(_init_extension_and_capacity());
+    RETURN_IF_ERROR(_init_capacity());
     RETURN_IF_ERROR(_init_file_system());
     RETURN_IF_ERROR(_init_meta());
 
     _is_used = true;
     return Status::OK();
+}
+
+void DataDir::stop_bg_worker() {
+    _stop_bg_worker = true;
+    _cv.notify_one();
 }
 
 Status DataDir::_init_cluster_id() {
@@ -175,22 +183,8 @@ Status DataDir::_read_cluster_id(const std::string& path, int32_t* cluster_id) {
     return Status::OK();
 }
 
-Status DataDir::_init_extension_and_capacity() {
+Status DataDir::_init_capacity() {
     boost::filesystem::path boost_path = _path;
-    std::string extension = boost::filesystem::canonical(boost_path).extension().string();
-    if (extension != "") {
-        if (boost::iequals(extension, ".ssd")) {
-            _storage_medium = TStorageMedium::SSD;
-        } else if (boost::iequals(extension, ".hdd")) {
-            _storage_medium = TStorageMedium::HDD;
-        } else {
-            LOG(WARNING) << "store path has wrong extension. path=" << _path;
-            return Status::InternalError("invalid sotre path: invalid extension");
-        }
-    } else {
-        _storage_medium = TStorageMedium::HDD;
-    }
-
     int64_t disk_capacity = boost::filesystem::space(boost_path).capacity;
     if (_capacity_bytes == -1) {
         _capacity_bytes = disk_capacity;
@@ -203,7 +197,7 @@ Status DataDir::_init_extension_and_capacity() {
     }
 
     std::string data_path = _path + DATA_PREFIX;
-    if (!check_dir_existed(data_path) && create_dir(data_path) != OLAP_SUCCESS) {
+    if (!FileUtils::check_exist(data_path) && !FileUtils::create_dir(data_path).ok()) {
         LOG(WARNING) << "failed to create data root path. path=" << data_path;
         return Status::InternalError("invalid store path: failed to create data directory");
     }
@@ -388,20 +382,18 @@ OLAPStatus DataDir::_read_and_write_test_file() {
 }
 
 OLAPStatus DataDir::get_shard(uint64_t* shard) {
-    OLAPStatus res = OLAP_SUCCESS;
-    std::lock_guard<std::mutex> l(_mutex);
-
     std::stringstream shard_path_stream;
-    uint32_t next_shard = _current_shard;
-    _current_shard = (_current_shard + 1) % MAX_SHARD_NUM;
+    uint32_t next_shard = 0;
+    {
+        std::lock_guard<std::mutex> l(_mutex);
+        next_shard = _current_shard;
+        _current_shard = (_current_shard + 1) % MAX_SHARD_NUM;
+    }
     shard_path_stream << _path << DATA_PREFIX << "/" << next_shard;
     std::string shard_path = shard_path_stream.str();
-    if (!check_dir_existed(shard_path)) {
-        res = create_dir(shard_path);
-        if (res != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to create path. [path='" << shard_path << "']";
-            return res;
-        }
+    if (!FileUtils::check_exist(shard_path)) {
+        RETURN_WITH_WARN_IF_ERROR(FileUtils::create_dir(shard_path), OLAP_ERR_CANNOT_CREATE_DIR,
+                                  "fail to create path. path=" + shard_path);
     }
 
     *shard = next_shard;
@@ -546,7 +538,7 @@ OLAPStatus DataDir::_convert_old_tablet() {
         }
         string old_data_path_prefix = get_absolute_tablet_path(olap_header_msg, true);
         OLAPStatus status = converter.to_new_snapshot(olap_header_msg, old_data_path_prefix,
-            old_data_path_prefix, *this, &tablet_meta_pb, &pending_rowsets, true);
+            old_data_path_prefix, &tablet_meta_pb, &pending_rowsets, true);
         if (status != OLAP_SUCCESS) {
             LOG(FATAL) << "convert olap header to tablet meta failed when convert header and files tablet="
                          << tablet_id << "." << schema_hash;
@@ -622,7 +614,7 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
             rowset_meta->init_from_pb(visible_rowset);
 
             RowsetSharedPtr rowset;
-            auto s = RowsetFactory::create_rowset(&tablet_schema, data_path_prefix, this, rowset_meta, &rowset);
+            auto s = RowsetFactory::create_rowset(&tablet_schema, data_path_prefix, rowset_meta, &rowset);
             if (s != OLAP_SUCCESS) {
                 LOG(INFO) << "errors while init rowset. tablet_path=" << data_path_prefix;
                 return true;
@@ -636,21 +628,21 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
 
         // remove incremental dir and pending dir
         std::string pending_delta_path = data_path_prefix + PENDING_DELTA_PREFIX;
-        if (check_dir_existed(pending_delta_path)) {
+        if (FileUtils::check_exist(pending_delta_path)) {
             LOG(INFO) << "remove pending delta path:" << pending_delta_path;
-            if(remove_all_dir(pending_delta_path) != OLAP_SUCCESS) {
-                LOG(INFO) << "errors while remove pending delta path. tablet_path=" << data_path_prefix;
-                return true;
-            }
+
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_all(pending_delta_path), true,
+                                      "errors while remove pending delta path. tablet_path=" +
+                                      data_path_prefix);
         }
 
         std::string incremental_delta_path = data_path_prefix + INCREMENTAL_DELTA_PREFIX;
-        if (check_dir_existed(incremental_delta_path)) {
+        if (FileUtils::check_exist(incremental_delta_path)) {
             LOG(INFO) << "remove incremental delta path:" << incremental_delta_path;
-            if(remove_all_dir(incremental_delta_path) != OLAP_SUCCESS) {
-                LOG(INFO) << "errors while remove incremental delta path. tablet_path=" << data_path_prefix;
-                return true;
-            }
+
+            RETURN_WITH_WARN_IF_ERROR(FileUtils::remove_all(incremental_delta_path), true,
+                                      "errors while remove incremental delta path. tablet_path=" +
+                                      data_path_prefix);
         }
 
         TabletMetaManager::remove(this, tablet_id, schema_hash, OLD_HEADER_PREFIX);
@@ -755,7 +747,6 @@ OLAPStatus DataDir::load() {
         RowsetSharedPtr rowset;
         OLAPStatus create_status = RowsetFactory::create_rowset(&tablet->tablet_schema(),
                                                               tablet->tablet_path(),
-                                                              tablet->data_dir(),
                                                               rowset_meta, &rowset);
         if (create_status != OLAP_SUCCESS) {
             LOG(WARNING) << "could not create rowset from rowsetmeta: "
@@ -813,78 +804,14 @@ void DataDir::remove_pending_ids(const std::string& id) {
     _pending_path_ids.erase(id);
 }
 
-// path consumer
-void DataDir::perform_path_gc() {
-    // init the set of valid path
-    // validate the path in data dir
-    std::unique_lock<std::mutex> lck(_check_path_mutex);
-    cv.wait(lck, [this]{return _all_check_paths.size() > 0;});
-    LOG(INFO) << "start to path gc.";
-    int counter = 0;
-    for (auto& path : _all_check_paths) {
-        ++counter;
-        if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
-            usleep(config::path_gc_check_step_interval_ms * 1000);
-        }
-        TTabletId tablet_id = -1;
-        TSchemaHash schema_hash = -1;
-        bool is_valid = _tablet_manager->get_tablet_id_and_schema_hash_from_path(path,
-                &tablet_id, &schema_hash);
-        if (!is_valid) {
-            LOG(WARNING) << "unknown path:" << path;
-            continue;
-        }
-        if (tablet_id > 0 && schema_hash > 0) {
-            // tablet schema hash path or rowset file path
-            // gc thread should get tablet include deleted tablet
-            // or it will delete rowset file before tablet is garbage collected
-            TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash, true);
-            if (tablet == nullptr) {
-                std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
-                bool exist_in_pending = _check_pending_ids(tablet_path_id);
-                if (!exist_in_pending) {
-                    _process_garbage_path(path);
-                }
-            } else {
-                bool valid = tablet->check_path(path);
-                // TODO(ygl): should change a method to do gc
-                if (!valid) {
-                    RowsetId rowset_id;
-                    bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
-                    if (is_rowset_file) {
-                        std::string rowset_path_id = ROWSET_ID_PREFIX + rowset_id.to_string();
-                        bool exist_in_pending = _check_pending_ids(rowset_path_id);
-                        if (!exist_in_pending) {
-                            _process_garbage_path(path);
-                        }
-                    }
-                }
-            }
-        } else if (tablet_id > 0 && schema_hash <= 0) {
-            // tablet id path
-            if (!FileUtils::is_dir(path)) {
-                LOG(WARNING) << "unknown path:" << path;
-                continue;
-            }
-            bool exist = _tablet_manager->check_tablet_id_exist(tablet_id);
-            if (!exist) {
-                std::string tablet_path_id = TABLET_ID_PREFIX + std::to_string(tablet_id);
-                bool exist_in_pending = _check_pending_ids(tablet_path_id);
-                if (!exist_in_pending) {
-                    _process_garbage_path(path);
-                }
-            }
-        }
-    }
-    _all_check_paths.clear();
-    LOG(INFO) << "finished one time path gc.";
-}
-
 void DataDir::perform_path_gc_by_rowsetid() {
     // init the set of valid path
     // validate the path in data dir
     std::unique_lock<std::mutex> lck(_check_path_mutex);
-    cv.wait(lck, [this]{return _all_check_paths.size() > 0;});
+    _cv.wait(lck, [this] { return _stop_bg_worker || !_all_check_paths.empty(); });
+    if (_stop_bg_worker) {
+        return;
+    }
     LOG(INFO) << "start to path gc by rowsetid.";
     int counter = 0;
     for (auto& path : _all_check_paths) {
@@ -932,31 +859,44 @@ void DataDir::perform_path_scan() {
         LOG(INFO) << "start to scan data dir path:" << _path;
         std::set<std::string> shards;
         std::string data_path = _path + DATA_PREFIX;
-        if (dir_walk(data_path, &shards, nullptr) != OLAP_SUCCESS) {
-            LOG(WARNING) << "fail to walk dir. [path=" << data_path << "]";
-            return;
+
+        Status ret = FileUtils::list_dirs_files(data_path, &shards, nullptr, Env::Default());
+        if (!ret.ok()) {
+            LOG(WARNING) << "fail to walk dir. path=[" + data_path
+                          << "] error[" << ret.to_string() << "]";
+            return ;
         }
+
         for (const auto& shard : shards) {
             std::string shard_path = data_path + "/" + shard;
             std::set<std::string> tablet_ids;
-            if (dir_walk(shard_path, &tablet_ids, nullptr) != OLAP_SUCCESS) {
-                LOG(WARNING) << "fail to walk dir. [path=" << shard_path << "]";
+            ret = FileUtils::list_dirs_files(shard_path, &tablet_ids, nullptr, Env::Default());
+            if (!ret.ok()) {
+                LOG(WARNING) << "fail to walk dir. [path=" << shard_path
+                             << "] error[" << ret.to_string() << "]";
                 continue;
             }
             for (const auto& tablet_id : tablet_ids) {
                 std::string tablet_id_path = shard_path + "/" + tablet_id;
                 _all_check_paths.insert(tablet_id_path);
                 std::set<std::string> schema_hashes;
-                if (dir_walk(tablet_id_path, &schema_hashes, nullptr) != OLAP_SUCCESS) {
-                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]";
+                ret = FileUtils::list_dirs_files(tablet_id_path, &schema_hashes, nullptr,
+                                           Env::Default());
+                if (!ret.ok()) {
+                    LOG(WARNING) << "fail to walk dir. [path=" << tablet_id_path << "]"
+                                 << " error[" << ret.to_string() << "]";
                     continue;
                 }
                 for (const auto& schema_hash : schema_hashes) {
                     std::string tablet_schema_hash_path = tablet_id_path + "/" + schema_hash;
                     _all_check_paths.insert(tablet_schema_hash_path);
                     std::set<std::string> rowset_files;
-                    if (dir_walk(tablet_schema_hash_path, nullptr, &rowset_files) != OLAP_SUCCESS) {
-                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path << "]";
+
+                    ret = FileUtils::list_dirs_files(tablet_schema_hash_path, nullptr, &rowset_files,
+                                                     Env::Default());
+                    if (!ret.ok()) {
+                        LOG(WARNING) << "fail to walk dir. [path=" << tablet_schema_hash_path
+                                     << "] error[" << ret.to_string() << "]";
                         continue;
                     }
                     for (const auto& rowset_file : rowset_files) {
@@ -968,16 +908,13 @@ void DataDir::perform_path_scan() {
         }
         LOG(INFO) << "scan data dir path:" << _path << " finished. path size:" << _all_check_paths.size();
     }
-    cv.notify_one();
+    _cv.notify_one();
 }
 
 void DataDir::_process_garbage_path(const std::string& path) {
-    if (check_dir_existed(path)) {
+    if (FileUtils::check_exist(path)) {
         LOG(INFO) << "collect garbage dir path: " << path;
-        OLAPStatus status = remove_all_dir(path);
-        if (status != OLAP_SUCCESS) {
-            LOG(WARNING) << "remove garbage dir path: " << path << " failed";
-        }
+        WARN_IF_ERROR(FileUtils::remove_all(path), "remove garbage dir failed. path: " + path);
     }
 }
 

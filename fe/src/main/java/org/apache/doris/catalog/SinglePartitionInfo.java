@@ -37,7 +37,6 @@ public class SinglePartitionInfo extends PartitionInfo {
         super.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
     }

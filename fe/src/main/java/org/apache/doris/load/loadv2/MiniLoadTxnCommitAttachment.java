@@ -71,7 +71,6 @@ public class MiniLoadTxnCommitAttachment extends TxnCommitAttachment {
 
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         filteredRows = in.readLong();

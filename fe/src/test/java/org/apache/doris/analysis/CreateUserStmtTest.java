@@ -40,7 +40,7 @@ public class CreateUserStmtTest {
         ctx.setRemoteIP("192.168.1.1");
         UserIdentity currentUserIdentity = new UserIdentity("root", "192.168.1.1");
         currentUserIdentity.setIsAnalyzed();
-        ctx.setCurrentUserIdentitfy(currentUserIdentity);
+        ctx.setCurrentUserIdentity(currentUserIdentity);
         ctx.setThreadLocalInfo();
     }
 

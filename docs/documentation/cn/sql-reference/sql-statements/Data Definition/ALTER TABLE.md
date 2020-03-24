@@ -1,5 +1,26 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # ALTER TABLE
+
 ## description
+
     该语句用于对已有的 table 进行修改。如果没有指定 rollup index，默认操作 base index。
     该语句分为三种操作类型： schema change 、rollup 、partition
     这三种操作类型不能同时出现在一条 ALTER TABLE 语句中。
@@ -10,7 +31,7 @@
         ALTER TABLE [database.]table
         alter_clause1[, alter_clause2, ...];
 
-    alter_clause 分为 partition 、rollup、schema change 和 rename 四种。
+    alter_clause 分为 partition 、rollup、schema change、rename 和index五种。
 
     partition 支持如下几种修改方式
     1. 增加分区
@@ -38,7 +59,11 @@
         语法：
             MODIFY PARTITION partition_name SET ("key" = "value", ...)
         说明：
-            1) 当前支持修改分区的 storage_medium、storage_cooldown_time 和 replication_num 三个属性。
+            1) 当前支持修改分区的下列属性：
+                - storage_medium
+                - storage_cooldown_time
+                - replication_num 
+                — in_memory
             2) 对于单分区表，partition_name 同表名。
         
     rollup 支持如下几种创建方式：
@@ -47,19 +72,32 @@
             ADD ROLLUP rollup_name (column_name1, column_name2, ...)
             [FROM from_index_name]
             [PROPERTIES ("key"="value", ...)]
-        注意：
+        例子：
+            ADD ROLLUP r1(col1,col2) from r0
+    1.2 批量创建 rollup index
+        语法：
+            ADD ROLLUP [rollup_name (column_name1, column_name2, ...)
+                        [FROM from_index_name]
+                        [PROPERTIES ("key"="value", ...)],...]
+        例子：
+            ADD ROLLUP r1(col1,col2) from r0, r2(col3,col4) from r0
+    1.3 注意：
             1) 如果没有指定 from_index_name，则默认从 base index 创建
             2) rollup 表中的列必须是 from_index 中已有的列
             3) 在 properties 中，可以指定存储格式。具体请参阅 CREATE TABLE
             
     2. 删除 rollup index
         语法：
-            DROP ROLLUP rollup_name
-            [PROPERTIES ("key"="value", ...)]
-        注意：
+            DROP ROLLUP rollup_name [PROPERTIES ("key"="value", ...)]
+        例子：
+            DROP ROLLUP r1
+    2.1 批量删除 rollup index
+        语法：DROP ROLLUP [rollup_name [PROPERTIES ("key"="value", ...)],...]
+        例子：DROP ROLLUP r1,r2
+    2.2 注意：
             1) 不能删除 base index
             2) 执行 DROP ROLLUP 一段时间内，可以通过 RECOVER 语句恢复被删除的 rollup index。详见 RECOVER 语句
-    
+
             
     schema change 支持如下几种修改方式：
     1. 向指定 index 的指定位置添加一列
@@ -106,8 +144,15 @@
             4) 分区列不能做任何修改
             5) 目前支持以下类型的转换（精度损失由用户保证）
                 TINYINT/SMALLINT/INT/BIGINT 转换成 TINYINT/SMALLINT/INT/BIGINT/DOUBLE。
+                TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE/DECIMAL 转换成 VARCHAR
                 LARGEINT 转换成 DOUBLE
                 VARCHAR 支持修改最大长度
+                VARCHAR 转换成 TINTINT/SMALLINT/INT/BIGINT/LARGEINT/FLOAT/DOUBLE
+                VARCHAR 转换成 DATE (目前支持"%Y-%m-%d", "%y-%m-%d", "%Y%m%d", "%y%m%d", "%Y/%m/%d, "%y/%m/%d"六种格式化格式)
+                DATETIME 转换成 DATE(仅保留年-月-日信息, 例如: `2019-12-09 21:47:05` <--> `2019-12-09`)
+                DATE 转换成 DATETIME(时分秒自动补零， 例如: `2019-12-09` <--> `2019-12-09 00:00:00`)
+                FLOAT 转换成 DOUBLE
+                INT 转换成 DATE (如果INT类型数据不合法则转换失败，原始数据不变)
             6) 不支持从NULL转为NOT NULL
                 
     5. 对指定 index 的列进行重新排序
@@ -119,7 +164,7 @@
             1) index 中的所有列都要写出来
             2) value 列在 key 列之后
             
-    6. 修改table的属性，目前支持修改bloom filter列和colocate_with 属性
+    6. 修改table的属性，目前支持修改bloom filter列, colocate_with 属性和dynamic_partition属性
         语法：
             PROPERTIES ("key"="value")
         注意：
@@ -138,8 +183,19 @@
     3. 修改 partition 名称
         语法：
             RENAME PARTITION old_partition_name new_partition_name;
-      
+    bitmap index 支持如下几种修改方式
+    1. 创建bitmap 索引
+        语法：
+            ADD INDEX index_name (column [, ...],) [USING BITMAP] [COMMENT 'balabala'];
+        注意：
+            1. 目前仅支持bitmap 索引
+            1. BITMAP 索引仅在单列上创建
+    2. 删除索引
+        语法：
+            DROP INDEX index_name；
+
 ## example
+
     [partition]
     1. 增加分区, 现有分区 [MIN, 2013-01-01)，增加分区 [2013-01-01, 2014-01-01)，使用默认分桶方式
         ALTER TABLE example_db.my_table
@@ -247,6 +303,16 @@
     13. 将表的分桶方式由 Random Distribution 改为 Hash Distribution
 
         ALTER TABLE example_db.my_table set ("distribution_type" = "hash");
+    
+    14. 修改表的动态分区属性(支持未添加动态分区属性的表添加动态分区属性)
+        ALTER TABLE example_db.my_table set ("dynamic_partition_enable" = "false");
+        
+        如果需要在未添加动态分区属性的表中添加动态分区属性，则需要指定所有的动态分区属性
+        ALTER TABLE example_db.my_table set ("dynamic_partition.enable" = "true", dynamic_partition.time_unit" = "DAY", "dynamic_partition.end" = "3", "dynamic_partition.prefix" = "p", "dynamic_partition.buckets" = "32");
+    15. 修改表的 in_memory 属性
+
+        ALTER TABLE example_db.my_table set ("in_memory" = "true");
+        
         
     [rename]
     1. 将名为 table1 的表修改为 table2
@@ -257,7 +323,12 @@
         
     3. 将表 example_table 中名为 p1 的 partition 修改为 p2
         ALTER TABLE example_table RENAME PARTITION p1 p2;
-        
+    [index]
+    1. 在table1 上为siteid 创建bitmap 索引
+        ALTER TABLE table1 ADD INDEX index_name (siteid) [USING BITMAP] COMMENT 'balabala';
+    2. 删除table1 上的siteid列的bitmap 索引
+        ALTER TABLE table1 DROP INDEX index_name;
+
 ## keyword
+
     ALTER,TABLE,ROLLUP,COLUMN,PARTITION,RENAME
-    

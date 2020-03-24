@@ -27,14 +27,16 @@ import org.apache.doris.http.ActionController;
 import org.apache.doris.http.BaseRequest;
 import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterOpExecutor;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.ShowResultSet;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -42,6 +44,7 @@ import java.util.stream.Collectors;
 import io.netty.handler.codec.http.HttpMethod;
 
 public class SystemAction extends WebBaseAction {
+    private static final Logger LOG = LogManager.getLogger(SystemAction.class);
 
     public SystemAction(ActionController controller) {
         super(controller);
@@ -82,15 +85,12 @@ public class SystemAction extends WebBaseAction {
         if (!Catalog.getCurrentCatalog().isMaster()) {
             // forward to master
             String showProcStmt = "SHOW PROC \"" + procPath + "\"";
-            ConnectContext context = new ConnectContext(null);
-            context.setCatalog(Catalog.getCurrentCatalog());
-            context.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-            context.setQualifiedUser(PaloAuth.ADMIN_USER);
-            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(showProcStmt, context,
-                    RedirectStatus.FORWARD_NO_SYNC);
+            MasterOpExecutor masterOpExecutor = new MasterOpExecutor(new OriginStatement(showProcStmt, 0),
+                    ConnectContext.get(), RedirectStatus.FORWARD_NO_SYNC);
             try {
                 masterOpExecutor.execute();
             } catch (Exception e) {
+                LOG.warn("Fail to forward. ", e);
                 buffer.append("<p class=\"text-error\"> Failed to forward request to master</p>");
                 return;
             }

@@ -162,7 +162,7 @@ TEST_F(TDigestTest, MoreThan2BValues) {
         const auto count = 1L << 28;
         digest.add(next, count);
     }
-    EXPECT_EQ(1000 + 10L * (1 << 28), digest.totalWeight());
+    EXPECT_EQ(static_cast<long>(1000 + float(10L * (1 << 28))), digest.totalWeight());
     EXPECT_GT(digest.totalWeight(), std::numeric_limits<int32_t>::max());
     std::vector<double> quantiles{0, 0.1, 0.5, 0.9, 1, reals(gen)};
     std::sort(quantiles.begin(), quantiles.end());

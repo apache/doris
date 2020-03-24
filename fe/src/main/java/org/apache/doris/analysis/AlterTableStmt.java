@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -51,29 +50,29 @@ public class AlterTableStmt extends DdlStmt {
 
 
     @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
+    public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (tbl == null) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
         }
         tbl.analyze(analyzer);
+        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
+                PrivPredicate.ALTER)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE",
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    tbl.getTbl());
+        }
         if (ops == null || ops.isEmpty()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_ALTER_OPERATION);
         }
         for (AlterClause op : ops) {
             op.analyze(analyzer);
         }
-
-        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), tbl.getDb(), tbl.getTbl(),
-                                                                PrivPredicate.ALTER)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER TABLE",
-                                                ConnectContext.get().getQualifiedUser(),
-                                                ConnectContext.get().getRemoteIP(),
-                                                tbl.getTbl());
-        }
     }
 
     @Override
+
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER TABLE ").append(tbl.toSql()).append(" ");
@@ -82,7 +81,19 @@ public class AlterTableStmt extends DdlStmt {
             if (idx != 0) {
                 sb.append(", \n");
             }
-            sb.append(op.toSql());
+            if (op instanceof AddRollupClause) {
+                if (idx == 0) {
+                    sb.append("ADD ROLLUP");
+                }
+                sb.append(op.toSql().replace("ADD ROLLUP", ""));
+            } else if (op instanceof DropRollupClause) {
+                if (idx == 0) {
+                    sb.append("DROP ROLLUP ");
+                }
+                sb.append(((AddRollupClause) op).getRollupName());
+            } else {
+                sb.append(op.toSql());
+            }
             idx++;
         }
         return sb.toString();

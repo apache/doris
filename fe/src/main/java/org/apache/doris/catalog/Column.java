@@ -27,6 +27,7 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,17 +41,30 @@ import java.io.IOException;
  */
 public class Column implements Writable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
+    @SerializedName(value = "name")
     private String name;
+    @SerializedName(value = "type")
     private Type type;
+    // column is key: aggregate type is null
+    // column is not key and has no aggregate type: aggregate type is none
+    // column is not key and has aggregate type: aggregate type is name of aggregate function.
+    @SerializedName(value = "aggregationType")
     private AggregateType aggregationType;
 
     // if isAggregationTypeImplicit is true, the actual aggregation type will not be shown in show create table
+    // the key type of table is duplicate or unique: the isAggregationTypeImplicit of value columns are true
+    // other cases: the isAggregationTypeImplicit is false
+    @SerializedName(value = "isAggregationTypeImplicit")
     private boolean isAggregationTypeImplicit;
+    @SerializedName(value = "isKey")
     private boolean isKey;
+    @SerializedName(value = "isAllowNull")
     private boolean isAllowNull;
+    @SerializedName(value = "defaultValue")
     private String defaultValue;
+    @SerializedName(value = "comment")
     private String comment;
-
+    @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
 
     public Column() {
@@ -151,6 +165,10 @@ public class Column implements Writable {
 
     public AggregateType getAggregationType() {
         return this.aggregationType;
+    }
+
+    public boolean isAggregated() {
+        return aggregationType != null && aggregationType != AggregateType.NONE;
     }
 
     public boolean isAggregationTypeImplicit() {
@@ -258,10 +276,6 @@ public class Column implements Writable {
             if (getStrLen() > other.getStrLen()) {
                 throw new DdlException("Cannot shorten string length");
             }
-        }
-
-        if (getDataType() == PrimitiveType.DATETIME && other.getDataType() == PrimitiveType.DATE) {
-            throw new DdlException("Cannot change from DATETIME to DATE");
         }
 
         if (this.getPrecision() != other.getPrecision()) {
@@ -404,7 +418,6 @@ public class Column implements Writable {
         Text.writeString(out, comment);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         type = ColumnType.read(in);

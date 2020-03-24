@@ -20,10 +20,6 @@
 #include <string>
 #include <vector>
 
-#include <boost/algorithm/string.hpp>
-#include <boost/filesystem.hpp>
-#include <boost/foreach.hpp>
-
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exec/text_converter.hpp"
@@ -61,7 +57,6 @@ public:
     }
 
     char const* c_str() const {
-
         return _begin;
     }
     char const* begin() const {
@@ -559,7 +554,6 @@ bool CsvScanNode::split_check_fill(const std::string& line, RuntimeState* state)
     std::vector<StringRef> fields;
     {
         SCOPED_TIMER(_split_line_timer);
-        // boost::split(fields, line, boost::is_any_of(_column_separator));
         split_line(line, _column_separator[0], fields);
     }
 

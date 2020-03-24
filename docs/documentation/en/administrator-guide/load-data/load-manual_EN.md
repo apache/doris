@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Introduction Overview
 
 The Load function is to import the user's raw data into Doris. After successful import, users can query data through Mysql client.
@@ -17,7 +36,7 @@ Doris supports multiple imports. It is recommended to read this document in full
 
 To adapt to different data import requirements, Doris system provides five different import methods. Each import mode supports different data sources and has different usage modes (asynchronous, synchronous).
 
-All import methods support CSV data format. Broker load also supports parquet data format.
+All import methods support CSV data format. Broker load also supports parquet and orc data format.
 
 For instructions on each import mode, please refer to the operation manual for a single import mode.
 
@@ -148,7 +167,7 @@ The following sections explain several system-level configurations that are comm
 
 The following configuration belongs to the system configuration of FE, which can be modified by modifying the configuration file ``fe.conf``.
 
-+ max\_load\_timeout\_second 和 min\_load\_timeout\_second
++ max\_load\_timeout\_second and min\_load\_timeout\_second
 
 	The two configurations mean the maximum import timeout time and the minimum import timeout time in seconds. The default maximum timeout time is 3 days and the default minimum timeout time is 1 second. User-defined import timeouts should not exceed this range. This parameter is applicable to all import modes.
 

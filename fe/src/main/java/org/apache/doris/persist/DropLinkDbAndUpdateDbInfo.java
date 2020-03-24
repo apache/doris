@@ -73,7 +73,6 @@ public class DropLinkDbAndUpdateDbInfo implements Writable {
         linkDbInfo.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         state = DbState.valueOf(Text.readString(in));
         linkDbInfo.readFields(in);

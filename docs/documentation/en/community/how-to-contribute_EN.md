@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Contribute to Doris
 
 Thank you very much for your interest in the Doris project. We welcome your suggestions, comments (including criticisms), comments and contributions to the Doris project.
@@ -12,7 +31,7 @@ Any questions, you can contact us to get timely answers, including Wechat, Gitte
 
 For the first time in Doris community, you can:
 
-* 关注 [Doris Github](https://github.com/apache/incubator-doris)
+* Follow [Doris Github](https://github.com/apache/incubator-doris)
 * Subscribe to our [mailing list] (./subscribe-mail-list.md);
 * Join Doris Wechat Group (add micro-signal: morningman-cmy, note: join Doris Group) and ask questions at any time.
 * Enter Doris's [Gitter] (./gitter.md) chat room;
@@ -28,7 +47,7 @@ As you can see from [GitHub] (https://github.com/apache/incubator-doris), Apache
 | [Frontend daemon (FE)] (https://github.com/apache/incubator-doris) | consists of a query coordinator and a metadata manager | Java|
 | [Backend daemon (BE)] (https://github.com/apache/incubator-doris) | Responsible for storing data and executing query fragments | C++|
 | [Broker] (https://github.com/apache/incubator-doris) | Read HDFS data to Doris | Java|
-| [Website](https://github.com/apache/incubator-doris-website) | Doris 网站 | Markdown |
+| [Website](https://github.com/apache/incubator-doris-website) | Doris Website | Markdown |
 + [Github Wiki] (https://github.com/apache/incubator-doris/wiki); Doris Github Wiki; Markdown_;
 | Doris Runtime Help Document | Online Help Manual at Doris Runtime | Markdown|
 
@@ -53,3 +72,5 @@ You can also fix it yourself by reading the analysis code (of course, it's bette
 You can download the code, compile and install it, deploy and run it for a try (refer to the [compilation document] (./installing/compilation.md)) to see if it works as you expected. If you have problems, you can contact us directly, ask questions or fix them by reading and analyzing the source code.
 
 Whether it's fixing Bugs or adding Features, we're all very welcome. If you want to submit code to Doris, you need to create a new branch for your submitted code from the fork code library on GitHub to your project space, add the source project upstream, and submit PR.
+
+About how to submit a PR refer to [Pull Request] (./pull-request.md).

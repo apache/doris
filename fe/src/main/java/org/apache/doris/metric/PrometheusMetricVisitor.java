@@ -182,6 +182,13 @@ public class PrometheusMetricVisitor extends MetricVisitor {
                 .append(Catalog.getCurrentSystemInfo().getBackendIds(true).size()).append("\n");
         sb.append(NODE_INFO).append("{type=\"be_node_num\", state=\"decommissioned\"} ")
                 .append(Catalog.getCurrentSystemInfo().getDecommissionedBackendIds().size()).append("\n");
+        sb.append(NODE_INFO).append("{type=\"broker_node_num\", state=\"dead\"} ").append(
+                Catalog.getCurrentCatalog().getBrokerMgr().getAllBrokers().stream().filter(b -> !b.isAlive).count()).append("\n");
+
+        // only master FE has this metrics, to help the Grafana knows who is the master
+        if (Catalog.getCurrentCatalog().isMaster()) {
+            sb.append(NODE_INFO).append("{type=\"is_master\"} ").append(1).append("\n");
+        }
         return;
     }
 }

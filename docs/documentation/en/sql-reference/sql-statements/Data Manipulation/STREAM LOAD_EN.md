@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # STREAM LOAD
 ## description
 
@@ -149,17 +168,17 @@ Where url is the url given by ErrorURL.
 
     ```Seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/_stream_load```
 
-7. load a table with HLL columns, which can be columns in the table or columns in the data used to generate HLL columns,you can also use empty_hll to supplement columns that are not in the data
+7. load a table with HLL columns, which can be columns in the table or columns in the data used to generate HLL columns,you can also use hll_empty to supplement columns that are not in the data
 
-    ```Curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=empty_hll()" -T testData http://host:port/api/testDb/testTbl/_stream_load```
+    ```Curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=hll_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
 8. load data for strict mode filtering and set the time zone to Africa/Abidjan
 
     ```Curl --location-trusted -u root -H "strict_mode: true" -H "timezone: Africa/Abidjan" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
-9. load a table with an aggregate model of `BITMAP_UNION`, either a column in the table or a column in the data to generate a `BITMAP_UNION` column
+9. load a table with BITMAP columns, which can be columns in the table or a column in the data used to generate BITMAP columns, you can also use bitmap_empty to supplement columns that are not in the data
 
-    ```Curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1)" -T testData http://host:port/api/testDb/testTbl/_stream_load```
+    ```Curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
 
 ## keyword

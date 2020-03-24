@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.IntLiteral;
@@ -39,8 +40,6 @@ import org.junit.Test;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
-import mockit.internal.startup.Startup;
 
 public class SetExecutorTest {
     private Analyzer analyzer;
@@ -48,10 +47,6 @@ public class SetExecutorTest {
 
     @Mocked
     private PaloAuth auth;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() throws DdlException {
@@ -62,18 +57,21 @@ public class SetExecutorTest {
         ctx.setRemoteIP("192.168.1.1");
         UserIdentity currentUser = new UserIdentity("root", "192.168.1.1");
         currentUser.setIsAnalyzed();
-        ctx.setCurrentUserIdentitfy(currentUser);
+        ctx.setCurrentUserIdentity(currentUser);
         ctx.setThreadLocalInfo();
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
                 result = true;
 
                 auth.setPassword((SetPassVar) any);

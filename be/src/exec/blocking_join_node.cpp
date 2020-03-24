@@ -27,8 +27,6 @@
 
 namespace doris {
 
-const char* BlockingJoinNode::LLVM_CLASS_NAME = "class.doris::BlockingJoinNode";
-
 BlockingJoinNode::BlockingJoinNode(const std::string& node_name,
                                    const TJoinOp::type join_op,
                                    ObjectPool* pool,

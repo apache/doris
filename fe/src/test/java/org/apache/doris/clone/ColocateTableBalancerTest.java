@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
@@ -36,7 +37,6 @@ import org.junit.Test;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Mocked;
 
@@ -46,7 +46,7 @@ public class ColocateTableBalancerTest {
     private Catalog catalog;
     @Mocked
     private SystemInfoService infoService;
-    @Mocked
+
     private TabletScheduler tabletScheduler;
     
     private ColocateTableBalancer balancer = ColocateTableBalancer.getInstance();

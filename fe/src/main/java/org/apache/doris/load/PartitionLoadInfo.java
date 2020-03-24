@@ -88,7 +88,6 @@ public class PartitionLoadInfo implements Writable {
 
         out.writeBoolean(needLoad);
     }
- 
     public void readFields(DataInput in) throws IOException {
         version = in.readLong();
         versionHash = in.readLong();

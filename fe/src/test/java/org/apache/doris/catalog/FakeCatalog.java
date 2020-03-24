@@ -19,28 +19,50 @@ package org.apache.doris.catalog;
 
 import mockit.Mock;
 import mockit.MockUp;
+import org.apache.doris.system.SystemInfoService;
 
 public class FakeCatalog extends MockUp<Catalog> {
-    
+
     private static Catalog catalog;
+    private static int metaVersion;
+    private static SystemInfoService systemInfo = new SystemInfoService();
 
     public static void setCatalog(Catalog catalog) {
         FakeCatalog.catalog = catalog;
     }
-    
+
+    public static void setMetaVersion(int metaVersion) {
+        FakeCatalog.metaVersion = metaVersion;
+    }
+
+    public static void setSystemInfo(SystemInfoService systemInfo) {
+        FakeCatalog.systemInfo = systemInfo;
+    }
+
     // @Mock
     // public int getJournalVersion() {
     // return FeMetaVersion.VERSION_45;
     // }
-    
+
     @Mock
-    private static Catalog getCurrentCatalog() {
+    public static Catalog getCurrentCatalog() {
         System.out.println("fake get current catalog is called");
         return catalog;
     }
-    
+
     @Mock
     public static Catalog getInstance() {
         return catalog;
     }
+
+    @Mock
+    public static int getCurrentCatalogJournalVersion() {
+        return metaVersion;
+    }
+
+    @Mock
+    public static SystemInfoService getCurrentSystemInfo() {
+        return systemInfo;
+    }
+
 }

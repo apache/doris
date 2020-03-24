@@ -68,8 +68,11 @@ public class ColumnDef {
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
         // default null
         public static DefaultValue NULL_DEFAULT_VALUE = new DefaultValue(true, null);
-        // default "value"
-        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, null);
+        private static String ZERO = new String(new byte[] {0});
+        // default "value", "0" means empty hll
+        public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+        // default "value", "0" means empty bitmap
+        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
     }
 
     // parameter initialized in constructor
@@ -103,7 +106,7 @@ public class ColumnDef {
     public String getDefaultValue() { return defaultValue.value; }
     public String getName() { return name; }
     public AggregateType getAggregateType() { return aggregateType; }
-    public void setAggregateType(AggregateType aggregateType, boolean xxx) { this.aggregateType = aggregateType; }
+    public void setAggregateType(AggregateType aggregateType) { this.aggregateType = aggregateType; }
     public boolean isKey() { return isKey; }
     public void setIsKey(boolean isKey) { this.isKey = isKey; }
     public TypeDef getTypeDef() { return typeDef; }
@@ -154,6 +157,22 @@ public class ColumnDef {
                 throw new AnalysisException("Hll type column can not set default value");
             }
             defaultValue = DefaultValue.HLL_EMPTY_DEFAULT_VALUE;
+        }
+
+        if (type.getPrimitiveType() == PrimitiveType.BITMAP) {
+            if (defaultValue.isSet) {
+                throw new AnalysisException("Bitmap type column can not set default value");
+            }
+            defaultValue = DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
+        }
+
+        // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
+        // If defalut value is not set, we set it NULL
+        if (aggregateType == AggregateType.REPLACE_IF_NOT_NULL) {
+            isAllowNull = true;
+            if (!defaultValue.isSet) {
+                defaultValue = DefaultValue.NULL_DEFAULT_VALUE;
+            }
         }
 
         if (!isAllowNull && defaultValue == DefaultValue.NULL_DEFAULT_VALUE) {
@@ -208,6 +227,8 @@ public class ColumnDef {
                     throw new AnalysisException("Default value is too long: " + defaultValue);
                 }
                 break;
+            case BITMAP:
+                break;
             default:
                 throw new AnalysisException("Unsupported type: " + type);
         }
@@ -224,6 +245,9 @@ public class ColumnDef {
 
         if (!isAllowNull) {
             sb.append("NOT NULL ");
+        } else {
+            // should append NULL to make result can be executed right.
+            sb.append("NULL ");
         }
 
         if (defaultValue.isSet) {

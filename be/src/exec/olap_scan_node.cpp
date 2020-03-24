@@ -24,7 +24,6 @@
 #include <utility>
 #include <string>
 
-#include "codegen/llvm_codegen.h"
 #include "common/logging.h"
 #include "exprs/expr.h"
 #include "exprs/binary_predicate.h"
@@ -36,14 +35,11 @@
 #include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
-#include "util/thread_pool.hpp"
 #include "util/debug_util.h"
 #include "util/priority_thread_pool.hpp"
 #include "agent/cgroups_mgr.h"
 #include "common/resource_tls.h"
 #include <boost/variant.hpp>
-
-using llvm::Function;
 
 namespace doris {
 
@@ -123,6 +119,7 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
         ADD_COUNTER(_runtime_profile, "RawRowsRead", TUnit::UNIT);
     _block_convert_timer = ADD_TIMER(_runtime_profile, "BlockConvertTime");
     _block_seek_timer = ADD_TIMER(_runtime_profile, "BlockSeekTime");
+    _block_seek_counter = ADD_COUNTER(_runtime_profile, "BlockSeekCount", TUnit::UNIT);
 
     _rows_vec_cond_counter =
         ADD_COUNTER(_runtime_profile, "RowsVectorPredFiltered", TUnit::UNIT);
@@ -131,6 +128,8 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _stats_filtered_counter =
         ADD_COUNTER(_runtime_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _bf_filtered_counter =
+        ADD_COUNTER(_runtime_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
     _del_filtered_counter =
         ADD_COUNTER(_runtime_profile, "RowsDelFiltered", TUnit::UNIT);
 
@@ -142,6 +141,9 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _total_pages_num_counter = ADD_COUNTER(_runtime_profile, "TotalPagesNum", TUnit::UNIT);
     _cached_pages_num_counter = ADD_COUNTER(_runtime_profile, "CachedPagesNum", TUnit::UNIT);
+
+    _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "BitmapIndexFilterCount", TUnit::UNIT);
+    _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -173,17 +175,6 @@ Status OlapScanNode::prepare(RuntimeState* state) {
         _string_slots.push_back(slots[i]);
     }
 
-    if (state->codegen_level() > 0) {
-        LlvmCodeGen* codegen = NULL;
-        RETURN_IF_ERROR(state->get_codegen(&codegen));
-        Function* codegen_eval_conjuncts_fn = codegen_eval_conjuncts(state, _conjunct_ctxs);
-        if (codegen_eval_conjuncts_fn != NULL) {
-            codegen->add_function_to_jit(codegen_eval_conjuncts_fn,
-                                         reinterpret_cast<void**>(&_eval_conjuncts_fn));
-            // AddRuntimeExecOption("Probe Side Codegen Enabled");
-        }
-    }
-
     _runtime_state = state;
     return Status::OK();
 }
@@ -193,9 +184,10 @@ Status OlapScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-
+   
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // if conjunct is constant, compute direct and set eos = true
+
         if (_conjunct_ctxs[conj_idx]->root()->is_constant()) {
             void* value = _conjunct_ctxs[conj_idx]->get_value(NULL);
             if (value == NULL || *reinterpret_cast<bool*>(value) == false) {
@@ -501,6 +493,15 @@ Status OlapScanNode::normalize_conjuncts() {
                                                  slots[slot_idx]->type().type,
                                                  min,
                                                  max);
+            normalize_predicate(range, slots[slot_idx]);
+            break;
+        }
+
+        case TYPE_BOOLEAN: {
+            ColumnValueRange<bool> range(slots[slot_idx]->col_name(),
+                                         slots[slot_idx]->type().type,
+                                         false,
+                                         true);
             normalize_predicate(range, slots[slot_idx]);
             break;
         }
@@ -818,6 +819,11 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         range->add_fixed_value(*reinterpret_cast<T*>(const_cast<void*>(iter->get_value())));
                         break;
                     }
+                    case TYPE_BOOLEAN: {
+                        bool v = *reinterpret_cast<bool*>(const_cast<void*>(iter->get_value()));
+                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                        break;
+                    }
                     default: {
                         break;
                     }
@@ -885,6 +891,11 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                     case TYPE_BIGINT:
                     case TYPE_LARGEINT: {
                         range->add_fixed_value(*reinterpret_cast<T*>(value));
+                        break;
+                    }
+                    case TYPE_BOOLEAN: {
+                        bool v = *reinterpret_cast<bool*>(value);
+                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
                         break;
                     }
                     default: {
@@ -999,6 +1010,12 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
                 case TYPE_LARGEINT: {
                     range->add_range(to_olap_filter_type(pred->op(), child_idx),
                                     *reinterpret_cast<T*>(value));
+                    break;
+                }
+                case TYPE_BOOLEAN: {
+                    bool v = *reinterpret_cast<bool*>(value);
+                    range->add_range(to_olap_filter_type(pred->op(), child_idx),
+                                     *reinterpret_cast<T*>(&v));
                     break;
                 }
 

@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 /**
  * Combination of limit and offset expressions.
  */
-class LimitElement {
+public class LimitElement {
     public static LimitElement NO_LIMIT = new LimitElement();
     
     /////////////////////////////////////////

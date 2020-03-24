@@ -81,6 +81,19 @@ set(UTIL_FILES
   faststring.cc
   slice.cpp
   frame_of_reference_coding.cpp
+  minizip/ioapi.c
+  minizip/unzip.c
+  zip_util.cpp
+  utf8_check.cpp
+  cgroup_util.cpp
+  path_util.cpp
+  file_manager.cpp
+  file_cache.cpp
+  monotime.cpp
+  mutex.cpp
+  condition_variable.cpp
+  thread.cpp
+  threadpool.cpp
 )
 
 if (WITH_MYSQL)

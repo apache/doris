@@ -25,7 +25,13 @@
 #include "common/status.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "rapidjson/rapidjson.h"
+#include "rapidjson/document.h"
+#include "rapidjson/stringbuffer.h"
+#include "rapidjson/writer.h"
 #include "util/string_parser.hpp"
+
+
 
 namespace doris {
 
@@ -34,6 +40,36 @@ static const char* FIELD_HITS = "hits";
 static const char* FIELD_INNER_HITS = "hits";
 static const char* FIELD_SOURCE = "_source";
 static const char* FIELD_TOTAL = "total";
+
+
+// get the original json data type
+std::string json_type_to_string(rapidjson::Type type) {
+    switch (type) {
+        case rapidjson::kNumberType:
+            return "Number";
+        case rapidjson::kStringType:
+            return "Varchar/Char";
+        case rapidjson::kArrayType:
+            return "Array";
+        case rapidjson::kObjectType:
+            return "Object";
+        case rapidjson::kNullType:
+            return "Null Type";
+        case rapidjson::kFalseType:
+        case rapidjson::kTrueType:
+            return "True/False";
+        default:
+            return "Unknown Type";
+    }
+}
+
+// transfer rapidjson::Value to string representation
+std::string json_value_to_string(const rapidjson::Value& value) {
+    rapidjson::StringBuffer scratch_buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> temp_writer(scratch_buffer);
+    value.Accept(temp_writer);
+    return scratch_buffer.GetString();
+}
 
 static const string ERROR_INVALID_COL_DATA = "Data source returned inconsistent column data. "
     "Expected value of type $0 based on column metadata. This likely indicates a "
@@ -46,7 +82,12 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 #define RETURN_ERROR_IF_COL_IS_ARRAY(col, type) \
     do { \
         if (col.IsArray()) { \
-            return Status::InternalError(strings::Substitute(ERROR_COL_DATA_IS_ARRAY, type_to_string(type))); \
+            std::stringstream ss;    \
+            ss << "Expected value of type: " \
+               << type_to_string(type)  \
+               << "; but found type: " << json_type_to_string(col.GetType()) \
+               << "; Docuemnt slice is : " << json_value_to_string(col); \
+            return Status::RuntimeError(ss.str()); \
         } \
     } while (false)
 
@@ -54,33 +95,62 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 #define RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type) \
     do { \
         if (!col.IsString()) { \
-            return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
+            std::stringstream ss;    \
+            ss << "Expected value of type: " \
+               << type_to_string(type)  \
+               << "; but found type: " << json_type_to_string(col.GetType()) \
+               << "; Docuemnt source slice is : " << json_value_to_string(col); \
+            return Status::RuntimeError(ss.str()); \
         } \
     } while (false)
 
 
-#define RETURN_ERROR_IF_PARSING_FAILED(result, type) \
+#define RETURN_ERROR_IF_PARSING_FAILED(result, col, type) \
     do { \
         if (result != StringParser::PARSE_SUCCESS) { \
-            return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type))); \
+            std::stringstream ss;    \
+            ss << "Expected value of type: " \
+               << type_to_string(type)  \
+               << "; but found type: " << json_type_to_string(col.GetType()) \
+               << "; Docuemnt source slice is : " << json_value_to_string(col); \
+            return Status::RuntimeError(ss.str()); \
         } \
+    } while (false)
+
+#define RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type) \
+    do { \
+        std::stringstream ss;    \
+        ss << "Expected value of type: " \
+            << type_to_string(type)  \
+            << "; but found type: " << json_type_to_string(col.GetType()) \
+            << "; Docuemnt slice is : " << json_value_to_string(col); \
+        return Status::RuntimeError(ss.str()); \
     } while (false)
 
 template <typename T>
-static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, void* slot) {
+static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, void* slot, bool pure_doc_value) {
+
+
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
         return Status::OK();
     }
 
+    if (pure_doc_value && col.IsArray()) {
+        *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
+        return Status::OK();
+    }
+
+
     RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
     RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+
 
     StringParser::ParseResult result;
     const std::string& val = col.GetString();
     size_t len = col.GetStringLength();
     T v = StringParser::string_to_int<T>(val.c_str(), len, &result);
-    RETURN_ERROR_IF_PARSING_FAILED(result, type);
+    RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
 
     if (sizeof(T) < 16) {
         *reinterpret_cast<T*>(slot) = v;
@@ -93,10 +163,15 @@ static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, voi
 }
 
 template <typename T>
-static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, void* slot) {
+static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, void* slot, bool pure_doc_value) {
     DCHECK(sizeof(T) == 4 || sizeof(T) == 8);
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col.GetFloat() : col.GetDouble());
+        return Status::OK();
+    }
+
+    if (pure_doc_value && col.IsArray()) {
+        *reinterpret_cast<T*>(slot) = (T)(sizeof(T) == 4 ? col[0].GetFloat() : col[0].GetDouble());
         return Status::OK();
     }
 
@@ -107,7 +182,7 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
     const std::string& val = col.GetString();
     size_t len = col.GetStringLength();
     T v = StringParser::string_to_float<T>(val.c_str(), len, &result);
-    RETURN_ERROR_IF_PARSING_FAILED(result, type);
+    RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
     *reinterpret_cast<T*>(slot) = v;
 
     return Status::OK();
@@ -123,7 +198,7 @@ ScrollParser::ScrollParser() :
 ScrollParser::~ScrollParser() {
 }
 
-Status ScrollParser::parse(const std::string& scroll_result) {
+Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) {
     _document_node.Parse(scroll_result.c_str());
     if (_document_node.HasParseError()) {
         std::stringstream ss;
@@ -131,13 +206,15 @@ Status ScrollParser::parse(const std::string& scroll_result) {
         return Status::InternalError(ss.str());
     }
 
-    if (!_document_node.HasMember(FIELD_SCROLL_ID)) {
+    if (!exactly_once && !_document_node.HasMember(FIELD_SCROLL_ID)) {
         LOG(WARNING) << "Document has not a scroll id field scroll reponse:" << scroll_result;
         return Status::InternalError("Document has not a scroll id field");
     }
 
-    const rapidjson::Value &scroll_node = _document_node[FIELD_SCROLL_ID];
-    _scroll_id = scroll_node.GetString();
+    if (!exactly_once) {
+        const rapidjson::Value &scroll_node = _document_node[FIELD_SCROLL_ID];
+        _scroll_id = scroll_node.GetString();
+    }
     // { hits: { total : 2, "hits" : [ {}, {}, {} ]}}
     const rapidjson::Value &outer_hits_node = _document_node[FIELD_HITS];
     const rapidjson::Value &field_total = outer_hits_node[FIELD_TOTAL];
@@ -159,7 +236,7 @@ Status ScrollParser::parse(const std::string& scroll_result) {
         return Status::OK();
     }
 
-    VLOG(1) << "es_scan_reader total hits: " << _total << " documents";
+    VLOG(1) << "es_scan_reader parse scroll result: " << scroll_result;
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     if (!inner_hits_node.IsArray()) {
         LOG(WARNING) << "exception maybe happend on es cluster, reponse:" << scroll_result;
@@ -186,17 +263,18 @@ int ScrollParser::get_total() {
 }
 
 Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, 
-            Tuple* tuple, MemPool* tuple_pool, bool* line_eof) {
+            Tuple* tuple, MemPool* tuple_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context) {
     *line_eof = true;
     if (_size <= 0 || _line_index >= _size) {
         return Status::OK();
     }
 
     const rapidjson::Value& obj = _inner_hits_node[_line_index++];
-    const rapidjson::Value& line = obj[FIELD_SOURCE];
-    if (!line.IsObject()) {
-        return Status::InternalError("Parse inner hits failed");
+    bool pure_doc_value = false;
+    if (obj.HasMember("fields")) {
+        pure_doc_value = true;
     }
+    const rapidjson::Value& line = obj.HasMember(FIELD_SOURCE) ? obj[FIELD_SOURCE] : obj["fields"];
 
     tuple->init(tuple_desc->byte_size());
     for (int i = 0; i < tuple_desc->slots().size(); ++i) {
@@ -206,7 +284,11 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             continue;
         }
 
-        const char* col_name = slot_desc->col_name().c_str();
+        // if pure_doc_value enabled, docvalue_context must contains the key
+        // todo: need move all `pure_docvalue` for every tuple outside fill_tuple
+        //  should check pure_docvalue for one table scan not every tuple
+        const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str() : slot_desc->col_name().c_str();
+
         rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
         if (itr == line.MemberEnd()) {
             tuple->set_null(slot_desc->null_indicator_offset());
@@ -221,11 +303,25 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
         switch (type) {
             case TYPE_CHAR:
             case TYPE_VARCHAR: {
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-
-                const std::string& val = col.GetString();
-                size_t val_size = col.GetStringLength();
+                // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
+                // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation 
+                // this may be a tricky, but we can workaround this issue
+                std::string val;
+                if (pure_doc_value) {
+                    if (!col[0].IsString()) {
+                        val = json_value_to_string(col[0]);
+                    } else {
+                        val = col[0].GetString();
+                    }
+                } else {
+                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+                    if (!col.IsString()) {
+                        val = json_value_to_string(col);
+                    } else {
+                        val = col.GetString();
+                    }
+                }
+                size_t val_size = val.length();
                 char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
                 if (UNLIKELY(buffer == NULL)) {
                     string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow",
@@ -239,7 +335,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_TINYINT: {
-                Status status = get_int_value<int8_t>(col, type, slot);
+                Status status = get_int_value<int8_t>(col, type, slot, pure_doc_value);
                 if (!status.ok()) {
                     return status;
                 }
@@ -247,7 +343,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_SMALLINT: {
-                Status status = get_int_value<int16_t>(col, type, slot);
+                Status status = get_int_value<int16_t>(col, type, slot, pure_doc_value);
                 if (!status.ok()) {
                     return status;
                 }
@@ -255,7 +351,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_INT: {
-                Status status = get_int_value<int32_t>(col, type, slot);
+                Status status = get_int_value<int32_t>(col, type, slot, pure_doc_value);
                 if (!status.ok()) {
                     return status;
                 }
@@ -263,7 +359,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_BIGINT: {
-                Status status = get_int_value<int64_t>(col, type, slot);
+                Status status = get_int_value<int64_t>(col, type, slot, pure_doc_value);
                 if (!status.ok()) {
                     return status;
                 }
@@ -271,7 +367,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_LARGEINT: {
-                Status status = get_int_value<__int128>(col, type, slot);
+                Status status = get_int_value<__int128>(col, type, slot, pure_doc_value);
                 if (!status.ok()) {
                     return status;
                 }
@@ -279,7 +375,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_DOUBLE: {
-                Status status = get_float_value<double>(col, type, slot);
+                Status status = get_float_value<double>(col, type, slot, pure_doc_value);
                 if (!status.ok()) {
                     return status;
                 }
@@ -287,7 +383,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             }
 
             case TYPE_FLOAT: {
-                Status status = get_float_value<float>(col, type, slot);
+                Status status = get_float_value<float>(col, type, slot, pure_doc_value);
                 if (!status.ok()) {
                     return status;
                 }
@@ -304,6 +400,10 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                     *reinterpret_cast<int8_t*>(slot) = col.GetInt();
                     break;
                 }
+                if (pure_doc_value && col.IsArray()) {
+                    *reinterpret_cast<int8_t*>(slot) = col[0].GetBool();
+                    break;
+                }
 
                 RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
                 RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
@@ -313,7 +413,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 StringParser::ParseResult result;
                 bool b = 
                     StringParser::string_to_bool(val.c_str(), val_size, &result);
-                RETURN_ERROR_IF_PARSING_FAILED(result, type);
+                RETURN_ERROR_IF_PARSING_FAILED(result, col, type);
                 *reinterpret_cast<int8_t*>(slot) = b;
                 break;
             }
@@ -322,7 +422,19 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
             case TYPE_DATETIME: {
                 if (col.IsNumber()) {
                     if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64(), "+08:00")) {
-                        return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
+                        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+                    }
+
+                    if (type == TYPE_DATE) {
+                        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+                    } else {
+                        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+                    }
+                    break;
+                }
+                if (pure_doc_value && col.IsArray()) {
+                    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col[0].GetInt64(), "+08:00")) {
+                        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                     }
 
                     if (type == TYPE_DATE) {
@@ -340,11 +452,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
                 const std::string& val = col.GetString();
                 size_t val_size = col.GetStringLength();
                 if (!ts_slot->from_date_str(val.c_str(), val_size)) {
-                    return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
-                }
-
-                if (ts_slot->year() < 1900) {
-                    return Status::InternalError(strings::Substitute(ERROR_INVALID_COL_DATA, type_to_string(type)));
+                    RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
                 }
 
                 if (type == TYPE_DATE) {

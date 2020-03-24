@@ -22,72 +22,80 @@
 namespace doris {
 
 Schema::Schema(const Schema& other) {
-    copy_from(other);
+    _copy_from(other);
 }
 
 Schema& Schema::operator=(const Schema& other) {
     if (this != &other) {
-        copy_from(other);
+        _copy_from(other);
     }
     return *this;
 }
 
-void Schema::copy_from(const Schema& other) {
+void Schema::_copy_from(const Schema& other) {
     _col_ids = other._col_ids;
     _col_offsets = other._col_offsets;
+
     _num_key_columns = other._num_key_columns;
     _schema_size = other._schema_size;
 
+    // Deep copy _cols
+    // TODO(lingbin): really need clone?
     _cols.resize(other._cols.size(), nullptr);
     for (auto cid : _col_ids) {
         _cols[cid] =  other._cols[cid]->clone();
     }
 }
 
-void Schema::init_field(const std::vector<TabletColumn>& columns,
-                        const std::vector<ColumnId>& col_ids) {
-    _cols.resize(columns.size(), nullptr);
-    // we must make sure that the offset is the same with RowBlock's
-    std::unordered_set<uint32_t> column_set(col_ids.begin(), col_ids.end());
-    for (int cid = 0; cid < columns.size(); ++cid) {
-        if (column_set.find(cid) == column_set.end()) {
-            continue;
-        }
-        _cols[cid] = FieldFactory::create(columns[cid]);
-    }
-}
-
-void Schema::init_field(const std::vector<const Field*>& cols,
-                const std::vector<ColumnId>& col_ids) {
-    _cols.resize(cols.size(), nullptr);
-    // we must make sure that the offset is the same with RowBlock's
-    std::unordered_set<uint32_t> column_set(col_ids.begin(), col_ids.end());
-    for (int cid = 0; cid < cols.size(); ++cid) {
-        if (column_set.find(cid) == column_set.end()) {
-            continue;
-        }
-        _cols[cid] = cols[cid]->clone();
-    }
-}
-
-void Schema::init(const std::vector<ColumnId>& col_ids,
+void Schema::_init(const std::vector<TabletColumn>& cols,
+                   const std::vector<ColumnId>& col_ids,
                    size_t num_key_columns) {
-    _num_key_columns = num_key_columns;
     _col_ids = col_ids;
+    _num_key_columns = num_key_columns;
+
+    _cols.resize(cols.size(), nullptr);
     _col_offsets.resize(_cols.size(), -1);
 
-    // we must make sure that the offset is the same with RowBlock's
-    std::unordered_set<uint32_t> column_set(_col_ids.begin(), _col_ids.end());
     size_t offset = 0;
-    for (int cid = 0; cid < _cols.size(); ++cid) {
-        if (column_set.find(cid) == column_set.end()) {
+    std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
+    for (int cid = 0; cid < cols.size(); ++cid) {
+        if (col_id_set.find(cid) == col_id_set.end()) {
             continue;
         }
+        _cols[cid] = FieldFactory::create(cols[cid]);
 
         _col_offsets[cid] = offset;
-        // 1 for null byte
+        // Plus 1 byte for null byte
         offset += _cols[cid]->size() + 1;
     }
+
+    _schema_size = offset;
+}
+
+void Schema::_init(const std::vector<const Field*>& cols,
+                   const std::vector<ColumnId>& col_ids,
+                   size_t num_key_columns) {
+    _col_ids = col_ids;
+    _num_key_columns = num_key_columns;
+
+    _cols.resize(cols.size(), nullptr);
+    _col_offsets.resize(_cols.size(), -1);
+
+    size_t offset = 0;
+    std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
+    for (int cid = 0; cid < cols.size(); ++cid) {
+        if (col_id_set.find(cid) == col_id_set.end()) {
+            continue;
+        }
+        // TODO(lingbin): is it necessary to clone Field? each SegmentIterator will
+        // use this func, can we avoid clone?
+        _cols[cid] = cols[cid]->clone();
+
+        _col_offsets[cid] = offset;
+        // Plus 1 byte for null byte
+        offset += _cols[cid]->size() + 1;
+    }
+
     _schema_size = offset;
 }
 

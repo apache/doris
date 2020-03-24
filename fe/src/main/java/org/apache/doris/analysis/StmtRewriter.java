@@ -17,19 +17,20 @@
 
 package org.apache.doris.analysis;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import com.google.common.collect.Iterables;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Class representing a statement rewriter. A statement rewriter performs subquery
@@ -68,8 +69,8 @@ public class StmtRewriter {
         Preconditions.checkNotNull(stmt);
         if (stmt instanceof SelectStmt) {
             rewriteSelectStatement((SelectStmt) stmt, analyzer);
-        } else if (stmt instanceof UnionStmt) {
-            rewriteUnionStatement((UnionStmt) stmt, analyzer);
+        } else if (stmt instanceof SetOperationStmt) {
+            rewriteUnionStatement((SetOperationStmt) stmt, analyzer);
         } else {
             throw new AnalysisException("Subqueries not supported for "
                     + stmt.getClass().getSimpleName() + " statements");
@@ -104,9 +105,9 @@ public class StmtRewriter {
      * Rewrite all operands in a UNION. The conditions that apply to SelectStmt rewriting
      * also apply here.
      */
-    private static void rewriteUnionStatement(UnionStmt stmt, Analyzer analyzer)
+    private static void rewriteUnionStatement(SetOperationStmt stmt, Analyzer analyzer)
             throws AnalysisException {
-        for (UnionStmt.UnionOperand operand: stmt.getOperands()) {
+        for (SetOperationStmt.SetOperand operand: stmt.getOperands()) {
             Preconditions.checkState(operand.getQueryStmt() instanceof SelectStmt);
             StmtRewriter.rewriteSelectStatement(
                     (SelectStmt)operand.getQueryStmt(), operand.getAnalyzer());
@@ -249,6 +250,21 @@ public class StmtRewriter {
         }
     }
 
+
+    /**
+     * Situation: The expr is a binary predicate and the type of subquery is not scalar type.
+     * Rewrite: The stmt of inline view is added an assert condition (return error if row count > 1).
+     * Input params:
+     *     expr: k1=(select k1 from t2)
+     *     origin inline view: (select k1 $a from t2) $b
+     *     stmt: select * from t1 where k1=(select k1 from t2);
+     * Output params:
+     *     rewritten inline view: (select k1 $a from t2 (assert row count: return error if row count > 1)) $b
+     */
+    private static void rewriteBinaryPredicateWithSubquery(InlineViewRef inlineViewRef) {
+        inlineViewRef.getViewStmt().setAssertNumRowsElement(1);
+    }
+
     /**
      * Replace an ExistsPredicate that contains a subquery with a BoolLiteral if we
      * can determine its result without evaluating it. Return null if the result of the
@@ -315,8 +331,17 @@ public class StmtRewriter {
         }
     }
 
+    /**
+     * origin stmt: select * from t1 where t1=(select k1 from t2);
+     *
+     * @param stmt     select * from t1 where true;
+     * @param expr     t1=(select k1 from t2). The expr has already be rewritten.
+     * @param analyzer
+     * @return
+     * @throws AnalysisException
+     */
     private static boolean mergeExpr(SelectStmt stmt, Expr expr,
-        Analyzer analyzer) throws AnalysisException {
+                                     Analyzer analyzer) throws AnalysisException {
         // LOG.warn("dhc mergeExpr stmt={} expr={}", stmt, expr);
         LOG.debug("SUBQUERY mergeExpr stmt={} expr={}", stmt.toSql(), expr.toSql());
         Preconditions.checkNotNull(expr);
@@ -331,9 +356,11 @@ public class StmtRewriter {
         // to eliminate any chance that column aliases from the parent query could reference
         // select items from the inline view after the rewrite.
         List<String> colLabels = Lists.newArrayList();
+        // add a new alias for all of columns in subquery
         for (int i = 0; i < subqueryStmt.getColLabels().size(); ++i) {
             colLabels.add(subqueryStmt.getColumnAliasGenerator().getNextAlias());
         }
+        // (select k1 $a from t2) $b
         InlineViewRef inlineView = new InlineViewRef(
             stmt.getTableAliasGenerator().getNextAlias(), subqueryStmt, colLabels);
 
@@ -362,10 +389,22 @@ public class StmtRewriter {
                 lhsExprs, rhsExprs, updateGroupBy);
         }
 
+        /**
+         * Situation: The expr is a uncorrelated subquery for outer stmt.
+         * Rewrite: Add a limit 1 for subquery.
+         * origin stmt: select * from t1 where exists (select * from table2);
+         * expr: exists (select * from table2)
+         * outer stmt: select * from t1
+         * onClauseConjuncts: empty.
+         */
         if (expr instanceof ExistsPredicate && onClauseConjuncts.isEmpty()) {
             // For uncorrelated subqueries, we limit the number of rows returned by the
             // subquery.
             subqueryStmt.setLimit(1);
+        }
+
+        if (expr instanceof BinaryPredicate && !expr.getSubquery().getType().isScalarType()) {
+            rewriteBinaryPredicateWithSubquery(inlineView);
         }
 
         // Analyzing the inline view trigger reanalysis of the subquery's select statement.
@@ -383,7 +422,7 @@ public class StmtRewriter {
         stmt.fromClause_.add(inlineView);
         JoinOperator joinOp = JoinOperator.LEFT_SEMI_JOIN;
 
-         // Create a join conjunct from the expr that contains a subquery.
+        // Create a join conjunct from the expr that contains a subquery.
         Expr joinConjunct = createJoinConjunct(expr, inlineView, analyzer,
             !onClauseConjuncts.isEmpty());
         if (joinConjunct != null) {
@@ -481,7 +520,7 @@ public class StmtRewriter {
             // TODO: Requires support for non-equi joins.
             boolean hasGroupBy = ((SelectStmt) inlineView.getViewStmt()).hasGroupByClause();
             // boolean hasGroupBy = false;
-            if (!expr.getSubquery().isScalarSubquery()
+            if (!expr.getSubquery().returnsScalarColumn()
                     || (!(hasGroupBy && stmt.selectList.isDistinct()) && hasGroupBy)) {
                 throw new AnalysisException("Unsupported predicate with subquery: "
                         + expr.toSql());
@@ -703,12 +742,21 @@ public class StmtRewriter {
         Preconditions.checkState(expr.contains(Subquery.class));
         SelectStmt stmt = (SelectStmt) expr.getSubquery().getStatement();
         Preconditions.checkNotNull(stmt);
-        // Grouping and/or aggregation (including analytic functions) is only
-        // allowed on correlated EXISTS subqueries
-        if ((expr instanceof BinaryPredicate
-                && (stmt.hasGroupByClause() || stmt.hasAnalyticInfo()))
-                || (expr instanceof InPredicate
-                && (stmt.hasAggInfo() || stmt.hasAnalyticInfo()))) {
+        // Only specified function could be supported in correlated subquery of binary predicate.
+        if (expr instanceof BinaryPredicate) {
+            if (stmt.getSelectList().getItems().size() != 1) {
+                throw new AnalysisException("The subquery only support one item in select clause");
+            }
+            SelectListItem item = stmt.getSelectList().getItems().get(0);
+            if (!item.getExpr().contains(Expr.CORRELATED_SUBQUERY_SUPPORT_AGG_FN)) {
+                throw new AnalysisException("The select item in correlated subquery of binary predicate should only "
+                                                    + "be sum, min, max, avg and count. Current subquery:"
+                                                    + stmt.toSql());
+            }
+        }
+        // Grouping and/or aggregation (including analytic functions) is forbidden in correlated subquery of in
+        // predicate.
+        if (expr instanceof InPredicate && (stmt.hasAggInfo() || stmt.hasAnalyticInfo())) {
             LOG.warn("canRewriteCorrelatedSubquery fail, expr={} subquery={}", expr.toSql(), stmt.toSql());
             throw new AnalysisException("Unsupported correlated subquery with grouping "
                     + "and/or aggregation: "
@@ -829,9 +877,9 @@ public class StmtRewriter {
         // Update subquery's GROUP BY clause
         if (groupByExprs != null && !groupByExprs.isEmpty()) {
             if (stmt.hasGroupByClause()) {
-                stmt.groupingExprs.addAll(groupByExprs);
+                stmt.groupByClause.getGroupingExprs().addAll(groupByExprs);
             } else {
-                stmt.groupingExprs = groupByExprs;
+                stmt.groupByClause = new GroupByClause(groupByExprs, GroupByClause.GroupingType.GROUP_BY);
             }
         }
     }
@@ -863,18 +911,11 @@ public class StmtRewriter {
             pred.analyze(analyzer);
             return pred;
         }
-        // Only scalar subqueries are supported
+
         Subquery subquery = exprWithSubquery.getSubquery();
-        if (!subquery.isScalarSubquery()) {
-            throw new AnalysisException("Unsupported predicate with a non-scalar subquery: " + subquery.toSql());
-        }
         ExprSubstitutionMap smap = new ExprSubstitutionMap();
         SelectListItem item =
                 ((SelectStmt) inlineView.getViewStmt()).getSelectList().getItems().get(0);
-        if (isCorrelated && !item.getExpr().contains(Expr.IS_BUILTIN_AGG_FN)) {
-            throw new AnalysisException("UDAs are not supported in the select list of "
-                    + "correlated subqueries: " + subquery.toSql());
-        }
         if (isCorrelated && item.getExpr().contains(Expr.NON_NULL_EMPTY_AGG)) {
             // TODO: Add support for multiple agg functions that return non-null on an
             // empty input, by wrapping them with zeroifnull functions before the inline

@@ -18,7 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.alter.RollupHandler;
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.RollupJobV2;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
@@ -37,23 +37,23 @@ public class RollupProcDir implements ProcDirInterface {
             .add("State").add("Msg").add("Progress").add("Timeout")
             .build();
 
-    private RollupHandler rollupHandler;
+    private MaterializedViewHandler materializedViewHandler;
     private Database db;
 
-    public RollupProcDir(RollupHandler rollupHandler, Database db) {
-        this.rollupHandler = rollupHandler;
+    public RollupProcDir(MaterializedViewHandler materializedViewHandler, Database db) {
+        this.materializedViewHandler = materializedViewHandler;
         this.db = db;
     }
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
         Preconditions.checkNotNull(db);
-        Preconditions.checkNotNull(rollupHandler);
+        Preconditions.checkNotNull(materializedViewHandler);
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> rollupJobInfos = rollupHandler.getAlterJobInfosByDb(db);
+        List<List<Comparable>> rollupJobInfos = materializedViewHandler.getAlterJobInfosByDb(db);
         for (List<Comparable> infoStr : rollupJobInfos) {
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
             for (Comparable element : infoStr) {
@@ -83,12 +83,12 @@ public class RollupProcDir implements ProcDirInterface {
         }
 
         Preconditions.checkState(jobId != -1L);
-        AlterJobV2 job = rollupHandler.getUnfinishedAlterJobV2(jobId);
+        AlterJobV2 job = materializedViewHandler.getUnfinishedAlterJobV2ByJobId(jobId);
         if (job == null) {
             return null;
         }
 
-        return new RollupJobProcDir((RollupJobV2) job);
+        return new RollupJobProcNode((RollupJobV2) job);
     }
 
 }

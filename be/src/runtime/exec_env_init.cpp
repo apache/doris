@@ -46,7 +46,6 @@
 #include "util/bfd_parser.h"
 #include "runtime/etl_job_mgr.h"
 #include "runtime/load_path_mgr.h"
-#include "runtime/pull_load_task_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
@@ -56,12 +55,12 @@
 #include "util/brpc_stub_cache.h"
 #include "util/priority_thread_pool.hpp"
 #include "agent/cgroups_mgr.h"
-#include "util/thread_pool.hpp"
 #include "gen_cpp/BackendService.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "runtime/heartbeat_flags.h"
 
 namespace doris {
 
@@ -86,7 +85,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _thread_pool = new PriorityThreadPool(
         config::doris_scanner_thread_pool_thread_num,
         config::doris_scanner_thread_pool_queue_size);
-    _etl_thread_pool = new ThreadPool(
+    _etl_thread_pool = new PriorityThreadPool(
         config::etl_thread_pool_size,
         config::etl_thread_pool_queue_size);
     _cgroups_mgr = new CgroupsMgr(this, config::doris_cgroups);
@@ -97,7 +96,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _disk_io_mgr = new DiskIoMgr();
     _tmp_file_mgr = new TmpFileMgr(this),
     _bfd_parser = BfdParser::create();
-    _pull_load_task_mgr = new PullLoadTaskMgr(config::pull_load_task_dir);
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
     _load_stream_mgr = new LoadStreamMgr();
@@ -118,17 +116,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
         LOG(ERROR) << "load path mgr init failed." << status.get_error_msg();
         exit(-1);
     }
-    status = _pull_load_task_mgr->init();
-    if (!status.ok()) {
-        LOG(ERROR) << "pull load task manager init failed." << status.get_error_msg();
-        exit(-1);
-    }
     _broker_mgr->init();
     _small_file_mgr->init();
     _init_mem_tracker();
 
     RETURN_IF_ERROR(_load_channel_mgr->init(_mem_tracker->limit()));
-
+    _heartbeat_flags = new HeartbeatFlags();
     return Status::OK();
 }
 
@@ -139,7 +132,7 @@ Status ExecEnv::_init_mem_tracker() {
     std::stringstream ss;
     // --mem_limit="" means no memory limit
     bytes_limit = ParseUtil::parse_mem_spec(config::mem_limit, &is_percent);
-    if (bytes_limit < 0) {
+    if (bytes_limit <= 0) {
         ss << "Failed to parse mem limit from '" + config::mem_limit + "'.";
         return Status::InternalError(ss.str());
     }
@@ -168,18 +161,22 @@ Status ExecEnv::_init_mem_tracker() {
 
     _init_buffer_pool(config::min_buffer_size, buffer_pool_limit, clean_pages_limit);
 
-    // Limit of 0 means no memory limit.
-    if (bytes_limit > 0) {
-        _mem_tracker = new MemTracker(bytes_limit);
-    }
-
     if (bytes_limit > MemInfo::physical_mem()) {
         LOG(WARNING) << "Memory limit "
                      << PrettyPrinter::print(bytes_limit, TUnit::BYTES)
                      << " exceeds physical memory of "
                      << PrettyPrinter::print(MemInfo::physical_mem(),
-                                             TUnit::BYTES);
+                                             TUnit::BYTES)
+                     << ". Using physical memory instead";
+        bytes_limit = MemInfo::physical_mem();
     }
+
+    if (bytes_limit <= 0) {
+        ss << "Invalid mem limit: " << bytes_limit;
+        return Status::InternalError(ss.str());
+    }
+
+    _mem_tracker = new MemTracker(bytes_limit);
 
     LOG(INFO) << "Using global memory limit: " << PrettyPrinter::print(bytes_limit, TUnit::BYTES);
     RETURN_IF_ERROR(_disk_io_mgr->init(_mem_tracker));
@@ -213,7 +210,6 @@ void ExecEnv::_destory() {
     delete _load_stream_mgr;
     delete _load_channel_mgr;
     delete _broker_mgr;
-    delete _pull_load_task_mgr;
     delete _bfd_parser;
     delete _tmp_file_mgr;
     delete _disk_io_mgr;
@@ -237,6 +233,7 @@ void ExecEnv::_destory() {
     delete _stream_load_executor;
     delete _routine_load_task_executor;
     delete _external_scan_context_mgr;
+    delete _heartbeat_flags;
     _metrics = nullptr;
 }
 

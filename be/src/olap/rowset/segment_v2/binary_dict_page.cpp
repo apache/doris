@@ -17,12 +17,10 @@
 
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 
+#include "common/logging.h"
 #include "util/slice.h" // for Slice
 #include "gutil/strings/substitute.h" // for Substitute
-#include "runtime/mem_pool.h"
-
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
-#include "olap/rowset/segment_v2/rle_page.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -62,6 +60,11 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
         const Slice* src = reinterpret_cast<const Slice*>(vals);
         size_t num_added = 0;
         uint32_t value_code = -1;
+
+        if (_data_page_builder->count() == 0) {
+            _first_value.assign_copy(reinterpret_cast<const uint8_t*>(src->get_data()), src->get_size());
+        }
+
         for (int i = 0; i < *count; ++i, ++src) {
             auto iter = _dictionary.find(*src);
             if (iter != _dictionary.end()) {
@@ -99,13 +102,15 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
     }
 }
 
-Slice BinaryDictPageBuilder::finish() {
+OwnedSlice BinaryDictPageBuilder::finish() {
+    DCHECK(!_finished);
     _finished = true;
 
-    Slice data_slice = _data_page_builder->finish();
-    _buffer.append(data_slice.data, data_slice.size);
+    OwnedSlice data_slice = _data_page_builder->finish();
+    // TODO(gaodayue) separate page header and content to avoid this copy
+    _buffer.append(data_slice.slice().data, data_slice.slice().size);
     encode_fixed32_le(&_buffer[0], _encoding_type);
-    return Slice(_buffer);
+    return _buffer.build();
 }
 
 void BinaryDictPageBuilder::reset() {
@@ -131,7 +136,7 @@ uint64_t BinaryDictPageBuilder::size() const {
     return _pool.total_allocated_bytes() + _data_page_builder->size();
 }
 
-Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
+Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
     _dictionary.clear();
     _dict_builder->reset();
     size_t add_count = 1;
@@ -141,8 +146,36 @@ Status BinaryDictPageBuilder::get_dictionary_page(Slice* dictionary_page) {
         RETURN_IF_ERROR(_dict_builder->add(reinterpret_cast<const uint8_t*>(&dict_item), &add_count));
     }
     *dictionary_page = _dict_builder->finish();
-    _dict_builder->release();
     _dict_items.clear();
+    return Status::OK();
+}
+
+Status BinaryDictPageBuilder::get_first_value(void* value) const {
+    DCHECK(_finished);
+    if (_data_page_builder->count() == 0) {
+        return Status::NotFound("page is empty");
+    }
+    if (_encoding_type != DICT_ENCODING) {
+        return _data_page_builder->get_first_value(value);
+    }
+    *reinterpret_cast<Slice*>(value) = Slice(_first_value);
+    return Status::OK();
+}
+
+Status BinaryDictPageBuilder::get_last_value(void* value) const {
+    DCHECK(_finished);
+    if (_data_page_builder->count() == 0) {
+        return Status::NotFound("page is empty");
+    }
+    if (_encoding_type != DICT_ENCODING) {
+        return _data_page_builder->get_last_value(value);
+    }
+    uint32_t value_code;
+    RETURN_IF_ERROR(_data_page_builder->get_last_value(&value_code));
+    // TODO _dict_items is cleared in get_dictionary_page, which could cause
+    // get_last_value to fail when it's called after get_dictionary_page.
+    // the solution is to read last value from _dict_builder instead of _dict_items
+    *reinterpret_cast<Slice*>(value) = _dict_items[value_code];
     return Status::OK();
 }
 

@@ -37,6 +37,8 @@ under the License.
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <jprotobuf.version>2.2.11</jprotobuf.version>
+        <skip.plugin>false</skip.plugin>
+        <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
     </properties>
 
     <profiles>
@@ -74,6 +76,11 @@ under the License.
             </activation>
 
             <repositories>
+                <repository>
+                    <id>central</id>
+                    <name>central maven repo https</name>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                </repository>
                 <!-- for java-cup -->
                 <repository>
                     <id>cloudera-thirdparty</id>
@@ -90,7 +97,7 @@ under the License.
                 <!-- for cup-maven-plugin -->
                 <pluginRepository>
                     <id>spring-plugins</id>
-                    <url>http://repo.spring.io/plugins-release/</url>
+                    <url>https://repo.spring.io/plugins-release/</url>
                 </pluginRepository>
             </pluginRepositories>
         </profile>
@@ -125,6 +132,13 @@ under the License.
             <version>2.4</version>
         </dependency>
 
+        <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>3.9</version>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.apache.commons/commons-pool2 -->
         <dependency>
             <groupId>org.apache.commons</groupId>
@@ -139,19 +153,11 @@ under the License.
             <version>1.4.1</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/org.easymock/easymock -->
-        <dependency>
-            <groupId>org.easymock</groupId>
-            <artifactId>easymock</artifactId>
-            <version>3.2</version>
-            <scope>test</scope>
-        </dependency>
-
         <!-- https://mvnrepository.com/artifact/com.google.code.gson/gson -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
-            <version>2.2.4</version>
+            <version>2.8.6</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/com.google.guava/guava -->
@@ -228,7 +234,7 @@ under the License.
         <dependency>
             <groupId>org.jmockit</groupId>
             <artifactId>jmockit</artifactId>
-            <version>1.13</version>
+            <version>1.48</version>
             <scope>test</scope>
         </dependency>
 
@@ -295,21 +301,21 @@ under the License.
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-api</artifactId>
-            <version>2.2</version>
+            <version>2.12.1</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-core -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
-            <version>2.2</version>
+            <version>2.12.1</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-slf4j-impl -->
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-slf4j-impl</artifactId>
-            <version>2.2</version>
+            <version>2.12.1</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
@@ -338,22 +344,6 @@ under the License.
             <groupId>org.objenesis</groupId>
             <artifactId>objenesis</artifactId>
             <version>2.1</version>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.powermock/powermock-api-easymock -->
-        <dependency>
-            <groupId>org.powermock</groupId>
-            <artifactId>powermock-api-easymock</artifactId>
-            <version>1.6.1</version>
-            <scope>test</scope>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.powermock/powermock-module-junit4 -->
-        <dependency>
-            <groupId>org.powermock</groupId>
-            <artifactId>powermock-module-junit4</artifactId>
-            <version>1.6.1</version>
-            <scope>test</scope>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
@@ -483,33 +473,11 @@ under the License.
             <version>0.2.3</version>
         </dependency>
 
-        <!-- for kudu client-->
-        <!-- https://mvnrepository.com/artifact/com.stumbleupon/async -->
-        <dependency>
-            <groupId>com.stumbleupon</groupId>
-            <artifactId>async</artifactId>
-            <version>1.1.0</version>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.kudu/interface-annotations -->
-        <dependency>
-            <groupId>org.apache.kudu</groupId>
-            <artifactId>interface-annotations</artifactId>
-            <version>1.2.0</version>
-        </dependency>
-
-        <!-- https://mvnrepository.com/artifact/org.apache.kudu/kudu-client -->
-        <dependency>
-            <groupId>org.apache.kudu</groupId>
-            <artifactId>kudu-client</artifactId>
-            <version>1.2.0</version>
-        </dependency>
-
         <!-- https://mvnrepository.com/artifact/log4j/log4j -->
         <dependency>
             <groupId>log4j</groupId>
             <artifactId>log4j</artifactId>
-            <version>1.2.7</version>
+            <version>1.2.17</version>
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-api -->
@@ -531,6 +499,36 @@ under the License.
             <artifactId>oshi-core</artifactId>
             <version>4.0.0</version>
         </dependency>
+
+        <!-- https://mvnrepository.com/artifact/org.jboss.xnio/xnio-nio -->
+        <dependency>
+            <groupId>org.jboss.xnio</groupId>
+            <artifactId>xnio-nio</artifactId>
+            <version>3.6.5.Final</version>
+        </dependency>
+
+        <!-- support jdk9 -->
+        <dependency>
+            <groupId>javax.annotation</groupId>
+            <artifactId>javax.annotation-api</artifactId>
+            <version>1.3.2</version>
+        </dependency>
+
+        <!-- support jdk9 -->
+        <dependency>
+            <groupId>com.sun.activation</groupId>
+            <artifactId>javax.activation</artifactId>
+            <version>1.2.0</version>
+        </dependency>
+
+        <!-- support jdk11 -->
+        <!-- https://mvnrepository.com/artifact/javax.xml.ws/jaxws-api -->
+        <dependency>
+            <groupId>javax.xml.ws</groupId>
+            <artifactId>jaxws-api</artifactId>
+            <version>2.3.0</version>
+        </dependency>
+
     </dependencies>
 
     <build>
@@ -555,7 +553,7 @@ under the License.
                     <!--<cupDefinition>${palo.home}/gensrc/parser/sql_parser.cup</cupDefinition>-->
                     <className>SqlParser</className>
                     <symbolsName>SqlParserSymbols</symbolsName>
-                    <expectedConflicts>20</expectedConflicts>
+                    <expectedConflicts>6</expectedConflicts>
                     <!--<outputDirectory>src/main/java</outputDirectory>-->
                 </configuration>
             </plugin>
@@ -581,6 +579,21 @@ under the License.
                         </configuration>
                     </execution>
                 </executions>
+            </plugin>
+
+            <!-- jmockit -->
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>2.22.2</version>
+                <configuration>
+                    <!-->set larger, eg, 3, to reduce the time or running FE unit tests<-->
+                    <forkCount>${fe_ut_parallel}</forkCount>
+                    <!-->not reuse forked jvm, so that each unit test will run in separate jvm. to avoid singleton confict<-->
+                    <reuseForks>false</reuseForks>
+                    <argLine>
+                        -javaagent:${settings.localRepository}/org/jmockit/jmockit/1.48/jmockit-1.48.jar
+                    </argLine>
+                </configuration>
             </plugin>
 
             <!-- run make to generate Version and builtin -->
@@ -613,7 +626,7 @@ under the License.
                             <goal>exec</goal>
                         </goals>
                         <configuration>
-                            <executable>${env.JAVA_HOME}/bin/java</executable>
+                            <executable>${java.home}/bin/java</executable>
                             <arguments>
                                 <argument>-jar</argument>
                                 <argument>${settings.localRepository}/com/baidu/jprotobuf/${jprotobuf.version}/jprotobuf-${jprotobuf.version}-jar-with-dependencies.jar</argument>
@@ -643,7 +656,6 @@ under the License.
                                 <!-- add arbitrary num of src dirs here -->
                                 <source>${palo.home}/gensrc/build/java/</source>
                             </sources>
-                            <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>
                 </executions>
@@ -677,10 +689,13 @@ under the License.
                 <artifactId>cobertura-maven-plugin</artifactId>
                 <version>2.7</version>
                 <configuration>
-                    <cobertura.maxmem>1024m</cobertura.maxmem>
+                    <check>
+                        <maxmem>1024m</maxmem>
+                    </check>
                 </configuration>
             </plugin>
 
+            <!-- for FE java code style checking -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
@@ -702,6 +717,22 @@ under the License.
                     </execution>
                 </executions>
             </plugin>
+
+            <!-- clean fe/target dir before building -->
+            <plugin>
+                <artifactId>maven-clean-plugin</artifactId>
+                <version>3.1.0</version>
+                <executions>
+                    <execution>
+                        <id>auto-clean</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
         </plugins>
 
         <pluginManagement>

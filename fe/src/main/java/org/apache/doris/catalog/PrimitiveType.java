@@ -26,7 +26,6 @@ import com.google.common.collect.ImmutableSetMultimap;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
-import java.util.List;
 
 public enum PrimitiveType {
     INVALID_TYPE("INVALID_TYPE", -1, TPrimitiveType.INVALID_TYPE),
@@ -54,8 +53,11 @@ public enum PrimitiveType {
     
     HLL("HLL", 16, TPrimitiveType.HLL),
     TIME("TIME", 8, TPrimitiveType.TIME),
+    // we use OBJECT type represent BITMAP type in Backend
+    BITMAP("BITMAP", 16, TPrimitiveType.OBJECT),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY);
+
 
     private static final int DATE_INDEX_LEN = 3;
     private static final int DATETIME_INDEX_LEN = 8;
@@ -80,6 +82,7 @@ public enum PrimitiveType {
         builder.put(NULL_TYPE, DECIMALV2);
         builder.put(NULL_TYPE, CHAR);
         builder.put(NULL_TYPE, VARCHAR);
+        builder.put(NULL_TYPE, BITMAP);
         builder.put(NULL_TYPE, TIME);
         // Boolean
         builder.put(BOOLEAN, BOOLEAN);
@@ -239,6 +242,7 @@ public enum PrimitiveType {
         builder.put(VARCHAR, DECIMALV2);
         builder.put(VARCHAR, VARCHAR);
         builder.put(VARCHAR, HLL);
+        builder.put(VARCHAR, BITMAP);
         // Decimal
         builder.put(DECIMAL, BOOLEAN);
         builder.put(DECIMAL, TINYINT);
@@ -267,6 +271,10 @@ public enum PrimitiveType {
         // HLL
         builder.put(HLL, HLL);
         builder.put(HLL, VARCHAR);
+
+        // BITMAP
+        builder.put(BITMAP, BITMAP);
+        builder.put(BITMAP, VARCHAR);
 
         //TIME
         builder.put(TIME, TIME);
@@ -316,6 +324,7 @@ public enum PrimitiveType {
         supportedTypes.add(TIME);
         supportedTypes.add(DECIMAL);
         supportedTypes.add(DECIMALV2);
+        supportedTypes.add(BITMAP);
     }
 
     public static ArrayList<PrimitiveType> getIntegerTypes() {
@@ -368,6 +377,7 @@ public enum PrimitiveType {
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMAL.ordinal()] = DECIMAL;
         compatibilityMatrix[NULL_TYPE.ordinal()][DECIMALV2.ordinal()] = DECIMALV2;
         compatibilityMatrix[NULL_TYPE.ordinal()][TIME.ordinal()] = TIME;
+        compatibilityMatrix[NULL_TYPE.ordinal()][BITMAP.ordinal()] = BITMAP;
 
         compatibilityMatrix[BOOLEAN.ordinal()][BOOLEAN.ordinal()] = BOOLEAN;
         compatibilityMatrix[BOOLEAN.ordinal()][TINYINT.ordinal()] = TINYINT;
@@ -503,6 +513,8 @@ public enum PrimitiveType {
         compatibilityMatrix[HLL.ordinal()][HLL.ordinal()] = HLL;
         compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = INVALID_TYPE;
 
+        compatibilityMatrix[BITMAP.ordinal()][BITMAP.ordinal()] = BITMAP;
+
         compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = TIME;
     }
 
@@ -562,6 +574,8 @@ public enum PrimitiveType {
                 return CHAR;
             case HLL:
                 return HLL;
+            case OBJECT:
+                return BITMAP;
             default:
                 return INVALID_TYPE;
         }
@@ -635,90 +649,6 @@ public enum PrimitiveType {
 
     public boolean isDecimalV2Type() {
         return this == DECIMALV2;
-    }
-
-    public PrimitiveType getNumResultType() {
-        switch (this) {
-            case BOOLEAN:
-            case TINYINT:
-            case SMALLINT:
-            case INT:
-            case BIGINT:
-                return BIGINT;
-            case LARGEINT:
-                return LARGEINT;
-            case FLOAT:
-            case DOUBLE:
-            case DATE:
-            case DATETIME:
-            case CHAR:
-            case VARCHAR:
-                return DOUBLE;
-            case DECIMAL:
-                return DECIMAL;
-            case DECIMALV2:
-                return DECIMALV2;
-            case HLL:
-                return HLL;
-            default:
-                return INVALID_TYPE;
-
-        }
-    }
-
-    public PrimitiveType getResultType() {
-        switch (this) {
-            case BOOLEAN:
-            case TINYINT:
-            case SMALLINT:
-            case INT:
-            case BIGINT:
-                return BIGINT;
-            case LARGEINT:
-                return LARGEINT;
-            case FLOAT:
-            case DOUBLE:
-                return DOUBLE;
-            case DATE:
-            case DATETIME:
-            case CHAR:
-            case VARCHAR:
-            case TIME:
-                return VARCHAR;
-            case DECIMAL:
-                return DECIMAL;
-            case DECIMALV2:
-                return DECIMALV2;
-            case HLL:
-                return HLL;
-            default:
-                return INVALID_TYPE;
-
-        }
-    }
-
-    public PrimitiveType getMaxResolutionType() {
-        if (this == BOOLEAN) {
-            return BOOLEAN;
-        } else if (this == LARGEINT) {
-        // if (this == LARGEINT) {
-            return LARGEINT;
-        } else if (isFixedPointType()) {
-            return BIGINT;
-        } else if (isDecimalType()) {
-            return DECIMAL;
-        } else if (isDecimalV2Type()) {
-            return DECIMALV2;
-        } else if (isDateType()) {
-            return DATETIME;
-            // Timestamps get summed as DOUBLE for AVG.
-        } else if (isFloatingPointType()) {
-            return DOUBLE;
-        } else if (isNull()) {
-            return NULL_TYPE;
-        } else {
-            return INVALID_TYPE;
-        }
     }
 
     public boolean isNumericType() {
@@ -799,42 +729,5 @@ public enum PrimitiveType {
             default:
                 return this.getSlotSize();
         }
-    }
-
-    public static PrimitiveType getCmpType(PrimitiveType t1, PrimitiveType t2) {
-        PrimitiveType t1ResultType = t1.getResultType();
-        PrimitiveType t2ResultType = t2.getResultType();
-
-        // Following logical is compatible with MySQL.
-        if (t1ResultType == PrimitiveType.VARCHAR && t2ResultType == PrimitiveType.VARCHAR) {
-            return PrimitiveType.VARCHAR;
-        }
-
-        if (t1ResultType == PrimitiveType.HLL && t2ResultType == PrimitiveType.HLL) {
-            return PrimitiveType.HLL;
-        } 
-
-        if (t1ResultType == PrimitiveType.BIGINT && t2ResultType == PrimitiveType.BIGINT) {
-            return getAssignmentCompatibleType(t1, t2);
-        }
-        if ((t1ResultType == PrimitiveType.BIGINT
-                    || t1ResultType == PrimitiveType.DECIMAL)
-                && (t2ResultType == PrimitiveType.BIGINT
-                    || t2ResultType == PrimitiveType.DECIMAL)) {
-            return PrimitiveType.DECIMAL;
-        }
-        if ((t1ResultType == PrimitiveType.BIGINT
-                    || t1ResultType == PrimitiveType.DECIMALV2)
-                && (t2ResultType == PrimitiveType.BIGINT
-                    || t2ResultType == PrimitiveType.DECIMALV2)) {
-            return PrimitiveType.DECIMALV2;
-        }
-        if ((t1ResultType == PrimitiveType.BIGINT
-                    || t1ResultType == PrimitiveType.LARGEINT)
-                && (t2ResultType == PrimitiveType.BIGINT
-                    || t2ResultType == PrimitiveType.LARGEINT)) {
-            return PrimitiveType.LARGEINT;
-        }
-        return PrimitiveType.DOUBLE;
     }
 }

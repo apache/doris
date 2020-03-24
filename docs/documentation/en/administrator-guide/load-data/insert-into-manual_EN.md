@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Insert Into
 
 The use of Insert Into statements is similar to that of Insert Into statements in databases such as MySQL. But in Doris, all data writing is a separate import job. So Insert Into is also introduced here as an import method.
@@ -26,6 +45,21 @@ Examples:
 ```
 INSERT INTO tbl2 WITH LABEL label1 SELECT * FROM tbl3;
 INSERT INTO tbl1 VALUES ("qweasdzxcqweasdzxc"), ("a");
+```
+
+**Notice**
+
+When using `CTE(Common Table Expressions)` as the query part of insert operation, the `WITH LABEL` or column list part must be specified.
+For example:
+
+```
+INSERT INTO tbl1 WITH LABEL label1
+WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
+
+INSERT INTO tbl1 (k1)
+WITH cte1 AS (SELECT * FROM tbl1), cte2 AS (SELECT * FROM tbl2)
+SELECT k1 FROM cte1 JOIN cte2 WHERE cte1.k1 = 1;
 ```
 
 The following is a brief introduction to the parameters used in creating import statements:
@@ -60,47 +94,100 @@ The following is a brief introduction to the parameters used in creating import 
 
 ### Load results
 
-Insert Into itself is an SQL command, so the return behavior is the same as the return behavior of the SQL command.
+Insert Into itself is a SQL command, and the return result is divided into the following types according to the different execution results:
 
-If the load fails, the error will be returned. Examples are as follows:
+1. Result set is empty
 
+    If the result set of the insert corresponding SELECT statement is empty, it is returned as follows:
 
-```
-ERROR 1064 (HY000): All partitions have no load data. url: http://ip:port/api/_load_error_log?File=_shard_14/error_log_insert_stmt_f435264d82f342e4-a33764f5f0dfbf00_f4364d82f342e4_a764f344e4_a764f5f5f0df0df0dbf00
-```
+    ```
+    mysql> insert into tbl1 select * from empty_tbl;
+    Query OK, 0 rows affected (0.02 sec)
+    ```
 
-Where URL can be used to query the wrong data, see the following **view error line** summary.
+    `Query OK` indicates successful execution. `0 rows affected` means that no data was loaded.
 
-If the load succeeds, the success will be returned. Examples are as follows:
+2. The result set is not empty
 
-```
-Query OK, 100 row affected, 0 warning (0.22 sec)
-```
+    In the case where the result set is not empty. The returned results are divided into the following situations:
 
-If the user specifies Label, the label will be returned as well.
+    1. Insert is successful and data is visible:
 
-```
-Query OK, 100 row affected, 0 warning (0.22 sec)
-{label':'user_specified_label'}
-```
+        ```
+        mysql> insert into tbl1 select * from tbl2;
+        Query OK, 4 rows affected (0.38 sec)
+        {'label': 'insert_8510c568-9eda-4173-9e36-6adc7d35291c', 'status': 'visible', 'txnId': '4005'}
+        
+        mysql> insert into tbl1 with label my_label1 select * from tbl2;
+        Query OK, 4 rows affected (0.38 sec)
+        {'label': 'my_label1', 'status': 'visible', 'txnId': '4005'}
+        
+        mysql> insert into tbl1 select * from tbl2;
+        Query OK, 2 rows affected, 2 warnings (0.31 sec)
+        {'label': 'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status': 'visible', 'txnId': '4005'}
+        
+        mysql> insert into tbl1 select * from tbl2;
+        Query OK, 2 rows affected, 2 warnings (0.31 sec)
+        {'label': 'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status': 'committed', 'txnId': '4005'}
+        ```
 
-If the load may be partially successful, the Label field is appended. Examples are as follows:
+        `Query OK` indicates successful execution. `4 rows affected` means that a total of 4 rows of data were imported. `2 warnings` indicates the number of lines to be filtered.
 
-```
-Query OK, 100 row affected, 1 warning (0.23 sec)
-{label':'7d66c457-658b-4a3e-bdcf-8beee872ef2c'}
-```
+        Also returns a json string:
 
-```
-Query OK, 100 row affected, 1 warning (0.23 sec)
-{label':'user_specified_label'}
-```
+        ```
+        {'label': 'my_label1', 'status': 'visible', 'txnId': '4005'}
+        {'label': 'insert_f0747f0e-7a35-46e2-affa-13a235f4020d', 'status': 'committed', 'txnId': '4005'}
+        {'label': 'my_label1', 'status': 'visible', 'txnId': '4005', 'err': 'some other error'}
+        ```
 
-Where affected represents the number of rows loaded. Warning denotes the number of rows that failed. Users need to view the wrong line through `SHOW LOAD WHERE LABEL='xxx';` command, and get url to view the errors.
+        `label` is a user-specified label or an automatically generated label. Label is the ID of this Insert Into load job. Each load job has a label that is unique within a single database.
 
-If there is no data, it will return success, and both affected and warning are 0.
+        `status` indicates whether the loaded data is visible. If visible, show `visible`, if not, show` committed`.
 
-Label is the identifier of the Insert Into import job. Each import job has a unique Label inside a single database. Insert Into's Label is generated by the system. Users can use the Label to asynchronously obtain the import status by querying the import command.
+        `txnId` is the id of the load transaction corresponding to this insert.
+
+        The `err` field displays some other unexpected errors.
+
+        When user need to view the filtered rows, the user can use the following statement
+
+        ```
+        show load where label = "xxx";
+        ```
+
+        The URL in the returned result can be used to query the wrong data. For details, see the following **View Error Lines** Summary.
+    
+        **"Data is not visible" is a temporary status, this batch of data must be visible eventually**
+
+        You can view the visible status of this batch of data with the following statement:
+
+        ```
+        show transaction where id = 4005;
+        ```
+
+        If the `TransactionStatus` column in the returned result is `visible`, the data is visible.
+
+    2. Insert fails
+
+        Execution failure indicates that no data was successfully loaded, and returns as follows:
+
+        ```
+        mysql> insert into tbl1 select * from tbl2 where k1 = "a";
+        ERROR 1064 (HY000): all partitions have no load data. Url: http://10.74.167.16:8042/api/_load_error_log?file=__shard_2/error_log_insert_stmt_ba8bb9e158e4879-ae8de8507c0bf8a2_ba8bb9e158e4879_ae8de850e8de850
+        ```
+
+        Where `ERROR 1064 (HY000): all partitions have no load data` shows the reason for the failure. The latter url can be used to query the wrong data. For details, see the following **View Error Lines** Summary.
+
+**In summary, the correct processing logic for the results returned by the insert operation should be:**
+
+1. If the returned result is `ERROR 1064 (HY000)`, it means that the import failed.
+2. If the returned result is `Query OK`, it means the execution was successful.
+
+    1. If `rows affected` is 0, the result set is empty and no data is loaded.
+    2. If `rows affected` is greater than 0:
+        1. If `status` is` committed`, the data is not yet visible. You need to check the status through the `show transaction` statement until `visible`.
+        2. If `status` is` visible`, the data is loaded successfully.
+    3. If `warnings` is greater than 0, it means that some data is filtered. You can get the url through the `show load` statement to see the filtered rows.
 
 ## Relevant System Configuration
 
@@ -118,7 +205,7 @@ Label is the identifier of the Insert Into import job. Each import job has a uni
 
 + enable\_insert\_strict
 
-	The Insert Into import itself cannot control the tolerable error rate of the import. Users can only use the Session parameter `enable_insert_strict`. When this parameter is set to false, it indicates that at least one data has been imported correctly, and then it returns successfully. When this parameter is set to false, the import fails if there is a data error. The default is false. It can be set by `SET enable_insert_strict = true;`.
+	The Insert Into import itself cannot control the tolerable error rate of the import. Users can only use the Session parameter `enable_insert_strict`. When this parameter is set to false, it indicates that at least one data has been imported correctly, and then it returns successfully. When this parameter is set to true, the import fails if there is a data error. The default is false. It can be set by `SET enable_insert_strict = true;`.
 
 + query u timeout
 

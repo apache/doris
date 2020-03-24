@@ -28,11 +28,12 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/storage_engine.h"
 #include "olap/txn_manager.h"
-#include "olap/new_status.h"
 #include <boost/algorithm/string.hpp>
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
+#include "util/file_utils.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -64,19 +65,19 @@ public:
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         boost::filesystem::remove_all(_engine_data_path);
-        create_dirs(_engine_data_path);
+        FileUtils::create_dir(_engine_data_path);
 
         _data_dir = new DataDir(_engine_data_path, 1000000000);
         _data_dir->init();
         _meta_path = "./meta";
-        string tmp_data_path = _engine_data_path + "/data"; 
+        string tmp_data_path = _engine_data_path + "/data";
         if (boost::filesystem::exists(tmp_data_path)) {
             boost::filesystem::remove_all(tmp_data_path);
         }
         copy_dir(test_engine_data_path, tmp_data_path);
         _tablet_id = 15007;
         _schema_hash = 368169781;
-        _tablet_data_path = tmp_data_path 
+        _tablet_data_path = tmp_data_path
                 + "/" + std::to_string(0)
                 + "/" + std::to_string(_tablet_id)
                 + "/" + std::to_string(_schema_hash);
@@ -130,8 +131,8 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     OlapSnapshotConverter converter;
     TabletMetaPB tablet_meta_pb;
     vector<RowsetMetaPB> pending_rowsets;
-    OLAPStatus status = converter.to_new_snapshot(header_msg, _tablet_data_path, _tablet_data_path, 
-        *_data_dir, &tablet_meta_pb, &pending_rowsets, true);
+    OLAPStatus status = converter.to_new_snapshot(header_msg, _tablet_data_path, _tablet_data_path,
+        &tablet_meta_pb, &pending_rowsets, true);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 
     TabletSchema tablet_schema;
@@ -143,12 +144,10 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     for (auto& pdelta : header_msg.delta()) {
         int64_t start_version = pdelta.start_version();
         int64_t end_version = pdelta.end_version();
-        int64_t version_hash = pdelta.version_hash();
         bool found = false;
         for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
             if (visible_rowset.start_version() == start_version
-                && visible_rowset.end_version() == end_version
-                && visible_rowset.version_hash() == version_hash) {
+                && visible_rowset.end_version() == end_version) {
                 found = true;
             }
         }
@@ -157,7 +156,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(visible_rowset);
-        AlphaRowset rowset(&tablet_schema, data_path_prefix, _data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, data_path_prefix, alpha_rowset_meta);
         ASSERT_TRUE(rowset.init() == OLAP_SUCCESS);
         ASSERT_TRUE(rowset.load() == OLAP_SUCCESS);
         std::vector<std::string> old_files;
@@ -182,11 +181,11 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     for (auto& inc_rowset : tablet_meta_pb.inc_rs_metas()) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(inc_rowset);
-        AlphaRowset rowset(&tablet_schema, data_path_prefix, _data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, data_path_prefix, alpha_rowset_meta);
         ASSERT_TRUE(rowset.init() == OLAP_SUCCESS);
         ASSERT_TRUE(rowset.load() == OLAP_SUCCESS);
-        AlphaRowset tmp_rowset(&tablet_schema, data_path_prefix + "/incremental_delta", 
-            _data_dir, alpha_rowset_meta);
+        AlphaRowset tmp_rowset(&tablet_schema, data_path_prefix + "/incremental_delta",
+            alpha_rowset_meta);
         ASSERT_TRUE(tmp_rowset.init() == OLAP_SUCCESS);
         std::vector<std::string> old_files;
         tmp_rowset.remove_old_files(&old_files);
@@ -210,7 +209,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     for (auto& pending_rowset : pending_rowsets) {
         RowsetMetaSharedPtr alpha_rowset_meta(new AlphaRowsetMeta());
         alpha_rowset_meta->init_from_pb(pending_rowset);
-        AlphaRowset rowset(&tablet_schema, data_path_prefix, _data_dir, alpha_rowset_meta);
+        AlphaRowset rowset(&tablet_schema, data_path_prefix, alpha_rowset_meta);
         ASSERT_TRUE(rowset.init() == OLAP_SUCCESS);
         ASSERT_TRUE(rowset.load() == OLAP_SUCCESS);
         std::vector<std::string> old_files;
@@ -219,15 +218,14 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
 
     // old files are removed, then convert new snapshot to old snapshot
     OLAPHeaderMessage old_header_msg;
-    status = converter.to_old_snapshot(tablet_meta_pb, _tablet_data_path, 
+    status = converter.to_old_snapshot(tablet_meta_pb, _tablet_data_path,
         _tablet_data_path, &old_header_msg);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     for (auto& pdelta : header_msg.delta()) {
         bool found = false;
         for (auto& converted_pdelta : old_header_msg.delta()) {
             if (converted_pdelta.start_version() == pdelta.start_version()
-                && converted_pdelta.end_version() == pdelta.end_version()
-                && converted_pdelta.version_hash() == pdelta.version_hash()) {
+                && converted_pdelta.end_version() == pdelta.end_version()) {
                 found = true;
             }
         }

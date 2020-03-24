@@ -56,14 +56,15 @@ enum CompactionType {
 
 struct DataDirInfo {
     DataDirInfo():
-            capacity(1),
+            path_hash(0),
+            disk_capacity(1),
             available(0),
             data_used_capacity(0),
             is_used(false) { }
 
     std::string path;
-    int64_t path_hash;
-    int64_t capacity;                  // 总空间，单位字节
+    size_t path_hash;
+    int64_t disk_capacity;             // actual disk capacity
     int64_t available;                 // 可用空间，单位字节
     int64_t data_used_capacity;
     bool is_used;                       // 是否可用标识
@@ -71,10 +72,7 @@ struct DataDirInfo {
 };
 
 struct TabletInfo {
-    TabletInfo(
-            TTabletId in_tablet_id,
-            TSchemaHash in_schema_hash, 
-            UniqueId in_uid) :
+    TabletInfo(TTabletId in_tablet_id, TSchemaHash in_schema_hash, UniqueId in_uid) :
             tablet_id(in_tablet_id),
             schema_hash(in_schema_hash),
             tablet_uid(in_uid) {}
@@ -139,7 +137,8 @@ enum FieldType {
     OLAP_FIELD_TYPE_UNKNOWN = 21,       // UNKNOW Type
     OLAP_FIELD_TYPE_NONE = 22,
     OLAP_FIELD_TYPE_HLL = 23,
-    OLAP_FIELD_TYPE_BOOL = 24
+    OLAP_FIELD_TYPE_BOOL = 24,
+    OLAP_FIELD_TYPE_OBJECT = 25
 };
 
 // 定义Field支持的所有聚集方法
@@ -154,7 +153,9 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_REPLACE = 4,
     OLAP_FIELD_AGGREGATION_HLL_UNION = 5,
     OLAP_FIELD_AGGREGATION_UNKNOWN = 6,
-    OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7
+    OLAP_FIELD_AGGREGATION_BITMAP_UNION = 7,
+    // Replace if and only if added value is not null
+    OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL = 8,
 };
 
 // 压缩算法类型
@@ -182,12 +183,13 @@ enum ReaderType {
 //using Version = std::pair<TupleVersion, TupleVersion>;
 
 struct Version {
-    int64_t first;  
+    int64_t first;
     int64_t second;
 
     Version(int64_t first_, int64_t second_) : first(first_), second(second_) {}
-
     Version() : first(0), second(0) {}
+
+    friend std::ostream& operator<<(std::ostream& os, const Version& version);
 
     bool operator!=(const Version& rhs) const {
         return first != rhs.first || second != rhs.second;
@@ -196,10 +198,17 @@ struct Version {
     bool operator==(const Version& rhs) const {
         return first == rhs.first && second == rhs.second;
     }
+
+    bool contains(const Version& other) const {
+        return first <= other.first && second >= other.second;
+    }
 };
 
 typedef std::vector<Version> Versions;
 
+inline std::ostream& operator<<(std::ostream& os, const Version& version) {
+    return os << "["<< version.first << "-" << version.second << "]";
+}
 
 // used for hash-struct of hash_map<Version, Rowset*>.
 struct HashOfVersion {
@@ -235,6 +244,7 @@ struct OlapReaderStatistics {
     int64_t block_load_ns = 0;
     int64_t blocks_load = 0;
     int64_t block_fetch_ns = 0;
+    int64_t block_seek_num = 0;
     int64_t block_seek_ns = 0;
     int64_t block_convert_ns = 0;
 
@@ -244,12 +254,16 @@ struct OlapReaderStatistics {
     int64_t vec_cond_ns = 0;
 
     int64_t rows_stats_filtered = 0;
+    int64_t rows_bf_filtered = 0;
     int64_t rows_del_filtered = 0;
 
     int64_t index_load_ns = 0;
 
     int64_t total_pages_num = 0;
     int64_t cached_pages_num = 0;
+
+    int64_t bitmap_index_filter_count = 0;
+    int64_t bitmap_index_filter_timer = 0;
 };
 
 typedef uint32_t ColumnId;
@@ -258,7 +272,7 @@ typedef std::set<uint32_t> UniqueIdSet;
 // Column unique Id -> column id map
 typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
 
-// 8 bit rowset id version 
+// 8 bit rowset id version
 // 56 bit, inc number from 0
 // 128 bit backend uid, it is a uuid bit, id version
 struct RowsetId {
@@ -334,7 +348,6 @@ struct RowsetId {
         out << rowset_id.to_string();
         return out;
     }
-
 };
 
 }  // namespace doris

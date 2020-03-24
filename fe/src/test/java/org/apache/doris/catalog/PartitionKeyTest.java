@@ -31,19 +31,10 @@ import java.util.List;
 import java.util.TimeZone;
 
 import org.apache.doris.common.FeConstants;
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*"  })
-@PrepareForTest(Catalog.class)
 public class PartitionKeyTest {
 
     private static List<Column> allColumns;
@@ -143,7 +134,7 @@ public class PartitionKeyTest {
         pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("-128"), new PartitionValue("-32768"),
                 new PartitionValue("-2147483648"), new PartitionValue("-9223372036854775808"),
                 new PartitionValue("-170141183460469231731687303715884105728"),
-                new PartitionValue("1900-01-01"), new PartitionValue("1900-01-01 00:00:00")),
+                new PartitionValue("0000-01-01"), new PartitionValue("0000-01-01 00:00:00")),
                 allColumns);
         pk2 = PartitionKey.createInfinityPartitionKey(allColumns, false);
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
@@ -159,11 +150,8 @@ public class PartitionKeyTest {
 
     @Test
     public void testSerialization() throws Exception {
-        catalog = EasyMock.createMock(Catalog.class);
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        FakeCatalog fakeCatalog = new FakeCatalog();
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
 
         // 1. Write objects to file
         File file = new File("./keyRangePartition");

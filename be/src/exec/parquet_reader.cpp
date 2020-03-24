@@ -35,7 +35,7 @@ namespace doris {
 // Broker
 
 ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, int32_t num_of_columns_from_file) :
-           _num_of_columns_from_file(num_of_columns_from_file), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0) {
+           _num_of_columns_from_file(num_of_columns_from_file), _total_groups(0), _current_group(0), _rows_of_group(0), _current_line_of_group(0), _current_line_of_batch(0) {
     _parquet = std::shared_ptr<ParquetFile>(new ParquetFile(file_reader));
     _properties = parquet::ReaderProperties();
     _properties.enable_buffered_stream();
@@ -45,12 +45,16 @@ ParquetReaderWrap::ParquetReaderWrap(FileReader *file_reader, int32_t num_of_col
 ParquetReaderWrap::~ParquetReaderWrap() {
     close();
 }
-
-Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs) {
+Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>& tuple_slot_descs, const std::string& timezone) {
     try {
         // new file reader for parquet file
-        _reader.reset(new parquet::arrow::FileReader(arrow::default_memory_pool(),
-                std::move(parquet::ParquetFileReader::Open(_parquet, _properties))));
+        auto st = parquet::arrow::FileReader::Make(arrow::default_memory_pool(),
+                                                   parquet::ParquetFileReader::Open(_parquet, _properties),
+                                                   &_reader);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to create parquet file reader, errmsg=" << st.ToString();
+            return Status::InternalError("Failed to create file reader");
+        }
 
         _file_metadata = _reader->parquet_reader()->metadata();
         // initial members
@@ -66,6 +70,8 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
             // Get the Column Reader for the boolean column
             _map_column.emplace(schemaDescriptor->Column(i)->name(), i);
         }
+        
+        _timezone = timezone;
 
         if (_current_line_of_group == 0) {// the first read
             RETURN_IF_ERROR(column_indices(tuple_slot_descs));
@@ -80,6 +86,7 @@ Status ParquetReaderWrap::init_parquet_reader(const std::vector<SlotDescriptor*>
                 LOG(WARNING) << "The first read record. " << status.ToString();
                 return Status::InternalError(status.ToString());
             }
+            _current_line_of_batch = 0;
             //save column type
             std::shared_ptr<arrow::Schema> field_schema = _batch->schema();
             for (int i = 0; i < _parquet_column_ids.size(); i++) {
@@ -168,6 +175,13 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
         if (!status.ok()) {
             return Status::InternalError("Read Batch Error With Libarrow.");
         }
+        _current_line_of_batch = 0;
+    } else if (_current_line_of_batch >= _batch->num_rows()) {
+        arrow::Status status = _rb_batch->ReadNext(&_batch);
+        if (!status.ok()) {
+            return Status::InternalError("Read Batch Error With Libarrow.");
+        }
+        _current_line_of_batch = 0;
     }
     return Status::OK();
 }
@@ -175,30 +189,38 @@ Status ParquetReaderWrap::read_record_batch(const std::vector<SlotDescriptor*>& 
 Status ParquetReaderWrap::handle_timestamp(const std::shared_ptr<arrow::TimestampArray>& ts_array, uint8_t *buf, int32_t *wbytes) {
     const auto type = std::dynamic_pointer_cast<arrow::TimestampType>(ts_array->type());
     // Doris only supports seconds
-    time_t timestamp = 0;
+    int64_t timestamp = 0;
     switch (type->unit()) {
         case arrow::TimeUnit::type::NANO: {// INT96
-            timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) / 1000000000); // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000000000L; // convert to Second
             break;
         }
         case arrow::TimeUnit::type::SECOND: {
-            timestamp = (time_t)ts_array->Value(_current_line_of_group);
+            timestamp = ts_array->Value(_current_line_of_batch);
             break;
         }
         case arrow::TimeUnit::type::MILLI: {
-            timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) / 1000); // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000; // convert to Second
             break;
         }
         case arrow::TimeUnit::type::MICRO: {
-            timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) / 1000000); // convert to Second
+            timestamp = ts_array->Value(_current_line_of_batch) / 1000000; // convert to Second
             break;
         }
         default:
             return Status::InternalError("Invalid Time Type.");
     }
-    struct tm local;
-    localtime_r(&timestamp, &local);
-    *wbytes = (uint32_t)strftime((char*)buf, 64, "%Y-%m-%d %H:%M:%S", &local);
+
+    DateTimeValue dtv;
+    if (!dtv.from_unixtime(timestamp, _timezone)) {
+        std::stringstream str_error;
+        str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
+        LOG(WARNING) << str_error.str();
+        return Status::InternalError(str_error.str());                                                                                                                                                                                     
+    }
+    char* buf_end = (char*) buf;
+    buf_end= dtv.to_string((char*) buf_end);
+    *wbytes = buf_end - (char*) buf -1;
     return Status::OK();
 }
 
@@ -215,20 +237,20 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
             switch (_parquet_column_type[i]) {
                 case arrow::Type::type::STRING: {
                     auto str_array = std::dynamic_pointer_cast<arrow::StringArray>(_batch->column(column_index));
-                    if (str_array->IsNull(_current_line_of_group)) {
+                    if (str_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        value = str_array->GetValue(_current_line_of_group, &wbytes);
+                        value = str_array->GetValue(_current_line_of_batch, &wbytes);
                         fill_slot(tuple, slot_desc, mem_pool, value, wbytes);
                     }
                     break;
                 }
                 case arrow::Type::type::INT32: {
                     auto int32_array = std::dynamic_pointer_cast<arrow::Int32Array>(_batch->column(column_index));
-                    if (int32_array->IsNull(_current_line_of_group)) {
+                    if (int32_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        int32_t value = int32_array->Value(_current_line_of_group);
+                        int32_t value = int32_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%d", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -236,10 +258,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::INT64: {
                     auto int64_array = std::dynamic_pointer_cast<arrow::Int64Array>(_batch->column(column_index));
-                    if (int64_array->IsNull(_current_line_of_group)) {
+                    if (int64_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        int64_t value = int64_array->Value(_current_line_of_group);
+                        int64_t value = int64_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%ld", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -247,10 +269,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::UINT32: {
                     auto uint32_array = std::dynamic_pointer_cast<arrow::UInt32Array>(_batch->column(column_index));
-                    if (uint32_array->IsNull(_current_line_of_group)) {
+                    if (uint32_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        uint32_t value = uint32_array->Value(_current_line_of_group);
+                        uint32_t value = uint32_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%u", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -258,10 +280,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::UINT64: {
                     auto uint64_array = std::dynamic_pointer_cast<arrow::UInt64Array>(_batch->column(column_index));
-                    if (uint64_array->IsNull(_current_line_of_group)) {
+                    if (uint64_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        uint64_t value = uint64_array->Value(_current_line_of_group);
+                        uint64_t value = uint64_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%lu", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -269,30 +291,30 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::BINARY: {
                     auto str_array = std::dynamic_pointer_cast<arrow::BinaryArray>(_batch->column(column_index));
-                    if (str_array->IsNull(_current_line_of_group)) {
+                    if (str_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                      value = str_array->GetValue(_current_line_of_group, &wbytes);
+                      value = str_array->GetValue(_current_line_of_batch, &wbytes);
                       fill_slot(tuple, slot_desc, mem_pool, value, wbytes);
                     }
                     break;
                 }
                 case arrow::Type::type::FIXED_SIZE_BINARY: {
                     auto fixed_array = std::dynamic_pointer_cast<arrow::FixedSizeBinaryArray>(_batch->column(column_index));
-                    if (fixed_array->IsNull(_current_line_of_group)) {
+                    if (fixed_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        string value = fixed_array->GetString(_current_line_of_group);
+                        string value = fixed_array->GetString(_current_line_of_batch);
                         fill_slot(tuple, slot_desc, mem_pool, (uint8_t*)value.c_str(), value.length());
                     }
                     break;
                 }
                 case arrow::Type::type::BOOL: {
                     auto boolean_array = std::dynamic_pointer_cast<arrow::BooleanArray>(_batch->column(column_index));
-                    if (boolean_array->IsNull(_current_line_of_group)) {
+                    if (boolean_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        bool value = boolean_array->Value(_current_line_of_group);
+                        bool value = boolean_array->Value(_current_line_of_batch);
                         if (value) {
                             fill_slot(tuple, slot_desc, mem_pool, (uint8_t*)"true", 4);
                         } else {
@@ -303,10 +325,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::UINT8: {
                     auto uint8_array = std::dynamic_pointer_cast<arrow::UInt8Array>(_batch->column(column_index));
-                    if (uint8_array->IsNull(_current_line_of_group)) {
+                    if (uint8_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        uint8_t value = uint8_array->Value(_current_line_of_group);
+                        uint8_t value = uint8_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%d", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -314,10 +336,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::INT8: {
                     auto int8_array = std::dynamic_pointer_cast<arrow::Int8Array>(_batch->column(column_index));
-                    if (int8_array->IsNull(_current_line_of_group)) {
+                    if (int8_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        int8_t value = int8_array->Value(_current_line_of_group);
+                        int8_t value = int8_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%d", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -325,10 +347,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::UINT16: {
                     auto uint16_array = std::dynamic_pointer_cast<arrow::UInt16Array>(_batch->column(column_index));
-                    if (uint16_array->IsNull(_current_line_of_group)) {
+                    if (uint16_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        uint16_t value = uint16_array->Value(_current_line_of_group);
+                        uint16_t value = uint16_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%d", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -336,10 +358,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::INT16: {
                     auto int16_array = std::dynamic_pointer_cast<arrow::Int16Array>(_batch->column(column_index));
-                    if (int16_array->IsNull(_current_line_of_group)) {
+                    if (int16_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        int16_t value = int16_array->Value(_current_line_of_group);
+                        int16_t value = int16_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%d", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -347,10 +369,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::HALF_FLOAT: {
                     auto half_float_array = std::dynamic_pointer_cast<arrow::HalfFloatArray>(_batch->column(column_index));
-                    if (half_float_array->IsNull(_current_line_of_group)) {
+                    if (half_float_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        float value = half_float_array->Value(_current_line_of_group);
+                        float value = half_float_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%f", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -358,10 +380,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::FLOAT: {
                     auto float_array = std::dynamic_pointer_cast<arrow::FloatArray>(_batch->column(column_index));
-                    if (float_array->IsNull(_current_line_of_group)) {
+                    if (float_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        float value = float_array->Value(_current_line_of_group);
+                        float value = float_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%f", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -369,10 +391,10 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::DOUBLE: {
                     auto double_array = std::dynamic_pointer_cast<arrow::DoubleArray>(_batch->column(column_index));
-                    if (double_array->IsNull(_current_line_of_group)) {
+                    if (double_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        float value = double_array->Value(_current_line_of_group);
+                        float value = double_array->Value(_current_line_of_batch);
                         wbytes = sprintf((char*)tmp_buf, "%f", value);
                         fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
                     }
@@ -380,7 +402,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::TIMESTAMP: {
                     auto ts_array = std::dynamic_pointer_cast<arrow::TimestampArray>(_batch->column(column_index));
-                    if (ts_array->IsNull(_current_line_of_group)) {
+                    if (ts_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
                         RETURN_IF_ERROR(handle_timestamp(ts_array, tmp_buf, &wbytes));// convert timestamp to string time
@@ -390,20 +412,20 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::DECIMAL: {
                     auto decimal_array = std::dynamic_pointer_cast<arrow::DecimalArray>(_batch->column(column_index));
-                    if (decimal_array->IsNull(_current_line_of_group)) {
+                    if (decimal_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        std::string value = decimal_array->FormatValue(_current_line_of_group);
+                        std::string value = decimal_array->FormatValue(_current_line_of_batch);
                         fill_slot(tuple, slot_desc, mem_pool, (const uint8_t*)value.c_str(), value.length());
                     }
                     break;
                 }
                 case arrow::Type::type::DATE32: {
                     auto ts_array = std::dynamic_pointer_cast<arrow::Date32Array>(_batch->column(column_index));
-                    if (ts_array->IsNull(_current_line_of_group)) {
+                    if (ts_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
-                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) * 24 * 60 * 60);
+                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_batch) * 24 * 60 * 60);
                         struct tm local;
                         localtime_r(&timestamp, &local);
                         char* to = reinterpret_cast<char*>(&tmp_buf);
@@ -414,11 +436,11 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
                 }
                 case arrow::Type::type::DATE64: {
                     auto ts_array = std::dynamic_pointer_cast<arrow::Date64Array>(_batch->column(column_index));
-                    if (ts_array->IsNull(_current_line_of_group)) {
+                    if (ts_array->IsNull(_current_line_of_batch)) {
                         RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
                     } else {
                         // convert milliseconds to seconds
-                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_group) / 1000);
+                        time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_batch) / 1000);
                         struct tm local;
                         localtime_r(&timestamp, &local);
                         char* to = reinterpret_cast<char*>(&tmp_buf);
@@ -448,6 +470,7 @@ Status ParquetReaderWrap::read(Tuple* tuple, const std::vector<SlotDescriptor*>&
 
     // update data value
     ++_current_line_of_group;
+    ++_current_line_of_batch;
     return read_record_batch(tuple_slot_descs, eof);
 }
 
@@ -460,7 +483,7 @@ ParquetFile::~ParquetFile() {
 }
 
 arrow::Status ParquetFile::Close() {
-    if (_file) {
+    if (_file != nullptr) {
         _file->close();
         delete _file;
         _file = nullptr;
@@ -469,7 +492,7 @@ arrow::Status ParquetFile::Close() {
 }
 
 bool ParquetFile::closed() const {
-    if (_file) {
+    if (_file != nullptr) {
         return _file->closed();
     } else {
         return true;
@@ -477,28 +500,14 @@ bool ParquetFile::closed() const {
 }
 
 arrow::Status ParquetFile::Read(int64_t nbytes, int64_t* bytes_read, void* buffer) {
-    bool eof = false;
-    size_t data_size = 0;
-    do {
-        data_size = nbytes;
-        Status result = _file->read((uint8_t*)buffer, &data_size, &eof);
-        if (!result.ok()) {
-            return arrow::Status::IOError("Read failed.");
-        }
-        if (eof) {
-            break;
-        }
-        *bytes_read += data_size; // total read bytes
-        nbytes -= data_size; // remained bytes
-        buffer = (uint8_t*)buffer + data_size;
-    } while (nbytes != 0);
-    return arrow::Status::OK();
+    return ReadAt(_pos, nbytes, bytes_read, buffer);
 }
 
 arrow::Status ParquetFile::ReadAt(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) {
     int64_t reads = 0;
-    while(nbytes != 0) {
-        Status result = _file->readat(position, nbytes, &reads, out);
+    _pos = position;
+    while (nbytes > 0) {
+        Status result = _file->readat(_pos, nbytes, &reads, out);
         if (!result.ok()) {
             *bytes_read = 0;
             return arrow::Status::IOError("Readat failed.");
@@ -508,7 +517,7 @@ arrow::Status ParquetFile::ReadAt(int64_t position, int64_t nbytes, int64_t* byt
         }
         *bytes_read += reads;// total read bytes
         nbytes -= reads; // remained bytes
-        position += reads;
+        _pos += reads;
         out = (char*)out + reads;
     }
     return arrow::Status::OK();
@@ -520,18 +529,29 @@ arrow::Status ParquetFile::GetSize(int64_t* size) {
 }
 
 arrow::Status ParquetFile::Seek(int64_t position) {
-    _file->seek(position);
+    _pos = position;
+    // NOTE: Only readat operation is used, so _file seek is not called here.
     return arrow::Status::OK();
 }
 
 
 arrow::Status ParquetFile::Tell(int64_t* position) const {
-    _file->tell(position);
+    *position = _pos;
     return arrow::Status::OK();
 }
 
 arrow::Status ParquetFile::Read(int64_t nbytes, std::shared_ptr<arrow::Buffer>* out) {
-    return arrow::Status::NotImplemented("Not Supported.");
+    std::shared_ptr<arrow::Buffer> read_buf;
+    ARROW_RETURN_NOT_OK(arrow::AllocateBuffer(arrow::default_memory_pool(), nbytes, &read_buf));
+    int64_t bytes_read = 0;
+    ARROW_RETURN_NOT_OK(ReadAt(_pos, nbytes, &bytes_read, read_buf->mutable_data()));
+    // If bytes_read is equal with read_buf's capacity, we just assign
+    if (bytes_read == nbytes) {
+        *out = std::move(read_buf);
+    } else {
+        *out = arrow::SliceBuffer(read_buf, 0, bytes_read);
+    }
+    return arrow::Status::OK();
 }
 
 }

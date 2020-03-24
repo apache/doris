@@ -21,12 +21,43 @@
 
 #include <cstdlib>
 #include <iostream>
+#include <limits>
+
+#include "olap/olap_common.h"
+#include "olap/uint24.h"
 
 #include "util/bit_stream_utils.h"
 #include "util/bit_stream_utils.inline.h"
 #include "util/faststring.h"
 
 namespace doris {
+
+static inline uint8_t bits_less_than_64(const uint64_t v) {
+    return v == 0 ? 0 : 64 - __builtin_clzll(v);
+}
+
+// See https://stackoverflow.com/questions/28423405/counting-the-number-of-leading-zeros-in-a-128-bit-integer
+static inline uint8_t bits_may_more_than_64(const uint128_t v) {
+    uint64_t hi = v >> 64;
+    uint64_t lo = v;
+    int z[3] = {
+            __builtin_clzll(hi),
+            __builtin_clzll(lo) + 64,
+            128
+    };
+    int idx = !hi + ((!lo) & (!hi));
+    return 128 - z[idx];
+}
+
+template <typename T>
+static inline uint8_t bits(const T v) {
+    if (sizeof(T) <= 8) {
+        return bits_less_than_64(v);
+    } else {
+        return bits_may_more_than_64(v);
+    }
+}
+
 // The implementation for frame-of-reference coding
 // The detail of frame-of-reference coding, please refer to
 // https://lemire.me/blog/2012/02/08/effective-compression-using-frame-of-reference-and-delta-coding/
@@ -37,15 +68,22 @@ namespace doris {
 // 1. Body:
 //      BitPackingFrame * FrameCount
 // 2. Footer:
-//      (2 bit OrderFlag + 6 bit BitWidth) * FrameCount
+//
+//      (8 bit StorageFormat + 8 bit BitWidth) * FrameCount
 //       8 bit FrameValueNum
 //      32 bit ValuesNum
 //
-// The not ascending order BitPackingFrame format:
-//      MinValue, (Value - MinVale) * FrameValueNum
+// There are currently three storage formats
+// (1) if the StorageFormat == 0: When input data order is not ascending and the BitPackingFrame format is:
+//          MinValue, (Value[i] - MinVale) * FrameValueNum
 //
-// The ascending order BitPackingFrame format:
+// (2) if the StorageFormat == 1: When input data order is ascending and the BitPackingFrame format is:
 //      MinValue, (Value[i] - Value[i - 1]) * FrameValueNum
+//
+// (3) if the StorageFormat == 2:  When overflow occurs when using (1) or (2) and save original values:
+//      MinValue, (Value[i]) * FrameValueNum
+//
+// len(MinValue) can be 32(uint32_t), 64(uint64_t), 128(uint128_t)
 //
 // The OrderFlag is 1 represents ascending order, 0 represents  not ascending order
 // The last frame value num maybe less than 128
@@ -67,7 +105,7 @@ public:
     // underlying buffer size + footer meta size.
     // Note: should call this method before flush.
     uint32_t len() {
-        return _buffer->size() + _order_flag_and_bit_widths.size() + 5;
+        return _buffer->size() + _storage_formats.size() + _bit_widths.size() + 5;
     }
 
     // Resets all the state in the encoder.
@@ -78,11 +116,13 @@ public:
     }
 
 private:
-    void bit_pack(T *input, uint8_t in_num, int bit_width, uint8_t *output);
+    void bit_pack(const T *input, uint8_t in_num, int bit_width, uint8_t *output);
 
     void bit_packing_one_frame_value(const T* input);
 
     const T* copy_value(const T* val, size_t count);
+
+    const T numeric_limits_max();
 
     uint32_t _values_num = 0;
     uint8_t _buffered_values_num = 0;
@@ -90,7 +130,8 @@ private:
     T _buffered_values[FRAME_VALUE_NUM];
 
     faststring* _buffer;
-    std::vector<uint8_t> _order_flag_and_bit_widths;
+    std::vector<uint8_t> _storage_formats;
+    std::vector<uint8_t> _bit_widths;
 };
 
 template<typename T>
@@ -98,7 +139,8 @@ class ForDecoder {
 public:
     explicit ForDecoder(const uint8_t* in_buffer, size_t buffer_len)
         :_buffer (in_buffer),
-         _buffer_len (buffer_len){}
+         _buffer_len (buffer_len),
+         _parsed(false){}
 
     // read footer metadata
     bool init();
@@ -114,6 +156,12 @@ public:
     // The skip_num is negative means move backwards
     bool skip(int32_t skip_num);
 
+    bool seek_at_or_after_value(const void* value, bool* exact_match);
+
+    uint32_t current_index() const {
+        return _current_index;
+    }
+
     uint32_t count() const {
         return _values_num;
     }
@@ -122,26 +170,41 @@ private:
 
     void bit_unpack(const uint8_t *input, uint8_t in_num, int bit_width, T *output);
 
+    inline uint32_t frame_size(uint32_t frame_index) {
+        return (frame_index == _frame_count - 1) ? _last_frame_size : _max_frame_size;
+    }
+
     void decode_current_frame(T* output);
+
+    T decode_frame_min_value(uint32_t frame_index);
+
+    // Return index of the last frame which contains value < target.
+    // Return `_frame_count - 1` when all frames are < target.
+    // Return `_frame_count` when not found (all frames are >= target).
+    uint32_t seek_last_frame_before_value(T target);
+
+    // Seek to the first value in frame that >= target.
+    // Return true when found and update exact_match.
+    // Return false otherwise.
+    bool seek_lower_bound_inside_frame(uint32_t frame_index, T target, bool* exact_match);
 
     T* copy_value(T* val, size_t count);
 
-    bool need_decode_frame() {
-        return !(_frame_value_num * _current_decoded_frame < _current_index
-                 && _current_index < _frame_value_num * (_current_decoded_frame + 1));
-    }
+    const uint8_t* _buffer = nullptr;
+    size_t _buffer_len = 0;
+    bool _parsed = false;
 
-    uint8_t _frame_value_num = 0;
+    uint8_t _max_frame_size = 0;
+    uint8_t _last_frame_size = 0;
     uint32_t _values_num = 0;
     uint32_t _frame_count = 0;
-    uint32_t _current_index = 0;
-    uint32_t _current_decoded_frame = -1;
-    std::vector<T> _out_buffer;
     std::vector<uint32_t> _frame_offsets;
     std::vector<uint8_t> _bit_widths;
-    std::vector<uint8_t> _order_flags;
-    const uint8_t* _buffer;
-    size_t _buffer_len = 0;
+    std::vector<uint8_t> _storage_formats;
+
+    uint32_t _current_index = 0;
+    uint32_t _current_decoded_frame = -1;
+    std::vector<T> _out_buffer; // store values of decoded frame
 };
 }
 

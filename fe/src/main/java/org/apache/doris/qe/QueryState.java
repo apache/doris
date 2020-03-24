@@ -45,6 +45,8 @@ public class QueryState {
     private boolean isQuery = false;
     private long affectedRows = 0;
     private int warningRows = 0;
+    // make it public for easy to use
+    public int serverStatus = 0;
 
     public QueryState() {
     }
@@ -53,6 +55,7 @@ public class QueryState {
         stateType = MysqlStateType.OK;
         errorCode = null;
         infoMessage = null;
+        serverStatus = 0;
     }
 
     public MysqlStateType getStateType() {

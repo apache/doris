@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # 多租户(Experimental)
 
 该功能为实验性质，暂不建议在生产环境使用。
@@ -9,7 +28,7 @@ Doris 作为一款 PB 级别的在线报表与多维分析数据库，对外通�
 - 一个用户的查询或者查询引起的bug经常会影响其他用户。
 - 实际生产环境单机只能部署一个BE进程。而多个BE可以更好的解决胖节点问题。并且对于join、聚合操作可以提供更高的并发度。
 
-综合以上三点，Doris需要新的多租户方案，既能做到较好的资源隔离和故障隔离，同时也能减少维护的代价，满足共有云和私有云的需求。
+综合以上三点，Doris需要新的多租户方案，既能做到较好的资源隔离和故障隔离，同时也能减少维护的代价，满足公有云和私有云的需求。
 
 ## 设计原则
 
@@ -22,7 +41,7 @@ Doris 作为一款 PB 级别的在线报表与多维分析数据库，对外通�
 - FE: Frontend，即 Doris 中用于元数据管理即查询规划的模块。
 - BE: Backend，即 Doris 中用于存储和查询数据的模块。
 - Master: FE 的一种角色。一个Doris集群只有一个Master，其他的FE为Observer或者Follower。
-- instance：一个 BE 进程及时一个 instance。
+- instance：一个 BE 进程即是一个 instance。
 - host：单个物理机
 - cluster：即一个集群，由多个instance组成。
 - 租户：一个cluster属于一个租户。cluster和租户之间是一对一关系。
@@ -42,7 +61,7 @@ Doris 作为一款 PB 级别的在线报表与多维分析数据库，对外通�
 1. cluster表示一个虚拟的集群，由多个BE的instance组成。多个cluster共享FE。
 2. 一个host上可以启动多个instance。cluster创建时，选取任意指定数量的instance，组成一个cluster。
 3. 创建cluster的同时，会创建一个名为superuser的账户，隶属于该cluster。superuser可以对cluster进行管理、创建数据库、分配权限等。
-4. Doris启动后，汇创建一个默认的cluster：default_cluster。如果用户不希望使用多cluster的功能，则会提供这个默认的cluster，并隐藏多cluster的其他操作细节。
+4. Doris启动后，会创建一个默认的cluster：default_cluster。如果用户不希望使用多cluster的功能，则会提供这个默认的cluster，并隐藏多cluster的其他操作细节。
 
 具体架构如下图：
 ![](../../../../resources/images/multi_tenant_arch.png)
@@ -179,7 +198,7 @@ Doris 作为一款 PB 级别的在线报表与多维分析数据库，对外通�
 
     为了保证高可用，每个分片的副本必需在不同的机器上。所以建表时，选择副本所在be的策略为在每个host上随机选取一个be。然后从这些be中随机选取所需副本数量的be。总体上做到每个机器上分片分布均匀。
     
-    因此，加入需要创建一个3副本的分片，即使cluster包含3个或以上的instance，但是只有2个或以下的host，依然不能创建该分片。
+    因此，假如需要创建一个3副本的分片，即使cluster包含3个或以上的instance，但是只有2个或以下的host，依然不能创建该分片。
     
 7. 负载均衡
 

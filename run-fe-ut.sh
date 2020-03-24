@@ -36,6 +36,7 @@ Usage: $0 <options>
   Eg.
     $0                      build and run ut
     $0 --coverage           build and run coverage statistic
+    $0 --run xxx            build and run the specified class
   "
   exit 1
 }
@@ -44,6 +45,7 @@ OPTS=$(getopt \
   -n $0 \
   -o '' \
   -l 'coverage' \
+  -l 'run' \
   -- "$@")
 
 if [ $? != 0 ] ; then
@@ -52,15 +54,19 @@ fi
 
 eval set -- "$OPTS"
 
+RUN=
 COVERAGE=
 if [ $# == 1 ] ; then
     #default
+    RUN=0
     COVERAGE=0
 else
+    RUN=0
     COVERAGE=0
     while true; do 
         case "$1" in
             --coverage) COVERAGE=1 ; shift ;;
+            --run) RUN=1 ; shift ;;
             --) shift ;  break ;;
             *) ehco "Internal error" ; exit 1 ;;
         esac
@@ -79,10 +85,24 @@ echo "******************************"
 cd ${DORIS_HOME}/fe/
 mkdir -p build/compile
 
+if [ -z "${FE_UT_PARALLEL}" ]; then
+    # the default fe unit test parallel is 1
+    export FE_UT_PARALLEL=1
+fi
+echo "Unit test parallel is: $FE_UT_PARALLEL"
+
 if [ ${COVERAGE} -eq 1 ]; then
     echo "Run coverage statistic"
     ant cover-test
 else
-    echo "Run Frontend UT"
-    $MVN test    
+    if [ ${RUN} -eq 1 ]; then
+        echo "Run the specified class: $1"
+        # eg:
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo
+        # sh run-fe-ut.sh --run org.apache.doris.utframe.Demo#testCreateDbAndTable+test2
+        ${MVN_CMD} test -D test=$1
+    else    
+        echo "Run Frontend UT"
+        ${MVN_CMD} test   
+    fi 
 fi

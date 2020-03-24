@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "common/object_pool.h"
 #include "gen_cpp/Descriptors_types.h"
+#include "gen_cpp/Types_types.h"
 #include "runtime/tuple.h"
 #include "runtime/mem_pool.h"
 
@@ -37,14 +38,15 @@ struct SchemaScannerParam {
     const std::string* db;
     const std::string* table;
     const std::string* wild;
-    const std::string* user;
-    const std::string* user_ip;
-    const std::string* ip;
-    int32_t port;
+    const std::string* user;    // deprecated
+    const std::string* user_ip; // deprecated
+    const TUserIdentity* current_user_ident; // to replace the user and user ip
+    const std::string* ip; // frontend ip
+    int32_t port;   // frontend thrift port
     int64_t thread_id;
 
     SchemaScannerParam()
-        : db(NULL), table(NULL), wild(NULL), user(NULL), user_ip(NULL), ip(NULL), port(0) { }
+        : db(NULL), table(NULL), wild(NULL), user(NULL), user_ip(NULL), current_user_ident(NULL), ip(NULL), port(0) { }
 };
 
 // virtual scanner for all schema table

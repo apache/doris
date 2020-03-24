@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -101,6 +104,8 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextE'],
     [['unix_timestamp'], 'INT', ['DATETIME'],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
+    [['unix_timestamp'], 'INT', ['DATE'],
+        '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
     [['unix_timestamp'], 'INT', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions7to_unixEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['from_unixtime'], 'VARCHAR', ['INT'],
@@ -112,6 +117,8 @@ visible_functions = [
         '_ZN5doris18TimestampFunctions3nowEPN9doris_udf15FunctionContextE'],
     [['curtime', 'current_time'], 'TIME', [],
         '_ZN5doris18TimestampFunctions7curtimeEPN9doris_udf15FunctionContextE'],
+    [['curdate', 'current_date'], 'DATE', [],
+        '_ZN5doris18TimestampFunctions7curdateEPN9doris_udf15FunctionContextE'],
     [['utc_timestamp'], 'DATETIME', [],
         '_ZN5doris18TimestampFunctions13utc_timestampEPN9doris_udf15FunctionContextE'],
     [['timestamp'], 'DATETIME', ['DATETIME'],
@@ -208,6 +215,9 @@ visible_functions = [
     [['date_format'], 'VARCHAR', ['DATETIME', 'VARCHAR'],
         '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
         '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE'],
+    [['date_format'], 'VARCHAR', ['DATE', 'VARCHAR'],
+        '_ZN5doris18TimestampFunctions11date_formatEPN9doris_udf'
+        '15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValE'],
     [['date', 'to_date'], 'DATE', ['DATETIME'],
         '_ZN5doris18TimestampFunctions7to_dateEPN9doris_udf15FunctionContextERKNS1_11DateTimeValE'],
 
@@ -220,6 +230,21 @@ visible_functions = [
 
     [['convert_tz'], 'DATETIME', ['DATETIME', 'VARCHAR', 'VARCHAR'],
             '_ZN5doris18TimestampFunctions10convert_tzEPN9doris_udf15FunctionContextERKNS1_11DateTimeValERKNS1_9StringValES9_'],
+
+    [['years_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions10years_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['months_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions11months_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['weeks_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions10weeks_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['days_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions9days_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['hours_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions10hours_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['minutes_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions12minutes_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
+    [['seconds_diff'], 'BIGINT', ['DATETIME', 'DATETIME'],
+            '_ZN5doris18TimestampFunctions12seconds_diffEPN9doris_udf15FunctionContextERKNS1_11DateTimeValES6_'],
 
     # Math builtin functions
     [['pi'], 'DOUBLE', [],
@@ -419,6 +444,7 @@ visible_functions = [
     [['if'], 'FLOAT', ['BOOLEAN', 'FLOAT', 'FLOAT'], ''],
     [['if'], 'DOUBLE', ['BOOLEAN', 'DOUBLE', 'DOUBLE'], ''],
     [['if'], 'DATETIME', ['BOOLEAN', 'DATETIME', 'DATETIME'], ''],
+    [['if'], 'DATE', ['BOOLEAN', 'DATE', 'DATE'], ''],
     [['if'], 'DECIMAL', ['BOOLEAN', 'DECIMAL', 'DECIMAL'], ''],
     [['if'], 'DECIMALV2', ['BOOLEAN', 'DECIMALV2', 'DECIMALV2'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -433,6 +459,7 @@ visible_functions = [
     [['nullif'], 'FLOAT', ['FLOAT', 'FLOAT'], ''],
     [['nullif'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
     [['nullif'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
+    [['nullif'], 'DATE', ['DATE', 'DATE'], ''],
     [['nullif'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['nullif'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -446,7 +473,10 @@ visible_functions = [
     [['ifnull'], 'LARGEINT', ['LARGEINT', 'LARGEINT'], ''],
     [['ifnull'], 'FLOAT', ['FLOAT', 'FLOAT'], ''],
     [['ifnull'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], ''],
+    [['ifnull'], 'DATE', ['DATE', 'DATE'], ''],
     [['ifnull'], 'DATETIME', ['DATETIME', 'DATETIME'], ''],
+    [['ifnull'], 'DATETIME', ['DATE', 'DATETIME'], ''],
+    [['ifnull'], 'DATETIME', ['DATETIME', 'DATE'], ''],
     [['ifnull'], 'DECIMAL', ['DECIMAL', 'DECIMAL'], ''],
     [['ifnull'], 'DECIMALV2', ['DECIMALV2', 'DECIMALV2'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -461,6 +491,7 @@ visible_functions = [
     [['coalesce'], 'FLOAT', ['FLOAT', '...'], ''],
     [['coalesce'], 'DOUBLE', ['DOUBLE', '...'], ''],
     [['coalesce'], 'DATETIME', ['DATETIME', '...'], ''],
+    [['coalesce'], 'DATE', ['DATE', '...'], ''],
     [['coalesce'], 'DECIMAL', ['DECIMAL', '...'], ''],
     [['coalesce'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
     # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
@@ -483,6 +514,12 @@ visible_functions = [
     [['strright', 'right'], 'VARCHAR', ['VARCHAR', 'INT'],
         '_ZN5doris15StringFunctions5rightEPN9doris_udf'
         '15FunctionContextERKNS1_9StringValERKNS1_6IntValE'],
+    [['ends_with'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
+        '_ZN5doris15StringFunctions9ends_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
+    [['starts_with'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
+        '_ZN5doris15StringFunctions11starts_withEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
+    [['null_or_empty'], 'BOOLEAN', ['VARCHAR'],
+        '_ZN5doris15StringFunctions13null_or_emptyEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['space'], 'VARCHAR', ['INT'],
         '_ZN5doris15StringFunctions5spaceEPN9doris_udf15FunctionContextERKNS1_6IntValE'],
     [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'],
@@ -596,11 +633,30 @@ visible_functions = [
 
     #bitmap function
 
-    [['to_bitmap'], 'VARCHAR', ['VARCHAR'],
+    [['to_bitmap'], 'BITMAP', ['VARCHAR'],
         '_ZN5doris15BitmapFunctions9to_bitmapEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['bitmap_count'], 'BIGINT', ['VARCHAR'],
+    [['bitmap_hash'], 'BITMAP', ['VARCHAR'],
+        '_ZN5doris15BitmapFunctions11bitmap_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['bitmap_count'], 'BIGINT', ['BITMAP'],
         '_ZN5doris15BitmapFunctions12bitmap_countEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['bitmap_empty'], 'BITMAP', [],
+        '_ZN5doris15BitmapFunctions12bitmap_emptyEPN9doris_udf15FunctionContextE'],
+    [['bitmap_or'], 'BITMAP', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions9bitmap_orEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
+    [['bitmap_and'], 'BITMAP', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions10bitmap_andEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
+    [['bitmap_to_string'], 'VARCHAR', ['BITMAP'],
+        '_ZN5doris15BitmapFunctions16bitmap_to_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['bitmap_from_string'], 'BITMAP', ['VARCHAR'],
+        '_ZN5doris15BitmapFunctions18bitmap_from_stringEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+    [['bitmap_contains'], 'BOOLEAN', ['BITMAP','BIGINT'],
+        '_ZN5doris15BitmapFunctions15bitmap_containsEPN9doris_udf15FunctionContextERKNS1_9StringValERKNS1_9BigIntValE'],
+    [['bitmap_has_any'], 'BOOLEAN', ['BITMAP','BITMAP'],
+        '_ZN5doris15BitmapFunctions14bitmap_has_anyEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
 
+    # hash functions
+    [['murmur_hash3_32'], 'INT', ['VARCHAR', '...'],
+        '_ZN5doris13HashFunctions15murmur_hash3_32EPN9doris_udf15FunctionContextEiPKNS1_9StringValE'],
 
     # aes and base64 function
     [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
@@ -657,7 +713,27 @@ visible_functions = [
     [['ST_Contains'], 'BOOLEAN', ['VARCHAR', 'VARCHAR'],
         '_ZN5doris12GeoFunctions11st_containsEPN9doris_udf15FunctionContextERKNS1_9StringValES6_',
         '_ZN5doris12GeoFunctions19st_contains_prepareEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE',
-        '_ZN5doris12GeoFunctions17st_contains_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE']
+        '_ZN5doris12GeoFunctions17st_contains_closeEPN9doris_udf15FunctionContextENS2_18FunctionStateScopeE'],
+    # grouping sets functions
+    [['grouping_id'], 'BIGINT', ['BIGINT'],
+        '_ZN5doris21GroupingSetsFunctions11grouping_idEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
+    [['grouping'], 'BIGINT', ['BIGINT'], '_ZN5doris21GroupingSetsFunctions8groupingEPN9doris_udf15FunctionContextERKNS1_9BigIntValE'],
+]
+
+# Except the following functions, other function will directly return
+# null if there is null parameters.
+# Functions in this set will handle null values, not just return null.
+#
+# This set is only used to replace 'functions with null parameters' with NullLiteral
+# when applying FoldConstantsRule rules on the FE side.
+# TODO(cmy): Are these functions only required to handle null values?
+non_null_result_with_null_param_functions = [
+    'if',
+    'hll_hash',
+    'concat_ws',
+    'ifnull',
+    'null_or_empty',
+    'coalesce'
 ]
 
 invisible_functions = [

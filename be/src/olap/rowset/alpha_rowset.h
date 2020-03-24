@@ -72,13 +72,14 @@ protected:
 
     AlphaRowset(const TabletSchema* schema,
                 std::string rowset_path,
-                DataDir* data_dir,
                 RowsetMetaSharedPtr rowset_meta);
-
+    
     // init segment groups
     OLAPStatus init() override;
 
-    OLAPStatus do_load_once(bool use_cache) override ;
+    OLAPStatus do_load(bool use_cache) override;
+
+    void do_close() override { }
 
     // add custom logic when rowset is published
     void make_visible_extra(Version version, VersionHash version_hash) override;

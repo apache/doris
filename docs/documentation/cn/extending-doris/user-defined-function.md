@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # User Define Function
 
 用户可以通过UDF机制来扩展Doris的能力。通过这篇文档，用户能够创建自己的UDF。
@@ -56,7 +75,7 @@
 
 ### 编写CMakeLists.txt
 
-基于上一步生成的`headers|libs`，用户可以使用`CMakeLists`等工具引入该依赖；在`CMakeLists`中，可以通过向`CMAKE_CXX_FLAGS`添加`-I|L`分别指定`headers|libs`路径；然后使用`add_library`添加动态库。例如，在`be/src/udf_samples/CMakeLists.txt`中，使用`add_library(udfsample SHARED udf_sample.cpp)`增加了一个`udfsample`动态库。后面需要写上涉及的所有源文件（不包含头文件）。
+基于上一步生成的`headers|libs`，用户可以使用`CMakeLists`等工具引入该依赖；在`CMakeLists`中，可以通过向`CMAKE_CXX_FLAGS`添加`-I|L`分别指定`headers|libs`路径；然后使用`add_library`添加动态库。例如，在`be/src/udf_samples/CMakeLists.txt`中，使用`add_library(udfsample SHARED udf_sample.cpp)` `target_link_libraries`(udfsample -static-libstdc++ -static-libgcc)增加了一个`udfsample`动态库。后面需要写上涉及的所有源文件（不包含头文件）。
 
 ### 执行编译
 

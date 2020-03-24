@@ -41,7 +41,6 @@ set(RUNTIME_FILES
     mem_pool.cpp
     plan_fragment_executor.cpp
     primitive_type.cpp
-    pull_load_task_mgr.cpp
     raw_value.cpp
     raw_value_ir.cpp
     result_sink.cpp
@@ -102,6 +101,7 @@ set(RUNTIME_FILES
     routine_load/data_consumer_pool.cpp
     routine_load/routine_load_task_executor.cpp
     small_file_mgr.cpp
+    record_batch_queue.cpp
     result_queue_mgr.cpp
     memory_scratch_sink.cpp
     external_scan_context_mgr.cpp

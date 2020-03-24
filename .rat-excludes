@@ -1,0 +1,15 @@
+.*json
+.*rst
+.*svg
+.*xml
+.*zip
+.gitattributes
+.gitignore
+.rat-excludes
+.travis.yml
+LICENSE
+NOTICE
+gutil/*
+manifest
+patches/*
+test_data/*

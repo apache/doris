@@ -14,7 +14,7 @@
 #include <rapidjson/document.h>
 
 #include "olap/olap_common.h"
-#include "olap/utils.h"
+#include "util/mutex.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -87,9 +87,9 @@ namespace doris {
             }
 
             // Change this slice to refer to an empty array
-            void clear() { 
+            void clear() {
                 _data = NULL;
-                _size = 0; 
+                _size = 0;
             }
 
             // Drop the first "n" bytes from this slice.
@@ -148,6 +148,12 @@ namespace doris {
             size_t _size;
     };
 
+    // The entry with smaller CachePriority will evict firstly
+    enum class CachePriority {
+        NORMAL = 0,
+        DURABLE = 1
+    };
+
     class Cache {
         public:
             Cache() {}
@@ -172,7 +178,8 @@ namespace doris {
             virtual Handle* insert(
                     const CacheKey& key,
                     void* value, size_t charge,
-                    void (*deleter)(const CacheKey& key, void* value)) = 0;
+                    void (*deleter)(const CacheKey& key, void* value),
+                    CachePriority priority = CachePriority::NORMAL) = 0;
 
             // If the cache has no mapping for "key", returns NULL.
             //
@@ -236,6 +243,7 @@ namespace doris {
         bool in_cache;      // Whether entry is in the cache.
         uint32_t refs;
         uint32_t hash;      // Hash of key(); used for fast sharding and comparisons
+        CachePriority priority = CachePriority::NORMAL;
         char key_data[1];   // Beginning of key
 
         CacheKey key() const {
@@ -308,7 +316,8 @@ namespace doris {
                     uint32_t hash,
                     void* value,
                     size_t charge,
-                    void (*deleter)(const CacheKey& key, void* value));
+                    void (*deleter)(const CacheKey& key, void* value),
+                    CachePriority priority = CachePriority::NORMAL);
             Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
             void release(Cache::Handle* handle);
             void erase(const CacheKey& key, uint32_t hash);
@@ -332,6 +341,7 @@ namespace doris {
             void _lru_append(LRUHandle* list, LRUHandle* e);
             bool _unref(LRUHandle* e);
             void _evict_from_lru(size_t charge, std::vector<LRUHandle*>* deleted);
+            void _evict_one_entry(LRUHandle* e);
 
             // Initialized before use.
             size_t _capacity;
@@ -364,7 +374,8 @@ namespace doris {
                     const CacheKey& key,
                     void* value,
                     size_t charge,
-                    void (*deleter)(const CacheKey& key, void* value));
+                    void (*deleter)(const CacheKey& key, void* value),
+                    CachePriority priority = CachePriority::NORMAL);
             virtual Handle* lookup(const CacheKey& key);
             virtual void release(Handle* handle);
             virtual void erase(const CacheKey& key);

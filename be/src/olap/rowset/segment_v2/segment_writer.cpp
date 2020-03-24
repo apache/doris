@@ -17,13 +17,17 @@
 
 #include "olap/rowset/segment_v2/segment_writer.h"
 
+#include "common/logging.h" // LOG
 #include "env/env.h" // Env
+#include "olap/fs/block_manager.h"
 #include "olap/row.h" // ContiguousRow
-#include "olap/row_block.h" // RowBlock
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
+#include "olap/rowset/segment_v2/page_io.h"
 #include "olap/short_key_index.h"
+#include "olap/schema.h"
 #include "util/crc32c.h"
+#include "util/faststring.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -31,41 +35,65 @@ namespace segment_v2 {
 const char* k_segment_magic = "D0R1";
 const uint32_t k_segment_magic_length = 4;
 
-SegmentWriter::SegmentWriter(std::string fname, uint32_t segment_id,
+SegmentWriter::SegmentWriter(fs::WritableBlock* wblock,
+                             uint32_t segment_id,
                              const TabletSchema* tablet_schema,
-                             const SegmentWriterOptions& opts)
-        : _fname(std::move(fname)),
+                             const SegmentWriterOptions& opts) :
         _segment_id(segment_id),
         _tablet_schema(tablet_schema),
-        _opts(opts) {
+        _opts(opts),
+        _wblock(wblock) {
+    CHECK_NOTNULL(_wblock);
 }
 
 SegmentWriter::~SegmentWriter() = default;
 
 Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
-    // create for write
-    RETURN_IF_ERROR(Env::Default()->new_writable_file(_fname, &_output_file));
-
     uint32_t column_id = 0;
     for (auto& column : _tablet_schema->columns()) {
-        ColumnMetaPB* column_meta = _footer.add_columns();
-        // TODO(zc): Do we need this column_id??
-        column_meta->set_column_id(column_id++);
-        column_meta->set_unique_id(column.unique_id());
-        bool is_nullable = column.is_nullable();
-        column_meta->set_is_nullable(is_nullable);
+        std::unique_ptr<Field> field(FieldFactory::create(column));
+        DCHECK(field.get() != nullptr);
 
         ColumnWriterOptions opts;
-        opts.compression_type = segment_v2::CompressionTypePB::LZ4F;
+        opts.meta = _footer.add_columns();
+        // TODO(zc): Do we need this column_id??
+        opts.meta->set_column_id(column_id++);
+        opts.meta->set_unique_id(column.unique_id());
+        opts.meta->set_type(field->type());
+        opts.meta->set_length(column.length());
+        opts.meta->set_encoding(DEFAULT_ENCODING);
+        opts.meta->set_compression(LZ4F);
+        opts.meta->set_is_nullable(column.is_nullable());
+
         // now we create zone map for key columns
         if (column.is_key()) {
             opts.need_zone_map = true;
         }
+        if (column.is_bf_column()) {
+            opts.need_bloom_filter = true;
+            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
+                    || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
+                    && !_opts.whether_to_filter_value) {
+                // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or
+                // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
+                // do not write the bloom filter index because it is useless
+                opts.need_bloom_filter = false;
+            }
+        }
+        if (column.has_bitmap_index()) {
+            opts.need_bitmap_index = true;
+            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
+                 || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
+                && !_opts.whether_to_filter_value) {
+                // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or
+                // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
+                // do not write the bitmap index because it is useless
+                opts.need_bitmap_index = false;
+            }
+        }
 
-        std::unique_ptr<Field> field(FieldFactory::create(column));
-        DCHECK(field.get() != nullptr);
-
-        std::unique_ptr<ColumnWriter> writer(new ColumnWriter(opts, std::move(field), is_nullable, _output_file.get()));
+        std::unique_ptr<ColumnWriter> writer(
+                new ColumnWriter(opts, std::move(field), _wblock));
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
     }
@@ -80,20 +108,26 @@ Status SegmentWriter::append_row(const RowType& row) {
         RETURN_IF_ERROR(_column_writers[cid]->append(cell));
     }
 
+    // At the begin of one block, so add a short key index entry
     if ((_row_count % _opts.num_rows_per_block) == 0) {
         std::string encoded_key;
         encode_key(&encoded_key, row, _tablet_schema->num_short_key_columns());
         RETURN_IF_ERROR(_index_builder->add_item(encoded_key));
     }
-    _row_count++;
+    ++_row_count;
     return Status::OK();
 }
 
 template Status SegmentWriter::append_row(const RowCursor& row);
 template Status SegmentWriter::append_row(const ContiguousRow& row);
 
+// TODO(lingbin): Currently this function does not include the size of various indexes,
+// We should make this more precise.
+// NOTE: This function will be called when any row of data is added, so we need to
+// make this function efficient.
 uint64_t SegmentWriter::estimate_segment_size() {
-    uint64_t size = 8; //magic size
+    // footer_size(4) + checksum(4) + segment_magic(4)
+    uint64_t size = 12;
     for (auto& column_writer : _column_writers) {
         size += column_writer->estimate_buffer_size();
     }
@@ -101,16 +135,21 @@ uint64_t SegmentWriter::estimate_segment_size() {
     return size;
 }
 
-Status SegmentWriter::finalize(uint64_t* segment_file_size) {
+Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
     for (auto& column_writer : _column_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
     RETURN_IF_ERROR(_write_data());
+    uint64_t index_offset = _wblock->bytes_appended();
     RETURN_IF_ERROR(_write_ordinal_index());
     RETURN_IF_ERROR(_write_zone_map());
+    RETURN_IF_ERROR(_write_bitmap_index());
+    RETURN_IF_ERROR(_write_bloom_filter_index());
     RETURN_IF_ERROR(_write_short_key_index());
+    *index_size = _wblock->bytes_appended() - index_offset;
     RETURN_IF_ERROR(_write_footer());
-    *segment_file_size = _output_file->size();
+    RETURN_IF_ERROR(_wblock->finalize());
+    *segment_file_size = _wblock->bytes_appended();
     return Status::OK();
 }
 
@@ -137,26 +176,33 @@ Status SegmentWriter::_write_zone_map() {
     return Status::OK();
 }
 
+Status SegmentWriter::_write_bitmap_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_bitmap_index());
+    }
+    return Status::OK();
+}
+
+Status SegmentWriter::_write_bloom_filter_index() {
+    for (auto& column_writer : _column_writers) {
+        RETURN_IF_ERROR(column_writer->write_bloom_filter_index());
+    }
+    return Status::OK();
+}
+
 Status SegmentWriter::_write_short_key_index() {
-    std::vector<Slice> slices;
-    // TODO(zc): we should get segment_size
-    RETURN_IF_ERROR(_index_builder->finalize(_row_count * 100, _row_count, &slices));
-
-    uint64_t offset = _output_file->size();
-    RETURN_IF_ERROR(_write_raw_data(slices));
-    uint32_t written_bytes = _output_file->size() - offset;
-
-    _footer.mutable_short_key_index_page()->set_offset(offset);
-    _footer.mutable_short_key_index_page()->set_size(written_bytes);
+    std::vector<Slice> body;
+    PageFooterPB footer;
+    RETURN_IF_ERROR(_index_builder->finalize(_row_count, &body, &footer));
+    PagePointer pp;
+    // short key index page is not compressed right now
+    RETURN_IF_ERROR(PageIO::write_page(_wblock, body, footer, &pp));
+    pp.to_proto(_footer.mutable_short_key_index_page());
     return Status::OK();
 }
 
 Status SegmentWriter::_write_footer() {
     _footer.set_num_rows(_row_count);
-    // collect all 
-    for (int i = 0; i < _column_writers.size(); ++i) {
-        _column_writers[i]->write_meta(_footer.mutable_columns(i));
-    }
 
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
     std::string footer_buf;
@@ -164,13 +210,14 @@ Status SegmentWriter::_write_footer() {
         return Status::InternalError("failed to serialize segment footer");
     }
 
-    std::string fixed_buf;
+    faststring fixed_buf;
     // footer's size
     put_fixed32_le(&fixed_buf, footer_buf.size());
     // footer's checksum
     uint32_t checksum = crc32c::Value(footer_buf.data(), footer_buf.size());
     put_fixed32_le(&fixed_buf, checksum);
-    // magic number. we don't write magic number in the header because that requires an extra seek when reading
+    // Append magic number. we don't write magic number in the header because
+    // that will need an extra seek when reading
     fixed_buf.append(k_segment_magic, k_segment_magic_length);
 
     std::vector<Slice> slices{footer_buf, fixed_buf};
@@ -178,7 +225,7 @@ Status SegmentWriter::_write_footer() {
 }
 
 Status SegmentWriter::_write_raw_data(const std::vector<Slice>& slices) {
-    RETURN_IF_ERROR(_output_file->appendv(&slices[0], slices.size()));
+    RETURN_IF_ERROR(_wblock->appendv(&slices[0], slices.size()));
     return Status::OK();
 }
 

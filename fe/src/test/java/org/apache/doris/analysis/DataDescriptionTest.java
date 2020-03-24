@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
@@ -31,11 +32,9 @@ import org.junit.Test;
 
 import java.util.List;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class DataDescriptionTest {
 
@@ -43,10 +42,6 @@ public class DataDescriptionTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     @Before
     public void setUp() {
@@ -99,11 +94,11 @@ public class DataDescriptionTest {
                 desc.toString());
 
         // with partition
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+        desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                                   Lists.newArrayList("abc.txt"),
                                                   null, null, null, false, null);
         desc.analyze("testDb");
-        Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2)", desc.toString());
+        Assert.assertEquals("DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2)", desc.toString());
         
         // alignment_timestamp func
         List<Expr> params = Lists.newArrayList();
@@ -111,12 +106,12 @@ public class DataDescriptionTest {
         params.add(new SlotRef(null, "k2"));
         BinaryPredicate predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), 
                 new FunctionCallExpr("alignment_timestamp", params));
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+        desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                                   Lists.newArrayList("abc.txt"),
                                                   Lists.newArrayList("k2", "k3"), null, null, false, Lists
                                                           .newArrayList((Expr) predicate));
         desc.analyze("testDb");
-        String sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)" 
+        String sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = alignment_timestamp('day', `k2`))";
         Assert.assertEquals(sql, desc.toString());
 
@@ -126,12 +121,12 @@ public class DataDescriptionTest {
         params.add(new StringLiteral("10"));
         predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                 new FunctionCallExpr("replace_value", params));
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+        desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                                   Lists.newArrayList("abc.txt"),
                                                   Lists.newArrayList("k2", "k3"), null, null,
                                                   false, Lists.newArrayList((Expr) predicate));
         desc.analyze("testDb");
-        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)"
+        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('-', '10'))";
         Assert.assertEquals(sql, desc.toString());
 
@@ -141,12 +136,12 @@ public class DataDescriptionTest {
         params.add(new NullLiteral());
         predicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"),
                 new FunctionCallExpr("replace_value", params));
-        desc = new DataDescription("testTable", Lists.newArrayList("p1", "p2"),
+        desc = new DataDescription("testTable", new PartitionNames(false, Lists.newArrayList("p1", "p2")),
                                                   Lists.newArrayList("abc.txt"),
                                                   Lists.newArrayList("k2", "k3"), null, null, false, Lists
                                                           .newArrayList((Expr) predicate));
         desc.analyze("testDb");
-        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITION (p1, p2) (k2, k3)"
+        sql = "DATA INFILE ('abc.txt') INTO TABLE testTable PARTITIONS (p1, p2) (k2, k3)"
                 + " SET (`k1` = replace_value('', NULL))";
         Assert.assertEquals(sql, desc.toString());
     }
@@ -208,18 +203,25 @@ public class DataDescriptionTest {
         new Expectations() {
             {
                 columnMapping1.getChild(0);
+                minTimes = 0;
                 result = column1;
                 columnMapping2.getChild(0);
+                minTimes = 0;
                 result = column2;
                 columnMapping1.getChild(1);
+                minTimes = 0;
                 result = expr1;
                 expr1.getFnName();
+                minTimes = 0;
                 result = functionName;
                 functionName.getFunction();
+                minTimes = 0;
                 result = "test";
                 column1.getColumnName();
+                minTimes = 0;
                 result = duplicatedColumnName;
                 column2.getColumnName();
+                minTimes = 0;
                 result = duplicatedColumnName;
             }
         };

@@ -75,7 +75,7 @@ TEST_F(BooleanQueryBuilderTest, range_query) {
     range_value.Accept(writer);
     std::string actual_json = buffer.GetString();
     //LOG(INFO) << "range query" << actual_json;
-    ASSERT_STREQ("{\"range\":{\"k\":{\"ge\":\"a\"}}}", actual_json.c_str());
+    ASSERT_STREQ("{\"range\":{\"k\":{\"gte\":\"a\"}}}", actual_json.c_str());
 }
 
 TEST_F(BooleanQueryBuilderTest, es_query) {
@@ -178,6 +178,25 @@ TEST_F(BooleanQueryBuilderTest, match_all_query) {
     ASSERT_STREQ("{\"match_all\":{}}", actual_json.c_str());
 }
 
+TEST_F(BooleanQueryBuilderTest, exists_query) {
+    // k1 is not null
+    // {"exists":{"field":"k1"}}
+    std::string exists_field = "k1";
+    int exists_field_length = exists_field.length();
+    TypeDescriptor exists_col_type_desc = TypeDescriptor::create_varchar_type(exists_field_length);
+    ExtIsNullPredicate isNullPredicate(TExprNodeType::IS_NULL_PRED, "k1", exists_col_type_desc, true);
+    ExistsQueryBuilder exists_query(isNullPredicate);
+    rapidjson::Document document;
+    rapidjson::Value exists_query_value(rapidjson::kObjectType);
+    exists_query_value.SetObject();
+    exists_query.to_json(&document, &exists_query_value);
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    exists_query_value.Accept(writer);
+    std::string actual_json = buffer.GetString();
+    ASSERT_STREQ("{\"exists\":{\"field\":\"k1\"}}", actual_json.c_str());
+}
+
 
 TEST_F(BooleanQueryBuilderTest, bool_query) {
     // content like 'a%e%g_'
@@ -229,7 +248,7 @@ TEST_F(BooleanQueryBuilderTest, bool_query) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     bool_query_value.Accept(writer);
     std::string actual_json = buffer.GetString();
-    std::string expected_json = "{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}},{\"range\":{\"k\":{\"ge\":\"a\"}}},{\"term\":{\"content\":\"wyf\"}}]}}";
+    std::string expected_json = "{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}},{\"range\":{\"k\":{\"gte\":\"a\"}}},{\"term\":{\"content\":\"wyf\"}}]}}";
     //LOG(INFO) << "bool query" << actual_json;
     ASSERT_STREQ(expected_json.c_str(), actual_json.c_str());
 }
@@ -313,7 +332,7 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     compound_bool_value.Accept(writer);
     std::string actual_bool_json = buffer.GetString();
-    std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}}]}},{\"bool\":{\"should\":[{\"range\":{\"k\":{\"ge\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}}";
+    std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}}]}},{\"bool\":{\"should\":[{\"range\":{\"k\":{\"gte\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}}";
     //LOG(INFO) << "compound bool query" << actual_bool_json;
     ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
 }

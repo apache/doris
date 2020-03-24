@@ -63,8 +63,9 @@ struct TColumnDef {
 struct TDescribeTableParams {
   1: optional string db
   2: required string table_name
-  3: optional string user
-  4: optional string user_ip
+  3: optional string user   // deprecated
+  4: optional string user_ip    // deprecated
+  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
 // Results of a call to describeTable()
@@ -279,8 +280,9 @@ struct TExecRequest {
 struct TGetDbsParams {
   // If not set, match every database
   1: optional string pattern
-  2: optional string user
-  3: optional string user_ip
+  2: optional string user   // deprecated
+  3: optional string user_ip    // deprecated
+  4: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
 // getDbNames returns a list of database names
@@ -296,8 +298,9 @@ struct TGetTablesParams {
 
   // If not set, match every table
   2: optional string pattern 
-  3: optional string user 
-  4: optional string user_ip
+  3: optional string user   // deprecated
+  4: optional string user_ip    // deprecated
+  5: optional Types.TUserIdentity current_user_ident // to replace the user and user ip
 }
 
 struct TTableStatus {
@@ -412,6 +415,13 @@ struct TMasterOpRequest {
     7: optional i32 queryTimeout
     8: optional string user_ip
     9: optional string time_zone
+    10: optional i64 stmt_id
+    11: optional i64 sqlMode
+    12: optional i64 loadMemLimit
+    13: optional bool enableStrictMode
+    // this can replace the "user" field
+    14: optional Types.TUserIdentity current_user_ident
+    15: optional i32 stmtIdx  // the idx of the sql in multi statements
 }
 
 struct TColumnDefinition {
@@ -534,6 +544,7 @@ struct TStreamLoadPutRequest {
     19: optional bool strictMode
     20: optional string timezone
     21: optional i64 execMemLimit
+    22: optional bool isTempPartition
 }
 
 struct TStreamLoadPutResult {

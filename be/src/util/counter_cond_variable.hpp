@@ -42,9 +42,6 @@ namespace doris {
 //          cond.dec();
 //          ... do work...
 //          cond.dec();
-//          or
-//          ... failed ...
-//          cond.dec_to_zero();
 //
 //      thread3(waiter):    
 //          cond.block_wait();            
@@ -60,18 +57,13 @@ public:
         _count += inc;
     }
 
-    // decrease the counter, and notify all waiters
+    // decrease the counter, and notify all waiters when counter <= 0
     void dec(int dec = 1) {
         std::unique_lock<std::mutex> lock(_lock);
         _count -= dec;
-        _cv.notify_all();
-    }
-
-    // decrease the counter to zero
-    void dec_to_zero() {
-        std::unique_lock<std::mutex> lock(_lock);
-        _count = 0;
-        _cv.notify_all();
+        if (_count <= 0) {
+            _cv.notify_all();
+        }
     }
 
     // wait until count down to zero

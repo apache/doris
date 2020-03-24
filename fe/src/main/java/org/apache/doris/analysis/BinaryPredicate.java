@@ -17,6 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Objects;
+
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -30,16 +35,11 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
-
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 /**
  * Most predicates with two operands..
@@ -137,7 +137,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     private Operator op;
     // check if left is slot and right isnot slot.
     private Boolean slotIsleft = null;
-    
+
     // for restoring
     public BinaryPredicate() {
         super();
@@ -243,7 +243,6 @@ public class BinaryPredicate extends Predicate implements Writable {
     @Override
     public void vectorizedAnalyze(Analyzer analyzer) {
         super.vectorizedAnalyze(analyzer);
-        Type cmpType = getCmpType();
         Function match = null;
 
         //OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
@@ -305,7 +304,7 @@ public class BinaryPredicate extends Predicate implements Writable {
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
         }
-        
+
         return Type.DOUBLE;
     }
 
@@ -314,13 +313,18 @@ public class BinaryPredicate extends Predicate implements Writable {
         super.analyzeImpl(analyzer);
 
         for (Expr expr : children) {
-            if (expr instanceof Subquery && !expr.getType().isScalarType()) {
-                throw new AnalysisException("BinaryPredicate can't contain subquery or non scalar type");
-            }   
+            if (expr instanceof Subquery && !((Subquery) expr).returnsScalarColumn()) {
+                String msg = "Subquery of binary predicate must return a single column: " + expr.toSql();
+                throw new AnalysisException(msg);
+            }
+        }
+
+        // if children has subquery, it will be written and reanalyzed in the future.
+        if (children.get(0) instanceof Subquery || children.get(1) instanceof Subquery) {
+            return;
         }
 
         Type cmpType = getCmpType();
-
         // Ignore return value because type is always bool for predicates.
         castBinaryOp(cmpType);
 
@@ -477,7 +481,6 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int isWritable = in.readInt();
         if (isWritable == 0) {
@@ -548,6 +551,11 @@ public class BinaryPredicate extends Predicate implements Writable {
                 Preconditions.checkState(false, "No defined binary operator.");
         }
         return this;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }
 

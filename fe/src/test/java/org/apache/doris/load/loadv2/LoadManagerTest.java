@@ -26,12 +26,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.meta.MetaContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -44,7 +46,6 @@ import java.io.FileOutputStream;
 import java.util.List;
 import java.util.Map;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -58,9 +59,16 @@ public class LoadManagerTest {
 
     }
 
+    @After
+    public void tearDown() throws Exception {
+        File file = new File("./loadManagerTest");
+        if (file.exists()) {
+            file.delete();
+        }
+    }
+
     @Test
-    public void testCreateHadoopJob(@Mocked LoadJobScheduler loadJobScheduler,
-                                    @Injectable LoadStmt stmt,
+    public void testCreateHadoopJob(@Injectable LoadStmt stmt,
                                     @Injectable LabelName labelName,
                                     @Mocked Catalog catalog,
                                     @Injectable Database database,
@@ -72,17 +80,22 @@ public class LoadManagerTest {
         loadJobs.add(brokerLoadJob);
         labelToLoadJobs.put(label1, loadJobs);
         dbIdToLabelToLoadJobs.put(1L, labelToLoadJobs);
+        LoadJobScheduler loadJobScheduler = new LoadJobScheduler();
         loadManager = new LoadManager(loadJobScheduler);
         Deencapsulation.setField(loadManager, "dbIdToLabelToLoadJobs", dbIdToLabelToLoadJobs);
         new Expectations() {
             {
                 stmt.getLabel();
+                minTimes = 0;
                 result = labelName;
                 labelName.getLabelName();
+                minTimes = 0;
                 result = "label1";
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = database;
                 database.getId();
+                minTimes = 0;
                 result = 1L;
             }
         };
@@ -105,12 +118,16 @@ public class LoadManagerTest {
         new Expectations(){
             {
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 database.getTable(anyLong);
+                minTimes = 0;
                 result = table;
                 table.getName();
+                minTimes = 0;
                 result = "tablename";
                 Catalog.getCurrentCatalogJournalVersion();
+                minTimes = 0;
                 result = FeMetaVersion.VERSION_56;
             }
         };
@@ -136,10 +153,13 @@ public class LoadManagerTest {
         new Expectations(){
             {
                 catalog.getDb(anyLong);
+                minTimes = 0;
                 result = database;
                 database.getTable(anyLong);
+                minTimes = 0;
                 result = table;
                 table.getName();
+                minTimes = 0;
                 result = "tablename";
             }
         };

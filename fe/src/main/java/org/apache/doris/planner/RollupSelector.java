@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CastExpr;
@@ -27,10 +28,9 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MaterializedIndex;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -63,14 +63,10 @@ public final class RollupSelector {
     public long selectBestRollup(
             Collection<Long> partitionIds, List<Expr> conjuncts, boolean isPreAggregation)
             throws UserException {
-        Preconditions.checkArgument(partitionIds != null && !partitionIds.isEmpty(),
-                "Paritition can't be null or empty.");
+        Preconditions.checkArgument(partitionIds != null , "Paritition can't be null.");
         // Get first partition to select best prefix index rollups, because MaterializedIndex ids in one rollup's partitions are all same.
         final List<Long> bestPrefixIndexRollups =
-                selectBestPrefixIndexRollup(
-                        table.getPartition(partitionIds.iterator().next()),
-                        conjuncts,
-                        isPreAggregation);
+                selectBestPrefixIndexRollup(conjuncts, isPreAggregation);
         return selectBestRowCountRollup(bestPrefixIndexRollups, partitionIds);
     }
 
@@ -88,18 +84,38 @@ public final class RollupSelector {
                 selectedIndexId = indexId;
             } else if (rowCount == minRowCount) {
                 // check column number, select one minimum column number
-                int selectedColumnSize = table.getIndexIdToSchema().get(selectedIndexId).size();
-                int currColumnSize = table.getIndexIdToSchema().get(indexId).size();
+                int selectedColumnSize = table.getSchemaByIndexId(selectedIndexId).size();
+                int currColumnSize = table.getSchemaByIndexId(indexId).size();
                 if (currColumnSize < selectedColumnSize) {
                     selectedIndexId = indexId;
                 }
             }
         }
+        String tableName = table.getName();
+        String v2RollupIndexName = MaterializedViewHandler.NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + tableName;
+        Long v2RollupIndex = table.getIndexIdByName(v2RollupIndexName);
+        long baseIndexId = table.getBaseIndexId();
+        ConnectContext connectContext = ConnectContext.get();
+        boolean useV2Rollup = false;
+        if (connectContext != null) {
+            useV2Rollup = connectContext.getSessionVariable().getUseV2Rollup();
+        }
+        if (baseIndexId == selectedIndexId && v2RollupIndex != null && useV2Rollup) {
+            // if the selectedIndexId is baseIndexId
+            // check whether there is a V2 rollup index and useV2Rollup flag is true,
+            // if both true, use v2 rollup index
+            selectedIndexId = v2RollupIndex;
+        }
+        if (!useV2Rollup && v2RollupIndex != null && v2RollupIndex == selectedIndexId) {
+            // if the selectedIndexId is v2RollupIndex
+            // but useV2Rollup is false, use baseIndexId as selectedIndexId
+            // just make sure to use baseIndex instead of v2RollupIndex if the useV2Rollup is false
+            selectedIndexId = baseIndexId;
+        }
         return selectedIndexId;
     }
 
-    private List<Long> selectBestPrefixIndexRollup(
-            Partition partition, List<Expr> conjuncts, boolean isPreAggregation) throws UserException {
+    private List<Long> selectBestPrefixIndexRollup(List<Expr> conjuncts, boolean isPreAggregation) throws UserException {
 
         final List<String> outputColumns = Lists.newArrayList();
         for (SlotDescriptor slot : tupleDesc.getMaterializedSlots()) {
@@ -107,12 +123,12 @@ public final class RollupSelector {
             outputColumns.add(col.getName());
         }
 
-        final List<MaterializedIndex> rollups = partition.getMaterializedIndices(IndexExtState.VISIBLE);
+        final List<MaterializedIndex> rollups = table.getVisibleIndex();
         LOG.debug("num of rollup(base included): {}, pre aggr: {}", rollups.size(), isPreAggregation);
 
         // 1. find all rollup indexes which contains all tuple columns
         final List<MaterializedIndex> rollupsContainsOutput = Lists.newArrayList();
-        final List<Column> baseTableColumns = table.getKeyColumnsByIndexId(partition.getBaseIndex().getId());
+        final List<Column> baseTableColumns = table.getKeyColumnsByIndexId(table.getBaseIndexId());
         for (MaterializedIndex rollup : rollups) {
             final Set<String> rollupColumns = Sets.newHashSet();
             table.getSchemaByIndexId(rollup.getId())

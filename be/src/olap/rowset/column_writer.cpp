@@ -111,6 +111,7 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id,
         break;
     }
     case OLAP_FIELD_TYPE_VARCHAR:
+    case OLAP_FIELD_TYPE_OBJECT:
     case OLAP_FIELD_TYPE_HLL: {
         column_writer = new(std::nothrow) VarStringColumnWriter(column_id,
                 stream_factory, column, num_rows_per_row_block, bf_fpp);

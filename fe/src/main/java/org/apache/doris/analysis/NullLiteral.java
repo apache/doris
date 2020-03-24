@@ -134,7 +134,6 @@ public class NullLiteral extends LiteralExpr {
         super.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
     }

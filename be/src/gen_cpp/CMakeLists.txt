@@ -29,6 +29,8 @@ set(SRC_FILES
     ${GEN_CPP_DIR}/TDorisExternalService.cpp
     ${GEN_CPP_DIR}/DorisExternalService_types.cpp
     ${GEN_CPP_DIR}/DorisExternalService_constants.cpp
+    ${GEN_CPP_DIR}/QueryPlanExtra_types.cpp
+    ${GEN_CPP_DIR}/QueryPlanExtra_constants.cpp
     ${GEN_CPP_DIR}/TPaloBrokerService.cpp
     ${GEN_CPP_DIR}/HeartbeatService_constants.cpp
     ${GEN_CPP_DIR}/HeartbeatService.cpp

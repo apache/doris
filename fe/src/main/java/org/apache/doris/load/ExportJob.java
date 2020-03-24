@@ -24,6 +24,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
@@ -36,6 +37,7 @@ import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
@@ -218,7 +220,7 @@ public class ExportJob implements Writable {
     }
 
     private void registerToDesc() {
-        TableRef ref = new TableRef(tableName, null, partitions);
+        TableRef ref = new TableRef(tableName, null, partitions == null ? null : new PartitionNames(false, partitions));
         BaseTableRef tableRef = new BaseTableRef(ref, exportTable, tableName);
         exportTupleDesc = desc.createTupleDescriptor();
         exportTupleDesc.setTable(exportTable);
@@ -401,11 +403,21 @@ public class ExportJob implements Writable {
     }
 
     public int getTimeoutSecond() {
-        return Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+        if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
+            return Integer.parseInt(properties.get(LoadStmt.TIMEOUT_PROPERTY));
+        } else {
+            // for compatibility, some export job in old version does not have this property. use default.
+            return Config.export_task_default_timeout_second;
+        }
     }
 
     public int getTabletNumberPerTask() {
-        return Integer.parseInt(properties.get(ExportStmt.TABLET_NUMBER_PER_TASK_PROP));
+        if (properties.containsKey(ExportStmt.TABLET_NUMBER_PER_TASK_PROP)) {
+            return Integer.parseInt(properties.get(ExportStmt.TABLET_NUMBER_PER_TASK_PROP));
+        } else {
+            // for compatibility, some export job in old version does not have this property. use default.
+            return Config.export_tablet_num_per_task;
+        }
     }
 
     public List<String> getPartitions() {
@@ -606,7 +618,6 @@ public class ExportJob implements Writable {
         tableName.write(out);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         isReplayed = true;
         id = in.readLong();
@@ -706,7 +717,6 @@ public class ExportJob implements Writable {
             Text.writeString(out, state.name());
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             jobId = in.readLong();
             state = JobState.valueOf(Text.readString(in));

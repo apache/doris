@@ -17,25 +17,36 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class DropPartitionInfo implements Writable {
+    @SerializedName(value = "dbId")
     private Long dbId;
+    @SerializedName(value = "tableId")
     private Long tableId;
+    @SerializedName(value = "partitionName")
     private String partitionName;
+    @SerializedName(value = "isTempPartition")
+    private boolean isTempPartition = false;
     
-    public DropPartitionInfo() {
+    private DropPartitionInfo() {
     }
 
-    public DropPartitionInfo(Long dbId, Long tableId, String partitionName) {
+    public DropPartitionInfo(Long dbId, Long tableId, String partitionName, boolean isTempPartition) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionName = partitionName;
+        this.isTempPartition = isTempPartition;
     }
     
     public Long getDbId() {
@@ -50,18 +61,34 @@ public class DropPartitionInfo implements Writable {
         return partitionName;
     }
 
-    public void write(DataOutput out) throws IOException {
-        out.writeLong(dbId);
-        out.writeLong(tableId);
-        Text.writeString(out, partitionName);
+    public boolean isTempPartition() {
+        return isTempPartition;
     }
- 
-    public void readFields(DataInput in) throws IOException {
+
+    private void readFields(DataInput in) throws IOException {
         dbId = in.readLong();
         tableId = in.readLong();
         partitionName = Text.readString(in);
     }
-    
+
+    public static DropPartitionInfo read(DataInput in) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_74) {
+            DropPartitionInfo info = new DropPartitionInfo();
+            info.readFields(in);
+            return info;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, DropPartitionInfo.class);
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
+    }
+
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;

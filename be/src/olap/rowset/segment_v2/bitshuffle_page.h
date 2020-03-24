@@ -34,6 +34,7 @@
 #include "olap/rowset/segment_v2/page_decoder.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/bitshuffle_wrapper.h"
+#include "util/slice.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -105,7 +106,11 @@ public:
         return Status::OK();
     }
 
-    Slice finish() override {
+    OwnedSlice finish() override {
+        if (_count > 0) {
+            _first_value = cell(0);
+            _last_value = cell(_count - 1);
+        }
         return _finish(SIZE_OF_TYPE);
     }
 
@@ -130,17 +135,25 @@ public:
         return _buffer.size();
     }
 
-    // this api will release the memory ownership of encoded data
-    // Note:
-    //     release() should be called after finish
-    //     reset() should be called after this function before reuse the builder
-    void release() override {
-        uint8_t* ret = _buffer.release();
-        (void)ret;
+    Status get_first_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_first_value, SIZE_OF_TYPE);
+        return Status::OK();
+    }
+    Status get_last_value(void* value) const override {
+        DCHECK(_finished);
+        if (_count == 0) {
+            return Status::NotFound("page is empty");
+        }
+        memcpy(value, &_last_value, SIZE_OF_TYPE);
+        return Status::OK();
     }
 
 private:
-    Slice _finish(int final_size_of_type) {
+    OwnedSlice _finish(int final_size_of_type) {
         _data.resize(final_size_of_type * _count);
 
         // Do padding so that the input num of element is multiple of 8.
@@ -151,10 +164,10 @@ private:
             _data.push_back(0);
         }
 
+        // reserve enough place for compression
         _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE +
                 bitshuffle::compress_lz4_bound(num_elems_after_padding, final_size_of_type, 0));
 
-        encode_fixed32_le(&_buffer[0], _count);
         int64_t bytes = bitshuffle::compress_lz4(_data.data(), &_buffer[BITSHUFFLE_PAGE_HEADER_SIZE],
                 num_elems_after_padding, final_size_of_type, 0);
         if (PREDICT_FALSE(bytes < 0)) {
@@ -163,13 +176,17 @@ private:
             warn_with_bitshuffle_error(bytes);
             // It does not matter what will be returned here,
             // since we have logged fatal in warn_with_bitshuffle_error().
-            return Slice();
+            return OwnedSlice();
         }
+        // update header
+        encode_fixed32_le(&_buffer[0], _count);
         encode_fixed32_le(&_buffer[4], BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
         encode_fixed32_le(&_buffer[8], num_elems_after_padding);
         encode_fixed32_le(&_buffer[12], final_size_of_type);
         _finished = true;
-        return Slice(_buffer.data(), BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
+        // before build(), update buffer length to the actual compressed size
+        _buffer.resize(BITSHUFFLE_PAGE_HEADER_SIZE + bytes);
+        return _buffer.build();
     }
 
     typedef typename TypeTraits<Type>::CppType CppType;
@@ -177,7 +194,7 @@ private:
     CppType cell(int idx) const {
         DCHECK_GE(idx, 0);
         CppType ret;
-        memcpy(&ret, &_data[idx * SIZE_OF_TYPE], sizeof(CppType));
+        memcpy(&ret, &_data[idx * SIZE_OF_TYPE], SIZE_OF_TYPE);
         return ret;
     }
 
@@ -190,6 +207,8 @@ private:
     bool _finished;
     faststring _data;
     faststring _buffer;
+    CppType _first_value;
+    CppType _last_value;
 };
 
 template<FieldType Type>
@@ -273,6 +292,44 @@ public:
 
         DCHECK_LE(pos, _num_elements);
         _cur_index = pos;
+        return Status::OK();
+    }
+
+    Status seek_at_or_after_value(const void* value, bool* exact_match) override {
+        DCHECK(_parsed) << "Must call init() firstly";
+
+        if (_num_elements == 0) {
+            return Status::NotFound("page is empty");
+        }
+
+        size_t left = 0;
+        size_t right = _num_elements;
+
+        void* mid_value = nullptr;
+
+        // find the first value >= target. after loop,
+        // - left == index of first value >= target when found
+        // - left == _num_elements when not found (all values < target)
+        while (left < right) {
+            size_t mid = left + (right - left) / 2;
+            mid_value = &_decoded[mid * SIZE_OF_TYPE];
+            if (TypeTraits<Type>::cmp(mid_value, value) < 0) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+        if (left >= _num_elements) {
+            return Status::NotFound("all value small than the value");
+        }
+        void* find_value = &_decoded[left * SIZE_OF_TYPE];
+        if (TypeTraits<Type>::cmp(find_value, value) == 0) {
+            *exact_match = true;
+        } else {
+            *exact_match = false;
+        }
+
+        _cur_index = left;
         return Status::OK();
     }
 

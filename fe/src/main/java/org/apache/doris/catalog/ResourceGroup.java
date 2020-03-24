@@ -109,7 +109,6 @@ public class ResourceGroup implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int numResource = in.readInt();
         for (int i = 0; i < numResource; ++i) {

@@ -51,6 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@Deprecated
 public class DecommissionBackendJob extends AlterJob {
 
     public enum DecommissionType {
@@ -297,7 +298,6 @@ public class DecommissionBackendJob extends AlterJob {
      * @param in
      * @throws IOException
      */
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

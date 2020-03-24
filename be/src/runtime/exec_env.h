@@ -41,26 +41,26 @@ class MetricRegistry;
 class StorageEngine;
 class PoolMemTrackerRegistry;
 class PriorityThreadPool;
-class PullLoadTaskMgr;
 class ReservationTracker;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class TestExecEnv;
-class ThreadPool;
 class ThreadResourceMgr;
 class TmpFileMgr;
 class WebPageHandler;
 class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
+class FileBlockManager;
 
 class BackendServiceClient;
 class FrontendServiceClient;
 class TPaloBrokerServiceClient;
 class TExtDataSourceServiceClient; 
 template<class T> class ClientCache;
+class HeartbeatFlags;
 
 // Execution environment for queries/plan fragments.
 // Contains all required global structures, and handles to
@@ -106,7 +106,7 @@ public:
     PoolMemTrackerRegistry* pool_mem_trackers() { return _pool_mem_trackers; }
     ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
     PriorityThreadPool* thread_pool() { return _thread_pool; }
-    ThreadPool* etl_thread_pool() { return _etl_thread_pool; }
+    PriorityThreadPool* etl_thread_pool() { return _etl_thread_pool; }
     CgroupsMgr* cgroups_mgr() { return _cgroups_mgr; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     TMasterInfo* master_info() { return _master_info; }
@@ -115,7 +115,6 @@ public:
     DiskIoMgr* disk_io_mgr() { return _disk_io_mgr; }
     TmpFileMgr* tmp_file_mgr() { return _tmp_file_mgr; }
     BfdParser* bfd_parser() const { return _bfd_parser; }
-    PullLoadTaskMgr* pull_load_task_mgr() const { return _pull_load_task_mgr; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
     BrpcStubCache* brpc_stub_cache() const { return _brpc_stub_cache; }
     ReservationTracker* buffer_reservation() { return _buffer_reservation; }
@@ -131,6 +130,7 @@ public:
 
     StreamLoadExecutor* stream_load_executor() { return _stream_load_executor; }
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
+    HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
 
 private:
     Status _init(const std::vector<StorePath>& store_paths);
@@ -157,7 +157,7 @@ private:
     PoolMemTrackerRegistry* _pool_mem_trackers = nullptr;
     ThreadResourceMgr* _thread_mgr = nullptr;
     PriorityThreadPool* _thread_pool = nullptr;
-    ThreadPool* _etl_thread_pool = nullptr;
+    PriorityThreadPool* _etl_thread_pool = nullptr;
     CgroupsMgr* _cgroups_mgr = nullptr;
     FragmentMgr* _fragment_mgr = nullptr;
     TMasterInfo* _master_info = nullptr;
@@ -167,7 +167,6 @@ private:
     TmpFileMgr* _tmp_file_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
-    PullLoadTaskMgr* _pull_load_task_mgr = nullptr;
     BrokerMgr* _broker_mgr = nullptr;
     LoadChannelMgr* _load_channel_mgr = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
@@ -181,6 +180,7 @@ private:
     StreamLoadExecutor* _stream_load_executor = nullptr;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
+    HeartbeatFlags* _heartbeat_flags = nullptr;
 };
 
 

@@ -19,7 +19,8 @@ package org.apache.doris.master;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.monitor.jvm.JvmService;
 import org.apache.doris.monitor.jvm.JvmStats;
@@ -42,7 +43,7 @@ import java.util.List;
 /**
  * Checkpoint daemon is running on master node. handle the checkpoint work for palo. 
  */
-public class Checkpoint extends Daemon {
+public class Checkpoint extends MasterDaemon {
     public static final Logger LOG = LogManager.getLogger(Checkpoint.class);
     private static final int PUT_TIMEOUT_SECOND = 3600;
     private static final int CONNECT_TIMEOUT_SECOND = 1;
@@ -52,8 +53,9 @@ public class Checkpoint extends Daemon {
     private String imageDir;
     private EditLog editLog;
 
-    public Checkpoint(EditLog editLog) throws IOException {
-        this.imageDir = Catalog.IMAGE_DIR;
+    public Checkpoint(EditLog editLog) {
+        super("leaderCheckpointer", FeConstants.checkpoint_interval_second * 1000L);
+        this.imageDir = Catalog.getCurrentCatalog().getImageDir();
         this.editLog = editLog;
     }
 
@@ -66,7 +68,7 @@ public class Checkpoint extends Daemon {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         long imageVersion = 0;
         long checkPointVersion = 0;
         Storage storage = null;
@@ -102,6 +104,8 @@ public class Checkpoint extends Daemon {
                           checkPointVersion, catalog.getReplayedJournalId());
                 return;
             }
+            catalog.fixBugAfterMetadataReplayed(false);
+
             catalog.saveImage();
             replayedJournalId = catalog.getReplayedJournalId();
             if (MetricRepo.isInit.get()) {
@@ -190,8 +194,7 @@ public class Checkpoint extends Daemon {
                         }
                     }
                 }
-                deleteVersion = (minOtherNodesJournalId > checkPointVersion)
-                        ? checkPointVersion : minOtherNodesJournalId;
+                deleteVersion = Math.min(minOtherNodesJournalId, checkPointVersion);
             }
             editLog.deleteJournals(deleteVersion + 1);
             if (MetricRepo.isInit.get()) {

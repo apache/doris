@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -227,7 +228,14 @@ public class BrokerScanNode extends LoadScanNode {
         context.slotDescByName = Maps.newHashMap();
         context.exprMap = Maps.newHashMap();
 
-        Load.initColumns(targetTable, context.fileGroup.getColumnExprList(),
+        // for load job, column exprs is got from file group
+        // for query, there is no column exprs, they will be got from table's schema in "Load.initColumns"
+        List<ImportColumnDesc> columnExprs = Lists.newArrayList();
+        if (isLoad()) {
+            columnExprs = context.fileGroup.getColumnExprList();
+        }
+
+        Load.initColumns(targetTable, columnExprs,
                 context.fileGroup.getColumnToHadoopFunction(), context.exprMap, analyzer,
                 context.tupleDescriptor, context.slotDescByName, context.params);
     }
@@ -284,7 +292,7 @@ public class BrokerScanNode extends LoadScanNode {
                 expr.setType(Type.HLL);
             }
 
-            checkBitmapCompatibility(destSlotDesc, expr);
+            checkBitmapCompatibility(analyzer, destSlotDesc, expr);
 
             // analyze negative
             if (isNegative && destSlotDesc.getColumn().getAggregationType() == AggregateType.SUM) {
@@ -304,31 +312,20 @@ public class BrokerScanNode extends LoadScanNode {
 
     private TScanRangeLocations newLocations(TBrokerScanRangeParams params, String brokerName)
             throws UserException {
-        List<Backend> candidateBes = Lists.newArrayList();
-        // Get backend
-        int numBe = Math.min(3, backends.size());
-        for (int i = 0; i < numBe; ++i) {
-            candidateBes.add(backends.get(nextBe++));
-            nextBe = nextBe % backends.size();
-        }
-        // we shuffle it because if we only has 3 backends
-        // we will always choose the same backends without shuffle
-        Collections.shuffle(candidateBes);
+        Backend selectedBackend = backends.get(nextBe++);
+        nextBe = nextBe % backends.size();
 
         // Generate on broker scan range
         TBrokerScanRange brokerScanRange = new TBrokerScanRange();
         brokerScanRange.setParams(params);
-        int numBroker = Math.min(3, numBe);
-        for (int i = 0; i < numBroker; ++i) {
-            FsBroker broker = null;
-            try {
-                broker = Catalog.getInstance().getBrokerMgr().getBroker(
-                        brokerName, candidateBes.get(i).getHost());
-            } catch (AnalysisException e) {
-                throw new UserException(e.getMessage());
-            }
-            brokerScanRange.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
+
+        FsBroker broker = null;
+        try {
+            broker = Catalog.getInstance().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
         }
+        brokerScanRange.addToBroker_addresses(new TNetworkAddress(broker.ip, broker.port));
 
         // Scan range
         TScanRange scanRange = new TScanRange();
@@ -337,12 +334,11 @@ public class BrokerScanNode extends LoadScanNode {
         // Locations
         TScanRangeLocations locations = new TScanRangeLocations();
         locations.setScan_range(scanRange);
-        for (Backend be : candidateBes) {
-            TScanRangeLocation location = new TScanRangeLocation();
-            location.setBackend_id(be.getId());
-            location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
-            locations.addToLocations(location);
-        }
+
+        TScanRangeLocation location = new TScanRangeLocation();
+        location.setBackend_id(selectedBackend.getId());
+        location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
+        locations.addToLocations(location);
 
         return locations;
     }
@@ -401,19 +397,23 @@ public class BrokerScanNode extends LoadScanNode {
     private void assignBackends() throws UserException {
         backends = Lists.newArrayList();
         for (Backend be : Catalog.getCurrentSystemInfo().getIdToBackend().values()) {
-            if (be.isAlive()) {
+            if (be.isAvailable()) {
                 backends.add(be);
             }
         }
         if (backends.isEmpty()) {
-            throw new UserException("No Alive backends");
+            throw new UserException("No available backends");
         }
         Collections.shuffle(backends, random);
     }
 
     private TFileFormatType formatType(String fileFormat, String path) {
-        if (fileFormat != null && fileFormat.toLowerCase().equals("parquet")) {
-            return TFileFormatType.FORMAT_PARQUET;
+        if (fileFormat != null) {
+            if (fileFormat.toLowerCase().equals("parquet")) {
+                return TFileFormatType.FORMAT_PARQUET;
+            } else if (fileFormat.toLowerCase().equals("orc")) {
+                return TFileFormatType.FORMAT_ORC;
+            }
         }
 
         String lowerCasePath = path.toLowerCase();
@@ -427,6 +427,8 @@ public class BrokerScanNode extends LoadScanNode {
             return TFileFormatType.FORMAT_CSV_LZ4FRAME;
         } else if (lowerCasePath.endsWith(".lzo")) {
             return TFileFormatType.FORMAT_CSV_LZOP;
+        } else if (lowerCasePath.endsWith(".deflate")) {
+            return TFileFormatType.FORMAT_CSV_DEFLATE;
         } else {
             return TFileFormatType.FORMAT_CSV_PLAIN;
         }

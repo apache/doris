@@ -44,7 +44,7 @@ public class PartitionDesc {
         throw new NotImplementedException();
     }
 
-    public PartitionInfo toPartitionInfo(List<Column> columns, Map<String, Long> partitionNameToId)
+    public PartitionInfo toPartitionInfo(List<Column> columns, Map<String, Long> partitionNameToId, boolean isTemp)
             throws DdlException {
         throw new NotImplementedException();
     }

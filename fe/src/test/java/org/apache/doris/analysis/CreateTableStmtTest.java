@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import mockit.Expectations;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -28,7 +29,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,7 +38,6 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 
 import mockit.Mocked;
-import mockit.internal.startup.Startup;
 
 public class CreateTableStmtTest {
     private static final Logger LOG = LoggerFactory.getLogger(CreateTableStmtTest.class);
@@ -56,10 +55,6 @@ public class CreateTableStmtTest {
     private PaloAuth auth;
     @Mocked
     private ConnectContext ctx;
-
-    static {
-        Startup.initializeIfPossible();
-    }
 
     // set default db is 'db1'
     // table name is table1
@@ -102,6 +97,21 @@ public class CreateTableStmtTest {
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertNull(stmt.getProperties());
     }
+
+    @Test
+    public void testCreateTableWithRollup() throws UserException {
+        List<AlterClause> ops = Lists.newArrayList();
+        ops.add(new AddRollupClause("index1", Lists.newArrayList("col1", "col2"), null, "table1", null));
+        ops.add(new AddRollupClause("index2", Lists.newArrayList("col2", "col3"), null, "table1", null));
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, colsName), null,
+                new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "", ops);
+        stmt.analyze(analyzer);
+        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("table1", stmt.getTableName());
+        Assert.assertNull(stmt.getProperties());
+        Assert.assertTrue(stmt.toSql().contains("rollup( `index1` (`col1`, `col2`) FROM `table1`, `index2` (`col2`, `col3`) FROM `table1`)"));
+    }
     
     @Test
     public void testDefaultDbNormal() throws UserException, AnalysisException {
@@ -116,16 +126,23 @@ public class CreateTableStmtTest {
     }
     
     @Test(expected = AnalysisException.class)
-    public void testNoDb() throws UserException, AnalysisException {
+    public void testNoDb(@Mocked Analyzer noDbAnalyzer) throws UserException, AnalysisException {
         // make defalut db return empty;
-        analyzer = EasyMock.createMock(Analyzer.class);
-        EasyMock.expect(analyzer.getDefaultDb()).andReturn("").anyTimes();
-        EasyMock.expect(analyzer.getClusterName()).andReturn("cluster").anyTimes();
-        EasyMock.replay(analyzer);
+        new Expectations() {
+            {
+                noDbAnalyzer.getDefaultDb();
+                minTimes = 0;
+                result = "";
+
+                noDbAnalyzer.getClusterName();
+                minTimes = 0;
+                result = "cluster";
+            }
+        };
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new RandomDistributionDesc(10), null, null, "");
-        stmt.analyze(analyzer);
+        stmt.analyze(noDbAnalyzer);
     }
     
     @Test(expected = AnalysisException.class)

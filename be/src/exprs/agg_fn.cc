@@ -17,7 +17,6 @@
 
 #include "exprs/agg_fn.h"
 
-#include "codegen/llvm_codegen.h"
 #include "exprs/anyval_util.h"
 #include "runtime/descriptors.h"
 #include "runtime/user_function_cache.h"
@@ -26,7 +25,6 @@
 #include "common/names.h"
 
 using namespace doris_udf;
-using namespace llvm;
 
 namespace doris {
 
@@ -166,31 +164,6 @@ FunctionContext::TypeDesc AggFn::GetIntermediateTypeDesc() const {
 FunctionContext::TypeDesc AggFn::GetOutputTypeDesc() const {
   return AnyValUtil::column_type_to_type_desc(output_slot_desc_.type());
 }
-
-//Status AggFn::CodegenUpdateOrMergeFunction(LlvmCodeGen* codegen, Function** uda_fn) {
-//  const string& symbol =
-//      is_merge_ ? fn_.aggregate_fn.merge_fn_symbol : _fn.aggregate_fn.update_fn_symbol;
-//  std::vector<TypeDescriptor> fn_arg_types;
-//  for (Expr* input_expr : children()) {
-//    fn_arg_types.push_back(input_expr->type());
-//  }
-//  // The intermediate value is passed as the last argument.
-//  fn_arg_types.push_back(intermediate_type());
-//  RETURN_IF_ERROR(codegen->LoadFunction(_fn, symbol, nullptr, fn_arg_types,
-//      fn_arg_types.size(), false, uda_fn, &_cache_entry));
-//
-//  // Inline constants into the function body (if there is an IR body).
-//  if (!(*uda_fn)->isDeclaration()) {
-//    // TODO: IMPALA-4785: we should also replace references to GetIntermediateType()
-//    // with constants.
-//    codegen->InlineConstFnAttrs(GetOutputTypeDesc(), arg_type_descs_, *uda_fn);
-//    *uda_fn = codegen->FinalizeFunction(*uda_fn);
-//    if (*uda_fn == nullptr) {
-//      return Status::InternalError(TErrorCode::UDF_VERIFY_FAILED, symbol, fn_.hdfs_location);
-//    }
-//  }
-//  return Status::OK();
-//}
 
 void AggFn::Close() {
   // This also closes all the input expressions.

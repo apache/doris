@@ -136,8 +136,8 @@ TEST_F(GeoFunctionsTest, st_from_wkt) {
         GeoPoint point;
         auto res = point.decode_from(str2.ptr, str2.len);
         ASSERT_TRUE(res);
-        ASSERT_EQ(10.1, point.x());
-        ASSERT_EQ(20.2, point.y());
+        ASSERT_DOUBLE_EQ(10.1, point.x());
+        ASSERT_DOUBLE_EQ(20.2, point.y());
         GeoFunctions::st_from_wkt_close(ctx, FunctionContext::FRAGMENT_LOCAL);
     }
 }

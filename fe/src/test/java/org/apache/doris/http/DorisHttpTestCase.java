@@ -17,7 +17,7 @@
 
 package org.apache.doris.http;
 
-import org.apache.doris.alter.RollupHandler;
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
@@ -38,6 +38,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
@@ -45,18 +46,16 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Lists;
 
-import org.easymock.EasyMock;
 import org.junit.After;
+import org.junit.AfterClass;
 import org.junit.Before;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
+import org.junit.BeforeClass;
 
+import java.net.ServerSocket;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -64,14 +63,14 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import junit.framework.AssertionFailedError;
-import mockit.internal.startup.Startup;
+import mockit.Expectations;
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
 import okhttp3.Credentials;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*", "javax.net.ssl.*"})
-@PrepareForTest({ Catalog.class })
 abstract public class DorisHttpTestCase {
 
     public OkHttpClient networkClient = new OkHttpClient.Builder()
@@ -106,11 +105,14 @@ abstract public class DorisHttpTestCase {
     public static long testPartitionCurrentVersionHash = 12312;
     public static long testPartitionNextVersionHash = 123123123;
 
-    public static final int HTTP_PORT = 32474;
+    public static int HTTP_PORT;
 
-    protected static final String URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+    protected static String URI;
 
     protected String rootAuth = Credentials.basic("root", "");
+
+    @Mocked
+    private static EditLog editLog;
 
     public static OlapTable newTable(String name) {
         Catalog.getCurrentInvertedIndex().clear();
@@ -153,7 +155,8 @@ abstract public class DorisHttpTestCase {
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
         table.addPartition(partition);
-        table.setIndexSchemaInfo(testIndexId, "testIndex", columns, 0, testSchemaHash, (short) 1);
+        table.setIndexMeta(testIndexId, "testIndex", columns, 0, testSchemaHash, (short) 1, TStorageType.COLUMN,
+                KeysType.AGG_KEYS);
         table.setBaseIndexId(testIndexId);
         return table;
     }
@@ -184,9 +187,9 @@ abstract public class DorisHttpTestCase {
 
     private static Catalog newDelegateCatalog() {
         try {
-            Catalog catalog = EasyMock.createMock(Catalog.class);
+            Catalog catalog = Deencapsulation.newInstance(Catalog.class);
             PaloAuth paloAuth = new PaloAuth();
-            EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
+            //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
             Database db = new Database(testDbId, "default_cluster:testDb");
             OlapTable table = newTable(TABLE_NAME);
             db.createTable(table);
@@ -194,32 +197,66 @@ abstract public class DorisHttpTestCase {
             db.createTable(table1);
             EsTable esTable = newEsTable("es_table");
             db.createTable(esTable);
-            EasyMock.expect(catalog.getDb(db.getId())).andReturn(db).anyTimes();
-            EasyMock.expect(catalog.getDb("default_cluster:" + DB_NAME)).andReturn(db).anyTimes();
-            EasyMock.expect(catalog.isMaster()).andReturn(true).anyTimes();
-            EasyMock.expect(catalog.getDb("default_cluster:emptyDb")).andReturn(null).anyTimes();
-            EasyMock.expect(catalog.getDb(EasyMock.isA(String.class))).andReturn(new Database()).anyTimes();
-            EasyMock.expect(catalog.getDbNames()).andReturn(Lists.newArrayList("default_cluster:testDb")).anyTimes();
-            EasyMock.expect(catalog.getLoadInstance()).andReturn(new Load()).anyTimes();
-            EasyMock.expect(catalog.getSchemaChangeHandler()).andReturn(new SchemaChangeHandler()).anyTimes();
-            EasyMock.expect(catalog.getRollupHandler()).andReturn(new RollupHandler()).anyTimes();
-            EasyMock.expect(catalog.getEditLog()).andReturn(EasyMock.createMock(EditLog.class)).anyTimes();
-            EasyMock.expect(catalog.getClusterDbNames("default_cluster")).andReturn(Lists.newArrayList("default_cluster:testDb")).anyTimes();
-            catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.eq("blockDb"));
-            EasyMock.expectLastCall().andThrow(new DdlException("failed.")).anyTimes();
-            catalog.changeDb(EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class));
-            catalog.initDefaultCluster();
-            EasyMock.replay(catalog);
+            new Expectations(catalog) {
+                {
+                    catalog.getAuth();
+                    minTimes = 0;
+                    result = paloAuth;
+
+                    catalog.getDb(db.getId());
+                    minTimes = 0;
+                    result = db;
+
+                    catalog.getDb("default_cluster:" + DB_NAME);
+                    minTimes = 0;
+                    result = db;
+
+                    catalog.isMaster();
+                    minTimes = 0;
+                    result = true;
+
+                    catalog.getDb("default_cluster:emptyDb");
+                    minTimes = 0;
+                    result = null;
+
+                    catalog.getDb(anyString);
+                    minTimes = 0;
+                    result = new Database();
+
+                    catalog.getDbNames();
+                    minTimes = 0;
+                    result = Lists.newArrayList("default_cluster:testDb");
+
+                    catalog.getLoadInstance();
+                    minTimes = 0;
+                    result = new Load();
+
+                    catalog.getEditLog();
+                    minTimes = 0;
+                    result = editLog;
+
+                    catalog.getClusterDbNames("default_cluster");
+                    minTimes = 0;
+                    result = Lists.newArrayList("default_cluster:testDb");
+
+                    catalog.changeDb((ConnectContext) any, "blockDb");
+                    minTimes = 0;
+
+                    catalog.changeDb((ConnectContext) any, anyString);
+                    minTimes = 0;
+
+                    catalog.initDefaultCluster();
+                    minTimes = 0;
+                }
+            };
+
+
             return catalog;
         } catch (DdlException e) {
             return null;
         } catch (AnalysisException e) {
             return null;
         }
-    }
-
-    static {
-        Startup.initializeIfPossible();
     }
 
     private static void assignBackends() {
@@ -234,28 +271,77 @@ abstract public class DorisHttpTestCase {
         Catalog.getCurrentSystemInfo().addBackend(backend3);
     }
 
-    @Before
-    public void setUp() throws IllegalArgumentException, SecurityException, IllegalArgException, InterruptedException {
-        Catalog catalog = newDelegateCatalog();
-        SystemInfoService systemInfoService = new SystemInfoService();
-        TabletInvertedIndex tabletInvertedIndex = new TabletInvertedIndex();
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalog()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentSystemInfo()).andReturn(systemInfoService).anyTimes();
-        EasyMock.expect(Catalog.getCurrentInvertedIndex()).andReturn(tabletInvertedIndex).anyTimes();
-        PowerMock.replay(Catalog.class);
-        assignBackends();
-        httpServer = new HttpServer(null, HTTP_PORT);
+    @BeforeClass
+    public static void initHttpServer() throws IllegalArgException, InterruptedException {
+        ServerSocket socket = null;
+        try {
+            socket = new ServerSocket(0);
+            socket.setReuseAddress(true);
+            HTTP_PORT = socket.getLocalPort();
+            URI = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/" + TABLE_NAME;
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
+        } finally {
+            if (socket != null) {
+                try {
+                    socket.close();
+                } catch (Exception e) {
+                }
+            }
+        }
+
+        httpServer = new HttpServer(HTTP_PORT);
         httpServer.setup();
         httpServer.start();
         // must ensure the http server started before any unit test
-        Thread.sleep(500);
+        while (!httpServer.isStarted()) {
+            Thread.sleep(500);
+        }
+    }
+
+
+
+    @Before
+    public void setUp() {
+        Catalog catalog = newDelegateCatalog();
+        SystemInfoService systemInfoService = new SystemInfoService();
+        TabletInvertedIndex tabletInvertedIndex = new TabletInvertedIndex();
+        new MockUp<Catalog>() {
+            @Mock
+            SchemaChangeHandler getSchemaChangeHandler() {
+                return new SchemaChangeHandler();
+            }
+            @Mock
+            MaterializedViewHandler getRollupHandler() {
+                return new MaterializedViewHandler();
+            }
+            @Mock
+            Catalog getInstance() {
+                return catalog;
+            }
+            @Mock
+            Catalog getCurrentCatalog() {
+                return catalog;
+            }
+            @Mock
+            SystemInfoService getCurrentSystemInfo() {
+                return systemInfoService;
+            }
+            @Mock
+            TabletInvertedIndex getCurrentInvertedIndex() {
+                return tabletInvertedIndex;
+            }
+        };
+        assignBackends();
         doSetUp();
     }
 
     @After
     public void tearDown() {
+    }
+
+    @AfterClass
+    public static void closeHttpServer() {
         httpServer.shutDown();
     }
 

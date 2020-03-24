@@ -23,6 +23,7 @@ import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.json.JSONObject;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
@@ -34,9 +35,15 @@ import okhttp3.Response;
 
 public class TableQueryPlanActionTest extends DorisHttpTestCase {
 
-    private static final String PATH_URI = "/_query_plan";
-    protected static final String ES_TABLE_URL = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/es_table";
+    private static  String PATH_URI = "/_query_plan";
+    protected static String ES_TABLE_URL;
 
+    @Override
+    @Before
+    public void setUp() {
+        super.setUp();
+        ES_TABLE_URL = "http://localhost:" + HTTP_PORT + "/api/" + DB_NAME + "/es_table";
+    }
     @Test
     public void testQueryPlanAction() throws IOException, TException {
         RequestBody body = RequestBody.create(JSON, "{ \"sql\" :  \" select k1,k2 from " + DB_NAME + "." + TABLE_NAME + " \" }");

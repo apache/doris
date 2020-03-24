@@ -43,6 +43,7 @@
 #include "gen_cpp/DataSinks_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/FrontendService.h"
+#include "gen_cpp/QueryPlanExtra_types.h"
 #include <thrift/protocol/TDebugProtocol.h>
 
 namespace doris {
@@ -122,6 +123,8 @@ public:
         }
         return false;
     }
+
+    int get_timeout_second() const { return _timeout_second; } 
 
 private:
     void coordinator_callback(const Status& status, RuntimeProfile* profile, bool done);
@@ -408,7 +411,7 @@ Status FragmentMgr::exec_plan_fragment(
 }
 
 static void* fragment_executor(void* param) {
-    ThreadPool::WorkFunction* func = (ThreadPool::WorkFunction*)param;
+    PriorityThreadPool::WorkFunction* func = (PriorityThreadPool::WorkFunction*)param;
     (*func)();
     delete func;
     return nullptr;
@@ -466,7 +469,7 @@ Status FragmentMgr::exec_plan_fragment(
         int ret = pthread_create(&id,
                        nullptr,
                        fragment_executor,
-                       new ThreadPool::WorkFunction(
+                       new PriorityThreadPool::WorkFunction(
                            std::bind<void>(&FragmentMgr::exec_actual, this, exec_state, cb)));
         if (ret != 0) {
             std::string err_msg("Could not create thread.");
@@ -497,7 +500,6 @@ Status FragmentMgr::cancel(const TUniqueId& id, const PPlanFragmentCancelReason&
     return Status::OK();
 }
 
-//
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
     while (!_stop) {
@@ -512,11 +514,11 @@ void FragmentMgr::cancel_worker() {
             }
         }
         for (auto& id : to_delete) {
-            LOG(INFO) << "FragmentMgr cancel worker going to cancel fragment " << print_id(id);
-            cancel(id);
+            cancel(id, PPlanFragmentCancelReason::TIMEOUT);
+            LOG(INFO) << "FragmentMgr cancel worker going to cancel timouet fragment " << print_id(id);
         }
 
-        // check every ten seconds
+        // check every 1 seconds
         sleep(1);
     }
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
@@ -662,6 +664,9 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params, c
     // batch_size for one RowBatch
     TQueryOptions query_options;
     query_options.batch_size = params.batch_size;
+    query_options.query_timeout = params.query_timeout;
+    query_options.mem_limit = params.mem_limit;
+    query_options.query_type = TQueryType::EXTERNAL;
     exec_fragment_params.__set_query_options(query_options);
     VLOG_ROW << "external exec_plan_fragment params is "
              << apache::thrift::ThriftDebugString(exec_fragment_params).c_str();

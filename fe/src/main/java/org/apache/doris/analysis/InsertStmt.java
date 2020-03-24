@@ -23,7 +23,6 @@ import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -47,7 +46,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -87,7 +85,9 @@ public class InsertStmt extends DdlStmt {
     public static final String STREAMING = "STREAMING";
 
     private final TableName tblName;
-    private final Set<String> targetPartitions;
+    private final PartitionNames targetPartitionNames;
+    // parsed from targetPartitionNames. empty means no partition specified
+    private List<Long> targetPartitionIds = Lists.newArrayList();
     private final List<String> targetColumnNames;
     private final QueryStmt queryStmt;
     private final List<String> planHints;
@@ -117,7 +117,7 @@ public class InsertStmt extends DdlStmt {
     private DataSink dataSink;
     private DataPartition dataPartition;
 
-    List<Column> targetColumns = Lists.newArrayList();
+    private List<Column> targetColumns = Lists.newArrayList();
 
     /*
      * InsertStmt may be analyzed twice, but transaction must be only begun once.
@@ -127,13 +127,7 @@ public class InsertStmt extends DdlStmt {
 
     public InsertStmt(InsertTarget target, String label, List<String> cols, InsertSource source, List<String> hints) {
         this.tblName = target.getTblName();
-        List<String> tmpPartitions = target.getPartitions();
-        if (tmpPartitions != null) {
-            targetPartitions = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-            targetPartitions.addAll(tmpPartitions);
-        } else {
-            targetPartitions = null;
-        }
+        this.targetPartitionNames = target.getPartitionNames();
         this.label = label;
         this.queryStmt = source.getQueryStmt();
         this.planHints = hints;
@@ -147,7 +141,7 @@ public class InsertStmt extends DdlStmt {
     // Ctor for CreateTableAsSelectStmt
     public InsertStmt(TableName name, QueryStmt queryStmt) {
         this.tblName = name;
-        this.targetPartitions = null;
+        this.targetPartitionNames = null;
         this.targetColumnNames = null;
         this.queryStmt = queryStmt;
         this.planHints = null;
@@ -238,13 +232,16 @@ public class InsertStmt extends DdlStmt {
         return uuid;
     }
 
-    // Only valid when this statement is streaming
-    public OlapTableSink getOlapTableSink() {
-        return (OlapTableSink) dataSink;
+    public DataSink getDataSink() {
+        return dataSink;
     }
 
     public Database getDbObj() {
         return db;
+    }
+
+    public boolean isTransactionBegin() {
+        return isTransactionBegin;
     }
 
     @Override
@@ -264,8 +261,8 @@ public class InsertStmt extends DdlStmt {
         }
 
         // check partition
-        if (targetPartitions != null && targetPartitions.isEmpty()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_ON_NONPARTITIONED);
+        if (targetPartitionNames != null) {
+            targetPartitionNames.analyze(analyzer);
         }
 
         // set target table and
@@ -279,17 +276,17 @@ public class InsertStmt extends DdlStmt {
         createDataSink();
 
         db = analyzer.getCatalog().getDb(tblName.getDb());
+        uuid = UUID.randomUUID();
 
         // create label and begin transaction
-        if (!isTransactionBegin) {
-            uuid = UUID.randomUUID();
+        long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+        if (!isExplain() && !isTransactionBegin) {
             if (Strings.isNullOrEmpty(label)) {
                 label = "insert_" + uuid.toString();
             }
 
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
-                long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
                 transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                         label, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
             }
@@ -297,10 +294,10 @@ public class InsertStmt extends DdlStmt {
         }
 
         // init data sink
-        if (targetTable instanceof OlapTable) {
+        if (!isExplain() && targetTable instanceof OlapTable) {
             OlapTableSink sink = (OlapTableSink) dataSink;
             TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
-            sink.init(loadId, transactionId, db.getId());
+            sink.init(loadId, transactionId, db.getId(), timeoutSecond);
         }
     }
 
@@ -316,21 +313,18 @@ public class InsertStmt extends DdlStmt {
         if (targetTable instanceof OlapTable) {
             OlapTable olapTable = (OlapTable) targetTable;
 
-            if (olapTable.getPartitions().size() == 0) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_EMPTY_PARTITION_IN_TABLE, tblName);
-            }
-
             // partition
-            if (targetPartitions != null) {
+            if (targetPartitionNames != null) {
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
                 }
-                for (String partName : targetPartitions) {
-                    Partition part = olapTable.getPartition(partName);
+                for (String partName : targetPartitionNames.getPartitionNames()) {
+                    Partition part = olapTable.getPartition(partName, targetPartitionNames.isTemp());
                     if (part == null) {
                         ErrorReport.reportAnalysisException(
                                 ErrorCode.ERR_UNKNOWN_PARTITION, partName, targetTable.getName());
                     }
+                    targetPartitionIds.add(part.getId());
                 }
             }
             // need a descriptor
@@ -350,11 +344,11 @@ public class InsertStmt extends DdlStmt {
             // will use it during create load job
             indexIdToSchemaHash = olapTable.getIndexIdToSchemaHash();
         } else if (targetTable instanceof MysqlTable) {
-            if (targetPartitions != null) {
+            if (targetPartitionNames != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
         } else if (targetTable instanceof BrokerTable) {
-            if (targetPartitions != null) {
+            if (targetPartitionNames != null) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
             }
 
@@ -409,6 +403,9 @@ public class InsertStmt extends DdlStmt {
             for (Column col : targetTable.getBaseSchema()) {
                 if (col.getType().isHllType() && !mentionedColumns.contains(col.getName())) {
                     throw new AnalysisException (" hll column " + col.getName() + " mush in insert into columns");
+                }
+                if (col.getType().isBitmapType() && !mentionedColumns.contains(col.getName())) {
+                    throw new AnalysisException (" object column " + col.getName() + " mush in insert into columns");
                 }
             }
         }
@@ -574,10 +571,6 @@ public class InsertStmt extends DdlStmt {
                 checkHllCompatibility(col, expr);
             }
 
-            if (col.getAggregationType() == AggregateType.BITMAP_UNION) {
-                checkBitmapCompatibility(col, expr);
-            }
-
             if (expr instanceof DefaultValueExpr) {
                 if (targetColumns.get(i).getDefaultValue() == null) {
                     throw new AnalysisException("Column has no default value, column=" + targetColumns.get(i).getName());
@@ -586,6 +579,10 @@ public class InsertStmt extends DdlStmt {
             }
 
             expr.analyze(analyzer);
+
+            if (col.getAggregationType() == AggregateType.BITMAP_UNION) {
+                checkBitmapCompatibility(col, expr);
+            }
 
             row.set(i, checkTypeCompatibility(col, expr));
         }
@@ -639,32 +636,10 @@ public class InsertStmt extends DdlStmt {
     }
 
     private void checkBitmapCompatibility(Column col, Expr expr) throws AnalysisException {
-        boolean isCompatible = false;
-        final String bitmapMismatchLog = "Column's agg type is bitmap_union,"
-                + " SelectList must contains bitmap_union column, to_bitmap or bitmap_union function's result, column=" + col.getName();
-        if (expr instanceof SlotRef) {
-            final SlotRef slot = (SlotRef) expr;
-            Column column = slot.getDesc().getColumn();
-            if (column != null && column.getAggregationType() == AggregateType.BITMAP_UNION) {
-                isCompatible = true;  // select * from bitmap_table
-            } else if (slot.getDesc().getSourceExprs().size() == 1) {
-                Expr sourceExpr = slot.getDesc().getSourceExprs().get(0);
-                if (sourceExpr instanceof FunctionCallExpr) {
-                    FunctionCallExpr functionExpr = (FunctionCallExpr) sourceExpr;
-                    if (functionExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)) {
-                        isCompatible = true; // select id, bitmap_union(id2) from bitmap_table group by id
-                    }
-                }
-            }
-        } else if (expr instanceof FunctionCallExpr) {
-            final FunctionCallExpr functionExpr = (FunctionCallExpr) expr;
-            if (functionExpr.getFnName().getFunction().equalsIgnoreCase(FunctionSet.TO_BITMAP)) {
-                isCompatible = true; // select id, to_bitmap(id2) from table;
-            }
-        }
-
-        if (!isCompatible) {
-            throw new AnalysisException(bitmapMismatchLog);
+        String errorMsg = String.format("bitmap column %s require the function return type is BITMAP",
+                col.getName());
+        if (!expr.getType().isBitmapType()) {
+            throw new AnalysisException(errorMsg);
         }
     }
 
@@ -706,13 +681,12 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
-    public DataSink createDataSink() throws AnalysisException {
+    private DataSink createDataSink() throws AnalysisException {
         if (dataSink != null) {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            String partitionNames = targetPartitions == null ? null : Joiner.on(",").join(targetPartitions);
-            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, partitionNames);
+            dataSink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds);
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof BrokerTable) {
             BrokerTable table = (BrokerTable) targetTable;
@@ -734,7 +708,7 @@ public class InsertStmt extends DdlStmt {
     }
 
     public void finalize() throws UserException {
-        if (targetTable instanceof OlapTable) {
+        if (!isExplain() && targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).finalize();
             // add table indexes to transaction state
             TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
@@ -762,5 +736,14 @@ public class InsertStmt extends DdlStmt {
         dataSink = null;
         dataPartition = null;
         targetColumns.clear();
+    }
+
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        if (isExplain()) {
+            return RedirectStatus.NO_FORWARD;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
     }
 }

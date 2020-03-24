@@ -26,21 +26,19 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Strings;
-
 import java.util.LinkedList;
 import java.util.List;
 
 public class DeleteStmt extends DdlStmt {
     private final TableName tbl;
-    private final String partitionName;
+    private final PartitionNames partitionNames;
     private Expr wherePredicate;
 
     private List<Predicate> deleteConditions;
 
-    public DeleteStmt(TableName tableName, String partitionName, Expr wherePredicate) {
+    public DeleteStmt(TableName tableName, PartitionNames partitionNames, Expr wherePredicate) {
         this.tbl = tableName;
-        this.partitionName = Strings.emptyToNull(partitionName);
+        this.partitionNames = partitionNames;
         this.wherePredicate = wherePredicate;
         this.deleteConditions = new LinkedList<Predicate>();
     }
@@ -54,7 +52,7 @@ public class DeleteStmt extends DdlStmt {
     }
     
     public String getPartitionName() {
-        return partitionName;
+        return partitionNames == null ? null : partitionNames.getPartitionNames().get(0);
     }
     
     public List<Predicate> getDeleteConditions() {
@@ -70,6 +68,16 @@ public class DeleteStmt extends DdlStmt {
         }
 
         tbl.analyze(analyzer);
+
+        if (partitionNames != null) {
+            partitionNames.analyze(analyzer);
+            if (partitionNames.getPartitionNames().size() != 1) {
+                throw new AnalysisException("Do not support deleting multi partitions");
+            }
+            if (partitionNames.isTemp()) {
+                throw new AnalysisException("Do not support deleting temp partitions");
+            }
+        }
 
         if (wherePredicate == null) {
             throw new AnalysisException("Where clause is not set");
@@ -123,8 +131,8 @@ public class DeleteStmt extends DdlStmt {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DELETE FROM ").append(tbl.toSql());
-        if (!Strings.isNullOrEmpty(partitionName)) {
-            sb.append(" PARTITION ").append(partitionName);
+        if (partitionNames != null) {
+            sb.append(" PARTITION ").append(partitionNames.getPartitionNames().get(0));
         }
         sb.append(" WHERE ").append(wherePredicate.toSql());
         return sb.toString();

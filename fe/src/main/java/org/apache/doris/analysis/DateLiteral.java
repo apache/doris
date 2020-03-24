@@ -17,6 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Date;
+import java.util.Objects;
+import java.util.TimeZone;
+import java.util.regex.Pattern;
+
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
@@ -26,9 +35,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
-
-import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTime;
@@ -37,20 +43,14 @@ import org.joda.time.LocalDateTime;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.Date;
-import java.util.TimeZone;
-import java.util.regex.Pattern;
+import com.google.common.base.Preconditions;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
 
-    private static final DateLiteral MIN_DATE = new DateLiteral(1900, 1, 1);
+    private static final DateLiteral MIN_DATE = new DateLiteral(0000, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
-    private static final DateLiteral MIN_DATETIME = new DateLiteral(1900, 1, 1, 0, 0, 0);
+    private static final DateLiteral MIN_DATETIME = new DateLiteral(0000, 1, 1, 0, 0, 0);
     private static final DateLiteral MAX_DATETIME = new DateLiteral(9999, 12, 31, 23, 59, 59);
     public static final DateLiteral UNIX_EPOCH_TIME = new DateLiteral(1970, 01, 01, 00, 00, 00);
     
@@ -159,6 +159,16 @@ public class DateLiteral extends LiteralExpr {
         this.month = month;
         this.day = day;
         this.type = Type.DATETIME;
+    }
+
+    public DateLiteral(LocalDateTime dateTime, Type type) {
+        this.year = dateTime.getYear();
+        this.month = dateTime.getMonthOfYear();
+        this.day = dateTime.getDayOfMonth();
+        this.hour = dateTime.getHourOfDay();
+        this.minute = dateTime.getMinuteOfHour();
+        this.second = dateTime.getSecondOfMinute();
+        this.type = type;                                                            
     }
 
     public DateLiteral(DateLiteral other) {
@@ -367,7 +377,6 @@ public class DateLiteral extends LiteralExpr {
         this.type = Type.DATETIME;
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_60) {
@@ -542,17 +551,38 @@ public class DateLiteral extends LiteralExpr {
         return builder;
     }
 
-    public DateLiteral plusDays(int day) throws AnalysisException {
-        LocalDateTime dateTime;
+    public LocalDateTime getTimeFormatter() throws AnalysisException {
         if (type == Type.DATE) {
-            dateTime = DATE_FORMATTER.parseLocalDateTime(getStringValue()).plusDays(day);                                        
+            return DATE_FORMATTER.parseLocalDateTime(getStringValue());                        
+        } else if (type == Type.DATETIME) {
+            return DATE_TIME_FORMATTER.parseLocalDateTime(getStringValue());
         } else {
-            dateTime = DATE_TIME_FORMATTER.parseLocalDateTime(getStringValue()).plusDays(day);
-        }
-        DateLiteral dateLiteral = new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth(),
-                dateTime.getHourOfDay(), dateTime.getMinuteOfHour(), dateTime.getSecondOfMinute());                                
-        dateLiteral.setType(type);
-        return dateLiteral;
+            throw new AnalysisException("Not support date literal type");
+        }        
+    }
+
+    public DateLiteral plusYears(int year) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusYears(year), type);
+    }
+
+    public DateLiteral plusMonths(int month) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusMonths(month), type);
+    }
+
+    public DateLiteral plusDays(int day) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusDays(day), type);
+    }
+
+    public DateLiteral plusHours(int hour) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusHours(hour), type);
+    }
+
+    public DateLiteral plusMinutes(int minute) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusMinutes(minute), type);
+    }
+
+    public DateLiteral plusSeconds(int second) throws AnalysisException {
+        return new DateLiteral(getTimeFormatter().plusSeconds(second), type);
     }
 
     public long getYear() {
@@ -586,4 +616,10 @@ public class DateLiteral extends LiteralExpr {
     private long minute;
     private long second;
     private long microsecond;
+
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Objects.hashCode(unixTimestamp(TimeZone.getDefault()));
+    }
 }

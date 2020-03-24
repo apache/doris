@@ -372,10 +372,16 @@ public class Repository implements Writable {
         }
         Preconditions.checkState(!Strings.isNullOrEmpty(md5sum));
         String tmpRemotePath = assembleFileNameWithSuffix(remoteFilePath, SUFFIX_TMP_FILE);
-        LOG.debug("get md5sum of file: {}. tmp remote path: {}", localFilePath, tmpRemotePath);
+        String finalRemotePath = assembleFileNameWithSuffix(remoteFilePath, md5sum);
+        LOG.debug("get md5sum of file: {}. tmp remote path: {}. final remote path: {}", localFilePath, tmpRemotePath, finalRemotePath);
 
         // this may be a retry, so we should first delete remote file
         Status st = storage.delete(tmpRemotePath);
+        if (!st.ok()) {
+            return st;
+        }
+
+        st = storage.delete(finalRemotePath);
         if (!st.ok()) {
             return st;
         }
@@ -387,7 +393,6 @@ public class Repository implements Writable {
         }
 
         // rename tmp file with checksum named file
-        String finalRemotePath = assembleFileNameWithSuffix(remoteFilePath, md5sum);
         st = storage.rename(tmpRemotePath, finalRemotePath);
         if (!st.ok()) {
             return st;
@@ -646,7 +651,6 @@ public class Repository implements Writable {
         out.writeLong(createTime);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         id = in.readLong();
         name = Text.readString(in);

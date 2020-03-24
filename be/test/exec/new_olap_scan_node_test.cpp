@@ -228,7 +228,7 @@ public:
             doris_scan_range.hosts.push_back(host);
             doris_scan_range.__set_schema_hash("1709394");
             doris_scan_range.__set_version("0");
-            doris_scan_range.__set_version_hash("2709394");
+            doris_scan_range.__set_version_hash("0");
             config::olap_index_name = "userid_type_planid_unitid_winfoid";
             doris_scan_range.engine_table_name.push_back("clickuserid_online");
             doris_scan_range.__set_db_name("fc");
@@ -306,7 +306,7 @@ TEST_F(TestOlapScanNode, SimpleTest) {
 
 TEST_F(TestOlapScanNode, MultiColumnSingleVersionTest) {
     _scan_ranges[0].scan_range.doris_scan_range.__set_version("0");
-    _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("2709394");
+    _scan_ranges[0].scan_range.doris_scan_range.__set_version_hash("0");
     vector<string> data;
     read_data(0, &data);
 

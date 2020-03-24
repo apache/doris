@@ -23,7 +23,10 @@ const size_t DEFAULT_STRING_LENGTH = 50;
 
 WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     bool is_string_type =
-        (column.type() == OLAP_FIELD_TYPE_CHAR || column.type() == OLAP_FIELD_TYPE_VARCHAR || column.type() == OLAP_FIELD_TYPE_HLL);
+        (column.type() == OLAP_FIELD_TYPE_CHAR ||
+        column.type() == OLAP_FIELD_TYPE_VARCHAR ||
+        column.type() == OLAP_FIELD_TYPE_HLL ||
+        column.type() == OLAP_FIELD_TYPE_OBJECT);
     if (is_string_type && len > OLAP_STRING_MAX_LENGTH) {
         OLAP_LOG_WARNING("length of string parameter is too long[len=%lu, max_len=%lu].",
                         len, OLAP_STRING_MAX_LENGTH);
@@ -52,15 +55,16 @@ WrapperField* WrapperField::create(const TabletColumn& column, uint32_t len) {
     return wrapper;
 }
 
-WrapperField* WrapperField::create_by_type(const FieldType& type) {
+WrapperField* WrapperField::create_by_type(const FieldType& type, int32_t var_length) {
     Field* rep = FieldFactory::create_by_type(type);
     if (rep == nullptr) {
         return nullptr;
     }
     bool is_string_type = (type == OLAP_FIELD_TYPE_CHAR
                            || type == OLAP_FIELD_TYPE_VARCHAR
-                           || type == OLAP_FIELD_TYPE_HLL);
-    auto* wrapper = new WrapperField(rep, 0, is_string_type);
+                           || type == OLAP_FIELD_TYPE_HLL
+                           || type == OLAP_FIELD_TYPE_OBJECT);
+    auto wrapper = new WrapperField(rep, var_length, is_string_type);
     return wrapper;
 }
 

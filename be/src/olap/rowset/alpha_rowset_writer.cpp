@@ -58,6 +58,7 @@ OLAPStatus AlphaRowsetWriter::init(const RowsetWriterContext& rowset_writer_cont
     _current_rowset_meta->set_tablet_schema_hash(_rowset_writer_context.tablet_schema_hash);
     _current_rowset_meta->set_rowset_type(_rowset_writer_context.rowset_type);
     _current_rowset_meta->set_rowset_state(rowset_writer_context.rowset_state);
+    _current_rowset_meta->set_segments_overlap(rowset_writer_context.segments_overlap);
     RowsetStatePB rowset_state = _rowset_writer_context.rowset_state;
     if (rowset_state == PREPARED
             || rowset_state == COMMITTED) {
@@ -197,6 +198,9 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
         alpha_rowset_meta->add_segment_group(segment_group_pb);
     }
     _current_rowset_meta->set_num_segments(total_num_segments);
+    if (total_num_segments <= 1) {
+        _current_rowset_meta->set_segments_overlap(NONOVERLAPPING);
+    }
     if (_is_pending_rowset) {
         _current_rowset_meta->set_rowset_state(COMMITTED);
     } else {
@@ -217,7 +221,6 @@ RowsetSharedPtr AlphaRowsetWriter::build() {
     RowsetSharedPtr rowset;
     auto status = RowsetFactory::create_rowset(_rowset_writer_context.tablet_schema,
                                                _rowset_writer_context.rowset_path_prefix,
-                                               _rowset_writer_context.data_dir,
                                                _current_rowset_meta,
                                                &rowset);
     if (status != OLAP_SUCCESS) {

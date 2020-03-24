@@ -89,7 +89,7 @@ fi
 
 cd ${DORIS_HOME}/be/build/
 
-cmake ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON
+${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON
 make -j${PARALLEL}
 
 if [ ${RUN} -ne 1 ]; then
@@ -134,8 +134,8 @@ cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
 # Running Util Unittest
 ${DORIS_TEST_BINARY_DIR}/util/bit_util_test
 ${DORIS_TEST_BINARY_DIR}/util/bitmap_test
+${DORIS_TEST_BINARY_DIR}/util/bitmap_value_test
 ${DORIS_TEST_BINARY_DIR}/util/path_trie_test
-${DORIS_TEST_BINARY_DIR}/util/count_down_latch_test
 ${DORIS_TEST_BINARY_DIR}/util/crc32c_test
 ${DORIS_TEST_BINARY_DIR}/util/lru_cache_util_test
 ${DORIS_TEST_BINARY_DIR}/util/filesystem_util_test
@@ -151,15 +151,30 @@ ${DORIS_TEST_BINARY_DIR}/util/byte_buffer_test2
 ${DORIS_TEST_BINARY_DIR}/util/uid_util_test
 ${DORIS_TEST_BINARY_DIR}/util/aes_util_test
 ${DORIS_TEST_BINARY_DIR}/util/string_util_test
+${DORIS_TEST_BINARY_DIR}/util/string_parser_test
 ${DORIS_TEST_BINARY_DIR}/util/coding_test
 ${DORIS_TEST_BINARY_DIR}/util/faststring_test
 ${DORIS_TEST_BINARY_DIR}/util/tdigest_test
+${DORIS_TEST_BINARY_DIR}/util/radix_sort_test
 ${DORIS_TEST_BINARY_DIR}/util/block_compression_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_block_test
 ${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_row_batch_test
+${DORIS_TEST_BINARY_DIR}/util/arrow/arrow_work_flow_test
 ${DORIS_TEST_BINARY_DIR}/util/counter_cond_variable_test
 ${DORIS_TEST_BINARY_DIR}/util/bit_stream_utils_test
 ${DORIS_TEST_BINARY_DIR}/util/frame_of_reference_coding_test
+${DORIS_TEST_BINARY_DIR}/util/zip_util_test
+${DORIS_TEST_BINARY_DIR}/util/utf8_check_test
+${DORIS_TEST_BINARY_DIR}/util/cgroup_util_test
+${DORIS_TEST_BINARY_DIR}/util/path_util_test
+${DORIS_TEST_BINARY_DIR}/util/file_cache_test
+${DORIS_TEST_BINARY_DIR}/util/file_manager_test
+${DORIS_TEST_BINARY_DIR}/util/parse_util_test
+${DORIS_TEST_BINARY_DIR}/util/countdown_latch_test
+${DORIS_TEST_BINARY_DIR}/util/monotime_test
+${DORIS_TEST_BINARY_DIR}/util/scoped_cleanup_test
+${DORIS_TEST_BINARY_DIR}/util/thread_test
+${DORIS_TEST_BINARY_DIR}/util/threadpool_test
 
 # Running common Unittest
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
@@ -187,6 +202,7 @@ if [ -f ${DORIS_TEST_BINARY_DIR}/exec/plain_text_line_reader_lzop_test ];then
 fi
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scanner_test
 ${DORIS_TEST_BINARY_DIR}/exec/parquet_scanner_test
+${DORIS_TEST_BINARY_DIR}/exec/orc_scanner_test
 ${DORIS_TEST_BINARY_DIR}/exec/broker_scan_node_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_scan_node_test
 ${DORIS_TEST_BINARY_DIR}/exec/es_http_scan_node_test
@@ -202,6 +218,7 @@ ${DORIS_TEST_BINARY_DIR}/runtime/memory_scratch_sink_test
 ${DORIS_TEST_BINARY_DIR}/runtime/result_queue_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/fragment_mgr_test
 ${DORIS_TEST_BINARY_DIR}/runtime/decimal_value_test
+${DORIS_TEST_BINARY_DIR}/runtime/decimalv2_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/datetime_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/large_int_value_test
 ${DORIS_TEST_BINARY_DIR}/runtime/string_value_test
@@ -233,6 +250,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/lru_cache_test
 ${DORIS_TEST_BINARY_DIR}/olap/bloom_filter_test
 ${DORIS_TEST_BINARY_DIR}/olap/bloom_filter_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_block_test
+${DORIS_TEST_BINARY_DIR}/olap/row_block_v2_test
 ${DORIS_TEST_BINARY_DIR}/olap/comparison_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/in_list_predicate_test
 ${DORIS_TEST_BINARY_DIR}/olap/null_predicate_test
@@ -240,12 +258,14 @@ ${DORIS_TEST_BINARY_DIR}/olap/file_helper_test
 ${DORIS_TEST_BINARY_DIR}/olap/file_utils_test
 ${DORIS_TEST_BINARY_DIR}/olap/delete_handler_test
 ${DORIS_TEST_BINARY_DIR}/olap/column_reader_test
+${DORIS_TEST_BINARY_DIR}/olap/schema_change_test
 ${DORIS_TEST_BINARY_DIR}/olap/row_cursor_test
 ${DORIS_TEST_BINARY_DIR}/olap/skiplist_test
 ${DORIS_TEST_BINARY_DIR}/olap/serialize_test
 # ${DORIS_TEST_BINARY_DIR}/olap/memtable_flush_executor_test
+${DORIS_TEST_BINARY_DIR}/olap/options_test
 
-# Running routine load test
+# Running segment v2 test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_meta_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/tablet_mgr_test
 ${DORIS_TEST_BINARY_DIR}/olap/olap_meta_test
@@ -256,19 +276,23 @@ ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/alpha_rowset_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/beta_rowset_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_converter_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/encoding_info_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/ordinal_page_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bitshuffle_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/plain_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/binary_plain_page_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bitmap_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/column_reader_writer_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/rle_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/binary_dict_page_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/binary_prefix_page_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/segment_test
-${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/page_compression_test
-${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/column_zone_map_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/row_ranges_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/frame_of_reference_page_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/block_bloom_filter_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bloom_filter_index_reader_writer_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/zone_map_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/txn_manager_test
 ${DORIS_TEST_BINARY_DIR}/olap/storage_types_test
 ${DORIS_TEST_BINARY_DIR}/olap/generic_iterators_test
@@ -282,6 +306,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/selection_vector_test
 # Running routine load test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
 ${DORIS_TEST_BINARY_DIR}/runtime/routine_load_task_executor_test
+${DORIS_TEST_BINARY_DIR}/runtime/heartbeat_flags_test
 
 # Running agent unittest
 # Prepare agent testdata

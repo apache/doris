@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.common.util.SqlParserUtils;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -56,7 +58,7 @@ public class AdminShowReplicaTest {
         SqlParser parser = new SqlParser(new SqlScanner(new StringReader(stmt)));
         AdminShowReplicaStatusStmt showStmt = null;
         try {
-            showStmt = (AdminShowReplicaStatusStmt) parser.parse().value;
+            showStmt = (AdminShowReplicaStatusStmt) SqlParserUtils.getFirstStmt(parser);
         } catch (Error e) {
             Assert.fail(e.getMessage());
         } catch (Exception e) {

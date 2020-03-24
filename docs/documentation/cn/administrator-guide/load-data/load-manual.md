@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # 导入总览
 
 导入（Load）功能就是将用户的原始数据导入到 Doris 中。导入成功后，用户即可通过 Mysql 客户端查询数据。
@@ -17,7 +36,7 @@ Doris 支持多种导入方式。建议先完整阅读本文档，再根据所�
 
 为适配不同的数据导入需求，Doris 系统提供了5种不同的导入方式。每种导入方式支持不同的数据源，存在不同的使用方式（异步，同步）。
 
-所有导入方式都支持 csv 数据格式。其中 Broker load 还支持 parquet 数据格式。
+所有导入方式都支持 csv 数据格式。其中 Broker load 还支持 parquet 和 orc 数据格式。
 
 每个导入方式的说明请参阅单个导入方式的操作手册。
 
@@ -80,10 +99,9 @@ Doris 支持多种导入方式。建议先完整阅读本文档，再根据所�
 
 Doris 对所有导入方式提供原子性保证。既保证同一个导入作业内的数据，原子生效。不会出现仅导入部分数据的情况。
 
-同时，每一个导入作业都有一个由用户指定或者系统自动生成的 Label。Label 在一个 Database 内唯一。当一个 Label 对应的导入作业成功够，不可在重复使用该 Label 提交导入作业。如果 Label 对应的导入作业失败，则可以重复使用。
+同时，每一个导入作业都有一个由用户指定或者系统自动生成的 Label。Label 在一个 Database 内唯一。当一个 Label 对应的导入作业成功后，不可再重复使用该 Label 提交导入作业。如果 Label 对应的导入作业失败，则可以重复使用。
 
-用户可以通过 Label 机制，来保证 Label 对应的数据最多被导入一次，级 At-Most-Once 语义。
-
+用户可以通过 Label 机制，来保证 Label 对应的数据最多被导入一次，即At-Most-Once 语义。
 
 ## 同步和异步
 
@@ -91,7 +109,7 @@ Doris 目前的导入方式分为两类，同步和异步。如果是外部程�
 
 ### 同步
 
-同步导入方式既用户创建导入任务，Doris 同步执行导入，执行完成后返回用户导入结果。用户可直接根据创建导入任务命令返回的结果同步判断导入是否成功。
+同步导入方式即用户创建导入任务，Doris 同步执行导入，执行完成后返回用户导入结果。用户可直接根据创建导入任务命令返回的结果同步判断导入是否成功。
 
 同步类型的导入方式有: **Stream load**，**Insert**。
 
@@ -104,7 +122,7 @@ Doris 目前的导入方式分为两类，同步和异步。如果是外部程�
 *注意：如果用户使用的导入方式是同步返回的，且导入的数据量过大，则创建导入请求可能会花很长时间才能返回结果。*
 
 ### 异步
-异步导入方式既用户创建导入任务后，Doris 直接返回创建成功。**创建成功不代表数据已经导入**。导入任务会被异步执行，用户在创建成功后，需要通过轮询的方式发送查看命令查看导入作业的状态。如果创建失败，则可以根据失败信息，判断是否需要再次创建。
+异步导入方式即用户创建导入任务后，Doris 直接返回创建成功。**创建成功不代表数据已经导入**。导入任务会被异步执行，用户在创建成功后，需要通过轮询的方式发送查看命令查看导入作业的状态。如果创建失败，则可以根据失败信息，判断是否需要再次创建。
 
 异步类型的导入方式有：**Broker load**，**Multi load**。
 
@@ -138,7 +156,6 @@ Doris 目前的导入方式分为两类，同步和异步。如果是外部程�
 3. 确定导入方式的类型：导入方式为同步或异步。比如 Broker load 为异步导入方式，则外部系统在提交创建导入后，必须调用查看导入命令，根据查看导入命令的结果来判断导入是否成功。
 4. 制定 Label 生成策略：Label 生成策略需满足，每一批次数据唯一且固定的原则。这样 Doris 就可以保证 At-Most-Once。
 5. 程序自身保证 At-Least-Once：外部系统需要保证自身的 At-Least-Once，这样就可以保证导入流程的 Exactly-Once。
-6. 
 
 ## 通用系统配置
 
@@ -184,7 +201,7 @@ Doris 目前的导入方式分为两类，同步和异步。如果是外部程�
     
 * load\_process\_max\_memory\_limit\_bytes 和 load\_process\_max\_memory\_limit\_percent
 
-    这两个参数，限制了单个 Backend 上，可用于导入任务的内存上限。分别是最大内存和最大内存百分比。`load_process_max_memory_limit_percent` 默认为 80%，该值为 `mem_limit` 配置的 80%。即假设物理内存为 M，则默认导入内存限制为 M * 80% * 80%。
+    这两个参数，限制了单个 Backend 上，可用于导入任务的内存上限。分别是最大内存和最大内存百分比。`load_process_max_memory_limit_percent` 默认为 80，表示对 Backend 总内存限制的百分比（总内存限制 `mem_limit` 默认为 80%，表示对物理内存的百分比）。即假设物理内存为 M，则默认导入内存限制为 M * 80% * 80%。
 
     `load_process_max_memory_limit_bytes` 默认为 100GB。系统会在两个参数中取较小者，作为最终的 Backend 导入内存使用上限。
 

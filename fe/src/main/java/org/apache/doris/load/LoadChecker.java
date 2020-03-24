@@ -29,7 +29,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.AsyncDeleteJob.DeleteState;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.LoadJob.JobState;
@@ -43,8 +43,6 @@ import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.MiniLoadEtlTask;
 import org.apache.doris.task.MiniLoadPendingTask;
-import org.apache.doris.task.PullLoadEtlTask;
-import org.apache.doris.task.PullLoadPendingTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
@@ -68,7 +66,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public class LoadChecker extends Daemon {
+public class LoadChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(LoadChecker.class);
 
     // checkers for running job state
@@ -115,7 +113,7 @@ public class LoadChecker extends Daemon {
     }
     
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         LOG.debug("start check load jobs. job state: {}", jobState.name());
         switch (jobState) {
             case PENDING:
@@ -169,9 +167,6 @@ public class LoadChecker extends Daemon {
                     case MINI:
                         task = new MiniLoadPendingTask(job);
                         break;
-                    case BROKER:
-                        task = new PullLoadPendingTask(job);
-                        break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());
                         break;
@@ -202,9 +197,6 @@ public class LoadChecker extends Daemon {
                         break;
                     case INSERT:
                         task = new InsertLoadEtlTask(job);
-                        break;
-                    case BROKER:
-                        task = new PullLoadEtlTask(job);
                         break;
                     default:
                         LOG.warn("unknown etl job type. type: {}", etlJobType.name());

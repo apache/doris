@@ -20,20 +20,6 @@ syntax="proto2";
 
 package doris.segment_v2;
 
-message ColumnSchemaPB {
-    optional uint32 column_id = 1;
-    optional string type = 2;
-    optional string aggregation = 3;
-    optional uint32 length = 4;
-    optional bool is_key = 5;
-    optional string default_value = 6;
-    optional uint32 precision = 9 [default = 27];
-    optional uint32 frac = 10 [default = 9];
-    optional bool is_nullable = 11 [default=false];
-    optional bool is_bf_column = 15 [default=false]; // is bloom filter indexed column
-    optional bool is_bitmap_column = 16 [default=false];
-}
-
 // page position info
 message PagePointerPB {
     required uint64 offset = 1; // offset in segment file
@@ -53,6 +39,7 @@ enum EncodingTypePB {
     RLE = 4;
     DICT_ENCODING = 5;
     BIT_SHUFFLE = 6;
+    FOR_ENCODING = 7; // Frame-Of-Reference
 }
 
 enum CompressionTypePB {
@@ -64,6 +51,75 @@ enum CompressionTypePB {
     LZ4F = 5;
     ZLIB = 6;
     ZSTD = 7;
+}
+
+enum PageTypePB {
+    UNKNOWN_PAGE_TYPE = 0;
+    DATA_PAGE = 1;
+    INDEX_PAGE = 2;
+    DICTIONARY_PAGE = 3;
+    SHORT_KEY_PAGE = 4;
+}
+
+message DataPageFooterPB {
+    // required: ordinal of the first value
+    optional uint64 first_ordinal = 1;
+    // required: number of values, including NULLs
+    optional uint64 num_values = 2;
+    // required: size of nullmap, 0 if the page doesn't contain NULL
+    optional uint32 nullmap_size = 3;
+    // only for array column, largest array item ordinal + 1,
+    // used to calculate the length of last array in this page
+    optional uint64 next_array_item_ordinal = 4;
+}
+
+message IndexPageFooterPB {
+  // required: number of index entries in this page
+  optional uint32 num_entries = 1;
+
+  enum Type {
+    UNKNOWN_INDEX_PAGE_TYPE = 0;
+    LEAF = 1;
+    INTERNAL = 2;
+  };
+  // required: type of the index page
+  optional Type type = 2;
+}
+
+message DictPageFooterPB {
+    // required: encoding for dictionary
+    optional EncodingTypePB encoding = 1;
+}
+
+message ShortKeyFooterPB {
+    // How many index item in this index.
+    optional uint32 num_items = 1;
+    // The total bytes occupied by the index key
+    optional uint32 key_bytes = 2;
+    // The total bytes occupied by the key offsets
+    optional uint32 offset_bytes = 3;
+    // Segment id which this index is belong to 
+    optional uint32 segment_id = 4;
+    // number rows in each block
+    optional uint32 num_rows_per_block = 5;
+    // How many rows in this segment
+    optional uint32 num_segment_rows = 6;
+}
+
+message PageFooterPB {
+    // required: indicates which of the *_footer fields is set
+    optional PageTypePB type = 1;
+    // required: page body size before compression (exclude footer and crc).
+    // page body is uncompressed when it's equal to page body size
+    optional uint32 uncompressed_size = 2;
+    // present only when type == DATA_PAGE
+    optional DataPageFooterPB data_page_footer = 7;
+    // present only when type == INDEX_PAGE
+    optional IndexPageFooterPB index_page_footer = 8;
+    // present only when type == DICTIONARY_PAGE
+    optional DictPageFooterPB dict_page_footer = 9;
+    // present only when type == SHORT_KEY_PAGE
+    optional ShortKeyFooterPB short_key_page_footer = 10;
 }
 
 message ZoneMapPB {
@@ -84,66 +140,17 @@ message ColumnMetaPB {
     optional uint32 unique_id = 2;
     // this field is FieldType's value
     optional int32 type = 3;
-    optional EncodingTypePB encoding = 4;
+    // var length for string type
+    optional int32 length = 4;
+    optional EncodingTypePB encoding = 5;
     // compress type for column
-    optional CompressionTypePB compression = 5;
+    optional CompressionTypePB compression = 6;
     // if this column can be nullable
-    optional bool is_nullable = 6;
-    // ordinal index page
-    optional PagePointerPB ordinal_index_page = 7;
-    // page-level zone map index
-    optional PagePointerPB zone_map_page = 8;
-    // segment-level zone map
-    optional ZoneMapPB zone_map = 9;
-    // // dictionary page for DICT_ENCODING
-    optional PagePointerPB dict_page = 10;
-
-    // // bloom filter pages for bloom filter column
-    // repeated PagePointerPB bloom_filter_pages = 3;
-
-    // optional PagePointerPB page_zonemap_page = 5; // page zonemap info of column
-
-    // optional PagePointerPB bitmap_index_page = 6; // bitmap index page
-
-    // // data footprint of column after encoding and compress
-    // optional uint64 data_footprint = 7;
-    // // index footprint of column after encoding and compress
-    // optional uint64 index_footprint = 8;
-    // // raw column data footprint
-    // optional uint64 raw_data_footprint = 9;
-
-    // optional ZoneMapPB column_zonemap = 11; // column zonemap info
-    // repeated MetadataPairPB column_meta_datas = 12;
-}
-
-message FileFooterPB {
-    optional uint32 version = 1 [default = 1]; // file version
-    repeated ColumnSchemaPB schema = 2; // tablet schema
-    optional uint64 num_values = 3; // number of values
-    optional uint64 index_footprint = 4; // total idnex footprint of all columns
-    optional uint64 data_footprint = 5; // total data footprint of all columns
-    optional uint64 raw_data_footprint = 6; // raw data footprint
-
-    optional CompressionTypePB compress_type = 7 [default = LZ4F]; // default compression type for file columns
-    repeated MetadataPairPB file_meta_datas = 8; // meta data of file
-    optional PagePointerPB key_index_page = 9; // short key index page
-}
-
-message ShortKeyFooterPB {
-    // How many index item in this index.
-    optional uint32 num_items = 1;
-    // The total bytes occupied by the index key
-    optional uint32 key_bytes = 2;
-    // The total bytes occupied by the key offsets
-    optional uint32 offset_bytes = 3;
-    // Segment id which this index is belong to 
-    optional uint32 segment_id = 4;
-    // number rows in each block
-    optional uint32 num_rows_per_block = 5;
-    // How many rows in this segment
-    optional uint32 num_segment_rows = 6;
-    // Total bytes for this segment
-    optional uint32 segment_bytes = 7;
+    optional bool is_nullable = 7;
+    // metadata about all the column indexes
+    repeated ColumnIndexMetaPB indexes = 8;
+    // pointer to dictionary page when using DICT_ENCODING
+    optional PagePointerPB dict_page = 9;
 }
 
 message SegmentFooterPB {
@@ -161,3 +168,92 @@ message SegmentFooterPB {
     optional PagePointerPB short_key_index_page = 9;
 }
 
+message BTreeMetaPB {
+  // required: pointer to either root index page or sole data page based on is_root_data_page
+  optional PagePointerPB root_page = 1;
+  // required: true if we only have one data page, in which case root points to that page directly
+  optional bool is_root_data_page = 2;
+}
+
+message IndexedColumnMetaPB {
+    // required: FieldType value
+    optional int32 data_type = 1;
+    // required: encoding for this column
+    optional EncodingTypePB encoding = 2;
+    // required: total number of values in this column
+    optional int64 num_values = 3;
+    // present iff this column has ordinal index
+    optional BTreeMetaPB ordinal_index_meta = 4;
+    // present iff this column contains sorted values and has value index
+    optional BTreeMetaPB value_index_meta = 5;
+    // compression type for data and index page
+    optional CompressionTypePB compression = 6 [default=NO_COMPRESSION];
+    // index size
+    optional uint64 size = 7;
+}
+
+// -------------------------------------------------------------
+// Column Index Metadata
+// -------------------------------------------------------------
+
+enum ColumnIndexTypePB {
+    UNKNOWN_INDEX_TYPE = 0;
+    ORDINAL_INDEX = 1;
+    ZONE_MAP_INDEX = 2;
+    BITMAP_INDEX = 3;
+    BLOOM_FILTER_INDEX = 4;
+}
+
+message ColumnIndexMetaPB {
+    optional ColumnIndexTypePB type = 1;
+    optional OrdinalIndexPB ordinal_index = 7;
+    optional ZoneMapIndexPB zone_map_index = 8;
+    optional BitmapIndexPB bitmap_index = 9;
+    optional BloomFilterIndexPB bloom_filter_index = 10;
+}
+
+message OrdinalIndexPB {
+    // required: the root page can be data page if there is only one data page,
+    // or the only index page if there is more than one data pages.
+    optional BTreeMetaPB root_page = 1;
+}
+
+message ZoneMapIndexPB {
+    // required: segment-level zone map
+    optional ZoneMapPB segment_zone_map = 1;
+    // required: zone map for each data page is stored in an IndexedColumn with ordinal index
+    optional IndexedColumnMetaPB page_zone_maps = 2;
+}
+
+message BitmapIndexPB {
+    enum BitmapType {
+        UNKNOWN_BITMAP_TYPE = 0;
+        ROARING_BITMAP = 1;
+    }
+    optional BitmapType bitmap_type = 1 [default=ROARING_BITMAP];
+    // required: whether the index contains null key.
+    // if true, the last bitmap (ordinal:dict_column.num_values) in bitmap_column is
+    // the bitmap for null key. we don't store null key in dict_column.
+    optional bool has_null = 2;
+    // required: meta for ordered dictionary part
+    optional IndexedColumnMetaPB dict_column = 3;
+    // required: meta for bitmaps part
+    optional IndexedColumnMetaPB bitmap_column = 4;
+}
+
+enum HashStrategyPB {
+    HASH_MURMUR3_X64_64 = 0;
+}
+
+enum BloomFilterAlgorithmPB {
+    BLOCK_BLOOM_FILTER = 0;
+    CLASSIC_BLOOM_FILTER = 1;
+}
+
+message BloomFilterIndexPB {
+    // required
+    optional HashStrategyPB hash_strategy = 1;
+    optional BloomFilterAlgorithmPB algorithm = 2;
+    // required: meta for bloom filters
+    optional IndexedColumnMetaPB bloom_filter = 3;
+}

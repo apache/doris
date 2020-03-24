@@ -19,7 +19,7 @@
 
 #include <arpa/inet.h>
 
-#include <boost/algorithm/string.hpp>
+#include "gutil/strings/split.h"
 
 #include "common/logging.h"
 
@@ -44,8 +44,7 @@ bool CIDR::reset(const std::string& cidr_str) {
     }
     VLOG(2) << "cidr format str: " << cidr_format_str;
 
-    std::vector<std::string> cidr_items;
-    boost::split(cidr_items, cidr_format_str, boost::is_any_of("/"));
+    std::vector<std::string> cidr_items = strings::Split(cidr_format_str, "/");
     if (cidr_items.size() != 2) {
         LOG(WARNING) << "wrong CIDR format. network=" << cidr_str;
         return false;

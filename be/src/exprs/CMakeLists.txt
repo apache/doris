@@ -39,6 +39,7 @@ add_library(Exprs
   decimalv2_operators.cpp
   time_operators.cpp
   es_functions.cpp
+  hash_functions.cpp
   literal.cpp
   expr.cpp
   expr_ir.cpp
@@ -65,4 +66,5 @@ add_library(Exprs
   agg_fn.cc
   new_agg_fn_evaluator.cc
   bitmap_function.cpp
-  hll_function.cpp)
+  hll_function.cpp
+  grouping_sets_functions.cpp)

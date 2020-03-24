@@ -20,6 +20,7 @@ namespace java org.apache.doris.thrift
 
 include "Exprs.thrift"
 include "Types.thrift"
+include "Opcodes.thrift"
 include "Partitions.thrift"
 
 enum TPlanNodeType {
@@ -39,12 +40,16 @@ enum TPlanNodeType {
   META_SCAN_NODE,
   ANALYTIC_EVAL_NODE,
   OLAP_REWRITE_NODE,
-  KUDU_SCAN_NODE,
+  KUDU_SCAN_NODE, // Deprecated
   BROKER_SCAN_NODE,
   EMPTY_SET_NODE, 
   UNION_NODE,
   ES_SCAN_NODE,
-  ES_HTTP_SCAN_NODE
+  ES_HTTP_SCAN_NODE,
+  REPEAT_NODE,
+  ASSERT_NUM_ROWS_NODE,
+  INTERSECT_NODE,
+  EXCEPT_NODE
 }
 
 // phases of an execution node
@@ -80,7 +85,7 @@ struct TPaloScanRange {
   1: required list<Types.TNetworkAddress> hosts
   2: required string schema_hash
   3: required string version
-  4: required string version_hash
+  4: required string version_hash // Deprecated
   5: required Types.TTabletId tablet_id
   6: required string db_name
   7: optional list<TKeyRange> partition_column_ranges
@@ -96,7 +101,9 @@ enum TFileFormatType {
     FORMAT_CSV_BZ2,
     FORMAT_CSV_LZ4FRAME,
     FORMAT_CSV_LZOP,
-    FORMAT_PARQUET
+    FORMAT_PARQUET,
+    FORMAT_CSV_DEFLATE,
+    FORMAT_ORC
 }
 
 // One broker range information.
@@ -115,7 +122,7 @@ struct TBrokerRangeDesc {
     // total size of the file
     8: optional i64 file_size
     // number of columns from file
-    9: optional i32 num_of_columns_from_file = 0
+    9: optional i32 num_of_columns_from_file
     // columns parsed from file path should be after the columns read from file
     10: optional list<string> columns_from_path
 }
@@ -174,7 +181,7 @@ struct TEsScanRange {
 struct TScanRange {
   // one of these must be set for every TScanRange2
   4: optional TPaloScanRange palo_scan_range
-  5: optional binary kudu_scan_token
+  5: optional binary kudu_scan_token // Decrepated
   6: optional TBrokerScanRange broker_scan_range
   7: optional TEsScanRange es_scan_range
 }
@@ -197,6 +204,24 @@ struct TBrokerScanNode {
 struct TEsScanNode {
     1: required Types.TTupleId tuple_id
     2: optional map<string,string> properties
+    // used to indicate which fields can get from ES docavalue
+    // because elasticsearch can have "fields" feature, field can have
+    // two or more types, the first type maybe have not docvalue but other
+    // can have, such as (text field not have docvalue, but keyword can have):
+    // "properties": {
+    //      "city": {
+    //        "type": "text",
+    //        "fields": {
+    //          "raw": {
+    //            "type":  "keyword"
+    //          }
+    //        }
+    //      }
+    //    }
+    // then the docvalue context provided the mapping between the select field and real request field :
+    // {"city": "city.raw"}
+    // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
+    3: optional map<string, string> docvalue_context
 }
 
 struct TMiniLoadEtlFunction {
@@ -232,16 +257,16 @@ struct TSchemaScanNode {
   3: optional string db
   4: optional string table
   5: optional string wild
-  6: optional string user
-  7: optional string ip
-  8: optional i32 port
+  6: optional string user   // deprecated
+  7: optional string ip // frontend ip
+  8: optional i32 port  // frontend thrift server port
   9: optional i64 thread_id
-  10: optional string user_ip
+  10: optional string user_ip   // deprecated
+  11: optional Types.TUserIdentity current_user_ident   // to replace the user and user_ip
 }
 
 struct TMetaScanNode {
   1: required Types.TTupleId tuple_id
-
   2: required string table_name
   3: optional string db
   4: optional string table
@@ -260,6 +285,8 @@ struct TEqJoinCondition {
   1: required Exprs.TExpr left;
   // right-hand side of "<a> = <b>"
   2: required Exprs.TExpr right;
+  // operator of equal join
+  3: optional Opcodes.TExprOpcode opcode; 
 }
 
 enum TJoinOp {
@@ -360,6 +387,19 @@ struct TAggregationNode {
   // rows have been aggregated, and this node is not an intermediate node.
   5: required bool need_finalize
   6: optional bool use_streaming_preaggregation
+}
+
+struct TRepeatNode {
+ // Tulple id used for output, it has new slots.
+  1: required Types.TTupleId output_tuple_id
+  // Slot id set used to indicate those slots need to set to null.
+  2: required list<set<Types.TSlotId>> slot_id_set_list
+  // An integer bitmap list, it indicates the bit position of the exprs not null.
+  3: required list<i64> repeat_id_list
+  // A list of integer list, it indicates the position of the grouping virtual slot.
+  4: required list<list<i64>> grouping_list
+  // A list of all slot
+  5: required set<Types.TSlotId> all_slot_ids
 }
 
 struct TPreAggregationNode {
@@ -508,6 +548,31 @@ struct TUnionNode {
     4: required i64 first_materialized_child_idx
 }
 
+struct TIntersectNode {
+    // A IntersectNode materializes all const/result exprs into this tuple.
+    1: required Types.TTupleId tuple_id
+    // List or expr lists materialized by this node.
+    // There is one list of exprs per query stmt feeding into this union node.
+    2: required list<list<Exprs.TExpr>> result_expr_lists
+    // Separate list of expr lists coming from a constant select stmts.
+    3: required list<list<Exprs.TExpr>> const_expr_lists
+    // Index of the first child that needs to be materialized.
+    4: required i64 first_materialized_child_idx
+}
+
+struct TExceptNode {
+    // A ExceptNode materializes all const/result exprs into this tuple.
+    1: required Types.TTupleId tuple_id
+    // List or expr lists materialized by this node.
+    // There is one list of exprs per query stmt feeding into this union node.
+    2: required list<list<Exprs.TExpr>> result_expr_lists
+    // Separate list of expr lists coming from a constant select stmts.
+    3: required list<list<Exprs.TExpr>> const_expr_lists
+    // Index of the first child that needs to be materialized.
+    4: required i64 first_materialized_child_idx
+}
+
+
 struct TExchangeNode {
   // The ExchangeNode's input rows form a prefix of the output rows it produces;
   // this describes the composition of that prefix
@@ -522,10 +587,6 @@ struct TOlapRewriteNode {
     1: required list<Exprs.TExpr> columns
     2: required list<Types.TColumnType> column_types
     3: required Types.TTupleId output_tuple_id
-}
-
-struct TKuduScanNode {
-  1: required Types.TTupleId tuple_id
 }
 
 // This contains all of the information computed by the plan as part of the resource
@@ -545,6 +606,11 @@ struct TBackendResourceProfile {
 // The buffer size in bytes that is large enough to fit the largest row to be processed.
 // Set if the node allocates buffers for rows from the buffer pool.
 4: optional i64 max_row_buffer_size = 4194304  //TODO chenhao
+}
+
+struct TAssertNumRowsNode {
+    1: optional i64 desired_num_rows;
+    2: optional string subquery_string;
 }
 
 // This is essentially a union of all messages corresponding to subclasses
@@ -580,10 +646,13 @@ struct TPlanNode {
   24: optional TMetaScanNode meta_scan_node
   25: optional TAnalyticNode analytic_node
   26: optional TOlapRewriteNode olap_rewrite_node
-  27: optional TKuduScanNode kudu_scan_node
   28: optional TUnionNode union_node
   29: optional TBackendResourceProfile resource_profile
   30: optional TEsScanNode es_scan_node
+  31: optional TRepeatNode repeat_node
+  32: optional TAssertNumRowsNode assert_num_rows_node
+  33: optional TIntersectNode intersect_node
+  34: optional TExceptNode except_node
 }
 
 // A flattened representation of a tree of PlanNodes, obtained by depth-first

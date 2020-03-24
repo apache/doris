@@ -33,7 +33,7 @@ namespace doris {
 
 ResultWriter::ResultWriter(
         BufferControlBlock* sinker,
-        const std::vector<ExprContext*>& output_expr_ctxs) : 
+        const std::vector<ExprContext*>& output_expr_ctxs) :
             _sinker(sinker),
             _output_expr_ctxs(output_expr_ctxs),
             _row_buffer(NULL) {
@@ -122,8 +122,13 @@ Status ResultWriter::add_one_row(TupleRow* row) {
             break;
         }
 
-        case TYPE_VARCHAR:
         case TYPE_HLL:
+        case TYPE_OBJECT: {
+            buf_ret = _row_buffer->push_null();
+            break;
+        }
+
+        case TYPE_VARCHAR:
         case TYPE_CHAR: {
             const StringValue* string_val = (const StringValue*)(item);
 

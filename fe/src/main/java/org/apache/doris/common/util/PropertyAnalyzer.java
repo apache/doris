@@ -27,7 +27,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -61,8 +61,6 @@ public class PropertyAnalyzer {
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
     
-    public static final String PROPERTIES_KUDU_MASTER_ADDRS = "kudu_master_addrs";
-
     public static final String PROPERTIES_COLUMN_SEPARATOR = "column_separator";
     public static final String PROPERTIES_LINE_DELIMITER = "line_delimiter";
 
@@ -72,13 +70,24 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
     public static final String PROPERTIES_SEND_CLEAR_ALTER_TASK = "send_clear_alter_tasks";
+    /*
+     * for upgrade alpha rowset to beta rowset, valid value: v1, v2
+     * v1: alpha rowset
+     * v2: beta rowset
+     */
+    public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
+
+    public static final String PROPERTIES_INMEMORY = "in_memory";
+
+    public static final String PROPERTIES_STRICT_RANGE = "strict_range";
+    public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
+
+    public static final String PROPERTIES_TYPE = "type";
 
     public static DataProperty analyzeDataProperty(Map<String, String> properties, DataProperty oldDataProperty)
             throws AnalysisException {
-        DataProperty dataProperty = oldDataProperty;
-
         if (properties == null) {
-            return dataProperty;
+            return oldDataProperty;
         }
 
         TStorageMedium storageMedium = null;
@@ -106,7 +115,7 @@ public class PropertyAnalyzer {
         } // end for properties
 
         if (!hasCooldown && !hasMedium) {
-            return dataProperty;
+            return oldDataProperty;
         }
 
         properties.remove(PROPERTIES_STORAGE_MEDIUM);
@@ -141,7 +150,7 @@ public class PropertyAnalyzer {
         if (properties != null && properties.containsKey(PROPERTIES_SHORT_KEY)) {
             // check and use speciefied short key
             try {
-                shortKeyColumnCount = Short.valueOf(properties.get(PROPERTIES_SHORT_KEY));
+                shortKeyColumnCount = Short.parseShort(properties.get(PROPERTIES_SHORT_KEY));
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Short key: " + e.getMessage());
             }
@@ -238,7 +247,7 @@ public class PropertyAnalyzer {
         if (properties != null && properties.containsKey(PROPERTIES_SCHEMA_VERSION)) {
             String schemaVersionStr = properties.get(PROPERTIES_SCHEMA_VERSION);
             try {
-                schemaVersion = Integer.valueOf(schemaVersionStr);
+                schemaVersion = Integer.parseInt(schemaVersionStr);
             } catch (Exception e) {
                 throw new AnalysisException("schema version format error");
             }
@@ -276,7 +285,8 @@ public class PropertyAnalyzer {
                                     + "invalid column: " + bfColumn);
                         } else if (column.isKey()
                                 || column.getAggregationType() == AggregateType.NONE
-                                || column.getAggregationType() == AggregateType.REPLACE) {
+                                || column.getAggregationType() == AggregateType.REPLACE
+                                || column.getAggregationType() == AggregateType.REPLACE_IF_NOT_NULL) {
                             if (!bfColumnSet.add(bfColumn)) {
                                 throw new AnalysisException("Reduplicated bloom filter column: " + bfColumn);
                             }
@@ -326,30 +336,6 @@ public class PropertyAnalyzer {
         return bfFpp;
     }
 
-    public static String analyzeKuduMasterAddr(Map<String, String> properties, String kuduMasterAddr)
-            throws AnalysisException {
-        String returnAddr = kuduMasterAddr;
-        if (properties != null && properties.containsKey(PROPERTIES_KUDU_MASTER_ADDRS)) {
-            String addrsStr = properties.get(PROPERTIES_KUDU_MASTER_ADDRS);
-            String[] addrArr = addrsStr.split(",");
-            if (addrArr.length == 0) {
-                throw new AnalysisException("Kudu master address is set empty");
-            }
-
-            returnAddr = "";
-            for (int i = 0; i < addrArr.length; i++) {
-                Pair<String, Integer> hostPort = SystemInfoService.validateHostAndPort(addrArr[i]);
-                returnAddr += hostPort.first + ":" + hostPort.second + ",";
-            }
-            // remove last comma
-            returnAddr = returnAddr.substring(0, returnAddr.length() - 1);
-
-            properties.remove(PROPERTIES_KUDU_MASTER_ADDRS);
-        }
-
-        return returnAddr;
-    }
-
     public static String analyzeColocate(Map<String, String> properties) throws AnalysisException {
         String colocateGroup = null;
         if (properties != null && properties.containsKey(PROPERTIES_COLOCATE_WITH)) {
@@ -364,12 +350,50 @@ public class PropertyAnalyzer {
         if (properties != null && properties.containsKey(PROPERTIES_TIMEOUT)) {
             String timeoutStr = properties.get(PROPERTIES_TIMEOUT);
             try {
-                timeout = Long.valueOf(timeoutStr);
+                timeout = Long.parseLong(timeoutStr);
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid timeout format: " + timeoutStr);
             }
             properties.remove(PROPERTIES_TIMEOUT);
         }
         return timeout;
+    }
+
+    // analyzeStorageFormat will parse the storage format from properties
+    // sql: alter table tablet_name set ("storage_format" = "v2")
+    // Use this sql to convert all tablets(base and rollup index) to a new format segment
+    public static TStorageFormat analyzeStorageFormat(Map<String, String> properties) {
+        String storage_format = "";
+        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_FORMAT)) {
+            storage_format = properties.get(PROPERTIES_STORAGE_FORMAT);
+            properties.remove(PROPERTIES_STORAGE_FORMAT);
+        }
+        if (storage_format.equalsIgnoreCase("v1")) {
+            return TStorageFormat.V1;
+        } else if(storage_format.equalsIgnoreCase("v2")) {
+            return TStorageFormat.V2;
+        } else {
+            return TStorageFormat.DEFAULT;
+        }
+    }
+
+    // analyze common boolean properties, such as "in_memory" = "false"
+    public static boolean analyzeBooleanProp(Map<String, String> properties, String propKey, boolean defaultVal) {
+        if (properties != null && properties.containsKey(propKey)) {
+            String val = properties.get(propKey);
+            properties.remove(propKey);
+            return Boolean.parseBoolean(val);
+        }
+        return defaultVal;
+    }
+
+    // analyze property like : "type" = "xxx";
+    public static String analyzeType(Map<String, String> properties) throws AnalysisException {
+        String type = null;
+        if (properties != null && properties.containsKey(PROPERTIES_TYPE)) {
+            type = properties.get(PROPERTIES_TYPE);
+            properties.remove(PROPERTIES_TYPE);
+        }
+        return type;
     }
 }

@@ -44,7 +44,6 @@ public class BackendIdsUpdateInfo implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int backendCount = in.readInt();
         while (backendCount-- > 0) {

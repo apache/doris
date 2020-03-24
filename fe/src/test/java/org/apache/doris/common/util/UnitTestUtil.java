@@ -37,6 +37,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.load.Load;
 import org.apache.doris.system.Backend;
@@ -109,11 +110,13 @@ public class UnitTestUtil {
         PartitionInfo partitionInfo = new SinglePartitionInfo();
         partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
         partitionInfo.setReplicationNum(partitionId, (short) 3);
+        partitionInfo.setIsInMemory(partitionId, false);
         OlapTable table = new OlapTable(tableId, TABLE_NAME, columns,
                                         KeysType.AGG_KEYS, partitionInfo, distributionInfo);
+        Deencapsulation.setField(table, "baseIndexId", indexId);
         table.addPartition(partition);
-        table.setIndexSchemaInfo(indexId, TABLE_NAME, columns, 0, SCHEMA_HASH, (short) 1);
-        table.setStorageTypeToIndex(indexId, TStorageType.COLUMN);
+        table.setIndexMeta(indexId, TABLE_NAME, columns, 0, SCHEMA_HASH, (short) 1, TStorageType.COLUMN,
+                KeysType.AGG_KEYS);
 
         // db
         Database db = new Database(dbId, DB_NAME);

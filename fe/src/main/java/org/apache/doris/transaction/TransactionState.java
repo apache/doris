@@ -124,7 +124,7 @@ public class TransactionState implements Writable {
             }
         }
     }
-    
+
     private long dbId;
     private long transactionId;
     private String label;
@@ -211,11 +211,8 @@ public class TransactionState implements Writable {
     }
     
     public boolean isRunning() {
-        if (transactionStatus == TransactionStatus.PREPARE
-                || transactionStatus == TransactionStatus.COMMITTED) {
-            return true;
-        }
-        return false;
+        return transactionStatus == TransactionStatus.PREPARE
+                || transactionStatus == TransactionStatus.COMMITTED;
     }
     
     public void addPublishVersionTask(Long backendId, PublishVersionTask task) {
@@ -336,7 +333,8 @@ public class TransactionState implements Writable {
             switch (transactionStatus) {
                 case COMMITTED:
                     // Maybe listener has been deleted. The txn need to be aborted later.
-                    throw new TransactionException("Failed to commit txn when callback could not be found");
+                    throw new TransactionException(
+                            "Failed to commit txn when callback " + callbackId + "could not be found");
                 default:
                     break;
             }
@@ -431,6 +429,16 @@ public class TransactionState implements Writable {
         this.txnCommitAttachment = txnCommitAttachment;
     }
     
+    // return true if txn is in final status and label is expired
+    public boolean isExpired(long currentMillis) {
+        return transactionStatus.isFinalStatus() && (currentMillis - finishTime) / 1000 > Config.label_keep_max_second;
+    }
+
+    // return true if txn is running but timeout
+    public boolean isTimeout(long currentMillis) {
+        return transactionStatus == TransactionStatus.PREPARE && currentMillis - prepareTime > timeoutMs;
+    }
+
     /*
      * Add related table indexes to the transaction.
      * If function should always be called before adding this transaction state to transaction manager,
@@ -444,7 +452,7 @@ public class TransactionState implements Writable {
         }
         // always rewrite the index ids
         indexIds.clear();
-        for (Long indexId : table.getIndexIdToSchema().keySet()) {
+        for (Long indexId : table.getIndexIdToMeta().keySet()) {
             indexIds.add(indexId);
         }
     }
@@ -459,6 +467,7 @@ public class TransactionState implements Writable {
         sb.append("transaction id: ").append(transactionId);
         sb.append(", label: ").append(label);
         sb.append(", db id: ").append(dbId);
+        sb.append(", callback id: ").append(callbackId);
         sb.append(", coordinator: ").append(coordinator);
         sb.append(", transaction status: ").append(transactionStatus);
         sb.append(", error replicas num: ").append(errorReplicas.size());
@@ -526,7 +535,6 @@ public class TransactionState implements Writable {
         out.writeLong(timeoutMs);
     }
     
-    @Override
     public void readFields(DataInput in) throws IOException {
         transactionId = in.readLong();
         label = Text.readString(in);

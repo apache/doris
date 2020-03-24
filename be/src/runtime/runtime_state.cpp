@@ -22,7 +22,6 @@
 #include "common/logging.h"
 #include <boost/algorithm/string/join.hpp>
 
-#include "codegen/llvm_codegen.h"
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
@@ -196,12 +195,6 @@ Status RuntimeState::init(
     }
     _exec_env = exec_env;
 
-    if (!query_options.disable_codegen) {
-        RETURN_IF_ERROR(create_codegen());
-    } else {
-        _codegen.reset(NULL);
-    }
-
     if (_query_options.max_errors <= 0) {
         // TODO: fix linker error and uncomment this
         //_query_options.max_errors = config::max_errors;
@@ -307,14 +300,6 @@ Status RuntimeState::create_block_mgr() {
     RETURN_IF_ERROR(BufferedBlockMgr2::create(this, _query_mem_tracker.get(),
             runtime_profile(), _exec_env->tmp_file_mgr(),
             block_mgr_limit, _exec_env->disk_io_mgr()->max_read_buffer_size(), &_block_mgr2));
-    return Status::OK();
-}
-
-Status RuntimeState::create_codegen() {
-    RETURN_IF_ERROR(LlvmCodeGen::load_doris_ir(
-            _obj_pool.get(), print_id(fragment_instance_id()), &_codegen));
-    _codegen->enable_optimizations(true);
-    _profile.add_child(_codegen->runtime_profile(), true, NULL);
     return Status::OK();
 }
 
@@ -514,22 +499,19 @@ void RuntimeState::export_load_error(const std::string& err_msg) {
     }
 }
 
-Status RuntimeState::get_codegen(LlvmCodeGen** codegen, bool initialize) {
-    if (_codegen.get() == NULL && initialize) {
-        RETURN_IF_ERROR(create_codegen());
-    }
-    *codegen = _codegen.get();
-    return Status::OK();
-}
-
-Status RuntimeState::get_codegen(LlvmCodeGen** codegen) {
-    return get_codegen(codegen, true);
-}
-
 // TODO chenhao , check scratch_limit, disable_spilling and file_group
 // before spillng
 Status RuntimeState::StartSpilling(MemTracker* mem_tracker) {
     return Status::InternalError("Mem limit exceeded.");
 }
+
+int64_t RuntimeState::get_load_mem_limit() {
+    if (_query_options.__isset.load_mem_limit && _query_options.load_mem_limit > 0) {
+        return  _query_options.load_mem_limit;
+    } else {
+        return _query_mem_tracker->limit();
+    }
+}
+
 } // end namespace doris
 

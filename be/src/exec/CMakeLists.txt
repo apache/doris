@@ -25,7 +25,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
     aggregation_node.cpp
-    #pre_aggregation_node.cpp
     aggregation_node_ir.cpp
     analytic_eval_node.cpp
     blocking_join_node.cpp
@@ -71,6 +70,9 @@ set(EXEC_FILES
     spill_sort_node.cc
     union_node.cpp
     union_node_ir.cpp
+    intersect_node.cpp
+    except_node.cpp
+    repeat_node.cpp
     schema_scanner.cpp
     schema_scan_node.cpp
     schema_scanner/schema_tables_scanner.cpp
@@ -85,14 +87,12 @@ set(EXEC_FILES
     partitioned_hash_table_ir.cc
     partitioned_aggregation_node.cc
     partitioned_aggregation_node_ir.cc
-    new_partitioned_hash_table.cc
-    new_partitioned_hash_table_ir.cc
-    new_partitioned_aggregation_node.cc
-    new_partitioned_aggregation_node_ir.cc
     local_file_writer.cpp
     broker_writer.cpp
     parquet_scanner.cpp
     parquet_reader.cpp
+    orc_scanner.cpp
+    assert_num_rows_node.cpp
 )
 
 if (WITH_MYSQL)
@@ -106,14 +106,6 @@ endif()
 if (WITH_LZO)
     set(EXEC_FILES ${EXEC_FILES}
         lzo_decompressor.cpp 
-    )
-endif()
-
-if(EXISTS "${BASE_DIR}/src/exec/kudu_util.cpp")
-    set(EXEC_FILES ${EXEC_FILES}
-        #kudu_scan_node.cpp
-        #kudu_scanner.cpp
-        #kudu_util.cpp
     )
 endif()
 

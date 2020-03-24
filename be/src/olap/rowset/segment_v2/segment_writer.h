@@ -22,18 +22,20 @@
 #include <string>
 #include <vector>
 
-#include "common/logging.h" // LOG
 #include "common/status.h" // Status
 #include "gen_cpp/segment_v2.pb.h"
 #include "gutil/macros.h"
-#include "olap/schema.h"
 
 namespace doris {
 
-class WritableFile;
 class RowBlock;
 class RowCursor;
+class TabletSchema;
 class ShortKeyIndexBuilder;
+
+namespace fs {
+class WritableBlock;
+}
 
 namespace segment_v2 {
 
@@ -44,16 +46,18 @@ extern const uint32_t k_segment_magic_length;
 
 struct SegmentWriterOptions {
     uint32_t num_rows_per_block = 1024;
+    // whether to filter value column against bloom filter/zone map
+    bool whether_to_filter_value = false;
 };
 
 class SegmentWriter {
 public:
-    explicit SegmentWriter(std::string file_name,
+    explicit SegmentWriter(fs::WritableBlock* block,
                            uint32_t segment_id,
                            const TabletSchema* tablet_schema,
                            const SegmentWriterOptions& opts);
-
     ~SegmentWriter();
+
     Status init(uint32_t write_mbytes_per_sec);
 
     template<typename RowType>
@@ -63,26 +67,29 @@ public:
 
     uint32_t num_rows_written() { return _row_count; }
 
-    Status finalize(uint64_t* segment_file_size);
+    Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();
     Status _write_ordinal_index();
     Status _write_zone_map();
+    Status _write_bitmap_index();
+    Status _write_bloom_filter_index();
     Status _write_short_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
 
 private:
-    std::string _fname;
     uint32_t _segment_id;
     const TabletSchema* _tablet_schema;
     SegmentWriterOptions _opts;
 
+    // Not owned. owned by RowsetWriter
+    fs::WritableBlock* _wblock;
+
     SegmentFooterPB _footer;
     std::unique_ptr<ShortKeyIndexBuilder> _index_builder;
-    std::unique_ptr<WritableFile> _output_file;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     uint32_t _row_count = 0;
 };

@@ -24,10 +24,6 @@
 #include "exprs/predicate.h"
 #include "gen_cpp/Exprs_types.h"
 
-namespace llvm {
-class Function;
-}
-
 namespace doris {
 
 class CompoundPredicate: public Predicate {
@@ -40,7 +36,6 @@ protected:
 
     CompoundPredicate(const TExprNode& node);
 
-    Status codegen_compute_fn(bool and_fn, RuntimeState* state, llvm::Function** fn);
     // virtual Status prepare(RuntimeState* state, const RowDescriptor& desc);
     virtual std::string debug_string() const;
 
@@ -59,10 +54,6 @@ public:
         return pool->add(new AndPredicate(*this));
     }
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
-
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-        return CompoundPredicate::codegen_compute_fn(true, state, fn);
-    }
 
 protected:
     friend class Expr;
@@ -86,10 +77,6 @@ public:
     }
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
 
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-        return CompoundPredicate::codegen_compute_fn(false, state, fn);
-    }
-
 protected:
     friend class Expr;
     OrPredicate(const TExprNode& node) : CompoundPredicate(node) { }
@@ -111,10 +98,6 @@ public:
         return pool->add(new NotPredicate(*this));
     }
     virtual doris_udf::BooleanVal get_boolean_val(ExprContext* context, TupleRow*);
-
-    virtual Status get_codegend_compute_fn(RuntimeState* state, llvm::Function** fn) {
-        return get_codegend_compute_fn_wrapper(state, fn);
-    }
 
 protected:
     friend class Expr;

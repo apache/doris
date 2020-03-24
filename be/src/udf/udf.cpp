@@ -80,8 +80,6 @@ public:
 
 namespace doris {
 
-const char* FunctionContextImpl::_s_llvm_functioncontext_name = "class.doris_udf::FunctionContext";
-
 FunctionContextImpl::FunctionContextImpl(doris_udf::FunctionContext* parent) : 
         _varargs_buffer(nullptr),
         _varargs_buffer_size(0),

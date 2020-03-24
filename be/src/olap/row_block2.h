@@ -26,12 +26,14 @@
 #include "olap/schema.h"
 #include "olap/types.h"
 #include "olap/selection_vector.h"
+#include "olap/row_block.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
 
 namespace doris {
 
 class MemPool;
+class RowBlockRow;
 class RowCursor;
 
 // This struct contains a block of rows, in which each column's data is stored
@@ -44,7 +46,9 @@ public:
 
     // update number of rows contained in this block
     void set_num_rows(size_t num_rows) { _num_rows = num_rows; }
-    // return number of rows contained in this block
+    // low-level API to get the number of rows contained in this block.
+    // note that some rows may have been un-selected by selection_vector(),
+    // client should use selected_size() to get the actual number of selected rows.
     size_t num_rows() const { return _num_rows; }
     // return the maximum number of rows that can be contained in this block.
     // invariant: 0 <= num_rows() <= capacity()
@@ -61,19 +65,13 @@ public:
         for (int i = 0; i < _selected_size; ++i) {
             _selection_vector[i] = i;
         }
+        _delete_state = DEL_NOT_SATISFIED;
     }
 
-    // Copy the row_idx row's data into given row_cursor.
-    // This function will use shallow copy, so the client should
-    // notice the life time of returned value
-    Status copy_to_row_cursor(size_t row_idx, RowCursor* row_cursor);
+    // convert RowBlockV2 to RowBlock
+    Status convert_to_row_block(RowCursor* helper, RowBlock* dst);
 
-    // Copy the row_idx row's data into given row_cursor.
-    // This function will use deep copy.
-    // This function is used to convert RowBlockV2 to RowBlock
-    Status deep_copy_to_row_cursor(size_t row_idx, RowCursor* cursor, MemPool* mem_pool);
-
-    // Get the column block for one of the columns in this row block.
+    // low-level API to access memory for each column block(including data array and nullmap).
     // `cid` must be one of `schema()->column_ids()`.
     ColumnBlock column_block(ColumnId cid) const {
         const TypeInfo* type_info = _schema.column(cid)->type_info();
@@ -82,6 +80,9 @@ public:
         return ColumnBlock(type_info, data, null_bitmap, _capacity, _pool.get());
     }
 
+    // low-level API to access the underlying memory for row at `row_idx`.
+    // client should use selection_vector() to iterate over row index of selected rows.
+    // TODO(gdy) DO NOT expose raw rows which may be un-selected to clients
     RowBlockRow row(size_t row_idx) const;
 
     const Schema* schema() const { return &_schema; }
@@ -96,6 +97,17 @@ public:
 
     void set_selected_size(uint16_t selected_size) {
         _selected_size = selected_size;
+    }
+
+    DelCondSatisfied delete_state() const { return _delete_state; }
+
+    void set_delete_state(DelCondSatisfied delete_state) {
+        // if the set _delete_state is DEL_PARTIAL_SATISFIED,
+        // we can not change _delete_state to DEL_NOT_SATISFIED;
+        if (_delete_state == DEL_PARTIAL_SATISFIED && delete_state != DEL_SATISFIED) {
+            return;
+        }
+        _delete_state = delete_state;
     }
 
 private:
@@ -118,6 +130,9 @@ private:
     uint16_t* _selection_vector;
     // selected rows number
     uint16_t _selected_size;
+
+    // block delete state
+    DelCondSatisfied _delete_state;
 };
 
 // Stands for a row in RowBlockV2. It is consisted of a RowBlockV2 reference

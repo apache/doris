@@ -72,6 +72,13 @@ enum RowsetStatePB {
     VISIBLE = 2; // 表示rowset 已经对用户可见
 }
 
+// indicate whether date between segments of a rowset is overlappinng
+enum SegmentsOverlapPB {
+    OVERLAP_UNKNOWN = 0;    // this enum is added since Doris v0.11, so previous rowset's segment is unknown
+    OVERLAPPING = 1;
+    NONOVERLAPPING = 2;
+}
+
 message RowsetMetaPB {
     required int64 rowset_id = 1;
     optional int64 partition_id = 2;
@@ -114,6 +121,8 @@ message RowsetMetaPB {
     optional string rowset_id_v2 = 23;
     // spare field id for future use
     optional AlphaRowsetExtraMetaPB alpha_rowset_extra_meta_pb = 50;
+    // to indicate whether the data between the segments overlap
+    optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
 }
 
 message AlphaRowsetExtraMetaPB {
@@ -255,6 +264,7 @@ message ColumnPB {
     optional bool is_bf_column = 12; // ColumnMessage.is_bf_column
     optional int32 referenced_column_id = 13; //   
     optional string referenced_column = 14; // ColumnMessage.referenced_column?
+    optional bool has_bitmap_index = 15 [default=false]; // ColumnMessage.has_bitmap_index
 
 }
 
@@ -266,6 +276,7 @@ message TabletSchemaPB {
     optional CompressKind compress_kind = 5; // OLAPHeaderMessage.compress_kind
     optional double bf_fpp = 6; // OLAPHeaderMessage.bf_fpp
     optional uint32 next_column_unique_id = 7; // OLAPHeaderMessage.next_column_unique_id
+    optional bool is_in_memory = 8 [default=false];
 }
 
 enum TabletStatePB {
@@ -296,6 +307,7 @@ message TabletMetaPB {
     // a uniqued id to identified tablet with same tablet_id and schema hash
     optional PUniqueId tablet_uid = 14;
     optional int64 end_rowset_id = 15;
+    optional RowsetTypePB preferred_rowset_type = 16;
 }
 
 message OLAPIndexHeaderMessage {

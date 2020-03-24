@@ -42,6 +42,7 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CreateReplicaTask;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
@@ -93,6 +94,8 @@ public class RollupJobV2 extends AlterJobV2 {
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
 
+    private TStorageFormat storageFormat = null;
+
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
             long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
             List<Column> rollupSchema, int baseSchemaHash, int rollupSchemaHash,
@@ -116,16 +119,16 @@ public class RollupJobV2 extends AlterJobV2 {
     }
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
-        Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.get(partitionId);
-        if (tabletIdMap == null) {
-            tabletIdMap = Maps.newHashMap();
-            partitionIdToBaseRollupTabletIdMap.put(partitionId, tabletIdMap);
-        }
+        Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.computeIfAbsent(partitionId, k -> Maps.newHashMap());
         tabletIdMap.put(rollupTabletId, baseTabletId);
     }
 
-    public void addRollupIndex(long partitionId, MaterializedIndex rollupIndex) {
-        this.partitionIdToRollupIndex.put(partitionId, rollupIndex);
+    public void addMVIndex(long partitionId, MaterializedIndex mvIndex) {
+        this.partitionIdToRollupIndex.put(partitionId, mvIndex);
+    }
+
+    public void setStorageFormat(TStorageFormat storageFormat) {
+        this.storageFormat = storageFormat;
     }
 
     /*
@@ -145,6 +148,10 @@ public class RollupJobV2 extends AlterJobV2 {
             throw new AlterCancelException("Database " + dbId + " does not exist");
         }
 
+        if (!checkTableStable(db)) {
+            return;
+        }
+
         // 1. create rollup replicas
         AgentBatchTask batchTask = new AgentBatchTask();
         // count total replica num
@@ -161,8 +168,8 @@ public class RollupJobV2 extends AlterJobV2 {
             if (tbl == null) {
                 throw new AlterCancelException("Table " + tableId + " does not exist");
             }
-            Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
 
+            Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
                 long partitionId = entry.getKey();
                 Partition partition = tbl.getPartition(partitionId);
@@ -187,9 +194,13 @@ public class RollupJobV2 extends AlterJobV2 {
                                 rollupShortKeyColumnCount, rollupSchemaHash,
                                 Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
                                 rollupKeysType, TStorageType.COLUMN, storageMedium,
-                                rollupSchema, tbl.getCopiedBfColumns(), tbl.getBfFpp(), countDownLatch);
+                                rollupSchema, tbl.getCopiedBfColumns(), tbl.getBfFpp(), countDownLatch,
+                                tbl.getCopiedIndexes(),
+                                tbl.isInMemory());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
-
+                        if (this.storageFormat != null) {
+                            createReplicaTask.setStorageFormat(this.storageFormat);
+                        }
                         batchTask.addTask(createReplicaTask);
                     } // end for rollupReplicas
                 } // end for rollupTablets
@@ -261,9 +272,8 @@ public class RollupJobV2 extends AlterJobV2 {
             partition.createRollupIndex(rollupIndex);
         }
 
-        tbl.setIndexSchemaInfo(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
-                rollupSchemaHash, rollupShortKeyColumnCount);
-        tbl.setStorageTypeToIndex(rollupIndexId, TStorageType.COLUMN);
+        tbl.setIndexMeta(rollupIndexId, rollupIndexName, rollupSchema, 0 /* init schema version */,
+                rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType);
     }
 
     /*
@@ -286,7 +296,7 @@ public class RollupJobV2 extends AlterJobV2 {
         if (db == null) {
             throw new AlterCancelException("Databasee " + dbId + " does not exist");
         }
-        
+
         db.readLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tableId);
@@ -364,6 +374,12 @@ public class RollupJobV2 extends AlterJobV2 {
 
         if (!rollupBatchTask.isFinished()) {
             LOG.info("rollup tasks not finished. job: {}", jobId);
+            List<AgentTask> tasks = rollupBatchTask.getUnfinishedTasks(2000);
+            for (AgentTask task : tasks) {
+                if (task.getFailedTimes() >= 3) {
+                    throw new AlterCancelException("rollup task failed after try three times: " + task.getErrorMsg());
+                }
+            }
             return;
         }
 
@@ -431,7 +447,6 @@ public class RollupJobV2 extends AlterJobV2 {
             }
             partition.visualiseShadowIndex(rollupIndexId, false);
         }
-        tbl.setState(OlapTableState.NORMAL);
     }
 
     /*
@@ -474,7 +489,6 @@ public class RollupJobV2 extends AlterJobV2 {
                         partition.deleteRollupIndex(rollupIndexId);
                     }
                     tbl.deleteIndexInfo(rollupIndexName);
-                    tbl.setState(OlapTableState.NORMAL);
                 }
             } finally {
                 db.writeUnlock();
@@ -590,31 +604,34 @@ public class RollupJobV2 extends AlterJobV2 {
                 // table may be dropped before replaying this log. just return
                 return;
             }
-
-            // add all rollup replicas to tablet inverted index
-            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            for (Long partitionId : partitionIdToRollupIndex.keySet()) {
-                MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
-                TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
-                TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
-                        rollupSchemaHash, medium);
-
-                for (Tablet rollupTablet : rollupIndex.getTablets()) {
-                    invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
-                    for (Replica rollupReplica : rollupTablet.getReplicas()) {
-                        invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);
-                    }
-                }
-            }
-            tbl.setState(OlapTableState.ROLLUP);
+            addTabletToInvertedIndex(tbl);
         } finally {
             db.writeUnlock();
         }
 
-        this.jobState = JobState.WAITING_TXN;
+        // to make sure that this job will run runPendingJob() again to create the rollup replicas
+        this.jobState = JobState.PENDING;
         this.watershedTxnId = replayedJob.watershedTxnId;
 
         LOG.info("replay pending rollup job: {}", jobId);
+    }
+
+    private void addTabletToInvertedIndex(OlapTable tbl) {
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        // add all rollup replicas to tablet inverted index
+        for (Long partitionId : partitionIdToRollupIndex.keySet()) {
+            MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
+            TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
+            TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
+                    rollupSchemaHash, medium);
+
+            for (Tablet rollupTablet : rollupIndex.getTablets()) {
+                invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
+                for (Replica rollupReplica : rollupTablet.getReplicas()) {
+                    invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);
+                }
+            }
+        }
     }
 
     /*
@@ -668,7 +685,7 @@ public class RollupJobV2 extends AlterJobV2 {
         
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
-        
+
         LOG.info("replay finished rollup job: {}", jobId);
     }
 
@@ -742,4 +759,13 @@ public class RollupJobV2 extends AlterJobV2 {
         }
         return taskInfos;
     }
+
+    public Map<Long, MaterializedIndex> getPartitionIdToRollupIndex() {
+        return partitionIdToRollupIndex;
+    }
+
+    public void setJobState(JobState jobState) {
+        this.jobState = jobState;
+    }
+
 }

@@ -27,7 +27,7 @@ import java.time.ZoneId;
 // NOTE: If you want access your variable safe, please hold VariableMgr's lock before access.
 public final class GlobalVariable {
     @VariableMgr.VarAttr(name = "version_comment", flag = VariableMgr.READ_ONLY)
-    public static String versionComment = "Doris version " + Version.PALO_BUILD_VERSION;
+    public static String versionComment = "Doris version " + Version.DORIS_BUILD_VERSION;
 
     @VariableMgr.VarAttr(name = "version", flag = VariableMgr.READ_ONLY)
     public static String version = "5.1.0";
@@ -39,7 +39,7 @@ public final class GlobalVariable {
     public static int lowerCaseTableNames = 0;
 
     @VariableMgr.VarAttr(name = "license", flag = VariableMgr.READ_ONLY)
-    public static String license = "Baidu";
+    public static String license = "Apache License, Version 2.0";
 
     @VariableMgr.VarAttr(name = "language", flag = VariableMgr.READ_ONLY)
     public static String language = "/palo/share/english/";

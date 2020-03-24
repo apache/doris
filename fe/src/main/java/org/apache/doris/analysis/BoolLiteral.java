@@ -108,7 +108,6 @@ public class BoolLiteral extends LiteralExpr {
         out.writeBoolean(value);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         value = in.readBoolean();
@@ -118,5 +117,10 @@ public class BoolLiteral extends LiteralExpr {
         BoolLiteral literal = new BoolLiteral();
         literal.readFields(in);
         return literal;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Boolean.hashCode(value);
     }
 }

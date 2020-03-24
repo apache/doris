@@ -20,11 +20,13 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
@@ -83,8 +85,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         super(-1, LoadDataSourceType.KAFKA);
     }
 
-    public KafkaRoutineLoadJob(Long id, String name, String clusterName, long dbId, long tableId, String brokerList,
-            String topic) {
+    public KafkaRoutineLoadJob(Long id, String name, String clusterName,
+            long dbId, long tableId, String brokerList, String topic) {
         super(id, name, clusterName, dbId, tableId, LoadDataSourceType.KAFKA);
         this.brokerList = brokerList;
         this.topic = topic;
@@ -136,6 +138,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
+
     @Override
     public void divideRoutineLoadJob(int currentConcurrentTaskNum) throws UserException {
         List<RoutineLoadTaskInfo> result = new ArrayList<>();
@@ -152,7 +155,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                     ((KafkaProgress) progress).getOffsetByPartition(kafkaPartition));
                         }
                     }
-                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName, taskKafkaProgress);
+                    KafkaTaskInfo kafkaTaskInfo = new KafkaTaskInfo(UUID.randomUUID(), id, clusterName,
+                            maxBatchIntervalS * 2 * 1000, taskKafkaProgress);
                     routineLoadTaskInfoList.add(kafkaTaskInfo);
                     result.add(kafkaTaskInfo);
                 }
@@ -179,11 +183,10 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
             desireTaskConcurrentNum = Config.max_routine_load_task_concurrent_num;
         }
 
-        LOG.info("current concurrent task number is min"
+        LOG.debug("current concurrent task number is min"
                 + "(partition num: {}, desire task concurrent num: {}, alive be num: {}, config: {})",
                 partitionNum, desireTaskConcurrentNum, aliveBeNum, Config.max_routine_load_task_concurrent_num);
-        currentTaskConcurrentNum = 
-                Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)),
+        currentTaskConcurrentNum = Math.min(Math.min(partitionNum, Math.min(desireTaskConcurrentNum, aliveBeNum)),
                         Config.max_routine_load_task_concurrent_num);
         return currentTaskConcurrentNum;
     }
@@ -270,7 +273,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                                      .build(), e);
                     if (this.state == JobState.NEED_SCHEDULE) {
                         unprotectUpdateState(JobState.PAUSED,
-                                "Job failed to fetch all current partition with error " + e.getMessage(),
+                                new ErrorReason(InternalErrorCode.PARTITIONS_ERR,
+                                "Job failed to fetch all current partition with error " + e.getMessage()),
                                 false /* not replay */);
                     }
                     return false;
@@ -299,6 +303,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
                     return true;
                 }
             }
+        } else if (this.state == JobState.PAUSED) {
+            return ScheduleRule.isNeedAutoSchedule(this);
         } else {
             return false;
         }
@@ -337,7 +343,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         db.readLock();
         try {
             unprotectedCheckMeta(db, stmt.getTableName(), stmt.getRoutineLoadDesc());
-            tableId = db.getTable(stmt.getTableName()).getId();
+            Table table = db.getTable(stmt.getTableName());
+            tableId = table.getId();
         } finally {
             db.readUnlock();
         }
@@ -345,7 +352,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         // init kafka routine load job
         long id = Catalog.getInstance().getNextId();
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(id, stmt.getName(),
-                db.getClusterName(), db.getId(), tableId, stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
+                db.getClusterName(), db.getId(), tableId,
+                stmt.getKafkaBrokerList(), stmt.getKafkaTopic());
         kafkaRoutineLoadJob.setOptional(stmt);
         kafkaRoutineLoadJob.checkCustomProperties();
         kafkaRoutineLoadJob.checkCustomPartition();
@@ -465,7 +473,6 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         brokerList = Text.readString(in);

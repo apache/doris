@@ -17,7 +17,6 @@
 
 package org.apache.doris.load.routineload;
 
-import mockit.Verifications;
 import org.apache.doris.analysis.LoadColumnsInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -25,28 +24,25 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.transaction.BeginTransactionException;
+import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
 
-import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.junit.Test;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.UUID;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
-
-import static mockit.Deencapsulation.invoke;
 
 public class RoutineLoadTaskSchedulerTest {
 
@@ -75,7 +71,8 @@ public class RoutineLoadTaskSchedulerTest {
         Deencapsulation.setField(kafkaProgress, "partitionIdToOffset", partitionIdToOffset);
 
         Queue<RoutineLoadTaskInfo> routineLoadTaskInfoQueue = Queues.newLinkedBlockingQueue();
-        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l, "default_cluster", partitionIdToOffset);
+        KafkaTaskInfo routineLoadTaskInfo1 = new KafkaTaskInfo(new UUID(1, 1), 1l, "default_cluster", 20000,
+                partitionIdToOffset);
         routineLoadTaskInfoQueue.add(routineLoadTaskInfo1);
 
         Map<Long, RoutineLoadTaskInfo> idToRoutineLoadTask = Maps.newHashMap();
@@ -89,30 +86,39 @@ public class RoutineLoadTaskSchedulerTest {
         new Expectations() {
             {
                 Catalog.getInstance();
+                minTimes = 0;
                 result = catalog;
                 catalog.getRoutineLoadManager();
+                minTimes = 0;
                 result = routineLoadManager;
 
                 routineLoadManager.getClusterIdleSlotNum();
+                minTimes = 0;
                 result = 1;
                 routineLoadManager.checkTaskInJob((UUID) any);
+                minTimes = 0;
                 result = true;
 
                 kafkaRoutineLoadJob1.getDbId();
+                minTimes = 0;
                 result = 1L;
                 kafkaRoutineLoadJob1.getTableId();
+                minTimes = 0;
                 result = 1L;
                 kafkaRoutineLoadJob1.getName();
+                minTimes = 0;
                 result = "";
                 routineLoadManager.getMinTaskBeId(anyString);
+                minTimes = 0;
                 result = beId;
                 routineLoadManager.getJob(anyLong);
+                minTimes = 0;
                 result = kafkaRoutineLoadJob1;
             }
         };
 
         RoutineLoadTaskScheduler routineLoadTaskScheduler = new RoutineLoadTaskScheduler();
         Deencapsulation.setField(routineLoadTaskScheduler, "needScheduleTasksQueue", routineLoadTaskInfoQueue);
-        routineLoadTaskScheduler.runOneCycle();
+        routineLoadTaskScheduler.runAfterCatalogReady();
     }
 }

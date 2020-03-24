@@ -64,8 +64,8 @@ public:
                 
     static SnapshotManager* instance();
 
-    OLAPStatus convert_rowset_ids(DataDir& data_dir, const string& clone_dir, int64_t tablet_id, 
-        const int32_t& schema_hash, TabletSharedPtr tablet);
+    OLAPStatus convert_rowset_ids(const string& clone_dir, int64_t tablet_id,
+            const int32_t& schema_hash);
 
 private:
     SnapshotManager()
@@ -93,9 +93,13 @@ private:
 
     OLAPStatus _prepare_snapshot_dir(const TabletSharedPtr& ref_tablet,
            std::string* snapshot_id_path);
-    
+
     OLAPStatus _rename_rowset_id(const RowsetMetaPB& rs_meta_pb, const string& new_path, 
-        DataDir& data_dir, TabletSchema& tablet_schema, const RowsetId& next_id, RowsetMetaPB* new_rs_meta_pb);
+            TabletSchema& tablet_schema, const RowsetId& next_id, RowsetMetaPB* new_rs_meta_pb);
+
+    OLAPStatus _convert_beta_rowsets_to_alpha(const TabletMetaSharedPtr& new_tablet_meta,
+            const vector<RowsetMetaSharedPtr>& rowset_metas, const std::string& dst_path,
+            bool is_incremental);
 
 private:
     static SnapshotManager* _s_instance;

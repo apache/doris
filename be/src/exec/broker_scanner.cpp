@@ -34,7 +34,7 @@
 #include "exec/local_file_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/decompressor.h"
-#include "util/simdutf8check.h"
+#include "util/utf8_check.h"
 
 namespace doris {
 
@@ -194,6 +194,9 @@ Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
     case TFileFormatType::FORMAT_CSV_LZOP:
         compress_type = CompressType::LZOP;
         break;
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+        compress_type = CompressType::DEFLATE;
+        break;
     default: {
         std::stringstream ss;
         ss << "Unknown format type, type=" << type;
@@ -242,6 +245,7 @@ Status BrokerScanner::open_line_reader() {
     case TFileFormatType::FORMAT_CSV_BZ2:
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
         _cur_line_reader = new PlainTextLineReader(
                 _profile,
                 _cur_file_reader, _cur_decompressor,
@@ -396,7 +400,7 @@ bool BrokerScanner::convert_one_row(
 // Convert one row to this tuple
 bool BrokerScanner::line_to_src_tuple(const Slice& line) {
 
-    if (!validate_utf8_fast(line.data, line.size)) {
+    if (!validate_utf8(line.data, line.size)) {
         std::stringstream error_msg;
         error_msg << "data is not encoded by UTF-8";
         _state->append_error_msg_to_file(std::string(line.data, line.size),
@@ -447,7 +451,9 @@ bool BrokerScanner::line_to_src_tuple(const Slice& line) {
         str_slot->len = value.size;
     }
 
-    fill_slots_of_columns_from_path(range.num_of_columns_from_file, columns_from_path);
+    if (range.__isset.num_of_columns_from_file) {
+        fill_slots_of_columns_from_path(range.num_of_columns_from_file, columns_from_path);
+    }
 
     return true;
 }

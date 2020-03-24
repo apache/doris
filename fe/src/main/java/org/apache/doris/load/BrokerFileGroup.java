@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Catalog;
@@ -64,7 +65,7 @@ public class BrokerFileGroup implements Writable {
     // fileFormat may be null, which means format will be decided by file's suffix
     private String fileFormat;
     private boolean isNegative;
-    private List<Long> partitionIds;
+    private List<Long> partitionIds; // can be null, means no partition specified
     private List<String> filePaths;
 
     private List<String> fileFieldNames;
@@ -77,7 +78,7 @@ public class BrokerFileGroup implements Writable {
     // filter the data which has been conformed
     private Expr whereExpr;
 
-    // Used for recovery from edit log
+    // for unit test and edit log persistence
     private BrokerFileGroup() {
     }
 
@@ -115,15 +116,13 @@ public class BrokerFileGroup implements Writable {
         tableId = table.getId();
 
         // partitionId
-        if (dataDescription.getPartitionNames() != null) {
-            if (dataDescription.getPartitionNames().size() == 0) {
-                throw new DdlException("Partition names size is 0, at least 1.");
-            }
+        PartitionNames partitionNames = dataDescription.getPartitionNames();
+        if (partitionNames != null) {
             partitionIds = Lists.newArrayList();
-            for (String pName : dataDescription.getPartitionNames()) {
-                Partition partition = olapTable.getPartition(pName);
+            for (String pName : partitionNames.getPartitionNames()) {
+                Partition partition = olapTable.getPartition(pName, partitionNames.isTemp());
                 if (partition == null) {
-                    throw new DdlException("Unknown partition" + pName + " in table" + table.getName());
+                    throw new DdlException("Unknown partition '" + pName + "' in table '" + table.getName() + "'");
                 }
                 partitionIds.add(partition.getId());
             }
@@ -158,8 +157,8 @@ public class BrokerFileGroup implements Writable {
 
         fileFormat = dataDescription.getFileFormat();
         if (fileFormat != null) {
-            if (!fileFormat.toLowerCase().equals("parquet") && !fileFormat.toLowerCase().equals("csv")) {
-                throw new DdlException("File Format Type "+fileFormat+" is invalid. Only support 'csv' or 'parquet'");
+            if (!fileFormat.toLowerCase().equals("parquet") && !fileFormat.toLowerCase().equals("csv") && !fileFormat.toLowerCase().equals("orc")) {
+                throw new DdlException("File Format Type "+fileFormat+" is invalid.");
             }
         }
         isNegative = dataDescription.isNegative();
@@ -313,7 +312,6 @@ public class BrokerFileGroup implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         tableId = in.readLong();
         valueSeparator = Text.readString(in);

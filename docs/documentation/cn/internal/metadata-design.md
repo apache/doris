@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # 元数据设计文档
 
 ## 名词解释
@@ -63,7 +82,7 @@ Doris 的元数据是全内存的。每个 FE 内存中，都维护一个完整�
 3. `image/` 目录下为 image 文件的存放目录。
 
 	* 	`image.[logid]` 是最新的 image 文件。后缀 `logid` 表明 image 所包含的最后一条日志的 id。
-	*  `image.ckpt` 是正在写入的 image 文件，如果写入成功，会重命名为 `image.[logid]`，并替换掉就的 image 文件。
+	*  `image.ckpt` 是正在写入的 image 文件，如果写入成功，会重命名为 `image.[logid]`，并替换掉旧的 image 文件。
 	*  `VERSION` 文件中记录着 `cluster_id`。`cluster_id` 唯一标识一个 Doris 集群。是在 leader 第一次启动时随机生成的一个 32 位整型。也可以通过 fe 配置项 `cluster_id` 来指定一个 cluster id。
 	*  `ROLE` 文件中记录的 FE 自身的角色。只有 `FOLLOWER` 和 `OBSERVER` 两种。其中 `FOLLOWER` 表示 FE 为一个可选举的节点。（注意：即使是 leader 节点，其角色也为 `FOLLOWER`）
 
@@ -87,7 +106,7 @@ Doris 的元数据是全内存的。每个 FE 内存中，都维护一个完整�
 
 1. 用户可以使用 mysql 连接任意一个 FE 节点进行元数据的读写访问。如果连接的是 non-leader 节点，则该节点会将写操作转发给 leader 节点。leader 写成功后，会返回一个 leader 当前最新的 log id。之后，non-leader 节点会等待自身回放的 log id 大于回传的 log id 后，才将命令成功的消息返回给客户端。这种方式保证了任意 FE 节点的 Read-Your-Write 语义。
 
-	> 注：一些非写操作，也会转发给 leader 执行。比如 `SHOW LOAD` 操作。因为这些命令通常需要读取一些作业的中间状态，而这些中间状态是不写 bdbje 的，因此 non-leader 节点的内存中，是没有这些中间状态的。（FE 直接的元数据同步完全依赖 bdbje 的日志回放，如果一个元数据修改操作不写 bdbje 日志，则在其他 non-leader 节点中是看不到该操作修改后的结果的。）
+	> 注：一些非写操作，也会转发给 leader 执行。比如 `SHOW LOAD` 操作。因为这些命令通常需要读取一些作业的中间状态，而这些中间状态是不写 bdbje 的，因此 non-leader 节点的内存中，是没有这些中间状态的。（FE 之间的元数据同步完全依赖 bdbje 的日志回放，如果一个元数据修改操作不写 bdbje 日志，则在其他 non-leader 节点中是看不到该操作修改后的结果的。）
 
 2. leader 节点会启动一个 TimePrinter 线程。该线程会定期向 bdbje 中写入一个当前时间的 key-value 条目。其余 non-leader 节点通过回放这条日志，读取日志中记录的时间，和本地时间进行比较，如果发现和本地时间的落后大于指定的阈值（配置项：`meta_delay_toleration_second`。写入间隔为该配置项的一半），则该节点会处于**不可读**的状态。此机制解决了 non-leader 节点在长时间和 leader 失联后，仍然提供过期的元数据服务的问题。
 

@@ -21,7 +21,7 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -35,43 +35,20 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /*
  * TabletStatMgr is for collecting tablet(replica) statistics from backends.
  * Each FE will collect by itself.
  */
-public class TabletStatMgr extends Daemon {
+public class TabletStatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TabletStatMgr.class);
-
-    private AtomicBoolean isStart = new AtomicBoolean(false);
 
     public TabletStatMgr() {
         super("tablet stat mgr", Config.tablet_stat_update_interval_second * 1000);
     }
 
     @Override
-    public synchronized void start() {
-        if (isStart.compareAndSet(false, true)) {
-            super.start();
-        }
-    }
-
-    @Override
-    protected void runOneCycle() {
-        // We should wait Frontend finished replaying logs, then begin to get tablet status
-        while (!Catalog.getInstance().canRead()) {
-            LOG.info("Frontend's canRead flag is false, waiting...");
-            try {
-                // sleep here, not return. because if we return, we have to wait until next round, which may
-                // take a long time(default is tablet_stat_update_interval_second: 5 min)
-                Thread.sleep(10000);
-            } catch (InterruptedException e) {
-                LOG.info("get interrupted exception when sleep: ", e);
-                continue;
-            }
-        }
-
+    protected void runAfterCatalogReady() {
         ImmutableMap<Long, Backend> backends = Catalog.getCurrentSystemInfo().getIdToBackend();
 
         long start = System.currentTimeMillis();
@@ -117,7 +94,7 @@ public class TabletStatMgr extends Daemon {
                     }
 
                     OlapTable olapTable = (OlapTable) table;
-                    for (Partition partition : olapTable.getPartitions()) {
+                    for (Partition partition : olapTable.getAllPartitions()) {
                         long version = partition.getVisibleVersion();
                         long versionHash = partition.getVisibleVersionHash();
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {

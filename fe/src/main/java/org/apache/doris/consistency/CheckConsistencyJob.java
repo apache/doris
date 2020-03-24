@@ -148,7 +148,7 @@ public class CheckConsistencyJob {
             // check partition's replication num. if 1 replication. skip
             short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partition.getId());
             if (replicationNum == (short) 1) {
-                LOG.debug("partition[{}]'s replication num is 1.");
+                LOG.debug("partition[{}]'s replication num is 1. skip consistency check", partition.getId());
                 return false;
             }
 
@@ -204,8 +204,7 @@ public class CheckConsistencyJob {
                 if (maxDataSize > 0) {
                     timeoutMs = maxDataSize / 1000 / 1000 / 1000 * CHECK_CONSISTENCT_TIME_COST_PER_GIGABYTE_MS;
                 }
-                timeoutMs = timeoutMs < Config.check_consistency_default_timeout_second * 1000L
-                        ? Config.check_consistency_default_timeout_second * 1000L : timeoutMs;
+                timeoutMs = Math.max(timeoutMs, Config.check_consistency_default_timeout_second * 1000L);
                 state = JobState.RUNNING;
             }
 
@@ -289,8 +288,8 @@ public class CheckConsistencyJob {
 
             // check if schema has changed
             if (checkedSchemaHash != olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId())) {
-                LOG.info("index[{}]'s schema hash has been changed. [{} -> {}]. retry", checkedSchemaHash,
-                         olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId()));
+                LOG.info("index[{}]'s schema hash has been changed. [{} -> {}]. retry", tabletMeta.getIndexId(),
+                        checkedSchemaHash, olapTable.getSchemaHashByIndexId(tabletMeta.getIndexId()));
                 return -1;
             }
 

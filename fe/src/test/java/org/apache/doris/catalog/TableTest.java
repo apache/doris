@@ -18,6 +18,15 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.thrift.TStorageType;
+
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -26,32 +35,20 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
-import org.easymock.EasyMock;
-import org.junit.Assert;
-import org.junit.Before;
-import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
-
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class TableTest {
+    private FakeCatalog fakeCatalog;
 
     private Catalog catalog;
 
     @Before
     public void setUp() {
-        catalog = EasyMock.createMock(Catalog.class);
+        fakeCatalog = new FakeCatalog();
+        catalog = Deencapsulation.newInstance(Catalog.class);
 
-        PowerMock.mockStatic(Catalog.class);
-        EasyMock.expect(Catalog.getInstance()).andReturn(catalog).anyTimes();
-        EasyMock.expect(Catalog.getCurrentCatalogJournalVersion()).andReturn(FeConstants.meta_version).anyTimes();
-        PowerMock.replay(Catalog.class);
+        FakeCatalog.setCatalog(catalog);
+        FakeCatalog.setMetaVersion(FeConstants.meta_version);
     }
 
     @Test
@@ -62,8 +59,9 @@ public class TableTest {
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
         List<Column> columns = new ArrayList<Column>();
-        columns.add(new Column("column2", 
-                        ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", ""));
+        Column column2 = new Column("column2",
+                ScalarType.createType(PrimitiveType.TINYINT), false, AggregateType.MIN, "", "");
+        columns.add(column2);
         columns.add(new Column("column3", 
                         ScalarType.createType(PrimitiveType.SMALLINT), false, AggregateType.SUM, "", ""));
         columns.add(new Column("column4", 
@@ -79,8 +77,15 @@ public class TableTest {
         columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
         columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
 
-        Table table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
-                                     new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        OlapTable table1 = new OlapTable(1000L, "group1", columns, KeysType.AGG_KEYS,
+                                                  new SinglePartitionInfo(), new RandomDistributionInfo(10));
+        short shortKeyColumnCount = 1;
+        table1.setIndexMeta(1000, "group1", columns, 1,1,shortKeyColumnCount,TStorageType.COLUMN, KeysType.AGG_KEYS);
+        List<Column> column = Lists.newArrayList();
+        column.add(column2);
+
+        table1.setIndexMeta(new Long(2), "test", column, 1, 1, shortKeyColumnCount, TStorageType.COLUMN, KeysType.AGG_KEYS);
+        Deencapsulation.setField(table1, "baseIndexId", 1000);
         table1.write(dos);
         dos.flush();
         dos.close();
@@ -91,6 +96,7 @@ public class TableTest {
         Table rFamily1 = Table.read(dis);
         Assert.assertTrue(table1.equals(rFamily1));
         Assert.assertEquals(table1.getCreateTime(), rFamily1.getCreateTime());
+        Assert.assertEquals(table1.getIndexMetaByIndexId(2).getKeysType(), KeysType.AGG_KEYS);
         
         // 3. delete files
         dis.close();

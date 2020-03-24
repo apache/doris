@@ -51,7 +51,6 @@ public class Table extends MetaObject implements Writable {
         SCHEMA,
         INLINE_VIEW,
         VIEW,
-        KUDU,
         BROKER,
         ELASTICSEARCH
     }
@@ -69,8 +68,22 @@ public class Table extends MetaObject implements Writable {
      *  
      *  NOTICE: the order of this fullSchema is meaningless to OlapTable
      */
+    /**
+     * The fullSchema of OlapTable includes the base columns and the SHADOW_NAME_PRFIX columns.
+     * The properties of base columns in fullSchema are same as properties in baseIndex.
+     * For example:
+     * Table (c1 int, c2 int, c3 int)
+     * Schema change (c3 to bigint)
+     * When OlapTable is changing schema, the fullSchema is (c1 int, c2 int, c3 int, SHADOW_NAME_PRFIX_c3 bigint)
+     * The fullSchema of OlapTable is mainly used by Scanner of Load job.
+     *
+     * If you want to get the mv columns, you should call getIndexToSchema in Subclass OlapTable.
+     */
     protected List<Column> fullSchema;
     // tree map for case-insensitive lookup.
+    /**
+     * The nameToColumn of OlapTable includes the base columns and the SHADOW_NAME_PRFIX columns.
+     */
     protected Map<String, Column> nameToColumn;
 
     // DO NOT persist this variable.
@@ -162,8 +175,6 @@ public class Table extends MetaObject implements Writable {
             table = new MysqlTable();
         } else if (type == TableType.VIEW) {
             table = new View();
-        } else if (type == TableType.KUDU) {
-            table = new KuduTable();
         } else if (type == TableType.BROKER) {
             table = new BrokerTable();
         } else if (type == TableType.ELASTICSEARCH) {
@@ -201,7 +212,6 @@ public class Table extends MetaObject implements Writable {
         out.writeLong(createTime);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             type = TableType.valueOf(Text.readString(in));

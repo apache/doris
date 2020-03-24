@@ -78,8 +78,6 @@ Status OlapScanner::_prepare(
         strtoul(scan_range.schema_hash.c_str(), nullptr, 10);
     _version =
         strtoul(scan_range.version.c_str(), nullptr, 10);
-    VersionHash version_hash =
-        strtoul(scan_range.version_hash.c_str(), nullptr, 10);
     {
         std::string err;
         _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash, true, &err);
@@ -101,19 +99,7 @@ Status OlapScanner::_prepare(
                 return Status::InternalError(ss.str());
             }
 
-            if (rowset->end_version() == _version
-                && rowset->version_hash() != version_hash) {
-                LOG(WARNING) << "fail to check latest version hash. "
-                             << " tablet_id=" << tablet_id
-                             << " version_hash=" << rowset->version_hash()
-                             << " request_version_hash=" << version_hash;
-
-                std::stringstream ss;
-                ss << "fail to check version hash of tablet: " << tablet_id;
-                return Status::InternalError(ss.str());
-            }
-
-            // acquire tablet rowset readers at the beginning of the scan node 
+            // acquire tablet rowset readers at the beginning of the scan node
             // to prevent this case: when there are lots of olap scanners to run for example 10000
             // the rowsets maybe compacted when the last olap scanner starts
             Version rd_version(0, _version);
@@ -127,7 +113,7 @@ Status OlapScanner::_prepare(
             }
         }
     }
-    
+
     {
         // Initialize _params
         RETURN_IF_ERROR(_init_params(key_ranges, filters, is_nulls));
@@ -155,7 +141,7 @@ Status OlapScanner::open() {
     return Status::OK();
 }
 
-// it will be called under tablet read lock because capture rs readers need 
+// it will be called under tablet read lock because capture rs readers need
 Status OlapScanner::_init_params(
         const std::vector<OlapScanRange*>& key_ranges,
         const std::vector<TCondition>& filters,
@@ -219,6 +205,10 @@ Status OlapScanner::_init_params(
     // we will not call agg object finalize method in scan node,
     // to avoid the unnecessary SerDe and improve query performance
     _params.need_agg_finalize = _need_agg_finalize;
+
+    if (!config::disable_storage_page_cache) {
+        _params.use_page_cache = true;
+    }
 
     return Status::OK();
 }
@@ -390,6 +380,7 @@ void OlapScanner::_convert_row_to_tuple(Tuple* tuple) {
             break;
         }
         case TYPE_VARCHAR:
+        case TYPE_OBJECT:
         case TYPE_HLL: {
             Slice* slice = reinterpret_cast<Slice*>(ptr);
             StringValue *slot = tuple->get_string_slot(slot_desc->tuple_offset());
@@ -474,12 +465,17 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_rows_vec_cond_counter, _reader->stats().rows_vec_cond_filtered);
 
     COUNTER_UPDATE(_parent->_stats_filtered_counter, _reader->stats().rows_stats_filtered);
+    COUNTER_UPDATE(_parent->_bf_filtered_counter, _reader->stats().rows_bf_filtered);
     COUNTER_UPDATE(_parent->_del_filtered_counter, _reader->stats().rows_del_filtered);
 
     COUNTER_UPDATE(_parent->_index_load_timer, _reader->stats().index_load_ns);
 
     COUNTER_UPDATE(_parent->_total_pages_num_counter, _reader->stats().total_pages_num);
     COUNTER_UPDATE(_parent->_cached_pages_num_counter, _reader->stats().cached_pages_num);
+
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_counter, _reader->stats().bitmap_index_filter_count);
+    COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
+    COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
 
     DorisMetrics::query_scan_bytes.increment(_compressed_bytes_read);
     DorisMetrics::query_scan_rows.increment(_raw_rows_read);
@@ -491,7 +487,7 @@ void OlapScanner::_update_realtime_counter() {
     COUNTER_UPDATE(_parent->_read_compressed_counter, _reader->stats().compressed_bytes_read);
     _compressed_bytes_read += _reader->stats().compressed_bytes_read;
     _reader->mutable_stats()->compressed_bytes_read = 0;
-    
+
     COUNTER_UPDATE(_parent->_raw_rows_counter, _reader->stats().raw_rows_read);
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
     _raw_rows_read += _reader->stats().raw_rows_read;
@@ -505,8 +501,8 @@ Status OlapScanner::close(RuntimeState* state) {
     // olap scan node will call scanner.close() when finished
     // will release resources here
     // if not clear rowset readers in read_params here
-    // readers will be release when runtime state deconstructed but 
-    // deconstructor in reader references runtime state 
+    // readers will be release when runtime state deconstructed but
+    // deconstructor in reader references runtime state
     // so that it will core
     _params.rs_readers.clear();
     update_counter();

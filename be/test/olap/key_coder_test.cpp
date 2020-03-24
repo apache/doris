@@ -108,6 +108,7 @@ TEST_F(KeyCoderTest, test_int) {
     test_integer_encode<OLAP_FIELD_TYPE_INT>();
     test_integer_encode<OLAP_FIELD_TYPE_UNSIGNED_INT>();
     test_integer_encode<OLAP_FIELD_TYPE_BIGINT>();
+    test_integer_encode<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>();
     test_integer_encode<OLAP_FIELD_TYPE_LARGEINT>();
 
     test_integer_encode<OLAP_FIELD_TYPE_DATETIME>();

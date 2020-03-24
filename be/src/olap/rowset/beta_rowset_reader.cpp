@@ -23,22 +23,30 @@
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/schema.h"
+#include "olap/delete_handler.h"
 
 namespace doris {
 
 BetaRowsetReader::BetaRowsetReader(BetaRowsetSharedPtr rowset)
-    : _rowset(std::move(rowset)) {
+    : _rowset(std::move(rowset)), _stats(&_owned_stats) {
+    _rowset->aquire();
 }
 
 OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
+    RETURN_NOT_OK(_rowset->load());
     _context = read_context;
-
+    if (_context->stats != nullptr) {
+        // schema change/compaction should use owned_stats
+        // When doing schema change/compaction,
+        // only statistics of this RowsetReader is necessary.
+        _stats = _context->stats;
+    }
     // SegmentIterator will load seek columns on demand
     Schema schema(_context->tablet_schema->columns(), *(_context->return_columns));
 
     // convert RowsetReaderContext to StorageReadOptions
     StorageReadOptions read_options;
-    read_options.stats = _context->stats;
+    read_options.stats = _stats;
     read_options.conditions = read_context->conditions;
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
@@ -54,6 +62,7 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
                 &read_options.delete_conditions);
     }
     read_options.column_predicates = read_context->predicates;
+    read_options.use_page_cache = read_context->use_page_cache;
 
     // create iterator for each segment
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
@@ -73,9 +82,8 @@ OLAPStatus BetaRowsetReader::init(RowsetReaderContext* read_context) {
     }
 
     // merge or union segment iterator
-    bool is_singleton_rowset = _rowset->start_version() && _rowset->end_version();
     RowwiseIterator* final_iterator;
-    if (read_context->need_ordered_result && is_singleton_rowset && iterators.size() > 1) {
+    if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
         final_iterator = new_merge_iterator(iterators);
     } else {
         final_iterator = new_union_iterator(iterators);
@@ -109,7 +117,7 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
     // read next input block
     _input_block->clear();
     {
-        SCOPED_RAW_TIMER(&_context->stats->block_fetch_ns);
+        SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
         auto s = _iterator->next_batch(_input_block.get());
         if (!s.ok()) {
             if (s.is_end_of_file()) {
@@ -123,28 +131,10 @@ OLAPStatus BetaRowsetReader::next_block(RowBlock** block) {
 
     // convert to output block
     _output_block->clear();
-    size_t rows_read = 0;
-    uint16_t* selection_vector = _input_block->selection_vector();
     {
-        SCOPED_RAW_TIMER(&_context->stats->block_convert_ns);
-        for (uint16_t i = 0; i < _input_block->selected_size(); ++i) {
-            uint16_t row_idx = selection_vector[i];
-            // deep copy row from input block to output block because
-            // RowBlock use MemPool and RowBlockV2 use Arena
-            // TODO(hkp): unify RowBlockV2 to use MemPool to boost performance
-            _output_block->get_row(row_idx, _row.get());
-            // convert return_columns to seek_columns
-            auto s = _input_block->deep_copy_to_row_cursor(row_idx, _row.get(), _output_block->mem_pool());
-            if (!s.ok()) {
-                LOG(WARNING) << "failed to copy row: " << s.to_string();
-                return OLAP_ERR_ROWSET_READ_FAILED;
-            }
-            ++rows_read;
-        }
+        SCOPED_RAW_TIMER(&_stats->block_convert_ns);
+        _input_block->convert_to_row_block(_row.get(), _output_block.get());
     }
-    _output_block->set_pos(0);
-    _output_block->set_limit(rows_read);
-    _output_block->finalize(rows_read);
     *block = _output_block.get();
     return OLAP_SUCCESS;
 }

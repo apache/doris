@@ -33,8 +33,6 @@
 
 namespace doris {
 
-const char* ExprContext::_s_llvm_class_name = "class.doris::ExprContext";
-
 ExprContext::ExprContext(Expr* root) :
         _fn_contexts_ptr(NULL),
         _root(root),
@@ -335,10 +333,11 @@ void* ExprContext::get_value(Expr* e, TupleRow* row) {
     }
     case TYPE_CHAR:
     case TYPE_VARCHAR:
-    case TYPE_HLL: {
+    case TYPE_HLL:
+    case TYPE_OBJECT: {
         doris_udf::StringVal v = e->get_string_val(this, row);
         if (v.is_null) {
-            return NULL;
+            return nullptr;
         }
         _result.string_val.ptr = reinterpret_cast<char*>(v.ptr);
         _result.string_val.len = v.len;

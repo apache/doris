@@ -67,7 +67,7 @@ public:
         return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
     }
     static Status MinimumReservationUnavailable(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
-        return Status(TStatusCode::INVALID_ARGUMENT, msg, precise_code, msg2);
+        return Status(TStatusCode::MINIMUM_RESERVATION_UNAVAILABLE, msg, precise_code, msg2);
     }
     static Status Corruption(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
         return Status(TStatusCode::CORRUPTION, msg, precise_code, msg2);
@@ -123,14 +123,47 @@ public:
         return Status(TStatusCode::TIMEOUT, msg, precise_code, msg2);
     }
 
+    static Status TooManyTasks(const Slice& msg, int16_t precise_code = 1, const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::TOO_MANY_TASKS, msg, precise_code, msg2);
+    }
+    static Status ServiceUnavailable(const Slice& msg,
+                                     int16_t precise_code = -1,
+                                     const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::SERVICE_UNAVAILABLE, msg, precise_code, msg2);
+    }
+    static Status Uninitialized(const Slice& msg,
+                                int16_t precise_code = -1,
+                                const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::UNINITIALIZED, msg, precise_code, msg2);
+    }
+    static Status Aborted(const Slice& msg,
+                          int16_t precise_code = -1,
+                          const Slice& msg2 = Slice()) {
+        return Status(TStatusCode::ABORTED, msg, precise_code, msg2);
+    }
+
     bool ok() const { return _state == nullptr; }
+
     bool is_cancelled() const { return code() == TStatusCode::CANCELLED; }
     bool is_mem_limit_exceeded() const { return code() == TStatusCode::MEM_LIMIT_EXCEEDED; }
     bool is_thrift_rpc_error() const { return code() == TStatusCode::THRIFT_RPC_ERROR; }
-
     bool is_end_of_file() const { return code() == TStatusCode::END_OF_FILE; }
-
     bool is_not_found() const { return code() == TStatusCode::NOT_FOUND; }
+    bool is_already_exist() const { return code() == TStatusCode::ALREADY_EXIST; }
+    bool is_io_error() const {return code() == TStatusCode::IO_ERROR; }
+
+    /// @return @c true iff the status indicates Uninitialized.
+    bool is_uninitialized() const { return code() == TStatusCode::UNINITIALIZED; }
+
+    // @return @c true iff the status indicates an Aborted error.
+    bool is_aborted() const { return code() == TStatusCode::ABORTED; }
+
+    /// @return @c true iff the status indicates an InvalidArgument error.
+    bool is_invalid_argument() const { return code() == TStatusCode::INVALID_ARGUMENT; }
+
+    // @return @c true iff the status indicates ServiceUnavailable.
+    bool is_service_unavailable() const { return code() == TStatusCode::SERVICE_UNAVAILABLE; }
+
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
     template <typename T>
@@ -245,11 +278,19 @@ private:
 #define WARN_IF_ERROR(to_call, warning_prefix) \
     do { \
         const Status& _s = (to_call);  \
-        if (PREDICT_FALSE(!_s.ok())) { \
+        if (UNLIKELY(!_s.ok())) { \
             LOG(WARNING) << (warning_prefix) << ": " << _s.to_string();  \
         } \
     } while (0);
 
+#define RETURN_WITH_WARN_IF_ERROR(stmt, ret_code, warning_prefix) \
+    do {    \
+        const Status& _s = (stmt);  \
+        if (UNLIKELY(!_s.ok())) {   \
+            LOG(WARNING) << (warning_prefix) << ", error: " << _s.to_string(); \
+            return ret_code;    \
+        }   \
+    } while (0);
 }
 
 #define WARN_UNUSED_RESULT __attribute__((warn_unused_result))

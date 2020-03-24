@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.catalog.Table.TableType;
@@ -162,10 +163,10 @@ public class MetadataViewer {
     }
 
     public static List<List<String>> getTabletDistribution(AdminShowReplicaDistributionStmt stmt) throws DdlException {
-        return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitions());
+        return getTabletDistribution(stmt.getDbName(), stmt.getTblName(), stmt.getPartitionNames());
     }
 
-    private static List<List<String>> getTabletDistribution(String dbName, String tblName, List<String> partitions)
+    private static List<List<String>> getTabletDistribution(String dbName, String tblName, PartitionNames partitionNames)
             throws DdlException {
         DecimalFormat df = new DecimalFormat("##.00 %");
         
@@ -188,15 +189,19 @@ public class MetadataViewer {
 
             OlapTable olapTable = (OlapTable) tbl;
 
-            if (partitions.isEmpty()) {
-                partitions.addAll(olapTable.getPartitionNames());
+            List<Long> partitionIds = Lists.newArrayList();
+            if (partitionNames == null) {
+                for (Partition partition : olapTable.getPartitions()) {
+                    partitionIds.add(partition.getId());
+                }
             } else {
                 // check partition
-                for (String partName : partitions) {
-                    Partition partition = olapTable.getPartition(partName);
+                for (String partName : partitionNames.getPartitionNames()) {
+                    Partition partition = olapTable.getPartition(partName, partitionNames.isTemp());
                     if (partition == null) {
                         throw new DdlException("Partition does not exist: " + partName);
                     }
+                    partitionIds.add(partition.getId());
                 }
             }
             
@@ -209,8 +214,8 @@ public class MetadataViewer {
             }
 
             int totalReplicaNum = 0;
-            for (String partName : partitions) {
-                Partition partition = olapTable.getPartition(partName);
+            for (long partId : partitionIds) {
+                Partition partition = olapTable.getPartition(partId);
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {

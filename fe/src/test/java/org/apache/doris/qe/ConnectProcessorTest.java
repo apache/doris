@@ -17,8 +17,11 @@
 
 package org.apache.doris.qe;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
@@ -29,24 +32,15 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.thrift.TUniqueId;
 
-import org.easymock.EasyMock;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.api.easymock.PowerMock;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({"javax.management.*"})
-@PrepareForTest({Catalog.class, StmtExecutor.class, ConnectProcessor.class, ConnectContext.class})
 public class ConnectProcessorTest {
     private static ByteBuffer initDbPacket;
     private static ByteBuffer pingPacket;
@@ -54,7 +48,10 @@ public class ConnectProcessorTest {
     private static ByteBuffer queryPacket;
     private static ByteBuffer fieldListPacket;
     private static AuditBuilder auditBuilder = new AuditBuilder();
-    ConnectContext myContext;
+    private static ConnectContext myContext;
+
+    @Mocked
+    private static SocketChannel socketChannel;
 
     private static PQueryStatistics statistics = new PQueryStatistics();
 
@@ -113,65 +110,130 @@ public class ConnectProcessorTest {
         queryPacket.clear();
         fieldListPacket.clear();
         // Mock
-        MysqlChannel channel = EasyMock.createNiceMock(MysqlChannel.class);
-        PowerMock.expectNew(MysqlChannel.class, EasyMock.isA(SocketChannel.class)).andReturn(channel).anyTimes();
-        EasyMock.expect(channel.getRemoteHostPortString()).andReturn("127.0.0.1:12345").anyTimes();
-        PowerMock.replay(MysqlChannel.class);
-        myContext = new ConnectContext(EasyMock.createMock(SocketChannel.class));
+        MysqlChannel channel = new MysqlChannel(socketChannel);
+        new Expectations(channel) {
+            {
+                channel.getRemoteHostPortString();
+                minTimes = 0;
+                result = "127.0.0.1:12345";
+            }
+        };
+        myContext = new ConnectContext(socketChannel);
+        Deencapsulation.setField(myContext, "mysqlChannel", channel);
     }
 
-    private MysqlChannel mockChannel(ByteBuffer packet) {
+    private static MysqlChannel mockChannel(ByteBuffer packet) {
         try {
-            MysqlChannel channel = EasyMock.createNiceMock(MysqlChannel.class);
-            // Mock receive
-            EasyMock.expect(channel.fetchOnePacket()).andReturn(packet).once();
-            // Mock reset
-            channel.setSequenceId(0);
-            EasyMock.expectLastCall().once();
-            // Mock send
-            // channel.sendOnePacket(EasyMock.isA(ByteBuffer.class));
-            channel.sendAndFlush(EasyMock.isA(ByteBuffer.class));
-            EasyMock.expectLastCall().anyTimes();
+            MysqlChannel channel = new MysqlChannel(socketChannel);
+            new Expectations(channel) {
+                {
+                    // Mock receive
+                    channel.fetchOnePacket();
+                    minTimes = 0;
+                    result = packet;
 
-            EasyMock.expect(channel.getRemoteHostPortString()).andReturn("127.0.0.1:12345").anyTimes();
+                    // Mock reset
+                    channel.setSequenceId(0);
+                    times = 1;
 
-            EasyMock.replay(channel);
+                    // Mock send
+                    // channel.sendOnePacket((ByteBuffer) any);
+                    // minTimes = 0;
+                    channel.sendAndFlush((ByteBuffer) any);
+                    minTimes = 0;
 
+                    channel.getRemoteHostPortString();
+                    minTimes = 0;
+                    result = "127.0.0.1:12345";
+                }
+            };
             return channel;
         } catch (IOException e) {
             return null;
         }
     }
 
-    private ConnectContext initMockContext(MysqlChannel channel, Catalog catalog) {
-        ConnectContext context = EasyMock.createMock(ConnectContext.class);
-        EasyMock.expect(context.getMysqlChannel()).andReturn(channel).anyTimes();
-        EasyMock.expect(context.isKilled()).andReturn(false).once();
-        EasyMock.expect(context.isKilled()).andReturn(true).once();
-        EasyMock.expect(context.getCatalog()).andReturn(catalog).anyTimes();
-        EasyMock.expect(context.getState()).andReturn(myContext.getState()).anyTimes();
-        EasyMock.expect(context.getAuditBuilder()).andReturn(auditBuilder).anyTimes();
-        EasyMock.expect(context.getQualifiedUser()).andReturn("testCluster:user").anyTimes();
-        EasyMock.expect(context.getClusterName()).andReturn("testCluster").anyTimes();
-        EasyMock.expect(context.getStartTime()).andReturn(0L).anyTimes();
-        EasyMock.expect(context.getSerializer()).andDelegateTo(myContext).anyTimes();
-        EasyMock.expect(context.getReturnRows()).andReturn(1L).anyTimes();
-        EasyMock.expect(context.isKilled()).andReturn(false).anyTimes();
-        context.setKilled();
-        EasyMock.expectLastCall().andDelegateTo(myContext).anyTimes();
-        context.setCommand(EasyMock.anyObject(MysqlCommand.class));
-        EasyMock.expectLastCall().andDelegateTo(myContext).once();
-        context.setCommand(EasyMock.anyObject(MysqlCommand.class));
-        EasyMock.expectLastCall().anyTimes();
-        context.setStartTime();
-        EasyMock.expectLastCall().andDelegateTo(myContext).anyTimes();
-        context.getDatabase();
-        EasyMock.expectLastCall().andDelegateTo(myContext).anyTimes();
-        context.setStmtId(EasyMock.anyLong());
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.expect(context.getStmtId()).andReturn(1L).anyTimes();
-        EasyMock.expect(context.queryId()).andReturn(new TUniqueId()).anyTimes();
-        EasyMock.replay(context);
+    private static ConnectContext initMockContext(MysqlChannel channel, Catalog catalog) {
+        ConnectContext context = new ConnectContext(socketChannel) {
+            private boolean firstTimeToSetCommand = true;
+            @Override
+            public void setKilled() {
+                myContext.setKilled();
+            }
+            @Override
+            public MysqlSerializer getSerializer() {
+                return myContext.getSerializer();
+            }
+            @Override
+            public QueryState getState() {
+                return myContext.getState();
+            }
+            @Override
+            public void setStartTime() {
+                myContext.setStartTime();
+            }
+            @Override
+            public String getDatabase() {
+                return myContext.getDatabase();
+            }
+            @Override
+            public void setCommand(MysqlCommand command) {
+                if (firstTimeToSetCommand) {
+                    myContext.setCommand(command);
+                    firstTimeToSetCommand = false;
+                } else {
+                    super.setCommand(command);
+                }
+            }
+        };
+
+        new Expectations(context) {
+            {
+                context.getMysqlChannel();
+                minTimes = 0;
+                result = channel;
+
+                context.isKilled();
+                minTimes = 0;
+                maxTimes = 3;
+                returns(false, true, false);
+
+                context.getCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                context.getAuditBuilder();
+                minTimes = 0;
+                result = auditBuilder;
+
+                context.getQualifiedUser();
+                minTimes = 0;
+                result = "testCluster:user";
+
+                context.getClusterName();
+                minTimes = 0;
+                result = "testCluster";
+
+                context.getStartTime();
+                minTimes = 0;
+                result = 0L;
+
+                context.getReturnRows();
+                minTimes = 0;
+                result = 1L;
+
+                context.setStmtId(anyLong);
+                minTimes = 0;
+
+                context.getStmtId();
+                minTimes = 0;
+                result = 1L;
+
+                context.queryId();
+                minTimes = 0;
+                result = new TUniqueId();
+            }
+        };
 
         return context;
     }
@@ -230,63 +292,64 @@ public class ConnectProcessorTest {
     }
 
     @Test
-    public void testQuery() throws Exception {
+    public void testQuery(@Mocked StmtExecutor executor) throws Exception {
         ConnectContext ctx = initMockContext(mockChannel(queryPacket), AccessTestUtil.fetchAdminCatalog());
 
         ConnectProcessor processor = new ConnectProcessor(ctx);
 
         // Mock statement executor
-        StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
-        qe.execute();
-        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(statistics);
-        EasyMock.expectLastCall().anyTimes();
-        EasyMock.replay(qe);
-        PowerMock.expectNew(
-                StmtExecutor.class,
-                EasyMock.isA(ConnectContext.class),
-                EasyMock.isA(String.class)).andReturn(qe).anyTimes();
-
-        PowerMock.replay(StmtExecutor.class);
+        new Expectations() {
+            {
+                executor.getQueryStatisticsForAuditLog();
+                minTimes = 0;
+                result = statistics;
+            }
+        };
 
         processor.processOnce();
         Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
     }
 
     @Test
-    public void testQueryFail() throws Exception {
+    public void testQueryFail(@Mocked StmtExecutor executor) throws Exception {
         ConnectContext ctx = initMockContext(mockChannel(queryPacket), AccessTestUtil.fetchAdminCatalog());
 
         ConnectProcessor processor = new ConnectProcessor(ctx);
 
         // Mock statement executor
-        StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
-        qe.execute();
-        EasyMock.expectLastCall().andThrow(new IOException("Fail")).anyTimes();
-        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(statistics);
-        EasyMock.replay(qe);
-        PowerMock.expectNew(StmtExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class))
-                .andReturn(qe).anyTimes();
-        PowerMock.replay(StmtExecutor.class);
+        new Expectations() {
+            {
+                executor.execute();
+                minTimes = 0;
+                result = new IOException("Fail");
+
+                executor.getQueryStatisticsForAuditLog();
+                minTimes = 0;
+                result = statistics;
+            }
+        };
         processor.processOnce();
         Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
     }
 
     @Test
-    public void testQueryFail2() throws Exception {
+    public void testQueryFail2(@Mocked StmtExecutor executor) throws Exception {
         ConnectContext ctx = initMockContext(mockChannel(queryPacket), AccessTestUtil.fetchAdminCatalog());
 
         ConnectProcessor processor = new ConnectProcessor(ctx);
 
         // Mock statement executor
-        StmtExecutor qe = EasyMock.createNiceMock(StmtExecutor.class);
-        qe.execute();
-        EasyMock.expect(qe.getQueryStatisticsForAuditLog()).andReturn(statistics);
-        EasyMock.expectLastCall().andThrow(new NullPointerException("Fail")).anyTimes();
-        EasyMock.replay(qe);
-        PowerMock.expectNew(StmtExecutor.class, EasyMock.isA(ConnectContext.class), EasyMock.isA(String.class))
-                .andReturn(qe).anyTimes();
-        PowerMock.replay(StmtExecutor.class);
+        new Expectations() {
+            {
+                executor.execute();
+                minTimes = 0;
+                result = new NullPointerException("Fail");
 
+                executor.getQueryStatisticsForAuditLog();
+                minTimes = 0;
+                result = statistics;
+            }
+        };
         processor.processOnce();
         Assert.assertEquals(MysqlCommand.COM_QUERY, myContext.getCommand());
         Assert.assertTrue(myContext.getState().toResponsePacket() instanceof MysqlErrPacket);

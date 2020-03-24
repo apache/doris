@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
+import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.backup.CatalogMocker;
 import org.apache.doris.catalog.Replica.ReplicaStatus;
 import org.apache.doris.common.AnalysisException;
@@ -34,8 +35,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 
+import mockit.Expectations;
 import mockit.Mocked;
-import mockit.NonStrictExpectations;
 
 public class MetadataViewerTest {
     
@@ -57,7 +58,7 @@ public class MetadataViewerTest {
         getTabletStatusMethod = MetadataViewer.class.getDeclaredMethod("getTabletStatus", argTypes);
         getTabletStatusMethod.setAccessible(true);
 
-        argTypes = new Class[] { String.class, String.class, List.class };
+        argTypes = new Class[] { String.class, String.class, PartitionNames.class };
         getTabletDistributionMethod = MetadataViewer.class.getDeclaredMethod("getTabletDistribution", argTypes);
         getTabletDistributionMethod.setAccessible(true);
 
@@ -67,24 +68,26 @@ public class MetadataViewerTest {
     @Before
     public void before() {
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 Catalog.getCurrentCatalog();
                 minTimes = 0;
                 result = catalog;
 
                 catalog.getDb(anyString);
+                minTimes = 0;
                 result = db;
             }
         };
 
-        new NonStrictExpectations() {
+        new Expectations() {
             {
                 Catalog.getCurrentSystemInfo();
                 minTimes = 0;
                 result = infoService;
 
                 infoService.getBackendIds(anyBoolean);
+                minTimes = 0;
                 result = Lists.newArrayList(10000L, 10001L, 10002L);
             }
         };
@@ -114,8 +117,7 @@ public class MetadataViewerTest {
     @Test
     public void testGetTabletDistribution()
             throws IllegalAccessException, IllegalArgumentException, InvocationTargetException {
-        List<String> partitions = Lists.newArrayList();
-        Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, partitions };
+        Object[] args = new Object[] { CatalogMocker.TEST_DB_NAME, CatalogMocker.TEST_TBL_NAME, null };
         List<List<String>> result = (List<List<String>>) getTabletDistributionMethod.invoke(null, args);
         Assert.assertEquals(3, result.size());
         System.out.println(result);

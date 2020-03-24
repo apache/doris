@@ -20,14 +20,15 @@
 #include <memory>
 #include <vector>
 
+#include <roaring/roaring.hh>
+
 #include "common/status.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/schema.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
-#include "olap/rowset/segment_v2/column_zone_map.h"
-#include "olap/rowset/segment_v2/ordinal_page_index.h"
 #include "olap/olap_cond.h"
+#include "util/file_cache.h"
 
 namespace doris {
 
@@ -37,20 +38,23 @@ class ShortKeyIndexIterator;
 
 namespace segment_v2 {
 
+class BitmapIndexIterator;
+class BitmapIndexReader;
 class ColumnIterator;
 
 class SegmentIterator : public RowwiseIterator {
 public:
     SegmentIterator(std::shared_ptr<Segment> segment, const Schema& _schema);
     ~SegmentIterator() override;
-    Status init(const StorageReadOptions& opts) override {
-        _opts = opts;
-        return Status::OK();
-    }
+    Status init(const StorageReadOptions& opts) override;
     Status next_batch(RowBlockV2* row_block) override;
     const Schema& schema() const override { return _schema; }
+    bool is_lazy_materialization_read() const override { return _lazy_materialization_read; }
 private:
     Status _init();
+
+    Status _init_return_column_iterators();
+    Status _init_bitmap_index_iterators();
 
     // calculate row ranges that fall into requested key ranges using short key index
     Status _get_row_ranges_by_keys();
@@ -61,35 +65,53 @@ private:
 
     // calculate row ranges that satisfy requested column conditions using various column index
     Status _get_row_ranges_by_column_conditions();
-    // TODO move column index related logic to ColumnReader
-    Status _get_row_ranges_from_zone_map(RowRanges* zone_map_row_ranges);
+    Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
+    Status _apply_bitmap_index();
 
-    Status _init_column_iterators();
-
-    Status _next_batch(RowBlockV2* block, size_t* rows_read);
+    void _init_lazy_materialization();
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
 
     Status _seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos);
+    // read `nrows` of columns specified by `column_ids` into `block` at `row_offset`.
+    Status _read_columns(const std::vector<ColumnId>& column_ids, RowBlockV2* block, size_t row_offset, size_t nrows);
 
 private:
+    class BitmapRangeIterator;
+
     std::shared_ptr<Segment> _segment;
     // TODO(zc): rethink if we need copy it
     Schema _schema;
     // _column_iterators.size() == _schema.num_columns()
     // _column_iterators[cid] == nullptr if cid is not in _schema
     std::vector<ColumnIterator*> _column_iterators;
-    // after init(), `_row_ranges` contains all rowid to scan
-    RowRanges _row_ranges;
+    // FIXME prefer vector<unique_ptr<BitmapIndexIterator>>
+    std::vector<BitmapIndexIterator*> _bitmap_index_iterators;
+    // after init(), `_row_bitmap` contains all rowid to scan
+    Roaring _row_bitmap;
+    // an iterator for `_row_bitmap` that can be used to extract row range to scan
+    std::unique_ptr<BitmapRangeIterator> _range_iter;
     // the next rowid to read
     rowid_t _cur_rowid;
-    // index of the row range where `_cur_rowid` belongs to
-    size_t _cur_range_id;
+    // members related to lazy materialization read
+    // --------------------------------------------
+    // whether lazy materialization read should be used.
+    bool _lazy_materialization_read;
+    // columns to read before predicate evaluation
+    std::vector<ColumnId> _predicate_columns;
+    // columns to read after predicate evaluation
+    std::vector<ColumnId> _non_predicate_columns;
+    // remember the rowids we've read for the current row block.
+    // could be a local variable of next_batch(), kept here to reuse vector memory
+    std::vector<rowid_t> _block_rowids;
+
     // the actual init process is delayed to the first call to next_batch()
     bool _inited;
 
     StorageReadOptions _opts;
+    // make a copy of `_opts.column_predicates` in order to make local changes
+    std::vector<ColumnPredicate*> _col_predicates;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`
@@ -97,6 +119,9 @@ private:
     // used to binary search the rowid for a given key
     // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<RowBlockV2> _seek_block;
+
+    // Handle for file to read
+    OpenedFileHandle<RandomAccessFile> _file_handle;
 };
 
 }

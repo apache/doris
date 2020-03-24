@@ -23,11 +23,20 @@
 #include "service/brpc.h"
 #include "service/internal_service.h"
 
+
+namespace brpc {
+
+DECLARE_uint64(max_body_size);
+
+}
+
 namespace doris {
 
 BRpcService::BRpcService(ExecEnv* exec_env)
         : _exec_env(exec_env),
         _server(new brpc::Server()) {
+    // Set config
+    brpc::FLAGS_max_body_size = config::brpc_max_body_size;
 }
 
 BRpcService::~BRpcService() {

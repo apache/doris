@@ -27,7 +27,9 @@ TypeInfo::TypeInfo(TypeTraitsClass t)
         _cmp(TypeTraitsClass::cmp),
         _shallow_copy(TypeTraitsClass::shallow_copy),
         _deep_copy(TypeTraitsClass::deep_copy),
+        _copy_object(TypeTraitsClass::copy_object),
         _direct_copy(TypeTraitsClass::direct_copy),
+        _convert_from(TypeTraitsClass::convert_from),
         _from_string(TypeTraitsClass::from_string),
         _to_string(TypeTraitsClass::to_string),
         _set_to_max(TypeTraitsClass::set_to_max),
@@ -76,6 +78,7 @@ TypeInfoResolver::TypeInfoResolver() {
     add_mapping<OLAP_FIELD_TYPE_CHAR>();
     add_mapping<OLAP_FIELD_TYPE_VARCHAR>();
     add_mapping<OLAP_FIELD_TYPE_HLL>();
+    add_mapping<OLAP_FIELD_TYPE_OBJECT>();
 }
 
 TypeInfoResolver::~TypeInfoResolver() {}

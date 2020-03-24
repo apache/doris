@@ -17,6 +17,8 @@
 
 package org.apache.doris.http;
 
+import org.apache.doris.analysis.UserIdentity;
+
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 
@@ -30,8 +32,12 @@ public final class HttpAuthManager {
 
     private static HttpAuthManager instance = new HttpAuthManager();
 
-    // session_id => username
-    private Cache<String, String> authSessions =  CacheBuilder.newBuilder()
+    public static class SessionValue {
+        public UserIdentity currentUser;
+    }
+
+    // session_id => session value
+    private Cache<String, SessionValue> authSessions = CacheBuilder.newBuilder()
             .maximumSize(SESSION_MAX_SIZE)
             .expireAfterAccess(SESSION_EXPIRE_TIME, TimeUnit.HOURS)
             .build();
@@ -44,15 +50,15 @@ public final class HttpAuthManager {
         return instance;
     }
 
-    public String getUsername(String sessionId) {
+    public SessionValue getSessionValue(String sessionId) {
         return authSessions.getIfPresent(sessionId);
     }
 
-    public void addClient(String key, String value) {
+    public void addSessionValue(String key, SessionValue value) {
         authSessions.put(key, value);
     }
 
-    public Cache<String, String> getAuthSessions() {
+    public Cache<String, SessionValue> getAuthSessions() {
         return authSessions;
     }
 }

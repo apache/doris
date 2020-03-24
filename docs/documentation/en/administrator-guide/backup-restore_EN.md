@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Backup and Recovery
 
 Doris supports the backup of current data in the form of files to remote storage systems via broker. The data can then be restored from the remote storage system to any Doris cluster by the restore command. With this feature, Doris can support regular snapshot backups of data. It can also be used to migrate data between different clusters.
@@ -20,7 +39,7 @@ The backup operation is to upload the data of the specified table or partition d
 
 	After the data file snapshot is uploaded, Frontend first writes the corresponding metadata to the local file, and then uploads the local metadata file to the remote warehouse through broker. Finish the final backup job.
 
-###Restore
+### Restore
 
 Recovery operations need to specify a backup that already exists in a remote repository, and then restore the backup content to the local cluster. When a user submits a Restore request, the following actions will be done within the system:
 

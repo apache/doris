@@ -152,6 +152,7 @@ static void append_any_val_type(
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_HLL:
+    case TYPE_OBJECT:
         append_mangled_token("StringVal", s);
         break;
     case TYPE_DATE:

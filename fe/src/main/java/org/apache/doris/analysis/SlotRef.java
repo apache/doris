@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
@@ -35,6 +36,9 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class SlotRef extends Expr {
     private static final Logger LOG = LogManager.getLogger(SlotRef.class);
@@ -44,7 +48,7 @@ public class SlotRef extends Expr {
     private String label;
 
     // results of analysis
-    private SlotDescriptor desc;
+    protected SlotDescriptor desc;
 
     // Only used write
     private SlotRef() {
@@ -85,10 +89,6 @@ public class SlotRef extends Expr {
     @Override
     public Expr clone() {
         return new SlotRef(this);
-    }
-
-    public boolean isHllType() {
-        return this.type == Type.HLL;
     }
 
     public SlotDescriptor getDesc() {
@@ -204,7 +204,7 @@ public class SlotRef extends Expr {
         if (desc != null) {
             return desc.getId().hashCode();
         }
-        return Objects.hashCode((tblName.toSql() + "." + label).toLowerCase());
+        return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
     }
 
     @Override
@@ -263,6 +263,32 @@ public class SlotRef extends Expr {
         }
     }
 
+    @Override
+    public void getTableNameToColumnNames(Map<String, Set<String>> tupleDescToColumnNames) {
+        Preconditions.checkState(desc != null);
+        if (!desc.isMaterialized()) {
+            return;
+        }
+        if (col == null) {
+            for (Expr expr : desc.getSourceExprs()) {
+                expr.getTableNameToColumnNames(tupleDescToColumnNames);
+            }
+        } else {
+            Table table = desc.getParent().getTable();
+            if (table == null) {
+                // Maybe this column comes from inline view.
+                return;
+            }
+            String tableName = table.getName();
+            Set<String> columnNames = tupleDescToColumnNames.get(tableName);
+            if (columnNames == null) {
+                columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                tupleDescToColumnNames.put(tableName, columnNames);
+            }
+            columnNames.add(desc.getColumn().getName());
+        }
+    }
+
     public String getColumnName() {
         return col;
     }
@@ -288,7 +314,6 @@ public class SlotRef extends Expr {
         Text.writeString(out, col);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         if (in.readBoolean()) {
             tblName = new TableName();

@@ -48,6 +48,8 @@ namespace config {
     // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
     // or percentage of the physical memory ('<int>%').
     // defaults to bytes if no unit is given"
+    // must larger than 0. and if larger than physical memory size,
+    // it will be set to physical memory size.
     CONF_String(mem_limit, "80%");
 
     // the port heartbeat service used
@@ -64,8 +66,6 @@ namespace config {
     CONF_Int32(push_worker_count_high_priority, "3");
     // the count of thread to publish version
     CONF_Int32(publish_version_worker_count, "2");
-    // the count of thread to clear alter task
-    CONF_Int32(clear_alter_task_worker_count, "1");
     // the count of thread to clear transaction task
     CONF_Int32(clear_transaction_task_worker_count, "1");
     // the count of thread to delete
@@ -141,8 +141,6 @@ namespace config {
 
     // If non-zero, Doris will output memory usage every log_mem_usage_interval'th fragment completion.
     CONF_Int32(log_mem_usage_interval, "0");
-    // if non-empty, enable heap profiling and output to specified directory.
-    CONF_String(heap_profile_dir, "");
 
     // cgroups allocated for doris
     CONF_String(doris_cgroups, "");
@@ -205,7 +203,8 @@ namespace config {
     CONF_Int32(disk_stat_monitor_interval, "5");
     CONF_Int32(unused_rowset_monitor_interval, "30");
     CONF_String(storage_root_path, "${DORIS_HOME}/storage");
-    CONF_Int32(min_percentage_of_error_disk, "50");
+    // BE process will exit if the percentage of error disk reach this value.
+    CONF_Int32(max_percentage_of_error_disk, "0");
     CONF_Int32(default_num_rows_per_data_block, "1024");
     CONF_Int32(default_num_rows_per_column_file_block, "1024");
     CONF_Int32(max_tablet_num_per_shard, "1024");
@@ -231,23 +230,23 @@ namespace config {
 
     // Cache for stoage page size
     CONF_String(storage_page_cache_limit, "20G");
+    // whether to disable page cache feature in storage
+    CONF_Bool(disable_storage_page_cache, "false");
 
     // be policy
     CONF_Int64(base_compaction_start_hour, "20");
     CONF_Int64(base_compaction_end_hour, "7");
     CONF_Int32(base_compaction_check_interval_seconds, "60");
     CONF_Int64(base_compaction_num_cumulative_deltas, "5");
-    CONF_Int32(base_compaction_num_threads, "1");
     CONF_Int32(base_compaction_num_threads_per_disk, "1");
     CONF_Double(base_cumulative_delta_ratio, "0.3");
-    CONF_Int64(base_compaction_interval_seconds_since_last_operation, "604800");
+    CONF_Int64(base_compaction_interval_seconds_since_last_operation, "86400");
     CONF_Int32(base_compaction_write_mbytes_per_sec, "5");
 
     // cumulative compaction policy: max delta file's size unit:B
     CONF_Int32(cumulative_compaction_check_interval_seconds, "10");
     CONF_Int64(min_cumulative_compaction_num_singleton_deltas, "5");
     CONF_Int64(max_cumulative_compaction_num_singleton_deltas, "1000");
-    CONF_Int32(cumulative_compaction_num_threads, "1");
     CONF_Int32(cumulative_compaction_num_threads_per_disk, "1");
     CONF_Int64(cumulative_compaction_budgeted_bytes, "104857600");
     CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
@@ -255,6 +254,13 @@ namespace config {
     // if compaction of a tablet failed, this tablet should not be chosen to
     // compaction until this interval passes.
     CONF_Int64(min_compaction_failure_interval_sec, "600") // 10 min
+    // Too many compaction tasks may run out of memory.
+    // This config is to limit the max concurrency of running compaction tasks.
+    // -1 means no limit, and the max concurrency will be:
+    //      C = (cumulative_compaction_num_threads_per_disk + base_compaction_num_threads_per_disk) * dir_num
+    // set it to larger than C will be set to equal to C.
+    // This config can be set to 0, which means to forbid any compaction, for some special cases.
+    CONF_Int32(max_compaction_concurrency, "-1");
 
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
@@ -309,7 +315,7 @@ namespace config {
 
     CONF_Bool(disable_mem_pools, "false");
 
-    // Whether to allocate chunk using mmap. If you enable this, you'd better to 
+    // Whether to allocate chunk using mmap. If you enable this, you'd better to
     // increase vm.max_map_count's value whose default value is 65530.
     // you can do it as root via "sysctl -w vm.max_map_count=262144" or
     // "echo 262144 > /proc/sys/vm/max_map_count"
@@ -331,36 +337,14 @@ namespace config {
 
     // for partition
     CONF_Bool(enable_partitioned_hash_join, "false")
-    CONF_Bool(enable_partitioned_aggregation, "false")
-    CONF_Bool(enable_new_partitioned_aggregation, "true")
-    
-    // for kudu
-    // "The maximum size of the row batch queue, for Kudu scanners."
-    CONF_Int32(kudu_max_row_batches, "0")
-    // "The period at which Kudu Scanners should send keep-alive requests to the tablet "
-    // "server to ensure that scanners do not time out.")
-    // 150 * 1000 * 1000
-    CONF_Int32(kudu_scanner_keep_alive_period_us, "15000000")
-
-    // "(Advanced) Sets the Kudu scan ReadMode. "
-    // "Supported Kudu read modes are READ_LATEST and READ_AT_SNAPSHOT. Invalid values "
-    // "result in using READ_LATEST."
-    CONF_String(kudu_read_mode, "READ_LATEST")
-    // "Whether to pick only leader replicas, for tests purposes only.")
-    CONF_Bool(pick_only_leaders_for_tests, "false")
-    // "The period at which Kudu Scanners should send keep-alive requests to the tablet "
-    // "server to ensure that scanners do not time out."
-    CONF_Int32(kudu_scanner_keep_alive_period_sec, "15")
-    CONF_Int32(kudu_operation_timeout_ms, "5000")
-    // "If true, Kudu features will be disabled."
-    CONF_Bool(disable_kudu, "false")
+    CONF_Bool(enable_partitioned_aggregation, "true")
 
     // to forward compatibility, will be removed later
     CONF_Bool(enable_token_check, "true");
 
     // to open/close system metrics
     CONF_Bool(enable_system_metrics, "true");
-    
+
     CONF_Bool(enable_prefetch, "true");
 
     // Number of cores Doris will used, this will effect only when it's greater than 0.
@@ -372,6 +356,10 @@ namespace config {
     // Set this to encrypt and perform an integrity
     // check on all data spilled to disk during a query
     CONF_Bool(disk_spill_encryption, "false");
+
+    // When BE start, If there is a broken disk, BE process will exit by default.
+    // Otherwise, we will ignore the broken disk,
+    CONF_Bool(ignore_broken_disk, "false");
 
     // Writable scratch directories
     CONF_String(scratch_dirs, "/tmp");
@@ -436,14 +424,18 @@ namespace config {
     // max consumer num in one data consumer group, for routine load
     CONF_Int32(max_consumer_num_per_group, "3");
 
+    // the size of thread pool for routine load task.
+    // this should be larger than FE config 'max_concurrent_task_num_per_be' (default 5)
+    CONF_Int32(routine_load_thread_pool_size, "10");
+
     // Is set to true, index loading failure will not causing BE exit,
     // and the tablet will be marked as bad, so that FE will try to repair it.
     CONF_Bool(auto_recover_index_loading_failure, "false");
 
     // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
-    // default is 10, batch_size's defualt value is 1024 means 10 * 1024 rows will be cached
+    // default is 20, batch_size's defualt value is 1024 means 20 * 1024 rows will be cached
     CONF_Int32(max_memory_sink_batch_count, "20");
-    
+
     // This configuration is used for the context gc thread schedule period
     // note: unit is minute, default is 5min
     CONF_Int32(scan_context_gc_interval_min, "5");
@@ -485,7 +477,18 @@ namespace config {
     // config for default rowset type
     // Valid configs: ALPHA, BETA
     CONF_String(default_rowset_type, "ALPHA");
-    CONF_String(compaction_rowset_type, "ALPHA");
+
+    // brpc config, 200M
+    CONF_Int64(brpc_max_body_size, "209715200")
+
+    // max number of txns in txn manager
+    // this is a self protection to avoid too many txns saving in manager
+    CONF_Int64(max_runnings_transactions, "2000");
+
+    // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
+    // this is a an enhancement for better performance to manage tablet
+    CONF_Int32(tablet_map_shard_size, "1");
+
 } // namespace config
 
 } // namespace doris

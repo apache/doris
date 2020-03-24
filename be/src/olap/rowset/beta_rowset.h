@@ -22,23 +22,25 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/data_dir.h"
 
 namespace doris {
 
-class BetaRowset;
-using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
 class BetaRowsetReader;
 class RowsetFactory;
 
+class BetaRowset;
+using BetaRowsetSharedPtr = std::shared_ptr<BetaRowset>;
+
 class BetaRowset : public Rowset {
 public:
-    virtual ~BetaRowset() {}
-
-    static std::string segment_file_path(const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
+    virtual ~BetaRowset();
 
     OLAPStatus create_reader(RowsetReaderSharedPtr* result) override;
+
+    static std::string segment_file_path(
+            const std::string& segment_dir, const RowsetId& rowset_id, int segment_id);
 
     OLAPStatus split_range(const RowCursor& start_key,
                            const RowCursor& end_key,
@@ -59,18 +61,19 @@ public:
     bool check_path(const std::string& path) override;
 
 protected:
-    friend class RowsetFactory;
-
     BetaRowset(const TabletSchema* schema,
                std::string rowset_path,
-               DataDir* data_dir,
                RowsetMetaSharedPtr rowset_meta);
 
+    // init segment groups
     OLAPStatus init() override;
 
-    OLAPStatus do_load_once(bool use_cache) override ;
+    OLAPStatus do_load(bool use_cache) override;
+
+    void do_close() override;
 
 private:
+    friend class RowsetFactory;
     friend class BetaRowsetReader;
     std::vector<segment_v2::SegmentSharedPtr> _segments;
 };

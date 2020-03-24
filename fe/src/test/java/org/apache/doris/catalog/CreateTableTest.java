@@ -91,7 +91,20 @@ public class CreateTableTest {
         new Expectations(analyzer) {
             {
                 analyzer.getClusterName();
+                minTimes = 0;
                 result = clusterName;
+            }
+        };
+
+        new Expectations(catalog) {
+            {
+                Catalog.getCurrentCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                Catalog.getInstance();
+                minTimes = 0;
+                result = catalog;
             }
         };
 
@@ -104,22 +117,35 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.checkClusterCapacity(anyString);
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                result = beIds;
-
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                result = true;
 
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
+            }
+        };
+
+        new Expectations() {
+            {
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
+                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                minTimes = 0;
+                result = beIds;
+
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
+                result = true;
             }
         };
 
@@ -150,8 +176,15 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
+            }
+        };
+
+        new Expectations() {
+            {
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -174,16 +207,27 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.checkClusterCapacity(anyString);
-
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -213,16 +257,27 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.checkClusterCapacity(anyString);
-
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -247,18 +302,31 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
+                catalog.getAuth();
+                minTimes = 0;
+                result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
                 systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                minTimes = 0;
                 result = null;
 
-                catalog.getAuth();
-                result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -281,6 +349,7 @@ public class CreateTableTest {
         new Expectations(db) {
             {
                 db.getTable(tableName);
+                minTimes = 0;
                 result = olapTable;
             }
         };
@@ -289,13 +358,27 @@ public class CreateTableTest {
             {
 
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
+
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
-                systemInfoService.checkClusterCapacity(anyString);
+
                 catalog.getAuth();
+                minTimes = 0;
                 result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };
@@ -317,18 +400,31 @@ public class CreateTableTest {
         new Expectations(catalog) {
             {
                 catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
                 result = db;
 
                 Catalog.getCurrentSystemInfo();
+                minTimes = 0;
                 result = systemInfoService;
 
+                catalog.getAuth();
+                minTimes = 0;
+                result = paloAuth;
+
+            }
+        };
+
+        new Expectations() {
+            {
                 systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+
                 systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                minTimes = 0;
                 result = beIds;
 
-                catalog.getAuth();
-                result = paloAuth;
                 paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
                 result = true;
             }
         };

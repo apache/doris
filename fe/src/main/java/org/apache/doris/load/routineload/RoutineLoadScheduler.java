@@ -18,24 +18,25 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.MasterDaemon;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
-public class RoutineLoadScheduler extends Daemon {
+public class RoutineLoadScheduler extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(RoutineLoadScheduler.class);
-    private static final int DEFAULT_INTERVAL_SECONDS = 10;
 
     private RoutineLoadManager routineLoadManager;
 
@@ -46,12 +47,12 @@ public class RoutineLoadScheduler extends Daemon {
     }
 
     public RoutineLoadScheduler(RoutineLoadManager routineLoadManager) {
-        super("Routine load scheduler", DEFAULT_INTERVAL_SECONDS * 1000);
+        super("Routine load scheduler", FeConstants.default_scheduler_interval_millisecond);
         this.routineLoadManager = routineLoadManager;
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         try {
             process();
         } catch (Throwable e) {
@@ -86,26 +87,16 @@ public class RoutineLoadScheduler extends Daemon {
                                      .build());
                     continue;
                 }
-                int currentTotalTaskNum = routineLoadManager.getSizeOfIdToRoutineLoadTask();
-                int desiredTotalTaskNum = desiredConcurrentTaskNum + currentTotalTaskNum;
-                if (desiredTotalTaskNum > routineLoadManager.getTotalMaxConcurrentTaskNum()) {
-                    LOG.info(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
-                                     .add("desired_concurrent_task_num", desiredConcurrentTaskNum)
-                                     .add("current_total_task_num", currentTotalTaskNum)
-                                     .add("desired_total_task_num", desiredTotalTaskNum)
-                                     .add("total_max_task_num", routineLoadManager.getTotalMaxConcurrentTaskNum())
-                                     .add("msg", "skip this turn of job scheduler while there are not enough slot in backends")
-                                     .build());
-                    break;
-                }
                 // check state and divide job into tasks
                 routineLoadJob.divideRoutineLoadJob(desiredConcurrentTaskNum);
             } catch (MetaNotFoundException e) {
                 errorJobState = RoutineLoadJob.JobState.CANCELLED;
                 userException = e;
+                LOG.warn(userException.getMessage());
             } catch (UserException e) {
                 errorJobState = RoutineLoadJob.JobState.PAUSED;
                 userException = e;
+                LOG.warn(userException.getMessage());
             }
 
             if (errorJobState != null) {
@@ -115,7 +106,8 @@ public class RoutineLoadScheduler extends Daemon {
                                  .add("warn_msg", "failed to scheduler job, change job state to desired_state with error reason " + userException.getMessage())
                                  .build(), userException);
                 try {
-                    routineLoadJob.updateState(errorJobState, userException.getMessage(), false);
+                    ErrorReason reason = new ErrorReason(userException.getErrorCode(), userException.getMessage());
+                    routineLoadJob.updateState(errorJobState, reason, false);
                 } catch (UserException e) {
                     LOG.warn(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, routineLoadJob.getId())
                                      .add("current_state", routineLoadJob.getState())
@@ -126,16 +118,14 @@ public class RoutineLoadScheduler extends Daemon {
             }
         }
 
-        LOG.debug("begin to check timeout tasks");
         // check timeout tasks
         routineLoadManager.processTimeoutTasks();
 
-        LOG.debug("begin to clean old jobs ");
         routineLoadManager.cleanOldRoutineLoadJobs();
     }
 
     private List<RoutineLoadJob> getNeedScheduleRoutineJobs() throws LoadException {
-        return routineLoadManager.getRoutineLoadJobByState(RoutineLoadJob.JobState.NEED_SCHEDULE);
+        return routineLoadManager.getRoutineLoadJobByState(Sets.newHashSet(RoutineLoadJob.JobState.NEED_SCHEDULE));
     }
 
 

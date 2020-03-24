@@ -25,11 +25,12 @@ import com.google.common.base.Strings;
 import java.util.Map;
 
 // rename table
-public class TableRenameClause extends AlterClause {
+public class TableRenameClause extends AlterTableClause {
     private String newTableName;
 
     public TableRenameClause(String newTableName) {
         this.newTableName = newTableName;
+        this.needTableStable = false;
     }
 
     public String getNewTableName() {

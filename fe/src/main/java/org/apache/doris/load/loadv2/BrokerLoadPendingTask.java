@@ -23,6 +23,7 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
@@ -38,16 +39,16 @@ public class BrokerLoadPendingTask extends LoadTask {
 
     private static final Logger LOG = LogManager.getLogger(BrokerLoadPendingTask.class);
 
-    private Map<Long, List<BrokerFileGroup>> tableToBrokerFileList;
+    private Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups;
     private BrokerDesc brokerDesc;
 
     public BrokerLoadPendingTask(BrokerLoadJob loadTaskCallback,
-                                 Map<Long, List<BrokerFileGroup>> tableToBrokerFileList,
-                                 BrokerDesc brokerDesc) {
+            Map<FileGroupAggKey, List<BrokerFileGroup>> aggKeyToBrokerFileGroups,
+            BrokerDesc brokerDesc) {
         super(loadTaskCallback);
         this.retryTime = 3;
         this.attachment = new BrokerPendingTaskAttachment(signature);
-        this.tableToBrokerFileList = tableToBrokerFileList;
+        this.aggKeyToBrokerFileGroups = aggKeyToBrokerFileGroups;
         this.brokerDesc = brokerDesc;
         this.failMsg = new FailMsg(FailMsg.CancelType.ETL_RUN_FAIL);
     }
@@ -58,16 +59,17 @@ public class BrokerLoadPendingTask extends LoadTask {
         getAllFileStatus();
     }
 
-    private void getAllFileStatus()
-            throws UserException {
+    private void getAllFileStatus() throws UserException {
         long start = System.currentTimeMillis();
-        for (Map.Entry<Long, List<BrokerFileGroup>> entry : tableToBrokerFileList.entrySet()) {
-            long tableId = entry.getKey();
+        long totalFileSize = 0;
+        int totalFileNum = 0;
+        for (Map.Entry<FileGroupAggKey, List<BrokerFileGroup>> entry : aggKeyToBrokerFileGroups.entrySet()) {
+            FileGroupAggKey aggKey = entry.getKey();
+            List<BrokerFileGroup> fileGroups = entry.getValue();
 
             List<List<TBrokerFileStatus>> fileStatusList = Lists.newArrayList();
-            List<BrokerFileGroup> fileGroups = entry.getValue();
-            long totalFileSize = 0;
-            int totalFileNum = 0;
+            long tableTotalFileSize = 0;
+            int tableTotalFileNum = 0;
             int groupNum = 0;
             for (BrokerFileGroup fileGroup : fileGroups) {
                 long groupFileSize = 0;
@@ -83,17 +85,20 @@ public class BrokerLoadPendingTask extends LoadTask {
                                 .add("file_status", fstatus).build());
                     }
                 }
-                totalFileSize += groupFileSize;
-                totalFileNum += fileStatuses.size();
+                tableTotalFileSize += groupFileSize;
+                tableTotalFileNum += fileStatuses.size();
                 LOG.info("get {} files in file group {} for table {}. size: {}. job: {}",
                         fileStatuses.size(), groupNum, entry.getKey(), groupFileSize, callback.getCallbackId());
                 groupNum++;
             }
 
-            ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);
-            ((BrokerPendingTaskAttachment) attachment).addFileStatus(tableId, fileStatusList);
+            totalFileSize += tableTotalFileSize;
+            totalFileNum += tableTotalFileNum;
+            ((BrokerPendingTaskAttachment) attachment).addFileStatus(aggKey, fileStatusList);
             LOG.info("get {} files to be loaded. total size: {}. cost: {} ms, job: {}",
-                    totalFileNum, totalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
+                    tableTotalFileNum, tableTotalFileSize, (System.currentTimeMillis() - start), callback.getCallbackId());
         }
+
+        ((BrokerLoadJob) callback).setLoadFileInfo(totalFileNum, totalFileSize);
     }
 }

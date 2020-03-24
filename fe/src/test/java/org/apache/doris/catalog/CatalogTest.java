@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import mockit.Expectations;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.alter.SchemaChangeJob;
@@ -30,10 +31,6 @@ import org.apache.doris.meta.MetaContext;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
-import org.powermock.core.classloader.annotations.PowerMockIgnore;
-import org.powermock.core.classloader.annotations.PrepareForTest;
-import org.powermock.modules.junit4.PowerMockRunner;
 
 import java.io.BufferedInputStream;
 import java.io.DataInputStream;
@@ -49,14 +46,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-@RunWith(PowerMockRunner.class)
-@PowerMockIgnore({ "org.apache.log4j.*", "javax.management.*" })
-@PrepareForTest(Catalog.class)
 public class CatalogTest {
 
     @Before
     public void setUp() {
-
+        MetaContext metaContext = new MetaContext();
+        new Expectations(metaContext) {
+            {
+                MetaContext.get();
+                minTimes = 0;
+                result = metaContext;
+            }
+        };
     }
 
     public void mkdir(String dirString) {

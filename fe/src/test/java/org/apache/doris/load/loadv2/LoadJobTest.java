@@ -22,8 +22,10 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
@@ -40,7 +42,6 @@ import org.junit.Test;
 
 import java.util.Map;
 
-import mockit.Deencapsulation;
 import mockit.Expectations;
 import mockit.Mocked;
 
@@ -53,6 +54,7 @@ public class LoadJobTest {
         new Expectations() {
             {
                 catalog.getDb(1L);
+                minTimes = 0;
                 result = null;
             }
         };
@@ -100,12 +102,13 @@ public class LoadJobTest {
     @Test
     public void testExecute(@Mocked GlobalTransactionMgr globalTransactionMgr,
                             @Mocked MasterTaskExecutor masterTaskExecutor)
-            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException {
+            throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
                 globalTransactionMgr.beginTransaction(anyLong, anyString, (TUniqueId) any, anyString,
                         (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
+                minTimes = 0;
                 result = 1;
             }
         };
@@ -151,6 +154,7 @@ public class LoadJobTest {
         new Expectations() {
             {
                 catalog.getEditLog();
+                minTimes = 0;
                 result = editLog;
             }
         };

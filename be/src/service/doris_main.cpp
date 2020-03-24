@@ -37,8 +37,8 @@
 #include "common/daemon.h"
 #include "common/config.h"
 #include "common/status.h"
-#include "codegen/llvm_codegen.h"
 #include "runtime/exec_env.h"
+#include "util/file_utils.h"
 #include "util/logging.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
@@ -49,6 +49,7 @@
 #include "agent/topic_subscriber.h"
 #include "util/doris_metrics.h"
 #include "olap/options.h"
+#include "olap/storage_engine.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
@@ -57,6 +58,7 @@
 #include "common/resource_tls.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/uid_util.h"
+#include "runtime/heartbeat_flags.h"
 
 static void help(const char*);
 
@@ -133,7 +135,25 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    doris::LlvmCodeGen::initialize_llvm();
+    auto it = paths.begin();
+    for (;it != paths.end();) {
+        if (!doris::FileUtils::check_exist(it->path)) {
+            if (doris::config::ignore_broken_disk) {
+                LOG(WARNING) << "opendir failed, path=" << it->path;
+                it = paths.erase(it);
+            } else {
+                LOG(FATAL) << "opendir failed, path=" << it->path;
+                exit(-1);
+            }
+        } else {
+            ++it;
+        }
+    }
+
+    if (paths.empty()) {
+        LOG(FATAL) << "All disks are broken, exit.";
+        exit(-1);
+    }
 
     // initilize libcurl here to avoid concurrent initialization
     auto curl_ret = curl_global_init(CURL_GLOBAL_ALL);
@@ -166,6 +186,7 @@ int main(int argc, char** argv) {
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     exec_env->set_storage_engine(engine);
+    engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
     doris::ThriftRpcHelper::setup(exec_env);
     doris::ThriftServer* be_server = nullptr;

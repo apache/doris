@@ -46,12 +46,10 @@ class ObjectPool;
 class Status;
 class ExecEnv;
 class Expr;
-class LlvmCodeGen;
 class DateTimeValue;
 class MemTracker;
 class DataStreamRecvr;
 class ResultBufferMgr;
-class ThreadPool;
 class DiskIoMgrs;
 class TmpFileMgr;
 class BufferedBlockMgr;
@@ -187,12 +185,6 @@ public:
         return _root_node_id + 1;
     }
 
-    // Returns true if the codegen object has been created. Note that this may return false
-    // even when codegen is enabled if nothing has been codegen'd.
-    bool codegen_created() const {
-        return _codegen.get() != NULL;
-    }
-
     // Returns runtime state profile
     RuntimeProfile* runtime_profile() {
         return &_profile;
@@ -201,18 +193,6 @@ public:
     // Returns true if codegen is enabled for this query.
     bool codegen_enabled() const {
         return !_query_options.disable_codegen;
-    }
-
-    // Returns CodeGen object.  Returns NULL if codegen is disabled.
-    LlvmCodeGen* llvm_codegen() {
-        return _codegen.get();
-    }
-    // Returns CodeGen object.  Returns NULL if the codegen object has not been
-    // created. If codegen is enabled for the query, the codegen object will be
-    // created as part of the RuntimeState's initialization.
-    // Otherwise, it can be created by calling create_codegen().
-    LlvmCodeGen* codegen() {
-        return _codegen.get();
     }
 
     // Create a codegen object in _codegen. No-op if it has already been called.
@@ -273,12 +253,6 @@ public:
     // Append all _error_log[_unreported_error_idx+] to new_errors and set
     // _unreported_error_idx to _errors_log.size()
     void get_unreported_errors(std::vector<std::string>* new_errors);
-
-    // Returns _codegen in 'codegen'. If 'initialize' is true, _codegen will be created if
-    // it has not been initialized by a previous call already. If 'initialize' is false,
-    // 'codegen' will be set to NULL if _codegen has not been initialized.
-    Status get_codegen(LlvmCodeGen** codegen, bool initialize);
-    Status get_codegen(LlvmCodeGen** codegen);
 
     bool is_cancelled() const {
         return _is_cancelled;
@@ -501,6 +475,10 @@ public:
     /// Helper to call QueryState::StartSpilling().
     Status StartSpilling(MemTracker* mem_tracker);
 
+    // get mem limit for load channel
+    // if load mem limit is not set, or is zero, using query mem limit instead.
+    int64_t get_load_mem_limit();
+
 private:
     // Allow TestEnv to set block_mgr manually for testing.
     friend class TestEnv;
@@ -551,7 +529,6 @@ private:
     TUniqueId _fragment_instance_id;
     TQueryOptions _query_options;
     ExecEnv* _exec_env;
-    boost::scoped_ptr<LlvmCodeGen> _codegen;
 
     // Thread resource management object for this fragment's execution.  The runtime
     // state is responsible for returning this pool to the thread mgr.

@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # BROKER LOAD
 ## description
 
@@ -68,7 +87,7 @@
             
             file_type: 
 
-            Used to specify the type of imported file, such as parquet, csv. Default values are determined by the file suffix name. 
+            Used to specify the type of imported file, such as parquet, orc, csv. Default values are determined by the file suffix name. 
  
             column_list: 
 
@@ -148,7 +167,7 @@
 
         exc_mem_limit: Memory limit. Default is 2GB. Unit is Bytes.
         
-        strict_mode: Whether the data is strictly restricted. The default is true.
+        strict_mode: Whether the data is strictly restricted. The default is false.
 
         timezone: Specify time zones for functions affected by time zones, such as strftime/alignment_timestamp/from_unixtime, etc. See the documentation for details. If not specified, use the "Asia/Shanghai" time zone.
 
@@ -373,6 +392,29 @@
         INTO TABLE `my_table`
         where k1 > k2
         );
+
+    11. Extract date partition fields in file paths, and date time include %3A (in hdfs path, all ':' will be replaced by '%3A')
+
+        Assume we have files:
+
+        /user/data/data_time=2020-02-17 00%3A00%3A00/test.txt
+        /user/data/data_time=2020-02-18 00%3A00%3A00/test.txt
+
+        Table schema is:
+        data_time DATETIME,
+        k2        INT,
+        k3        INT
+
+        LOAD LABEL example_db.label12
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt") 
+         INTO TABLE `tbl12`
+         COLUMNS TERMINATED BY ","
+         (k2,k3)
+         COLUMNS FROM PATH AS (data_time)
+         SET (data_time=str_to_date(data_time, '%Y-%m-%d %H%%3A%i%%3A%s'))
+        ) 
+        WITH BROKER "hdfs" ("username"="user", "password"="pass");
      
 ## keyword
 

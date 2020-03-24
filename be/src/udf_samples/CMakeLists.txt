@@ -22,4 +22,12 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/udf_samples")
 
 add_library(udfsample SHARED udf_sample.cpp)
+target_link_libraries(udfsample
+ -static-libstdc++
+ -static-libgcc
+)
 add_library(udasample SHARED uda_sample.cpp)
+target_link_libraries(udasample
+ -static-libstdc++
+ -static-libgcc
+)

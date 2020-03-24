@@ -40,8 +40,9 @@ public class TxnStateCallbackFactory {
     }
 
     public synchronized void removeCallback(long id) {
-        callbacks.remove(id);
-        LOG.info("remove callback of txn state : {}", id);
+        if (callbacks.remove(id) != null) {
+            LOG.info("remove callback of txn state : {}", id);
+        }
     }
 
     public synchronized TxnStateChangeCallback getCallback(long id) {

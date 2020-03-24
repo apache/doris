@@ -25,6 +25,7 @@ import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
@@ -43,11 +44,11 @@ public class GetLoadInfoAction extends RestBaseAction {
     }
 
     @Override
-    public void executeWithoutPassword(ActionAuthorizationInfo authInfo, BaseRequest request, BaseResponse response)
+    public void executeWithoutPassword(BaseRequest request, BaseResponse response)
             throws DdlException {
         Load.JobInfo info = new Load.JobInfo(request.getSingleParameter(DB_KEY),
                                              request.getSingleParameter(LABEL_KEY),
-                                             authInfo.cluster);
+                                             ConnectContext.get().getClusterName());
         if (Strings.isNullOrEmpty(info.dbName)) {
             throw new DdlException("No database selected");
         }
@@ -65,10 +66,11 @@ public class GetLoadInfoAction extends RestBaseAction {
         try {
             catalog.getLoadInstance().getJobInfo(info);
             if (info.tblNames.isEmpty()) {
-                checkDbAuth(authInfo, info.dbName, PrivPredicate.LOAD);
+                checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), info.dbName, PrivPredicate.LOAD);
             } else {
                 for (String tblName : info.tblNames) {
-                    checkTblAuth(authInfo, info.dbName, tblName, PrivPredicate.LOAD);
+                    checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), info.dbName, tblName,
+                            PrivPredicate.LOAD);
                 }
             }
         } catch (DdlException | MetaNotFoundException e) {

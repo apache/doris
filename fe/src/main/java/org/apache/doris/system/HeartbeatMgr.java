@@ -22,7 +22,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.http.rest.BootstrapFinishAction;
 import org.apache.doris.persist.HbPackage;
@@ -61,11 +61,12 @@ import java.util.concurrent.atomic.AtomicReference;
  * Heartbeat manager run as a daemon at a fix interval.
  * For now, it will send heartbeat to all Frontends, Backends and Brokers
  */
-public class HeartbeatMgr extends Daemon {
+public class HeartbeatMgr extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(HeartbeatMgr.class);
 
     private final ExecutorService executor;
     private SystemInfoService nodeMgr;
+    private HeartbeatFlags heartbeatFlags;
 
     private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<TMasterInfo>();
 
@@ -73,6 +74,7 @@ public class HeartbeatMgr extends Daemon {
         super("heartbeat mgr", FeConstants.heartbeat_interval_second * 1000);
         this.nodeMgr = nodeMgr;
         this.executor = Executors.newCachedThreadPool();
+        this.heartbeatFlags = new HeartbeatFlags();
     }
 
     public void setMaster(int clusterId, String token, long epoch) {
@@ -80,6 +82,8 @@ public class HeartbeatMgr extends Daemon {
                 new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port), clusterId, epoch);
         tMasterInfo.setToken(token);
         tMasterInfo.setHttp_port(Config.http_port);
+        long flags = heartbeatFlags.getHeartbeatFlags();
+        tMasterInfo.setHeartbeat_flags(flags);
         masterInfo.set(tMasterInfo);
     }
 
@@ -89,7 +93,7 @@ public class HeartbeatMgr extends Daemon {
      * 2. collect the heartbeat response from all nodes, and handle them
      */
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
         
         // send backend heartbeat
@@ -131,7 +135,9 @@ public class HeartbeatMgr extends Daemon {
             try {
                 // the heartbeat rpc's timeout is 5 seconds, so we will not be blocked here very long.
                 HeartbeatResponse response = future.get();
-                LOG.info("get heartbeat response: {}", response);
+                if (response.getStatus() != HbStatus.OK) {
+                    LOG.warn("get bad heartbeat response: {}", response);
+                }
                 isChanged = handleHbResponse(response, false);
 
                 if (isChanged) {
@@ -214,6 +220,8 @@ public class HeartbeatMgr extends Daemon {
 
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());
                 copiedMasterInfo.setBackend_ip(backend.getHost());
+                long flags = heartbeatFlags.getHeartbeatFlags();
+                copiedMasterInfo.setHeartbeat_flags(flags);
                 THeartbeatResult result = client.heartbeat(copiedMasterInfo);
 
                 ok = true;
@@ -225,8 +233,13 @@ public class HeartbeatMgr extends Daemon {
                     if (tBackendInfo.isSetBrpc_port()) {
                         brpcPort = tBackendInfo.getBrpc_port();
                     }
+                    String version = "";
+                    if (tBackendInfo.isSetVersion()) {
+                        version = tBackendInfo.getVersion();
+                    }
+
                     // backend.updateOnce(bePort, httpPort, beRpcPort, brpcPort);
-                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis());
+                    return new BackendHbResponse(backendId, bePort, httpPort, brpcPort, System.currentTimeMillis(), version);
                 } else {
                     return new BackendHbResponse(backendId, result.getStatus().getError_msgs().isEmpty() ? "Unknown error"
                             : result.getStatus().getError_msgs().get(0));
@@ -259,6 +272,16 @@ public class HeartbeatMgr extends Daemon {
 
         @Override
         public HeartbeatResponse call() {
+            if (fe.getHost().equals(Catalog.getInstance().getSelfNode().first)) {
+                // heartbeat to self
+                if (Catalog.getInstance().isReady()) {
+                    return new FrontendHbResponse(fe.getNodeName(), Config.query_port, Config.rpc_port,
+                            Catalog.getInstance().getReplayedJournalId(), System.currentTimeMillis());
+                } else {
+                    return new FrontendHbResponse(fe.getNodeName(), "not ready");
+                }
+            }
+
             String url = "http://" + fe.getHost() + ":" + Config.http_port
                     + "/api/bootstrap?cluster_id=" + clusterId + "&token=" + token;
             try {
@@ -266,7 +289,7 @@ public class HeartbeatMgr extends Daemon {
                 /*
                  * return:
                  * {"replayedJournalId":191224,"queryPort":9131,"rpcPort":9121,"status":"OK","msg":"Success"}
-                 * {"replayedJournalId":0,"queryPort":0,"rpcPort":0,"status":"FAILED","msg":"unfinished"}
+                 * {"replayedJournalId":0,"queryPort":0,"rpcPort":0,"status":"FAILED","msg":"not ready"}
                  */
                 JSONObject root = new JSONObject(result);
                 String status = root.getString("status");
@@ -336,3 +359,4 @@ public class HeartbeatMgr extends Daemon {
     }
 
 }
+

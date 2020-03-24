@@ -38,7 +38,13 @@ ColumnData::ColumnData(SegmentGroup* segment_group)
         _runtime_state(nullptr),
         _is_using_cache(false),
         _segment_reader(nullptr),
-        _lru_cache(StorageEngine::instance()->index_stream_lru_cache()) {
+        _lru_cache(nullptr) {
+    if (StorageEngine::instance() != nullptr) {
+        _lru_cache = StorageEngine::instance()->index_stream_lru_cache();
+    } else {
+        // for independent usage, eg: unit test/segment tool
+        _lru_cache = new_lru_cache(config::index_stream_cache_capacity);
+    }
     _num_rows_per_block = _segment_group->get_num_rows_per_row_block();
 }
 
@@ -367,7 +373,7 @@ OLAPStatus ColumnData::prepare_block_read(
     }
     set_eof(false);
     if (start_key != nullptr) {
-        auto res = _seek_to_row(*start_key, find_start_key, false);
+        auto res = _seek_to_row(*start_key, !find_start_key, false);
         if (res == OLAP_SUCCESS) {
             *first_block = _read_block.get();
         } else if (res == OLAP_ERR_DATA_EOF) {
@@ -472,7 +478,9 @@ OLAPStatus ColumnData::get_first_row_block(RowBlock** row_block) {
     res = _get_block(false);
     if (res != OLAP_SUCCESS) {
         if (res != OLAP_ERR_DATA_EOF) {
-            OLAP_LOG_WARNING("fail to load data to row block. [res=%d]", res);
+            LOG(WARNING) << "fail to load data to row block. res=" << res
+                         << ", version=" << version().first
+                         << "-" << version().second;
         }
         *row_block = nullptr;
         return res;

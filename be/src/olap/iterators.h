@@ -77,8 +77,9 @@ public:
     // to unify Conditions and ColumnPredicate
     const std::vector<ColumnPredicate*>* column_predicates = nullptr;
 
-    // reader statistics
+    // REQUIRED (null is not allowed)
     OlapReaderStatistics* stats = nullptr;
+    bool use_page_cache = false;
 };
 
 // Used to read data in RowBlockV2 one by one
@@ -102,6 +103,9 @@ public:
 
     // return schema for this Iterator
     virtual const Schema& schema() const = 0;
+
+    // Only used by UT. Whether lazy-materialization-read is used by this iterator or not.
+    virtual bool is_lazy_materialization_read() const { return false; }
 };
 
 }

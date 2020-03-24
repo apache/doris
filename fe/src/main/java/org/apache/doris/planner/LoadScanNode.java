@@ -23,7 +23,9 @@ import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
@@ -70,6 +72,17 @@ public abstract class LoadScanNode extends ScanNode {
             throw new UserException("where statement is not a valid statement return bool");
         }
         addConjuncts(whereExpr.getConjuncts());
+    }
+
+    protected void checkBitmapCompatibility(Analyzer analyzer, SlotDescriptor slotDesc, Expr expr) throws AnalysisException {
+        if (slotDesc.getColumn().getAggregationType() == AggregateType.BITMAP_UNION) {
+            expr.analyze(analyzer);
+            if (!expr.getType().isBitmapType()) {
+                String errorMsg = String.format("bitmap column %s require the function return type is BITMAP",
+                        slotDesc.getColumn().getName());
+                throw new AnalysisException(errorMsg);
+            }
+        }
     }
 
 }

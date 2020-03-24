@@ -23,9 +23,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -43,12 +45,13 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class CatalogRecycleBin extends Daemon implements Writable {
+public class CatalogRecycleBin extends MasterDaemon implements Writable {
     private static final Logger LOG = LogManager.getLogger(CatalogRecycleBin.class);
 
     private Map<Long, RecycleDatabaseInfo> idToDatabase;
@@ -104,7 +107,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
     public synchronized boolean recyclePartition(long dbId, long tableId, Partition partition,
                                                  Range<PartitionKey> range, DataProperty dataProperty,
-                                                 short replicationNum) {
+                                                 short replicationNum,
+                                                 boolean isInMemory) {
         if (idToPartition.containsKey(partition.getId())) {
             LOG.error("partition[{}] already in recycle bin.", partition.getId());
             return false;
@@ -115,7 +119,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
         // recycle partition
         RecyclePartitionInfo partitionInfo = new RecyclePartitionInfo(dbId, tableId, partition,
-                                                                      range, dataProperty, replicationNum);
+                                                                      range, dataProperty, replicationNum,
+                                                                      isInMemory);
         idToRecycleTime.put(partition.getId(), System.currentTimeMillis());
         idToPartition.put(partition.getId(), partitionInfo);
         LOG.info("recycle partition[{}-{}]", partition.getId(), partition.getName());
@@ -208,7 +213,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
     private void onEraseOlapTable(OlapTable olapTable) {
         // inverted index
         TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-        for (Partition partition : olapTable.getPartitions()) {
+        Collection<Partition> allPartitions = olapTable.getAllPartitions();
+        for (Partition partition : allPartitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
                     invertedIndex.deleteTablet(tablet.getId());
@@ -218,7 +224,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
         // drop all replicas
         AgentBatchTask batchTask = new AgentBatchTask();
-        for (Partition partition : olapTable.getPartitions()) {
+        for (Partition partition : olapTable.getAllPartitions()) {
             List<MaterializedIndex> allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
             for (MaterializedIndex materializedIndex : allIndices) {
                 long indexId = materializedIndex.getId();
@@ -272,7 +278,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
             // remove tablet from inverted index
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            for (Partition partition : olapTable.getPartitions()) {
+            for (Partition partition : olapTable.getAllPartitions()) {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     for (Tablet tablet : index.getTablets()) {
                         invertedIndex.deleteTablet(tablet.getId());
@@ -506,13 +512,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         // check if range is invalid
         Range<PartitionKey> recoverRange = recoverPartitionInfo.getRange();
         RangePartitionInfo partitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-        Map<Long, Range<PartitionKey>> idToRangeMap = partitionInfo.getIdToRange();
-        try {
-            for (Range<PartitionKey> existRange : idToRangeMap.values()) {
-                RangePartitionInfo.checkRangeIntersect(recoverRange, existRange);
-            }
-        } catch (DdlException e) {
-            throw new DdlException("Can not recover partition[" + partitionName + "]. " + e.getMessage());
+        if (partitionInfo.getAnyIntersectRange(recoverRange, false) != null) {
+            throw new DdlException("Can not recover partition[" + partitionName + "]. Range conflict.");
         }
 
         // recover partition
@@ -522,9 +523,10 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         
         // recover partition info
         long partitionId = recoverPartition.getId();
-        partitionInfo.setRange(partitionId, recoverRange);
+        partitionInfo.setRange(partitionId, false, recoverRange);
         partitionInfo.setDataProperty(partitionId, recoverPartitionInfo.getDataProperty());
         partitionInfo.setReplicationNum(partitionId, recoverPartitionInfo.getReplicationNum());
+        partitionInfo.setIsInMemory(partitionId, recoverPartitionInfo.isInMemory());
 
         // remove from recycle bin
         idToPartition.remove(partitionId);
@@ -536,9 +538,8 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         LOG.info("recover partition[{}]", partitionId);
     }
 
+    // The caller should keep db write lock
     public synchronized void replayRecoverPartition(OlapTable table, long partitionId) {
-        // make sure to get db write lock
-
         Iterator<Map.Entry<Long, RecyclePartitionInfo>> iterator = idToPartition.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, RecyclePartitionInfo> entry = iterator.next();
@@ -551,9 +552,10 @@ public class CatalogRecycleBin extends Daemon implements Writable {
 
             table.addPartition(partitionInfo.getPartition());
             RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) table.getPartitionInfo();
-            rangePartitionInfo.setRange(partitionId, partitionInfo.getRange());
+            rangePartitionInfo.setRange(partitionId, false, partitionInfo.getRange());
             rangePartitionInfo.setDataProperty(partitionId, partitionInfo.getDataProperty());
             rangePartitionInfo.setReplicationNum(partitionId, partitionInfo.getReplicationNum());
+            rangePartitionInfo.setIsInMemory(partitionId, partitionInfo.isInMemory());
 
             iterator.remove();
             idToRecycleTime.remove(partitionId);
@@ -579,7 +581,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             long dbId = tableInfo.getDbId();
             OlapTable olapTable = (OlapTable) table;
             long tableId = olapTable.getId();
-            for (Partition partition : olapTable.getPartitions()) {
+            for (Partition partition : olapTable.getAllPartitions()) {
                 long partitionId = partition.getId();
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
@@ -651,7 +653,7 @@ public class CatalogRecycleBin extends Daemon implements Writable {
     }
 
     @Override
-    protected void runOneCycle() {
+    protected void runAfterCatalogReady() {
         long currentTimeMs = System.currentTimeMillis();
         // should follow the partition/table/db order
         // in case of partition(table) is still in recycle bin but table(db) is missing
@@ -691,7 +693,6 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         }
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         int count = in.readInt();
         for (int i = 0; i < count; i++) {
@@ -757,7 +758,6 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             }
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             db = Database.read(in);
             
@@ -796,7 +796,6 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             table.write(out);
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             table = Table.read(in);
@@ -810,19 +809,22 @@ public class CatalogRecycleBin extends Daemon implements Writable {
         private Range<PartitionKey> range;
         private DataProperty dataProperty;
         private short replicationNum;
+        private boolean isInMemory;
 
         public RecyclePartitionInfo() {
             // for persist
         }
 
         public RecyclePartitionInfo(long dbId, long tableId, Partition partition,
-                                    Range<PartitionKey> range, DataProperty dataProperty, short replicationNum) {
+                                    Range<PartitionKey> range, DataProperty dataProperty, short replicationNum,
+                                    boolean isInMemory) {
             this.dbId = dbId;
             this.tableId = tableId;
             this.partition = partition;
             this.range = range;
             this.dataProperty = dataProperty;
             this.replicationNum = replicationNum;
+            this.isInMemory = isInMemory;
         }
 
         public long getDbId() {
@@ -849,24 +851,31 @@ public class CatalogRecycleBin extends Daemon implements Writable {
             return replicationNum;
         }
 
+        public boolean isInMemory() {
+            return isInMemory;
+        }
+
         @Override
         public void write(DataOutput out) throws IOException {
             out.writeLong(dbId);
             out.writeLong(tableId);
             partition.write(out);
-            RangePartitionInfo.writeRange(out, range);
+            RangeUtils.writeRange(out, range);
             dataProperty.write(out);
             out.writeShort(replicationNum);
+            out.writeBoolean(isInMemory);
         }
 
-        @Override
         public void readFields(DataInput in) throws IOException {
             dbId = in.readLong();
             tableId = in.readLong();
             partition = Partition.read(in);
-            range = RangePartitionInfo.readRange(in);
+            range = RangeUtils.readRange(in);
             dataProperty = DataProperty.read(in);
             replicationNum = in.readShort();
+            if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_72) {
+                isInMemory = in.readBoolean();
+            }
         }
     }
 }

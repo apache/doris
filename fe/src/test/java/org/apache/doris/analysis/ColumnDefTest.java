@@ -65,6 +65,24 @@ public class ColumnDefTest {
         Assert.assertEquals("`col` float SUM NOT NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
     }
 
+    @Test
+    public void testReplaceIfNotNull() throws AnalysisException {
+        {
+            // not allow null
+            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, false, DefaultValue.NOT_SET, "");
+            column.analyze(true);
+            Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
+            Assert.assertEquals("`col` int(11) REPLACE_IF_NOT_NULL NULL DEFAULT \"null\" COMMENT \"\"", column.toSql());
+        }
+        {
+            // not allow null
+            ColumnDef column = new ColumnDef("col", intCol, false, AggregateType.REPLACE_IF_NOT_NULL, false, new DefaultValue(true, "10"), "");
+            column.analyze(true);
+            Assert.assertEquals(AggregateType.REPLACE_IF_NOT_NULL, column.getAggregateType());
+            Assert.assertEquals("`col` int(11) REPLACE_IF_NOT_NULL NULL DEFAULT \"10\" COMMENT \"\"", column.toSql());
+        }
+    }
+
     @Test(expected = AnalysisException.class)
     public void testFloatKey() throws AnalysisException {
         ColumnDef column = new ColumnDef("col", floatCol);

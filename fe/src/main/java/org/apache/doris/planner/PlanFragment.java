@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.UserException;
@@ -32,6 +33,7 @@ import org.apache.logging.log4j.LogManager;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * PlanFragments form a tree structure via their ExchangeNodes. A tree of fragments
@@ -108,7 +110,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     // specification of the number of parallel when fragment is executed
     // default value is 1
-    private int parallel_exec_num = 1;
+    private int parallelExecNum = 1;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -141,7 +143,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      */
     public void setParallelExecNumIfExists() {
         if (ConnectContext.get() != null) {
-            parallel_exec_num = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+            parallelExecNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
     }
 
@@ -186,8 +188,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return dataPartition == DataPartition.UNPARTITIONED ? 1 : planRoot.getNumNodes();
     }
 
-    public int getParallel_exec_num() {
-        return parallel_exec_num;
+    public int getParallelExecNum() {
+        return parallelExecNum;
     }
 
     public TPlanFragment toThrift() {
@@ -213,10 +215,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         StringBuilder str = new StringBuilder();
         Preconditions.checkState(dataPartition != null);
         str.append(" OUTPUT EXPRS:");
-        if (outputExprs != null) {
-            for (Expr e : outputExprs) {
-                str.append(e.toSql() + " | ");
-            }
+        if (CollectionUtils.isNotEmpty(outputExprs)) {
+            str.append(outputExprs.stream().map(Expr::toSql)
+                    .collect(Collectors.joining(" | ")));
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");

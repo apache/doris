@@ -18,7 +18,6 @@
 #pragma once
 
 #include "olap/column_block.h" // for ColumnBlockView
-#include "olap/rowset/segment_v2/common.h" // for rowid_t
 #include "common/status.h" // for Status
 
 namespace doris {
@@ -42,6 +41,24 @@ public:
     // It is an error to call this with a value larger than Count().
     // Doing so has undefined results.
     virtual Status seek_to_position_in_page(size_t pos) = 0;
+
+    // Seek the decoder to the given value in the page, or the
+    // lowest value which is greater than the given value.
+    //
+    // If the decoder was able to locate an exact match, then
+    // sets *exact_match to true. Otherwise sets *exact_match to
+    // false, to indicate that the seeked value is _after_ the
+    // requested value.
+    //
+    // If the given value is less than the lowest value in the page,
+    // seeks to the start of the page. If it is higher than the highest
+    // value in the page, then returns Status::NotFound
+    //
+    // This will only return valid results when the data page
+    // consists of values in sorted order.
+    virtual Status seek_at_or_after_value(const void* value, bool* exact_match) {
+        return Status::NotSupported("seek_at_or_after_value"); // FIXME
+    }
 
     // Seek the decoder forward by a given number of rows, or to the end
     // of the page. This is primarily used to skip over data.

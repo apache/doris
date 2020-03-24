@@ -31,7 +31,9 @@ class BetaRowsetReader : public RowsetReader {
 public:
     explicit BetaRowsetReader(BetaRowsetSharedPtr rowset);
 
-    ~BetaRowsetReader() override = default;
+    ~BetaRowsetReader() override {
+        _rowset->release();
+    }
 
     OLAPStatus init(RowsetReaderContext* read_context) override;
 
@@ -46,13 +48,16 @@ public:
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
 
     int64_t filtered_rows() override {
-        return 0; // TODO report read statistics
+        return _stats->rows_del_filtered;
     }
 
 private:
     BetaRowsetSharedPtr _rowset;
 
     RowsetReaderContext* _context;
+    OlapReaderStatistics _owned_stats;
+    OlapReaderStatistics* _stats;
+
     std::unique_ptr<RowwiseIterator> _iterator;
 
     std::unique_ptr<RowBlockV2> _input_block;

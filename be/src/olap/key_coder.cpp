@@ -22,9 +22,10 @@
 namespace doris {
 
 template<typename TraitsType>
-KeyCoder::KeyCoder(TraitsType traits) 
-        : _encode_ascending(traits.encode_ascending),
-        _decode_ascending(traits.decode_ascending) {
+KeyCoder::KeyCoder(TraitsType traits)
+        : _full_encode_ascending(traits.full_encode_ascending),
+          _encode_ascending(traits.encode_ascending),
+          _decode_ascending(traits.decode_ascending) {
 }
 
 struct EnumClassHash {
@@ -63,6 +64,7 @@ private:
         add_mapping<OLAP_FIELD_TYPE_INT>();
         add_mapping<OLAP_FIELD_TYPE_UNSIGNED_INT>();
         add_mapping<OLAP_FIELD_TYPE_BIGINT>();
+        add_mapping<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>();
         add_mapping<OLAP_FIELD_TYPE_LARGEINT>();
         add_mapping<OLAP_FIELD_TYPE_DATETIME>();
 

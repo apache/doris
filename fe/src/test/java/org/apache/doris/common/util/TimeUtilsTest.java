@@ -17,18 +17,39 @@
 
 package org.apache.doris.common.util;
 
+import mockit.Expectations;
+import mockit.Mocked;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 
+import org.apache.doris.common.DdlException;
 import org.junit.Assert;
+import org.junit.Before;
 import org.junit.Test;
 
+import java.time.ZoneId;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.TimeZone;
 
 public class TimeUtilsTest {
+
+    @Mocked
+    TimeUtils timeUtils;
+
+    @Before
+    public void setUp() {
+        TimeZone tz = TimeZone.getTimeZone(ZoneId.of("Asia/Shanghai"));
+        new Expectations(timeUtils) {
+            {
+                TimeUtils.getTimeZone();
+                minTimes = 0;
+                result = tz;
+            }
+        };
+    }
 
     @Test
     public void testNormal() {
@@ -36,9 +57,9 @@ public class TimeUtilsTest {
         Assert.assertNotNull(TimeUtils.getStartTime());
         Assert.assertTrue(TimeUtils.getEstimatedTime(0L) > 0);
 
-        Assert.assertEquals(-2209017600000L, TimeUtils.MIN_DATE.getTime());
+        Assert.assertEquals(-62167420800000L, TimeUtils.MIN_DATE.getTime());
         Assert.assertEquals(253402185600000L, TimeUtils.MAX_DATE.getTime());
-        Assert.assertEquals(-2209017600000L, TimeUtils.MIN_DATETIME.getTime());
+        Assert.assertEquals(-62167420800000L, TimeUtils.MIN_DATETIME.getTime());
         Assert.assertEquals(253402271999000L, TimeUtils.MAX_DATETIME.getTime());
     }
 
@@ -53,6 +74,7 @@ public class TimeUtilsTest {
         validDateList.add("9999-12-31");
         validDateList.add("1900-01-01");
         validDateList.add("2013-2-28");
+        validDateList.add("0000-01-01");
         for (String validDate : validDateList) {
             try {
                 TimeUtils.parseDate(validDate, PrimitiveType.DATE);
@@ -91,6 +113,7 @@ public class TimeUtilsTest {
         validDateTimeList.add("2013-2-28 23:59:59");
         validDateTimeList.add("2013-2-28 2:3:4");
         validDateTimeList.add("2014-05-07 19:8:50");
+        validDateTimeList.add("0000-01-01 00:00:00");
         for (String validDateTime : validDateTimeList) {
             try {
                 TimeUtils.parseDate(validDateTime, PrimitiveType.DATETIME);
@@ -132,6 +155,25 @@ public class TimeUtilsTest {
 
         DateLiteral datetime = new DateLiteral("2015-03-01 12:00:00", ScalarType.DATETIME);
         Assert.assertEquals(20150301120000L, datetime.getRealValue());
+    }
+
+    @Test
+    public void testTimezone() throws AnalysisException {
+        try {
+            Assert.assertEquals("CST", TimeUtils.checkTimeZoneValidAndStandardize("CST"));
+            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+08:00"));
+            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("+8:00"));
+            Assert.assertEquals("-08:00", TimeUtils.checkTimeZoneValidAndStandardize("-8:00"));
+            Assert.assertEquals("+08:00", TimeUtils.checkTimeZoneValidAndStandardize("8:00"));
+        } catch (DdlException ex) {
+            Assert.fail();
+        }
+        try {
+            TimeUtils.checkTimeZoneValidAndStandardize("FOO");
+            Assert.fail();
+        } catch (DdlException ex) {
+            Assert.assertTrue(ex.getMessage().contains("Unknown or incorrect time zone: 'FOO'"));
+        }
     }
 
 }

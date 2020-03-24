@@ -63,7 +63,7 @@ public class AuthProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
-        result.setRows(Catalog.getCurrentCatalog().getAuth().getAuthInfo(null, true /* is all */));
+        result.setRows(Catalog.getCurrentCatalog().getAuth().getAuthInfo(null /* get all user */));
         return result;
     }
 }

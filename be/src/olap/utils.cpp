@@ -29,6 +29,7 @@
 #include <boost/regex.hpp>
 #include <errno.h>
 #include <lz4/lz4.h>
+#include "util/file_utils.h"
 
 #ifdef DORIS_WITH_LZO
 #include <lzo/lzo1c.h>
@@ -38,141 +39,17 @@
 #include <stdarg.h>
 
 #include "common/logging.h"
+#include "common/status.h"
+#include "env/env.h"
 #include "gutil/strings/substitute.h"
-#include "olap/new_status.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "util/errno.h"
+#include "util/mutex.h"
 
 using std::string;
 using std::set;
 using std::vector;
-
-#define PTHREAD_MUTEX_INIT_WITH_LOG(lockptr, param) \
-    do {\
-        int lock_ret = 0;\
-        if (0 != (lock_ret = pthread_mutex_init(lockptr, param))) {\
-            LOG(FATAL) << "fail to init mutex. err=" << strerror(lock_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_MUTEX_DESTROY_WITH_LOG(lockptr) \
-    do {\
-        int lock_ret = 0;\
-        if (0 != (lock_ret = pthread_mutex_destroy(lockptr))) {\
-            LOG(FATAL) << "fail to destroy mutex. err=" << strerror(lock_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_MUTEX_LOCK_WITH_LOG(lockptr) \
-    do {\
-        int lock_ret = 0;\
-        if (0 != (lock_ret = pthread_mutex_lock(lockptr))) {\
-            LOG(FATAL) << "fail to lock mutex. err=" << strerror(lock_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_MUTEX_UNLOCK_WITH_LOG(lockptr) \
-    do {\
-        int lock_ret = 0;\
-        if (0 != (lock_ret = pthread_mutex_unlock(lockptr))) {\
-            LOG(FATAL) << "fail to unlock mutex. err=" << strerror(lock_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_RWLOCK_INIT_WITH_LOG(lockptr, param) \
-    do {\
-        int lock_ret = 0;\
-        if (0 != (lock_ret = pthread_rwlock_init(lockptr, param))) {\
-            LOG(FATAL) << "fail to init rwlock. err=" << strerror(lock_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_RWLOCK_DESTROY_WITH_LOG(lockptr) \
-    do {\
-        int lock_ret = 0;\
-        if (0 != (lock_ret = pthread_rwlock_destroy(lockptr))) {\
-            LOG(FATAL) << "fail to destroy rwlock. err=" << strerror(lock_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_RWLOCK_RDLOCK_WITH_LOG(lockptr) \
-    do {\
-        int lock_ret = 0;\
-        if (0 != (lock_ret = pthread_rwlock_rdlock(lockptr))) {\
-            LOG(FATAL) << "fail to lock reader lock. err=" << strerror(lock_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_RWLOCK_WRLOCK_WITH_LOG(lockptr) \
-    do {\
-        int lock_ret = 0;\
-        if (0 != (lock_ret = pthread_rwlock_wrlock(lockptr))) {\
-            LOG(FATAL) << "fail to lock writer lock. err=" << strerror(lock_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_RWLOCK_UNLOCK_WITH_LOG(lockptr) \
-    do {\
-        int lock_ret = 0;\
-        if (0 != (lock_ret = pthread_rwlock_unlock(lockptr))) {\
-            LOG(FATAL) << "fail to unlock rwlock. err=" << strerror(lock_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_COND_INIT_WITH_LOG(condptr, param) \
-    do {\
-        int cond_ret = 0;\
-        if (0 != (cond_ret = pthread_cond_init(condptr, param))) {\
-            LOG(FATAL) << "fail to init cond. err=" << strerror(cond_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_COND_DESTROY_WITH_LOG(condptr) \
-    do {\
-        int cond_ret = 0;\
-        if (0 != (cond_ret = pthread_cond_destroy(condptr))) {\
-            LOG(FATAL) << "fail to destroy cond. err=" << strerror(cond_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_COND_WAIT_WITH_LOG(condptr, lockptr) \
-    do {\
-        int cond_ret = 0;\
-        if (0 != (cond_ret = pthread_cond_wait(condptr, lockptr))) {\
-            LOG(FATAL) << "fail to wait cond. err=" << strerror(cond_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_COND_TIMEWAIT_WITH_LOG(condptr, lockptr, seconds) \
-    do {\
-        struct timeval now;\
-        struct timespec outtime = {0, 0};\
-        gettimeofday(&now, NULL);\
-        outtime.tv_sec = now.tv_sec + seconds;\
-        int cond_ret = 0;\
-        cond_ret = pthread_cond_timedwait(condptr, lockptr, &outtime);\
-        if (0 != cond_ret && ETIMEDOUT != cond_ret) {\
-            LOG(FATAL) << "fail to timewait cond. err=" << strerror(cond_ret) \
-                       << ", outtime.tv_sec=" << outtime.tv_sec \
-                       << ", outtime.tv_nsec=" << outtime.tv_nsec; \
-        }\
-    } while (0)
-
-#define PTHREAD_COND_SIGNAL_WITH_LOG(condptr) \
-    do {\
-        int cond_ret = 0;\
-        if (0 != (cond_ret = pthread_cond_signal(condptr))) {\
-            LOG(FATAL) << "fail to signal cond. err=" << strerror(cond_ret); \
-        }\
-    } while (0)
-
-#define PTHREAD_COND_BROADCAST_WITH_LOG(condptr) \
-    do {\
-        int cond_ret = 0;\
-        if (0 != (cond_ret = pthread_cond_broadcast(condptr))) {\
-            LOG(FATAL) << "fail to broadcast cond. err=" << strerror(cond_ret); \
-        }\
-    } while (0)
 
 namespace doris {
 
@@ -931,12 +808,15 @@ unsigned int crc32c_lut(char const * b, unsigned int off, unsigned int len, unsi
 }
 
 uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len) {
-    static int sse4_flag = check_sse4_2();
-    if (OLAP_LIKELY(1 == sse4_flag)) {
+#if defined(__i386) || defined(__x86_64__)
+    if (OLAP_LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
         return baidu_crc32_qw(buf, crc32, len);
     } else {
         return crc32c_lut(buf, 0, len, crc32);
     }
+#else
+    return crc32c_lut(buf, 0, len, crc32);
+#endif
 }
 
 OLAPStatus gen_timestamp_string(string* out_string) {
@@ -995,7 +875,7 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     string new_file_dir = new_file_dir_stream.str();
     string new_file_path = new_file_dir + "/" + old_file_name;
     // create target dir, or the rename() function will fail.
-    if (!check_dir_existed(new_file_dir) && create_dirs(new_file_dir) != OLAP_SUCCESS) {
+    if (!FileUtils::check_exist(new_file_dir) && !FileUtils::create_dir(new_file_dir).ok()) {
         OLAP_LOG_WARNING("delete file failed. due to mkdir failed. [file=%s new_dir=%s]",
                 old_file_path.c_str(), new_file_dir.c_str());
         return OLAP_ERR_OS_ERROR;
@@ -1012,142 +892,19 @@ OLAPStatus move_to_trash(const boost::filesystem::path& schema_hash_root,
     // 4. check parent dir of source file, delete it when empty
     string source_parent_dir = schema_hash_root.parent_path().string(); // tablet_id level
     std::set<std::string> sub_dirs, sub_files;
-    if (dir_walk(source_parent_dir, &sub_dirs, &sub_files) != OLAP_SUCCESS) {
-        LOG(INFO) << "access dir failed. [dir=" << source_parent_dir << "]";
-        // This error is nothing serious. so we still return success.
-        return OLAP_SUCCESS;
-    }
+
+    RETURN_WITH_WARN_IF_ERROR(
+            FileUtils::list_dirs_files(source_parent_dir, &sub_dirs, &sub_files, Env::Default()),
+            OLAP_SUCCESS,
+            "access dir failed. [dir=" + source_parent_dir);
+    
     if (sub_dirs.empty() && sub_files.empty()) {
         LOG(INFO) << "remove empty dir " << source_parent_dir;
         // no need to exam return status
-        remove_dir(source_parent_dir);
+        Env::Default()->delete_dir(source_parent_dir);
     }
 
     return OLAP_SUCCESS;
-}
-
-Mutex::Mutex() {
-    PTHREAD_MUTEX_INIT_WITH_LOG(&_lock, NULL);
-}
-
-Mutex::~Mutex() {
-    PTHREAD_MUTEX_DESTROY_WITH_LOG(&_lock);
-}
-
-OLAPStatus Mutex::lock() {
-    PTHREAD_MUTEX_LOCK_WITH_LOG(&_lock);
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus Mutex::trylock() {
-    int rv = pthread_mutex_trylock(&_lock);
-    if (rv != 0) {
-        VLOG(3) << "failed to got the mutex lock. error=" << strerror(rv);
-        return OLAP_ERR_RWLOCK_ERROR;
-    }
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus Mutex::unlock() {
-    PTHREAD_MUTEX_UNLOCK_WITH_LOG(&_lock);
-    return OLAP_SUCCESS;
-}
-
-RWMutex::RWMutex(Priority prio) {
-    int kind = PTHREAD_RWLOCK_PREFER_READER_NP;
-    switch (prio) {
-        case Priority::PREFER_READING:
-            kind = PTHREAD_RWLOCK_PREFER_READER_NP;
-            break;
-        case Priority::PREFER_WRITING:
-            kind = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
-            break;
-    }
-
-    // Initialize the new rwlock with the user's preference.
-    pthread_rwlockattr_t attr;
-    int rv = pthread_rwlockattr_init(&attr);
-    DCHECK_EQ(0, rv) << strerror(rv);
-
-    rv = pthread_rwlockattr_setkind_np(&attr, kind);
-    DCHECK_EQ(0, rv) << strerror(rv);
-
-    rv = pthread_rwlock_init(&_lock, &attr);
-    DCHECK_EQ(0, rv) << strerror(rv);
-
-    rv = pthread_rwlockattr_destroy(&attr);
-    DCHECK_EQ(0, rv) << strerror(rv);
-}
-
-RWMutex::~RWMutex() {
-    PTHREAD_RWLOCK_DESTROY_WITH_LOG(&_lock);
-}
-
-OLAPStatus RWMutex::rdlock() {
-    PTHREAD_RWLOCK_RDLOCK_WITH_LOG(&_lock);
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus RWMutex::tryrdlock() {
-    if (0 != pthread_rwlock_tryrdlock(&_lock)) {
-        VLOG(3) << "failed to got the rwlock rdlock. err=" << strerror(errno);
-        return OLAP_ERR_RWLOCK_ERROR;
-    }
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus RWMutex::trywrlock() {
-    if (0 != pthread_rwlock_trywrlock(&_lock)) {
-        VLOG(3) << "failed to got the rwlock rdlock. err=" << strerror(errno);
-        return OLAP_ERR_RWLOCK_ERROR;
-    }
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus RWMutex::wrlock() {
-    PTHREAD_RWLOCK_WRLOCK_WITH_LOG(&_lock);
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus RWMutex::unlock() {
-    PTHREAD_RWLOCK_UNLOCK_WITH_LOG(&_lock);
-    return OLAP_SUCCESS;
-}
-
-Condition::Condition(Mutex& mutex) : _mutex(mutex) {
-    PTHREAD_COND_INIT_WITH_LOG(&_cond, NULL);
-}
-
-Condition::~Condition() {
-    PTHREAD_COND_DESTROY_WITH_LOG(&_cond);
-}
-
-void Condition::wait() {
-    PTHREAD_COND_WAIT_WITH_LOG(&_cond, _mutex.getlock());
-}
-
-void Condition::wait_for_seconds(uint32_t seconds) {
-    struct timeval now;
-    struct timespec outtime = {0, 0};
-    gettimeofday(&now, NULL);
-    outtime.tv_sec = now.tv_sec + seconds;
-    int cond_ret = 0;
-    cond_ret = pthread_cond_timedwait(&_cond, _mutex.getlock(), &outtime);
-    if (0 != cond_ret && ETIMEDOUT != cond_ret) {
-        LOG(FATAL) << "fail to timewait cond. err=" << strerror(cond_ret)
-                   << ", outtime.tv_sec=" << outtime.tv_sec
-                   << ", outtime.tv_nsec=" << outtime.tv_nsec;
-    }
-}
-
-void Condition::notify() {
-    PTHREAD_COND_SIGNAL_WITH_LOG(&_cond);
-}
-
-void Condition::notify_all() {
-    PTHREAD_COND_BROADCAST_WITH_LOG(&_cond);
 }
 
 int operator-(const BinarySearchIterator& left, const BinarySearchIterator& right) {
@@ -1217,63 +974,6 @@ COPY_EXIT:
     return res;
 }
 
-bool check_dir_existed(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::exists(p)) {
-            return true;
-        } else {
-            return false;
-        }
-    } catch (...) {
-        // do nothing
-    }
-
-    LOG(WARNING) << "boost exception when check exist and return false. [path=" << path << "]";
-    
-    return false;
-}
-
-OLAPStatus create_dirs(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::create_directories(p)) {
-            VLOG(3) << "create dir success. [path='" << path << "']";
-            return OLAP_SUCCESS;
-        }
-    } catch (const boost::filesystem::filesystem_error& e) {
-        LOG(WARNING) << "error message: [err_msg='" << e.code().message() << "']";
-    } catch (std::exception& e) { 
-        LOG(WARNING) << "error message: [exception='" << e.what() << "']";
-    } catch (...) {
-        // do nothing
-        OLAP_LOG_WARNING("unknown exception.");
-    }
-
-    LOG(WARNING) << "fail to create dir. [path='" << path << "']";
-    
-    return OLAP_ERR_CANNOT_CREATE_DIR;
-}
-
-OLAPStatus create_dir(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::create_directory(p)) {
-            VLOG(3) << "create dir success. [path='" << path << "']";
-            return OLAP_SUCCESS;
-        }
-    } catch (...) {
-        // do nothing
-    }
-
-    LOG(WARNING) << "fail to create dir. [path='" << path << "']";
-    
-    return OLAP_ERR_CANNOT_CREATE_DIR;
-}
-
 OLAPStatus copy_dir(const string &src_dir, const string &dst_dir) {
     boost::filesystem::path src_path(src_dir.c_str());
     boost::filesystem::path dst_path(dst_dir.c_str());
@@ -1333,78 +1033,6 @@ OLAPStatus copy_dir(const string &src_dir, const string &dst_dir) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus remove_files(const vector<string>& files) {
-    OLAPStatus res = OLAP_SUCCESS;
-    for (const string& file : files) {
-        boost::filesystem::path file_path(file);
-
-        try {
-            if (boost::filesystem::remove(file_path)) {
-                VLOG(3) << "remove file. [file=" << file << "]";
-            } else {
-                OLAP_LOG_WARNING("failed to remove file. [file=%s errno=%d]",
-                                 file.c_str(), Errno::no());
-                res = OLAP_ERR_IO_ERROR;
-            }
-        } catch (...) {
-        // do nothing
-        }
-    }
-    return res;
-}
-
-// failed when there are files or dirs under thr dir
-OLAPStatus remove_dir(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::remove(p)) {
-            return OLAP_SUCCESS;
-        }
-    } catch (...) {
-        // do nothing
-    }
-
-    LOG(WARNING) << "fail to del dir. [path='" << path << "' errno=" << Errno::no() << "]";
-
-    return OLAP_ERR_CANNOT_CREATE_DIR;
-}
-
-OLAPStatus remove_parent_dir(const string& path) {
-    OLAPStatus res = OLAP_SUCCESS;
-
-    try {
-        boost::filesystem::path path_name(path);
-        boost::filesystem::path parent_path = path_name.parent_path();
-
-        if (boost::filesystem::exists(parent_path)) {
-            boost::filesystem::remove(parent_path);
-        }
-    } catch (...) {
-        LOG(WARNING) << "fail to del parent path. [chile path='" << path << "']";
-        res = OLAP_ERR_STL_ERROR;
-    }
-
-    return res;
-}
-
-// remove all files or dirs under the dir.
-OLAPStatus remove_all_dir(const string& path) {
-    boost::filesystem::path p(path.c_str());
-
-    try {
-        if (boost::filesystem::remove_all(p)) {
-            return OLAP_SUCCESS;
-        }
-    } catch (...) {
-        // do nothing
-    }
-
-    LOG(WARNING) << "fail to del all dir. [path='" << path << "' errno=" << Errno::no() << "]";
-
-    return OLAP_ERR_CANNOT_CREATE_DIR;
-}
-
 __thread char Errno::_buf[BUF_SIZE]; ///< buffer instance
 
 const char *Errno::str() {
@@ -1422,88 +1050,6 @@ const char *Errno::str(int no) {
 
 int Errno::no() {
     return errno;
-}
-
-OLAPStatus dir_walk(const string& root,
-                    set<string>* dirs,
-                    set<string>* files) {
-    DIR* dirp = NULL;
-    struct stat stat_data;
-    struct dirent* direntp = NULL;
-    dirp = opendir(root.c_str());
-    if (dirp == nullptr) {
-        NewStatus status = IOError(strings::Substitute("opendir $0 failed", root), errno);
-        LOG(WARNING) << status.ToString();
-        if (status.IsDiskFailure()) {
-            return OLAP_ERR_DISK_FAILURE;
-        } else {
-            return OLAP_ERR_INIT_FAILED;
-        }
-    }
-    
-    while ((direntp = readdir(dirp)) != NULL) {
-        // 去掉. .. 和.开头的隐藏文件
-        if ('.' == direntp->d_name[0]) {
-            continue;
-        }
-        // 检查找到的目录项是文件还是目录
-        string tmp_ent = root + '/' + direntp->d_name;
-        if (lstat(tmp_ent.c_str(), &stat_data) < 0) {
-            LOG(WARNING) << "lstat error.";
-            continue;
-        }
-
-        if (S_ISDIR(stat_data.st_mode)) {
-            if (NULL != dirs) {
-                dirs->insert(direntp->d_name);
-            }
-        } else {
-            if (NULL != files) {
-                files->insert(direntp->d_name);
-            }
-        }
-    }
-    closedir(dirp);
-
-    return OLAP_SUCCESS;
-}
-
-OLAPStatus remove_unused_files(const string& schema_hash_root,
-                           const set<string>& files,
-                           const string& header,
-                           const set<string>& indices,
-                           const set<string>& datas) {
-    // 从列表中去掉使用的的index文件
-    set<string> tmp_set;
-    set_difference(files.begin(),
-                   files.end(),
-                   indices.begin(),
-                   indices.end(),
-                   inserter(tmp_set, tmp_set.end()));
-    
-    // 从列表中去掉使用的的data文件
-    set<string> different_set;
-    set_difference(tmp_set.begin(),
-                   tmp_set.end(),
-                   datas.begin(),
-                   datas.end(),
-                   inserter(different_set, different_set.end()));
-    
-    // 从列表中去掉使用的header文件
-    different_set.erase(header);
-    // 遍历所有没有使用的文件
-    for (set<string>::const_iterator it = different_set.begin(); it != different_set.end(); ++it) {
-        if (ENDSWITH(*it, ".hdr") || ENDSWITH(*it, ".idx") || ENDSWITH(*it, ".dat")) {
-            LOG(INFO) << "delete unused file. [file='" << schema_hash_root + "/" + *it << "']";
-            move_to_trash(boost::filesystem::path(schema_hash_root),
-                          boost::filesystem::path(schema_hash_root + "/" + *it));
-        } else {
-            // 除了.hdr, .idx, .dat其他文件均忽略
-            continue;
-        }
-    }
-
-    return OLAP_SUCCESS;
 }
 
 template <>

@@ -67,6 +67,7 @@ public class Util {
         TYPE_STRING_MAP.put(PrimitiveType.DECIMALV2, "decimal(%d,%d)");
         TYPE_STRING_MAP.put(PrimitiveType.HLL, "varchar(%d)");
         TYPE_STRING_MAP.put(PrimitiveType.BOOLEAN, "bool");
+        TYPE_STRING_MAP.put(PrimitiveType.BITMAP, "bitmap");
     }
     
     private static class CmdWorker extends Thread {
@@ -305,11 +306,11 @@ public class Util {
         if (directory.isDirectory()) {
             File[] files = directory.listFiles();
             if (null != files) {
-                for (int i = 0; i < files.length; i++) {
-                    if (files[i].isDirectory()) {
-                        deleteDirectory(files[i]);
+                for (File file : files) {
+                    if (file.isDirectory()) {
+                        deleteDirectory(file);
                     } else {
-                        files[i].delete();
+                        file.delete();
                     }
                 }
             }
@@ -353,7 +354,7 @@ public class Util {
                 sb.append(line);
             }
         } catch (Exception e) {
-            LOG.warn("failed to get result from url: {}", urlStr, e);
+            LOG.warn("failed to get result from url: {}. {}", urlStr, e.getMessage());
             return null;
         } finally {
             if (stream != null) {
@@ -400,11 +401,14 @@ public class Util {
         }
 
         try {
-            boolean result = Boolean.valueOf(valStr);
-            return result;
+            return Boolean.valueOf(valStr);
         } catch (NumberFormatException e) {
             throw new AnalysisException(hintMsg);
         }
+    }
+
+    public static void stdoutWithTime(String msg) {
+        System.out.println("[" + TimeUtils.longToTimeString(System.currentTimeMillis()) + "] " + msg);
     }
 }
 

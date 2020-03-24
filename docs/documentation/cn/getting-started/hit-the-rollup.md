@@ -1,3 +1,22 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Rollup 与查询
 
 在 Doris 里 Rollup 作为一份聚合物化视图，其在查询中可以起到两个作用：
@@ -105,9 +124,9 @@ rollup_index4(k4, k6, k5, k1, k2, k3, k7)
 
 能用的上前缀索引的列上的条件需要是 `=` `<` `>` `<=` `>=` `in` `between` 这些并且这些条件是并列的且关系使用 `and` 连接，对于`or`、`!=` 等这些不能命中，然后看以下查询：
 
-```
-SELECT * FROM test WHERE k1 = 1 AND k2 > 3;
-```
+
+`SELECT * FROM test WHERE k1 = 1 AND k2 > 3;`
+
 	
 有 k1 以及 k2 上的条件，检查只有 Base 的第一列含有条件里的 k1，所以匹配最长的前缀索引即 test，explain一下：
 
@@ -127,7 +146,7 @@ SELECT * FROM test WHERE k1 = 1 AND k2 > 3;
 
 再看以下查询：
 
-`SELECT * FROM test WHERE k4 =1 AND k5 > 3;`
+`SELECT * FROM test WHERE k4 = 1 AND k5 > 3;`
 	
 有 k4 以及 k5 的条件，检查 rollup_index3、rollup_index4 的第一列含有 k4，但是 rollup_index3 的第二列含有k5，所以匹配的前缀索引最长。
 
