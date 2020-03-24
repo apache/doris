@@ -48,9 +48,9 @@ import com.google.common.base.Preconditions;
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
 
-    private static final DateLiteral MIN_DATE = new DateLiteral(1900, 1, 1);
+    private static final DateLiteral MIN_DATE = new DateLiteral(0000, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
-    private static final DateLiteral MIN_DATETIME = new DateLiteral(1900, 1, 1, 0, 0, 0);
+    private static final DateLiteral MIN_DATETIME = new DateLiteral(0000, 1, 1, 0, 0, 0);
     private static final DateLiteral MAX_DATETIME = new DateLiteral(9999, 12, 31, 23, 59, 59);
     public static final DateLiteral UNIX_EPOCH_TIME = new DateLiteral(1970, 01, 01, 00, 00, 00);
     

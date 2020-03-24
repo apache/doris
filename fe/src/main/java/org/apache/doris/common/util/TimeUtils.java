@@ -94,10 +94,10 @@ public class TimeUtils {
         TIME_FORMAT.setTimeZone(TIME_ZONE);
 
         try {
-            MIN_DATE = DATE_FORMAT.parse("1900-01-01");
+            MIN_DATE = DATE_FORMAT.parse("0000-01-01");
             MAX_DATE = DATE_FORMAT.parse("9999-12-31");
 
-            MIN_DATETIME = DATETIME_FORMAT.parse("1900-01-01 00:00:00");
+            MIN_DATETIME = DATETIME_FORMAT.parse("0000-01-01 00:00:00");
             MAX_DATETIME = DATETIME_FORMAT.parse("9999-12-31 23:59:59");
 
         } catch (ParseException e) {
