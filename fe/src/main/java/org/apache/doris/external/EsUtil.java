@@ -44,13 +44,6 @@ public class EsUtil {
 
         if (distributionDesc != null) {
             throw new AnalysisException("could not support distribution clause");
-            
-            // if (!(distributionDesc instanceof HashDistributionDesc)) {
-            //    throw new AnalysisException("Kudu table only permit hash distribution");
-            // }
-
-            // HashDistributionDesc hashDistributionDesc = (HashDistributionDesc) distributionDesc;
-            // analyzeDistributionDesc(hashDistributionDesc);
         }
     }
 

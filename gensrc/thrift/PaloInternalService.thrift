@@ -97,7 +97,7 @@ struct TQueryOptions {
   15: optional bool is_report_success = 0
   16: optional i32 codegen_level = 0
   // INT64::MAX
-  17: optional i64 kudu_latest_observed_ts = 9223372036854775807
+  17: optional i64 kudu_latest_observed_ts = 9223372036854775807 // Deprecated
   18: optional TQueryType query_type = TQueryType.SELECT
   19: optional i64 min_reservation = 0
   20: optional i64 max_reservation = 107374182400

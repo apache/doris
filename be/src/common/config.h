@@ -339,27 +339,6 @@ namespace config {
     CONF_Bool(enable_partitioned_hash_join, "false")
     CONF_Bool(enable_partitioned_aggregation, "true")
 
-    // for kudu
-    // "The maximum size of the row batch queue, for Kudu scanners."
-    CONF_Int32(kudu_max_row_batches, "0")
-    // "The period at which Kudu Scanners should send keep-alive requests to the tablet "
-    // "server to ensure that scanners do not time out.")
-    // 150 * 1000 * 1000
-    CONF_Int32(kudu_scanner_keep_alive_period_us, "15000000")
-
-    // "(Advanced) Sets the Kudu scan ReadMode. "
-    // "Supported Kudu read modes are READ_LATEST and READ_AT_SNAPSHOT. Invalid values "
-    // "result in using READ_LATEST."
-    CONF_String(kudu_read_mode, "READ_LATEST")
-    // "Whether to pick only leader replicas, for tests purposes only.")
-    CONF_Bool(pick_only_leaders_for_tests, "false")
-    // "The period at which Kudu Scanners should send keep-alive requests to the tablet "
-    // "server to ensure that scanners do not time out."
-    CONF_Int32(kudu_scanner_keep_alive_period_sec, "15")
-    CONF_Int32(kudu_operation_timeout_ms, "5000")
-    // "If true, Kudu features will be disabled."
-    CONF_Bool(disable_kudu, "false")
-
     // to forward compatibility, will be removed later
     CONF_Bool(enable_token_check, "true");
 

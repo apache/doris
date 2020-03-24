@@ -441,4 +441,4 @@ Status FileBlockManager::_sync_metadata(const string& path) {
 }
 
 } // namespace fs
-} // namespace kudu
+} // namespace doris
