@@ -88,6 +88,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
+import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PushTask;
@@ -96,8 +97,11 @@ import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
+import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
+import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionStatus;
@@ -119,6 +123,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -1254,6 +1259,11 @@ public class Load {
             }
             idToLoadJob.put(jobId, job);
             dbDeleteJobs.add(job);
+        }
+
+        // delete job will be run immediately, no need to be execute by load checker with jobState
+        if (job.isSyncDeleteJob()) {
+            return;
         }
 
         // beginTransaction Here
@@ -3095,7 +3105,7 @@ public class Load {
         PartitionState state = partition.getState();
         if (state != PartitionState.NORMAL) {
             // ErrorReport.reportDdlException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), state.name());
-            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORNAL: " + state.name());
+            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORMAL: " + state.name());
         }
         // do not need check whether partition has loading job
 
@@ -3252,6 +3262,200 @@ public class Load {
     public void checkHashRunningDeleteJob(long partitionId, String partitionName) throws DdlException {
         checkHasRunningSyncDeleteJob(partitionId, partitionName);
         checkHasRunningAsyncDeleteJob(partitionId, partitionName);
+    }
+
+
+
+    public void deleteV2(DeleteStmt stmt) throws DdlException {
+        String dbName = stmt.getDbName();
+        String tableName = stmt.getTableName();
+        String partitionName = stmt.getPartitionName();
+        List<Predicate> conditions = stmt.getDeleteConditions();
+        Database db = Catalog.getInstance().getDb(dbName);
+        if (db == null) {
+            throw new DdlException("Db does not exist. name: " + dbName);
+        }
+
+        long tableId = -1;
+        long partitionId = -1;
+        LoadJob loadDeleteJob = null;
+        boolean addRunningPartition = false;
+        db.readLock();
+        try {
+            Table table = db.getTable(tableName);
+            if (table == null) {
+                throw new DdlException("Table does not exist. name: " + tableName);
+            }
+
+            if (table.getType() != TableType.OLAP) {
+                throw new DdlException("Not olap type table. type: " + table.getType().name());
+            }
+            OlapTable olapTable = (OlapTable) table;
+
+            if (olapTable.getState() != OlapTableState.NORMAL) {
+                throw new DdlException("Table's state is not normal: " + tableName);
+            }
+
+            tableId = olapTable.getId();
+            if (partitionName == null) {
+                if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                    throw new DdlException("This is a range partitioned table."
+                            + " You should specify partition in delete stmt");
+                } else {
+                    // this is a unpartitioned table, use table name as partition name
+                    partitionName = olapTable.getName();
+                }
+            }
+
+            Partition partition = olapTable.getPartition(partitionName);
+            if (partition == null) {
+                throw new DdlException("Partition does not exist. name: " + partitionName);
+            }
+            partitionId = partition.getId();
+
+            List<String> deleteConditions = Lists.newArrayList();
+            // pre check
+            checkDeleteV2(olapTable, partition, conditions,
+                    deleteConditions, true);
+            addRunningPartition = checkAndAddRunningSyncDeleteJob(partitionId, partitionName);
+            // do not use transaction id generator, or the id maybe duplicated
+            long jobId = Catalog.getInstance().getNextId();
+            String jobLabel = "delete_" + UUID.randomUUID();
+            // the version info in delete info will be updated after job finished
+            DeleteInfo deleteInfo = new DeleteInfo(db.getId(), tableId, tableName,
+                    partition.getId(), partitionName,
+                    -1, 0, deleteConditions);
+            loadDeleteJob = new LoadJob(jobId, db.getId(), tableId,
+                    partitionId, jobLabel, olapTable.getIndexIdToSchemaHash(), conditions, deleteInfo);
+            Map<Long, TabletLoadInfo> idToTabletLoadInfo = Maps.newHashMap();
+            for (MaterializedIndex materializedIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                for (Tablet tablet : materializedIndex.getTablets()) {
+                    long tabletId = tablet.getId();
+                    // tabletLoadInfo is empty, because delete load does not need filepath filesize info
+                    TabletLoadInfo tabletLoadInfo = new TabletLoadInfo("", -1);
+                    idToTabletLoadInfo.put(tabletId, tabletLoadInfo);
+                }
+            }
+            loadDeleteJob.setIdToTabletLoadInfo(idToTabletLoadInfo);
+            loadDeleteJob.setState(JobState.LOADING);
+            long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(), jobLabel,
+                    "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
+                    Config.stream_load_default_timeout_second);
+            loadDeleteJob.setTransactionId(transactionId);
+            // the delete job will be persist in editLog
+            addLoadJob(loadDeleteJob, db);
+
+            TransactionState state = Catalog.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(loadDeleteJob.getTransactionId());
+            if (state == null) {
+                LOG.warn("cancel load job {}  because begin transaction failed", loadDeleteJob);
+                cancelLoadJob(loadDeleteJob, CancelType.UNKNOWN, "transaction state lost");
+                return;
+            }
+
+
+            boolean isFinished = false;
+            // wait until all tablets are finished
+            while (!isFinished) {
+                // submit push tasks to backends
+                Set<Long> jobTotalTablets = LoadChecker.submitPushTasks(loadDeleteJob, db);
+                if (jobTotalTablets == null) {
+                    cancelLoadJob(loadDeleteJob, CancelType.LOAD_RUN_FAIL, "submit push tasks fail");
+                    return;
+                }
+
+                long stragglerTimeout = loadDeleteJob.getDeleteJobTimeout() / 2;
+                Set<Long> unfinisheTablets = Sets.newHashSet();
+                unfinisheTablets.addAll(jobTotalTablets);
+                unfinisheTablets.removeAll(loadDeleteJob.getQuorumTablets());
+                loadDeleteJob.setUnfinishedTablets(unfinisheTablets);
+
+                if (loadDeleteJob.getQuorumTablets().containsAll(jobTotalTablets)) {
+                    // commit the job to transaction manager and not care about the result
+                    // if could not commit successfully and commit again until job is timeout
+                    if (loadDeleteJob.getQuorumFinishTimeMs() < 0) {
+                        loadDeleteJob.setQuorumFinishTimeMs(System.currentTimeMillis());
+                    }
+
+                    // if all tablets are finished or stay in quorum finished for long time, try to commit it.
+                    if (System.currentTimeMillis() - loadDeleteJob.getQuorumFinishTimeMs() > stragglerTimeout
+                            || loadDeleteJob.getFullTablets().containsAll(jobTotalTablets)) {
+                        LoadChecker.tryCommitJob(loadDeleteJob, db);
+                        isFinished = true;
+                    }
+                }
+            }
+
+        } catch (Throwable t) {
+            LOG.warn("error occurred during prepare delete", t);
+            throw new DdlException(t.getMessage(), t);
+        }
+        finally {
+            if (addRunningPartition) {
+                writeLock();
+                try {
+                    partitionUnderDelete.remove(partitionId);
+                } finally {
+                    writeUnlock();
+                }
+            }
+            db.readUnlock();
+        }
+
+        try {
+            // TODO  wait loadDeleteJob to finished, using while true? or condition wait
+            long startDeleteTime = System.currentTimeMillis();
+            long timeout = loadDeleteJob.getDeleteJobTimeout();
+            while (true) {
+                db.writeLock();
+                try {
+                    // check if the job is aborted in transaction manager
+                    TransactionState state = Catalog.getCurrentGlobalTransactionMgr()
+                            .getTransactionState(loadDeleteJob.getTransactionId());
+                    if (state == null) {
+                        LOG.warn("cancel load job {}  because could not find transaction state", loadDeleteJob);
+                        cancelLoadJob(loadDeleteJob, CancelType.UNKNOWN, "transaction state lost");
+                        return;
+                    }
+                    if (state.getTransactionStatus() == TransactionStatus.ABORTED) {
+                        cancelLoadJob(loadDeleteJob, CancelType.LOAD_RUN_FAIL,
+                                "job is aborted in transaction manager [" + state + "]");
+                        return;
+                    } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED) {
+                        // if job is committed and then fe restart, the progress is not persisted, so that set it here
+                        LOG.debug("job {} is already committed, just wait it to be visible, transaction state {}", loadDeleteJob, state);
+                        return;
+                    } else if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                        if (updateLoadJobState(loadDeleteJob, JobState.FINISHED)) {
+                            clearJob(loadDeleteJob, JobState.QUORUM_FINISHED);
+                        }
+                        return;
+                    }
+
+                    if (System.currentTimeMillis() - startDeleteTime > timeout) {
+                        TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(loadDeleteJob.getTransactionId());
+                        boolean isSuccess = cancelLoadJob(loadDeleteJob, CancelType.TIMEOUT, "load delete job timeout");
+                        if (isSuccess) {
+                            throw new DdlException("timeout when waiting delete");
+                        }
+                    }
+                } finally {
+                    db.writeUnlock();
+                }
+                Thread.sleep(1000);
+            }
+        } catch (Exception e) {
+            String failMsg = "delete unknown, " + e.getMessage();
+            LOG.warn(failMsg, e);
+            throw new DdlException(failMsg);
+        } finally {
+            writeLock();
+            try {
+                partitionUnderDelete.remove(partitionId);
+            } finally {
+                writeUnlock();
+            }
+        }
     }
 
     public void delete(DeleteStmt stmt) throws DdlException {
