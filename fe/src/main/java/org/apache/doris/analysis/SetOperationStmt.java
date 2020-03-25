@@ -616,16 +616,6 @@ public class SetOperationStmt extends QueryStmt {
         }
     }
 
-    @Override
-    public boolean containsCorrelatedPredicate() {
-        for (SetOperand setOperand : operands) {
-            if (setOperand.getQueryStmt().containsCorrelatedPredicate()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Represents an operand to a SetOperand. It consists of a query statement and its left
      * all/distinct qualifier (null for the first operand).

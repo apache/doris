@@ -152,6 +152,450 @@ public class StmtRewriterTest {
         dorisAssert.query(query).explainContains("CROSS JOIN", "predicates: <slot 3> > <slot 8>");
     }
 
+    /**
+     * +-----------------------------------------+
+     | Explain String                          |
+     +-----------------------------------------+
+     | PLAN FRAGMENT 0                         |
+     |  OUTPUT EXPRS:<slot 10> | <slot 11>     |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   RESULT SINK                           |
+     |                                         |
+     |   11:MERGING-EXCHANGE                   |
+     |      limit: 65535                       |
+     |      tuple ids: 7                       |
+     |                                         |
+     | PLAN FRAGMENT 1                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: HASH_PARTITIONED: <slot 2> |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 11                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   5:TOP-N                               |
+     |   |  order by: <slot 10> ASC            |
+     |   |  offset: 0                          |
+     |   |  limit: 65535                       |
+     |   |  tuple ids: 7                       |
+     |   |                                     |
+     |   4:CROSS JOIN                          |
+     |   |  cross join:                        |
+     |   |  predicates: <slot 3> > <slot 8>    |
+     |   |  tuple ids: 1 5                     |
+     |   |                                     |
+     |   |----10:EXCHANGE                      |
+     |   |       tuple ids: 5                  |
+     |   |                                     |
+     |   7:AGGREGATE (merge finalize)          |
+     |   |  output: sum(<slot 3>)              |
+     |   |  group by: <slot 2>                 |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   6:EXCHANGE                            |
+     |      tuple ids: 1                       |
+     |                                         |
+     | PLAN FRAGMENT 2                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 10                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   9:AGGREGATE (merge finalize)          |
+     |   |  output: avg(<slot 7>)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 5                       |
+     |   |                                     |
+     |   8:EXCHANGE                            |
+     |      tuple ids: 4                       |
+     |                                         |
+     | PLAN FRAGMENT 3                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 08                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   3:AGGREGATE (update serialize)        |
+     |   |  output: avg(`salary`)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 4                       |
+     |   |                                     |
+     |   2:OlapScanNode                        |
+     |      TABLE: table1                      |
+     |      PREAGGREGATION: ON                 |
+     |      rollup:  table1                    |
+     |      tuple ids: 3                       |
+     |                                         |
+     | PLAN FRAGMENT 4                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 06                     |
+     |     HASH_PARTITIONED: <slot 2>          |
+     |                                         |
+     |   1:AGGREGATE (update serialize)        |
+     |   |  STREAMING                          |
+     |   |  output: sum(`salary`)              |
+     |   |  group by: `empid`                  |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   0:OlapScanNode                        |
+     |      TABLE: table1                      |
+     |      PREAGGREGATION: ON                 |
+     |      rollup: table1                     |
+     |      tuple ids: 0                       |
+     +-----------------------------------------+
+     * @throws Exception
+     */
+    @Test
+    public void testRewriteHavingClauseWithOrderBy() throws Exception {
+        String subquery = "select avg(salary) from " + TABLE_NAME;
+        String query = "select empid a, sum(salary) from " + TABLE_NAME + " group by empid having sum(salary) > (" +
+                subquery + ") order by a;";
+        dorisAssert.query(query).explainContains("CROSS JOIN", "predicates: <slot 3> > <slot 8>",
+                "order by: <slot 10> ASC");
+    }
+
+    /**
+     * +-----------------------------------------+
+     | Explain String                          |
+     +-----------------------------------------+
+     | PLAN FRAGMENT 0                         |
+     |  OUTPUT EXPRS:<slot 11>                 |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   RESULT SINK                           |
+     |                                         |
+     |   11:MERGING-EXCHANGE                   |
+     |      limit: 65535                       |
+     |      tuple ids: 7                       |
+     |                                         |
+     | PLAN FRAGMENT 1                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: HASH_PARTITIONED: <slot 2> |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 11                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   5:TOP-N                               |
+     |   |  order by: <slot 10> ASC            |
+     |   |  offset: 0                          |
+     |   |  limit: 65535                       |
+     |   |  tuple ids: 7                       |
+     |   |                                     |
+     |   4:CROSS JOIN                          |
+     |   |  cross join:                        |
+     |   |  predicates: <slot 3> > <slot 8>    |
+     |   |  tuple ids: 1 5                     |
+     |   |                                     |
+     |   |----10:EXCHANGE                      |
+     |   |       tuple ids: 5                  |
+     |   |                                     |
+     |   7:AGGREGATE (merge finalize)          |
+     |   |  output: sum(<slot 3>)              |
+     |   |  group by: <slot 2>                 |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   6:EXCHANGE                            |
+     |      tuple ids: 1                       |
+     |                                         |
+     | PLAN FRAGMENT 2                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 10                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   9:AGGREGATE (merge finalize)          |
+     |   |  output: avg(<slot 7>)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 5                       |
+     |   |                                     |
+     |   8:EXCHANGE                            |
+     |      tuple ids: 4                       |
+     |                                         |
+     | PLAN FRAGMENT 3                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 08                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   3:AGGREGATE (update serialize)        |
+     |   |  output: avg(`salary`)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 4                       |
+     |   |                                     |
+     |   2:OlapScanNode                        |
+     |      TABLE: table1                      |
+     |      PREAGGREGATION: ON                 |
+     |      rollup: table1                     |
+     |      tuple ids: 3                       |
+     |                                         |
+     | PLAN FRAGMENT 4                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 06                     |
+     |     HASH_PARTITIONED: <slot 2>          |
+     |                                         |
+     |   1:AGGREGATE (update serialize)        |
+     |   |  STREAMING                          |
+     |   |  output: sum(`salary`)              |
+     |   |  group by: `empid`                  |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   0:OlapScanNode                        |
+     |      TABLE: table1                      |
+     |      PREAGGREGATION: ON                 |
+     |      rollup: table1                     |
+     |      tuple ids: 0                       |
+     +-----------------------------------------+
+     * @throws Exception
+     */
+    @Test
+    public void testRewriteHavingClauseMissingAggregationColumn() throws Exception {
+        String subquery = "select avg(salary) from " + TABLE_NAME;
+        String query = "select empid a from " + TABLE_NAME + " group by empid having sum(salary) > (" +
+                subquery + ") order by sum(salary);";
+        dorisAssert.query(query).explainContains("group by: `empid`",
+                "CROSS JOIN", "predicates: <slot 3> > <slot 8>",
+                "order by: <slot 10> ASC", "OUTPUT EXPRS:<slot 11>");
+    }
+
+    /**
+     +-----------------------------------------+
+     | Explain String                          |
+     +-----------------------------------------+
+     | PLAN FRAGMENT 0                         |
+     |  OUTPUT EXPRS:<slot 11> | <slot 10>     |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   RESULT SINK                           |
+     |                                         |
+     |   11:MERGING-EXCHANGE                   |
+     |      limit: 65535                       |
+     |      tuple ids: 7                       |
+     |                                         |
+     | PLAN FRAGMENT 1                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: HASH_PARTITIONED: <slot 2> |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 11                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   5:TOP-N                               |
+     |   |  order by: <slot 10> ASC            |
+     |   |  offset: 0                          |
+     |   |  limit: 65535                       |
+     |   |  tuple ids: 7                       |
+     |   |                                     |
+     |   4:CROSS JOIN                          |
+     |   |  cross join:                        |
+     |   |  predicates: <slot 3> > <slot 8>    |
+     |   |  tuple ids: 1 5                     |
+     |   |                                     |
+     |   |----10:EXCHANGE                      |
+     |   |       tuple ids: 5                  |
+     |   |                                     |
+     |   7:AGGREGATE (merge finalize)          |
+     |   |  output: sum(<slot 3>)              |
+     |   |  group by: <slot 2>                 |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   6:EXCHANGE                            |
+     |      tuple ids: 1                       |
+     |                                         |
+     | PLAN FRAGMENT 2                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 10                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   9:AGGREGATE (merge finalize)          |
+     |   |  output: avg(<slot 7>)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 5                       |
+     |   |                                     |
+     |   8:EXCHANGE                            |
+     |      tuple ids: 4                       |
+     |                                         |
+     | PLAN FRAGMENT 3                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 08                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   3:AGGREGATE (update serialize)        |
+     |   |  output: avg(`salary`)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 4                       |
+     |   |                                     |
+     |   2:OlapScanNode                        |
+     |      TABLE: table1                      |
+     |      PREAGGREGATION: ON                 |
+     |      rollup: table1                     |
+     |      tuple ids: 3                       |
+     |                                         |
+     | PLAN FRAGMENT 4                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 06                     |
+     |     HASH_PARTITIONED: <slot 2>          |
+     |                                         |
+     |   1:AGGREGATE (update serialize)        |
+     |   |  STREAMING                          |
+     |   |  output: sum(`salary`)              |
+     |   |  group by: `empid`                  |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   0:OlapScanNode                        |
+     |      TABLE: table1                      |
+     |      PREAGGREGATION: ON                 |
+     |      rollup: table1                     |
+     |      tuple ids: 0                       |
+     +-----------------------------------------+
+     106 rows in set (0.02 sec)
+     * @throws Exception
+     */
+    @Test
+    public void testRewriteHavingClauseWithAlias() throws Exception {
+        String subquery = "select avg(salary) from " + TABLE_NAME;
+        String query = "select empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > (" +
+                subquery + ") order by b;";
+        dorisAssert.query(query).explainContains("group by: `empid`",
+                "CROSS JOIN", "predicates: <slot 3> > <slot 8>",
+                "order by: <slot 10> ASC", "OUTPUT EXPRS:<slot 11> | <slot 10>");
+    }
+
+    /**
+     +-----------------------------------------+
+     | Explain String                          |
+     +-----------------------------------------+
+     | PLAN FRAGMENT 0                         |
+     |  OUTPUT EXPRS:<slot 11> | <slot 10>     |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   RESULT SINK                           |
+     |                                         |
+     |   11:MERGING-EXCHANGE                   |
+     |      limit: 100                         |
+     |      tuple ids: 7                       |
+     |                                         |
+     | PLAN FRAGMENT 1                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: HASH_PARTITIONED: <slot 2> |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 11                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   5:TOP-N                               |
+     |   |  order by: <slot 10> ASC            |
+     |   |  offset: 0                          |
+     |   |  limit: 100                         |
+     |   |  tuple ids: 7                       |
+     |   |                                     |
+     |   4:CROSS JOIN                          |
+     |   |  cross join:                        |
+     |   |  predicates: <slot 3> > <slot 8>    |
+     |   |  tuple ids: 1 5                     |
+     |   |                                     |
+     |   |----10:EXCHANGE                      |
+     |   |       tuple ids: 5                  |
+     |   |                                     |
+     |   7:AGGREGATE (merge finalize)          |
+     |   |  output: sum(<slot 3>)              |
+     |   |  group by: <slot 2>                 |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   6:EXCHANGE                            |
+     |      tuple ids: 1                       |
+     |                                         |
+     | PLAN FRAGMENT 2                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: UNPARTITIONED              |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 10                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   9:AGGREGATE (merge finalize)          |
+     |   |  output: avg(<slot 7>)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 5                       |
+     |   |                                     |
+     |   8:EXCHANGE                            |
+     |      tuple ids: 4                       |
+     |                                         |
+     | PLAN FRAGMENT 3                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 08                     |
+     |     UNPARTITIONED                       |
+     |                                         |
+     |   3:AGGREGATE (update serialize)        |
+     |   |  output: avg(`salary`)              |
+     |   |  group by:                          |
+     |   |  tuple ids: 4                       |
+     |   |                                     |
+     |   2:OlapScanNode                        |
+     |      TABLE: table1                      |
+     |      PREAGGREGATION: ON                 |
+     |      rollup: table1                     |
+     |      tuple ids: 3                       |
+     |                                         |
+     | PLAN FRAGMENT 4                         |
+     |  OUTPUT EXPRS:                          |
+     |   PARTITION: RANDOM                     |
+     |                                         |
+     |   STREAM DATA SINK                      |
+     |     EXCHANGE ID: 06                     |
+     |     HASH_PARTITIONED: <slot 2>          |
+     |                                         |
+     |   1:AGGREGATE (update serialize)        |
+     |   |  STREAMING                          |
+     |   |  output: sum(`salary`)              |
+     |   |  group by: `empid`                  |
+     |   |  tuple ids: 1                       |
+     |   |                                     |
+     |   0:OlapScanNode                        |
+     |      TABLE: table1                      |
+     |      PREAGGREGATION: ON                 |
+     |      rollup: table1                     |
+     |      tuple ids: 0                       |
+     +-----------------------------------------+
+     * @throws Exception
+     */
+    @Test
+    public void testRewriteHavingClausewWithLimit() throws Exception {
+        String subquery = "select avg(salary) from " + TABLE_NAME;
+        String query = "select empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > (" +
+                subquery + ") order by b limit 100;";
+        dorisAssert.query(query).explainContains("group by: `empid`",
+                "CROSS JOIN", "predicates: <slot 3> > <slot 8>",
+                "order by: <slot 10> ASC", "OUTPUT EXPRS:<slot 11> | <slot 10>", "limit: 100");
+    }
+
     @AfterClass
     public static void afterClass() throws Exception {
         UtFrameUtils.cleanDorisFeDir(baseDir);

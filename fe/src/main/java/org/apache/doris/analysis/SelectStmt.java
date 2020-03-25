@@ -97,7 +97,7 @@ public class SelectStmt extends QueryStmt {
 
     // having clause which has been analyzed
     // For example: select k1, sum(k2) a from t group by k1 having a>1;
-    // this parameter: having sum(t.k2) > 1
+    // this parameter: sum(t.k2) > 1
     private Expr havingClauseAfterAnaylzed;
 
     // END: Members that need to be reset()
@@ -877,7 +877,7 @@ public class SelectStmt extends QueryStmt {
              * having predicate: table.k1 > 1
              */
             /*
-             * TODO(ml): support substitute outer column in subquery
+             * TODO(ml): support substitute outer column in correlated subquery
              * For example: select k1 key, sum(k1) sum_k1 from table a group by k1
              *              having k1 >
              *                     (select min(k1) from table b where a.key=b.k2);
@@ -1474,22 +1474,6 @@ public class SelectStmt extends QueryStmt {
         }
         // In all other cases, return false.
         return false;
-    }
-
-    @Override
-    public boolean containsCorrelatedPredicate() {
-        // check inline view
-        for (TableRef tableRef : fromClause_.getTableRefs()) {
-            if (tableRef instanceof InlineViewRef) {
-                if (((InlineViewRef) tableRef).getViewStmt().containsCorrelatedPredicate()) {
-                    return true;
-                }
-            }
-        }
-        if (whereClause == null) {
-            return false;
-        }
-        return whereClause.isCorrelatedPredicate(getTableRefIds());
     }
 
     @Override

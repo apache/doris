@@ -1463,7 +1463,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public boolean isCorrelatedPredicate(List<TupleId> tupleIdList) {
-        if ((this instanceof BinaryPredicate || this instanceof SlotRef) && !this.isBoundByTupleIds(tupleIdList)) {
+        if (this instanceof SlotRef && !this.isBoundByTupleIds(tupleIdList)) {
             return true;
         }
         for (Expr child : this.getChildren()) {

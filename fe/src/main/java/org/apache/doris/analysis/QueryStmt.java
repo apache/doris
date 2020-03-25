@@ -515,8 +515,6 @@ public abstract class QueryStmt extends StatementBase {
         return withClause_ != null ? withClause_.clone() : null;
     }
 
-    public abstract boolean containsCorrelatedPredicate();
-
     /**
      * C'tor for cloning.
      */
