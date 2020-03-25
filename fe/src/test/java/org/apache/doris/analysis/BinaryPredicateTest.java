@@ -17,9 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -52,12 +56,16 @@ public class BinaryPredicateTest {
 
     @Test
     public void testSingleColumnSubquery(@Injectable Expr child0,
-                                         @Injectable Subquery child1) {
+                                         @Injectable QueryStmt subquery,
+            @Injectable SlotRef slotRef) {
+        Subquery child1 = new Subquery(subquery);
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.EQ, child0, child1);
         new Expectations() {
             {
-                child1.returnsScalarColumn();
-                result = true;
+                subquery.getResultExprs();
+                result = Lists.newArrayList(slotRef);
+                slotRef.getType();
+                result = Type.INT;
             }
         };
 
