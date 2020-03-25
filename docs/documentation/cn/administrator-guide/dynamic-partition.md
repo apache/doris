@@ -45,7 +45,7 @@ under the License.
 `dynamic_partition.enable`: 是否开启动态分区特性，可指定为 `TRUE` 或 `FALSE`。
 
 
-`dynamic_partition.time_unit`: 动态分区调度的单位，可指定为 `DAY` `WEEK` `MONTH`，当指定为 `DAY` 时，动态创建的分区名后缀格式为`yyyyMMdd`，例如`20200325`。当指定为 `WEEK` 时，动态创建的分区名后缀格式为`yyyy_ww`即当前日期属于这一年的第几周，例如 `2020-03-25` 创建的分区名为 `2020_13`, 表明目前为2020年第13周。当指定为 `MONTH` 时，动态创建的分区名后缀格式为 `yyyyMM`，例如 `202003`。
+`dynamic_partition.time_unit`: 动态分区调度的单位，可指定为 `DAY` `WEEK` `MONTH`，当指定为 `DAY` 时，动态创建的分区名后缀格式为`yyyyMMdd`，例如`20200325`。当指定为 `WEEK` 时，动态创建的分区名后缀格式为`yyyy_ww`即当前日期属于这一年的第几周，例如 `2020-03-25` 创建的分区名后缀为 `2020_13`, 表明目前为2020年第13周。当指定为 `MONTH` 时，动态创建的分区名后缀格式为 `yyyyMM`，例如 `202003`。
 
 `dynamic_partition.start`: 动态分区的开始时间, 以当天为基准，超过该时间范围的分区将会被删除。如果不填写，则默认为`Integer.MIN_VALUE` 即 `-2147483648`。
 
