@@ -236,7 +236,7 @@ public class Alter {
                 if (!((AddPartitionClause) alterClause).isTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(tableName));
                 }
-                Catalog.getInstance().addPartition(db, tableName, (AddPartitionClause) alterClause);
+                Catalog.getCurrentCatalog().addPartition(db, tableName, (AddPartitionClause) alterClause);
             } else if (alterClause instanceof ModifyPartitionClause) {
                 ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                 Map<String, String> properties = clause.getProperties();
@@ -250,7 +250,7 @@ public class Alter {
                 db.writeLock();
                 try {
                     OlapTable olapTable = (OlapTable) db.getTable(tableName);
-                    Catalog.getInstance().modifyPartitionProperty(db, olapTable, partitionName, properties);
+                    Catalog.getCurrentCatalog().modifyPartitionProperty(db, olapTable, partitionName, properties);
                 } finally {
                     db.writeUnlock();
                 }

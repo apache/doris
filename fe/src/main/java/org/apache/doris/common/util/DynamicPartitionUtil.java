@@ -36,9 +36,10 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 
+import com.google.common.base.Strings;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import com.google.common.base.Strings;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -145,7 +146,7 @@ public class DynamicPartitionUtil {
                 Strings.isNullOrEmpty(end) &&
                 Strings.isNullOrEmpty(buckets)))) {
             if (Strings.isNullOrEmpty(enable)) {
-                throw new DdlException("Must assign dynamic_partition.enable properties");
+                properties.put(DynamicPartitionProperty.ENABLE, "true");
             }
             if (Strings.isNullOrEmpty(timeUnit)) {
                 throw new DdlException("Must assign dynamic_partition.time_unit properties");
