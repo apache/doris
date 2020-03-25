@@ -65,6 +65,16 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkStart(String start) throws DdlException {
+        try {
+            if (Integer.parseInt(start) >= 0) {
+                ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_START_ZERO, start);
+            }
+        } catch (NumberFormatException e) {
+            ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_START_FORMAT, start);
+        }
+    }
+
     private static void checkEnd(String end) throws DdlException {
         if (Strings.isNullOrEmpty(end)) {
             ErrorReport.reportDdlException(ErrorCode.ERROR_DYNAMIC_PARTITION_END_EMPTY);
@@ -103,6 +113,7 @@ public class DynamicPartitionUtil {
             return false;
         }
         return properties.containsKey(DynamicPartitionProperty.TIME_UNIT) ||
+                properties.containsKey(DynamicPartitionProperty.START) ||
                 properties.containsKey(DynamicPartitionProperty.END) ||
                 properties.containsKey(DynamicPartitionProperty.PREFIX) ||
                 properties.containsKey(DynamicPartitionProperty.BUCKETS) ||
@@ -118,12 +129,14 @@ public class DynamicPartitionUtil {
         }
         String timeUnit = properties.get(DynamicPartitionProperty.TIME_UNIT);
         String prefix = properties.get(DynamicPartitionProperty.PREFIX);
+        String start = properties.get(DynamicPartitionProperty.START);
         String end = properties.get(DynamicPartitionProperty.END);
         String buckets = properties.get(DynamicPartitionProperty.BUCKETS);
         String enable = properties.get(DynamicPartitionProperty.ENABLE);
         if (!((Strings.isNullOrEmpty(enable) &&
                 Strings.isNullOrEmpty(timeUnit) &&
                 Strings.isNullOrEmpty(prefix) &&
+                Strings.isNullOrEmpty(start) &&
                 Strings.isNullOrEmpty(end) &&
                 Strings.isNullOrEmpty(buckets)))) {
             if (Strings.isNullOrEmpty(enable)) {
@@ -134,6 +147,9 @@ public class DynamicPartitionUtil {
             }
             if (Strings.isNullOrEmpty(prefix)) {
                 throw new DdlException("Must assign dynamic_partition.prefix properties");
+            }
+            if (Strings.isNullOrEmpty(start)) {
+                properties.put(DynamicPartitionProperty.START, String.valueOf(Integer.MIN_VALUE));
             }
             if (Strings.isNullOrEmpty(end)) {
                 throw new DdlException("Must assign dynamic_partition.end properties");
@@ -188,6 +204,13 @@ public class DynamicPartitionUtil {
             checkEnable(enableValue);
             properties.remove(DynamicPartitionProperty.ENABLE);
             analyzedProperties.put(DynamicPartitionProperty.ENABLE, enableValue);
+        }
+        // If dynamic property is not specified.Use Integer.MIN_VALUE as default
+        if (properties.containsKey(DynamicPartitionProperty.START)) {
+            String startValue = properties.get(DynamicPartitionProperty.START);
+            checkStart(properties.get(DynamicPartitionProperty.START));
+            properties.remove(DynamicPartitionProperty.START);
+            analyzedProperties.put(DynamicPartitionProperty.START, startValue);
         }
         return analyzedProperties;
     }

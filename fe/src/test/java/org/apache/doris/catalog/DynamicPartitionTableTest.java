@@ -80,6 +80,7 @@ public class DynamicPartitionTableTest {
         properties.put(DynamicPartitionProperty.ENABLE, "true");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.TIME_UNIT, "day");
+        properties.put(DynamicPartitionProperty.START, "-3");
         properties.put(DynamicPartitionProperty.END, "3");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
 
@@ -289,6 +290,50 @@ public class DynamicPartitionTableTest {
 
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("Must assign dynamic_partition.time_unit properties");
+
+        catalog.createTable(stmt);
+    }
+
+    @Test
+    public void testMissSTART(@Injectable SystemInfoService systemInfoService,
+                              @Injectable PaloAuth paloAuth,
+                              @Injectable EditLog editLog) throws UserException {
+        new Expectations(catalog) {
+            {
+                catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
+                result = db;
+
+                Catalog.getCurrentSystemInfo();
+                minTimes = 0;
+                result = systemInfoService;
+
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                minTimes = 0;
+                result = beIds;
+
+                catalog.getAuth();
+                minTimes = 0;
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
+                result = true;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
+
+        properties.remove(DynamicPartitionProperty.START);
+
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, columnNames),
+                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
+        stmt.analyze(analyzer);
 
         catalog.createTable(stmt);
     }
