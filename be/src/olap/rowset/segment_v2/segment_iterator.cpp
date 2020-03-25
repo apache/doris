@@ -21,6 +21,7 @@
 
 #include "gutil/strings/substitute.h"
 #include "util/doris_metrics.h"
+#include "olap/fs/fs_util.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/row_block2.h"
@@ -125,7 +126,8 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
 Status SegmentIterator::_init() {
     DorisMetrics::segment_read_total.increment(1);
     // get file handle from file descriptor of segment
-    RETURN_IF_ERROR(FileManager::instance()->open_file(_segment->_fname, &_file_handle));
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
+    RETURN_IF_ERROR(block_mgr->open_block(_segment->_fname, &_rblock));
     _row_bitmap.addRange(0, _segment->num_rows());
     RETURN_IF_ERROR(_init_return_column_iterators());
     RETURN_IF_ERROR(_init_bitmap_index_iterators());
@@ -197,7 +199,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
             RETURN_IF_ERROR(_segment->new_column_iterator(cid, &_column_iterators[cid]));
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
-            iter_opts.file = _file_handle.file();
+            iter_opts.rblock = _rblock.get();
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }
@@ -316,7 +318,7 @@ Status SegmentIterator::_init_return_column_iterators() {
             ColumnIteratorOptions iter_opts;
             iter_opts.stats = _opts.stats;
             iter_opts.use_page_cache = _opts.use_page_cache;
-            iter_opts.file = _file_handle.file();
+            iter_opts.rblock = _rblock.get();
             RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
         }
     }

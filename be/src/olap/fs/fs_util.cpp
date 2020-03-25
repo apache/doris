@@ -19,20 +19,26 @@
 
 #include "common/status.h"
 #include "env/env.h"
+#include "olap/storage_engine.h"
 #include "olap/fs/file_block_manager.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 namespace fs {
 namespace fs_util {
 
-BlockManager* file_block_mgr(Env* env, BlockManagerOptions opts) {
-    return new FileBlockManager(env, std::move(opts));
+BlockManager* block_manager() {
+#ifdef BE_TEST
+    return block_mgr_for_ut();
+#else
+    return ExecEnv::GetInstance()->storage_engine()->block_manager();
+#endif
 }
 
 BlockManager* block_mgr_for_ut() {
     fs::BlockManagerOptions bm_opts;
     bm_opts.read_only = false;
-    return file_block_mgr(Env::Default(), bm_opts);
+    return new FileBlockManager(Env::Default(), std::move(bm_opts));
 }
 
 } // namespace fs_util

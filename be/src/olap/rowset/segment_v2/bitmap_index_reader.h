@@ -30,7 +30,6 @@
 namespace doris {
 
 class TypeInfo;
-class RandomAccessFile;
 
 namespace segment_v2 {
 

@@ -30,6 +30,8 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "gutil/strings/strcat.h"
+
+#include "env/env.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
