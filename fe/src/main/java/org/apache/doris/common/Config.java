@@ -108,7 +108,7 @@ public class Config extends ConfigBase {
      */
     @ConfField public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
-    @ConfField
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean plugin_enable = false;
 
     /*
