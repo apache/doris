@@ -1325,10 +1325,6 @@ public class SchemaChangeHandler extends AlterHandler {
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException {
 
-        if (olapTable.existTempPartitions()) {
-            throw new DdlException("Can not alter table when there are temp partitions in table");
-        }
-
         // index id -> index schema
         Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
         for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
@@ -1368,6 +1364,11 @@ public class SchemaChangeHandler extends AlterHandler {
                     Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
                     return;
                 }
+            }
+
+            // the following operations can not be done when there are temp partitions exist.
+            if (olapTable.existTempPartitions()) {
+                throw new DdlException("Can not alter table when there are temp partitions in table");
             }
 
             if (alterClause instanceof AddColumnClause) {

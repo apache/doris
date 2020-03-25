@@ -197,7 +197,7 @@ public class Alter {
                 Preconditions.checkState(alterClauses.size() == 1);
                 AlterClause alterClause = alterClauses.get(0);
                 if (alterClause instanceof DropPartitionClause) {
-                    if (((DropPartitionClause) alterClause).isTempPartition()) {
+                    if (!((DropPartitionClause) alterClause).isTempPartition()) {
                         DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(tableName));
                     }
                     Catalog.getInstance().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
@@ -233,7 +233,7 @@ public class Alter {
             Preconditions.checkState(alterClauses.size() == 1);
             AlterClause alterClause = alterClauses.get(0);
             if (alterClause instanceof AddPartitionClause) {
-                if (((AddPartitionClause) alterClause).isTempPartition()) {
+                if (!((AddPartitionClause) alterClause).isTempPartition()) {
                     DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(tableName));
                 }
                 Catalog.getInstance().addPartition(db, tableName, (AddPartitionClause) alterClause);

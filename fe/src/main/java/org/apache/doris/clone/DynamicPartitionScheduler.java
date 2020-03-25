@@ -84,7 +84,6 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ERROR
     }
 
-
     public DynamicPartitionScheduler(String name, long intervalMs) {
         super(name, intervalMs);
         this.initialize = false;
