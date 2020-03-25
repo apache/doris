@@ -47,6 +47,7 @@ import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
+import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
@@ -116,6 +117,8 @@ import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.plugin.PluginLoader;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -249,6 +252,8 @@ public class ShowExecutor {
             handleShowIndex();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
+        } else if (stmt instanceof ShowPluginsStmt) {
+            handleShowPlugins();
         } else {
             handleEmtpy();
         }
@@ -1514,6 +1519,42 @@ public class ShowExecutor {
         long txnId = showStmt.getTxnId();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
+    }
+
+    private void handleShowPlugins() throws AnalysisException {
+        ShowPluginsStmt pluginsStmt = (ShowPluginsStmt) stmt;
+
+        List<PluginLoader> plugins = Catalog.getCurrentPluginMgr().getAllPluginLoader();
+
+        List<List<String>> rows = Lists.newArrayListWithCapacity(plugins.size());
+
+        for (PluginLoader p : plugins) {
+            try {
+                PluginInfo pi = p.getPluginInfo();
+
+                List<String> r = Lists.newArrayListWithCapacity(stmt.getMetaData().getColumnCount());
+                r.add(pi.getName());
+                r.add(pi.getType().name());
+                r.add(pi.getDescription());
+                r.add(pi.getVersion().toString());
+                r.add(pi.getJavaVersion().toString());
+                r.add(pi.getClassName());
+                r.add(pi.getSoName());
+                if (Strings.isNullOrEmpty(pi.getSource())) {
+                    r.add("Builtin");
+                } else {
+                    r.add(pi.getSource());
+                }
+
+                r.add(p.getStatus().name());
+
+                rows.add(r);
+            } catch (Exception e) {
+                LOG.warn("show plugins get plugin info failed.", e);
+            }
+        }
+
+        resultSet = new ShowResultSet(pluginsStmt.getMetaData(), rows);
     }
 }
 
