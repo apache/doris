@@ -15,45 +15,49 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin;
+package plugin;
 
-import java.io.Closeable;
 import java.io.IOException;
-import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
-/**
- * Base Plugin
- *
- * Note: plugin is thread-unsafe and work in parallel
- */
-public abstract class Plugin implements Closeable {
-    public static final int PLUGIN_DEFAULT_FLAGS = 0;
-    public static final int PLUGIN_INSTALL_EARLY = 1;
-    public static final int PLUGIN_NOT_DYNAMIC_UNINSTALL = 1 << 1;
+import org.apache.doris.plugin.Plugin;
+import org.apache.doris.plugin.PluginContext;
+import org.apache.doris.plugin.PluginInfo;
 
-    /**
-     * invoke when the plugin install
-     */
-    public void init(PluginInfo info, PluginContext ctx) { }
+public class PluginTest extends Plugin {
 
-    /**
-     * invoke when the plugin uninstall
-     */
+    private Map<String, String> map = new HashMap<>();
+
     @Override
-    public void close() throws IOException { }
+    public void init(PluginInfo info, PluginContext ctx) {
+        System.out.println("this is init");
+    }
 
+
+    @Override
+    public void close() throws IOException {
+        super.close();
+        System.out.println("this is close");
+    }
+
+    @Override
     public int flags() {
-        return PLUGIN_DEFAULT_FLAGS;
+        return 2;
     }
 
-    public void setVariable(String key, String value) { }
+    @Override
+    public void setVariable(String key, String value) {
+        map.put(key, value);
+    }
 
+    @Override
     public Map<String, String> variable() {
-        return Collections.EMPTY_MAP;
+        return map;
     }
 
+    @Override
     public Map<String, String> status() {
-        return Collections.EMPTY_MAP;
+        return new HashMap<>();
     }
 }

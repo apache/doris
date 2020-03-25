@@ -219,6 +219,7 @@ public class StmtExecutor {
     // Exception:
     //  IOException: talk with client failed.
     public void execute() throws Exception {
+
         long beginTimeInNanoSecond = TimeUtils.getStartTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         try {
@@ -322,6 +323,7 @@ public class StmtExecutor {
                 }
             }
         }
+
     }
 
     private void forwardToMaster() throws Exception {
