@@ -273,7 +273,7 @@ typedef std::set<uint32_t> UniqueIdSet;
 typedef std::map<ColumnId, ColumnId> UniqueIdToColumnIdMap;
 
 // 8 bit rowset id version
-// 56 bit, inc number from 0
+// 56 bit, inc number from 1
 // 128 bit backend uid, it is a uuid bit, id version
 struct RowsetId {
     int8_t version = 0;
@@ -305,7 +305,7 @@ struct RowsetId {
 
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
         version = id_version;
-        if (high >= MAX_ROWSET_ID) {
+        if (UNLIKELY(high >= MAX_ROWSET_ID)) {
             LOG(FATAL) << "inc rowsetid is too large:" << high;
         }
         hi = (id_version << 56) + (high & LOW_56_BITS);
@@ -347,6 +347,13 @@ struct RowsetId {
     friend std::ostream& operator<<(std::ostream& out, const RowsetId& rowset_id) {
         out << rowset_id.to_string();
         return out;
+    }
+};
+
+struct RowsetIdHash {
+    size_t operator()(const RowsetId& rowset_id) const {
+        // hi is an increasing number on a BE instance, we can use it as the hash value simply.
+        return rowset_id.hi;
     }
 };
 
