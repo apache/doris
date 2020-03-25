@@ -48,7 +48,7 @@ public:
     
     Status uninstall_plugin(const TPluginMetaInfo& info);
 
-    Status register_builtin_plugin(const std::string& name, int type, Plugin* plugin);
+    Status register_builtin_plugin(const std::string& name, int type, const Plugin* plugin);
     
     Status get_plugin(const std::string& name, int type, std::shared_ptr<Plugin>* plugin);
     

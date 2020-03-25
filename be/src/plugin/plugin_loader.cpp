@@ -44,7 +44,7 @@ Status PluginLoader::open_valid() {
 }
 
 Status PluginLoader::close_valid() {
-    if (_plugin.get() != nullptr && _plugin->flags & PLUGIN_NOT_DYNAMIC_UNINSTALL) {
+    if (_plugin.get() != nullptr && (_plugin->flags & PLUGIN_NOT_DYNAMIC_UNINSTALL)) {
         return Status::InternalError(Substitute("plugin $0 not allow dynamic uninstall", _name));
     }
 
@@ -154,7 +154,7 @@ Status DynamicPluginLoader::close_plugin() {
     return Status::OK();
 }
 
-BuiltinPluginLoader::BuiltinPluginLoader(const std::string& name, int type, doris::Plugin* plugin) :
+BuiltinPluginLoader::BuiltinPluginLoader(const std::string& name, int type, const doris::Plugin* plugin) :
         PluginLoader(name, type) {
     _plugin = std::make_shared<Plugin>();
     std::memcpy(_plugin.get(), plugin, sizeof(Plugin));

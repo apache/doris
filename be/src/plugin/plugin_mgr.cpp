@@ -37,7 +37,7 @@ Status PluginMgr::install_plugin(const TPluginMetaInfo& info) {
         auto iter = _plugins[info.type].find(info.name);
 
         if (iter != _plugins[info.type].end()) {
-            return Status::AlreadyExist("plugin " + info.name + " is already install");
+            return Status::AlreadyExist("plugin " + info.name + " is already installed");
         }
     }
     
@@ -59,7 +59,7 @@ Status PluginMgr::install_plugin(const TPluginMetaInfo& info) {
         auto iter = _plugins[info.type].find(info.name);
         
         if (iter != _plugins[info.type].end()) {
-            return Status::AlreadyExist("plugin " + info.name + " is already install");
+            return Status::AlreadyExist("plugin " + info.name + " is already installed");
         } else {
             _plugins[info.type][info.name] = std::move(loader);
         };
@@ -122,14 +122,14 @@ Status PluginMgr::get_plugin_list(int type, std::vector<std::shared_ptr<Plugin>>
     return Status::OK();
 }
 
-Status PluginMgr::register_builtin_plugin(const std::string& name, int type, doris::Plugin* plugin) {
+Status PluginMgr::register_builtin_plugin(const std::string& name, int type, const doris::Plugin* plugin) {
     PLUGIN_TYPE_CHECK(type);
 
     std::lock_guard<std::mutex> l(_lock);
 
     auto iter = _plugins[type].find(name);
     if (iter != _plugins[type].end()) {
-        return Status::AlreadyExist(Substitute("the type $0 plugin $1 already register"));
+        return Status::AlreadyExist(Substitute("the type $0 plugin $1 already register", type, name));
     }
 
     std::unique_ptr<PluginLoader> loader = std::unique_ptr<PluginLoader>(new BuiltinPluginLoader(name, type, plugin));

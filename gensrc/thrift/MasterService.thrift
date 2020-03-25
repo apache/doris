@@ -89,8 +89,6 @@ struct TReportRequest {
     // the max compaction score of all tablets on a backend,
     // this field should be set along with tablet report
     8: optional i64 tablet_max_compaction_score
-    // plugin list
-    9: optional list<TPluginInfo> plugins
 }
 
 struct TMasterResult {

@@ -102,7 +102,7 @@ private:
 
 class BuiltinPluginLoader : public PluginLoader {
 public:
-    BuiltinPluginLoader(const std::string& name, int type, Plugin* plugin);
+    BuiltinPluginLoader(const std::string& name, int type, const Plugin* plugin);
     
     ~BuiltinPluginLoader() {
         WARN_IF_ERROR(uninstall(), "close plugin failed.");
