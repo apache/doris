@@ -61,6 +61,7 @@
 #include "gen_cpp/TExtDataSourceService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "runtime/heartbeat_flags.h"
+#include "plugin/plugin_mgr.h"
 
 namespace doris {
 
@@ -103,6 +104,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _stream_load_executor = new StreamLoadExecutor(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
+    _plugin_mgr = new PluginMgr();
 
     _backend_client_cache->init_metrics(DorisMetrics::metrics(), "backend");
     _frontend_client_cache->init_metrics(DorisMetrics::metrics(), "frontend");

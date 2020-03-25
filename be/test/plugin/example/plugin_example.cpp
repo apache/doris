@@ -15,25 +15,37 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <string>
-#include <unordered_map>
+#include <iostream>
 
-#include "common/status.h"
 #include "plugin/plugin.h"
 
 namespace doris {
 
-class PluginManager {
+int init(void *) {
+    std::cout << "this is init" << std::endl;
+    return 1;
+}
 
-public:
-    Status load_plugin(Plugin* plugin);
-    
-    Status unload_plugin(Plugin* plugin);
-    
-    Status get_plugin(std::string name);
+int close(void *) {
+    std::cout << "this is close" << std::endl;
+    return 2;
+}
 
-private:
-    std::unordered_map<std::string, Plugin*> _plugins;
-};
+#ifdef __cplusplus
+extern "C" {
+#endif
+    
+declare_plugin(PluginExample) {
+    nullptr,
+    &init,
+    &close,
+    3,
+    nullptr,
+    nullptr
+} declare_plugin_end
+
+#ifdef __cplusplus
+}
+#endif
 
 }

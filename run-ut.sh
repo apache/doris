@@ -130,6 +130,7 @@ if [ -d ${DORIS_TEST_BINARY_DIR}/util/test_data ]; then
     rm -rf ${DORIS_TEST_BINARY_DIR}/util/test_data
 fi
 cp -r ${DORIS_HOME}/be/test/util/test_data ${DORIS_TEST_BINARY_DIR}/util/
+cp -r ${DORIS_HOME}/be/test/plugin/plugin_test ${DORIS_TEST_BINARY_DIR}/plugin/
 
 # Running Util Unittest
 ${DORIS_TEST_BINARY_DIR}/util/bit_util_test
@@ -306,6 +307,11 @@ ${DORIS_TEST_BINARY_DIR}/olap/selection_vector_test
 ${DORIS_TEST_BINARY_DIR}/runtime/kafka_consumer_pipe_test
 ${DORIS_TEST_BINARY_DIR}/runtime/routine_load_task_executor_test
 ${DORIS_TEST_BINARY_DIR}/runtime/heartbeat_flags_test
+
+# Runing plugin test
+${DORIS_TEST_BINARY_DIR}/Plugin/plugin/plugin_loader_test
+${DORIS_TEST_BINARY_DIR}/Plugin/plugin/plugin_mgr_test
+${DORIS_TEST_BINARY_DIR}/Plugin/plugin/plugin_zip_test
 
 # Running agent unittest
 # Prepare agent testdata
