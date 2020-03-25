@@ -1530,6 +1530,10 @@ bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit uni
 }
 
 bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezone) const{
+    if (_year < 1970) {
+        *timestamp = 0;			    
+        return true;
+    }
     boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
     if (local_time_zone == nullptr) {
         return false;
