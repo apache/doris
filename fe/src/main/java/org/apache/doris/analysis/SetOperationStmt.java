@@ -22,11 +22,11 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.rewrite.ExprRewriter;
 
-import org.apache.logging.log4j.Logger;
-import org.apache.logging.log4j.LogManager;
-
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -631,7 +631,7 @@ public class SetOperationStmt extends QueryStmt {
         // ///////////////////////////////////////
         // BEGIN: Members that need to be reset()
 
-        private final QueryStmt queryStmt;
+        private QueryStmt queryStmt;
 
         // Analyzer used for this operand. Set in analyze().
         // We must preserve the conjuncts registered in the analyzer for partition pruning.
@@ -699,6 +699,9 @@ public class SetOperationStmt extends QueryStmt {
 
         public void setOperation(Operation operation) {
             this.operation =operation;
+        }
+        public void setQueryStmt(QueryStmt queryStmt) {
+            this.queryStmt = queryStmt;
         }
         public Analyzer getAnalyzer() { return analyzer; }
         public ExprSubstitutionMap getSmap() { return smap_; }

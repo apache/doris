@@ -439,7 +439,7 @@ public class StmtExecutor {
                     parsedStmt.rewriteExprs(rewriter);
                     reAnalyze = rewriter.changed();
                     if (analyzer.containSubquery()) {
-                        StmtRewriter.rewrite(analyzer, parsedStmt);
+                        parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
                         reAnalyze = true;
                     }
                     if (reAnalyze) {

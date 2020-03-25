@@ -17,18 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.IdentityHashMap;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -53,8 +41,6 @@ import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.FoldConstantsRule;
 import org.apache.doris.rewrite.NormalizeBinaryPredicatesRule;
 import org.apache.doris.thrift.TQueryGlobals;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -64,6 +50,21 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Repository of analysis state for single select block.
@@ -295,6 +296,9 @@ public class Analyzer {
      */
     public Analyzer(Analyzer parentAnalyzer) {
         this(parentAnalyzer, parentAnalyzer.globalState);
+        if (parentAnalyzer.isSubquery) {
+            this.isSubquery = true;
+        }
     }
 
     /**
@@ -549,6 +553,16 @@ public class Analyzer {
             }
             d = resolveColumnRef(newTblName, colName);
         }
+        /*
+         * Now, we only support the columns in the subquery to associate the outer query columns in parent level.
+         * If the level of the association exceeds one level, the associated columns in subquery could not be resolved.
+         * For example:
+         * Select k1 from table a where k1=(select k1 from table b where k1=(select k1 from table c where a.k1=k1));
+         * The inner subquery: select k1 from table c where a.k1=k1;
+         * There is a associated column (a.k1) which belongs to the outer query appears in the inner subquery.
+         * This column could not be resolved because doris can only resolved the parent column instead of grandpa.
+         * The exception of this query like that: Unknown column 'k1' in 'a'
+         */
         if (d == null && hasAncestors() && isSubquery) {
             // analyzer father for subquery
             if (newTblName == null) {
