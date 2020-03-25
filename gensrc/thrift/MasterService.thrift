@@ -73,6 +73,11 @@ struct TDisk {
     7: optional Types.TStorageMedium storage_medium
 }
 
+struct TPluginInfo {
+    1: required string plugin_name
+    2: required i32 type
+}
+
 struct TReportRequest {
     1: required Types.TBackend backend
     2: optional i64 report_version

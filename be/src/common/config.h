@@ -92,6 +92,8 @@ namespace config {
     CONF_Int32(report_disk_state_interval_seconds, "60");
     // the interval time(seconds) for agent report olap table to FE
     CONF_Int32(report_tablet_interval_seconds, "60");
+    // the interval time(seconds) for agent report plugin status to FE
+    // CONF_Int32(report_plugin_interval_seconds, "120");
     // the timeout(seconds) for alter table
     CONF_Int32(alter_tablet_timeout_seconds, "86400");
     // the timeout(seconds) for make snapshot
@@ -488,6 +490,8 @@ namespace config {
     // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
     // this is a an enhancement for better performance to manage tablet
     CONF_Int32(tablet_map_shard_size, "1");
+    
+    CONF_String(plugin_path, "${DORIS_HOME}/plugin")
 
 } // namespace config
 

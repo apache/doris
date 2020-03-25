@@ -371,6 +371,7 @@ set(DORIS_LINK_LIBS
     Webserver
     TestUtil
     Geo
+    Plugin        
     ${WL_END_GROUP}
 )
 
@@ -494,6 +495,7 @@ add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf_samples)
 add_subdirectory(${SRC_DIR}/util)
+add_subdirectory(${SRC_DIR}/plugin)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
@@ -512,6 +514,24 @@ FUNCTION(ADD_BE_TEST TEST_NAME)
     ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
 ENDFUNCTION()
 
+FUNCTION(ADD_BE_PLUGIN PLUGIN_NAME)
+    set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
+    
+    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+    get_filename_component(PLUGIN_DIR_NAME ${PLUGIN_NAME} PATH)
+    get_filename_component(PLUGIN_FILE_NAME ${PLUGIN_NAME} NAME)
+    
+    ADD_LIBRARY(${PLUGIN_FILE_NAME} SHARED ${PLUGIN_NAME}.cpp)
+    
+    TARGET_LINK_LIBRARIES(${PLUGIN_FILE_NAME} ${DORIS_LINK_LIBS})
+    SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+    if (NOT "${PLUGIN_DIR_NAME}" STREQUAL "")
+        SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${PLUGIN_DIR_NAME}")
+    endif ()
+
+ENDFUNCTION()
+
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/agent)
     add_subdirectory(${TEST_DIR}/common)
@@ -524,6 +544,8 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/runtime)
     add_subdirectory(${TEST_DIR}/udf)
     add_subdirectory(${TEST_DIR}/util)
+    add_subdirectory(${TEST_DIR}/plugin)
+    add_subdirectory(${TEST_DIR}/plugin/example)
 endif ()
 
 # Install be

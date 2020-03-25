@@ -54,6 +54,7 @@ class StreamLoadExecutor;
 class RoutineLoadTaskExecutor;
 class SmallFileMgr;
 class FileBlockManager;
+class PluginMgr;
 
 class BackendServiceClient;
 class FrontendServiceClient;
@@ -132,6 +133,8 @@ public:
     RoutineLoadTaskExecutor* routine_load_task_executor() { return _routine_load_task_executor; }
     HeartbeatFlags* heartbeat_flags() { return _heartbeat_flags; }
 
+    PluginMgr* plugin_mgr() { return _plugin_mgr; }
+    
 private:
     Status _init(const std::vector<StorePath>& store_paths);
     void _destory();
@@ -181,6 +184,8 @@ private:
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
+    
+    PluginMgr* _plugin_mgr = nullptr;
 };
 
 
