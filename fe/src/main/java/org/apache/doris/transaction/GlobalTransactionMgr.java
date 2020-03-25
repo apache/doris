@@ -823,7 +823,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     // check if there exists a intersection between the source tableId list and target tableId list
-    // if one of them is null or empty, we think the two lists have intersection
+    // if one of them is null or empty, we think the two lists may have intersection for some unknown reason
     public boolean isIntersectionNotEmpty(List<Long> sourceTableIdList, List<Long> targetTableIdList) {
         if (sourceTableIdList == null || sourceTableIdList.isEmpty() || targetTableIdList == null ||
                 targetTableIdList.isEmpty()) {
