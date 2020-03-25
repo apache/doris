@@ -17,34 +17,37 @@
 
 package org.apache.doris.plugin;
 
-import java.util.Map;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.InputStream;
+import java.net.URL;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
 
-import com.google.common.collect.Maps;
 
-public class PluginManager {
+public class PluginTestUtil {
 
-    private final Map[] plugins = new Map[PluginType.MAX_PLUGIN_SIZE];
+    public static String getTestPathString(String name) {
+        URL now = PluginTestUtil.class.getResource("/");
+        return now.getPath() + "/plugin_test/" + name;
+    }
 
-    public PluginManager() {
+    public static Path getTestPath(String name) {
+        return FileSystems.getDefault().getPath(getTestPathString(name));
+    }
 
-        for (int i = 0; i < plugins.length; i++) {
-            plugins[i] = Maps.newConcurrentMap();
+    public static File getTestFile(String name) {
+        return new File(getTestPathString(name));
+    }
+
+    public static InputStream openTestFile(String name) {
+        try {
+            return new FileInputStream(getTestPathString(name));
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
         }
-    }
 
-    public void loadPlugin(Plugin plugin) {
-
-    }
-
-    public void unloadPlugin(Plugin plugin) {
-
-    }
-
-    public Plugin getPlugin(String name) {
-        return null;
-    }
-
-    public Plugin getPlugin(String name, PluginType type) {
         return null;
     }
 }

@@ -19,6 +19,9 @@ custom_env.sh
 ut_dir
 log
 meta
+fe_plugins/*/target
+fe_plugins/output
+fe/mocked
 
 
 #ignore eclipse project file & idea  project file
