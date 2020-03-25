@@ -52,7 +52,6 @@ import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -139,7 +138,7 @@ public class PartitionsProcDir implements ProcDirInterface {
 
     public ProcResult fetchResultByFilter(Map<String, Expr> filterMap, List<OrderByPair> orderByPairs, LimitElement limitElement) throws AnalysisException {
         List<List<Comparable>> partitionInfos = getPartitionInfos();
-        List<List<Comparable>> filterPartitionInfos = null;
+        List<List<Comparable>> filterPartitionInfos;
         //where
         if (filterMap == null || filterMap.isEmpty()) {
             filterPartitionInfos = partitionInfos;
@@ -166,10 +165,10 @@ public class PartitionsProcDir implements ProcDirInterface {
 
         // order by
         if (orderByPairs != null) {
-            ListComparator<List<Comparable>> comparator = null;
+            ListComparator<List<Comparable>> comparator;
             OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
             comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
-            Collections.sort(filterPartitionInfos, comparator);
+            filterPartitionInfos.sort(comparator);
         }
 
         //limit
