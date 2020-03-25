@@ -32,6 +32,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class TupleDescriptor {
     private static final Logger LOG = LogManager.getLogger(TupleDescriptor.class);
@@ -254,6 +257,31 @@ public class TupleDescriptor {
      */
     public void materializeSlots() {
         for (SlotDescriptor slot: slots) slot.setIsMaterialized(true);
+    }
+
+    public void getTableNameToColumnNames(Map<String, Set<String>> tupleDescToColumnNames) {
+        for (SlotDescriptor slotDescriptor : slots) {
+            if (!slotDescriptor.isMaterialized()) {
+                continue;
+            }
+            if (slotDescriptor.getColumn() != null) {
+                TupleDescriptor parent = slotDescriptor.getParent();
+                Preconditions.checkState(parent != null);
+                Table table = parent.getTable();
+                Preconditions.checkState(table != null);
+                String tableName = table.getName();
+                Set<String> columnNames = tupleDescToColumnNames.get(tableName);
+                if (columnNames == null) {
+                    columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                    tupleDescToColumnNames.put(tableName, columnNames);
+                }
+                columnNames.add(slotDescriptor.getColumn().getName());
+            } else {
+                for (Expr expr : slotDescriptor.getSourceExprs()) {
+                    expr.getTableNameToColumnNames(tupleDescToColumnNames);
+                }
+            }
+        }
     }
 
     @Override
