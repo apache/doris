@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 
 import java.util.Map;
@@ -46,12 +47,11 @@ public class AddPartitionClause extends AlterTableClause {
                               DistributionDesc distributionDesc,
                               Map<String, String> properties,
                               boolean isTempPartition) {
+        super(AlterOpType.ADD_PARTITION);
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
         this.isTempPartition = isTempPartition;
-        
-        this.needTableStable = false;
     }
 
     @Override

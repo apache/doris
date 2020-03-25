@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
@@ -53,6 +54,7 @@ public class ReplacePartitionClause extends AlterTableClause {
 
     public ReplacePartitionClause(PartitionNames partitionNames, PartitionNames tempPartitionNames,
             Map<String, String> properties) {
+        super(AlterOpType.REPLACE_PARTITION);
         this.partitionNames = partitionNames;
         this.tempPartitionNames = tempPartitionNames;
         this.needTableStable = false;

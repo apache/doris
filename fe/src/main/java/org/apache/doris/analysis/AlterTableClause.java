@@ -17,8 +17,15 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
+
 // alter table clause
 public abstract class AlterTableClause extends AlterClause {
+
+    public AlterTableClause(AlterOpType opType) {
+        super(opType);
+    }
+
     // if set to true, the corresponding table should be stable before processing this operation on it.
     protected boolean needTableStable = true;
 

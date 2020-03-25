@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -54,6 +55,7 @@ public class AddColumnClause extends AlterTableClause {
 
     public AddColumnClause(ColumnDef columnDef, ColumnPosition colPos, String rollupName,
                            Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
         this.columnDef = columnDef;
         this.colPos = colPos;
         this.rollupName = rollupName;

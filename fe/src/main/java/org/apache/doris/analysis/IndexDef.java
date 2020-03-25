@@ -17,15 +17,15 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
-import java.util.TreeSet;
-
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
+
+import java.util.List;
+import java.util.TreeSet;
 
 public class IndexDef {
     private String indexName;
@@ -136,6 +136,8 @@ public class IndexDef {
                         "BITMAP index only used in columns of DUP_KEYS table or key columns of"
                                 + " UNIQUE_KEYS/AGG_KEYS table. invalid column: " + indexColName);
             }
+        } else {
+            throw new AnalysisException("Unsupported index type: " + indexType);
         }
     }
 

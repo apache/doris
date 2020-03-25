@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.common.AnalysisException;
 
@@ -36,10 +37,10 @@ public class CreateIndexClause extends AlterTableClause {
     private Index index;
 
     public CreateIndexClause(TableName tableName, IndexDef indexDef, boolean alter) {
+        super(AlterOpType.SCHEMA_CHANGE);
         this.tableName = tableName;
         this.indexDef = indexDef;
         this.alter = alter;
-        this.needTableStable = true;
     }
 
     @Override
