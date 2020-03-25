@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriter;
 
+import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -83,7 +84,17 @@ class SelectList {
     public void rewriteExprs(ExprRewriter rewriter, Analyzer analyzer)
             throws AnalysisException {
         for (SelectListItem item : items) {
-            if (item.isStar()) continue;
+            if (item.isStar()) {
+                continue;
+            }
+            // rewrite subquery in select list
+            if (item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
+                List<Subquery> subqueryExprs = Lists.newArrayList();
+                item.getExpr().collect(Subquery.class, subqueryExprs);
+                for (Subquery s : subqueryExprs) {
+                    s.getStatement().rewriteExprs(rewriter);
+                }
+            }
             item.setExpr(rewriter.rewrite(item.getExpr(), analyzer));
         }
     }
