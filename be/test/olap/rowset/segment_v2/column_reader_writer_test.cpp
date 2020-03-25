@@ -26,7 +26,6 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "olap/column_block.h"
-#include "olap/fs/block_manager.h"
 #include "olap/fs/fs_util.h"
 #include "olap/olap_common.h"
 #include "olap/types.h"
@@ -131,13 +130,15 @@ void test_nullable_data(uint8_t* src_data, uint8_t* src_is_null, int num_rows, s
         ColumnIterator* iter = nullptr;
         st = reader->new_iterator(&iter);
         ASSERT_TRUE(st.ok());
-        std::unique_ptr<RandomAccessFile> rfile;
-        st = Env::Default()->new_random_access_file(fname, &rfile);
+        std::unique_ptr<fs::ReadableBlock> rblock;
+        fs::BlockManager* block_manager = fs::fs_util::block_mgr_for_ut();
+        block_manager->open_block(fname, &rblock);
+        
         ASSERT_TRUE(st.ok());
         ColumnIteratorOptions iter_opts;
         OlapReaderStatistics stats;
         iter_opts.stats = &stats;
-        iter_opts.file = rfile.get();
+        iter_opts.rblock = rblock.get();
         st = iter->init(iter_opts);
         ASSERT_TRUE(st.ok());
         // sequence read

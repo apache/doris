@@ -18,8 +18,8 @@
 #include "olap/rowset/segment_v2/segment.h"
 
 #include "common/logging.h" // LOG
-#include "env/env.h" // RandomAccessFile
 #include "gutil/strings/substitute.h"
+#include "olap/fs/fs_util.h"
 #include "olap/rowset/segment_v2/column_reader.h" // ColumnReader
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/segment_writer.h" // k_segment_magic_length
@@ -28,7 +28,6 @@
 #include "util/slice.h" // Slice
 #include "olap/tablet_schema.h"
 #include "util/crc32c.h"
-#include "util/file_manager.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -88,18 +87,19 @@ Status Segment::new_iterator(const Schema& schema,
 
 Status Segment::_parse_footer() {
     // Footer := SegmentFooterPB, FooterPBSize(4), FooterPBChecksum(4), MagicNumber(4)
-    OpenedFileHandle<RandomAccessFile> file_handle;
-    RETURN_IF_ERROR(FileManager::instance()->open_file(_fname, &file_handle));
-    RandomAccessFile* input_file = file_handle.file();
+    std::unique_ptr<fs::ReadableBlock> rblock;
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
+    RETURN_IF_ERROR(block_mgr->open_block(_fname, &rblock));
+
     uint64_t file_size;
-    RETURN_IF_ERROR(input_file->size(&file_size));
+    RETURN_IF_ERROR(rblock->size(&file_size));
 
     if (file_size < 12) {
         return Status::Corruption(Substitute("Bad segment file $0: file size $1 < 12", _fname, file_size));
     }
 
     uint8_t fixed_buf[12];
-    RETURN_IF_ERROR(input_file->read_at(file_size - 12, Slice(fixed_buf, 12)));
+    RETURN_IF_ERROR(rblock->read(file_size - 12, Slice(fixed_buf, 12)));
 
     // validate magic number
     if (memcmp(fixed_buf + 8, k_segment_magic, k_segment_magic_length) != 0) {
@@ -114,7 +114,7 @@ Status Segment::_parse_footer() {
     }
     std::string footer_buf;
     footer_buf.resize(footer_length);
-    RETURN_IF_ERROR(input_file->read_at(file_size - 12 - footer_length, footer_buf));
+    RETURN_IF_ERROR(rblock->read(file_size - 12 - footer_length, footer_buf));
 
     // validate footer PB's checksum
     uint32_t expect_checksum = decode_fixed32_le(fixed_buf + 4);
@@ -135,11 +135,12 @@ Status Segment::_parse_footer() {
 Status Segment::_load_index() {
     return _load_index_once.call([this] {
         // read and parse short key index page
-        OpenedFileHandle<RandomAccessFile> file_handle;
-        RETURN_IF_ERROR(FileManager::instance()->open_file(_fname, &file_handle));
+        std::unique_ptr<fs::ReadableBlock> rblock;
+        fs::BlockManager* block_mgr = fs::fs_util::block_manager();
+        RETURN_IF_ERROR(block_mgr->open_block(_fname, &rblock));
 
         PageReadOptions opts;
-        opts.file = file_handle.file();
+        opts.rblock = rblock.get();
         opts.page_pointer = PagePointer(_footer.short_key_index_page());
         opts.codec = nullptr; // short key index page uses NO_COMPRESSION for now
         OlapReaderStatistics tmp_stats;
@@ -173,7 +174,6 @@ Status Segment::_create_column_readers() {
         ColumnReaderOptions opts;
         opts.kept_in_memory = _tablet_schema->is_in_memory();
         std::unique_ptr<ColumnReader> reader;
-        // pass Descriptor<RandomAccessFile>* to column reader
         RETURN_IF_ERROR(ColumnReader::create(
             opts, _footer.columns(iter->second), _footer.num_rows(), _fname, &reader));
         _column_readers[ordinal] = std::move(reader);

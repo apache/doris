@@ -17,12 +17,10 @@
 
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 
-#include "env/env.h" // for RandomAccessFile
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
 #include "olap/rowset/segment_v2/page_io.h"
-#include "util/file_manager.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -41,15 +39,15 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     RETURN_IF_ERROR(get_block_compression_codec(_meta.compression(), &_compress_codec));
     _validx_key_coder = get_key_coder(_type_info->type());
 
-    OpenedFileHandle<RandomAccessFile> file_handle;
-    RETURN_IF_ERROR(FileManager::instance()->open_file(_file_name, &file_handle));
-    RandomAccessFile* input_file = file_handle.file();
+    std::unique_ptr<fs::ReadableBlock> rblock;
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
+    RETURN_IF_ERROR(block_mgr->open_block(_file_name, &rblock));
     // read and parse ordinal index page when exists
     if (_meta.has_ordinal_index_meta()) {
         if (_meta.ordinal_index_meta().is_root_data_page()) {
             _sole_data_page = PagePointer(_meta.ordinal_index_meta().root_page());
         } else {
-            RETURN_IF_ERROR(load_index_page(input_file,
+            RETURN_IF_ERROR(load_index_page(rblock.get(),
                                             _meta.ordinal_index_meta().root_page(),
                                             &_ordinal_index_page_handle,
                                             &_ordinal_index_reader));
@@ -62,7 +60,7 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
         if (_meta.value_index_meta().is_root_data_page()) {
             _sole_data_page = PagePointer(_meta.value_index_meta().root_page());
         } else {
-            RETURN_IF_ERROR(load_index_page(input_file,
+            RETURN_IF_ERROR(load_index_page(rblock.get(),
                                             _meta.value_index_meta().root_page(),
                                             &_value_index_page_handle,
                                             &_value_index_reader));
@@ -73,21 +71,21 @@ Status IndexedColumnReader::load(bool use_page_cache, bool kept_in_memory) {
     return Status::OK();
 }
 
-Status IndexedColumnReader::load_index_page(RandomAccessFile* file,
+Status IndexedColumnReader::load_index_page(fs::ReadableBlock* rblock,
                                             const PagePointerPB& pp,
                                             PageHandle* handle,
                                             IndexPageReader* reader) {
     Slice body;
     PageFooterPB footer;
-    RETURN_IF_ERROR(read_page(file, PagePointer(pp), handle, &body, &footer));
+    RETURN_IF_ERROR(read_page(rblock, PagePointer(pp), handle, &body, &footer));
     RETURN_IF_ERROR(reader->parse(body, footer.index_page_footer()));
     return Status::OK();
 }
 
-Status IndexedColumnReader::read_page(RandomAccessFile* file, const PagePointer& pp,
+Status IndexedColumnReader::read_page(fs::ReadableBlock* rblock, const PagePointer& pp,
                                       PageHandle* handle, Slice* body, PageFooterPB* footer) const {
     PageReadOptions opts;
-    opts.file = file;
+    opts.rblock = rblock;
     opts.page_pointer = pp;
     opts.codec = _compress_codec;
     OlapReaderStatistics tmp_stats;
@@ -104,7 +102,7 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
     PageHandle handle;
     Slice body;
     PageFooterPB footer;
-    RETURN_IF_ERROR(_reader->read_page(_file, pp, &handle, &body, &footer));
+    RETURN_IF_ERROR(_reader->read_page(_rblock.get(), pp, &handle, &body, &footer));
     // parse data page
     // note that page_index is not used in IndexedColumnIterator, so we pass 0
     return ParsedPage::create(std::move(handle), body, footer.data_page_footer(),

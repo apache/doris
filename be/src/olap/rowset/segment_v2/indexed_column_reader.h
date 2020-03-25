@@ -22,6 +22,7 @@
 #include "common/status.h"
 #include "gen_cpp/segment_v2.pb.h"
 #include "olap/column_block.h"
+#include "olap/fs/fs_util.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_handle.h"
@@ -29,13 +30,10 @@
 #include "olap/rowset/segment_v2/parsed_page.h"
 #include "util/block_compression.h"
 #include "util/slice.h"
-#include "util/file_cache.h"
-#include "util/file_manager.h"
 
 namespace doris {
 
 class KeyCoder;
-class RandomAccessFile;
 class TypeInfo;
 
 namespace segment_v2 {
@@ -53,7 +51,7 @@ public:
     Status load(bool use_page_cache, bool kept_in_memory);
 
     // read a page specified by `pp' from `file' into `handle'
-    Status read_page(RandomAccessFile* file, const PagePointer& pp,
+    Status read_page(fs::ReadableBlock* rblock, const PagePointer& pp,
                      PageHandle* handle, Slice* body, PageFooterPB* footer) const;
 
     int64_t num_values() const { return _num_values; }
@@ -63,7 +61,7 @@ public:
     bool support_value_seek() const { return _meta.has_value_index_meta(); }
 
 private:
-    Status load_index_page(RandomAccessFile* file,
+    Status load_index_page(fs::ReadableBlock* rblock,
                            const PagePointerPB& pp,
                            PageHandle* handle,
                            IndexPageReader* reader);
@@ -97,12 +95,12 @@ public:
     explicit IndexedColumnIterator(const IndexedColumnReader* reader)
         : _reader(reader),
           _ordinal_iter(&reader->_ordinal_index_reader),
-          _value_iter(&reader->_value_index_reader),
-          _file(nullptr) {
-        auto st = FileManager::instance()->open_file(_reader->_file_name, &_file_handle);
+          _value_iter(&reader->_value_index_reader) {
+          
+        fs::BlockManager* block_manager = fs::fs_util::block_manager();
+        auto st = block_manager->open_block(_reader->_file_name, &_rblock);
         DCHECK(st.ok());
         WARN_IF_ERROR(st, "open file failed:" + _reader->_file_name);
-        _file = _file_handle.file();
     }
 
     // Seek to the given ordinal entry. Entry 0 is the first entry.
@@ -148,9 +146,7 @@ private:
     // next_batch() will read from this position
     ordinal_t _current_ordinal = 0;
     // open file handle
-    OpenedFileHandle<RandomAccessFile> _file_handle;
-    // file to read
-    RandomAccessFile* _file;
+    std::unique_ptr<fs::ReadableBlock> _rblock;
 };
 
 } // namespace segment_v2

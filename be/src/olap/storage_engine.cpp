@@ -33,6 +33,7 @@
 #include <rapidjson/document.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "env/env.h"
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/lru_cache.h"
@@ -50,7 +51,7 @@
 #include "olap/rowset/column_data_writer.h"
 #include "olap/olap_snapshot_converter.h"
 #include "olap/rowset/unique_rowset_id_generator.h"
-#include "olap/fs/fs_util.h"
+#include "olap/fs/file_block_manager.h"
 #include "util/time.h"
 #include "util/doris_metrics.h"
 #include "util/pretty_printer.h"
@@ -177,7 +178,7 @@ OLAPStatus StorageEngine::_open() {
 
     fs::BlockManagerOptions bm_opts;
     bm_opts.read_only = false;
-    _block_manager.reset(fs::fs_util::file_block_mgr(Env::Default(), bm_opts));
+    _block_manager.reset(new fs::FileBlockManager(Env::Default(), std::move(bm_opts)));
 
     _parse_default_rowset_type();
 
