@@ -21,6 +21,7 @@ import java.util.Map;
 
 public class DynamicPartitionProperty{
     public static final String TIME_UNIT = "dynamic_partition.time_unit";
+    public static final String START = "dynamic_partition.start";
     public static final String END = "dynamic_partition.end";
     public static final String PREFIX = "dynamic_partition.prefix";
     public static final String BUCKETS = "dynamic_partition.buckets";
@@ -30,6 +31,7 @@ public class DynamicPartitionProperty{
 
     private boolean enable;
     private String timeUnit;
+    private int start;
     private int end;
     private String prefix;
     private int buckets;
@@ -39,6 +41,7 @@ public class DynamicPartitionProperty{
             this.exist = true;
             this.enable = Boolean.parseBoolean(properties.get(ENABLE));
             this.timeUnit = properties.get(TIME_UNIT);
+            this.start = Integer.parseInt(properties.get(START));
             this.end = Integer.parseInt(properties.get(END));
             this.prefix = properties.get(PREFIX);
             this.buckets = Integer.parseInt(properties.get(BUCKETS));
@@ -53,6 +56,10 @@ public class DynamicPartitionProperty{
 
     public String getTimeUnit() {
         return timeUnit;
+    }
+
+    public int getStart() {
+        return start;
     }
 
     public int getEnd() {
@@ -75,6 +82,7 @@ public class DynamicPartitionProperty{
     public String toString() {
         return ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
                 ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
+                ",\n\"" + START + "\" = \"" + start + "\"" +
                 ",\n\"" + END + "\" = \"" + end + "\"" +
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
                 ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"";
