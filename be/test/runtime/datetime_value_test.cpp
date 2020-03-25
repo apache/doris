@@ -330,6 +330,10 @@ TEST_F(DateTimeValueTest, unix_timestamp) {
     value.from_date_int64(20380120);
     value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
     ASSERT_EQ(0, timestamp);
+	
+    value.from_date_int64(10000101);
+    value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
+    ASSERT_EQ(0, timestamp);
 }
 
 // Calculate format
