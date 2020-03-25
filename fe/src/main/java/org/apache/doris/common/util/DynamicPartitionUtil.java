@@ -263,10 +263,10 @@ public class DynamicPartitionUtil {
 
     public static String getFormattedPartitionName(String name, String timeUnit) {
         name = name.replace("-", "").replace(":", "").replace(" ", "");
-        if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            return name.substring(0, 8);
-        } else {
+        if (timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())) {
             return name.substring(0, 6);
+        } else {
+            return name.substring(0, 8);
         }
     }
 
