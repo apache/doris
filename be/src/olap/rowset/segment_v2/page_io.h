@@ -30,16 +30,17 @@ namespace doris {
 
 class BlockCompressionCodec;
 struct OlapReaderStatistics;
-class RandomAccessFile;
+
 namespace fs {
+class ReadableBlock;
 class WritableBlock;
 }
 
 namespace segment_v2 {
 
 struct PageReadOptions {
-    // file to read page
-    RandomAccessFile* file = nullptr;
+    // block to read page
+    fs::ReadableBlock* rblock = nullptr;
     // location of the page
     PagePointer page_pointer;
     // decompressor for page body (null means page body is not compressed)
@@ -55,7 +56,7 @@ struct PageReadOptions {
     bool kept_in_memory = false;
 
     void sanity_check() const {
-        CHECK_NOTNULL(file);
+        CHECK_NOTNULL(rblock);
         CHECK_NOTNULL(stats);
     }
 };

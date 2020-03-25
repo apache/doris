@@ -168,7 +168,6 @@ ${DORIS_TEST_BINARY_DIR}/util/utf8_check_test
 ${DORIS_TEST_BINARY_DIR}/util/cgroup_util_test
 ${DORIS_TEST_BINARY_DIR}/util/path_util_test
 ${DORIS_TEST_BINARY_DIR}/util/file_cache_test
-${DORIS_TEST_BINARY_DIR}/util/file_manager_test
 ${DORIS_TEST_BINARY_DIR}/util/parse_util_test
 ${DORIS_TEST_BINARY_DIR}/util/countdown_latch_test
 ${DORIS_TEST_BINARY_DIR}/util/monotime_test

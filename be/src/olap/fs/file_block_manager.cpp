@@ -25,6 +25,7 @@
 #include <utility>
 
 #include "common/logging.h"
+#include "common/config.h"
 #include "env/env.h"
 #include "env/env_util.h"
 #include "gutil/strings/substitute.h"
@@ -32,6 +33,7 @@
 #include "olap/fs/block_manager_metrics.h"
 #include "runtime/mem_tracker.h"
 #include "util/doris_metrics.h"
+#include "util/file_cache.h"
 #include "util/metrics.h"
 #include "util/path_util.h"
 #include "util/slice.h"
@@ -259,7 +261,7 @@ class FileReadableBlock : public ReadableBlock {
 public:
     FileReadableBlock(FileBlockManager* block_manager,
                       string path,
-                      shared_ptr<RandomAccessFile> reader);
+                      std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle);
 
     virtual ~FileReadableBlock();
 
@@ -287,26 +289,29 @@ private:
     const string _path;
 
     // The underlying opened file backing this block.
-    shared_ptr<RandomAccessFile> reader_;
+    std::shared_ptr<OpenedFileHandle<RandomAccessFile>> _file_handle;
+    // the backing file of OpenedFileHandle, not owned.
+    RandomAccessFile* _file;
 
     // Whether or not this block has been closed. Close() is thread-safe, so
     // this must be an atomic primitive.
-    std::atomic_bool closed_;
+    std::atomic_bool _closed;
 
     DISALLOW_COPY_AND_ASSIGN(FileReadableBlock);
 };
 
 FileReadableBlock::FileReadableBlock(FileBlockManager* block_manager,
                                      string path,
-                                     shared_ptr<RandomAccessFile> reader) :
+                                     std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle) :
         _block_manager(block_manager),
         _path(std::move(path)),
-        reader_(std::move(reader)),
-        closed_(false) {
+        _file_handle(file_handle),
+        _closed(false) {
     if (_block_manager->_metrics) {
         _block_manager->_metrics->blocks_open_reading->increment(1);
         _block_manager->_metrics->total_readable_blocks->increment(1);
     }
+    _file = _file_handle->file();
 }
 
 FileReadableBlock::~FileReadableBlock() {
@@ -315,8 +320,8 @@ FileReadableBlock::~FileReadableBlock() {
 
 Status FileReadableBlock::close() {
     bool expected = false;
-    if (closed_.compare_exchange_strong(expected, true)) {
-        reader_.reset();
+    if (_closed.compare_exchange_strong(expected, true)) {
+        _file_handle.reset();
         if (_block_manager->_metrics) {
             _block_manager->_metrics->blocks_open_reading->increment(-1);
         }
@@ -339,9 +344,9 @@ const string& FileReadableBlock::path() const {
 }
 
 Status FileReadableBlock::size(uint64_t* sz) const {
-    DCHECK(!closed_.load());
+    DCHECK(!_closed.load());
 
-    RETURN_IF_ERROR(reader_->size(sz));
+    RETURN_IF_ERROR(_file->size(sz));
     return Status::OK();
 }
 
@@ -350,9 +355,9 @@ Status FileReadableBlock::read(uint64_t offset, Slice result) const {
 }
 
 Status FileReadableBlock::readv(uint64_t offset, const Slice* results, size_t res_cnt) const {
-    DCHECK(!closed_.load());
+    DCHECK(!_closed.load());
 
-    RETURN_IF_ERROR(reader_->readv_at(offset, results, res_cnt));
+    RETURN_IF_ERROR(_file->readv_at(offset, results, res_cnt));
 
     if (_block_manager->_metrics) {
         // Calculate the read amount of data
@@ -379,6 +384,8 @@ FileBlockManager::FileBlockManager(Env* env, BlockManagerOptions opts) :
     if (_opts.enable_metric) {
         _metrics.reset(new internal::BlockManagerMetrics());
     }
+
+    _file_cache.reset(new FileCache<RandomAccessFile>("Readable file cache", config::file_descriptor_cache_capacity));
 }
 
 FileBlockManager::~FileBlockManager() {
@@ -405,9 +412,15 @@ Status FileBlockManager::create_block(const CreateBlockOptions& opts,
 
 Status FileBlockManager::open_block(const std::string& path, unique_ptr<ReadableBlock>* block) {
     VLOG(1) << "Opening block with path at " << path;
-    shared_ptr<RandomAccessFile> reader;
-    RETURN_IF_ERROR(env_util::open_file_for_random(_env, path, &reader));
-    block->reset(new internal::FileReadableBlock(this, path, reader));
+    std::shared_ptr<OpenedFileHandle<RandomAccessFile>> file_handle(new OpenedFileHandle<RandomAccessFile>());
+    bool found = _file_cache->lookup(path, file_handle.get());
+    if (!found) {
+        std::unique_ptr<RandomAccessFile> file;
+        RETURN_IF_ERROR(_env->new_random_access_file(path, &file));
+        _file_cache->insert(path, file.release(), file_handle.get());
+    }
+
+    block->reset(new internal::FileReadableBlock(this, path, file_handle));
     return Status::OK();
 }
 

@@ -36,6 +36,10 @@ class RowCursor;
 class RowBlockV2;
 class ShortKeyIndexIterator;
 
+namespace fs {
+class ReadableBlock;
+}
+
 namespace segment_v2 {
 
 class BitmapIndexIterator;
@@ -120,8 +124,8 @@ private:
     // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<RowBlockV2> _seek_block;
 
-    // Handle for file to read
-    OpenedFileHandle<RandomAccessFile> _file_handle;
+    // block for file to read
+    std::unique_ptr<fs::ReadableBlock> _rblock;
 };
 
 }

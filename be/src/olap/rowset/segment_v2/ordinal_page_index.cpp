@@ -19,11 +19,10 @@
 
 #include "common/logging.h"
 #include "env/env.h"
-#include "olap/fs/block_manager.h"
 #include "olap/key_coder.h"
+#include "olap/fs/fs_util.h"
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/rowset/segment_v2/page_io.h"
-#include "util/file_manager.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -69,11 +68,12 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
         return Status::OK();
     }
     // need to read index page
-    OpenedFileHandle<RandomAccessFile> file_handle;
-    RETURN_IF_ERROR(FileManager::instance()->open_file(_filename, &file_handle));
+    std::unique_ptr<fs::ReadableBlock> rblock;
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
+    RETURN_IF_ERROR(block_mgr->open_block(_filename, &rblock));
 
     PageReadOptions opts;
-    opts.file = file_handle.file();
+    opts.rblock = rblock.get();
     opts.page_pointer = PagePointer(_index_meta->root_page().root_page());
     opts.codec = nullptr; // ordinal index page uses NO_COMPRESSION right now
     OlapReaderStatistics tmp_stats;
