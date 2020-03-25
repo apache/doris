@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
-import java.util.Objects;
-
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -29,11 +26,15 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Objects;
 
 public class ArithmeticExpr extends Expr {
     private static final Logger LOG = LogManager.getLogger(ArithmeticExpr.class);
@@ -216,7 +217,6 @@ public class ArithmeticExpr extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-
         // bitnot is the only unary op, deal with it here
         if (op == Operator.BITNOT) {
             type = Type.BIGINT;
@@ -228,6 +228,12 @@ public class ArithmeticExpr extends Expr {
             if (fn == null) {
                 Preconditions.checkState(false, String.format("No match for op with operand types", toSql()));
             }
+            return;
+        }
+
+        analyzeSubqueryInChildren();
+        // if children has subquery, it will be rewritten and reanalyzed in the future.
+        if (contains(Subquery.class)) {
             return;
         }
 
@@ -272,6 +278,31 @@ public class ArithmeticExpr extends Expr {
         if (fn == null) {
             Preconditions.checkState(false, String.format(
                     "No match for '%s' with operand types %s and %s", toSql(), t1, t2));
+        }
+    }
+
+    public void analyzeSubqueryInChildren() throws AnalysisException {
+        for (Expr child : children) {
+            if (child instanceof Subquery) {
+                Subquery subquery = (Subquery) child;
+                if (!subquery.returnsScalarColumn()) {
+                    String msg = "Subquery of arithmetic expr must return a single column: " + child.toSql();
+                    throw new AnalysisException(msg);
+                }
+                /**
+                 * Situation: The expr is a binary predicate and the type of subquery is not scalar type.
+                 * Add assert: The stmt of subquery is added an assert condition (return error if row count > 1).
+                 * Input params:
+                 *     expr: 0.9*(select k1 from t2)
+                 *     subquery stmt: select k1 from t2
+                 * Output params:
+                 *     new expr: 0.9 * (select k1 from t2 (assert row count: return error if row count > 1 ))
+                 *     subquery stmt: select k1 from t2 (assert row count: return error if row count > 1 )
+                 */
+                if (!subquery.getType().isScalarType()) {
+                    subquery.getStatement().setAssertNumRowsElement(1);
+                }
+            }
         }
     }
 

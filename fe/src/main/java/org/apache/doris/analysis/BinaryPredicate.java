@@ -17,11 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.util.Objects;
-
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.PrimitiveType;
@@ -35,11 +30,17 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TExprOpcode;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.Objects;
 
 /**
  * Most predicates with two operands..
@@ -313,14 +314,30 @@ public class BinaryPredicate extends Predicate implements Writable {
         super.analyzeImpl(analyzer);
 
         for (Expr expr : children) {
-            if (expr instanceof Subquery && !((Subquery) expr).returnsScalarColumn()) {
-                String msg = "Subquery of binary predicate must return a single column: " + expr.toSql();
-                throw new AnalysisException(msg);
+            if (expr instanceof Subquery) {
+                Subquery subquery = (Subquery) expr;
+                if (!subquery.returnsScalarColumn()) {
+                    String msg = "Subquery of binary predicate must return a single column: " + expr.toSql();
+                    throw new AnalysisException(msg);
+                }
+                /**
+                 * Situation: The expr is a binary predicate and the type of subquery is not scalar type.
+                 * Add assert: The stmt of subquery is added an assert condition (return error if row count > 1).
+                 * Input params:
+                 *     expr: k1=(select k1 from t2)
+                 *     subquery stmt: select k1 from t2
+                 * Output params:
+                 *     new expr: k1 = (select k1 from t2 (assert row count: return error if row count > 1 ))
+                 *     subquery stmt: select k1 from t2 (assert row count: return error if row count > 1 )
+                 */
+                if (!subquery.getType().isScalarType()) {
+                    subquery.getStatement().setAssertNumRowsElement(1);
+                }
             }
         }
 
-        // if children has subquery, it will be written and reanalyzed in the future.
-        if (children.get(0) instanceof Subquery || children.get(1) instanceof Subquery) {
+        // if children has subquery, it will be rewritten and reanalyzed in the future.
+        if (contains(Subquery.class)) {
             return;
         }
 
@@ -558,4 +575,3 @@ public class BinaryPredicate extends Predicate implements Writable {
         return 31 * super.hashCode() + Objects.hashCode(op);
     }
 }
-

@@ -89,7 +89,7 @@ public class InsertStmt extends DdlStmt {
     // parsed from targetPartitionNames. empty means no partition specified
     private List<Long> targetPartitionIds = Lists.newArrayList();
     private final List<String> targetColumnNames;
-    private final QueryStmt queryStmt;
+    private QueryStmt queryStmt;
     private final List<String> planHints;
     private Boolean isRepartition;
     private boolean isStreaming = false;
@@ -202,6 +202,10 @@ public class InsertStmt extends DdlStmt {
 
     public QueryStmt getQueryStmt() {
         return queryStmt;
+    }
+
+    public void setQueryStmt(QueryStmt queryStmt) {
+        this.queryStmt = queryStmt;
     }
 
 

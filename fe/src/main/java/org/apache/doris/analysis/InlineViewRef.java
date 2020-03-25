@@ -58,7 +58,7 @@ public class InlineViewRef extends TableRef {
     // BEGIN: Members that need to be reset()
 
     // The select or union statement of the inline view
-    private final QueryStmt queryStmt;
+    private QueryStmt queryStmt;
 
     // queryStmt has its own analysis context
     private Analyzer inlineViewAnalyzer;
@@ -395,6 +395,10 @@ public class InlineViewRef extends TableRef {
 
     public QueryStmt getViewStmt() {
         return queryStmt;
+    }
+
+    public void setViewStmt(QueryStmt queryStmt) {
+        this.queryStmt = queryStmt;
     }
 
     public Analyzer getAnalyzer() {
