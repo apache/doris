@@ -112,8 +112,9 @@ public class RowBatch {
             }
         } catch (Exception e) {
             logger.error("Read Doris Data failed because: ", e);
-            close();
             throw new DorisException(e.getMessage());
+        } finally {
+            close();
         }
     }
 
