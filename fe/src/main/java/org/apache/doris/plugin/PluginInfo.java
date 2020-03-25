@@ -30,7 +30,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.apache.commons.lang.StringUtils;
-import org.apache.doris.catalog.MetaObject;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DigitalVersion;
@@ -41,7 +40,7 @@ import org.slf4j.LoggerFactory;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
-public class PluginInfo extends MetaObject implements Writable {
+public class PluginInfo implements Writable {
     public static final Logger LOG = LoggerFactory.getLogger(PluginInfo.class);
 
     private static final String DEFAULT_PLUGIN_PROPERTIES = "plugin.properties";
@@ -226,31 +225,13 @@ public class PluginInfo extends MetaObject implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        super.write(out);
         String s = GsonUtils.GSON.toJson(this);
         Text.writeString(out, s);
     }
 
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
-        String s = Text.readString(in);
-        PluginInfo pi = GsonUtils.GSON.fromJson(s, PluginInfo.class);
-        name = pi.name;
-        type = pi.type;
-        description = pi.description;
-        className = pi.className;
-        soName = pi.soName;
-        source = pi.source;
-
-        version = pi.version;
-        javaVersion = pi.javaVersion;
-    }
-
     public static PluginInfo read(DataInput in) throws IOException {
-        PluginInfo p = new PluginInfo();
-        p.readFields(in);
-        return p;
+        String s = Text.readString(in);
+        return GsonUtils.GSON.fromJson(s, PluginInfo.class);
     }
 
 }
