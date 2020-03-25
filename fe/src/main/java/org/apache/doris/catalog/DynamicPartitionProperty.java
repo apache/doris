@@ -41,7 +41,8 @@ public class DynamicPartitionProperty{
             this.exist = true;
             this.enable = Boolean.parseBoolean(properties.get(ENABLE));
             this.timeUnit = properties.get(TIME_UNIT);
-            this.start = Integer.parseInt(properties.get(START));
+            // In order to compatible dynamic add partition version
+            this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(Integer.MIN_VALUE)));
             this.end = Integer.parseInt(properties.get(END));
             this.prefix = properties.get(PREFIX);
             this.buckets = Integer.parseInt(properties.get(BUCKETS));

@@ -261,8 +261,13 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static String getFormattedPartitionName(String name) {
-        return name.replace("-", "").replace(":", "").replace(" ", "");
+    public static String getFormattedPartitionName(String name, String timeUnit) {
+        name = name.replace("-", "").replace(":", "").replace(" ", "");
+        if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
+            return name.substring(0, 8);
+        } else {
+            return name.substring(0, 6);
+        }
     }
 
     public static String getPartitionRange(String timeUnit, int offset, Calendar calendar, String format) {
@@ -273,6 +278,10 @@ public class DynamicPartitionUtil {
         } else {
             calendar.add(Calendar.MONTH, offset);
         }
+        // dynamic partition's time accuracy is DAY
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
         SimpleDateFormat dateFormat = new SimpleDateFormat(format);
         return dateFormat.format(calendar.getTime());
     }

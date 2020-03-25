@@ -163,13 +163,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
                 return ret;
             }
         }
-        if (this_key_len < other_key_len) {
-            return -1;
-        } else if (this_key_len > other_key_len) {
-            return 1;
-        } else {
-            return 0;
-        }
+        return Integer.compare(this_key_len, other_key_len);
     }
 
     // return: ("100", "200", "300")
