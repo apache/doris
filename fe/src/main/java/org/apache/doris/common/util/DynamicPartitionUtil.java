@@ -36,14 +36,19 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import com.google.common.base.Strings;
 
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
 
 public class DynamicPartitionUtil {
+    private static final Logger LOG = LogManager.getLogger(DynamicPartitionUtil.class);
+
     private static final String TIMESTAMP_FORMAT = "yyyyMMdd";
     private static final String DATE_FORMAT = "yyyy-MM-dd";
     private static final String DATETIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
@@ -261,8 +266,23 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static String getFormattedPartitionName(String name) {
-        return name.replace("-", "").replace(":", "").replace(" ", "");
+    public static String getFormattedPartitionName(String name, String timeUnit) {
+        name = name.replace("-", "").replace(":", "").replace(" ", "");
+        if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
+            return name.substring(0, 8);
+        } else if (timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())) {
+            return name.substring(0, 6);
+        } else {
+            name = name.substring(0, 8);
+            Calendar calendar = Calendar.getInstance();
+            try {
+                calendar.setTime(new SimpleDateFormat("yyyyMMdd").parse(name));
+            } catch (ParseException e) {
+                LOG.warn("Format dynamic partition name error. Error={}", e.getMessage());
+                return name;
+            }
+            return String.format("%s_%02d", calendar.get(Calendar.YEAR), calendar.get(Calendar.WEEK_OF_YEAR));
+        }
     }
 
     public static String getPartitionRange(String timeUnit, int offset, Calendar calendar, String format) {
@@ -273,6 +293,10 @@ public class DynamicPartitionUtil {
         } else {
             calendar.add(Calendar.MONTH, offset);
         }
+        // dynamic partition's time accuracy is DAY
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
         SimpleDateFormat dateFormat = new SimpleDateFormat(format);
         return dateFormat.format(calendar.getTime());
     }
