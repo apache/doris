@@ -74,6 +74,14 @@ inline int64_t UnixMillis() {
   return GetCurrentTimeMicros() / MICROS_PER_MILLI;
 }
 
+/// Returns the number of seconds that have passed since the Unix epoch. This is
+/// affected by manual changes to the system clock but is more suitable for use across
+/// a cluster. For more accurate timings on the local host use the monotonic functions
+/// above.
+inline int64_t UnixSeconds() {
+    return GetCurrentTimeMicros() / MICROS_PER_SEC;
+}
+
 /// Returns the number of microseconds that have passed since the Unix epoch. This is
 /// affected by manual changes to the system clock but is more suitable for use across
 /// a cluster. For more accurate timings on the local host use the monotonic functions
