@@ -1486,13 +1486,15 @@ public class ShowExecutor {
                             tableName,
                             String.valueOf(dynamicPartitionProperty.getEnable()),
                             dynamicPartitionProperty.getTimeUnit().toUpperCase(),
+                            String.valueOf(dynamicPartitionProperty.getStart()),
                             String.valueOf(dynamicPartitionProperty.getEnd()),
                             dynamicPartitionProperty.getPrefix(),
                             String.valueOf(dynamicPartitionProperty.getBuckets()),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.MSG)));
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.CREATE_PARTITION_MSG),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DROP_PARTITION_MSG)));
                 }
             } finally {
                 db.readUnlock();
@@ -1506,7 +1508,7 @@ public class ShowExecutor {
         ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
         Database db = ctx.getCatalog().getDb(showStmt.getDbName());
         if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName().toString());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
 
         long txnId = showStmt.getTxnId();

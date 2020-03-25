@@ -33,13 +33,15 @@ public class ShowDynamicPartitionStmt extends ShowStmt {
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Enable", ScalarType.createVarchar(20)))
                     .addColumn(new Column("TimeUnit", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("Start", ScalarType.createVarchar(20)))
                     .addColumn(new Column("End", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Prefix", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Buckets", ScalarType.createVarchar(20)))
                     .addColumn(new Column("LastUpdateTime", ScalarType.createVarchar(20)))
                     .addColumn(new Column("LastSchedulerTime", ScalarType.createVarchar(20)))
                     .addColumn(new Column("State", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Msg", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("LastCreatePartitionMsg", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("LastDropPartitionMsg", ScalarType.createVarchar(20)))
                     .build();
 
     ShowDynamicPartitionStmt(String db) {
