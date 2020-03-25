@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 
@@ -30,6 +31,7 @@ public class ColumnRenameClause extends AlterTableClause {
     private String newColName;
 
     public ColumnRenameClause(String colName, String newColName) {
+        super(AlterOpType.SCHEMA_CHANGE);
         this.colName = colName;
         this.newColName = newColName;
         this.needTableStable = false;

@@ -225,7 +225,7 @@ public class DynamicPartitionUtil {
         if (tableProperty != null && tableProperty.getDynamicPartitionProperty() != null &&
                 tableProperty.getDynamicPartitionProperty().isExist() &&
                 tableProperty.getDynamicPartitionProperty().getEnable()) {
-            throw new DdlException("Cannot modify partition on a Dynamic Partition Table, set `dynamic_partition.enable` to false firstly.");
+            throw new DdlException("Cannot add/drop partition on a Dynamic Partition Table, set `dynamic_partition.enable` to false firstly.");
         }
     }
 

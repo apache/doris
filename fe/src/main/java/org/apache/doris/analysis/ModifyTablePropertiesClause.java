@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -32,6 +33,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     private Map<String, String> properties;
 
     public ModifyTablePropertiesClause(Map<String, String> properties) {
+        super(AlterOpType.MODIFY_TABLE_PROPERTY);
         this.properties = properties;
     }
 
@@ -87,6 +89,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             properties.remove(defaultReplicationNumName);
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
             this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
