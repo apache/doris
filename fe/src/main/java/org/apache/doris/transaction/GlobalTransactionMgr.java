@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -821,13 +822,12 @@ public class GlobalTransactionMgr implements Writable {
     // if one of them is null or empty, that means that we don't know related tables in tableList,
     // we think the two lists may have intersection for right ordered txns
     public boolean isIntersectionNotEmpty(List<Long> sourceTableIdList, List<Long> targetTableIdList) {
-        if (sourceTableIdList == null || sourceTableIdList.isEmpty() || targetTableIdList == null ||
-                targetTableIdList.isEmpty()) {
+        if (CollectionUtils.isEmpty(sourceTableIdList) || CollectionUtils.isEmpty(targetTableIdList)) {
             return true;
         }
         for (int i = 0; i < sourceTableIdList.size(); i++) {
             for (int j = 0; j < targetTableIdList.size(); j++) {
-                if (sourceTableIdList.get(i).longValue() == targetTableIdList.get(j).longValue()) {
+                if (sourceTableIdList.get(i).equals(targetTableIdList.get(j))) {
                     return true;
                 }
             }

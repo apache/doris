@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.OlapTable;
@@ -172,7 +173,7 @@ public class TransactionState implements Writable {
 
     public TransactionState() {
         this.dbId = -1;
-        this.tableIdList = null;
+        this.tableIdList = Lists.newArrayList();
         this.transactionId = -1;
         this.label = "";
         this.idToTableCommitInfos = Maps.newHashMap();
@@ -192,7 +193,7 @@ public class TransactionState implements Writable {
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requsetId,
                             LoadJobSourceType sourceType, String coordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
-        this.tableIdList = tableIdList;
+        this.tableIdList = (tableIdList == null ? Lists.newArrayList() : tableIdList);
         this.transactionId = transactionId;
         this.label = label;
         this.requsetId = requsetId;
@@ -544,13 +545,9 @@ public class TransactionState implements Writable {
         }
         out.writeLong(callbackId);
         out.writeLong(timeoutMs);
-        if (tableIdList != null) {
-            out.writeInt(tableIdList.size());
-            for (int i = 0; i < tableIdList.size(); i++) {
-                out.writeLong(tableIdList.get(i));
-            }
-        } else {
-            out.writeInt(0);
+        out.writeInt(tableIdList.size());
+        for (int i = 0; i < tableIdList.size(); i++) {
+            out.writeLong(tableIdList.get(i));
         }
     }
     
@@ -585,7 +582,7 @@ public class TransactionState implements Writable {
         }
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
-            tableIdList = new ArrayList<>(1);
+            tableIdList = Lists.newArrayList();
             int tableListSize = in.readInt();
             for (int i = 0; i < tableListSize; i++) {
                 tableIdList.add(in.readLong());

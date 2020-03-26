@@ -19,7 +19,6 @@
 package org.apache.doris.load.loadv2;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
