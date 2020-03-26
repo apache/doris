@@ -1228,17 +1228,19 @@ public class SelectStmt extends QueryStmt {
         for (TableRef ref : fromClause_) {
             ref.rewriteExprs(rewriter, analyzer);
         }
+        // Also rewrite exprs in the statements of subqueries.
+        List<Subquery> subqueryExprs = Lists.newArrayList();
         if (whereClause != null) {
             whereClause = rewriter.rewrite(whereClause, analyzer);
-            // Also rewrite exprs in the statements of subqueries.
-            List<Subquery> subqueryExprs = Lists.newArrayList();
             whereClause.collect(Subquery.class, subqueryExprs);
-            for (Subquery s : subqueryExprs) {
-                s.getStatement().rewriteExprs(rewriter);
-            }
+
         }
         if (havingClause != null) {
             havingClause = rewriter.rewrite(havingClause, analyzer);
+            havingClauseAfterAnaylzed.collect(Subquery.class, subqueryExprs);
+        }
+        for (Subquery subquery : subqueryExprs) {
+            subquery.getStatement().rewriteExprs(rewriter);
         }
         if (groupByClause != null) {
             ArrayList<Expr> groupingExprs = groupByClause.getGroupingExprs();
