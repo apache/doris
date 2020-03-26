@@ -17,26 +17,28 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.analysis.InstallPluginStmt;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.plugin.PluginInfo.PluginType;
+import org.apache.doris.plugin.PluginLoader.PluginStatus;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.DataInputStream;
 import java.io.DataOutput;
+import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-
-import org.apache.doris.analysis.InstallPluginStmt;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.UserException;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.plugin.PluginLoader.PluginStatus;
-import org.apache.doris.plugin.PluginInfo.PluginType;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 public class PluginMgr implements Writable {
     private final static Logger LOG = LogManager.getLogger(PluginMgr.class);
@@ -48,6 +50,22 @@ public class PluginMgr implements Writable {
 
         for (int i = 0; i < PluginType.MAX_PLUGIN_SIZE; i++) {
             plugins[i] = Maps.newConcurrentMap();
+        }
+    }
+
+    // create the plugin dir if missing
+    public void init() {
+        File file = new File(Config.plugin_dir);
+        if (file.exists() && !file.isDirectory()) {
+            LOG.error("FE plugin dir {} is not a directory", Config.plugin_dir);
+            System.exit(-1);
+        }
+
+        if (!file.exists()) {
+            if (!file.mkdir()) {
+                LOG.error("failed to create FE plugin dir {}", Config.plugin_dir);
+                System.exit(-1);
+            }
         }
     }
 
