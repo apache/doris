@@ -52,7 +52,6 @@ import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
@@ -86,6 +85,7 @@ import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -701,6 +701,9 @@ public class Catalog {
             LOG.error("Invalid edit log type: {}", Config.edit_log_type);
             System.exit(-1);
         }
+
+        // init plugin manager
+        pluginMgr.init();
 
         // 2. get cluster id and role (Observer or Follower)
         getClusterIdAndRole();
