@@ -296,7 +296,9 @@ private:
     static StorageEngine* _s_instance;
 
     Mutex _gc_mutex;
-    std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
+    // map<rowset_id(str), pair<rowset_path(str),RowsetSharedPtr>>
+    // if we use RowsetId as the key, we need custom hash func
+    std::unordered_multimap<std::string, std::pair<std::string,RowsetSharedPtr>> _unused_rowsets;
 
     bool _stop_bg_worker = false;
     std::thread _unused_rowset_monitor_thread;

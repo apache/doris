@@ -713,36 +713,47 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
-    _gc_mutex.lock();
+    MutexLock lock(&_gc_mutex);
     for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
-        if (it->second.use_count() != 1) {
+        auto& rowset_ptr=it->second.second;
+        if (rowset_ptr.use_count() != 1) {
             ++it;
-        } else if (it->second->need_delete_file()) {
-            VLOG(3) << "start to remove rowset:" << it->second->rowset_id()
-                    << ", version:" << it->second->version().first << "-" << it->second->version().second;
-            OLAPStatus status = it->second->remove();
-            VLOG(3) << "remove rowset:" << it->second->rowset_id() << " finished. status:" << status;
+        } else if (rowset_ptr->need_delete_file()) {
+            VLOG(3) << "start to remove rowset:" << rowset_ptr->rowset_id()
+                    << ", version:" << rowset_ptr->version().first << "-" << rowset_ptr->version().second;
+            OLAPStatus status = rowset_ptr->remove();
+            VLOG(3) << "remove rowset:" << rowset_ptr->rowset_id() << " finished. status:" << status;
             it = _unused_rowsets.erase(it);
         }
     }
-    _gc_mutex.unlock();
 }
 
 void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     if (rowset == nullptr) { return; }
-    _gc_mutex.lock();
+    MutexLock lock(&_gc_mutex);
     VLOG(3) << "add unused rowset, rowset id:" << rowset->rowset_id()
             << ", version:" << rowset->version().first
             << "-" << rowset->version().second
             << ", unique id:" << rowset->unique_id();
-    auto it = _unused_rowsets.find(rowset->unique_id());
-    if (it == _unused_rowsets.end()) {
+
+    auto rowset_id=rowset->rowset_id().to_string();
+    auto rowset_path=rowset->rowset_path();
+    bool existed=false;
+
+    auto range = _unused_rowsets.equal_range(rowset_id);
+    for(auto it=range.first;it!=range.second;++it){
+        if(it->second.first==rowset_path){
+            existed=true;
+            break;
+        }
+    }
+
+    if (!existed) {
         rowset->set_need_delete_file();
         rowset->close();
-        _unused_rowsets[rowset->unique_id()] = rowset;
+        _unused_rowsets.emplace(rowset_id,std::make_pair(rowset_path,rowset));
         release_rowset_id(rowset->rowset_id());
     }
-    _gc_mutex.unlock();
 }
 
 // TODO(zc): refactor this funciton
@@ -918,15 +929,9 @@ OLAPStatus StorageEngine::execute_task(EngineTask* task) {
 
 // check whether any unused rowsets's id equal to rowset_id
 bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
-    _gc_mutex.lock();
-    for (auto& _unused_rowset_pair : _unused_rowsets) {
-        if (_unused_rowset_pair.second->rowset_id() == rowset_id) {
-            _gc_mutex.unlock();
-            return true;
-        }
-    }
-    _gc_mutex.unlock();
-    return false;
+    MutexLock lock(&_gc_mutex);
+    auto cnt=_unused_rowsets.count(rowset_id.to_string());
+    return cnt>0;
 }
 
 }  // namespace doris
