@@ -39,7 +39,7 @@ public:
     // for example, during gc logic, gc thread finds a file
     // and it could not find it under rowset list. but it maybe in use
     // during load procedure. Gc thread will check it using this method.
-    virtual bool id_in_use(const RowsetId& rowset_id) = 0;
+    virtual bool id_in_use(const RowsetId& rowset_id) const = 0;
 
     // remove the rowsetid from useful rowsetid list.
     virtual void release_id(const RowsetId& rowset_id) = 0;
