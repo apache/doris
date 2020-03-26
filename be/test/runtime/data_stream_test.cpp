@@ -422,7 +422,7 @@ protected:
                 info->data_values.insert(*static_cast<int64_t*>(row->get_tuple(0)->get_slot(0)));
             }
 
-            usleep(10000);  // slow down receiver to exercise buffering logic
+            SleepFor(MonoDelta::FromMilliseconds(10)); // slow down receiver to exercise buffering logic
         }
 
         if (info->status.is_cancelled()) {
@@ -447,7 +447,7 @@ protected:
                 TupleRow* row = batch.get_row(i);
                 info->data_values.insert(*static_cast<int64_t*>(row->get_tuple(0)->get_slot(0)));
             }
-            usleep(10000);  // slow down receiver to exercise buffering logic
+            SleepFor(MonoDelta::FromMilliseconds(10));  // slow down receiver to exercise buffering logic
             batch.reset();
             if (eos) {
                 break;

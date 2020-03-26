@@ -21,6 +21,7 @@
 #include "runtime/row_batch.h"
 #include "exec/data_sink.h"
 #include "common/config.h"
+#include "util/monotime.h"
 
 namespace doris {
 
@@ -41,7 +42,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 }
 
 Status PlanFragmentExecutor::open() {
-    usleep(50000);
+    SleepFor(MonoDelta::FromMilliseconds(50));
     return s_open_status;
 }
 

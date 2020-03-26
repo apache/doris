@@ -47,7 +47,7 @@ public:
 // This has to be manually verified.
 TEST_F(ThreadTest, TestJoinAndWarn) {
     scoped_refptr<Thread> holder;
-    Status status = Thread::create("test", "sleeper thread", usleep, 1000*1000, &holder);
+    Status status = Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(1), &holder);
     ASSERT_TRUE(status.ok());
     status = ThreadJoiner(holder.get())
                 .warn_after_ms(10)
@@ -58,7 +58,7 @@ TEST_F(ThreadTest, TestJoinAndWarn) {
 
 TEST_F(ThreadTest, TestFailedJoin) {
     scoped_refptr<Thread> holder;
-    Status status = Thread::create("test", "sleeper thread", usleep, 1000*1000, &holder);
+    Status status = Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(1), &holder);
     ASSERT_TRUE(status.ok());
     status = ThreadJoiner(holder.get())
                 .give_up_after_ms(50)
@@ -82,7 +82,7 @@ TEST_F(ThreadTest, TestJoinOnSelf) {
 
 TEST_F(ThreadTest, TestDoubleJoinIsNoOp) {
     scoped_refptr<Thread> holder;
-    Status status = Thread::create("test", "sleeper thread", usleep, 0, &holder);
+    Status status = Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(0), &holder);
     ASSERT_TRUE(status.ok());
     ThreadJoiner joiner(holder.get());
     status = joiner.join();
@@ -97,7 +97,7 @@ TEST_F(ThreadTest, ThreadStartBenchmark) {
         int64_t thread_creation_ns = 0;
         SCOPED_RAW_TIMER(&thread_creation_ns);
         for (auto& t : threads) {
-            Status status = Thread::create("test", "TestCallOnExit", usleep, 0, &t);
+            Status status = Thread::create("test", "TestCallOnExit", SleepFor, MonoDelta::FromSeconds(0), &t);
             ASSERT_TRUE(status.ok());
         }
         std::cout << "create 1000 threads use:"

@@ -34,6 +34,7 @@
 #include "util/cpu_info.h"
 #include "util/filesystem_util.h"
 #include "util/logging.h"
+#include "util/monotime.h"
 
 using boost::filesystem::directory_iterator;
 using boost::filesystem::remove;
@@ -215,8 +216,7 @@ protected:
     static void WaitForWrites(const vector<BufferedBlockMgr2*>& block_mgrs) {
         int max_attempts = WRITE_WAIT_MILLIS / WRITE_CHECK_INTERVAL_MILLIS;
         for (int i = 0; i < max_attempts; ++i) {
-            // SleepForMs(WRITE_CHECK_INTERVAL_MILLIS);
-            usleep(WRITE_CHECK_INTERVAL_MILLIS * 1000L);
+            SleepFor(MonoDelta::FromMilliseconds(WRITE_CHECK_INTERVAL_MILLIS));
             if (AllWritesComplete(block_mgrs)) {
                 return;
             }

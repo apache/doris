@@ -21,6 +21,7 @@
 #include "olap/file_helper.h"
 #include "olap/utils.h"
 #include "util/mem_util.hpp"
+#include "util/monotime.h"
 
 namespace doris {
 
@@ -369,7 +370,7 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
             if (sleep_time > 0) {
                 VLOG(10) << "sleep to limit merge speed. time=" << sleep_time
                         << ", bytes=" << total_stream_len;
-                usleep(sleep_time);
+                SleepFor(MonoDelta::FromMicroseconds(sleep_time));
             }
         }
     }

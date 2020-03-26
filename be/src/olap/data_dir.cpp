@@ -50,6 +50,7 @@
 #include "service/backend_options.h"
 #include "util/file_utils.h"
 #include "util/string_util.h"
+#include "util/monotime.h"
 
 namespace doris {
 
@@ -817,7 +818,7 @@ void DataDir::perform_path_gc_by_rowsetid() {
     for (auto& path : _all_check_paths) {
         ++counter;
         if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
-            usleep(config::path_gc_check_step_interval_ms * 1000);
+            SleepFor(MonoDelta::FromMilliseconds(config::path_gc_check_step_interval_ms));
         }
         TTabletId tablet_id = -1;
         TSchemaHash schema_hash = -1;

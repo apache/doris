@@ -51,7 +51,7 @@
 #include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/stopwatch.hpp"
-#include "util/time.h"
+#include "util/monotime.h"
 #include "gutil/strings/substitute.h"
 
 using std::deque;
@@ -722,7 +722,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
                                  "[transaction_id=%ld, error_tablets_size=%d]",
                                  publish_version_req.transaction_id, error_tablet_ids.size());
                 ++retry_time;
-                SleepForMs(1000);
+                SleepFor(MonoDelta::FromSeconds(1));
             }
         }
 

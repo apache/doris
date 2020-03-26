@@ -30,6 +30,7 @@
 #include "util/thrift_util.h"
 #include "util/url_coding.h"
 #include "util/container_util.hpp"
+#include "util/monotime.h"
 
 namespace doris {
 
@@ -834,7 +835,7 @@ RuntimeProfile::PeriodicCounterUpdateState::~PeriodicCounterUpdateState() {
 void RuntimeProfile::periodic_counter_update_loop() {
     while (!_s_periodic_counter_update_state._done) {
         boost::system_time before_time = boost::get_system_time();
-        usleep(config::periodic_counter_update_period_ms * 1000);
+        SleepFor(MonoDelta::FromMilliseconds(config::periodic_counter_update_period_ms));
         boost::posix_time::time_duration elapsed = boost::get_system_time() - before_time;
         int elapsed_ms = elapsed.total_milliseconds();
 

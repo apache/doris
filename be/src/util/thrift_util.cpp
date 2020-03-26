@@ -30,6 +30,7 @@
 #include "util/thrift_server.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/Data_types.h"
+#include "util/monotime.h"
 
 // TCompactProtocol requires some #defines to work right.  They also define UNLIKLEY
 // so we need to undef this.
@@ -120,7 +121,7 @@ Status wait_for_server(
                    << host << ":" << port
                    << " to come up, failed attempt " << retry_count
                    << " of " << num_retries;
-        usleep(retry_interval_ms * 1000);
+        SleepFor(MonoDelta::FromMilliseconds(retry_interval_ms));
     }
 
     return Status::InternalError("Server did not come up");
