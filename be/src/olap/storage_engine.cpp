@@ -734,7 +734,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     if (rowset == nullptr) {
         return;
     }
-    MutexLock lock(&_gc_mutex);
+
     VLOG(3) << "add unused rowset, rowset id:" << rowset->rowset_id()
             << ", version:" << rowset->version().first << "-" << rowset->version().second
             << ", unique id:" << rowset->unique_id();
@@ -743,6 +743,7 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     auto rowset_path = rowset->rowset_path();
     bool existed = false;
 
+    MutexLock lock(&_gc_mutex);
     auto range = _unused_rowsets.equal_range(rowset_id);
     for (auto it = range.first; it != range.second; ++it) {
         if (it->second.first == rowset_path) {
