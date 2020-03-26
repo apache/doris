@@ -167,6 +167,8 @@ public final class FeMetaVersion {
     public static final int VERSION_77 = 77;
     // plugin support
     public static final int VERSION_78 = 78;
+    // optimize alterJobV2 memory consumption
+    public static final int VERSION_79 = 79;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_78;
+    public static final int VERSION_CURRENT = VERSION_79;
 }

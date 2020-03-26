@@ -95,6 +95,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     // shadow index id -> shadow index short key count
     private Map<Long, Short> indexShortKeyMap = Maps.newHashMap();
 
+    // identify whether the job is finished and no need to persist some data
+    private boolean cleared = false;
+
     // bloom filter info
     private boolean hasBfChange;
     private Set<String> bfColumns = null;
@@ -114,7 +117,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     public SchemaChangeJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs) {
         super(jobId, JobType.SCHEMA_CHANGE, dbId, tableId, tableName, timeoutMs);
-
     }
 
     private SchemaChangeJobV2() {
@@ -157,6 +159,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    @Override
+    public void clear() {
+        partitionIndexTabletMap.clear();
+        partitionIndexMap.clear();
+        indexSchemaMap.clear();
+        indexShortKeyMap.clear();
+        cleared = true;
     }
 
     /*
@@ -483,6 +494,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             db.writeUnlock();
         }
 
+        clear();
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
@@ -571,6 +583,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         cancelInternal();
 
+        clear();
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
@@ -803,11 +816,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         return taskInfos;
     }
-    
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
 
+    /**
+     * write data need to persist when job is not finished
+     */
+    private void writeJobNotFinishData(DataOutput out) throws IOException {
         out.writeInt(partitionIndexTabletMap.rowKeySet().size());
         for (Long partitionId : partitionIndexTabletMap.rowKeySet()) {
             out.writeLong(partitionId);
@@ -848,38 +861,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // short key count
             out.writeShort(indexShortKeyMap.get(shadowIndexId));
         }
-
-        // bloom filter
-        out.writeBoolean(hasBfChange);
-        if (hasBfChange) {
-            out.writeInt(bfColumns.size());
-            for (String bfCol : bfColumns) {
-                Text.writeString(out, bfCol);
-            }
-            out.writeDouble(bfFpp);
-        }
-
-        out.writeLong(watershedTxnId);
-
-        // index
-        out.writeBoolean(indexChange);
-        if (indexChange) {
-            if (CollectionUtils.isNotEmpty(indexes)) {
-                out.writeBoolean(true);
-                out.writeInt(indexes.size());
-                for (Index index : indexes) {
-                    index.write(out);
-                }
-            } else {
-                out.writeBoolean(false);
-            }
-        }
     }
 
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-
+    /**
+     * read data need to persist when job is not finished
+     */
+    private void readJobNotFinishData(DataInput in) throws IOException {
         int partitionNum = in.readInt();
         for (int i = 0; i < partitionNum; i++) {
             long partitionId = in.readLong();
@@ -922,6 +909,102 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             indexSchemaMap.put(shadowIndexId, schema);
             indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
             indexShortKeyMap.put(shadowIndexId, shortKeyCount);
+        }
+    }
+
+    /**
+     * write data need to persist when job finished
+     */
+    private void writeJobFinishedData(DataOutput out) throws IOException {
+        // only persist data will be used in getInfo
+        out.writeInt(indexIdMap.size());
+
+        // shadow index info
+        out.writeInt(indexIdMap.size());
+        for (Entry<Long, Long> entry : indexIdMap.entrySet()) {
+            long shadowIndexId = entry.getKey();
+            out.writeLong(shadowIndexId);
+            // index id map
+            out.writeLong(entry.getValue());
+            // index name
+            Text.writeString(out, indexIdToName.get(shadowIndexId));
+            // index schema version and hash
+            out.writeInt(indexSchemaVersionAndHashMap.get(shadowIndexId).first);
+            out.writeInt(indexSchemaVersionAndHashMap.get(shadowIndexId).second);
+        }
+    }
+
+    /**
+     * read data need to persist when job finished
+     */
+    private void readJobFinishedData(DataInput in) throws IOException {
+        // shadow index info
+        int indexNum = in.readInt();
+        for (int i = 0; i < indexNum; i++) {
+            long shadowIndexId = in.readLong();
+            long originIndexId = in.readLong();
+            String indexName = Text.readString(in);
+            int schemaVersion = in.readInt();
+            int schemaVersionHash = in.readInt();
+            Pair<Integer, Integer> schemaVersionAndHash = Pair.create(schemaVersion, schemaVersionHash);
+            short shortKeyCount = in.readShort();
+
+            indexIdMap.put(shadowIndexId, originIndexId);
+            indexIdToName.put(shadowIndexId, indexName);
+            indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
+        }
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        super.write(out);
+
+        out.writeBoolean(cleared);
+        if (cleared) {
+            writeJobFinishedData(out);
+        } else {
+            writeJobNotFinishData(out);
+        }
+
+        // bloom filter
+        out.writeBoolean(hasBfChange);
+        if (hasBfChange) {
+            out.writeInt(bfColumns.size());
+            for (String bfCol : bfColumns) {
+                Text.writeString(out, bfCol);
+            }
+            out.writeDouble(bfFpp);
+        }
+
+        out.writeLong(watershedTxnId);
+
+        // index
+        out.writeBoolean(indexChange);
+        if (indexChange) {
+            if (CollectionUtils.isNotEmpty(indexes)) {
+                out.writeBoolean(true);
+                out.writeInt(indexes.size());
+                for (Index index : indexes) {
+                    index.write(out);
+                }
+            } else {
+                out.writeBoolean(false);
+            }
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
+            boolean cleared = in.readBoolean();
+            if (cleared) {
+                readJobFinishedData(in);
+            } else {
+                readJobNotFinishData(in);
+            }
+        } else {
+            readJobNotFinishData(in);
         }
 
         // bloom filter

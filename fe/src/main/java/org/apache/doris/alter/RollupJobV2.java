@@ -63,7 +63,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 
-/*
+/**
  * Version 2 of RollupJob.
  * This is for replacing the old RollupJob
  * https://github.com/apache/incubator-doris/issues/1429
@@ -129,6 +129,13 @@ public class RollupJobV2 extends AlterJobV2 {
 
     public void setStorageFormat(TStorageFormat storageFormat) {
         this.storageFormat = storageFormat;
+    }
+
+    @Override
+    public void clear() {
+        partitionIdToBaseRollupTabletIdMap.clear();
+        partitionIdToRollupIndex.clear();
+        rollupSchema.clear();
     }
 
     /*
@@ -429,6 +436,7 @@ public class RollupJobV2 extends AlterJobV2 {
             db.writeUnlock();
         }
 
+        clear();
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
@@ -461,6 +469,7 @@ public class RollupJobV2 extends AlterJobV2 {
 
         cancelInternal();
 
+        clear();
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
@@ -634,7 +643,7 @@ public class RollupJobV2 extends AlterJobV2 {
         }
     }
 
-    /*
+    /**
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
@@ -664,7 +673,7 @@ public class RollupJobV2 extends AlterJobV2 {
         LOG.info("replay waiting txn rollup job: {}", jobId);
     }
 
-    /*
+    /**
      * Replay job in FINISHED state.
      * Should replay all changes in runRuningJob()
      */
@@ -689,7 +698,7 @@ public class RollupJobV2 extends AlterJobV2 {
         LOG.info("replay finished rollup job: {}", jobId);
     }
 
-    /*
+    /**
      * Replay job in CANCELLED state.
      */
     private void replayCancelled(RollupJobV2 replayedJob) {
