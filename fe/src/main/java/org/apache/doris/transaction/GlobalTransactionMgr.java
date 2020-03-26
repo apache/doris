@@ -803,21 +803,16 @@ public class GlobalTransactionMgr implements Writable {
     
     // check if there exists a load job before the endTransactionId have all finished
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList) {
-        readLock();
-        try {
-            for (Map.Entry<Long, TransactionState> entry : idToTransactionState.entrySet()) {
-                if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
-                        tableIdList) || !entry.getValue().isRunning()) {
-                    continue;
-                }
-                if (entry.getKey() <= endTransactionId) {
-                    LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
-                            entry.getKey(), dbId, endTransactionId);
-                    return false;
-                }
+        for (Map.Entry<Long, TransactionState> entry : idToTransactionState.entrySet()) {
+            if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
+                    tableIdList) || !entry.getValue().isRunning()) {
+                continue;
             }
-        } finally {
-            readUnlock();
+            if (entry.getKey() <= endTransactionId) {
+                LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                        entry.getKey(), dbId, endTransactionId);
+                return false;
+            }
         }
         return true;
     }
