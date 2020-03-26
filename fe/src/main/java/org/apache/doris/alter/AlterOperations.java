@@ -76,7 +76,6 @@ public class AlterOperations {
         return currentOps.contains(AlterOpType.RENAME);
     }
 
-    // return true if it has specified operation
     public boolean contains(AlterOpType op) {
         return currentOps.contains(op);
     }
@@ -89,7 +88,7 @@ public class AlterOperations {
         }
 
         for (AlterOpType currentOp : currentOps) {
-            if (!AlterOpType.CONFLICT_MATRIX[currentOp.ordinal()][opType.ordinal()]) {
+            if (!AlterOpType.COMPATIBITLITY_MATRIX[currentOp.ordinal()][opType.ordinal()]) {
                 throw new DdlException("Alter operation " + opType + " conflicts with operation " + currentOp);
             }
         }

@@ -52,6 +52,8 @@ public class AddPartitionClause extends AlterTableClause {
         this.distributionDesc = distributionDesc;
         this.properties = properties;
         this.isTempPartition = isTempPartition;
+
+        this.needTableStable = false;
     }
 
     @Override
