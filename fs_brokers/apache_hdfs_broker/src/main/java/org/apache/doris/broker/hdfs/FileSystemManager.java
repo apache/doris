@@ -84,11 +84,13 @@ public class FileSystemManager {
     private static final String DEFAULT_DFS_CLIENT_FAILOVER_PROXY_PROVIDER =
             "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider";
     private static final String FS_DEFAULTFS_KEY = "fs.defaultFS";
+    private static final String FS_HDFS_IMPL_DISABLE_CACHE = "fs.hdfs.impl.disable.cache";
 
     // arguments for s3a
     private static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
     private static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
     private static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
+    private static final String FS_S3A_IMPL_DISABLE_CACHE = "fs.s3a.impl.disable.cache";
 
     private ScheduledExecutorService handleManagementPool = Executors.newScheduledThreadPool(2);
     
@@ -332,7 +334,7 @@ public class FileSystemManager {
                     }
                 }
 
-                conf.set("fs.hdfs.impl.disable.cache", "true");
+                conf.set(FS_HDFS_IMPL_DISABLE_CACHE, "true");
                 FileSystem dfsFileSystem = FileSystem.get(pathUri.getUri(), conf);
                 fileSystem.setFileSystem(dfsFileSystem);
             }
@@ -384,7 +386,7 @@ public class FileSystemManager {
                 conf.set(FS_S3A_ACCESS_KEY, accessKey);
                 conf.set(FS_S3A_SECRET_KEY, secretKey);
                 conf.set(FS_S3A_ENDPOINT, endpoint);
-                conf.set("fs.s3a.impl.disable.cache", "true");
+                conf.set(FS_S3A_IMPL_DISABLE_CACHE, "true");
                 FileSystem s3AFileSystem = FileSystem.get(pathUri.getUri(), conf);
                 fileSystem.setFileSystem(s3AFileSystem);
             }
