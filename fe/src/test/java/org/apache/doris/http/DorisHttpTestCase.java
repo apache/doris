@@ -150,7 +150,7 @@ abstract public class DorisHttpTestCase {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId, DataProperty.DEFAULT_DATA_PROPERTY);
         partitionInfo.setReplicationNum(testPartitionId, (short) 3);
         OlapTable table = new OlapTable(testTableId, name, columns, KeysType.AGG_KEYS, partitionInfo,
                 distributionInfo);
@@ -168,7 +168,7 @@ abstract public class DorisHttpTestCase {
         columns.add(k1);
         columns.add(k2);
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId + 100, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+        partitionInfo.setDataProperty(testPartitionId + 100, DataProperty.DEFAULT_DATA_PROPERTY);
         partitionInfo.setReplicationNum(testPartitionId + 100, (short) 3);
         EsTable table = null;
         Map<String, String> props = new HashMap<>();

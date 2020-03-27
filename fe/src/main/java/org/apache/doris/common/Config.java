@@ -555,7 +555,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_backend_down_time_second = 3600; // 1h
     /*
-     * When create a table(or partition), you can specify its storage media(HDD or SSD).
+     * When create a table(or partition), you can specify its storage medium(HDD or SSD).
+     * If not set, this specifies the default medium when creat.
+     */
+    @ConfField public static String default_storage_medium = "HDD";
+    /*
+     * When create a table(or partition), you can specify its storage medium(HDD or SSD).
      * If set to SSD, this specifies the default duration that tablets will stay on SSD.
      * After that, tablets will be moved to HDD automatically.
      * You can set storage cooldown time in CREATE TABLE stmt.

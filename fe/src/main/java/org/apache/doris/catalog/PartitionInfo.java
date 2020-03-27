@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Writable;
 
 import com.google.common.base.Preconditions;
 
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -127,7 +128,7 @@ public class PartitionInfo implements Writable {
         out.writeInt(idToDataProperty.size());
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             out.writeLong(entry.getKey());
-            if (entry.getValue() == DataProperty.DEFAULT_HDD_DATA_PROPERTY) {
+            if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD))) {
                 out.writeBoolean(true);
             } else {
                 out.writeBoolean(false);
@@ -145,9 +146,9 @@ public class PartitionInfo implements Writable {
         int counter = in.readInt();
         for (int i = 0; i < counter; i++) {
             long partitionId = in.readLong();
-            boolean isDefaultDataProperty = in.readBoolean();
-            if (isDefaultDataProperty) {
-                idToDataProperty.put(partitionId, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+            boolean isDefaultHddDataProperty = in.readBoolean();
+            if (isDefaultHddDataProperty) {
+                idToDataProperty.put(partitionId, new DataProperty(TStorageMedium.HDD));
             } else {
                 idToDataProperty.put(partitionId, DataProperty.read(in));
             }
@@ -170,7 +171,7 @@ public class PartitionInfo implements Writable {
 
         for (Map.Entry<Long, DataProperty> entry : idToDataProperty.entrySet()) {
             buff.append(entry.getKey()).append("is HDD: ");;
-            if (entry.getValue() == DataProperty.DEFAULT_HDD_DATA_PROPERTY) {
+            if (entry.getValue().equals(new DataProperty(TStorageMedium.HDD))) {
                 buff.append(true);
             } else {
                 buff.append(false);
