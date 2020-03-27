@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -137,11 +138,12 @@ public class LoadManager implements Writable{
             cluster = request.getCluster();
         }
         Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
+        Table table = database.getTable(request.tbl);
         checkTable(database, request.getTbl());
         LoadJob loadJob = null;
         writeLock();
         try {
-            loadJob = new MiniLoadJob(database.getId(), request);
+            loadJob = new MiniLoadJob(database.getId(), table.getId(), request);
             // call unprotectedExecute before adding load job. so that if job is not started ok, no need to add.
             // NOTICE(cmy): this order is only for Mini Load, because mini load's unprotectedExecute() only do beginTxn().
             // for other kind of load job, execute the job after adding job.
