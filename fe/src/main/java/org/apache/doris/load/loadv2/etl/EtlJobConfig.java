@@ -107,7 +107,7 @@ import java.util.Map;
  *      }
  *  },
  * 	"output_path": "hdfs://hdfs_host:port/user/output/10003/label1/1582599203397",
- * 	"output_file_pattern": "label1.%d.%d.%d.%d.%d",
+ * 	"output_file_pattern": "label1.%d.%d.%d.%d.%d.parquet",
  * 	"label": "label0"
  * }
  */
@@ -119,8 +119,10 @@ public class EtlJobConfig {
 
     // hdfs://host:port/outputPath/dbId/loadLabel/PendingTaskSignature
     private static final String ETL_OUTPUT_PATH_FORMAT = "%s%s/%d/%s/%d";
-    private static final String ETL_OUTPUT_FILE_NAME_DESC = "label.tableId.partitionId.indexId.bucket.schemaHash";
-    public static final String ETL_OUTPUT_FILE_NAME_NO_LABEL_FORMAT = "%d.%d.%d.%d.%d";
+    private static final String ETL_OUTPUT_FILE_NAME_DESC = "label.tableId.partitionId.indexId.bucket.schemaHash.parquet";
+    // tableId.partitionId.indexId.bucket.schemaHash
+    public static final String ETL_OUTPUT_FILE_NAME_NO_LABEL_SUFFIX_FORMAT = "%d.%d.%d.%d.%d";
+    public static final String ETL_OUTPUT_FILE_FORMAT = ".parquet";
 
     // config
     public static final String JOB_CONFIG_FILE_NAME = "jobconfig.json";
@@ -162,8 +164,8 @@ public class EtlJobConfig {
         return String.format(ETL_OUTPUT_PATH_FORMAT, hdfsDefaultName, outputPath, dbId, loadLabel, taskSignature);
     }
 
-    public static String getTablePartitionIndexBucketSchemaStr(String filePath) throws Exception {
-        // label.tableId.partitionId.indexId.bucket.schemaHash
+    public static String getTabletMetaStr(String filePath) throws Exception {
+        // ETL_OUTPUT_FILE_NAME_DESC
         String fileName = filePath.substring(filePath.lastIndexOf("/") + 1);
         String[] fileNameArr = fileName.split("\\.");
         if (fileNameArr.length != ETL_OUTPUT_FILE_NAME_DESC.split("\\.").length) {
@@ -172,13 +174,13 @@ public class EtlJobConfig {
         }
 
         // tableId.partitionId.indexId.bucket.schemaHash
-        return fileName.substring(fileName.indexOf(".") + 1);
+        return fileName.substring(fileName.indexOf(".") + 1, fileName.lastIndexOf("."));
     }
 
     public static class EtlTable {
-        List<EtlIndex> indexes;
-        EtlPartitionInfo partitionInfo;
-        List<EtlFileGroup> fileGroups;
+        public List<EtlIndex> indexes;
+        public EtlPartitionInfo partitionInfo;
+        public List<EtlFileGroup> fileGroups;
 
         public EtlTable(List<EtlIndex> etlIndexes, EtlPartitionInfo etlPartitionInfo) {
             this.indexes = etlIndexes;
@@ -201,15 +203,15 @@ public class EtlJobConfig {
     }
 
     public static class EtlColumn {
-        String columnName;
-        String columnType;
-        boolean isAllowNull;
-        boolean isKey;
-        String aggregationType;
-        String defaultValue;
-        int stringLength;
-        int precision;
-        int scale;
+        public String columnName;
+        public String columnType;
+        public boolean isAllowNull;
+        public boolean isKey;
+        public String aggregationType;
+        public String defaultValue;
+        public int stringLength;
+        public int precision;
+        public int scale;
 
         public EtlColumn(String columnName, String columnType, boolean isAllowNull, boolean isKey,
                          String aggregationType, String defaultValue, int stringLength, int precision, int scale) {
@@ -241,11 +243,11 @@ public class EtlJobConfig {
     }
 
     public static class EtlIndex {
-        long indexId;
-        List<EtlColumn> columns;
-        int schemaHash;
-        String indexType;
-        boolean isBaseIndex;
+        public long indexId;
+        public List<EtlColumn> columns;
+        public int schemaHash;
+        public String indexType;
+        public boolean isBaseIndex;
 
         public EtlIndex(long indexId, List<EtlColumn> etlColumns, int schemaHash,
                         String indexType, boolean isBaseIndex) {
@@ -269,10 +271,10 @@ public class EtlJobConfig {
     }
 
     public static class EtlPartitionInfo {
-        String partitionType;
-        List<String> partitionColumnRefs;
-        List<String> distributionColumnRefs;
-        List<EtlPartition> partitions;
+        public String partitionType;
+        public List<String> partitionColumnRefs;
+        public List<String> distributionColumnRefs;
+        public List<EtlPartition> partitions;
 
         public EtlPartitionInfo(String partitionType, List<String> partitionColumnRefs,
                                 List<String> distributionColumnRefs, List<EtlPartition> etlPartitions) {
@@ -294,11 +296,11 @@ public class EtlJobConfig {
     }
 
     public static class EtlPartition {
-        long partitionId;
-        List<Object> startKeys;
-        List<Object> endKeys;
-        boolean isMaxPartition;
-        int bucketNum;
+        public long partitionId;
+        public List<Object> startKeys;
+        public List<Object> endKeys;
+        public boolean isMaxPartition;
+        public int bucketNum;
 
         public EtlPartition(long partitionId, List<Object> startKeys, List<Object> endKeys,
                             boolean isMaxPartition, int bucketNum) {
@@ -322,18 +324,18 @@ public class EtlJobConfig {
     }
 
     public static class EtlFileGroup {
-        List<String> filePaths;
-        List<String> fileFieldNames;
-        List<String> columnsFromPath;
-        String columnSeparator;
-        String lineDelimiter;
-        boolean isNegative;
-        String fileFormat;
-        Map<String, EtlColumnMapping> columnMappings;
-        String where;
-        List<Long> partitions;
+        public List<String> filePaths;
+        public List<String> fileFieldNames;
+        public List<String> columnsFromPath;
+        public String columnSeparator;
+        public String lineDelimiter;
+        public boolean isNegative;
+        public String fileFormat;
+        public Map<String, EtlColumnMapping> columnMappings;
+        public String where;
+        public List<Long> partitions;
 
-        String hiveTableName;
+        public String hiveTableName;
 
         public EtlFileGroup(List<String> filePaths, List<String> fileFieldNames, List<String> columnsFromPath,
                             String columnSeparator, String lineDelimiter, boolean isNegative, String fileFormat,
@@ -348,10 +350,6 @@ public class EtlJobConfig {
             this.columnMappings = columnMappings;
             this.where = where;
             this.partitions = partitions;
-        }
-
-        public void setHiveTableName(String hiveTableName) {
-            this.hiveTableName = hiveTableName;
         }
 
         @Override
@@ -373,8 +371,8 @@ public class EtlJobConfig {
     }
 
     public static class EtlColumnMapping {
-        String functionName;
-        List<String> args;
+        public String functionName;
+        public List<String> args;
 
         public EtlColumnMapping(String functionName, List<String> args) {
             this.functionName = functionName;

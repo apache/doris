@@ -37,6 +37,7 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.AsyncDeleteJob;
 import org.apache.doris.load.LoadJob;
+import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
@@ -559,6 +560,19 @@ public class MasterImpl {
                     for (ReplicaPersistInfo info : infos) {
                         job.addReplicaPersistInfos(info);
                     }
+                }
+            } else if (pushTask.getPushType() == TPushType.LOAD_V2) {
+                // handle load v2 job (spark load)
+                long loadJobId = pushTask.getLoadJobId();
+                org.apache.doris.load.loadv2.LoadJob job = Catalog.getCurrentCatalog().getLoadManager().getLoadJob(loadJobId);
+                if (job == null) {
+                    throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
+                }
+
+                Preconditions.checkState(!infos.isEmpty());
+                Preconditions.checkState(job instanceof SparkLoadJob);
+                for (ReplicaPersistInfo info : infos) {
+                    ((SparkLoadJob) job).addReplicaPersistInfos(info);
                 }
             }
 

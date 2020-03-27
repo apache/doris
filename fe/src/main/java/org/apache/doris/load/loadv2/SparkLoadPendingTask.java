@@ -174,7 +174,8 @@ public class SparkLoadPendingTask extends LoadTask {
                 }
             }
 
-            String outputFilePattern = loadLabel + "." + EtlJobConfig.ETL_OUTPUT_FILE_NAME_NO_LABEL_FORMAT;
+            String outputFilePattern = loadLabel + "." + EtlJobConfig.ETL_OUTPUT_FILE_NAME_NO_LABEL_SUFFIX_FORMAT
+                    + "." + EtlJobConfig.ETL_OUTPUT_FILE_FORMAT;
             etlJobConfig = new EtlJobConfig(tables, outputFilePattern, loadLabel);
         } finally {
             db.readUnlock();
@@ -420,7 +421,7 @@ public class SparkLoadPendingTask extends LoadTask {
                                                      where, partitionIds);
 
         // set hive table
-        etlFileGroup.setHiveTableName(((SparkLoadJob) callback).getHiveTableName());
+        etlFileGroup.hiveTableName = ((SparkLoadJob) callback).getHiveTableName();
 
         return etlFileGroup;
     }

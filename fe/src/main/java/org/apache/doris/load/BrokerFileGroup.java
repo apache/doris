@@ -99,6 +99,26 @@ public class BrokerFileGroup implements Writable {
         this.whereExpr = dataDescription.getWhereExpr();
     }
 
+    // for spark load push task
+    public BrokerFileGroup(List<String> filePaths, List<String> fileFieldNames, String fileFormat) {
+        this.filePaths = filePaths;
+        this.fileFieldNames = fileFieldNames;
+        this.fileFormat = fileFormat;
+        this.tableId = -1;
+        this.valueSeparator = "\t";
+        this.lineDelimiter = "\n";
+        this.isNegative = false;
+        this.partitionIds = Lists.newArrayList();
+        this.columnsFromPath = Lists.newArrayList();
+        this.columnExprList = Lists.newArrayList();
+        this.columnToHadoopFunction = Maps.newHashMap();
+        this.whereExpr = null;
+
+        for (String fieldName : fileFieldNames) {
+            columnExprList.add(new ImportColumnDesc(fieldName));
+        }
+    }
+
     // NOTE: DBLock will be held
     // This will parse the input DataDescription to list for BrokerFileInfo
     public void parse(Database db, DataDescription dataDescription) throws DdlException {
