@@ -47,14 +47,14 @@ import java.util.stream.Collectors;
  *      BuildGlobalDict.encodeDorisIntermediateHiveTable()
  */
 
-public class BuildGlobalDict {
+public class BuildGlobalDictBuilder {
 
-    protected static final Logger LOG = LoggerFactory.getLogger(BuildGlobalDict.class);
+    protected static final Logger LOG = LoggerFactory.getLogger(BuildGlobalDictBuilder.class);
 
     // name of the column in doris table which need to build global dict
     // currently doris's table column name need to be consistent with the field name in the hive table
     // all column is lowercase
-    // TODO(wb): add user customize map from source hive tabe column to doris column
+    // TODO(wb): add user customize map from source hive table column to doris column
     private List<String> distinctColumnList;
     // target doris table columns in current spark load job
     private List<String> dorisOlapTableColumnList;
@@ -79,7 +79,7 @@ public class BuildGlobalDict {
     // key=doris column name,value=column type
     private Map<String, String> dorisColumnNameTypeMap = new HashMap<>();
 
-    public BuildGlobalDict(List<String> distinctColumnList,
+    public BuildGlobalDictBuilder(List<String> distinctColumnList,
                            List<String> dorisOlapTableColumnList,
                            List<String> mapSideJoinColumns,
                            String sourceHiveDBTableName,
@@ -122,7 +122,7 @@ public class BuildGlobalDict {
             dorisColumnNameTypeMap.put(columnName, columnType);
         });
 
-        // TODO(wb): drop hive table to prevent schema change
+        spark.sql(String.format("drop table if exists %s ", dorisIntermediateHiveTable));
         // create IntermediateHiveTable
         spark.sql(getCreateIntermediateHiveTableSql());
 
@@ -144,7 +144,7 @@ public class BuildGlobalDict {
     // TODO(wb): make build progress concurrently between columns
     // TODO(wb): support 1000 million rows newly added distinct values
     //          spark row_number function support max input about 100 million(more data would cause memoryOverHead,both in-heap and off-heap)
-    //          Now I haven't seen such data scale scenario yet.But keep finding better solution is nessassary
+    //          Now I haven't seen such data scale scenario yet.But keep finding better solution is necessary
     //          such as split data to multiple Dataset and use row_number function to deal separately
     public void buildGlobalDict() {
         // create global dict hive table
