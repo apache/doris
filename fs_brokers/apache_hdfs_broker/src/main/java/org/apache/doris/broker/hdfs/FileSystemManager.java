@@ -332,6 +332,7 @@ public class FileSystemManager {
                     }
                 }
 
+                conf.set("fs.hdfs.impl.disable.cache", "true");
                 FileSystem dfsFileSystem = FileSystem.get(pathUri.getUri(), conf);
                 fileSystem.setFileSystem(dfsFileSystem);
             }
@@ -383,6 +384,7 @@ public class FileSystemManager {
                 conf.set(FS_S3A_ACCESS_KEY, accessKey);
                 conf.set(FS_S3A_SECRET_KEY, secretKey);
                 conf.set(FS_S3A_ENDPOINT, endpoint);
+                conf.set("fs.s3a.impl.disable.cache", "true");
                 FileSystem s3AFileSystem = FileSystem.get(pathUri.getUri(), conf);
                 fileSystem.setFileSystem(s3AFileSystem);
             }
