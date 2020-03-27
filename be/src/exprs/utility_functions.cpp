@@ -21,6 +21,7 @@
 #include "exprs/expr.h"
 #include "runtime/tuple_row.h"
 #include "util/debug_util.h"
+#include "util/monotime.h"
 
 namespace doris {
 
@@ -30,11 +31,11 @@ StringVal UtilityFunctions::version(FunctionContext* ctx) {
     return AnyValUtil::from_string_temp(ctx, "5.1.0");
 }
 
-BooleanVal UtilityFunctions::sleep(FunctionContext* ctx, const IntVal& milliseconds) {
-    if (milliseconds.is_null) {
+BooleanVal UtilityFunctions::sleep(FunctionContext* ctx, const IntVal& seconds) {
+    if (seconds.is_null) {
         return BooleanVal::null();
     }
-    usleep(milliseconds.val * 1000 * 1000); // TODO(hw): ms * 1000 * 1000 = ns
+    SleepFor(MonoDelta::FromSeconds(seconds.val));
     return BooleanVal(true);
 }
 
