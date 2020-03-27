@@ -131,14 +131,7 @@ public class RollupJobV2 extends AlterJobV2 {
         this.storageFormat = storageFormat;
     }
 
-    @Override
-    public void clear() {
-        partitionIdToBaseRollupTabletIdMap.clear();
-        partitionIdToRollupIndex.clear();
-        rollupSchema.clear();
-    }
-
-    /*
+    /**
      * runPendingJob():
      * 1. Create all rollup replicas and wait them finished.
      * 2. After creating done, add this shadow rollup index to catalog, user can not see this
@@ -283,7 +276,7 @@ public class RollupJobV2 extends AlterJobV2 {
                 rollupSchemaHash, rollupShortKeyColumnCount,TStorageType.COLUMN, rollupKeysType);
     }
 
-    /*
+    /**
      * runWaitingTxnJob():
      * 1. Wait the transactions before the watershedTxnId to be finished.
      * 2. If all previous transactions finished, send create rollup tasks to BE.
@@ -350,7 +343,7 @@ public class RollupJobV2 extends AlterJobV2 {
         LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
     }
 
-    /*
+    /**
      * runRunningJob()
      * 1. Wait all create rollup tasks to be finished.
      * 2. Check the integrity of the newly created rollup index.
@@ -436,7 +429,6 @@ public class RollupJobV2 extends AlterJobV2 {
             db.writeUnlock();
         }
 
-        clear();
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
@@ -457,7 +449,7 @@ public class RollupJobV2 extends AlterJobV2 {
         }
     }
 
-    /*
+    /**
      * cancelImpl() can be called any time any place.
      * We need to clean any possible residual of this job.
      */
@@ -469,7 +461,6 @@ public class RollupJobV2 extends AlterJobV2 {
 
         cancelInternal();
 
-        clear();
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
@@ -561,11 +552,7 @@ public class RollupJobV2 extends AlterJobV2 {
         for (int i = 0; i < size; i++) {
             long partitionId = in.readLong();
             int size2 = in.readInt();
-            Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.get(partitionId);
-            if (tabletIdMap == null) {
-                tabletIdMap = Maps.newHashMap();
-                partitionIdToBaseRollupTabletIdMap.put(partitionId, tabletIdMap);
-            }
+            Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.computeIfAbsent(partitionId, k -> Maps.newHashMap());
             for (int j = 0; j < size2; j++) {
                 long rollupTabletId = in.readLong();
                 long baseTabletId = in.readLong();
@@ -594,7 +581,7 @@ public class RollupJobV2 extends AlterJobV2 {
         watershedTxnId = in.readLong();
     }
 
-    /*
+    /**
      * Replay job in PENDING state.
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in RollupHander.processAddRollup()

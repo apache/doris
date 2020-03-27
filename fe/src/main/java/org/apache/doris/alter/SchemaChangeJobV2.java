@@ -161,7 +161,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.storageFormat = storageFormat;
     }
 
-    @Override
+    /**
+     * clear some date structure in this job to save memory
+     * these data structures must not used in getInfo method
+     */
     public void clear() {
         partitionIndexTabletMap.clear();
         partitionIndexMap.clear();
@@ -818,7 +821,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     }
 
     /**
-     * write data need to persist when job is not finished
+     * write data need to persist when job not finish
      */
     private void writeJobNotFinishData(DataOutput out) throws IOException {
         out.writeInt(partitionIndexTabletMap.rowKeySet().size());
@@ -861,10 +864,36 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // short key count
             out.writeShort(indexShortKeyMap.get(shadowIndexId));
         }
+
+        // bloom filter
+        out.writeBoolean(hasBfChange);
+        if (hasBfChange) {
+            out.writeInt(bfColumns.size());
+            for (String bfCol : bfColumns) {
+                Text.writeString(out, bfCol);
+            }
+            out.writeDouble(bfFpp);
+        }
+
+        out.writeLong(watershedTxnId);
+
+        // index
+        out.writeBoolean(indexChange);
+        if (indexChange) {
+            if (CollectionUtils.isNotEmpty(indexes)) {
+                out.writeBoolean(true);
+                out.writeInt(indexes.size());
+                for (Index index : indexes) {
+                    index.write(out);
+                }
+            } else {
+                out.writeBoolean(false);
+            }
+        }
     }
 
     /**
-     * read data need to persist when job is not finished
+     * read data need to persist when job not finish
      */
     private void readJobNotFinishData(DataInput in) throws IOException {
         int partitionNum = in.readInt();
@@ -910,6 +939,35 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
             indexShortKeyMap.put(shadowIndexId, shortKeyCount);
         }
+
+        // bloom filter
+        hasBfChange = in.readBoolean();
+        if (hasBfChange) {
+            int bfNum = in.readInt();
+            bfColumns = Sets.newHashSetWithExpectedSize(bfNum);
+            for (int i = 0; i < bfNum; i++) {
+                bfColumns.add(Text.readString(in));
+            }
+            bfFpp = in.readDouble();
+        }
+
+        watershedTxnId = in.readLong();
+
+        // index
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
+            indexChange = in.readBoolean();
+            if (indexChange) {
+                if (in.readBoolean()) {
+                    int indexCount = in.readInt();
+                    this.indexes = new ArrayList<>();
+                    for (int i = 0; i < indexCount; ++i) {
+                        this.indexes.add(Index.read(in));
+                    }
+                } else {
+                    this.indexes = null;
+                }
+            }
+        }
     }
 
     /**
@@ -931,39 +989,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             // index schema version and hash
             out.writeInt(indexSchemaVersionAndHashMap.get(shadowIndexId).first);
             out.writeInt(indexSchemaVersionAndHashMap.get(shadowIndexId).second);
-        }
-    }
-
-    /**
-     * read data need to persist when job finished
-     */
-    private void readJobFinishedData(DataInput in) throws IOException {
-        // shadow index info
-        int indexNum = in.readInt();
-        for (int i = 0; i < indexNum; i++) {
-            long shadowIndexId = in.readLong();
-            long originIndexId = in.readLong();
-            String indexName = Text.readString(in);
-            int schemaVersion = in.readInt();
-            int schemaVersionHash = in.readInt();
-            Pair<Integer, Integer> schemaVersionAndHash = Pair.create(schemaVersion, schemaVersionHash);
-            short shortKeyCount = in.readShort();
-
-            indexIdMap.put(shadowIndexId, originIndexId);
-            indexIdToName.put(shadowIndexId, indexName);
-            indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-
-        out.writeBoolean(cleared);
-        if (cleared) {
-            writeJobFinishedData(out);
-        } else {
-            writeJobNotFinishData(out);
         }
 
         // bloom filter
@@ -993,18 +1018,24 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
     }
 
-    @Override
-    public void readFields(DataInput in) throws IOException {
-        super.readFields(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
-            boolean cleared = in.readBoolean();
-            if (cleared) {
-                readJobFinishedData(in);
-            } else {
-                readJobNotFinishData(in);
-            }
-        } else {
-            readJobNotFinishData(in);
+    /**
+     * read data need to persist when job finished
+     */
+    private void readJobFinishedData(DataInput in) throws IOException {
+        // shadow index info
+        int indexNum = in.readInt();
+        for (int i = 0; i < indexNum; i++) {
+            long shadowIndexId = in.readLong();
+            long originIndexId = in.readLong();
+            String indexName = Text.readString(in);
+            int schemaVersion = in.readInt();
+            int schemaVersionHash = in.readInt();
+            Pair<Integer, Integer> schemaVersionAndHash = Pair.create(schemaVersion, schemaVersionHash);
+            short shortKeyCount = in.readShort();
+
+            indexIdMap.put(shadowIndexId, originIndexId);
+            indexIdToName.put(shadowIndexId, indexName);
+            indexSchemaVersionAndHashMap.put(shadowIndexId, schemaVersionAndHash);
         }
 
         // bloom filter
@@ -1036,4 +1067,33 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
     }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        super.write(out);
+
+        out.writeBoolean(cleared);
+        if (cleared) {
+            writeJobFinishedData(out);
+        } else {
+            writeJobNotFinishData(out);
+        }
+    }
+
+    @Override
+    public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
+            boolean cleared = in.readBoolean();
+            if (cleared) {
+                readJobFinishedData(in);
+            } else {
+                readJobNotFinishData(in);
+            }
+        } else {
+            readJobNotFinishData(in);
+        }
+    }
+
 }
