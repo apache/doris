@@ -84,12 +84,15 @@ public class FileSystemManager {
     private static final String DEFAULT_DFS_CLIENT_FAILOVER_PROXY_PROVIDER =
             "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider";
     private static final String FS_DEFAULTFS_KEY = "fs.defaultFS";
+    // If this property is not set to "true", FileSystem instance will be returned from cache
+    // which is not thread-safe and may cause 'Filesystem closed' exception when it is closed by other thread.
     private static final String FS_HDFS_IMPL_DISABLE_CACHE = "fs.hdfs.impl.disable.cache";
 
     // arguments for s3a
     private static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
     private static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
     private static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
+    // This property is used like 'fs.hdfs.impl.disable.cache'
     private static final String FS_S3A_IMPL_DISABLE_CACHE = "fs.s3a.impl.disable.cache";
 
     private ScheduledExecutorService handleManagementPool = Executors.newScheduledThreadPool(2);
