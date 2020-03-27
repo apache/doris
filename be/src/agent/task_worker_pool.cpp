@@ -628,7 +628,7 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
 #endif
 
         LOG(INFO) << "get push task. signature: " << agent_task_req.signature
-                << " priority: " << priority;
+                << " priority: " << priority << " push_type: " << push_req.push_type;
         vector<TTabletInfo> tablet_infos;
 
         EngineBatchLoadTask engine_task(push_req, &tablet_infos, agent_task_req.signature, &status);
@@ -655,7 +655,8 @@ void* TaskWorkerPool::_push_worker_thread_callback(void* arg_this) {
         }
 
         if (status == DORIS_SUCCESS) {
-            VLOG(3) << "push ok.signature: " << agent_task_req.signature;
+            VLOG(3) << "push ok. signature: " << agent_task_req.signature 
+                << ", push_type: " << push_req.push_type;
             error_msgs.push_back("push success");
 
             ++_s_report_version;

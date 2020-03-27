@@ -59,7 +59,8 @@ EngineBatchLoadTask::~EngineBatchLoadTask() {
 
 OLAPStatus EngineBatchLoadTask::execute() {
     AgentStatus status = DORIS_SUCCESS;
-    if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE) {
+    if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_DELETE
+            || _push_req.push_type == TPushType::LOAD_V2) {
         status = _init();
         if (status == DORIS_SUCCESS) {
             uint32_t retry_time = 0;
@@ -116,17 +117,17 @@ AgentStatus EngineBatchLoadTask::_init() {
         return DORIS_PUSH_INVALID_TABLE;
     }
 
+    // check disk capacity
+    if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_V2) {
+        if (tablet->data_dir()->reach_capacity_limit(_push_req.__isset.http_file_size)) {
+            return DORIS_DISK_REACH_CAPACITY_LIMIT;
+        }
+    }
+
     // Empty remote_path
     if (!_push_req.__isset.http_file_path || !_push_req.__isset.http_file_size) {
         _is_init = true;
         return status;
-    }
-
-    // check disk capacity
-    if (_push_req.push_type == TPushType::LOAD) {
-        if (tablet->data_dir()->reach_capacity_limit(_push_req.__isset.http_file_size)) {
-            return DORIS_DISK_REACH_CAPACITY_LIMIT;
-        }
     }
     
     // Check remote path
@@ -310,6 +311,8 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     PushType type = PUSH_NORMAL;
     if (request.push_type == TPushType::LOAD_DELETE) {
         type = PUSH_FOR_LOAD_DELETE;
+    } else if (request.push_type == TPushType::LOAD_V2) {
+        type = PUSH_NORMAL_V2;
     }
 
     int64_t duration_ns = 0;

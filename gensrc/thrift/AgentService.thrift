@@ -21,6 +21,7 @@ namespace java org.apache.doris.thrift
 include "Status.thrift"
 include "Types.thrift"
 include "PaloInternalService.thrift"
+include "PlanNodes.thrift"
 include "Descriptors.thrift"
 
 struct TColumn {
@@ -119,6 +120,8 @@ struct TPushReq {
     // fe should inform be that this request is running during schema change
     // be should write two files
     13: optional bool is_schema_changing
+    14: optional PlanNodes.TBrokerScanRange broker_scan_range
+    15: optional Descriptors.TDescriptorTable desc_tbl
 }
 
 struct TCloneReq {

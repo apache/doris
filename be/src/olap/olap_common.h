@@ -169,6 +169,7 @@ enum PushType {
     PUSH_NORMAL = 1,
     PUSH_FOR_DELETE = 2,
     PUSH_FOR_LOAD_DELETE = 3,
+    PUSH_NORMAL_V2 = 4,
 };
 
 enum ReaderType {
