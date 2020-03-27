@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 
@@ -29,6 +30,7 @@ public class TableRenameClause extends AlterTableClause {
     private String newTableName;
 
     public TableRenameClause(String newTableName) {
+        super(AlterOpType.RENAME);
         this.newTableName = newTableName;
         this.needTableStable = false;
     }

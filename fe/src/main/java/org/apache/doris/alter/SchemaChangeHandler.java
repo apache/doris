@@ -27,6 +27,7 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
@@ -1324,10 +1325,6 @@ public class SchemaChangeHandler extends AlterHandler {
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException {
 
-        if (olapTable.existTempPartitions()) {
-            throw new DdlException("Can not alter table when there are temp partitions in table");
-        }
-
         // index id -> index schema
         Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
         for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
@@ -1369,6 +1366,11 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
 
+            // the following operations can not be done when there are temp partitions exist.
+            if (olapTable.existTempPartitions()) {
+                throw new DdlException("Can not alter table when there are temp partitions in table");
+            }
+
             if (alterClause instanceof AddColumnClause) {
                 // add column
                 processAddColumn((AddColumnClause) alterClause, olapTable, indexSchemaMap);
@@ -1388,9 +1390,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 // modify table properties
                 // do nothing, properties are already in propertyMap
             } else if (alterClause instanceof CreateIndexClause) {
-                processAddIndex((CreateIndexClause) alterClause, newIndexes);
+                processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes);
             } else if (alterClause instanceof DropIndexClause) {
-                processDropIndex((DropIndexClause) alterClause, newIndexes);
+                processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes);
             } else {
                 Preconditions.checkState(false);
             }
@@ -1590,13 +1592,54 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    private void processAddIndex(CreateIndexClause alterClause, List<Index> indexes) {
-        if (alterClause.getIndex() != null) {
-            indexes.add(alterClause.getIndex());
+    private void processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
+            throws UserException {
+        if (alterClause.getIndex() == null) {
+            return;
         }
+
+        List<Index> existedIndexes = olapTable.getIndexes();
+        IndexDef indexDef = alterClause.getIndexDef();
+        Set<String> newColset = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        newColset.addAll(indexDef.getColumns());
+        for (Index existedIdx : existedIndexes) {
+            if (existedIdx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
+                throw new DdlException("index `" + indexDef.getIndexName() + "` already exist.");
+            }
+            Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            existedIdxColSet.addAll(existedIdx.getColumns());
+            if (newColset.equals(existedIdxColSet)) {
+                throw new DdlException(
+                        "index for columns (" + String.join(",", indexDef.getColumns()) + " ) already exist.");
+            }
+        }
+
+        for (String col : indexDef.getColumns()) {
+            Column column = olapTable.getColumn(col);
+            if (column != null) {
+                indexDef.checkColumn(column, olapTable.getKeysType());
+            } else {
+                throw new DdlException("BITMAP column does not exist in table. invalid column: " + col);
+            }
+        }
+
+        newIndexes.add(alterClause.getIndex());
     }
 
-    private void processDropIndex(DropIndexClause alterClause, List<Index> indexes) {
+    private void processDropIndex(DropIndexClause alterClause, OlapTable olapTable, List<Index> indexes) throws DdlException {
+        String indexName = alterClause.getIndexName();
+        List<Index> existedIndexes = olapTable.getIndexes();
+        Index found = null;
+        for (Index existedIdx : existedIndexes) {
+            if (existedIdx.getIndexName().equalsIgnoreCase(indexName)) {
+                found = existedIdx;
+                break;
+            }
+        }
+        if (found == null) {
+            throw new DdlException("index " + indexName + " does not exist");
+        }
+
         Iterator<Index> itr = indexes.iterator();
         while (itr.hasNext()) {
             Index idx  = itr.next();

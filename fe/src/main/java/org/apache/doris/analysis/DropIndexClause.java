@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
@@ -30,10 +31,10 @@ public class DropIndexClause extends AlterTableClause {
     private boolean alter;
 
     public DropIndexClause(String indexName, TableName tableName, boolean alter) {
+        super(AlterOpType.SCHEMA_CHANGE);
         this.indexName = indexName;
         this.tableName = tableName;
         this.alter = alter;
-        this.needTableStable = true;
     }
 
     public String getIndexName() {

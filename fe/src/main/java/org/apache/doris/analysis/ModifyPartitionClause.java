@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
 
@@ -35,13 +36,14 @@ public class ModifyPartitionClause extends AlterTableClause {
     }
 
     public ModifyPartitionClause(String partitionName, Map<String, String> properties) {
+        super(AlterOpType.MODIFY_PARTITION);
         this.partitionName = partitionName;
         this.properties = properties;
         // ATTN: currently, modify partition only allow 3 kinds of operations:
         // 1. modify replication num
         // 2. modify data property
         // 3. modify in memory
-        // And these 2 operations does not require table to be stable.
+        // And these 3 operations does not require table to be stable.
         // If other kinds of operations be added later, "needTableStable" may be changed.
         this.needTableStable = false;
     }
