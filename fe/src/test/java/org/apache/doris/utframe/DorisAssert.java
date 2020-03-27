@@ -133,7 +133,7 @@ public class DorisAssert {
         }
 
         public void explainContains(String keywords, int count) throws Exception {
-            Assert.assertTrue(StringUtils.countMatches(explainQuery(), keywords) == count);
+            Assert.assertEquals(StringUtils.countMatches(explainQuery(), keywords), count);
         }
 
         public void explainWithout(String s) throws Exception {
