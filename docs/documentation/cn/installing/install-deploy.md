@@ -133,7 +133,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
 * 配置 FE
 
-    1. 配置文件为 conf/fe.conf。其中注意：`meta_dir`：元数据存放位置。默认在 fe/palo-meta/ 下。需**手动创建**该目录。
+    1. 配置文件为 conf/fe.conf。其中注意：`meta_dir`：元数据存放位置。默认在 fe/doris-meta/ 下。需**手动创建**该目录。
     2. fe.conf 中 JAVA_OPTS 默认 java 最大堆内存为 4GB，建议生产环境调整至 8G 以上。
 
 * 启动FE
@@ -152,7 +152,7 @@ BROKER 当前没有，也不需要 priority\_networks 这个选项。Broker 的�
 
 * 修改所有 BE 的配置
 
-    修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录，使用 `;` 分隔（最后一个目录后不要加 `;`），其它可以采用默认值。
+    修改 be/conf/be.conf。主要是配置 `storage_root_path`：数据存放目录。默认在be/storage下，需要**手动创建**该目录。多个路径之间使用 `;` 分隔（最后一个目录后不要加 `;`）。
 
 * 在 FE 中添加所有 BE 节点
 
@@ -380,7 +380,7 @@ Broker 是无状态的进程，可以随意启停。当然，停止后，正在�
 
 	除了 Master FE 以外，其余角色节点（Follower FE，Observer FE，Backend），都需要通过 `ALTER SYSTEM ADD` 语句先注册到集群，然后才能加入集群。
 	
-	Master FE 在第一次启动时，会在 palo-meta/image/VERSION 文件中生成一个 cluster_id。
+	Master FE 在第一次启动时，会在 doris-meta/image/VERSION 文件中生成一个 cluster_id。
 	
 	FE 在第一次加入集群时，会首先从 Master FE 获取这个文件。之后每次 FE 之间的重新连接（FE 重启），都会校验自身 cluster id 是否与已存在的其它 FE 的 cluster id 相同。如果不同，则该 FE 会自动退出。
 	
