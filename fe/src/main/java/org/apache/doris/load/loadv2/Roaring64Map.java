@@ -1301,7 +1301,7 @@ public class Roaring64Map {
     /**
      * Serialize this bitmap.
      *
-     * Unlike RoaringBitmap, there is no specification for now: it may change from onve java version
+     * Unlike RoaringBitmap, there is no specification for now: it may change from one java version
      * to another, and from one RoaringBitmap version to another.
      *
      * Consider calling {@link #runOptimize} before serialization to improve compression.
