@@ -137,12 +137,12 @@ public class Config extends ConfigBase {
 
     // Configurations for meta data durability
     /*
-     * Palo meta data will be saved here.
+     * Doris meta data will be saved here.
      * The storage of this dir is highly recommended as to be:
      * 1. High write performance (SSD)
      * 2. Safe (RAID)
      */
-    @ConfField public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/palo-meta";
+    @ConfField public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/doris-meta";
     
     /*
      * temp dir is used to save intermediate results of some process, such as backup and restore process.
