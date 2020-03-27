@@ -65,6 +65,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
 
+import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.spark.launcher.SparkAppHandle;
@@ -153,16 +154,19 @@ public class SparkLoadJob extends BulkLoadJob {
             for (Column column : columns) {
                 columnNames.add(column.getName());
             }
-            List<List<TBrokerFileStatus>> fileStatusesList = Lists.newArrayList(Lists.newArrayList());
-            List<BrokerFileGroup> fileGroups = Lists.newArrayList();
+            List<List<TBrokerFileStatus>> fileStatusesList = Lists.newArrayList();
+            fileStatusesList.add(Lists.newArrayList());
             fileStatusesList.get(0).add(new TBrokerFileStatus(tmpFilePath, false, tmpFileSize, false));
+            List<BrokerFileGroup> fileGroups = Lists.newArrayList();
             fileGroups.add(new BrokerFileGroup(Lists.newArrayList(tmpFilePath), columnNames,
                                                EtlJobConfig.ETL_OUTPUT_FILE_FORMAT));
             Table indexTable = new Table(-1, "index", TableType.OLAP, columns);
             PlanNodeId planNodeId = new PlanNodeId(0);
             BrokerScanNode scanNode = new BrokerScanNode(planNodeId, tupleDesc, "BrokerScanNode",
                                                          fileStatusesList, fileStatusesList.size());
-            scanNode.setLoadInfo(-1, -1, indexTable, null, fileGroups, false);
+            scanNode.setLoadInfo(-1, -1, indexTable,
+                                 new BrokerDesc(etlClusterDesc.getProperties().get("broker"), null),
+                                 fileGroups, false);
             scanNode.init(analyzer);
             scanNode.finalize(analyzer);
 
@@ -351,6 +355,9 @@ public class SparkLoadJob extends BulkLoadJob {
                                                      entry.getValue()));
             }
 
+            // for test
+            //tabletMetaToFileInfo.put("98089.98088.98090.0.307885074", Pair.create("hdfs://127.0.0.1:10000/tmp/data.parquet/part-00000-28f27be5-36d6-4861-b514-40bd71001dd5-c000.snappy.parquet", 908L));
+
             loadingStatus = etlStatus;
             progress = 0;
             etlFinishTimestamp = System.currentTimeMillis();
@@ -523,6 +530,17 @@ public class SparkLoadJob extends BulkLoadJob {
             return totalTablets;
         } finally {
             db.readUnlock();
+        }
+    }
+
+    public void addFinishedReplica(long replicaId, long tabletId, long backendId) {
+        writeLock();
+        try {
+            if (finishedReplicas.add(replicaId)) {
+                commitInfos.add(new TabletCommitInfo(tabletId, backendId));
+            }
+        } finally {
+            writeUnlock();
         }
     }
 

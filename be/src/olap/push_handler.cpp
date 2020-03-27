@@ -276,7 +276,8 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
 
         // 1. Init PushBrokerReader to read broker file if exist,
         //    in case of empty push this will be skipped.
-        if (_request.broker_scan_range.ranges[0].path == nullptr) {
+        std::string path = _request.broker_scan_range.ranges[0].path;
+        if (!path.empty()) {
             reader = new(std::nothrow) PushBrokerReader();
             if (reader == nullptr) {
                 LOG(WARNING) << "fail to create reader. tablet=" << cur_tablet->full_name();
@@ -341,7 +342,7 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
         ContiguousRow row(schema, tuple_buf);
 
         // 5. Read data from broker and write into SegmentGroup of cur_tablet
-        if (_request.broker_scan_range.ranges[0].path == nullptr) {
+        if (!path.empty()) {
             // Convert from raw to delta
             VLOG(3) << "start to convert row file to delta.";
             while (!reader->eof()) {
@@ -351,6 +352,9 @@ OLAPStatus PushHandler::_convert_v2(TabletSharedPtr cur_tablet,
                         << " res=" << res << " read_rows=" << num_rows;
                     break;
                 } else {
+                    if (reader->eof()) {
+                        continue;
+                    }
                     if (OLAP_SUCCESS != (res = rowset_writer->add_row(row))) {
                         LOG(WARNING) << "fail to attach row to rowset_writer. "
                             << " res=" << res
@@ -918,7 +922,7 @@ OLAPStatus LzoBinaryReader::_next_block() {
 OLAPStatus PushBrokerReader::init(const TabletSharedPtr tablet, 
                                   const Schema* schema,
                                   const TBrokerScanRange& scan_range,
-                                  const TDescriptorTable& desc_tbl) {
+                                  const TDescriptorTable& t_desc_tbl) {
     // init schema
     _schema = schema;
 
@@ -932,11 +936,15 @@ OLAPStatus PushBrokerReader::init(const TabletSharedPtr tablet,
     TExecPlanFragmentParams fragment_params;
     fragment_params.params = params;
     fragment_params.protocol_version = PaloInternalServiceVersion::V1;
-    fragment_params.desc_tbl = desc_tbl;
     TQueryOptions query_options;
     TQueryGlobals query_globals;
     _runtime_state.reset(new RuntimeState(fragment_params, query_options, query_globals,
                                           ExecEnv::GetInstance()));
+    DescriptorTbl* desc_tbl = NULL;
+    //RETURN_IF_ERROR(DescriptorTbl::create())
+    DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &desc_tbl);
+    _runtime_state->set_desc_tbl(desc_tbl);
+    _runtime_state->init_mem_trackers(params_id);
     _runtime_profile.reset(new RuntimeProfile(_runtime_state->obj_pool(), "PushBrokerReader"));
     _mem_tracker.reset(new MemTracker(-1));
     _mem_pool.reset(new MemPool(_mem_tracker.get()));
@@ -947,11 +955,11 @@ OLAPStatus PushBrokerReader::init(const TabletSharedPtr tablet,
     switch (scan_range.ranges[0].format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         scan = new ParquetScanner(_runtime_state.get(),
-                _runtime_profile.get(),
-                scan_range.params,
-                scan_range.ranges,
-                scan_range.broker_addresses,
-                _counter.get());
+                                  _runtime_profile.get(),
+                                  scan_range.params,
+                                  scan_range.ranges,
+                                  scan_range.broker_addresses,
+                                  _counter.get());
         break;
     default:
 		return OLAP_ERR_PUSH_INIT_ERROR;
@@ -995,6 +1003,10 @@ OLAPStatus PushBrokerReader::next(ContiguousRow* row) {
         LOG(WARNING) << "Scanner get next tuple fail";
         return OLAP_ERR_PUSH_INPUT_DATA_ERROR;
     }
+    if (_eof) {
+        return OLAP_SUCCESS;
+    }
+    //LOG(INFO) << "row data: " << _tuple->to_string(*_tuple_desc);
 
     auto slot_descs = _tuple_desc->slots();
 	for (size_t i = 0; i < slot_descs.size(); ++i) {
