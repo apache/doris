@@ -3326,7 +3326,8 @@ public class Load {
             }
             loadDeleteJob.setIdToTabletLoadInfo(idToTabletLoadInfo);
             loadDeleteJob.setState(JobState.LOADING);
-            long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(), jobLabel,
+            long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                    Lists.newArrayList(table.getId()), jobLabel,
                     "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
                     Config.stream_load_default_timeout_second);
             loadDeleteJob.setTransactionId(transactionId);

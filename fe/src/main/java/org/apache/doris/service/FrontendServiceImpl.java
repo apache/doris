@@ -670,6 +670,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Catalog catalog = Catalog.getInstance();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db = catalog.getDb(fullDbName);
+        Table table = db.getTable(request.tbl);
         if (db == null) {
             String dbName = fullDbName;
             if (Strings.isNullOrEmpty(request.getCluster())) {
@@ -681,7 +682,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), request.getLabel(), request.getRequest_id(), "BE: " + clientIp,
+                db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequest_id(), "BE: " + clientIp,
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
     }
 

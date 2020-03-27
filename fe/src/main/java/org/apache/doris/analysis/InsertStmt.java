@@ -292,7 +292,8 @@ public class InsertStmt extends DdlStmt {
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                        label, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
+                        Lists.newArrayList(targetTable.getId()), label, "FE: " + FrontendOptions.getLocalHostAddress(),
+                        sourceType, timeoutSecond);
             }
             isTransactionBegin = true;
         }
