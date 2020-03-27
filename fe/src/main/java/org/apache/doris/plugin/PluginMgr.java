@@ -18,11 +18,13 @@
 package org.apache.doris.plugin;
 
 import org.apache.doris.analysis.InstallPluginStmt;
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.plugin.PluginInfo.PluginType;
 import org.apache.doris.plugin.PluginLoader.PluginStatus;
+import org.apache.doris.qe.AuditLogBuilder;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -47,26 +49,35 @@ public class PluginMgr implements Writable {
 
     public PluginMgr() {
         plugins = new Map[PluginType.MAX_PLUGIN_SIZE];
-
         for (int i = 0; i < PluginType.MAX_PLUGIN_SIZE; i++) {
             plugins[i] = Maps.newConcurrentMap();
         }
     }
 
     // create the plugin dir if missing
-    public void init() {
+    public void init() throws PluginException {
         File file = new File(Config.plugin_dir);
         if (file.exists() && !file.isDirectory()) {
-            LOG.error("FE plugin dir {} is not a directory", Config.plugin_dir);
-            System.exit(-1);
+            throw new PluginException("FE plugin dir " + Config.plugin_dir + " is not a directory");
         }
 
         if (!file.exists()) {
             if (!file.mkdir()) {
-                LOG.error("failed to create FE plugin dir {}", Config.plugin_dir);
-                System.exit(-1);
+                throw new PluginException("failed to create FE plugin dir " + Config.plugin_dir);
             }
         }
+
+        registerBuiltinPlugins();
+    }
+
+    private void registerBuiltinPlugins() {
+        // AuditLog
+        AuditLogBuilder auditLogBuilder = new AuditLogBuilder();
+        if (!registerPlugin(auditLogBuilder.getPluginInfo(), auditLogBuilder)) {
+            LOG.warn("failed to register audit log builder");
+        }
+
+        // other builtin plugins
     }
 
     public PluginInfo installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
@@ -76,14 +87,21 @@ public class PluginMgr implements Writable {
         try {
             PluginInfo info = pluginLoader.getPluginInfo();
 
+            if (plugins[info.getTypeId()].containsKey(info.getName())) {
+                throw new UserException("plugin " + info.getName() + " has already been installed.");
+            }
+            
+            // install plugin
+            pluginLoader.install();
+            pluginLoader.setStatus(PluginStatus.INSTALLED);
+            
             if (plugins[info.getTypeId()].putIfAbsent(info.getName(), pluginLoader) != null) {
                 pluginLoader.uninstall();
                 throw new UserException("plugin " + info.getName() + " has already been installed.");
             }
 
-            // install plugin
-            pluginLoader.install();
-            pluginLoader.setStatus(PluginStatus.INSTALLED);
+            Catalog.getCurrentCatalog().getEditLog().logInstallPlugin(info);
+            LOG.info("install plugin = " + info.getName());
             return info;
         } catch (IOException | UserException e) {
             pluginLoader.setStatus(PluginStatus.ERROR);
@@ -120,14 +138,12 @@ public class PluginMgr implements Writable {
      */
     public boolean registerPlugin(PluginInfo pluginInfo, Plugin plugin) {
         if (Objects.isNull(pluginInfo) || Objects.isNull(plugin) || Objects.isNull(pluginInfo.getType())
-                || Strings
-                .isNullOrEmpty(pluginInfo.getName())) {
+                || Strings.isNullOrEmpty(pluginInfo.getName())) {
             return false;
         }
 
         PluginLoader loader = new BuiltinPluginLoader(Config.plugin_dir, pluginInfo, plugin);
-        PluginLoader checkLoader =
-                plugins[pluginInfo.getTypeId()].putIfAbsent(pluginInfo.getName(), loader);
+        PluginLoader checkLoader = plugins[pluginInfo.getTypeId()].putIfAbsent(pluginInfo.getName(), loader);
 
         return checkLoader == null;
     }
@@ -170,7 +186,6 @@ public class PluginMgr implements Writable {
 
     public final List<Plugin> getActivePluginList(PluginType type) {
         Map<String, PluginLoader> m = plugins[type.ordinal()];
-
         List<Plugin> l = Lists.newArrayListWithCapacity(m.size());
 
         m.values().forEach(d -> {

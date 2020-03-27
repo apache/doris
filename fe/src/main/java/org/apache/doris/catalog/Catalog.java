@@ -180,6 +180,7 @@ import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
+import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.SessionVariable;
@@ -387,6 +388,8 @@ public class Catalog {
     
     private PluginMgr pluginMgr;
 
+    private AuditEventProcessor auditEventProcessor;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -521,6 +524,7 @@ public class Catalog {
         this.imageDir = this.metaDir + IMAGE_DIR;
 
         this.pluginMgr = new PluginMgr();
+        this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
     }
 
     public static void destroyCheckpoint() {
@@ -586,6 +590,10 @@ public class Catalog {
         return fullNameToDb;
     }
 
+    public AuditEventProcessor getAuditEventProcessor() {
+        return auditEventProcessor;
+    }
+
     // use this to get correct ClusterInfoService instance
     public static SystemInfoService getCurrentSystemInfo() {
         return getCurrentCatalog().getClusterInfo();
@@ -620,6 +628,10 @@ public class Catalog {
 
     public static PluginMgr getCurrentPluginMgr() {
         return getCurrentCatalog().getPluginMgr();
+    }
+
+    public static AuditEventProcessor getCurrentAuditEventProcessor() {
+        return getCurrentCatalog().getAuditEventProcessor();
     }
 
     // Use tryLock to avoid potential dead lock
@@ -704,6 +716,7 @@ public class Catalog {
 
         // init plugin manager
         pluginMgr.init();
+        auditEventProcessor.start();
 
         // 2. get cluster id and role (Observer or Follower)
         getClusterIdAndRole();
@@ -3612,7 +3625,6 @@ public class Catalog {
         olapTable.setIndexMeta(baseIndexId, tableName, baseSchema, schemaVersion, schemaHash,
                 shortKeyColumnCount, baseIndexStorageType, keysType);
 
-
         for (AlterClause alterClause : stmt.getRollupAlterClauseList()) {
             AddRollupClause addRollupClause = (AddRollupClause)alterClause;
 
@@ -6405,9 +6417,7 @@ public class Catalog {
     }
 
     public void installPlugin(InstallPluginStmt stmt) throws UserException, IOException {
-        PluginInfo pluginInfo = pluginMgr.installPlugin(stmt);
-        editLog.logInstallPlugin(pluginInfo);
-        LOG.info("install plugin = " + pluginInfo.getName());
+        pluginMgr.installPlugin(stmt);
     }
 
     public long savePlugins(DataOutputStream dos, long checksum) throws IOException {

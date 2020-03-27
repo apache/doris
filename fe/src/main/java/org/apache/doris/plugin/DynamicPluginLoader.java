@@ -17,6 +17,12 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.common.UserException;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.net.URL;
@@ -30,20 +36,20 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
-import org.apache.commons.io.FileUtils;
-import org.apache.doris.common.UserException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
 public class DynamicPluginLoader extends PluginLoader {
     private final static Logger LOG = LogManager.getLogger(DynamicPluginLoader.class);
 
+    // the final dir which contains all plugin files.
+    // eg:
+    // Config.plugin_dir/plugin_name/
     protected Path installPath;
 
-    DynamicPluginLoader(String pluginPath, String source) {
-        super(pluginPath, source);
+    // for processing install stmt
+    DynamicPluginLoader(String pluginDir, String source) {
+        super(pluginDir, source);
     }
 
+    // for test and replay
     DynamicPluginLoader(String pluginPath, PluginInfo info) {
         super(pluginPath, info);
         this.installPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());
@@ -67,9 +73,10 @@ public class DynamicPluginLoader extends PluginLoader {
         if (installPath == null) {
             // download plugin and extract
             PluginZip zip = new PluginZip(source);
-            Path target = Files.createTempDirectory(pluginDir, ".install_");
-
-            installPath = zip.extract(target);
+            // generation a tmp dir to extract the zip
+            Path tmpTarget = Files.createTempDirectory(pluginDir, ".install_");
+            // for now, installPath point to the temp dir which contains all extracted files from zip file.
+            installPath = zip.extract(tmpTarget);
         }
 
         pluginInfo = PluginInfo.readFromProperties(installPath, source);
@@ -87,11 +94,13 @@ public class DynamicPluginLoader extends PluginLoader {
 
         getPluginInfo();
 
-        Path realPath = movePlugin();
+        movePlugin();
 
-        plugin = dynamicLoadPlugin(realPath);
+        plugin = dynamicLoadPlugin();
 
         pluginInstallValid();
+
+        pluginContext.setPluginJarPath(installPath.toString());
 
         plugin.init(pluginInfo, pluginContext);
     }
@@ -104,7 +113,6 @@ public class DynamicPluginLoader extends PluginLoader {
                 return true;
             }
         }
-
         return false;
     }
 
@@ -125,24 +133,25 @@ public class DynamicPluginLoader extends PluginLoader {
 
     /**
      * reload plugin if plugin has already been installed, else will re-install
+     * 
+     * @throws PluginException
      */
     public void reload() throws IOException, UserException {
         if (hasInstalled()) {
-            plugin = dynamicLoadPlugin(installPath);
+            plugin = dynamicLoadPlugin();
             pluginInstallValid();
+            pluginContext.setPluginJarPath(installPath.toString());
             plugin.init(pluginInfo, pluginContext);
-
         } else {
             // re-install
             this.pluginInfo = null;
             this.installPath = null;
-
             install();
         }
     }
 
-    Plugin dynamicLoadPlugin(Path path) throws IOException, UserException {
-        Set<URL> jarList = getJarUrl(path);
+    Plugin dynamicLoadPlugin() throws IOException, UserException {
+        Set<URL> jarList = getJarUrl(installPath);
 
         // create a child to load the plugin in this bundle
         ClassLoader parentLoader = PluginClassLoader.createLoader(getClass().getClassLoader(), Collections.EMPTY_LIST);
@@ -198,19 +207,18 @@ public class DynamicPluginLoader extends PluginLoader {
     }
 
     /**
-     * move plugin's temp install directory to Doris's PLUGIN_DIR
+     * move plugin's temp install directory to Doris's PLUGIN_DIR/plugin_name
      */
-    Path movePlugin() throws UserException, IOException {
-
+    public void movePlugin() throws UserException, IOException {
         if (installPath == null || !Files.exists(installPath)) {
-            throw new UserException("Install plugin " + pluginInfo.getName() + " failed, because install path isn't "
+            throw new PluginException("Install plugin " + pluginInfo.getName() + " failed, because install path isn't "
                     + "exists.");
         }
 
         Path targetPath = FileSystems.getDefault().getPath(pluginDir.toString(), pluginInfo.getName());
         if (Files.exists(targetPath)) {
             if (!Files.isSameFile(installPath, targetPath)) {
-                throw new UserException(
+                throw new PluginException(
                         "Install plugin " + pluginInfo.getName() + " failed. because " + installPath.toString()
                                 + " exists");
             }
@@ -220,8 +228,6 @@ public class DynamicPluginLoader extends PluginLoader {
 
         // move success
         installPath = targetPath;
-
-        return installPath;
     }
 
 }

@@ -18,4 +18,14 @@
 package org.apache.doris.plugin;
 
 public class PluginContext {
+
+    private String pluginJarPath;
+
+    public void setPluginJarPath(String pluginJarPath) {
+        this.pluginJarPath = pluginJarPath;
+    }
+
+    public String getPluginJarPath() {
+        return pluginJarPath;
+    }
 }

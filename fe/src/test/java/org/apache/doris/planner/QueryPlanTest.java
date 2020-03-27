@@ -55,6 +55,35 @@ public class QueryPlanTest {
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
         Catalog.getCurrentCatalog().createDb(createDbStmt);
+        
+        createTable("create table test.test1\n" + 
+                "(\n" + 
+                "    query_id varchar(48) comment \"Unique query id\",\n" + 
+                "    time datetime not null comment \"Query start time\",\n" + 
+                "    client_ip varchar(32) comment \"Client IP\",\n" + 
+                "    user varchar(64) comment \"User name\",\n" + 
+                "    db varchar(96) comment \"Database of this query\",\n" + 
+                "    state varchar(8) comment \"Query result state. EOF, ERR, OK\",\n" + 
+                "    query_time bigint comment \"Query execution time in millisecond\",\n" + 
+                "    scan_bytes bigint comment \"Total scan bytes of this query\",\n" + 
+                "    scan_rows bigint comment \"Total scan rows of this query\",\n" + 
+                "    return_rows bigint comment \"Returned rows of this query\",\n" + 
+                "    stmt_id int comment \"An incremental id of statement\",\n" + 
+                "    is_query tinyint comment \"Is this statemt a query. 1 or 0\",\n" + 
+                "    frontend_ip varchar(32) comment \"Frontend ip of executing this statement\",\n" + 
+                "    stmt varchar(2048) comment \"The original statement, trimed if longer than 2048 bytes\"\n" + 
+                ")\n" + 
+                "partition by range(time) ()\n" + 
+                "distributed by hash(query_id) buckets 1\n" + 
+                "properties(\n" + 
+                "    \"dynamic_partition.time_unit\" = \"DAY\",\n" + 
+                "    \"dynamic_partition.start\" = \"-30\",\n" + 
+                "    \"dynamic_partition.end\" = \"3\",\n" + 
+                "    \"dynamic_partition.prefix\" = \"p\",\n" + 
+                "    \"dynamic_partition.buckets\" = \"1\",\n" + 
+                "    \"dynamic_partition.enable\" = \"true\",\n" + 
+                "    \"replication_num\" = \"1\"\n" + 
+                ");");
 
         createTable("CREATE TABLE test.bitmap_table (\n" +
                 "  `id` int(11) NULL COMMENT \"\",\n" +
