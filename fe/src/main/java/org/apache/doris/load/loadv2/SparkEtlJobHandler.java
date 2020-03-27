@@ -212,10 +212,11 @@ public class SparkEtlJobHandler {
         //    "numFailedTasks" : 0, "numKilledTasks" : 0, "numCompletedIndices" : 9, "numActiveStages" : 1,
         //    "numCompletedStages" : 2, "numSkippedStages" : 0, "numFailedStages" : 0, "killedTasksSummary" : { }
         //  }]
-        List<Map<String, Object>> jobInfos = new Gson().fromJson(responseJson, List.class);
         Map<String, String> stats = Maps.newHashMap();
         int numTasks = 0;
         int numCompletedTasks = 0;
+        /*
+        List<Map<String, Object>> jobInfos = new Gson().fromJson(responseJson, List.class);
         for (Map<String, Object> jobInfo : jobInfos) {
             if (jobInfo.containsKey(NUM_TASKS)) {
                 numTasks += new Double((double) jobInfo.get(NUM_TASKS)).intValue();
@@ -224,6 +225,7 @@ public class SparkEtlJobHandler {
                 numCompletedTasks += new Double((double) jobInfo.get(NUM_COMPLETED_TASKS)).intValue();
             }
         }
+        */
 
         stats.put(NUM_TASKS, String.valueOf(numTasks));
         stats.put(NUM_COMPLETED_TASKS, String.valueOf(numCompletedTasks));
