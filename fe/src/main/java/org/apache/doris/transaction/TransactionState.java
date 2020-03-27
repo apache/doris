@@ -17,6 +17,8 @@
 
 package org.apache.doris.transaction;
 
+import com.google.common.collect.Lists;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
@@ -40,6 +42,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
@@ -126,6 +129,7 @@ public class TransactionState implements Writable {
     }
 
     private long dbId;
+    private List<Long> tableIdList;
     private long transactionId;
     private String label;
     // requsetId is used to judge whether a begin request is a internal retry request.
@@ -168,6 +172,7 @@ public class TransactionState implements Writable {
 
     public TransactionState() {
         this.dbId = -1;
+        this.tableIdList = Lists.newArrayList();
         this.transactionId = -1;
         this.label = "";
         this.idToTableCommitInfos = Maps.newHashMap();
@@ -184,9 +189,10 @@ public class TransactionState implements Writable {
         this.latch = new CountDownLatch(1);
     }
     
-    public TransactionState(long dbId, long transactionId, String label, TUniqueId requsetId,
+    public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requsetId,
                             LoadJobSourceType sourceType, String coordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
+        this.tableIdList = (tableIdList == null ? Lists.newArrayList() : tableIdList);
         this.transactionId = transactionId;
         this.label = label;
         this.requsetId = requsetId;
@@ -408,7 +414,11 @@ public class TransactionState implements Writable {
     public long getDbId() {
         return dbId;
     }
-    
+
+    public List<Long> getTableIdList() {
+        return tableIdList;
+    }
+
     public Map<Long, TableCommitInfo> getIdToTableCommitInfos() {
         return idToTableCommitInfos;
     }
@@ -467,6 +477,7 @@ public class TransactionState implements Writable {
         sb.append("transaction id: ").append(transactionId);
         sb.append(", label: ").append(label);
         sb.append(", db id: ").append(dbId);
+        sb.append(", table id list: ").append(StringUtils.join(tableIdList, ","));
         sb.append(", callback id: ").append(callbackId);
         sb.append(", coordinator: ").append(coordinator);
         sb.append(", transaction status: ").append(transactionStatus);
@@ -533,6 +544,10 @@ public class TransactionState implements Writable {
         }
         out.writeLong(callbackId);
         out.writeLong(timeoutMs);
+        out.writeInt(tableIdList.size());
+        for (int i = 0; i < tableIdList.size(); i++) {
+            out.writeLong(tableIdList.get(i));
+        }
     }
     
     public void readFields(DataInput in) throws IOException {
@@ -563,6 +578,14 @@ public class TransactionState implements Writable {
             }
             callbackId = in.readLong();
             timeoutMs = in.readLong();
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
+            tableIdList = Lists.newArrayList();
+            int tableListSize = in.readInt();
+            for (int i = 0; i < tableListSize; i++) {
+                tableIdList.add(in.readLong());
+            }
         }
     }
 }

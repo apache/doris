@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
@@ -47,14 +48,17 @@ public class MiniLoadJob extends LoadJob {
 
     private String tableName;
 
+    private long tableId;
+
     // only for log replay
     public MiniLoadJob() {
         super();
         this.jobType = EtlJobType.MINI;
     }
 
-    public MiniLoadJob(long dbId, TMiniLoadBeginRequest request) throws MetaNotFoundException {
+    public MiniLoadJob(long dbId, long tableId, TMiniLoadBeginRequest request) throws MetaNotFoundException {
         super(dbId, request.getLabel());
+        this.tableId = tableId;
         this.jobType = EtlJobType.MINI;
         this.tableName = request.getTbl();
         if (request.isSetTimeout_second()) {
@@ -93,7 +97,7 @@ public class MiniLoadJob extends LoadJob {
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, label, requestId, "FE: " + FrontendOptions.getLocalHostAddress(),
+                .beginTransaction(dbId, Lists.newArrayList(tableId), label, requestId, "FE: " + FrontendOptions.getLocalHostAddress(),
                                   TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
                                   timeoutSecond);
     }
