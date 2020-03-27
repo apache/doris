@@ -108,7 +108,7 @@ public class UnitTestUtil {
 
         // table
         PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+        partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_DATA_PROPERTY);
         partitionInfo.setReplicationNum(partitionId, (short) 3);
         partitionInfo.setIsInMemory(partitionId, false);
         OlapTable table = new OlapTable(tableId, TABLE_NAME, columns,
