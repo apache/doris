@@ -319,7 +319,7 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
-        if (targetType.isDateType()) {
+        if (targetType.equals(this.type)) {
             return this;
         } else if (targetType.isStringType()) {
             return new StringLiteral(getStringValue());
