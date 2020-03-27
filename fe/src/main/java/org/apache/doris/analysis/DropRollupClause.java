@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
@@ -29,6 +30,7 @@ public class DropRollupClause extends AlterTableClause {
     private Map<String, String> properties;
 
     public DropRollupClause(String rollupName, Map<String, String> properties) {
+        super(AlterOpType.DROP_ROLLUP);
         this.rollupName = rollupName;
         this.properties = properties;
         this.needTableStable = false;

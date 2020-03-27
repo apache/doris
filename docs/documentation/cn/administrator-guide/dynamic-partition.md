@@ -42,7 +42,7 @@ under the License.
 
 ### 动态分区属性参数说明:
 
-`dynamic_partition.enable`: 是否开启动态分区特性，可指定为 `TRUE` 或 `FALSE`。
+`dynamic_partition.enable`: 是否开启动态分区特性，可指定为 `TRUE` 或 `FALSE`。如果不填写，默认为 `TRUE`。
 
 
 `dynamic_partition.time_unit`: 动态分区调度的单位，可指定为 `DAY` `WEEK` `MONTH`，当指定为 `DAY` 时，动态创建的分区名后缀格式为`yyyyMMdd`，例如`20200325`。当指定为 `WEEK` 时，动态创建的分区名后缀格式为`yyyy_ww`即当前日期属于这一年的第几周，例如 `2020-03-25` 创建的分区名后缀为 `2020_13`, 表明目前为2020年第13周。当指定为 `MONTH` 时，动态创建的分区名后缀格式为 `yyyyMM`，例如 `202003`。

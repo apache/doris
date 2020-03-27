@@ -257,13 +257,15 @@ under the License.
       PROPERTIES (
           "dynamic_partition.enable" = "true|false",
           "dynamic_partition.time_unit" = "DAY|WEEK|MONTH",
+          "dynamic_partition.start" = "${integer_value}",
           "dynamic_partitoin.end" = "${integer_value}",
           "dynamic_partition.prefix" = "${string_value}",
           "dynamic_partition.buckets" = "${integer_value}
 ```
-    dynamic_partition.enable: 用于指定表级别的动态分区功能是否开启
+    dynamic_partition.enable: 用于指定表级别的动态分区功能是否开启。默认为 true。
     dynamic_partition.time_unit: 用于指定动态添加分区的时间单位，可选择为DAY（天），WEEK(周)，MONTH（月）
-    dynamic_partition.end: 用于指定提前创建的分区数量
+    dynamic_partition.start: 用于指定向前删除多少个分区。值必须小于0。默认为 Integer.MIN_VALUE。
+    dynamic_partition.end: 用于指定提前创建的分区数量。值必须大于0。
     dynamic_partition.prefix: 用于指定创建的分区名前缀，例如分区名前缀为p，则自动创建分区名为p20200108
     dynamic_partition.buckets: 用于指定自动创建的分区分桶数量
 
@@ -524,7 +526,7 @@ under the License.
     PROPERTIES ("storage_type"="column");
 ```
 
-11. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
+11. 创建一个动态分区表(需要在FE配置中开启动态分区功能)，该表每天提前创建3天的分区，并删除3天前的分区。例如今天为`2020-01-08`，则会创建分区名为`p20200108`, `p20200109`, `p20200110`, `p20200111`的分区. 分区范围分别为: 
 
 ```
 [types: [DATE]; keys: [2020-01-08]; ‥types: [DATE]; keys: [2020-01-09]; )
@@ -554,6 +556,7 @@ under the License.
     PROPERTIES(
     "storage_medium" = "SSD",
     "dynamic_partition.time_unit" = "DAY",
+    "dynamic_partition.start" = "-3",
     "dynamic_partition.end" = "3",
     "dynamic_partition.prefix" = "p",
     "dynamic_partition.buckets" = "32"

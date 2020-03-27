@@ -3229,7 +3229,7 @@ public class Catalog {
         }
     }
 
-    public void modifyPartition(Database db, OlapTable olapTable, String partitionName, Map<String, String> properties)
+    public void modifyPartitionProperty(Database db, OlapTable olapTable, String partitionName, Map<String, String> properties)
             throws DdlException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
         if (olapTable.getState() != OlapTableState.NORMAL) {

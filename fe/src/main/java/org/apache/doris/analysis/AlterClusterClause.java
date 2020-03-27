@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -34,6 +35,7 @@ public class AlterClusterClause extends AlterClause {
     private String password;
 
     public AlterClusterClause(AlterClusterType type, Map<String, String> properties) {
+        super(AlterOpType.ALTER_OTHER);
         this.type = type;
         this.properties = properties;
         instanceNum = 0;
