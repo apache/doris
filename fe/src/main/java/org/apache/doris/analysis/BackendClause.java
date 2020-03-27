@@ -17,9 +17,11 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
+
 import com.google.common.base.Preconditions;
 
 import org.apache.commons.lang.NotImplementedException;
@@ -34,6 +36,7 @@ public class BackendClause extends AlterClause {
     protected List<Pair<String, Integer>> hostPortPairs;
 
     protected BackendClause(List<String> hostPorts) {
+        super(AlterOpType.ALTER_OTHER);
         this.hostPorts = hostPorts;
         this.hostPortPairs = new LinkedList<Pair<String, Integer>>();
     }
