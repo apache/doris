@@ -70,6 +70,7 @@ set(EXEC_FILES
     spill_sort_node.cc
     union_node.cpp
     union_node_ir.cpp
+    set_operation_node.cpp
     intersect_node.cpp
     except_node.cpp
     repeat_node.cpp
