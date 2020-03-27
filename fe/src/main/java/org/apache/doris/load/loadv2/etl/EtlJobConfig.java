@@ -19,6 +19,8 @@ package org.apache.doris.load.loadv2.etl;
 
 import com.google.common.collect.Lists;
 
+import java.io.Serializable;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -111,7 +113,7 @@ import java.util.Map;
  * 	"label": "label0"
  * }
  */
-public class EtlJobConfig {
+public class EtlJobConfig implements Serializable {
     // global dict
     public static final String GLOBAL_DICT_TABLE_NAME = "doris_global_dict_table_%d";
     public static final String DISTINCT_KEY_TABLE_NAME = "doris_distinct_key_table_%d_%s";
@@ -127,10 +129,10 @@ public class EtlJobConfig {
     // config
     public static final String JOB_CONFIG_FILE_NAME = "jobconfig.json";
 
-    Map<Long, EtlTable> tables;
-    String outputPath;
-    String outputFilePattern;
-    String label;
+    public Map<Long, EtlTable> tables;
+    public String outputPath;
+    public String outputFilePattern;
+    public String label;
     // private EtlErrorHubInfo hubInfo;
 
     public EtlJobConfig(Map<Long, EtlTable> tables, String outputFilePattern, String label) {
@@ -151,14 +153,6 @@ public class EtlJobConfig {
                 '}';
     }
 
-    public String getOutputPath() {
-        return outputPath;
-    }
-
-    public void setOutputPath(String outputPath) {
-        this.outputPath = outputPath;
-    }
-
     public static String getOutputPath(String hdfsDefaultName, String outputPath, long dbId,
                                        String loadLabel, long taskSignature) {
         return String.format(ETL_OUTPUT_PATH_FORMAT, hdfsDefaultName, outputPath, dbId, loadLabel, taskSignature);
@@ -177,7 +171,7 @@ public class EtlJobConfig {
         return fileName.substring(fileName.indexOf(".") + 1, fileName.lastIndexOf("."));
     }
 
-    public static class EtlTable {
+    public static class EtlTable implements Serializable {
         public List<EtlIndex> indexes;
         public EtlPartitionInfo partitionInfo;
         public List<EtlFileGroup> fileGroups;
@@ -202,7 +196,7 @@ public class EtlJobConfig {
         }
     }
 
-    public static class EtlColumn {
+    public static class EtlColumn implements Serializable {
         public String columnName;
         public String columnType;
         public boolean isAllowNull;
@@ -242,7 +236,21 @@ public class EtlJobConfig {
         }
     }
 
-    public static class EtlIndex {
+    public static class EtlIndexComparator implements Comparator<EtlIndex> {
+        @Override
+        public int compare(EtlIndex a, EtlIndex b) {
+            int diff = a.columns.size() - b.columns.size();
+            if (diff == 0) {
+                return 0;
+            } else if (diff > 0) {
+                return 1;
+            } else {
+                return -1;
+            }
+        }
+    }
+
+    public static class EtlIndex implements Serializable {
         public long indexId;
         public List<EtlColumn> columns;
         public int schemaHash;
@@ -270,7 +278,7 @@ public class EtlJobConfig {
         }
     }
 
-    public static class EtlPartitionInfo {
+    public static class EtlPartitionInfo implements Serializable {
         public String partitionType;
         public List<String> partitionColumnRefs;
         public List<String> distributionColumnRefs;
@@ -295,7 +303,7 @@ public class EtlJobConfig {
         }
     }
 
-    public static class EtlPartition {
+    public static class EtlPartition implements Serializable {
         public long partitionId;
         public List<Object> startKeys;
         public List<Object> endKeys;
@@ -323,7 +331,7 @@ public class EtlJobConfig {
         }
     }
 
-    public static class EtlFileGroup {
+    public static class EtlFileGroup implements Serializable {
         public List<String> filePaths;
         public List<String> fileFieldNames;
         public List<String> columnsFromPath;
@@ -370,7 +378,7 @@ public class EtlJobConfig {
         }
     }
 
-    public static class EtlColumnMapping {
+    public static class EtlColumnMapping implements Serializable {
         public String functionName;
         public List<String> args;
 

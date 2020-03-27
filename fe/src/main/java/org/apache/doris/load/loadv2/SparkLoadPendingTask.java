@@ -99,8 +99,7 @@ public class SparkLoadPendingTask extends LoadTask {
         // retry different output path
         String outputPath = etlClusterDesc.getProperties().get("output_path");
         String hdfsDefaultName = etlClusterDesc.getProperties().get("fs.default.name");
-        etlJobConfig.setOutputPath(EtlJobConfig.getOutputPath(hdfsDefaultName, outputPath, dbId,
-                                                              loadLabel, signature));
+        etlJobConfig.outputPath = EtlJobConfig.getOutputPath(hdfsDefaultName, outputPath, dbId, loadLabel, signature);
 
         // spark configs
         String sparkMaster = etlClusterDesc.getProperties().get("spark.master");
@@ -110,7 +109,7 @@ public class SparkLoadPendingTask extends LoadTask {
         SparkEtlJobHandler handler = new SparkEtlJobHandler();
         SparkAppHandle handle = handler.submitEtlJob(loadJobId, loadLabel, sparkMaster, sparkConfigs, configToJson());
         ((SparkPendingTaskAttachment) attachment).setHandle(handle);
-        ((SparkPendingTaskAttachment) attachment).setOutputPath(etlJobConfig.getOutputPath());
+        ((SparkPendingTaskAttachment) attachment).setOutputPath(etlJobConfig.outputPath);
         LOG.info("submit spark etl job success. attachment: {}", attachment);
     }
 
