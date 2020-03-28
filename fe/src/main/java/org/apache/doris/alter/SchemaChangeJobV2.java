@@ -1084,7 +1084,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_79) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_80) {
             boolean cleared = in.readBoolean();
             if (cleared) {
                 readJobFinishedData(in);
