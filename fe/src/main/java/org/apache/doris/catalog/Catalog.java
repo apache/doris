@@ -52,7 +52,6 @@ import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.analysis.DropClusterStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
@@ -86,6 +85,7 @@ import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Replica.ReplicaState;
@@ -701,6 +701,9 @@ public class Catalog {
             LOG.error("Invalid edit log type: {}", Config.edit_log_type);
             System.exit(-1);
         }
+
+        // init plugin manager
+        pluginMgr.init();
 
         // 2. get cluster id and role (Observer or Follower)
         getClusterIdAndRole();
@@ -3226,7 +3229,7 @@ public class Catalog {
         }
     }
 
-    public void modifyPartition(Database db, OlapTable olapTable, String partitionName, Map<String, String> properties)
+    public void modifyPartitionProperty(Database db, OlapTable olapTable, String partitionName, Map<String, String> properties)
             throws DdlException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
         if (olapTable.getState() != OlapTableState.NORMAL) {
@@ -3558,7 +3561,7 @@ public class Catalog {
             DataProperty dataProperty = null;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                        DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+                        DataProperty.DEFAULT_DATA_PROPERTY);
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -3670,7 +3673,7 @@ public class Catalog {
                 try {
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
-                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(), DataProperty.DEFAULT_DATA_PROPERTY);
                     DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties);
 
                     if (properties != null && !properties.isEmpty()) {
@@ -4516,8 +4519,7 @@ public class Catalog {
                         if (dataProperty.getStorageMedium() == TStorageMedium.SSD
                                 && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
-                            partitionInfo.setDataProperty(partition.getId(),
-                                    DataProperty.DEFAULT_HDD_DATA_PROPERTY);
+                            partitionInfo.setDataProperty(partition.getId(), new DataProperty(TStorageMedium.HDD));
                             storageMediumMap.put(partitionId, TStorageMedium.HDD);
                             LOG.debug("partition[{}-{}-{}] storage medium changed from SSD to HDD",
                                     dbId, tableId, partitionId);
@@ -4526,7 +4528,7 @@ public class Catalog {
                             ModifyPartitionInfo info =
                                     new ModifyPartitionInfo(db.getId(), olapTable.getId(),
                                             partition.getId(),
-                                            DataProperty.DEFAULT_HDD_DATA_PROPERTY,
+                                            DataProperty.DEFAULT_DATA_PROPERTY,
                                             (short) -1,
                                             partitionInfo.getIsInMemory(partition.getId()));
                             editLog.logModifyPartition(info);

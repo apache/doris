@@ -18,6 +18,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
@@ -106,7 +107,7 @@ public class LoadJobTest {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
-                globalTransactionMgr.beginTransaction(anyLong, anyString, (TUniqueId) any, anyString,
+                globalTransactionMgr.beginTransaction(anyLong, Lists.newArrayList(), anyString, (TUniqueId) any, anyString,
                         (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
                 minTimes = 0;
                 result = 1;

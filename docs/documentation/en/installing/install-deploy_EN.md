@@ -137,7 +137,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * Configure FE
 
-	1. The configuration file is conf/fe.conf. Note: `meta_dir`: Metadata storage location. The default is fe/palo-meta/. The directory needs to be **created manually** by.
+	1. The configuration file is conf/fe.conf. Note: `meta_dir`: Metadata storage location. The default is fe/doris-meta/. The directory needs to be **created manually** by.
 	2. JAVA_OPTS in fe.conf defaults to a maximum heap memory of 4GB for java, and it is recommended that the production environment be adjusted to more than 8G.
 
 * Start FE
@@ -156,7 +156,7 @@ BROKER does not currently have, nor does it need, priority\ networks. Broker's s
 
 * Modify all BE configurations
 
-	Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory, using `;` separation (do not add `;` after the last directory), others can use default values.
+	Modify be/conf/be.conf. Mainly configure `storage_root_path`: data storage directory. The default is be/storage, this directory needs to be **created manually** by. In multi directories case, using `;` separation (do not add `;` after the last directory).
 
 * Add all BE nodes to FE
 
@@ -392,7 +392,7 @@ Broker is a stateless process that can be started or stopped at will. Of course,
 
 	In addition to Master FE, the other role nodes (Follower FE, Observer FE, Backend) need to register to the cluster through the `ALTER SYSTEM ADD` statement before joining the cluster.
 
-	When Master FE is first started, a cluster_id is generated in the palo-meta/image/VERSION file.
+	When Master FE is first started, a cluster_id is generated in the doris-meta/image/VERSION file.
 
 	When FE first joins the cluster, it first retrieves the file from Master FE. Each subsequent reconnection between FEs (FE reboot) checks whether its cluster ID is the same as that of other existing FEs. If different, the FE will exit automatically.
 

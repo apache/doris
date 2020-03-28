@@ -633,7 +633,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     // Check whether transactions of the given database which txnId is less than 'watershedTxnId' are finished.
     protected boolean isPreviousLoadFinished() {
-        return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId);
+        return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId, Lists.newArrayList(tableId));
     }
 
     public static SchemaChangeJobV2 read(DataInput in) throws IOException {

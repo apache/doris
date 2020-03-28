@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -41,6 +42,7 @@ public class FrontendClause extends AlterClause {
     protected FrontendNodeType role;
 
     protected FrontendClause(String hostPort, FrontendNodeType role) {
+        super(AlterOpType.ALTER_OTHER);
         this.hostPort = hostPort;
         this.role = role;
     }

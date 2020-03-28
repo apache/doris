@@ -596,6 +596,18 @@ public class StmtRewriterTest {
                 "order by: <slot 10> ASC", "OUTPUT EXPRS:<slot 11> | <slot 10>", "limit: 100");
     }
 
+    /**
+     * ISSUE-3205
+     */
+    @Test
+    public void testRewriteHavingClauseWithBetweenAndInSubquery() throws Exception {
+        String subquery = "select avg(salary) from " + TABLE_NAME + " where empid between 1 and 2";
+        String query = "select empid a, sum(salary) b from " + TABLE_NAME + " group by a having b > (" +
+                subquery + ");";
+        dorisAssert.query(query).explainContains(
+                "CROSS JOIN", "predicates: <slot 3> > <slot 9>", "`empid` >= 1, `empid` <= 2");
+    }
+
     @AfterClass
     public static void afterClass() throws Exception {
         UtFrameUtils.cleanDorisFeDir(baseDir);

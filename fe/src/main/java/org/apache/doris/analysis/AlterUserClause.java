@@ -17,11 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
+
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -29,6 +27,10 @@ import com.google.common.collect.Sets;
 import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class AlterUserClause extends AlterClause {
     private static final Logger LOG = LogManager.getLogger(AlterUserClause.class);
@@ -40,6 +42,7 @@ public class AlterUserClause extends AlterClause {
     private AlterUserType type;
     
     public AlterUserClause(AlterUserType type, List<String> hostOrIps) {
+        super(AlterOpType.ALTER_OTHER);
         this.type = type;
         this.hostOrIps = hostOrIps;
         this.ips = Lists.newArrayList();

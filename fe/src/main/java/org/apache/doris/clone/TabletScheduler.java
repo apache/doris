@@ -880,7 +880,7 @@ public class TabletScheduler extends MasterDaemon {
         } else if (replica.getState() == ReplicaState.DECOMMISSION && replica.getWatermarkTxnId() != -1) {
             long watermarkTxnId = replica.getWatermarkTxnId();
             if (!Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watermarkTxnId,
-                    tabletCtx.getDbId())) {
+                    tabletCtx.getDbId(), Lists.newArrayList(tabletCtx.getTblId()))) {
                 throw new SchedException(Status.SCHEDULE_FAILED, "wait txn before " + watermarkTxnId + " to be finished");
             }
         }

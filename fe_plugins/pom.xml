@@ -8,11 +8,36 @@
     <version>1.0-SNAPSHOT</version>
     <modules>
         <module>auditdemo</module>
-  </modules>
+    </modules>
 
     <properties>
         <doris.home>${basedir}/../../</doris.home>
     </properties>
+    <profiles>
+        <!-- for custom internal repository -->
+        <profile>
+            <id>custom-env</id>
+            <activation>
+                <property>
+                    <name>env.CUSTOM_MAVEN_REPO</name>
+                </property>
+            </activation>
+
+            <repositories>
+                <repository>
+                    <id>custom-nexus</id>
+                    <url>${env.CUSTOM_MAVEN_REPO}</url>
+                </repository>
+            </repositories>
+
+            <pluginRepositories>
+                <pluginRepository>
+                    <id>custom-nexus</id>
+                    <url>${env.CUSTOM_MAVEN_REPO}</url>
+                </pluginRepository>
+            </pluginRepositories>
+        </profile>
+    </profiles>
 
     <dependencyManagement>
         <dependencies>

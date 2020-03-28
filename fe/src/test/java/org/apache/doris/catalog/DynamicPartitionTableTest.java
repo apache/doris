@@ -1,10 +1,5 @@
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -24,6 +19,9 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -35,6 +33,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
 
 public class DynamicPartitionTableTest {
     private TableName dbTableName;
@@ -149,53 +152,6 @@ public class DynamicPartitionTableTest {
                 new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
                 new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
         stmt.analyze(analyzer);
-
-        catalog.createTable(stmt);
-    }
-
-    @Test
-    public void testMissEnable(@Injectable SystemInfoService systemInfoService,
-                               @Injectable PaloAuth paloAuth,
-                               @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        properties.remove(DynamicPartitionProperty.ENABLE);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Must assign dynamic_partition.enable properties");
 
         catalog.createTable(stmt);
     }

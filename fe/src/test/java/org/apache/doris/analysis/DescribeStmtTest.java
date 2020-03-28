@@ -65,7 +65,7 @@ public class DescribeStmtTest {
 
     @Ignore
     @Test
-    public void testNormal() throws AnalysisException, UserException {
+    public void testNormal() throws UserException {
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), false);
         stmt.analyze(analyzer);
         Assert.assertEquals("DESCRIBE `testCluster:testDb.testTbl`", stmt.toString());
@@ -75,11 +75,12 @@ public class DescribeStmtTest {
     }
 
     @Test
-    public void testAllNormal() throws AnalysisException, UserException {
+    public void testAllNormal() throws UserException {
         DescribeStmt stmt = new DescribeStmt(new TableName("", "testTbl"), true);
         stmt.analyze(analyzer);
         Assert.assertEquals("DESCRIBE `testCluster:testDb.testTbl` ALL", stmt.toString());
-        Assert.assertEquals(7, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals(8, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("IndexKeysType", stmt.getMetaData().getColumn(1).getName());
         Assert.assertEquals("testCluster:testDb", stmt.getDb());
         Assert.assertEquals("testTbl", stmt.getTableName());
     }

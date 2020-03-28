@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.load.LoadErrorHub;
@@ -38,6 +39,7 @@ public class AlterLoadErrorUrlClause extends AlterClause {
     private LoadErrorHub.Param param;
 
     public AlterLoadErrorUrlClause(Map<String, String> properties) {
+        super(AlterOpType.ALTER_OTHER);
         this.properties = properties;
     }
 

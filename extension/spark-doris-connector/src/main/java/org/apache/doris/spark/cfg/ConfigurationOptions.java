@@ -57,4 +57,10 @@ public interface ConfigurationOptions {
     long DORIS_EXEC_MEM_LIMIT_DEFAULT = 2147483648L;
 
     String DORIS_VALUE_READER_CLASS = "doris.value.reader.class";
+
+    String DORIS_DESERIALIZE_ARROW_ASYNC = "doris.deserialize.arrow.async";
+    boolean DORIS_DESERIALIZE_ARROW_ASYNC_DEFAULT = false;
+
+    String DORIS_DESERIALIZE_QUEUE_SIZE = "doris.deserialize.queue.size";
+    int DORIS_DESERIALIZE_QUEUE_SIZE_DEFAULT = 64;
 }

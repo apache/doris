@@ -17,14 +17,13 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 
 import com.google.common.base.Strings;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -42,11 +41,6 @@ public class AddRollupClause extends AlterTableClause {
     private List<String> dupKeys;
 
     private Map<String, String> properties;
-
-    public AddRollupClause() {
-        columnNames = Lists.newArrayList();
-        properties = Maps.newHashMap();
-    }
 
     public String getRollupName() {
         return rollupName;
@@ -67,6 +61,7 @@ public class AddRollupClause extends AlterTableClause {
     public AddRollupClause(String rollupName, List<String> columnNames,
                            List<String> dupKeys, String baseRollupName,
                            Map<String, String> properties) {
+        super(AlterOpType.ADD_ROLLUP);
         this.rollupName = rollupName;
         this.columnNames = columnNames;
         this.dupKeys = dupKeys;

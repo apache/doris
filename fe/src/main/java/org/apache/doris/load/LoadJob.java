@@ -78,6 +78,7 @@ public class LoadJob implements Writable {
 
     private long id;
     private long dbId;
+    private long tableId;
     private String label;
     // when this job is a real time load job, the job is attach with a transaction
     private long transactionId = -1;
@@ -144,6 +145,7 @@ public class LoadJob implements Writable {
             DeleteInfo deleteInfo) {
         this.id = id;
         this.dbId = dbId;
+        this.tableId = tableId;
         this.label = label; 
         this.transactionId = -1;
         this.timestamp = -1;
@@ -241,6 +243,10 @@ public class LoadJob implements Writable {
 
     public long getDbId() {
         return dbId;
+    }
+
+    public long getTableId() {
+        return tableId;
     }
 
     public void setDbId(long dbId) {

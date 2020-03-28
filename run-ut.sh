@@ -177,6 +177,7 @@ ${DORIS_TEST_BINARY_DIR}/util/thread_test
 ${DORIS_TEST_BINARY_DIR}/util/threadpool_test
 
 # Running common Unittest
+${DORIS_TEST_BINARY_DIR}/common/config_test
 ${DORIS_TEST_BINARY_DIR}/common/resource_tls_test
 
 ## Running exprs unit test
@@ -277,6 +278,7 @@ ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_meta_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/alpha_rowset_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/beta_rowset_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/rowset_converter_test
+${DORIS_TEST_BINARY_DIR}/olap/rowset/unique_rowset_id_generator_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/encoding_info_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/ordinal_page_index_test
 ${DORIS_TEST_BINARY_DIR}/olap/rowset/segment_v2/bitshuffle_page_test
