@@ -409,7 +409,7 @@ public class SparkLoadPendingTask extends LoadTask {
         }
 
         // where
-        String where = null;
+        String where = "";
         if (fileGroup.getWhereExpr() != null) {
             where = fileGroup.getWhereExpr().toSql();
         }

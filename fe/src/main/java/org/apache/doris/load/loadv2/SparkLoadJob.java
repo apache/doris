@@ -318,8 +318,10 @@ public class SparkLoadJob extends BulkLoadJob {
         try {
             loadingStatus = etlStatus;
 
-            int numTasks = Integer.parseInt(etlStatus.getStats().get(SparkEtlJobHandler.NUM_TASKS));
-            int numCompletedTasks = Integer.parseInt(etlStatus.getStats().get(SparkEtlJobHandler.NUM_COMPLETED_TASKS));
+            int numTasks = Integer.parseInt(etlStatus.getStats().getOrDefault(
+                    SparkEtlJobHandler.NUM_TASKS, "0"));
+            int numCompletedTasks = Integer.parseInt(etlStatus.getStats().getOrDefault(
+                    SparkEtlJobHandler.NUM_COMPLETED_TASKS, "0"));
             if (numTasks > 0) {
                 progress = numCompletedTasks * 100 / numTasks;
             }
@@ -350,9 +352,7 @@ public class SparkLoadJob extends BulkLoadJob {
             for (Map.Entry<String, Long> entry : filePathToSize.entrySet()) {
                 String filePath = entry.getKey();
                 String tabletMetaStr = EtlJobConfig.getTabletMetaStr(filePath);
-                tabletMetaToFileInfo.put(tabletMetaStr,
-                                         Pair.create(etlClusterDesc.getProperties().get("fs.default.name") + filePath,
-                                                     entry.getValue()));
+                tabletMetaToFileInfo.put(tabletMetaStr, Pair.create(filePath, entry.getValue()));
             }
 
             // for test

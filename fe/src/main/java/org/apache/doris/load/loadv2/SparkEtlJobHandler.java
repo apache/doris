@@ -172,9 +172,8 @@ public class SparkEtlJobHandler {
 
         // get spark appid
         String appId = handle.getAppId();
+        LOG.info("spark app handle get appid: {}, load job id: {}, state: {}", appId, loadJobId, etlJobState);
         if (appId == null) {
-            LOG.info("spark app handle get null appid, and check in next round. load job id: {}, state: {}",
-                     loadJobId, etlJobState);
             return status;
         }
 
@@ -243,8 +242,9 @@ public class SparkEtlJobHandler {
         Map<String, Long> filePathToSize = Maps.newHashMap();
 
         List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
+        String etlFilePaths = outputPath + "/*";
         try {
-            BrokerUtil.parseBrokerFile(outputPath, brokerDesc, fileStatuses);
+            BrokerUtil.parseBrokerFile(etlFilePaths, brokerDesc, fileStatuses);
         } catch (UserException e) {
             throw new Exception(e);
         }

@@ -124,7 +124,7 @@ public class EtlJobConfig implements Serializable {
     private static final String ETL_OUTPUT_FILE_NAME_DESC = "label.tableId.partitionId.indexId.bucket.schemaHash.parquet";
     // tableId.partitionId.indexId.bucket.schemaHash
     public static final String ETL_OUTPUT_FILE_NAME_NO_LABEL_SUFFIX_FORMAT = "%d.%d.%d.%d.%d";
-    public static final String ETL_OUTPUT_FILE_FORMAT = ".parquet";
+    public static final String ETL_OUTPUT_FILE_FORMAT = "parquet";
 
     // config
     public static final String JOB_CONFIG_FILE_NAME = "jobconfig.json";
