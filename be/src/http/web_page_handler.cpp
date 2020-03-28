@@ -20,14 +20,14 @@
 #include <boost/bind.hpp>
 #include <boost/mem_fn.hpp>
 
-#include "http/http_status.h"
-#include "http/http_request.h"
-#include "http/http_response.h"
+#include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
-#include "http/ev_http_server.h"
-#include "util/debug_util.h"
+#include "http/http_request.h"
+#include "http/http_response.h"
+#include "http/http_status.h"
 #include "util/cpu_info.h"
+#include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
 
@@ -35,16 +35,13 @@ namespace doris {
 
 static std::string s_html_content_type = "text/html";
 
-WebPageHandler::WebPageHandler(EvHttpServer* server) :
-        _http_server(server) {
+WebPageHandler::WebPageHandler(EvHttpServer* server) : _http_server(server) {
     PageHandlerCallback default_callback =
             boost::bind<void>(boost::mem_fn(&WebPageHandler::root_handler), this, _1, _2);
     register_page("/", default_callback);
 }
 
-void WebPageHandler::register_page(
-        const std::string& path, 
-        const PageHandlerCallback& callback) {
+void WebPageHandler::register_page(const std::string& path, const PageHandlerCallback& callback) {
     // Put this handler to to s_handler_by_name
     // because handler does't often new
     // So we insert it to this set when everytime
@@ -57,7 +54,7 @@ void WebPageHandler::register_page(
     _page_map[path].add_callback(callback);
 }
 
-void WebPageHandler::handle(HttpRequest *req) {
+void WebPageHandler::handle(HttpRequest* req) {
     // Should we render with css styles?
     bool use_style = true;
     auto& params = *req->params();
@@ -99,49 +96,48 @@ void WebPageHandler::handle(HttpRequest *req) {
 #endif
 }
 
-static const std::string PAGE_HEADER = 
-    "<!DOCTYPE html>"
-    " <html>"
-    "   <head><title>Doris</title>"
-    " <link href='www/bootstrap/css/bootstrap.min.css' rel='stylesheet' media='screen'>"
-    "  <style>"
-    "  body {"
-    "    padding-top: 60px; "
-    "  }"
-    "  </style>"
-    " </head>"
-    " <body>";
+static const std::string PAGE_HEADER =
+        "<!DOCTYPE html>"
+        " <html>"
+        "   <head><title>Doris</title>"
+        " <link href='www/bootstrap/css/bootstrap.min.css' rel='stylesheet' media='screen'>"
+        "  <style>"
+        "  body {"
+        "    padding-top: 60px; "
+        "  }"
+        "  </style>"
+        " </head>"
+        " <body>";
 
 static const std::string PAGE_FOOTER = "</div></body></html>";
 
 static const std::string NAVIGATION_BAR_PREFIX =
-    "<div class='navbar navbar-inverse navbar-fixed-top'>"
-    "      <div class='navbar-inner'>"
-    "        <div class='container'>"
-    "          <a class='btn btn-navbar' data-toggle='collapse' data-target='.nav-collapse'>"
-    "            <span class='icon-bar'></span>"
-    "            <span class='icon-bar'></span>"
-    "            <span class='icon-bar'></span>"
-    "          </a>"
-    "          <a class='brand' href='/'>Impala</a>"
-    "          <div class='nav-collapse collapse'>"
-    "            <ul class='nav'>";
+        "<div class='navbar navbar-inverse navbar-fixed-top'>"
+        "      <div class='navbar-inner'>"
+        "        <div class='container'>"
+        "          <a class='btn btn-navbar' data-toggle='collapse' data-target='.nav-collapse'>"
+        "            <span class='icon-bar'></span>"
+        "            <span class='icon-bar'></span>"
+        "            <span class='icon-bar'></span>"
+        "          </a>"
+        "          <a class='brand' href='/'>Doris</a>"
+        "          <div class='nav-collapse collapse'>"
+        "            <ul class='nav'>";
 
 static const std::string NAVIGATION_BAR_SUFFIX =
-    "            </ul>"
-    "          </div>"
-    "        </div>"
-    "      </div>"
-    "    </div>"
-    "    <div class='container'>";
+        "            </ul>"
+        "          </div>"
+        "        </div>"
+        "      </div>"
+        "    </div>"
+        "    <div class='container'>";
 
 void WebPageHandler::bootstrap_page_header(std::stringstream* output) {
     boost::mutex::scoped_lock lock(_map_lock);
     (*output) << PAGE_HEADER;
     (*output) << NAVIGATION_BAR_PREFIX;
     for (auto& iter : _page_map) {
-        (*output) << "<li><a href=\"" << iter.first << "\">" << iter.first
-            << "</a></li>";
+        (*output) << "<li><a href=\"" << iter.first << "\">" << iter.first << "</a></li>";
     }
     (*output) << NAVIGATION_BAR_SUFFIX;
 }
@@ -150,9 +146,7 @@ void WebPageHandler::bootstrap_page_footer(std::stringstream* output) {
     (*output) << PAGE_FOOTER;
 }
 
-void WebPageHandler::root_handler(
-        const ArgumentMap& args,
-        std::stringstream* output) {
+void WebPageHandler::root_handler(const ArgumentMap& args, std::stringstream* output) {
     // _path_handler_lock already held by MongooseCallback
     (*output) << "<h2>Version</h2>";
     (*output) << "<pre>" << get_version_string(false) << "</pre>" << std::endl;
@@ -169,4 +163,4 @@ void WebPageHandler::root_handler(
     }
 }
 
-}
+} // namespace doris
