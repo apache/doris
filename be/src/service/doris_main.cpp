@@ -15,56 +15,58 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <gperftools/malloc_extension.h>
 #include <sys/file.h>
 #include <unistd.h>
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/unordered_map.hpp>
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/recursive_mutex.hpp>
 #include <boost/thread/thread.hpp>
-#include <gperftools/malloc_extension.h>
+#include <boost/unordered_map.hpp>
 
 #if defined(LEAK_SANITIZER)
 #include <sanitizer/lsan_interface.h>
 #endif
 
 #include <curl/curl.h>
+#include <gperftools/profiler.h>
 #include <thrift/TOutput.h>
 
-#include "common/logging.h"
-#include "common/daemon.h"
-#include "common/config.h"
-#include "common/status.h"
-#include "runtime/exec_env.h"
-#include "util/file_utils.h"
-#include "util/logging.h"
-#include "util/network_util.h"
-#include "util/thrift_util.h"
-#include "util/thrift_server.h"
-#include "util/debug_util.h"
 #include "agent/heartbeat_server.h"
 #include "agent/status.h"
 #include "agent/topic_subscriber.h"
-#include "util/doris_metrics.h"
+#include "common/config.h"
+#include "common/daemon.h"
+#include "common/logging.h"
+#include "common/resource_tls.h"
+#include "common/status.h"
 #include "olap/options.h"
 #include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
+#include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/brpc_service.h"
 #include "service/http_service.h"
-#include <gperftools/profiler.h>
-#include "common/resource_tls.h"
+#include "util/debug_util.h"
+#include "util/doris_metrics.h"
+#include "util/file_utils.h"
+#include "util/logging.h"
+#include "util/network_util.h"
 #include "util/thrift_rpc_helper.h"
+#include "util/thrift_server.h"
+#include "util/thrift_util.h"
 #include "util/uid_util.h"
-#include "runtime/heartbeat_flags.h"
 
 static void help(const char*);
 
 #include <dlfcn.h>
 
-extern "C" { void __lsan_do_leak_check(); }
+extern "C" {
+void __lsan_do_leak_check();
+}
 
 namespace doris {
 extern bool k_doris_exit;
@@ -73,7 +75,7 @@ static void thrift_output(const char* x) {
     LOG(WARNING) << "thrift internal message: " << x;
 }
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     // check if print version or help
@@ -118,14 +120,14 @@ int main(int argc, char** argv) {
     }
 
     string conffile = string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
+    if (!doris::config::init(conffile.c_str(), true)) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
 
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
-    MallocExtension::instance()->SetNumericProperty(
-        "tcmalloc.aggressive_memory_decommit", 21474836480);
+    MallocExtension::instance()->SetNumericProperty("tcmalloc.aggressive_memory_decommit",
+                                                    21474836480);
 #endif
 
     std::vector<doris::StorePath> paths;
@@ -136,7 +138,7 @@ int main(int argc, char** argv) {
     }
 
     auto it = paths.begin();
-    for (;it != paths.end();) {
+    for (; it != paths.end();) {
         if (!doris::FileUtils::check_exist(it->path)) {
             if (doris::config::ignore_broken_disk) {
                 LOG(WARNING) << "opendir failed, path=" << it->path;
@@ -191,10 +193,8 @@ int main(int argc, char** argv) {
     doris::ThriftRpcHelper::setup(exec_env);
     doris::ThriftServer* be_server = nullptr;
 
-    EXIT_IF_ERROR(doris::BackendService::create_service(
-            exec_env,
-            doris::config::be_port,
-            &be_server));
+    EXIT_IF_ERROR(
+            doris::BackendService::create_service(exec_env, doris::config::be_port, &be_server));
     Status status = be_server->start();
     if (!status.ok()) {
         LOG(ERROR) << "Doris Be server did not start correctly, exiting";
@@ -210,8 +210,8 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    doris::HttpService http_service(
-        exec_env, doris::config::webserver_port, doris::config::webserver_num_workers);
+    doris::HttpService http_service(exec_env, doris::config::webserver_port,
+                                    doris::config::webserver_num_workers);
     status = http_service.start();
     if (!status.ok()) {
         LOG(ERROR) << "Doris Be http service did not start correctly, exiting";
@@ -223,11 +223,8 @@ int main(int argc, char** argv) {
     // start heart beat server
     doris::ThriftServer* heartbeat_thrift_server;
     doris::AgentStatus heartbeat_status = doris::create_heartbeat_server(
-            exec_env,
-            doris::config::heartbeat_service_port,
-            &heartbeat_thrift_server,
-            doris::config::heartbeat_service_thread_count,
-            master_info);
+            exec_env, doris::config::heartbeat_service_port, &heartbeat_thrift_server,
+            doris::config::heartbeat_service_thread_count, master_info);
 
     if (doris::AgentStatus::DORIS_SUCCESS != heartbeat_status) {
         LOG(ERROR) << "Heartbeat services did not start correctly, exiting";
@@ -264,4 +261,3 @@ static void help(const char* progname) {
     printf("  -v, --version      output version information, then exit\n");
     printf("  -?, --help         show this help, then exit\n");
 }
-
