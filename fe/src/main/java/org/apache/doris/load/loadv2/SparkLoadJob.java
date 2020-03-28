@@ -355,9 +355,6 @@ public class SparkLoadJob extends BulkLoadJob {
                 tabletMetaToFileInfo.put(tabletMetaStr, Pair.create(filePath, entry.getValue()));
             }
 
-            // for test
-            //tabletMetaToFileInfo.put("98089.98088.98090.0.307885074", Pair.create("hdfs://127.0.0.1:10000/tmp/data.parquet/part-00000-28f27be5-36d6-4861-b514-40bd71001dd5-c000.snappy.parquet", 908L));
-
             loadingStatus = etlStatus;
             progress = 0;
             etlFinishTimestamp = System.currentTimeMillis();
@@ -458,22 +455,23 @@ public class SparkLoadJob extends BulkLoadJob {
                                         || !tabletToSentReplicas.get(tabletId).contains(replica.getId())) {
                                     long taskSignature = Catalog.getCurrentGlobalTransactionMgr()
                                             .getTransactionIDGenerator().getNextTransactionId();
-                                    // update filePath fileSize
-                                    String tabletMetaStr = String.format("%d.%d.%d.%d.%d", tableId, partitionId,
-                                                                         indexId, bucket++, schemaHash);
-                                    String filePath = null;
-                                    long fileSize = -1;
-                                    if (tabletMetaToFileInfo.containsKey(tabletMetaStr)) {
-                                        Pair<String, Long> fileInfo = tabletMetaToFileInfo.get(tabletMetaStr);
-                                        filePath = fileInfo.first;
-                                        fileSize = fileInfo.second;
-                                    }
                                     PushBrokerReaderParams params = getPushBrokerReaderParams(table, indexId);
                                     TDescriptorTable tDescriptorTable = params.tDescriptorTable;
-                                    TBrokerScanRange tBrokerScanRange = params.tBrokerScanRange;
+                                    // deep copy TBrokerScanRange because filePath and fileSize will be updated
+                                    // in different tablet push task
+                                    TBrokerScanRange tBrokerScanRange = new TBrokerScanRange(params.tBrokerScanRange);
                                     TBrokerRangeDesc tBrokerRangeDesc = tBrokerScanRange.getRanges().get(0);
-                                    tBrokerRangeDesc.setPath(filePath);
-                                    tBrokerRangeDesc.setFile_size(fileSize);
+                                    // update filePath fileSize
+                                    tBrokerRangeDesc.setPath(null);
+                                    tBrokerRangeDesc.setFile_size(-1);
+                                    String tabletMetaStr = String.format("%d.%d.%d.%d.%d", tableId, partitionId,
+                                                                         indexId, bucket++, schemaHash);
+                                    if (tabletMetaToFileInfo.containsKey(tabletMetaStr)) {
+                                        Pair<String, Long> fileInfo = tabletMetaToFileInfo.get(tabletMetaStr);
+                                        tBrokerRangeDesc.setPath(fileInfo.first);
+                                        tBrokerRangeDesc.setFile_size(fileInfo.second);
+                                    }
+
                                     // update broker address
 
                                     // timeout
