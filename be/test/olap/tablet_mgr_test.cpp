@@ -78,7 +78,7 @@ public:
                 + "/" + std::to_string(0)
                 + "/" + std::to_string(_tablet_id)
                 + "/" + std::to_string(_schema_hash);
-        _tablet_mgr = new TabletManager(1);
+        _tablet_mgr.reset(new TabletManager(1));
     }
 
     virtual void TearDown() {
@@ -86,18 +86,16 @@ public:
         if (boost::filesystem::exists(_engine_data_path)) {
             ASSERT_TRUE(boost::filesystem::remove_all(_engine_data_path));
         }
-        delete _tablet_mgr;
     }
 
 private:
     DataDir* _data_dir;
     std::string _json_rowset_meta;
-    TxnManager _txn_mgr;
     std::string _engine_data_path;
     int64_t _tablet_id;
     int32_t _schema_hash;
     string _tablet_data_path;
-    TabletManager* _tablet_mgr;
+    std::unique_ptr<TabletManager> _tablet_mgr;
 };
 
 TEST_F(TabletMgrTest, CreateTablet) {

@@ -107,7 +107,6 @@ private:
     DataDir* _data_dir;
     OlapMeta* _meta;
     std::string _json_rowset_meta;
-    TxnManager _txn_mgr;
     std::string _engine_data_path;
     std::string _meta_path;
     int64_t _tablet_id;

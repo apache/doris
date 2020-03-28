@@ -64,15 +64,17 @@ struct TabletTxnInfo {
     TabletTxnInfo() {}
 };
 
+using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
+
 // txn manager is used to manage mapping between tablet and txns
 class TxnManager {
 public:
-    TxnManager();
+    TxnManager(int32_t txn_map_shard_size);
 
     ~TxnManager() {
-        _txn_tablet_map.clear();
-        _txn_partition_map.clear();
-        _txn_locks.clear();
+        delete [] _txn_tablet_maps;
+        delete [] _txn_partition_maps;
+        delete [] _txn_map_locks;
     }
 
     OLAPStatus prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id, 
@@ -140,9 +142,12 @@ public:
     void get_partition_ids(const TTransactionId transaction_id, std::vector<TPartitionId>* partition_ids);
     
 private:
-    RWMutex* _get_txn_lock(TTransactionId txn_id) {
-        return _txn_locks[txn_id % _txn_lock_num].get();
-    }
+
+    inline RWMutex& _get_txn_map_lock(TTransactionId transactionId);
+
+    inline std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>>& _get_txn_tablet_map(TTransactionId transactionId);
+
+    inline std::unordered_map<int64_t, std::unordered_set<int64_t>>& _get_txn_partition_map(TTransactionId transactionId);
 
     // insert or remove (transaction_id, partition_id) from _txn_partition_map
     // get _txn_map_lock before calling
@@ -150,20 +155,33 @@ private:
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
 
 private:
-    RWMutex _txn_map_lock;
-    using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
-    std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>> _txn_tablet_map;
+    int32_t _txn_map_shard_size;
+
+    typedef std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>> txn_tablet_map_t;
+    typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
+
+    // _txn_map_locks[i] protect _txn_tablet_maps[i], i=0,1,2...,and i < _txn_map_shard_size
+    std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>> *_txn_tablet_maps;
     // transaction_id -> corresponding partition ids
     // This is mainly for the clear txn task received from FE, which may only has transaction id,
     // so we need this map to find out which partitions are corresponding to a transaction id.
-    // This map should be constructed/deconstructed/modified alongside with '_txn_tablet_map'
-    std::unordered_map<int64_t, std::unordered_set<int64_t>> _txn_partition_map;
+    // The _txn_partition_maps[i] should be constructed/deconstructed/modified alongside with '_txn_tablet_maps[i]'
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> *_txn_partition_maps;
 
-    const int32_t _txn_lock_num = 100;
-    std::map<int32_t, std::shared_ptr<RWMutex>> _txn_locks;
+    RWMutex *_txn_map_locks;
 
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 };  // TxnManager
+
+inline RWMutex& TxnManager::_get_txn_map_lock(TTransactionId transactionId) {
+    return _txn_map_locks[transactionId & (_txn_map_shard_size - 1)];
+}
+inline std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>>& TxnManager::_get_txn_tablet_map(TTransactionId transactionId) {
+    return _txn_tablet_maps[transactionId & (_txn_map_shard_size - 1)];
+}
+inline std::unordered_map<int64_t, std::unordered_set<int64_t>>& TxnManager::_get_txn_partition_map(TTransactionId transactionId) {
+    return _txn_partition_maps[transactionId & (_txn_map_shard_size - 1)];
+}
 
 }
 #endif // DORIS_BE_SRC_OLAP_TXN_MANAGER_H
