@@ -21,12 +21,12 @@
 #include "olap/file_helper.h"
 #include "olap/utils.h"
 #include "util/mem_util.hpp"
+#include "util/monotime.h"
 
 namespace doris {
 
-OutStreamFactory::OutStreamFactory(CompressKind compress_kind, uint32_t stream_buffer_size) : 
-        _compress_kind(compress_kind),
-        _stream_buffer_size(stream_buffer_size) {
+OutStreamFactory::OutStreamFactory(CompressKind compress_kind, uint32_t stream_buffer_size)
+        : _compress_kind(compress_kind), _stream_buffer_size(stream_buffer_size) {
     switch (compress_kind) {
     case COMPRESS_NONE:
         _compressor = NULL;
@@ -48,20 +48,20 @@ OutStreamFactory::OutStreamFactory(CompressKind compress_kind, uint32_t stream_b
 }
 
 OutStreamFactory::~OutStreamFactory() {
-    for (std::map<StreamName, OutStream*>::iterator it = _streams.begin();
-            it != _streams.end(); ++it) {
+    for (std::map<StreamName, OutStream*>::iterator it = _streams.begin(); it != _streams.end();
+         ++it) {
         SAFE_DELETE(it->second);
     }
 }
 
-OutStream* OutStreamFactory::create_stream(
-        uint32_t column_unique_id, StreamInfoMessage::Kind kind) {
+OutStream* OutStreamFactory::create_stream(uint32_t column_unique_id,
+                                           StreamInfoMessage::Kind kind) {
     OutStream* stream = NULL;
 
     if (StreamInfoMessage::ROW_INDEX == kind || StreamInfoMessage::BLOOM_FILTER == kind) {
-        stream = new(std::nothrow) OutStream(_stream_buffer_size, NULL);
+        stream = new (std::nothrow) OutStream(_stream_buffer_size, NULL);
     } else {
-        stream = new(std::nothrow) OutStream(_stream_buffer_size, _compressor);
+        stream = new (std::nothrow) OutStream(_stream_buffer_size, _compressor);
     }
 
     if (NULL == stream) {
@@ -74,14 +74,14 @@ OutStream* OutStreamFactory::create_stream(
     return stream;
 }
 
-OutStream::OutStream(uint32_t buffer_size, Compressor compressor) : 
-        _buffer_size(buffer_size),
-        _compressor(compressor),
-        _is_suppressed(false),
-        _current(NULL),
-        _compressed(NULL),
-        _overflow(NULL),
-        _spilled_bytes(0) {}
+OutStream::OutStream(uint32_t buffer_size, Compressor compressor)
+        : _buffer_size(buffer_size),
+          _compressor(compressor),
+          _is_suppressed(false),
+          _current(NULL),
+          _compressed(NULL),
+          _overflow(NULL),
+          _spilled_bytes(0) {}
 
 OutStream::~OutStream() {
     SAFE_DELETE(_current);
@@ -89,7 +89,7 @@ OutStream::~OutStream() {
     SAFE_DELETE(_overflow);
 
     for (std::vector<StorageByteBuffer*>::iterator it = _output_buffers.begin();
-            it != _output_buffers.end(); ++it) {
+         it != _output_buffers.end(); ++it) {
         SAFE_DELETE(*it);
     }
 }
@@ -106,10 +106,8 @@ OLAPStatus OutStream::_create_new_input_buffer() {
     }
 }
 
-OLAPStatus OutStream::_write_head(StorageByteBuffer* buf,
-        uint64_t position,
-        StreamHead::StreamType type,
-        uint32_t length) {
+OLAPStatus OutStream::_write_head(StorageByteBuffer* buf, uint64_t position,
+                                  StreamHead::StreamType type, uint32_t length) {
     if (buf->limit() < sizeof(StreamHead) + length) {
         return OLAP_ERR_BUFFER_OVERFLOW;
     }
@@ -122,27 +120,23 @@ OLAPStatus OutStream::_write_head(StorageByteBuffer* buf,
 }
 
 OLAPStatus OutStream::_compress(StorageByteBuffer* input, StorageByteBuffer* output,
-        StorageByteBuffer* overflow, bool* smaller) {
+                                StorageByteBuffer* overflow, bool* smaller) {
     OLAPStatus res = OLAP_SUCCESS;
 
     res = _compressor(input, overflow, smaller);
 
     if (OLAP_SUCCESS == res && *smaller) {
         if (output->remaining() >= overflow->position()) {
-            memory_copy(&(output->array()[output->position()]),
-                    overflow->array(),
-                    overflow->position());
+            memory_copy(&(output->array()[output->position()]), overflow->array(),
+                        overflow->position());
             output->set_position(output->position() + overflow->position());
             overflow->set_position(0);
         } else if (0 != output->remaining()) {
             uint64_t to_copy = output->remaining();
-            memory_copy(&(output->array()[output->position()]),
-                    overflow->array(),
-                    to_copy);
+            memory_copy(&(output->array()[output->position()]), overflow->array(), to_copy);
             output->set_position(output->limit());
 
-            memmove(overflow->array(),
-                    &(overflow->array()[to_copy]),
+            memmove(overflow->array(), &(overflow->array()[to_copy]),
                     overflow->position() - to_copy);
             overflow->set_position(overflow->position() - to_copy);
         }
@@ -310,7 +304,7 @@ uint64_t OutStream::get_stream_length() const {
     uint64_t result = 0;
 
     for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
-            it != _output_buffers.end(); ++it) {
+         it != _output_buffers.end(); ++it) {
         result += (*it)->limit();
     }
 
@@ -321,7 +315,7 @@ uint64_t OutStream::get_total_buffer_size() const {
     uint64_t result = 0;
 
     for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
-            it != _output_buffers.end(); ++it) {
+         it != _output_buffers.end(); ++it) {
         result += (*it)->capacity();
     }
 
@@ -340,8 +334,7 @@ uint64_t OutStream::get_total_buffer_size() const {
     return result;
 }
 
-OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
-                                uint32_t write_mbytes_per_sec) const {
+OLAPStatus OutStream::write_to_file(FileHandler* file_handle, uint32_t write_mbytes_per_sec) const {
     OLAPStatus res = OLAP_SUCCESS;
 
     uint64_t total_stream_len = 0;
@@ -350,7 +343,7 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
     speed_limit_watch.reset();
 
     for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
-            it != _output_buffers.end(); ++it) {
+         it != _output_buffers.end(); ++it) {
         VLOG(10) << "write stream begin:" << file_handle->tell();
 
         res = file_handle->write((*it)->array(), (*it)->limit());
@@ -364,12 +357,11 @@ OLAPStatus OutStream::write_to_file(FileHandler* file_handle,
         total_stream_len += (*it)->limit();
         if (write_mbytes_per_sec > 0) {
             uint64_t delta_time_us = speed_limit_watch.get_elapse_time_us();
-            int64_t sleep_time =
-                    total_stream_len / write_mbytes_per_sec - delta_time_us;
+            int64_t sleep_time = total_stream_len / write_mbytes_per_sec - delta_time_us;
             if (sleep_time > 0) {
                 VLOG(10) << "sleep to limit merge speed. time=" << sleep_time
-                        << ", bytes=" << total_stream_len;
-                usleep(sleep_time);
+                         << ", bytes=" << total_stream_len;
+                SleepFor(MonoDelta::FromMicroseconds(sleep_time));
             }
         }
     }
@@ -401,11 +393,11 @@ uint32_t OutStream::crc32(uint32_t checksum) const {
     uint32_t result = CRC32_INIT;
 
     for (std::vector<StorageByteBuffer*>::const_iterator it = _output_buffers.begin();
-            it != _output_buffers.end(); ++it) {
+         it != _output_buffers.end(); ++it) {
         result = olap_crc32(result, (*it)->array(), (*it)->limit());
     }
 
     return result;
 }
 
-}  // namespace doris
+} // namespace doris

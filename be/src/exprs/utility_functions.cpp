@@ -17,27 +17,26 @@
 
 #include "exprs/utility_functions.h"
 
-#include "exprs/expr.h"
 #include "exprs/anyval_util.h"
-#include "util/debug_util.h"
+#include "exprs/expr.h"
 #include "runtime/tuple_row.h"
+#include "util/debug_util.h"
+#include "util/monotime.h"
 
 namespace doris {
 
-void UtilityFunctions::init() {
-}
+void UtilityFunctions::init() {}
 
 StringVal UtilityFunctions::version(FunctionContext* ctx) {
     return AnyValUtil::from_string_temp(ctx, "5.1.0");
 }
 
-BooleanVal UtilityFunctions::sleep(
-        FunctionContext* ctx, const IntVal& milliseconds) {
-    if (milliseconds.is_null) {
+BooleanVal UtilityFunctions::sleep(FunctionContext* ctx, const IntVal& seconds) {
+    if (seconds.is_null) {
         return BooleanVal::null();
     }
-    usleep(milliseconds.val * 1000 * 1000);
+    SleepFor(MonoDelta::FromSeconds(seconds.val));
     return BooleanVal(true);
 }
 
-}
+} // namespace doris
