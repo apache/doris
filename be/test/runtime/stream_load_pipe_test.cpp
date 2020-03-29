@@ -21,13 +21,15 @@
 
 #include <thread>
 
+#include "util/monotime.h"
+
 namespace doris {
 
 class StreamLoadPipeTest : public testing::Test {
 public:
-    StreamLoadPipeTest() { }
-    virtual ~StreamLoadPipeTest() { }
-    void SetUp() override { }
+    StreamLoadPipeTest() {}
+    virtual ~StreamLoadPipeTest() {}
+    void SetUp() override {}
 };
 
 TEST_F(StreamLoadPipeTest, append_buffer) {
@@ -136,7 +138,6 @@ TEST_F(StreamLoadPipeTest, append_bytes2) {
     t1.join();
 }
 
-
 TEST_F(StreamLoadPipeTest, append_mix) {
     StreamLoadPipe pipe(66, 64);
 
@@ -205,7 +206,7 @@ TEST_F(StreamLoadPipeTest, cancel) {
             char buf = '0' + (k++ % 10);
             pipe.append(&buf, 1);
         }
-        usleep(100000);
+        SleepFor(MonoDelta::FromMilliseconds(100));
         pipe.cancel();
     };
     std::thread t1(appender);
@@ -247,14 +248,14 @@ TEST_F(StreamLoadPipeTest, close) {
     };
     std::thread t1(appender);
 
-    usleep(10000);
+    SleepFor(MonoDelta::FromMilliseconds(10));
 
     pipe.close();
 
     t1.join();
 }
 
-}
+} // namespace doris
 
 int main(int argc, char* argv[]) {
     ::testing::InitGoogleTest(&argc, argv);

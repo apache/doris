@@ -17,6 +17,7 @@
 
 #include "util/thread.h"
 
+#include <gtest/gtest.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -24,10 +25,8 @@
 #include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
-
-#include "common/status.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/basictypes.h"
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
@@ -47,22 +46,19 @@ public:
 // This has to be manually verified.
 TEST_F(ThreadTest, TestJoinAndWarn) {
     scoped_refptr<Thread> holder;
-    Status status = Thread::create("test", "sleeper thread", usleep, 1000*1000, &holder);
+    Status status =
+            Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(1), &holder);
     ASSERT_TRUE(status.ok());
-    status = ThreadJoiner(holder.get())
-                .warn_after_ms(10)
-                .warn_every_ms(100)
-                .join();
+    status = ThreadJoiner(holder.get()).warn_after_ms(10).warn_every_ms(100).join();
     ASSERT_TRUE(status.ok());
 }
 
 TEST_F(ThreadTest, TestFailedJoin) {
     scoped_refptr<Thread> holder;
-    Status status = Thread::create("test", "sleeper thread", usleep, 1000*1000, &holder);
+    Status status =
+            Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(1), &holder);
     ASSERT_TRUE(status.ok());
-    status = ThreadJoiner(holder.get())
-                .give_up_after_ms(50)
-                .join();
+    status = ThreadJoiner(holder.get()).give_up_after_ms(50).join();
     ASSERT_TRUE(status.is_aborted());
 }
 
@@ -82,7 +78,8 @@ TEST_F(ThreadTest, TestJoinOnSelf) {
 
 TEST_F(ThreadTest, TestDoubleJoinIsNoOp) {
     scoped_refptr<Thread> holder;
-    Status status = Thread::create("test", "sleeper thread", usleep, 0, &holder);
+    Status status =
+            Thread::create("test", "sleeper thread", SleepFor, MonoDelta::FromSeconds(0), &holder);
     ASSERT_TRUE(status.ok());
     ThreadJoiner joiner(holder.get());
     status = joiner.join();
@@ -97,11 +94,11 @@ TEST_F(ThreadTest, ThreadStartBenchmark) {
         int64_t thread_creation_ns = 0;
         SCOPED_RAW_TIMER(&thread_creation_ns);
         for (auto& t : threads) {
-            Status status = Thread::create("test", "TestCallOnExit", usleep, 0, &t);
+            Status status = Thread::create("test", "TestCallOnExit", SleepFor,
+                                           MonoDelta::FromSeconds(0), &t);
             ASSERT_TRUE(status.ok());
         }
-        std::cout << "create 1000 threads use:"
-                  << thread_creation_ns << "ns" << std::endl;
+        std::cout << "create 1000 threads use:" << thread_creation_ns << "ns" << std::endl;
     }
     {
         int64_t thread_publish_tid_ns = 0;
@@ -109,8 +106,7 @@ TEST_F(ThreadTest, ThreadStartBenchmark) {
         for (auto& t : threads) {
             t->tid();
         }
-        std::cout << "1000 threads publish TIDS use:"
-                  << thread_publish_tid_ns << "ns" << std::endl;
+        std::cout << "1000 threads publish TIDS use:" << thread_publish_tid_ns << "ns" << std::endl;
     }
 
     for (auto& t : threads) {
