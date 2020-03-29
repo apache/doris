@@ -23,6 +23,7 @@
 #include <boost/assign.hpp>
 
 #include "gutil/strings/substitute.h"
+#include "util/monotime.h"
 
 namespace doris {
 
@@ -70,7 +71,7 @@ Status ThriftClientImpl::open_with_retry(int num_tries, int wait_ms) {
             LOG(INFO) << "(Attempt " << try_count << " of " << num_tries << ")";
         }
 
-        usleep(wait_ms * 1000L);
+        SleepFor(MonoDelta::FromMilliseconds(wait_ms));
     }
 
     return status;

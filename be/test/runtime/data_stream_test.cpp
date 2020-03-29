@@ -15,30 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/data_stream_mgr.h"
-#include "runtime/data_stream_sender.h"
-#include "runtime/data_stream_recvr.h"
-
-#include <iostream>
-#include <boost/thread/thread.hpp>
 #include <gtest/gtest.h>
+
+#include <boost/thread/thread.hpp>
+#include <iostream>
 
 #include "common/status.h"
 #include "exprs/slot_ref.h"
+#include "gen_cpp/BackendService.h"
+#include "gen_cpp/Descriptors_types.h"
+#include "gen_cpp/Types_types.h"
+#include "runtime/client_cache.h"
+#include "runtime/data_stream_mgr.h"
+#include "runtime/data_stream_recvr.h"
+#include "runtime/data_stream_sender.h"
+#include "runtime/descriptors.h"
+#include "runtime/raw_value.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/descriptors.h"
-#include "runtime/client_cache.h"
-#include "runtime/raw_value.h"
 #include "util/cpu_info.h"
-#include "util/disk_info.h"
 #include "util/debug_util.h"
+#include "util/disk_info.h"
 #include "util/logging.h"
-#include "util/thrift_server.h"
 #include "util/mem_info.h"
-#include "gen_cpp/BackendService.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/Descriptors_types.h"
+#include "util/thrift_server.h"
 
 using std::string;
 using std::vector;
@@ -54,14 +54,13 @@ public:
     DorisTestBackend(DataStreamMgr* stream_mgr) : _mgr(stream_mgr) {}
     virtual ~DorisTestBackend() {}
 
-    virtual void exec_plan_fragment(
-            TExecPlanFragmentResult& return_val, const TExecPlanFragmentParams& params) {}
+    virtual void exec_plan_fragment(TExecPlanFragmentResult& return_val,
+                                    const TExecPlanFragmentParams& params) {}
 
-    virtual void cancel_plan_fragment(
-            TCancelPlanFragmentResult& return_val, const TCancelPlanFragmentParams& params) {}
+    virtual void cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
+                                      const TCancelPlanFragmentParams& params) {}
 
-    virtual void transmit_data(
-            TTransmitDataResult& return_val, const TTransmitDataParams& params) {
+    virtual void transmit_data(TTransmitDataResult& return_val, const TTransmitDataParams& params) {
         /*
         LOG(ERROR) << "transmit_data(): instance_id=" << params.dest_fragment_instance_id
             << " node_id=" << params.dest_node_id
@@ -84,40 +83,38 @@ public:
 
     virtual void fetch_data(TFetchDataResult& return_val, const TFetchDataParams& params) {}
 
-    virtual void submit_tasks(
-            TAgentResult& return_val, const std::vector<TAgentTaskRequest> & tasks) {}
+    virtual void submit_tasks(TAgentResult& return_val,
+                              const std::vector<TAgentTaskRequest>& tasks) {}
 
-    virtual void make_snapshot(
-            TAgentResult& return_val, const TSnapshotRequest& snapshot_request) {}
+    virtual void make_snapshot(TAgentResult& return_val, const TSnapshotRequest& snapshot_request) {
+    }
 
     virtual void release_snapshot(TAgentResult& return_val, const std::string& snapshot_path) {}
 
-    virtual void publish_cluster_state(
-            TAgentResult& return_val, const TAgentPublishRequest& request) {}
+    virtual void publish_cluster_state(TAgentResult& return_val,
+                                       const TAgentPublishRequest& request) {}
 
-    virtual void submit_etl_task(
-            TAgentResult& return_val, const TMiniLoadEtlTaskRequest& request) {}
+    virtual void submit_etl_task(TAgentResult& return_val, const TMiniLoadEtlTaskRequest& request) {
+    }
 
-    virtual void get_etl_status(
-            TMiniLoadEtlStatusResult& return_val, const TMiniLoadEtlStatusRequest& request) {}
+    virtual void get_etl_status(TMiniLoadEtlStatusResult& return_val,
+                                const TMiniLoadEtlStatusRequest& request) {}
 
-    virtual void delete_etl_files(
-            TAgentResult& return_val, const TDeleteEtlFilesRequest& request) {}
+    virtual void delete_etl_files(TAgentResult& return_val, const TDeleteEtlFilesRequest& request) {
+    }
 
-    virtual void register_pull_load_task(
-            TStatus& _return, const TUniqueId& id, const int32_t num_senders) {}
+    virtual void register_pull_load_task(TStatus& _return, const TUniqueId& id,
+                                         const int32_t num_senders) {}
 
-    virtual void deregister_pull_load_task(
-            TStatus& _return, const TUniqueId& id) {}
+    virtual void deregister_pull_load_task(TStatus& _return, const TUniqueId& id) {}
 
-    virtual void report_pull_load_sub_task_info(
-            TStatus& _return, const TPullLoadSubTaskInfo& task_info) {}
+    virtual void report_pull_load_sub_task_info(TStatus& _return,
+                                                const TPullLoadSubTaskInfo& task_info) {}
 
-    virtual void fetch_pull_load_task_info(
-            TFetchPullLoadTaskInfoResult& _return, const TUniqueId& id) {}
+    virtual void fetch_pull_load_task_info(TFetchPullLoadTaskInfoResult& _return,
+                                           const TUniqueId& id) {}
 
-    virtual void fetch_all_pull_load_task_infos(
-            TFetchAllPullLoadTaskInfosResult& _return) {}
+    virtual void fetch_all_pull_load_task_infos(TFetchAllPullLoadTaskInfosResult& _return) {}
 
 private:
     DataStreamMgr* _mgr;
@@ -125,11 +122,11 @@ private:
 
 class DataStreamTest : public testing::Test {
 protected:
-    DataStreamTest() :
-            _limit(-1),
-            _dummy_mem_limit(-1),
-            _runtime_state(TUniqueId(), TQueryOptions(), "", &_exec_env),
-            _next_val(0) {
+    DataStreamTest()
+            : _limit(-1),
+              _dummy_mem_limit(-1),
+              _runtime_state(TUniqueId(), TQueryOptions(), "", &_exec_env),
+              _next_val(0) {
         _exec_env.init_for_tests();
         _runtime_state.init_mem_trackers(TUniqueId());
     }
@@ -176,10 +173,14 @@ protected:
 
     const TDataStreamSink& get_sink(TPartitionType::type partition_type) {
         switch (partition_type) {
-            case TPartitionType::UNPARTITIONED: return _broadcast_sink;
-            case TPartitionType::RANDOM: return _random_sink;
-            case TPartitionType::HASH_PARTITIONED: return _hash_sink;
-            default: DCHECK(false) << "Unhandled sink type: " << partition_type;
+        case TPartitionType::UNPARTITIONED:
+            return _broadcast_sink;
+        case TPartitionType::RANDOM:
+            return _random_sink;
+        case TPartitionType::HASH_PARTITIONED:
+            return _hash_sink;
+        default:
+            DCHECK(false) << "Unhandled sink type: " << partition_type;
         }
         // Should never reach this.
         return _broadcast_sink;
@@ -203,7 +204,7 @@ protected:
     static const int MAX_SENDERS = 16;
     static const int MAX_RECEIVERS = 16;
     static const PlanNodeId DEST_NODE_ID = 1;
-    static const int BATCH_CAPACITY = 100;  // rows
+    static const int BATCH_CAPACITY = 100; // rows
     static const int PER_ROW_DATA = 8;
     static const int TOTAL_DATA_SIZE = 8 * 1024;
     static const int NUM_BATCHES = TOTAL_DATA_SIZE / BATCH_CAPACITY / PER_ROW_DATA;
@@ -241,7 +242,7 @@ protected:
         Status status;
         int num_bytes_sent;
 
-        SenderInfo(): thread_handle(NULL), num_bytes_sent(0) {}
+        SenderInfo() : thread_handle(NULL), num_bytes_sent(0) {}
     };
     vector<SenderInfo> _sender_info;
 
@@ -256,13 +257,13 @@ protected:
         int num_rows_received;
         multiset<int64_t> data_values;
 
-        ReceiverInfo(TPartitionType::type stream_type, int num_senders, int receiver_num) :
-                stream_type(stream_type),
-                num_senders(num_senders),
-                receiver_num(receiver_num),
-                thread_handle(NULL),
-                stream_recvr(NULL),
-                num_rows_received(0) {}
+        ReceiverInfo(TPartitionType::type stream_type, int num_senders, int receiver_num)
+                : stream_type(stream_type),
+                  num_senders(num_senders),
+                  receiver_num(receiver_num),
+                  thread_handle(NULL),
+                  stream_recvr(NULL),
+                  num_rows_received(0) {}
 
         ~ReceiverInfo() {
             delete thread_handle;
@@ -340,17 +341,17 @@ protected:
         _lhs_slot_ctx->open(NULL);
         _rhs_slot_ctx->open(NULL);
         SortExecExprs* sort_exprs = _obj_pool.add(new SortExecExprs());
-        sort_exprs->init(
-                vector<ExprContext*>(1, _lhs_slot_ctx), vector<ExprContext*>(1, _rhs_slot_ctx));
-        _less_than = _obj_pool.add(new TupleRowComparator(
-                *sort_exprs, vector<bool>(1, true), vector<bool>(1, false)));
+        sort_exprs->init(vector<ExprContext*>(1, _lhs_slot_ctx),
+                         vector<ExprContext*>(1, _rhs_slot_ctx));
+        _less_than = _obj_pool.add(
+                new TupleRowComparator(*sort_exprs, vector<bool>(1, true), vector<bool>(1, false)));
     }
 
     // Create _batch, but don't fill it with data yet. Assumes we created _row_desc.
     RowBatch* create_row_batch() {
         RowBatch* batch = new RowBatch(*_row_desc, BATCH_CAPACITY, &_limit);
-        int64_t* tuple_mem = reinterpret_cast<int64_t*>(
-                                 batch->tuple_data_pool()->allocate(BATCH_CAPACITY * 8));
+        int64_t* tuple_mem =
+                reinterpret_cast<int64_t*>(batch->tuple_data_pool()->allocate(BATCH_CAPACITY * 8));
         bzero(tuple_mem, BATCH_CAPACITY * 8);
 
         for (int i = 0; i < BATCH_CAPACITY; ++i) {
@@ -364,8 +365,7 @@ protected:
     }
 
     void get_next_batch(RowBatch* batch, int* next_val) {
-        LOG(INFO) << "batch_capacity=" << BATCH_CAPACITY
-                << " next_val=" << *next_val;
+        LOG(INFO) << "batch_capacity=" << BATCH_CAPACITY << " next_val=" << *next_val;
         for (int i = 0; i < BATCH_CAPACITY; ++i) {
             TupleRow* row = batch->get_row(i);
             int64_t* val = reinterpret_cast<int64_t*>(row->get_tuple(0)->get_slot(0));
@@ -375,23 +375,21 @@ protected:
 
     // Start receiver (expecting given number of senders) in separate thread.
     void start_receiver(TPartitionType::type stream_type, int num_senders, int receiver_num,
-            int buffer_size, bool is_merging, TUniqueId* out_id = NULL) {
+                        int buffer_size, bool is_merging, TUniqueId* out_id = NULL) {
         VLOG_QUERY << "start receiver";
-        RuntimeProfile* profile =
-                _obj_pool.add(new RuntimeProfile(&_obj_pool, "TestReceiver"));
+        RuntimeProfile* profile = _obj_pool.add(new RuntimeProfile(&_obj_pool, "TestReceiver"));
         TUniqueId instance_id;
         get_next_instance_id(&instance_id);
         _receiver_info.push_back(ReceiverInfo(stream_type, num_senders, receiver_num));
         ReceiverInfo& info = _receiver_info.back();
         info.stream_recvr =
-            _stream_mgr->create_recvr(
-                &_runtime_state, *_row_desc, instance_id, DEST_NODE_ID,
-                num_senders, buffer_size, profile, is_merging);
+                _stream_mgr->create_recvr(&_runtime_state, *_row_desc, instance_id, DEST_NODE_ID,
+                                          num_senders, buffer_size, profile, is_merging);
         if (!is_merging) {
             info.thread_handle = new thread(&DataStreamTest::read_stream, this, &info);
         } else {
-            info.thread_handle = new thread(
-                    &DataStreamTest::read_stream_merging, this, &info, profile);
+            info.thread_handle =
+                    new thread(&DataStreamTest::read_stream_merging, this, &info, profile);
         }
 
         if (out_id != NULL) {
@@ -411,10 +409,10 @@ protected:
     // Deplete stream and print batches
     void read_stream(ReceiverInfo* info) {
         RowBatch* batch = NULL;
-        VLOG_QUERY <<  "start reading";
+        VLOG_QUERY << "start reading";
 
         while (!(info->status = info->stream_recvr->get_batch(&batch)).is_cancelled() &&
-                (batch != NULL)) {
+               (batch != NULL)) {
             VLOG_QUERY << "read batch #rows=" << (batch != NULL ? batch->num_rows() : 0);
 
             for (int i = 0; i < batch->num_rows(); ++i) {
@@ -422,7 +420,8 @@ protected:
                 info->data_values.insert(*static_cast<int64_t*>(row->get_tuple(0)->get_slot(0)));
             }
 
-            usleep(10000);  // slow down receiver to exercise buffering logic
+            SleepFor(MonoDelta::FromMilliseconds(
+                    10)); // slow down receiver to exercise buffering logic
         }
 
         if (info->status.is_cancelled()) {
@@ -447,7 +446,8 @@ protected:
                 TupleRow* row = batch.get_row(i);
                 info->data_values.insert(*static_cast<int64_t*>(row->get_tuple(0)->get_slot(0)));
             }
-            usleep(10000);  // slow down receiver to exercise buffering logic
+            SleepFor(MonoDelta::FromMilliseconds(
+                    10)); // slow down receiver to exercise buffering logic
             batch.reset();
             if (eos) {
                 break;
@@ -479,7 +479,7 @@ protected:
 
             int k = 0;
             for (multiset<int64_t>::iterator j = info.data_values.begin();
-                    j != info.data_values.end(); ++j, ++k) {
+                 j != info.data_values.end(); ++j, ++k) {
                 if (stream_type == TPartitionType::UNPARTITIONED) {
                     // unpartitioned streams contain all values as many times as there are
                     // senders
@@ -498,7 +498,7 @@ protected:
 
             int k = 0;
             for (multiset<int64_t>::iterator j = all_data_values.begin();
-                    j != all_data_values.end(); ++j, ++k) {
+                 j != all_data_values.end(); ++j, ++k) {
                 // each sender sent all values
                 EXPECT_EQ(k / num_senders, *j);
 
@@ -531,18 +531,15 @@ protected:
         delete _server;
     }
 
-    void start_sender(
-            TPartitionType::type partition_type = TPartitionType::UNPARTITIONED,
-            int channel_buffer_size = 1024) {
+    void start_sender(TPartitionType::type partition_type = TPartitionType::UNPARTITIONED,
+                      int channel_buffer_size = 1024) {
         VLOG_QUERY << "start sender";
         int sender_id = _sender_info.size();
         DCHECK_LT(sender_id, MAX_SENDERS);
         _sender_info.push_back(SenderInfo());
         SenderInfo& info = _sender_info.back();
-        info.thread_handle =
-                new thread(
-                        &DataStreamTest::sender, this, sender_id,
-                        channel_buffer_size, partition_type);
+        info.thread_handle = new thread(&DataStreamTest::sender, this, sender_id,
+                                        channel_buffer_size, partition_type);
     }
 
     void join_senders() {
@@ -552,16 +549,15 @@ protected:
         }
     }
 
-    void sender(int sender_num, int channel_buffer_size,
-                TPartitionType::type partition_type) {
+    void sender(int sender_num, int channel_buffer_size, TPartitionType::type partition_type) {
         RuntimeState state(TExecPlanFragmentParams(), TQueryOptions(), "", &_exec_env);
         state.set_desc_tbl(_desc_tbl);
         state.init_mem_trackers(TUniqueId());
         VLOG_QUERY << "create sender " << sender_num;
         const TDataStreamSink& stream_sink =
                 (partition_type == TPartitionType::UNPARTITIONED ? _broadcast_sink : _hash_sink);
-        DataStreamSender sender(
-                &_obj_pool, sender_num, *_row_desc, stream_sink, _dest, channel_buffer_size);
+        DataStreamSender sender(&_obj_pool, sender_num, *_row_desc, stream_sink, _dest,
+                                channel_buffer_size);
 
         TDataSink data_sink;
         data_sink.__set_type(TDataSinkType::DATA_STREAM_SINK);
@@ -592,8 +588,8 @@ protected:
         batch->reset();
     }
 
-    void test_stream(TPartitionType::type stream_type, int num_senders,
-            int num_receivers, int buffer_size, bool is_merging) {
+    void test_stream(TPartitionType::type stream_type, int num_senders, int num_receivers,
+                     int buffer_size, bool is_merging) {
         LOG(INFO) << "Testing stream=" << stream_type << " #senders=" << num_senders
                   << " #receivers=" << num_receivers << " buffer_size=" << buffer_size;
         reset();
@@ -652,8 +648,8 @@ TEST_F(DataStreamTest, Cancel) {
 
 TEST_F(DataStreamTest, BasicTest) {
     // TODO: also test that all client connections have been returned
-    TPartitionType::type stream_types[] =
-        {TPartitionType::UNPARTITIONED, TPartitionType::HASH_PARTITIONED};
+    TPartitionType::type stream_types[] = {TPartitionType::UNPARTITIONED,
+                                           TPartitionType::HASH_PARTITIONED};
     int sender_nums[] = {1, 3};
     int receiver_nums[] = {1, 3};
     int buffer_sizes[] = {1024, 1024 * 1024};
@@ -666,18 +662,17 @@ TEST_F(DataStreamTest, BasicTest) {
                 for (int l = 0; l < sizeof(buffer_sizes) / sizeof(int); ++l) {
                     for (int m = 0; m < sizeof(merging) / sizeof(bool); ++m) {
                         LOG(ERROR) << "before test: stream_type=" << stream_types[i]
-                                << "  sender num=" << sender_nums[j]
-                                << "  receiver_num=" << receiver_nums[k]
-                                << "  buffer_size=" << buffer_sizes[l]
-                                << "  merging=" << (merging[m] ? "true" : "false");
-                        test_stream(
-                                stream_types[i], sender_nums[j],
-                                receiver_nums[k], buffer_sizes[l], merging[m]);
+                                   << "  sender num=" << sender_nums[j]
+                                   << "  receiver_num=" << receiver_nums[k]
+                                   << "  buffer_size=" << buffer_sizes[l]
+                                   << "  merging=" << (merging[m] ? "true" : "false");
+                        test_stream(stream_types[i], sender_nums[j], receiver_nums[k],
+                                    buffer_sizes[l], merging[m]);
                         LOG(ERROR) << "after test: stream_type=" << stream_types[i]
-                                << "  sender num=" << sender_nums[j]
-                                << "  receiver_num=" << receiver_nums[k]
-                                << "  buffer_size=" << buffer_sizes[l]
-                                << "  merging=" << (merging[m] ? "true" : "false");
+                                   << "  sender num=" << sender_nums[j]
+                                   << "  receiver_num=" << receiver_nums[k]
+                                   << "  buffer_size=" << buffer_sizes[l]
+                                   << "  merging=" << (merging[m] ? "true" : "false");
                     }
                 }
             }
@@ -689,7 +684,7 @@ TEST_F(DataStreamTest, BasicTest) {
 // - test case for transmission error in last batch
 // - receivers getting created concurrently
 
-}
+} // namespace doris
 
 int main(int argc, char** argv) {
     // std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
@@ -714,4 +709,3 @@ int main(int argc, char** argv) {
 
     return RUN_ALL_TESTS();
 }
-
