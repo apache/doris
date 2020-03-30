@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -27,6 +28,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -202,6 +204,38 @@ public abstract class QueryStmt extends StatementBase {
         this.needToSql = needToSql;
     }
 
+
+    // for bitmap type, we rewrite count distinct to bitmap_union_count
+    // for hll type, we rewrite count distinct to hll_union_agg
+    protected Expr rewriteCountDistinctForBitmapOrHLL(Expr expr, Analyzer analyzer) {
+        if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isRewriteCountDistinct()) {
+            return expr;
+        }
+
+        for (int i = 0; i < expr.getChildren().size(); ++i) {
+            expr.setChild(i, rewriteCountDistinctForBitmapOrHLL(expr.getChild(i), analyzer));
+        }
+
+        if (!(expr instanceof FunctionCallExpr)) {
+            return expr;
+        }
+
+        FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+        if (functionCallExpr.isCountDistinctBitmapOrHLL()) {
+            FunctionParams newParams = new FunctionParams(false, functionCallExpr.getParams().exprs());
+            if (expr.getChild(0).type.isBitmapType()) {
+                FunctionCallExpr bitmapExpr = new FunctionCallExpr(FunctionSet.BITMAP_UNION_COUNT, newParams);
+                bitmapExpr.analyzeNoThrow(analyzer);
+                return bitmapExpr;
+            } else  {
+                FunctionCallExpr hllExpr = new FunctionCallExpr("hll_union_agg", newParams);
+                hllExpr.analyzeNoThrow(analyzer);
+                return hllExpr;
+            }
+        }
+        return expr;
+    }
+
     /**
      * Creates sortInfo by resolving aliases and ordinals in the orderingExprs.
      * If the query stmt is an inline view/union operand, then order-by with no
@@ -234,7 +268,9 @@ public abstract class QueryStmt extends StatementBase {
         // save the order by element after analyzed
         orderByElementsAfterAnalyzed = Lists.newArrayList();
         for (int i = 0; i < orderByElements.size(); i++) {
-            OrderByElement orderByElement = new OrderByElement(orderingExprs.get(i), isAscOrder.get(i),
+            // rewrite count distinct
+            Expr rewritten = rewriteCountDistinctForBitmapOrHLL(orderingExprs.get(i), analyzer);
+            OrderByElement orderByElement = new OrderByElement(rewritten, isAscOrder.get(i),
                     nullsFirstParams.get(i));
             orderByElementsAfterAnalyzed.add(orderByElement);
         }
