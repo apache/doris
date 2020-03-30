@@ -43,6 +43,7 @@ import org.apache.spark.launcher.SparkLauncher;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.Gson;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -155,7 +156,6 @@ public class SparkEtlJobHandler {
         }
     }
 
-
     public EtlStatus getEtlJobStatus(SparkAppHandle handle, long loadJobId, String statusServer) {
         EtlStatus status = new EtlStatus();
 
@@ -178,6 +178,10 @@ public class SparkEtlJobHandler {
         }
 
         // stats
+        int numTasks = 0;
+        int numCompletedTasks = 0;
+        Map<String, String> stats = Maps.newHashMap();
+        status.setStats(stats);
         String statusUrl = String.format(STATUS_URL, statusServer, appId);
         CloseableHttpClient httpClient = HttpClients.createDefault();
         HttpGet httpGet = new HttpGet(statusUrl);
@@ -188,7 +192,25 @@ public class SparkEtlJobHandler {
             HttpEntity httpEntity = httpResponse.getEntity();
             responseJson = EntityUtils.toString(httpEntity);
             LOG.info("get spark app status success. load job id: {}, response: {}", loadJobId, responseJson);
-        } catch (IOException e) {
+
+            // [{ "jobId" : 0, "name" : "foreachPartition at Dpp.java:248",
+            //    "submissionTime" : "2020-02-18T09:09:46.398GMT", "stageIds" : [ 0, 1, 2 ], "status" : "RUNNING",
+            //    "numTasks" : 12, "numActiveTasks" : 3, "numCompletedTasks" : 9, "numSkippedTasks" : 0,
+            //    "numFailedTasks" : 0, "numKilledTasks" : 0, "numCompletedIndices" : 9, "numActiveStages" : 1,
+            //    "numCompletedStages" : 2, "numSkippedStages" : 0, "numFailedStages" : 0, "killedTasksSummary" : { }
+            //  }]
+            List<Map<String, Object>> jobInfos = new Gson().fromJson(responseJson, List.class);
+            for (Map<String, Object> jobInfo : jobInfos) {
+                if (jobInfo.containsKey(NUM_TASKS)) {
+                    numTasks += new Double((double) jobInfo.get(NUM_TASKS)).intValue();
+                }
+                if (jobInfo.containsKey(NUM_COMPLETED_TASKS)) {
+                    numCompletedTasks += new Double((double) jobInfo.get(NUM_COMPLETED_TASKS)).intValue();
+                }
+            }
+            stats.put(NUM_TASKS, String.valueOf(numTasks));
+            stats.put(NUM_COMPLETED_TASKS, String.valueOf(numCompletedTasks));
+        } catch (Exception e) {
             LOG.warn("get spark app status fail. load job id: {}, error: {}", loadJobId, e);
             return status;
         } finally {
@@ -203,31 +225,6 @@ public class SparkEtlJobHandler {
                 LOG.warn("close http response or client fail. load job id: {}, error: {}", loadJobId, e);
             }
         }
-
-        // [{ "jobId" : 0, "name" : "foreachPartition at Dpp.java:248",
-        //    "submissionTime" : "2020-02-18T09:09:46.398GMT", "stageIds" : [ 0, 1, 2 ], "status" : "RUNNING",
-        //    "numTasks" : 12, "numActiveTasks" : 3, "numCompletedTasks" : 9, "numSkippedTasks" : 0,
-        //    "numFailedTasks" : 0, "numKilledTasks" : 0, "numCompletedIndices" : 9, "numActiveStages" : 1,
-        //    "numCompletedStages" : 2, "numSkippedStages" : 0, "numFailedStages" : 0, "killedTasksSummary" : { }
-        //  }]
-        Map<String, String> stats = Maps.newHashMap();
-        int numTasks = 0;
-        int numCompletedTasks = 0;
-        /*
-        List<Map<String, Object>> jobInfos = new Gson().fromJson(responseJson, List.class);
-        for (Map<String, Object> jobInfo : jobInfos) {
-            if (jobInfo.containsKey(NUM_TASKS)) {
-                numTasks += new Double((double) jobInfo.get(NUM_TASKS)).intValue();
-            }
-            if (jobInfo.containsKey(NUM_COMPLETED_TASKS)) {
-                numCompletedTasks += new Double((double) jobInfo.get(NUM_COMPLETED_TASKS)).intValue();
-            }
-        }
-        */
-
-        stats.put(NUM_TASKS, String.valueOf(numTasks));
-        stats.put(NUM_COMPLETED_TASKS, String.valueOf(numCompletedTasks));
-        status.setStats(stats);
 
         // counters
 
