@@ -163,11 +163,7 @@ public class BrokerScanNode extends LoadScanNode {
             ParamCreateContext context = new ParamCreateContext();
             context.fileGroup = fileGroup;
             context.timezone = analyzer.getTimezone();
-            try {
-                initParams(context);
-            } catch (AnalysisException e) {
-                throw new UserException(e.getMessage());
-            }
+            initParams(context);
             paramCreateContexts.add(context);
         }
     }
