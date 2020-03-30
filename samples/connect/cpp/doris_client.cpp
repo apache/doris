@@ -98,11 +98,11 @@ int main() {
     // Doris connection host
     string host = "127.0.0.1";
     // Doris connection port
-    int port = 8080;
+    int port = 9030;
     // Doris connection username
-    string user = "username";
+    string user = "root";
     // Doris connection password
-    string password = "password";
+    string password = "";
     // Local mysql sock address
     string sock_add = "/var/lib/mysql/mysql.sock";
     // database to create
@@ -131,17 +131,17 @@ int main() {
     // create doris table
     string sql_create_table = "CREATE TABLE cpp_doris_table(siteid INT,citycode SMALLINT,pv BIGINT SUM) "\
                             "AGGREGATE KEY(siteid, citycode) DISTRIBUTED BY HASH(siteid) BUCKETS 10 "\
-                            "PROPERTIES(\"replication_num\" = \"1\");";
+                            "PROPERTIES(\"replication_num\" = \"1\")";
     std::cout << sql_create_table << std::endl;
     client_new.exec(sql_create_table);
 
     // insert into doris table
-    string sql_insert = "insert into cpp_doris_table values(1, 2, 3), (4,5,6), (1,2,4);";
+    string sql_insert = "insert into cpp_doris_table values(1, 2, 3), (4,5,6), (1,2,4)";
     std::cout << sql_insert << std::endl;
     client_new.exec(sql_insert);
 
     // select from doris table
-    string sql_select = "select * from cpp_doris_table;";
+    string sql_select = "select * from cpp_doris_table";
     std::cout << sql_select << std::endl;
     client_new.exec(sql_select);
 
