@@ -236,7 +236,7 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
 
 之后，执行 `sh build_plugin.sh` 编译所有插件。最终的产出会存放在 `fe_plugins/output` 目录中。
 
-或者也可以执行 `sh build_plugin.sh --p your_plugin_name` 来仅编译指定的插件。
+或者也可以执行 `sh build_plugin.sh --plugin your_plugin_name` 来仅编译指定的插件。
  
 ### 另一种开发方式
 
@@ -248,7 +248,7 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
 
 * 将 `.zip` 文件放在 Http 或 Https 服务器上。如：`http://xxx.xxxxxx.com/data/plugin.zip`, Doris 会下载这个文件。
 * 本地 `.zip` 文件。 如：`/home/work/data/plugin.zip`。需要在所有 FE 和 BE 节点部署。
-* 本都目录。如：`/home/work/data/plugin/`。这个相当于 `.zip` 文件解压后的目录。需要在所有 FE 和 BE 节点部署。
+* 本地目录。如：`/home/work/data/plugin/`。这个相当于 `.zip` 文件解压后的目录。需要在所有 FE 和 BE 节点部署。
 
 注意：需保证部署路径在整个插件生命周期内有效。
 

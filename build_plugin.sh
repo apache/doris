@@ -30,9 +30,9 @@ usage() {
   echo "
 Usage: $0 <options>
   Optional options:
-     --p                build special plugin
+     --plugin           build special plugin
   Eg.
-    $0 --p xxx          build xxx plugin
+    $0 --plugin xxx     build xxx plugin
     $0                  build all plugins
   "
   exit 1
@@ -42,7 +42,7 @@ OPTS=$(getopt \
   -n $0 \
   -o '' \
   -o 'h' \
-  -l 'p' \
+  -l 'plugin' \
   -l 'clean' \
   -l 'help' \
   -- "$@")
@@ -62,7 +62,7 @@ if [ $# == 1 ] ; then
 else
     while true; do
         case "$1" in
-            --p)  ALL_PLUGIN=0 ; shift ;;
+            --plugin)  ALL_PLUGIN=0 ; shift ;;
             --clean)  CLEAN=1 ; shift ;;
             -h) HELP=1; shift ;;
             --help) HELP=1; shift ;;

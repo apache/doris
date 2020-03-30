@@ -81,12 +81,12 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     }
 
     private void loadConfig(PluginContext ctx) throws PluginException {
-        Path pluginJarPath = FileSystems.getDefault().getPath(ctx.getPluginJarPath());
-        if (!Files.exists(pluginJarPath)) {
-            throw new PluginException("plugin jar path does not exist: " + pluginJarPath);
+        Path pluginPath = FileSystems.getDefault().getPath(ctx.getPluginPath());
+        if (!Files.exists(pluginPath)) {
+            throw new PluginException("plugin path does not exist: " + pluginPath);
         }
 
-        Path confFile = pluginJarPath.resolve("plugin.conf");
+        Path confFile = pluginPath.resolve("plugin.conf");
         if (!Files.exists(confFile)) {
             throw new PluginException("plugin conf file does not exist: " + confFile);
         }

@@ -238,7 +238,7 @@ Before compiling the plugin, you must first execute `sh build.sh --fe` of Doris 
 
 Finally, execute `sh build_plugin.sh` in the ${DORIS_HOME} path and you will find the `your_plugin_name.zip` file in `fe_plugins/output`
 
-Or you can execute `sh build_plugin.sh --p your_plugin_name` to only build your plugin.
+Or you can execute `sh build_plugin.sh --plugin your_plugin_name` to only build your plugin.
  
 ### Other way
 

@@ -65,8 +65,7 @@ public class AuditEventProcessor {
             try {
                 workerThread.join();
             } catch (InterruptedException e) {
-                // TODO Auto-generated catch block
-                e.printStackTrace();
+                LOG.warn("join worker join failed.", e);
             }
         }
     }

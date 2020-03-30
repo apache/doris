@@ -100,7 +100,7 @@ public class DynamicPluginLoader extends PluginLoader {
 
         pluginInstallValid();
 
-        pluginContext.setPluginJarPath(installPath.toString());
+        pluginContext.setPluginPath(installPath.toString());
 
         plugin.init(pluginInfo, pluginContext);
     }
@@ -140,7 +140,7 @@ public class DynamicPluginLoader extends PluginLoader {
         if (hasInstalled()) {
             plugin = dynamicLoadPlugin();
             pluginInstallValid();
-            pluginContext.setPluginJarPath(installPath.toString());
+            pluginContext.setPluginPath(installPath.toString());
             plugin.init(pluginInfo, pluginContext);
         } else {
             // re-install
