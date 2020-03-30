@@ -38,6 +38,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -65,7 +66,8 @@ public class LoadingTaskPlanner {
     private final long timeoutS;    // timeout of load job, in second
 
     // Something useful
-    private Analyzer analyzer = new Analyzer(Catalog.getInstance(), null);
+    // ConnectContext here is just a dummy object to avoid some NPE problem, like ctx.getDatabase()
+    private Analyzer analyzer = new Analyzer(Catalog.getInstance(), new ConnectContext());
     private DescriptorTable descTable = analyzer.getDescTbl();
 
     // Output params
@@ -86,6 +88,14 @@ public class LoadingTaskPlanner {
         this.strictMode = strictMode;
         this.analyzer.setTimezone(timezone);
         this.timeoutS = timeoutS;
+
+        /*
+         * TODO(cmy): UDF currently belongs to a database. Therefore, before using UDF,
+         * we need to check whether the user has corresponding permissions on this database.
+         * But here we have lost user information and therefore cannot check permissions.
+         * So here we first prohibit users from using UDF in load. If necessary, improve it later.
+         */
+        this.analyzer.setUDFAllowed(false);
     }
 
     public void plan(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusesList, int filesAdded)

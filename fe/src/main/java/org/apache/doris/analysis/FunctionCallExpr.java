@@ -558,7 +558,8 @@ public class FunctionCallExpr extends Expr {
             // find user defined functions
             if (fn == null) {
                 if (!analyzer.isUDFAllowed()) {
-                    throw new AnalysisException("Does not support non-builtin functions: " + fnName);
+                    throw new AnalysisException(
+                            "Does not support non-builtin functions, or function does not exist: " + this.toSqlImpl());
                 }
 
                 String dbName = fnName.analyzeDb(analyzer);
@@ -579,7 +580,7 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fn == null) {
-            LOG.warn("fn {} not exists", fnName.getFunction());
+            LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
 
