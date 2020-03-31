@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/storage_engine.h"
+#include "txn_manager.h"
 
 #include <signal.h>
 
@@ -36,6 +36,7 @@
 #include "olap/base_compaction.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/lru_cache.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/push_handler.h"
@@ -73,6 +74,7 @@ namespace doris {
 TxnManager::TxnManager(int32_t txn_map_shard_size)
         : _txn_map_shard_size(txn_map_shard_size) {
     DCHECK_GT(_txn_map_shard_size, 0);
+    DCHECK_EQ(_txn_map_shard_size & (_txn_map_shard_size - 1), 0);
     _txn_map_locks = new RWMutex[_txn_map_shard_size];
     _txn_tablet_maps = new std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>>[_txn_map_shard_size];
     _txn_partition_maps = new std::unordered_map<int64_t, std::unordered_set<int64_t>>[_txn_map_shard_size];

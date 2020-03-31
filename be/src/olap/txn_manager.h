@@ -64,7 +64,6 @@ struct TabletTxnInfo {
     TabletTxnInfo() {}
 };
 
-using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
 
 // txn manager is used to manage mapping between tablet and txns
 class TxnManager {
@@ -143,11 +142,16 @@ public:
     
 private:
 
+    using TxnKey = std::pair<int64_t, int64_t>; // partition_id, transaction_id;
+
+    typedef std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>> txn_tablet_map_t;
+    typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
+
     inline RWMutex& _get_txn_map_lock(TTransactionId transactionId);
 
-    inline std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>>& _get_txn_tablet_map(TTransactionId transactionId);
+    inline txn_tablet_map_t& _get_txn_tablet_map(TTransactionId transactionId);
 
-    inline std::unordered_map<int64_t, std::unordered_set<int64_t>>& _get_txn_partition_map(TTransactionId transactionId);
+    inline txn_partition_map_t& _get_txn_partition_map(TTransactionId transactionId);
 
     // insert or remove (transaction_id, partition_id) from _txn_partition_map
     // get _txn_map_lock before calling
@@ -155,10 +159,7 @@ private:
     void _clear_txn_partition_map_unlocked(int64_t transaction_id, int64_t partition_id);
 
 private:
-    int32_t _txn_map_shard_size;
-
-    typedef std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>> txn_tablet_map_t;
-    typedef std::unordered_map<int64_t, std::unordered_set<int64_t>> txn_partition_map_t;
+    const int32_t _txn_map_shard_size;
 
     // _txn_map_locks[i] protect _txn_tablet_maps[i], i=0,1,2...,and i < _txn_map_shard_size
     std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>> *_txn_tablet_maps;
@@ -176,10 +177,10 @@ private:
 inline RWMutex& TxnManager::_get_txn_map_lock(TTransactionId transactionId) {
     return _txn_map_locks[transactionId & (_txn_map_shard_size - 1)];
 }
-inline std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>>& TxnManager::_get_txn_tablet_map(TTransactionId transactionId) {
+inline TxnManager::txn_tablet_map_t& TxnManager::_get_txn_tablet_map(TTransactionId transactionId) {
     return _txn_tablet_maps[transactionId & (_txn_map_shard_size - 1)];
 }
-inline std::unordered_map<int64_t, std::unordered_set<int64_t>>& TxnManager::_get_txn_partition_map(TTransactionId transactionId) {
+inline TxnManager::txn_partition_map_t& TxnManager::_get_txn_partition_map(TTransactionId transactionId) {
     return _txn_partition_maps[transactionId & (_txn_map_shard_size - 1)];
 }
 

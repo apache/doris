@@ -193,7 +193,7 @@ private:
     // tablet_id -> TabletInstances
     typedef std::unordered_map<int64_t, TableInstances> tablet_map_t;
 
-    int32_t _tablet_map_lock_shard_size;
+    const int32_t _tablet_map_lock_shard_size;
     // _tablet_map_lock_array[i] protect _tablet_map_array[i], i=0,1,2...,and i < _tablet_map_lock_shard_size
     RWMutex *_tablet_map_lock_array;
     tablet_map_t *_tablet_map_array;
