@@ -96,7 +96,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private Map<Long, Short> indexShortKeyMap = Maps.newHashMap();
 
     // identify whether the job is finished and no need to persist some data
-    private boolean cleared = false;
+    private boolean isMetaPruned = false;
 
     // bloom filter info
     private boolean hasBfChange;
@@ -165,15 +165,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
      * clear some date structure in this job to save memory
      * these data structures must not used in getInfo method
      */
-    public void clear() {
+    private void pruneMeta() {
         partitionIndexTabletMap.clear();
         partitionIndexMap.clear();
         indexSchemaMap.clear();
         indexShortKeyMap.clear();
-        cleared = true;
+        isMetaPruned = true;
     }
 
-    /*
+    /**
      * runPendingJob():
      * 1. Create all replicas of all shadow indexes and wait them finished.
      * 2. After creating done, add the shadow indexes to catalog, user can not see this
@@ -332,7 +332,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         tbl.rebuildFullSchema();
     }
 
-    /*
+    /**
      * runWaitingTxnJob():
      * 1. Wait the transactions before the watershedTxnId to be finished.
      * 2. If all previous transactions finished, send schema change tasks to BE.
@@ -407,7 +407,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("transfer schema change job {} state to {}", jobId, this.jobState);
     }
 
-    /*
+    /**
      * runRunningJob()
      * 1. Wait all schema change tasks to be finished.
      * 2. Check the integrity of the newly created shadow indexes.
@@ -497,7 +497,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             db.writeUnlock();
         }
 
-        clear();
+        pruneMeta();
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
@@ -586,7 +586,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         cancelInternal();
 
-        clear();
+        pruneMeta();
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
         LOG.info("cancel {} job {}, err: {}", this.type, jobId, errMsg);
@@ -642,7 +642,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         return schemaChangeJob;
     }
 
-    /*
+    /**
      * Replay job in PENDING state.
      * Should replay all changes before this job's state transfer to PENDING.
      * These changes should be same as changes in SchemaChangeHandler.createJob()
@@ -691,7 +691,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay pending schema change job: {}", jobId);
     }
 
-    /*
+    /**
      * Replay job in WAITING_TXN state.
      * Should replay all changes in runPendingJob()
      */
@@ -720,7 +720,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay waiting txn schema change job: {}", jobId);
     }
 
-    /*
+    /**
      * Replay job in FINISHED state.
      * Should replay all changes in runRuningJob()
      */
@@ -742,7 +742,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         LOG.info("replay finished schema change job: {}", jobId);
     }
 
-    /*
+    /**
      * Replay job in CANCELLED state.
      */
     private void replayCancelled(SchemaChangeJobV2 replayedJob) {
@@ -976,9 +976,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     private void writeJobFinishedData(DataOutput out) throws IOException {
         // only persist data will be used in getInfo
         out.writeInt(indexIdMap.size());
-
-        // shadow index info
-        out.writeInt(indexIdMap.size());
         for (Entry<Long, Long> entry : indexIdMap.entrySet()) {
             long shadowIndexId = entry.getKey();
             out.writeLong(shadowIndexId);
@@ -1072,8 +1069,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public void write(DataOutput out) throws IOException {
         super.write(out);
 
-        out.writeBoolean(cleared);
-        if (cleared) {
+        out.writeBoolean(isMetaPruned);
+        if (isMetaPruned) {
             writeJobFinishedData(out);
         } else {
             writeJobNotFinishData(out);
@@ -1085,8 +1082,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         super.readFields(in);
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_80) {
-            boolean cleared = in.readBoolean();
-            if (cleared) {
+            boolean isMetaPruned = in.readBoolean();
+            if (isMetaPruned) {
                 readJobFinishedData(in);
             } else {
                 readJobNotFinishData(in);
