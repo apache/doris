@@ -38,7 +38,6 @@ using rocksdb::ReadOptions;
 using rocksdb::WriteOptions;
 using rocksdb::Slice;
 using rocksdb::Iterator;
-using rocksdb::Status;
 using rocksdb::kDefaultColumnFamilyName;
 using rocksdb::NewFixedPrefixTransform;
 
@@ -78,7 +77,7 @@ OLAPStatus OlapMeta::init() {
     ColumnFamilyOptions meta_column_family;
     meta_column_family.prefix_extractor.reset(NewFixedPrefixTransform(PREFIX_LENGTH));
     column_families.emplace_back(META_COLUMN_FAMILY, meta_column_family);
-    Status s = DB::Open(options, db_path, column_families, &_handles, &_db);
+    rocksdb::Status s = DB::Open(options, db_path, column_families, &_handles, &_db);
     if (!s.ok() || _db == nullptr) {
         LOG(WARNING) << "rocks db open failed, reason:" << s.ToString();
         return OLAP_ERR_META_OPEN_DB;
@@ -90,7 +89,7 @@ OLAPStatus OlapMeta::get(const int column_family_index, const std::string& key, 
     DorisMetrics::meta_read_request_total.increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
-    Status s = Status::OK();
+    rocksdb::Status s;
     {
         SCOPED_RAW_TIMER(&duration_ns);
         s = _db->Get(ReadOptions(), handle, Slice(key), value);
@@ -109,7 +108,7 @@ OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key, 
     DorisMetrics::meta_write_request_total.increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
     int64_t duration_ns = 0;
-    Status s = Status::OK();
+    rocksdb::Status s;
     {
         SCOPED_RAW_TIMER(&duration_ns);
         WriteOptions write_options;
@@ -127,7 +126,7 @@ OLAPStatus OlapMeta::put(const int column_family_index, const std::string& key, 
 OLAPStatus OlapMeta::remove(const int column_family_index, const std::string& key) {
     DorisMetrics::meta_write_request_total.increment(1);
     rocksdb::ColumnFamilyHandle* handle = _handles[column_family_index];
-    Status s = Status::OK();
+    rocksdb::Status s;
     int64_t duration_ns = 0;
     {
         SCOPED_RAW_TIMER(&duration_ns);
@@ -152,7 +151,7 @@ OLAPStatus OlapMeta::iterate(const int column_family_index, const std::string& p
     } else {
         it->Seek(prefix);
     }
-    Status status = it->status();
+    rocksdb::Status status = it->status();
     if (!status.ok()) {
         LOG(WARNING) << "rocksdb seek failed. reason:" << status.ToString();
         return OLAP_ERR_META_ITERATOR;

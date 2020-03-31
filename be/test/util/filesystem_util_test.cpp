@@ -22,6 +22,7 @@
 #include <boost/filesystem.hpp>
 #include <gtest/gtest.h>
 
+#include "common/configbase.h"
 #include "util/logging.h"
 
 namespace doris {

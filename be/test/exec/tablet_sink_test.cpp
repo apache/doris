@@ -55,8 +55,6 @@ public:
         _env->_load_stream_mgr = new LoadStreamMgr();
         _env->_brpc_stub_cache = new BrpcStubCache();
         _env->_buffer_reservation = new ReservationTracker();
-
-        config::tablet_writer_open_rpc_timeout_sec = 60;
     }
     void TearDown() override {
         delete _env->_brpc_stub_cache;

@@ -23,6 +23,7 @@
 #include <iomanip>
 #include <iostream>
 
+#include "common/config.h"
 #include "common/object_pool.h"
 #include "util/container_util.hpp"
 #include "util/cpu_info.h"
