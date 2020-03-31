@@ -46,6 +46,7 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -246,9 +247,7 @@ public class FileSystemManager {
                 // TODO get this param from properties
                 // conf.set("dfs.replication", "2");
                 String tmpFilePath = null;
-                if (authentication.equals(AUTHENTICATION_SIMPLE)) {
-                    conf.set(HDFS_UGI_CONF, hdfsUgi);
-                } else if (authentication.equals(AUTHENTICATION_KERBEROS)){
+                if (authentication.equals(AUTHENTICATION_KERBEROS)){
                     conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
                             AUTHENTICATION_KERBEROS);
 
@@ -287,7 +286,7 @@ public class FileSystemManager {
                                     e.getMessage());
                         }
                     }
-                } else {
+                } else if (!authentication.equals(AUTHENTICATION_SIMPLE)) {
                     throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                             "invalid authentication.");
                 }
@@ -338,7 +337,20 @@ public class FileSystemManager {
                 }
 
                 conf.set(FS_HDFS_IMPL_DISABLE_CACHE, "true");
-                FileSystem dfsFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                FileSystem dfsFileSystem = null;
+                if (authentication.equals(AUTHENTICATION_SIMPLE) &&
+                    properties.containsKey(USER_NAME_KEY)) {
+                    // Use the specified 'username' as the login name
+                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(username);
+                    dfsFileSystem = ugi.doAs(new PrivilegedExceptionAction<FileSystem>() {
+                        @Override
+                        public FileSystem run() throws Exception {
+                            return FileSystem.get(pathUri.getUri(), conf);
+                        }
+                    });
+                } else {
+                    dfsFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                }
                 fileSystem.setFileSystem(dfsFileSystem);
             }
             return fileSystem;
