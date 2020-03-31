@@ -73,7 +73,7 @@ public class DescribeStmt extends ShowStmt {
                     .build();
 
     // empty col num equals to DESC_OLAP_TABLE_ALL_META_DATA.size()
-    private static final List<String> EMPTY_ROW = Arrays.asList("", "", "", "", "", "", "");
+    private static final List<String> EMPTY_ROW = Arrays.asList("", "", "", "", "", "", "", "");
 
     private TableName dbTableName;
     private ProcNodeInterface node;
