@@ -529,6 +529,12 @@ under the License.
             <version>2.3.0</version>
         </dependency>
 
+        <dependency>
+            <groupId>org.roaringbitmap</groupId>
+            <artifactId>RoaringBitmap</artifactId>
+            <version>0.8.13</version>
+        </dependency>
+
     </dependencies>
 
     <build>
