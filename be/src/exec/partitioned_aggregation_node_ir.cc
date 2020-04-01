@@ -56,6 +56,7 @@ Status PartitionedAggregationNode::ProcessBatch(RowBatch* batch,
       RETURN_IF_ERROR(ProcessRow<AGGREGATED_ROWS>(batch_iter.get(), ht_ctx));
       expr_vals_cache->NextRow();
     }
+    ht_ctx->expr_results_pool_->clear();
     DCHECK(expr_vals_cache->AtEnd());
   }
   return Status::OK();
@@ -199,6 +200,7 @@ Status PartitionedAggregationNode::ProcessBatchStreaming(bool needs_serialize,
       DCHECK(process_batch_status_.ok());
       expr_vals_cache->NextRow();
     }
+    ht_ctx->expr_results_pool_->clear();
     DCHECK(expr_vals_cache->AtEnd());
   }
   if (needs_serialize) {
