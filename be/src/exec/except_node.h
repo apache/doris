@@ -15,11 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_QUERY_EXEC_EXCEPT_NODE_H
-#define DORIS_BE_SRC_QUERY_EXEC_EXCEPT_NODE_H
+#pragma once
 
-#include "exec/exec_node.h"
-#include "exec/hash_table.h"
+#include "exec/set_operation_node.h"
 
 namespace doris {
 
@@ -33,39 +31,13 @@ class TupleRow;
 // and expressions don't need to be evaluated. The except node pulls from its
 // children sequentially, i.e.
 // it exhausts one child completely before moving on to the next one.
-class ExceptNode : public ExecNode {
+class ExceptNode : public SetOperationNode {
 public:
     ExceptNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
 
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
-    virtual Status prepare(RuntimeState* state);
     virtual Status open(RuntimeState* state);
     virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
-    virtual Status close(RuntimeState* state);
-
-private:
-    // Returns true if the values of row and other are equal
-    bool equals(TupleRow* row, TupleRow* other);
-
-    // Exprs materialized by this node. The i-th result expr list refers to the i-th child.
-    std::vector<std::vector<ExprContext*>> _child_expr_lists;
-
-    std::unique_ptr<HashTable> _hash_tbl;
-    HashTable::Iterator _hash_tbl_iterator;
-    std::unique_ptr<RowBatch> _probe_batch;
-
-    // holds everything referenced in _hash_tbl
-    std::unique_ptr<MemPool> _build_pool;
-
-    std::vector<int> _build_tuple_idx;
-    int _build_tuple_size;
-    int _build_tuple_row_size;
-    std::vector<bool> _find_nulls;
-
-    RuntimeProfile::Counter* _build_timer;        // time to build hash table
-    RuntimeProfile::Counter* _probe_timer;        // time to probe
 };
 
 }; // namespace doris
-
-#endif // DORIS_BE_SRC_QUERY_EXEC_EXCEPT_NODE_H
