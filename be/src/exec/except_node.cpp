@@ -141,24 +141,17 @@ Status ExceptNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* eos)
     uint8_t* tuple_buf;
     RETURN_IF_ERROR(
             out_batch->resize_and_allocate_tuple_buffer(state, &tuple_buf_size, &tuple_buf));
-    uint32_t previous_hash = -1;
-    TupleRow* previous_row = nullptr;
+    memset(tuple_buf, 0, tuple_buf_size);
     while (_hash_tbl_iterator.has_next()) {
         VLOG_ROW << "find row: "
                  << get_row_output_string(_hash_tbl_iterator.get_row(), child(0)->row_desc())
                  << " matched: " << _hash_tbl_iterator.matched();
         if (!_hash_tbl_iterator.matched()) {
-            if (previous_hash != _hash_tbl_iterator.get_hash() ||
-                !equals(previous_row, _hash_tbl_iterator.get_row())) {
-                create_output_row(_hash_tbl_iterator.get_row(), out_batch, tuple_buf);
-                tuple_buf += _tuple_desc->byte_size();
-                ++_num_rows_returned;
-            }
+            create_output_row(_hash_tbl_iterator.get_row(), out_batch, tuple_buf);
+            tuple_buf += _tuple_desc->byte_size();
+            ++_num_rows_returned;
         }
-        previous_hash = _hash_tbl_iterator.get_hash();
-        previous_row = _hash_tbl_iterator.get_row();
         _hash_tbl_iterator.next<false>();
-
         *eos = !_hash_tbl_iterator.has_next() || reached_limit();
         if (out_batch->is_full() || out_batch->at_resource_limit() || *eos) {
             return Status::OK();

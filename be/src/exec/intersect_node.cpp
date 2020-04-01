@@ -150,7 +150,6 @@ Status IntersectNode::get_next(RuntimeState* state, RowBatch* out_batch, bool* e
             tuple_buf += _tuple_desc->byte_size();
             ++_num_rows_returned;
         }
-
         _hash_tbl_iterator.next<false>();
         *eos = !_hash_tbl_iterator.has_next() || reached_limit();
         if (out_batch->is_full() || out_batch->at_resource_limit() || *eos) {
