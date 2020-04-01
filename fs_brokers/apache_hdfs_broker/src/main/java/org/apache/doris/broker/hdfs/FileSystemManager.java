@@ -66,7 +66,6 @@ public class FileSystemManager {
     private static final String HDFS_SCHEME = "hdfs";
     private static final String S3A_SCHEME = "s3a";
 
-    private static final String HDFS_UGI_CONF = "hadoop.job.ugi";
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
     private static final String AUTHENTICATION_SIMPLE = "simple";
