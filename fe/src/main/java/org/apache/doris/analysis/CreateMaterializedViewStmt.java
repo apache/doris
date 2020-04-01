@@ -46,7 +46,7 @@ import java.util.Set;
  *     FROM [Base view name]
  *     GROUP BY column_name[, column_name ...]
  *     ORDER BY column_name[, column_name ...])
- * [PROPERTIES ("key": "value")]
+ * [PROPERTIES ("key" = "value")]
  */
 public class CreateMaterializedViewStmt extends DdlStmt {
     private String mvName;
