@@ -285,9 +285,6 @@ public class FileSystemManager {
                                     e.getMessage());
                         }
                     }
-                } else if (!authentication.equals(AUTHENTICATION_SIMPLE)) {
-                    throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                            "invalid authentication.");
                 }
                 if (!Strings.isNullOrEmpty(dfsNameServices)) {
                     // ha hdfs arguments
