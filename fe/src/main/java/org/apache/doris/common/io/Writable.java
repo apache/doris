@@ -20,7 +20,7 @@ package org.apache.doris.common.io;
 import java.io.DataOutput;
 import java.io.IOException;
 
-/*
+/**
  * Any class that requires persistence should implement the Writable interface.
  * This interface requires only a uniform writable method "write()",
  * but does not require a uniform read method.
