@@ -128,7 +128,7 @@ public abstract class AlterJobV2 implements Writable {
         return finishedTimeMs;
     }
 
-    /*
+    /**
      * The keyword 'synchronized' only protects 2 methods:
      * run() and cancel()
      * Only these 2 methods can be visited by different thread(internal working thread and user connection thread)
