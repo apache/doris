@@ -23,9 +23,9 @@ under the License.
 
 This statement is used to create a materialized view.
 
-Asynchronous syntax. After the call is successful, it only indicates that the task to create the materialized view is successfully submitted. 
-
-The user needs to use the ```desc [table_name] all``` command to asynchronously confirm whether the materialization is successfully created.
+    Asynchronous syntax. After the call is successful, it only indicates that the task to create the materialized view is successfully submitted. The user needs to check the progress of the materialized view by using ```show alter table rollup```.
+    
+    After the progress is FINISHED, you can use the ```desc [table_name] all``` command to view the schema of the materialized view.
 
 syntax:
 

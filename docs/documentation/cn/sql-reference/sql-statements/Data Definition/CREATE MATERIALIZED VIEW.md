@@ -24,7 +24,8 @@ under the License.
     该语句用于创建物化视图。
 
 说明: 
-    异步语法，调用成功后仅表示创建物化视图的任务提交成功，用户需要通过 ``` desc [table_name] all ``` 命令来异步确认物化是否是否创建成功。
+    异步语法，调用成功后仅表示创建物化视图的任务提交成功，用户需要先通过 ``` show alter table rollup ``` 来查看物化视图的创建进度。
+    在显示 FINISHED 后既可通过 ``` desc [table_name] all ``` 命令来查看物化视图的 schema 了。
     
 语法:
 
