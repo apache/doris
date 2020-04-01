@@ -94,6 +94,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
     public static final String EVENT_SCHEDULER = "event_scheduler";
     public static final String STORAGE_ENGINE = "storage_engine";
+    public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -238,6 +239,8 @@ public class SessionVariable implements Serializable, Writable {
     private String eventScheduler = "OFF";
     @VariableMgr.VarAttr(name = STORAGE_ENGINE)
     private String storageEngine = "olap";
+    @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
+    private int divPrecisionIncrement = 4;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -437,6 +440,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setStorageEngine(String storageEngine) {
         this.storageEngine = storageEngine;
+    }
+
+    public int getDivPrecisionIncrement() {
+        return divPrecisionIncrement;
+    }
+
+    public void setDivPrecisionIncrement(int divPrecisionIncrement) {
+        this.divPrecisionIncrement = divPrecisionIncrement;
     }
 
     // Serialize to thrift object
