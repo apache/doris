@@ -56,6 +56,7 @@ public:
         _env->_brpc_stub_cache = new BrpcStubCache();
         _env->_buffer_reservation = new ReservationTracker();
 
+        config::tablet_writer_open_rpc_timeout_sec = 60;
         config::tablet_writer_rpc_timeout_sec = 600;
     }
     void TearDown() override {
