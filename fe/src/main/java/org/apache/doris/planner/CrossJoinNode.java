@@ -68,7 +68,7 @@ public class CrossJoinNode extends PlanNode {
              cardinality = Math.round(((double) cardinality) * computeSelectivity());
            }
          }
-         LOG.debug("stats CrossJoin: cardinality=" + Long.toString(cardinality));
+         LOG.debug("stats CrossJoin: cardinality={}", Long.toString(cardinality));
     }
 
     @Override

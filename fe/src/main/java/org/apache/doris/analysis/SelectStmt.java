@@ -610,7 +610,7 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    // When a join statement with a join hit, the decorated part should be reordered as a whole,
+    // When a join statement with a join hint, the decorated part should be reordered as a whole,
     // rather than individually.
     protected void reorderTable(Analyzer analyzer) throws AnalysisException {
         List<Pair<List<TableRef>, Long>> candidates = Lists.newArrayList();
@@ -637,6 +637,8 @@ public class SelectStmt extends QueryStmt {
                     if (fromClause_.get(j).hasJoinHints()) {
                         tableRefs.add(fromClause_.get(j));
                         i++;
+                    } else {
+                        break;
                     }
                 }
             }
