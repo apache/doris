@@ -41,6 +41,7 @@
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/tuple_row.h"
 #include "util/blocking_queue.hpp"
+#include "util/doris_metrics.h"
 #include "util/logging.h"
 #include "testutil/desc_tbl_builder.h"
 
@@ -81,6 +82,9 @@ public:
         system("mkdir -p ./test_run/output/");
         system("pwd");
         system("cp -r ./be/test/runtime/test_data/ ./test_run/.");
+
+        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+
         init();
     }
 

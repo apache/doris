@@ -40,6 +40,7 @@
 #include "util/arrow/row_batch.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
+#include "util/doris_metrics.h"
 #include "util/cpu_info.h"
 #include "util/logging.h"
 
@@ -58,6 +59,9 @@ protected:
         system("mkdir -p ./test_run/output/");
         system("pwd");
         system("cp -r ./be/test/util/test_data/ ./test_run/.");
+
+        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+
         init();
     }
     virtual void TearDown() {

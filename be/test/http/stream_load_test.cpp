@@ -78,6 +78,7 @@ public:
         k_response_str = "";
         config::streaming_load_max_mb = 1;
 
+        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
         _env._thread_mgr = new ThreadResourceMgr();
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();

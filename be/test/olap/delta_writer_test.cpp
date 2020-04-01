@@ -33,6 +33,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
+#include "util/doris_metrics.h"
 #include "util/logging.h"
 #include "util/file_utils.h"
 #include "olap/options.h"
@@ -57,6 +58,8 @@ void set_up() {
     FileUtils::create_dir(config::storage_root_path);
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
+
+    DorisMetrics::instance()->initialize("test", {}, false, {}, {});
 
     doris::EngineOptions options;
     options.store_paths = paths;
