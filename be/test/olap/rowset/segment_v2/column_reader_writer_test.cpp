@@ -313,6 +313,20 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
     test_nullable_data<OLAP_FIELD_TYPE_BIGINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 8, "null_bigint_bs");
     test_nullable_data<OLAP_FIELD_TYPE_LARGEINT, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 16, "null_largeint_bs");
 
+    // test for the case where most values are not null
+    uint8_t* is_null_sparse = new uint8_t[num_uint8_rows];
+    for (int i = 0; i < num_uint8_rows; ++i) {
+        bool v = false;
+        // in order to make some data pages not null, set the first half of values not null.
+        // for the second half, only 1/1024 of values are null
+        if (i >= (num_uint8_rows / 2)) {
+            v = (i % 1024) == 10;
+        }
+        BitmapChange(is_null_sparse, i, v);
+    }
+    test_nullable_data<OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>(val, is_null_sparse, num_uint8_rows, "sparse_null_tiny_bs");
+
+
     float* float_vals = new float[num_uint8_rows];
     for (int i = 0; i < num_uint8_rows; ++i) {
         float_vals[i] = i;
@@ -330,6 +344,7 @@ TEST_F(ColumnReaderWriterTest, test_nullable) {
     // test_nullable_data<OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>(val, is_null, num_uint8_rows / 8, "null_double_bs");
     delete[] val;
     delete[] is_null;
+    delete[] is_null_sparse;
     delete[] float_vals;
     delete[] double_vals;
 }
