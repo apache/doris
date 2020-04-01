@@ -332,8 +332,10 @@ Status ColumnWriter::_finish_current_page() {
     OwnedSlice nullmap;
     if (_is_nullable && _null_bitmap_builder->has_null()) {
         nullmap = _null_bitmap_builder->finish();
-        _null_bitmap_builder->reset();
         body.push_back(nullmap.slice());
+    }
+    if (_null_bitmap_builder != nullptr) {
+        _null_bitmap_builder->reset();
     }
 
     // prepare data page footer
