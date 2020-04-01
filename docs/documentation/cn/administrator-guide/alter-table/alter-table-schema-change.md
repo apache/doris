@@ -17,9 +17,9 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Scheam Change
+# Schema Change
 
-用户可以通过 Scheam Change 操作来修改已存在表的 Schema。目前 Doris 支持以下几种修改:
+用户可以通过 Schema Change 操作来修改已存在表的 Schema。目前 Doris 支持以下几种修改:
 
 * 增加、删除列
 * 修改列类型
@@ -27,7 +27,7 @@ under the License.
 * 增加、修改 Bloom Filter
 * 增加、删除 bitmap index
 
-本文档主要介绍如何创建 Scheam Change 作业，以及进行 Scheam Change 的一些注意事项和常见问题。
+本文档主要介绍如何创建 Schema Change 作业，以及进行 Schema Change 的一些注意事项和常见问题。
 
 ## 名词解释
 
@@ -64,9 +64,9 @@ under the License.
 
 ## 创建作业
 
-创建 Scheam Change 的具体语法可以查看帮助 `HELP ALTER TABLE` 中 Scheam Change 部分的说明。
+创建 Schema Change 的具体语法可以查看帮助 `HELP ALTER TABLE` 中 Schema Change 部分的说明。
 
-Scheam Change 的创建是一个异步过程，作业提交成功后，用户需要通过 `SHOW ALTER TABLE COLUMN` 命令来查看作业进度。
+Schema Change 的创建是一个异步过程，作业提交成功后，用户需要通过 `SHOW ALTER TABLE COLUMN` 命令来查看作业进度。
 
 ## 查看作业
 
