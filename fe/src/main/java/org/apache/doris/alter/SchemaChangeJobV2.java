@@ -1049,18 +1049,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         watershedTxnId = in.readLong();
 
         // index
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_70) {
-            indexChange = in.readBoolean();
-            if (indexChange) {
-                if (in.readBoolean()) {
-                    int indexCount = in.readInt();
-                    this.indexes = new ArrayList<>();
-                    for (int i = 0; i < indexCount; ++i) {
-                        this.indexes.add(Index.read(in));
-                    }
-                } else {
-                    this.indexes = null;
+        indexChange = in.readBoolean();
+        if (indexChange) {
+            if (in.readBoolean()) {
+                int indexCount = in.readInt();
+                this.indexes = new ArrayList<>();
+                for (int i = 0; i < indexCount; ++i) {
+                    this.indexes.add(Index.read(in));
                 }
+            } else {
+                this.indexes = null;
             }
         }
     }
