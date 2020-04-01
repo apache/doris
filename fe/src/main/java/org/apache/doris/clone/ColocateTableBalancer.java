@@ -276,7 +276,7 @@ public class ColocateTableBalancer extends MasterDaemon {
             Backend be = infoService.getBackend(excludeBeId);
             if (be == null) {
                 LOG.info("Backend {} has been dropped when finding backend for colocate group {}", excludeBeId, groupId);
-                return -1;
+                continue;
             }
             excludeHosts.add(be.getHost());
         }
@@ -291,7 +291,7 @@ public class ColocateTableBalancer extends MasterDaemon {
                     continue;
                 }
                 if (excludeHosts.contains(be.getHost())) {
-                    break;
+                    continue;
                 }
                 choosenBe = beStat;
                 break;
