@@ -1028,7 +1028,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             int schemaVersion = in.readInt();
             int schemaVersionHash = in.readInt();
             Pair<Integer, Integer> schemaVersionAndHash = Pair.create(schemaVersion, schemaVersionHash);
-            short shortKeyCount = in.readShort();
 
             indexIdMap.put(shadowIndexId, originIndexId);
             indexIdToName.put(shadowIndexId, indexName);
