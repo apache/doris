@@ -610,15 +610,12 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    // When a join statement with a join hint, the decorated part should be reordered as a whole,
-    // rather than individually.
     protected void reorderTable(Analyzer analyzer) throws AnalysisException {
-        List<Pair<List<TableRef>, Long>> candidates = Lists.newArrayList();
+        List<Pair<TableRef, Long>> candidates = Lists.newArrayList();
 
-        for (int i = 0; i < fromClause_.size(); ++i) {
-            List<TableRef> tableRefs = new ArrayList<>();
-            TableRef tblRef = fromClause_.get(i);
-            if (tblRef.getJoinOp() != JoinOperator.INNER_JOIN) {
+        // New pair of table ref and row count
+        for (TableRef tblRef : fromClause_) {
+            if (tblRef.getJoinOp() != JoinOperator.INNER_JOIN || tblRef.hasJoinHints()) {
                 // Unsupported reorder outer join
                 return;
             }
@@ -627,32 +624,14 @@ public class SelectStmt extends QueryStmt {
                 rowCount = ((OlapTable) (tblRef.getTable())).getRowCount();
                 LOG.debug("tableName={} rowCount={}", tblRef.getAlias(), rowCount);
             }
-            tableRefs.add(tblRef);
-            if (i < fromClause_.size() - 1) {
-                for (int j = i + 1; j < fromClause_.size(); ++j) {
-                    if (fromClause_.get(j).getJoinOp() != JoinOperator.INNER_JOIN) {
-                        // Unsupported reorder outer join
-                        return;
-                    }
-                    if (fromClause_.get(j).hasJoinHints()) {
-                        tableRefs.add(fromClause_.get(j));
-                        i++;
-                    } else {
-                        break;
-                    }
-                }
-            }
-            candidates.add(new Pair(tableRefs, rowCount));
+            candidates.add(new Pair(tblRef, rowCount));
         }
-
         // give InlineView row count
         long last = 0;
         for (int i = candidates.size() - 1; i >= 0; --i) {
-            Pair<List<TableRef>, Long> candidate = candidates.get(i);
-            for (TableRef tableRef : candidate.first) {
-                if (tableRef instanceof InlineViewRef) {
-                    candidate.second = last;
-                }
+            Pair<TableRef, Long> candidate = candidates.get(i);
+            if (candidate.first instanceof InlineViewRef) {
+                candidate.second = last;
             }
             last = candidate.second + 1;
         }
@@ -660,7 +639,7 @@ public class SelectStmt extends QueryStmt {
         // order oldRefList by row count
         Collections.sort(candidates, (a, b) -> b.second.compareTo(a.second));
 
-        for (Pair<List<TableRef>, Long> candidate : candidates) {
+        for (Pair<TableRef, Long> candidate : candidates) {
             if (reorderTable(analyzer, candidate.first)) {
                 // as long as one scheme success, we return this scheme immediately.
                 // in this scheme, candidate.first will be consider to be the big table in star schema.
@@ -671,13 +650,13 @@ public class SelectStmt extends QueryStmt {
 
         // can not get AST only with equal join, MayBe cross join can help
         fromClause_.clear();
-        for (Pair<List<TableRef>, Long> candidate : candidates) {
-            fromClause_.addAll(candidate.first);
+        for (Pair<TableRef, Long> candidate : candidates) {
+            fromClause_.add(candidate.first);
         }
     }
 
     // reorder select table
-    protected boolean reorderTable(Analyzer analyzer, List<TableRef> firstRefs)
+    protected boolean reorderTable(Analyzer analyzer, TableRef firstRef)
             throws AnalysisException {
         List<TableRef> tmpRefList = Lists.newArrayList();
         Map<TupleId, TableRef> tableRefMap = Maps.newHashMap();
@@ -690,13 +669,12 @@ public class SelectStmt extends QueryStmt {
         // clear tableRefList
         fromClause_.clear();
         // mark first table
+        fromClause_.add(firstRef);
+        tableRefMap.remove(firstRef.getId());
+
+        // reserve TupleId has been added successfully
         Set<TupleId> validTupleId = Sets.newHashSet();
-        fromClause_.addAll(firstRefs);
-        for (TableRef firstRef : firstRefs) {
-            tableRefMap.remove(firstRef.getId());
-            // reserve TupleId has been added successfully
-            validTupleId.add(firstRef.getId());
-        }
+        validTupleId.add(firstRef.getId());
         // find table
         int i = 0;
         while (i < fromClause_.size()) {
@@ -712,12 +690,7 @@ public class SelectStmt extends QueryStmt {
                 }
                 TableRef candidateTableRef = tableRefMap.get(tid);
                 if (candidateTableRef != null) {
-                    int idx = tmpRefList.indexOf(candidateTableRef);
-                    // if table has join hints ignore it
-                    if (candidateTableRef.hasJoinHints() ||
-                            idx != -1 && idx != tmpRefList.size() - 1 && tmpRefList.get(idx + 1).hasJoinHints()) {
-                        continue;
-                    }
+
                     // When sorting table according to the rows, you must ensure
                     // that all tables On-conjuncts referenced has been added or
                     // is being added.
@@ -736,14 +709,6 @@ public class SelectStmt extends QueryStmt {
                         fromClause_.add(candidateTableRef);
                         validTupleId.add(tid);
                         tableRefMap.remove(tid);
-                        for (int j = idx + 1; j < tmpRefList.size(); ++j) {
-                            if (tmpRefList.get(j).hasJoinHints()) {
-                                fromClause_.add(tmpRefList.get(j));
-                                validTupleId.add(tmpRefList.get(j).getId());
-                                tableRefMap.remove(tmpRefList.get(j).getId());
-                                i++;
-                            }
-                        }
                     }
                 }
             }

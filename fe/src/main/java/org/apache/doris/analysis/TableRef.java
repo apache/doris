@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -301,7 +302,7 @@ public class TableRef implements ParseNode, Writable {
     }
 
     public boolean hasJoinHints() {
-        return joinHints != null && !joinHints.isEmpty();
+        return CollectionUtils.isNotEmpty(joinHints);
     }
 
     public void setJoinHints(ArrayList<String> hints) {
