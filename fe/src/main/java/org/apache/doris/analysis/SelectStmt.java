@@ -54,7 +54,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -616,7 +615,7 @@ public class SelectStmt extends QueryStmt {
 
         // New pair of table ref and row count
         for (TableRef tblRef : fromClause_) {
-            if (tblRef.getJoinOp() != JoinOperator.INNER_JOIN) {
+            if (tblRef.getJoinOp() != JoinOperator.INNER_JOIN || tblRef.hasJoinHints()) {
                 // Unsupported reorder outer join
                 return;
             }
@@ -638,12 +637,7 @@ public class SelectStmt extends QueryStmt {
         }
 
         // order oldRefList by row count
-        Collections.sort(candidates, new Comparator<Pair<TableRef, Long>>() {
-            public int compare(Pair<TableRef, Long> a, Pair<TableRef, Long> b) {
-                long diff = b.second - a.second;
-                return (diff < 0 ? -1 : (diff > 0 ? 1 : 0));
-            }
-        });
+        Collections.sort(candidates, (a, b) -> b.second.compareTo(a.second));
 
         for (Pair<TableRef, Long> candidate : candidates) {
             if (reorderTable(analyzer, candidate.first)) {
@@ -697,7 +691,7 @@ public class SelectStmt extends QueryStmt {
                 TableRef candidateTableRef = tableRefMap.get(tid);
                 if (candidateTableRef != null) {
 
-                    // When sorting table according to the rows, you must ensure 
+                    // When sorting table according to the rows, you must ensure
                     // that all tables On-conjuncts referenced has been added or
                     // is being added.
                     Preconditions.checkState(tid == candidateTableRef.getId());
