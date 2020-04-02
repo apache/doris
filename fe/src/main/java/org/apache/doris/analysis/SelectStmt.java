@@ -21,7 +21,6 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.catalog.Type;
@@ -791,36 +790,6 @@ public class SelectStmt extends QueryStmt {
         }
     }
 
-    // for bitmap type, we rewrite count distinct to bitmap_union_count
-    // for hll type, we rewrite count distinct to hll_union_agg
-    private Expr rewriteCountDistinctForBitmapOrHLL(Expr expr, Analyzer analyzer) {
-        if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().isRewriteCountDistinct()) {
-            return expr;
-        }
-
-        for (int i = 0; i < expr.getChildren().size(); ++i) {
-            expr.setChild(i, rewriteCountDistinctForBitmapOrHLL(expr.getChild(i), analyzer));
-        }
-
-        if (!(expr instanceof FunctionCallExpr)) {
-            return expr;
-        }
-
-        FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
-        if (functionCallExpr.isCountDistinctBitmapOrHLL()) {
-            FunctionParams newParams = new FunctionParams(false, functionCallExpr.getParams().exprs());
-            if (expr.getChild(0).type.isBitmapType()) {
-                FunctionCallExpr bitmapExpr = new FunctionCallExpr(FunctionSet.BITMAP_UNION_COUNT, newParams);
-                bitmapExpr.analyzeNoThrow(analyzer);
-                return bitmapExpr;
-            } else  {
-                FunctionCallExpr hllExpr = new FunctionCallExpr("hll_union_agg", newParams);
-                hllExpr.analyzeNoThrow(analyzer);
-                return hllExpr;
-            }
-        }
-        return expr;
-    }
     /**
      * Analyze aggregation-relevant components of the select block (Group By clause,
      * select list, Order By clause),
@@ -853,6 +822,7 @@ public class SelectStmt extends QueryStmt {
              * TODO: the a.key should be replaced by a.k1 instead of unknown column 'key' in 'a'
              */
             havingClauseAfterAnaylzed = havingClause.substitute(aliasSMap, analyzer, false);
+            havingClauseAfterAnaylzed = rewriteCountDistinctForBitmapOrHLL(havingClauseAfterAnaylzed, analyzer);
             havingClauseAfterAnaylzed.checkReturnsBool("HAVING clause", true);
             // can't contain analytic exprs
             Expr analyticExpr = havingClauseAfterAnaylzed.findFirstOf(AnalyticExpr.class);
