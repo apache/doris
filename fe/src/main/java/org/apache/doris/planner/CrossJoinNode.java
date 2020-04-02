@@ -59,16 +59,16 @@ public class CrossJoinNode extends PlanNode {
 
     @Override
     public void computeStats(Analyzer analyzer) {
-        // super.computeStats(analyzer);
-        // if (getChild(0).cardinality_ == -1 || getChild(1).cardinality_ == -1) {
-        //   cardinality_ = -1;
-        // } else {
-        //   cardinality_ = getChild(0).cardinality_ * getChild(1).cardinality_;
-        //   if (computeSelectivity() != -1) {
-        //     cardinality_ = Math.round(((double) cardinality_) * computeSelectivity());
-        //   }
-        // }
-        // LOG.debug("stats CrossJoin: cardinality=" + Long.toString(cardinality_));
+         super.computeStats(analyzer);
+         if (getChild(0).cardinality == -1 || getChild(1).cardinality == -1) {
+           cardinality = -1;
+         } else {
+           cardinality = getChild(0).cardinality * getChild(1).cardinality;
+           if (computeSelectivity() != -1) {
+             cardinality = Math.round(((double) cardinality) * computeSelectivity());
+           }
+         }
+         LOG.debug("stats CrossJoin: cardinality={}", Long.toString(cardinality));
     }
 
     @Override

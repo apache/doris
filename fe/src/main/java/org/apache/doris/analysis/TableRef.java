@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
@@ -296,6 +297,14 @@ public class TableRef implements ParseNode, Writable {
         this.leftTblRef = leftTblRef;
     }
 
+    public ArrayList<String> getJoinHints() {
+        return joinHints;
+    }
+
+    public boolean hasJoinHints() {
+        return CollectionUtils.isNotEmpty(joinHints);
+    }
+
     public void setJoinHints(ArrayList<String> hints) {
         this.joinHints = hints;
     }
@@ -338,11 +347,21 @@ public class TableRef implements ParseNode, Writable {
         }
         for (String hint : joinHints) {
             if (hint.toUpperCase().equals("BROADCAST")) {
+                if (joinOp == JoinOperator.RIGHT_OUTER_JOIN
+                        || joinOp == JoinOperator.FULL_OUTER_JOIN
+                        || joinOp == JoinOperator.RIGHT_SEMI_JOIN
+                        || joinOp == JoinOperator.RIGHT_ANTI_JOIN) {
+                    throw new AnalysisException(
+                            joinOp.toString() + " does not support BROADCAST.");
+                }
                 if (isPartitionJoin) {
                     throw new AnalysisException("Conflicting JOIN hint: " + hint);
                 }
                 isBroadcastJoin = true;
             } else if (hint.toUpperCase().equals("SHUFFLE")) {
+                if (joinOp == JoinOperator.CROSS_JOIN) {
+                    throw new AnalysisException("CROSS JOIN does not support SHUFFLE.");
+                }
                 if (isBroadcastJoin) {
                     throw new AnalysisException("Conflicting JOIN hint: " + hint);
                 }
