@@ -505,6 +505,10 @@ namespace config {
     // this is a an enhancement for better performance to manage txn
     CONF_Int32(txn_map_shard_size, "128");
 
+    // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
+    // this is a an enhancement for better performance to publish txn
+    CONF_Int32(txn_shard_size, "1024")
+
 } // namespace config
 
 } // namespace doris

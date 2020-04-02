@@ -71,13 +71,17 @@ using std::vector;
 
 namespace doris {
 
-TxnManager::TxnManager(int32_t txn_map_shard_size)
-        : _txn_map_shard_size(txn_map_shard_size) {
+TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
+        : _txn_map_shard_size(txn_map_shard_size),
+          _txn_shard_size(txn_shard_size) {
     DCHECK_GT(_txn_map_shard_size, 0);
+    DCHECK_GT(_txn_shard_size, 0);
     DCHECK_EQ(_txn_map_shard_size & (_txn_map_shard_size - 1), 0);
+    DCHECK_EQ(_txn_shard_size & (_txn_shard_size - 1), 0);
     _txn_map_locks = new RWMutex[_txn_map_shard_size];
-    _txn_tablet_maps = new std::map<TxnKey, std::map<TabletInfo, TabletTxnInfo>>[_txn_map_shard_size];
-    _txn_partition_maps = new std::unordered_map<int64_t, std::unordered_set<int64_t>>[_txn_map_shard_size];
+    _txn_tablet_maps = new txn_tablet_map_t[_txn_map_shard_size];
+    _txn_partition_maps = new txn_partition_map_t[_txn_map_shard_size];
+    _txn_mutex = new Mutex[_txn_shard_size];
 }
 
 OLAPStatus TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id, 
@@ -115,7 +119,7 @@ OLAPStatus TxnManager::prepare_txn(
     TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid, 
     const PUniqueId& load_id) {
 
-    pair<int64_t, int64_t> key(partition_id, transaction_id);
+    TxnKey key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     WriteLock txn_wrlock(&_get_txn_map_lock(transaction_id));
     txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
@@ -260,6 +264,7 @@ OLAPStatus TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id, TT
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
     RowsetSharedPtr rowset_ptr = nullptr;
+    MutexLock txn_lock(&_get_txn_lock(transaction_id));
     {
         ReadLock rlock(&_get_txn_map_lock(transaction_id));
         txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);

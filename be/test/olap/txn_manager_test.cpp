@@ -94,7 +94,7 @@ public:
 
     virtual void SetUp() {
         config::max_runnings_transactions_per_txn_map = 500;
-        _txn_mgr.reset(new TxnManager(64));
+        _txn_mgr.reset(new TxnManager(64, 1024));
         std::vector<StorePath> paths;
         paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
