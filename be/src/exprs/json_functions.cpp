@@ -43,7 +43,7 @@ namespace doris {
 
 // static const re2::RE2 JSON_PATTERN("^([a-zA-Z0-9_\\-\\:\\s#\\|\\.]*)(?:\\[([0-9]+)\\])?");
 // json path cannot contains: ", [, ]
-static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+)\\])?");
+static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
 
 void JsonFunctions::init() {
 }
@@ -159,6 +159,7 @@ rapidjson::Value* JsonFunctions::get_json_object(
         return document;
     }
 
+    bool is_arr_set_by_last = false;
     rapidjson::Value* root = document;
     rapidjson::Value* array_obj = NULL;
     for (int i = 1; i < (*parsed_paths).size(); i++) {
@@ -170,51 +171,55 @@ rapidjson::Value* JsonFunctions::get_json_object(
 
         if (UNLIKELY(!(*parsed_paths)[i].is_valid)) {
             root->SetNull();
+            continue;
         }
 
         std::string& col = (*parsed_paths)[i].key;
         int index = (*parsed_paths)[i].idx;
         if (LIKELY(!col.empty())) {
-            if (root->IsArray()) {
-                array_obj = static_cast<rapidjson::Value*>(
-                        document->GetAllocator().Malloc(sizeof(rapidjson::Value)));
-                array_obj->SetArray();
-                bool is_null = true;
+            if (root->IsArray() && is_arr_set_by_last) {
+                is_arr_set_by_last = false;
+               array_obj = static_cast<rapidjson::Value*>(
+                       document->GetAllocator().Malloc(sizeof(rapidjson::Value)));
+               array_obj->SetArray();
+               bool is_null = true;
 
-                // if array ,loop the array,find out all Objects,then find the results from the objects
-                for (int j = 0; j < root->Size(); j++) {
-                    rapidjson::Value* json_elem = &((*root)[j]);
+               // if array ,loop the array,find out all Objects,then find the results from the objects
+               for (int j = 0; j < root->Size(); j++) {
+                   rapidjson::Value* json_elem = &((*root)[j]);
 
-                    if (json_elem->IsArray() || json_elem->IsNull()) {
-                        continue;
-                    } else {
-                        if (!json_elem->IsObject() || !json_elem->HasMember(col.c_str())) {
-                            continue;
-                        }
-                        rapidjson::Value* obj = &((*json_elem)[col.c_str()]);
+                   if (json_elem->IsArray() || json_elem->IsNull()) {
+                       continue;
+                   } else {
+                       if (!json_elem->IsObject() || !json_elem->HasMember(col.c_str())) {
+                           continue;
+                       }
+                       rapidjson::Value* obj = &((*json_elem)[col.c_str()]);
 
-                        if (obj->IsArray()) {
-                            is_null = false;
-                            for (int k = 0; k < obj->Size(); k++) {
-                                array_obj->PushBack((*obj)[k], document->GetAllocator());
-                            }
-                        } else if (!obj->IsNull()) {
-                            is_null = false;
-                            array_obj->PushBack(*obj, document->GetAllocator());
-                        }
-                    }
-                }
+                       if (obj->IsArray()) {
+                           is_null = false;
+                           for (int k = 0; k < obj->Size(); k++) {
+                               array_obj->PushBack((*obj)[k], document->GetAllocator());
+                           }
+                       } else if (!obj->IsNull()) {
+                           is_null = false;
+                           array_obj->PushBack(*obj, document->GetAllocator());
+                       }
+                   }
+               }
 
-                root = is_null ? &(array_obj->SetNull()) : array_obj;
+               root = is_null ? &(array_obj->SetNull()) : array_obj;
             } else if (root->IsObject()){
                 if (!root->HasMember(col.c_str())) {
                     root->SetNull();
+                    continue;
                 } else {
                     root = &((*root)[col.c_str()]);
                 }
             } else {
                 // root is not a nested type, return NULL
                 root->SetNull();
+                continue;
             }
         }
 
@@ -222,13 +227,29 @@ rapidjson::Value* JsonFunctions::get_json_object(
             // judge the rapidjson:Value, which base the top's result,
             // if not array return NULL;else get the index value from the array
             if (root->IsArray()) {
-                if (root->IsNull() || index >= root->Size()) {
+                if (root->IsNull()) {
                     root->SetNull();
+                    continue;
+                } else if (index == -2) {
+                    // [*]
+                    array_obj = static_cast<rapidjson::Value*>(
+                            document->GetAllocator().Malloc(sizeof(rapidjson::Value)));
+                    array_obj->SetArray();
+
+                    for (int j = 0; j < root->Size(); j++) {
+                        array_obj->PushBack((*root)[j], document->GetAllocator());
+                    }
+                    root = array_obj;
+                    is_arr_set_by_last = true;
+                } else if (index >= root->Size()) {
+                    root->SetNull();
+                    continue;
                 } else {
                     root = &((*root)[index]);
                 }
             } else {
                 root->SetNull();
+                continue;
             }
         }
      }
@@ -280,7 +301,11 @@ void JsonFunctions::get_parsed_paths(
         } else {
             int idx = -1;
             if (!index.empty()) {
-                idx = atoi(index.c_str());
+                if (index == "*") {
+                    idx = -2;
+                } else {
+                    idx = atoi(index.c_str());
+                }
             }
             parsed_paths->emplace_back(col, idx, true);
         }
