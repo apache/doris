@@ -179,36 +179,36 @@ rapidjson::Value* JsonFunctions::get_json_object(
         if (LIKELY(!col.empty())) {
             if (root->IsArray() && is_arr_set_by_last) {
                 is_arr_set_by_last = false;
-               array_obj = static_cast<rapidjson::Value*>(
-                       document->GetAllocator().Malloc(sizeof(rapidjson::Value)));
-               array_obj->SetArray();
-               bool is_null = true;
+                array_obj = static_cast<rapidjson::Value*>(
+                        document->GetAllocator().Malloc(sizeof(rapidjson::Value)));
+                array_obj->SetArray();
+                bool is_null = true;
 
-               // if array ,loop the array,find out all Objects,then find the results from the objects
-               for (int j = 0; j < root->Size(); j++) {
-                   rapidjson::Value* json_elem = &((*root)[j]);
+                // if array ,loop the array,find out all Objects,then find the results from the objects
+                for (int j = 0; j < root->Size(); j++) {
+                    rapidjson::Value* json_elem = &((*root)[j]);
 
-                   if (json_elem->IsArray() || json_elem->IsNull()) {
-                       continue;
-                   } else {
-                       if (!json_elem->IsObject() || !json_elem->HasMember(col.c_str())) {
-                           continue;
-                       }
-                       rapidjson::Value* obj = &((*json_elem)[col.c_str()]);
+                    if (json_elem->IsArray() || json_elem->IsNull()) {
+                        continue;
+                    } else {
+                        if (!json_elem->IsObject() || !json_elem->HasMember(col.c_str())) {
+                            continue;
+                        }
+                        rapidjson::Value* obj = &((*json_elem)[col.c_str()]);
 
-                       if (obj->IsArray()) {
-                           is_null = false;
-                           for (int k = 0; k < obj->Size(); k++) {
-                               array_obj->PushBack((*obj)[k], document->GetAllocator());
-                           }
-                       } else if (!obj->IsNull()) {
-                           is_null = false;
-                           array_obj->PushBack(*obj, document->GetAllocator());
-                       }
-                   }
-               }
+                        if (obj->IsArray()) {
+                            is_null = false;
+                            for (int k = 0; k < obj->Size(); k++) {
+                                array_obj->PushBack((*obj)[k], document->GetAllocator());
+                            }
+                        } else if (!obj->IsNull()) {
+                            is_null = false;
+                            array_obj->PushBack(*obj, document->GetAllocator());
+                        }
+                    }
+                }
 
-               root = is_null ? &(array_obj->SetNull()) : array_obj;
+                root = is_null ? &(array_obj->SetNull()) : array_obj;
             } else if (root->IsObject()){
                 if (!root->HasMember(col.c_str())) {
                     root->SetNull();
