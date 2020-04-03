@@ -190,7 +190,7 @@ namespace config {
     // push_write_mbytes_per_sec
     CONF_Int32(push_write_mbytes_per_sec, "10");
 
-    CONF_Int64(column_dictionary_key_ration_threshold, "0");
+    CONF_Int64(column_dictionary_key_ratio_threshold, "0");
     CONF_Int64(column_dictionary_key_size_threshold, "0");
     // if true, output IR after optimization passes
     CONF_Bool(dump_ir, "false");
