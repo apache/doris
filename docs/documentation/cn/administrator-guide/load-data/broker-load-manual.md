@@ -489,7 +489,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 * 导入报错：`failed to send batch` 或 `TabletWriter add batch with unknown id`
 
-    请参照 [导入手册](./load-manual.md) 中 **通用系统配置** 中 **BE 配置**，适当修改 `tablet_writer_rpc_timeout_sec` 和 `streaming_load_rpc_max_alive_time_sec`。
+    请参照 [导入手册](./load-manual.md) 中 **通用系统配置** 中 **BE 配置**，适当修改 `query_timeout` 和 `streaming_load_rpc_max_alive_time_sec`。
     
 * 导入报错：`LOAD_RUN_FAIL; msg:Invalid Column Name:xxx` 
     
