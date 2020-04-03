@@ -695,7 +695,7 @@ OLAPStatus VarStringColumnWriter::_finalize_direct_encoding() {
 
 OLAPStatus VarStringColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     OLAPStatus res = OLAP_SUCCESS;
-    uint64_t ratio_threshold = config::column_dictionary_key_ration_threshold;
+    uint64_t ratio_threshold = config::column_dictionary_key_ratio_threshold;
     uint64_t size_threshold = config::column_dictionary_key_size_threshold;
 
     // the dictionary condition:1 key size < size threshold; 2 key ratio < ratio threshold
