@@ -18,4 +18,15 @@
 package org.apache.doris.plugin;
 
 public class PluginContext {
+
+    // the dir path where the plugin's files saved
+    private String pluginPath;
+
+    protected void setPluginPath(String pluginPath) {
+        this.pluginPath = pluginPath;
+    }
+
+    public String getPluginPath() {
+        return pluginPath;
+    }
 }

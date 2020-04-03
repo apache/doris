@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -29,6 +27,7 @@ import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlErrPacket;
 import org.apache.doris.mysql.MysqlOkPacket;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.proto.PQueryStatistics;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -41,13 +40,16 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 
+import mockit.Expectations;
+import mockit.Mocked;
+
 public class ConnectProcessorTest {
     private static ByteBuffer initDbPacket;
     private static ByteBuffer pingPacket;
     private static ByteBuffer quitPacket;
     private static ByteBuffer queryPacket;
     private static ByteBuffer fieldListPacket;
-    private static AuditBuilder auditBuilder = new AuditBuilder();
+    private static AuditEventBuilder auditBuilder = new AuditEventBuilder();
     private static ConnectContext myContext;
 
     @Mocked
@@ -202,7 +204,7 @@ public class ConnectProcessorTest {
                 minTimes = 0;
                 result = catalog;
 
-                context.getAuditBuilder();
+                context.getAuditEventBuilder();
                 minTimes = 0;
                 result = auditBuilder;
 

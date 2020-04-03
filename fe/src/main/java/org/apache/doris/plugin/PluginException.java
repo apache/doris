@@ -15,27 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.qe;
+package org.apache.doris.plugin;
 
-// Helper class used to build audit log.
-// Now, implemented with StringBuilder
-public class AuditBuilder {
-    private StringBuilder sb;
+import org.apache.doris.common.UserException;
 
-    public AuditBuilder() {
-        sb = new StringBuilder();
+public class PluginException extends UserException {
+    public PluginException(String msg) {
+        super(msg);
     }
 
-    public void reset() {
-        sb = new StringBuilder();
-    }
-
-    public void put(String key, Object value) {
-        sb.append("|").append(key).append("=").append(value.toString());
-    }
-
-    @Override
-    public String toString() {
-        return sb.toString();
+    public PluginException(String msg, Throwable e) {
+        super(msg, e);
     }
 }

@@ -28,8 +28,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.AuditLog;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -43,7 +41,9 @@ import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
+import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.proto.PQueryStatistics;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 
@@ -106,14 +106,14 @@ public class ConnectProcessor {
     private void auditAfterExec(String origStmt, StatementBase parsedStmt, PQueryStatistics statistics) {
         // slow query
         long elapseMs = System.currentTimeMillis() - ctx.getStartTime();
-        // query state log
-        ctx.getAuditBuilder().put("State", ctx.getState());
-        ctx.getAuditBuilder().put("Time", elapseMs);
-        ctx.getAuditBuilder().put("ScanBytes", statistics == null ? 0 : statistics.scan_bytes);
-        ctx.getAuditBuilder().put("ScanRows", statistics == null ? 0 : statistics.scan_rows);
-        ctx.getAuditBuilder().put("ReturnRows", ctx.getReturnRows());
-        ctx.getAuditBuilder().put("StmtId", ctx.getStmtId());
-        ctx.getAuditBuilder().put("QueryId", ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
+        
+        ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
+            .setState(ctx.getState().toString()).setQueryTime(elapseMs)
+            .setScanBytes(statistics == null ? 0 : statistics.scan_bytes)
+            .setScanRows(statistics == null ? 0 : statistics.scan_rows)
+            .setReturnRows(ctx.getReturnRows())
+            .setStmtId(ctx.getStmtId())
+            .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()));
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
@@ -125,23 +125,21 @@ public class ConnectProcessor {
                 // ok query
                 MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
             }
-            ctx.getAuditBuilder().put("IsQuery", 1);
+            ctx.getAuditEventBuilder().setIsQuery(true);
         } else {
-            ctx.getAuditBuilder().put("IsQuery", 0);
+            ctx.getAuditEventBuilder().setIsQuery(false);
         }
+        
+        ctx.getAuditEventBuilder().setFeIp(FrontendOptions.getLocalHostAddress());
+
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
         if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-            ctx.getAuditBuilder().put("Stmt", parsedStmt.toSql());
+            ctx.getAuditEventBuilder().setStmt(parsedStmt.toSql());
         } else {
-            ctx.getAuditBuilder().put("Stmt", origStmt);
+            ctx.getAuditEventBuilder().setStmt(origStmt);
         }
-
-        AuditLog.getQueryAudit().log(ctx.getAuditBuilder().toString());
-
-        // slow query
-        if (elapseMs > Config.qe_slow_log_ms) {
-            AuditLog.getSlowAudit().log(ctx.getAuditBuilder().toString());
-        }
+        
+        Catalog.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());
     }
 
     // process COM_QUERY statement,
@@ -163,10 +161,12 @@ public class ConnectProcessor {
             ctx.getState().setError("Unsupported character set(UTF-8)");
             return;
         }
-        ctx.getAuditBuilder().reset();
-        ctx.getAuditBuilder().put("Client", ctx.getMysqlChannel().getRemoteHostPortString());
-        ctx.getAuditBuilder().put("User", ctx.getQualifiedUser());
-        ctx.getAuditBuilder().put("Db", ctx.getDatabase());
+        ctx.getAuditEventBuilder().reset();
+        ctx.getAuditEventBuilder()
+            .setTimestamp(System.currentTimeMillis())
+            .setClientIp(ctx.getMysqlChannel().getRemoteHostPortString())
+            .setUser(ctx.getQualifiedUser())
+            .setDb(ctx.getDatabase());
 
         // execute this query.
         StatementBase parsedStmt = null;
