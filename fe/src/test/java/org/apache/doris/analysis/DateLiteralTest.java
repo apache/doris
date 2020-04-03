@@ -55,4 +55,23 @@ public class DateLiteralTest {
         }
         Assert.assertFalse(hasException);
     }
+
+    @Test
+    public void uncheckedCastTo() {
+        boolean hasException = false;
+        try {
+            DateLiteral literal = new DateLiteral("1997-10-07", Type.DATE);
+            Expr castToExpr = literal.uncheckedCastTo(Type.DATETIME);
+            Assert.assertTrue(castToExpr instanceof DateLiteral);
+            Assert.assertEquals(castToExpr.type, Type.DATETIME);
+
+            DateLiteral literal2 = new DateLiteral("1997-10-07 12:23:23", Type.DATETIME);
+            Expr castToExpr2 = literal2.uncheckedCastTo(Type.DATETIME);
+            Assert.assertTrue(castToExpr2 instanceof DateLiteral);
+        } catch (AnalysisException e) {
+            e.printStackTrace();
+            hasException = true;
+        }
+        Assert.assertFalse(hasException);
+    }
 }
