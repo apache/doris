@@ -311,9 +311,9 @@ ${DORIS_TEST_BINARY_DIR}/runtime/routine_load_task_executor_test
 ${DORIS_TEST_BINARY_DIR}/runtime/heartbeat_flags_test
 
 # Runing plugin test
-${DORIS_TEST_BINARY_DIR}/Plugin/plugin/plugin_loader_test
-${DORIS_TEST_BINARY_DIR}/Plugin/plugin/plugin_mgr_test
-${DORIS_TEST_BINARY_DIR}/Plugin/plugin/plugin_zip_test
+${DORIS_TEST_BINARY_DIR}/plugin/plugin_loader_test
+${DORIS_TEST_BINARY_DIR}/plugin/plugin_mgr_test
+${DORIS_TEST_BINARY_DIR}/plugin/plugin_zip_test
 
 # Running agent unittest
 # Prepare agent testdata
