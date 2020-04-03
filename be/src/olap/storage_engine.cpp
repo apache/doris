@@ -148,16 +148,33 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
 OLAPStatus StorageEngine::_open() {
     // init store_map
+    std::vector<std::pair<DataDir*,std::future<Status>>> tmp_vec;
     for (auto& path : _options.store_paths) {
+        LOG(INFO) << "store_path " << path.path;
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                                      _tablet_manager.get(), _txn_manager.get());
-        auto st = store->init();
-        if (!st.ok()) {
-            LOG(WARNING) << "Store load failed, path=" << path.path;
-            return OLAP_ERR_INVALID_ROOT_PATH;
-        }
-        _store_map.emplace(path.path, store);
+        tmp_vec.emplace_back(std::make_pair(store,std::async([store](){ return store->init();})));
     }
+
+    try {
+        for (auto& pair : tmp_vec) {
+            DataDir* store = pair.first;
+            auto st = pair.second.get();
+            if (!st.ok()) {
+                throw std::exception("Store load failed, path=" + store->path());
+            }
+            _store_map.emplace(store->path(), store);
+        }
+    } catch (std::exception& e) {
+        LOG(WARNING) << e.what();
+        // _store_map is a subset of tmp_vec, just clear _store_map, and delete stores one by one in tmp_vec
+        _store_map.clear();
+        for (auto& pair : tmp_vec) {
+            delete pair.first;
+        }
+        return OLAP_ERR_INVALID_ROOT_PATH;
+    }
+
     _effective_cluster_id = config::cluster_id;
     RETURN_NOT_OK_LOG(_check_all_root_path_cluster_id(), "fail to check cluster info.");
 
