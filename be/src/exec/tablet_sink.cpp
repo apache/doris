@@ -104,7 +104,7 @@ void NodeChannel::open() {
 
     // This ref is for RPC's reference
     _open_closure->ref();
-    _open_closure->cntl.set_timeout_ms(_rpc_timeout_ms);
+    _open_closure->cntl.set_timeout_ms(config::tablet_writer_open_rpc_timeout_sec * 1000);
     _stub->tablet_writer_open(&_open_closure->cntl,
                               &request,
                               &_open_closure->result,
