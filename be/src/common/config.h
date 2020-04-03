@@ -287,6 +287,7 @@ namespace config {
     // the timeout of a rpc to open the tablet writer in remote BE.
     // short operation time, can set a short timeout
     CONF_Int32(tablet_writer_open_rpc_timeout_sec, "60");
+    // Deprecated, use query_timeout instread
     // the timeout of a rpc to process one batch in tablet writer.
     // you may need to increase this timeout if using larger 'streaming_load_max_mb',
     // or encounter 'tablet writer write failed' error when loading.
