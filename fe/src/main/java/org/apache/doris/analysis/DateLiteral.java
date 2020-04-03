@@ -320,6 +320,13 @@ public class DateLiteral extends LiteralExpr {
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isDateType()) {
+            if (targetType.equals(Type.DATE)) {
+                this.castToDate();                            
+            } else if (targetType.equals(Type.DATETIME)) {
+                this.type = Type.DATETIME;                            
+            } else {
+                throw new AnalysisException("Error date literal type : " + type);
+            }
             return this;
         } else if (targetType.isStringType()) {
             return new StringLiteral(getStringValue());
