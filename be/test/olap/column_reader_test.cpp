@@ -71,7 +71,7 @@ public:
                 new(std::nothrow) OutStreamFactory(COMPRESS_LZ4,
                                                    OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE);
         ASSERT_TRUE(_stream_factory != NULL);
-        config::column_dictionary_key_ration_threshold = 30;
+        config::column_dictionary_key_ratio_threshold = 30;
         config::column_dictionary_key_size_threshold = 1000;
     }
     
