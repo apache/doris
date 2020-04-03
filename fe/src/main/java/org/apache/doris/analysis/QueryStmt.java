@@ -269,8 +269,8 @@ public abstract class QueryStmt extends StatementBase {
         orderByElementsAfterAnalyzed = Lists.newArrayList();
         for (int i = 0; i < orderByElements.size(); i++) {
             // rewrite count distinct
-            Expr rewritten = rewriteCountDistinctForBitmapOrHLL(orderingExprs.get(i), analyzer);
-            OrderByElement orderByElement = new OrderByElement(rewritten, isAscOrder.get(i),
+            orderingExprs.set(i, rewriteCountDistinctForBitmapOrHLL(orderingExprs.get(i), analyzer));
+            OrderByElement orderByElement = new OrderByElement(orderingExprs.get(i), isAscOrder.get(i),
                     nullsFirstParams.get(i));
             orderByElementsAfterAnalyzed.add(orderByElement);
         }
