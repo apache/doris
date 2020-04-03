@@ -470,7 +470,7 @@ Cluster situation: The number of BEs in the cluster is about 3, and the Broker n
 
 *  failed with ：`failed to send batch` or `TabletWriter add batch with unknown id`
 
-	Refer to **General System Configuration** in **BE Configuration** in the Import Manual (./load-manual.md), and modify `tablet_writer_rpc_timeout_sec` and `streaming_load_rpc_max_alive_time_sec` appropriately.
+	Refer to **General System Configuration** in **BE Configuration** in the Import Manual (./load-manual.md), and modify `query_timeout` and `streaming_load_rpc_max_alive_time_sec` appropriately.
 	
 *  failed with : `LOAD_RUN_FAIL; msg: Invalid Column Name: xxx`
     
