@@ -371,14 +371,17 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("hll_union_agg"));
 
+        sql = "select count(distinct id2) from test.bitmap_table group by id order by count(distinct id2)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("bitmap_union_count"));
+
         sql = "select count(distinct id2) from test.bitmap_table having count(distinct id2) > 0";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
 
-        sql = "select count(distinct id2) from test.bitmap_table order by count(distinct id2) > 0";
+        sql = "select count(distinct id2) from test.bitmap_table order by count(distinct id2)";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("bitmap_union_count"));
-
 
         ConnectContext.get().getSessionVariable().setRewriteCountDistinct(false);
         sql = "select count(distinct id2) from test.bitmap_table";
