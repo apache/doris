@@ -161,7 +161,7 @@ OLAPStatus StorageEngine::_open() {
             DataDir* store = pair.first;
             auto st = pair.second.get();
             if (!st.ok()) {
-                throw std::exception("Store load failed, path=" + store->path());
+                throw std::runtime_error("Store load failed, path=" + store->path());
             }
             _store_map.emplace(store->path(), store);
         }
