@@ -28,7 +28,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -45,7 +44,9 @@ import org.apache.doris.load.MiniEtlTaskInfo;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
-import org.apache.doris.qe.AuditBuilder;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -418,15 +419,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private void logMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
         String stmt = getMiniLoadStmt(request);
-        AuditBuilder auditBuilder = new AuditBuilder();
-        auditBuilder.put("client", request.user_ip + ":0");
-        auditBuilder.put("user", request.user);
-        auditBuilder.put("db", request.db);
-        auditBuilder.put("state", TStatusCode.OK);
-        auditBuilder.put("time", "0");
-        auditBuilder.put("stmt", stmt);
-
-        AuditLog.getQueryAudit().log(auditBuilder.toString());
+        AuditEvent auditEvent = new AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
+                .setClientIp(request.user_ip + ":0")
+                .setUser(request.user)
+                .setDb(request.db)
+                .setState(TStatusCode.OK.name())
+                .setQueryTime(0)
+                .setStmt(stmt).build();
+        
+        Catalog.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
     }
 
     private String getMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {

@@ -33,15 +33,20 @@ public abstract class Plugin implements Closeable {
     public static final int PLUGIN_NOT_DYNAMIC_UNINSTALL = 1 << 1;
 
     /**
-     * invoke when the plugin install
+     * invoke when the plugin install.
+     * the plugin should only be initialized once.
+     * So this method must be idempotent
      */
-    public void init(PluginInfo info, PluginContext ctx) { }
+    public void init(PluginInfo info, PluginContext ctx) throws PluginException {
+
+    }
 
     /**
      * invoke when the plugin uninstall
      */
     @Override
-    public void close() throws IOException { }
+    public void close() throws IOException {
+    }
 
     public int flags() {
         return PLUGIN_DEFAULT_FLAGS;

@@ -17,6 +17,18 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.common.UserException;
+
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
+import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.io.FileUtils;
+import org.apache.commons.lang.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,17 +42,6 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-
-import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang.StringUtils;
-import org.apache.doris.common.UserException;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 /**
  * Describe plugin install file(.zip)
@@ -61,6 +62,10 @@ class PluginZip {
         cleanPathList = Lists.newLinkedList();
     }
 
+    /*
+     * download and extract the zip file to the target path.
+     * return the path dir which contains all extracted files.
+     */
     public Path extract(Path targetPath) throws IOException, UserException {
         try {
             Path zipPath = downloadZip(targetPath);
@@ -75,11 +80,12 @@ class PluginZip {
 
     /**
      * download zip if the source in remote,
-     * or return if the source in local
+     * return the zip file path.
+     * This zip file is currently in a temp directory, such ash
      **/
     Path downloadZip(Path targetPath) throws IOException, UserException {
         if (Strings.isNullOrEmpty(source)) {
-            throw new IllegalArgumentException("Plugin library path: " + source);
+            throw new PluginException("empty plugin source path: " + source);
         }
 
         boolean isLocal = true;
@@ -135,11 +141,11 @@ class PluginZip {
     }
 
     /**
-     * unzip .zip file
+     * unzip the specified .zip file "zip" to the target path
      */
     Path extractZip(Path zip, Path targetPath) throws IOException, UserException {
         if (!Files.exists(zip)) {
-            throw new UserException("Download plugin zip failed, source: " + source);
+            throw new PluginException("Download plugin zip failed. zip file does not exist. source: " + source);
         }
 
         if (Files.isDirectory(zip)) {

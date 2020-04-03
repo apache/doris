@@ -22,16 +22,14 @@ package org.apache.doris.plugin;
  */
 public interface AuditPlugin {
     /**
-     *
-     * use for check audit event type and masks, the event will skip the plugin if return false
+     * use for check audit event type, the event will skip the plugin if return false
      */
-    public boolean eventFilter(short type, short masks);
+    public boolean eventFilter(AuditEvent.EventType type);
 
     /**
-     *
-     *
+     * process the event.
+     * This method should be implemented as a non-blocking or lightweight method.
+     * Because it will be called after each query. So it must be efficient.
      */
     public void exec(AuditEvent event);
-
-
 }

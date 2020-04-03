@@ -21,16 +21,17 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.Map;
-
-import org.apache.commons.io.FileUtils;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.PluginInfo.PluginType;
+
+import org.apache.commons.io.FileUtils;
 import org.junit.Before;
 import org.junit.Test;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.Map;
 
 public class PluginLoaderTest {
 
@@ -71,7 +72,7 @@ public class PluginLoaderTest {
                     DigitalVersion.JDK_1_8_0, "plugin.PluginTest", "libtest.so", "plugin_test.jar");
 
             DynamicPluginLoader util = new DynamicPluginLoader(PluginTestUtil.getTestPathString(""), info);
-            Plugin p = util.dynamicLoadPlugin(PluginTestUtil.getTestPath(""));
+            Plugin p = util.dynamicLoadPlugin();
 
             p.init(null, null);
             p.close();
