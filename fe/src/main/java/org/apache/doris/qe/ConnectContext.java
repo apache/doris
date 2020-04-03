@@ -24,6 +24,7 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -92,7 +93,7 @@ public class ConnectContext {
     protected Catalog catalog;
     protected boolean isSend;
 
-    protected AuditBuilder auditBuilder;
+    protected AuditEventBuilder auditEventBuilder = new AuditEventBuilder();;
 
     protected String remoteIP;
 
@@ -119,7 +120,6 @@ public class ConnectContext {
         isKilled = false;
         serializer = MysqlSerializer.newInstance();
         sessionVariable = VariableMgr.newSessionVariable();
-        auditBuilder = new AuditBuilder();
         command = MysqlCommand.COM_SLEEP;
     }
 
@@ -131,7 +131,6 @@ public class ConnectContext {
         mysqlChannel = new MysqlChannel(channel);
         serializer = MysqlSerializer.newInstance();
         sessionVariable = VariableMgr.newSessionVariable();
-        auditBuilder = new AuditBuilder();
         command = MysqlCommand.COM_SLEEP;
         if (channel != null) {
             remoteIP = mysqlChannel.getRemoteIp();
@@ -162,8 +161,8 @@ public class ConnectContext {
         this.remoteIP = remoteIP;
     }
 
-    public AuditBuilder getAuditBuilder() {
-        return auditBuilder;
+    public AuditEventBuilder getAuditEventBuilder() {
+        return auditEventBuilder;
     }
 
     public void setThreadLocalInfo() {

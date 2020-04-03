@@ -179,10 +179,6 @@ public class Alter {
             }
             OlapTable olapTable = (OlapTable) table;
 
-            if (olapTable.getPartitions().size() == 0 && !currentAlterOps.hasPartitionOp()) {
-                throw new DdlException("Table with empty parition cannot do schema change. [" + tableName + "]");
-            }
-
             if (olapTable.getState() != OlapTableState.NORMAL) {
                 throw new DdlException(
                         "Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");

@@ -15,25 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package plugin;
-
-import java.io.IOException;
+package org.apache.doris.plugin.audit;
 
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.plugin.PluginContext;
+import org.apache.doris.plugin.PluginException;
 import org.apache.doris.plugin.PluginInfo;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.io.IOException;
 
 public class AuditPluginDemo extends Plugin implements AuditPlugin {
     private final static Logger LOG = LogManager.getLogger(AuditPluginDemo.class);
 
-    private final static short EVENT_MASKS = AuditEvent.AUDIT_QUERY_START | AuditEvent.AUDIT_QUERY_END;
-
     @Override
-    public void init(PluginInfo info, PluginContext ctx) {
+    public void init(PluginInfo info, PluginContext ctx) throws PluginException {
         super.init(info, ctx);
         LOG.info("this is audit plugin demo init");
     }
@@ -44,17 +44,11 @@ public class AuditPluginDemo extends Plugin implements AuditPlugin {
         LOG.info("this is audit plugin demo close");
     }
 
-    @Override
-    public boolean eventFilter(short type, short masks) {
-        return type == AuditEvent.AUDIT_QUERY && (masks & EVENT_MASKS) != 0;
+    public boolean eventFilter(AuditEvent.EventType type) {
+        return type == AuditEvent.EventType.AFTER_QUERY;
     }
 
-    @Override
     public void exec(AuditEvent event) {
-        LOG.info("audit demo plugin log: event={} masks={} user={}, ip={}, query={}", event.getEventType(),
-                event.getEventMasks(),
-                event.getUser(),
-                event.getIp(),
-                event.getQuery());
+        LOG.info("audit demo plugin log exec");
     }
 }

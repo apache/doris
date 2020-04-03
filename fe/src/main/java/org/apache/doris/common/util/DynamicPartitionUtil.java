@@ -250,7 +250,13 @@ public class DynamicPartitionUtil {
     public static void checkAndSetDynamicPartitionProperty(OlapTable olapTable, Map<String, String> properties) throws DdlException {
         if (DynamicPartitionUtil.checkInputDynamicPartitionProperties(properties, olapTable.getPartitionInfo())) {
             Map<String, String> dynamicPartitionProperties = DynamicPartitionUtil.analyzeDynamicPartition(properties);
-            olapTable.setTableProperty(new TableProperty(dynamicPartitionProperties).buildDynamicProperty());
+            TableProperty tableProperty = olapTable.getTableProperty();
+            if (tableProperty != null) {
+                tableProperty.modifyTableProperties(dynamicPartitionProperties);
+                tableProperty.buildDynamicProperty();
+            } else {
+                olapTable.setTableProperty(new TableProperty(dynamicPartitionProperties).buildDynamicProperty());
+            }
         }
     }
 

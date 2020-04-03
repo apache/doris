@@ -101,11 +101,11 @@ public class TableProperty implements Writable {
         return this;
     }
 
-    void modifyTableProperties(Map<String, String> modifyProperties) {
+    public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
     }
 
-    void modifyTableProperties(String key, String value) {
+    public void modifyTableProperties(String key, String value) {
         properties.put(key, value);
     }
 

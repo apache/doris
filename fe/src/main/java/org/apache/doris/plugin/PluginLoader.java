@@ -17,12 +17,12 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.common.UserException;
+
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.util.Objects;
-
-import org.apache.doris.common.UserException;
 
 public abstract class PluginLoader {
 
@@ -34,8 +34,9 @@ public abstract class PluginLoader {
         ERROR,
     }
 
+    // the root dir of Frontend plugin, should always be Config.plugin_dir
     protected final Path pluginDir;
-
+    // source of plugin, eg, a remote download link of zip file, or a local zip file.
     protected String source;
 
     protected Plugin plugin;
@@ -92,7 +93,7 @@ public abstract class PluginLoader {
 
     public void pluginUninstallValid() throws UserException {
         // check plugin flags
-        if ((plugin.flags() & Plugin.PLUGIN_NOT_DYNAMIC_UNINSTALL) > 0) {
+        if (plugin != null && (plugin.flags() & Plugin.PLUGIN_NOT_DYNAMIC_UNINSTALL) > 0) {
             throw new UserException("plugin " + pluginInfo + " not allow dynamic uninstall");
         }
     }

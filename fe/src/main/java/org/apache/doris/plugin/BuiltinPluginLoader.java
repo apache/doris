@@ -17,9 +17,9 @@
 
 package org.apache.doris.plugin;
 
-import java.io.IOException;
-
 import org.apache.doris.common.UserException;
+
+import java.io.IOException;
 
 public class BuiltinPluginLoader extends PluginLoader {
 
@@ -39,7 +39,6 @@ public class BuiltinPluginLoader extends PluginLoader {
     public void uninstall() throws IOException, UserException {
         if (plugin != null) {
             pluginUninstallValid();
-
             plugin.close();
         }
     }
