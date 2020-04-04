@@ -21,9 +21,13 @@
 #include <string.h>
 #include <time.h>
 
+#include <string>
 #include <limits>
 #include <sstream>
-
+#include <chrono>
+#include <re2/re2.h>
+#include "cctz/civil_time.h"
+#include "cctz/time_zone.h"
 #include "common/logging.h"
 
 namespace doris {
@@ -64,6 +68,7 @@ static uint32_t calc_days_in_year(uint32_t year) {
 DateTimeValue DateTimeValue::_s_min_datetime_value(0, TIME_DATETIME, 0, 0, 0, 0, 0, 1, 1);
 DateTimeValue DateTimeValue::_s_max_datetime_value(0, TIME_DATETIME, 23, 59, 59, 0, 
                                                    9999, 12, 31);
+RE2 DateTimeValue::time_zone_offset_format_reg("^[+-]{0,1}\\d{1,2}\\:\\d{2}$");
 // jint length_of_str(DateTimeValue& value) {
 // j    if (_type == TIME_DATE) {
 // j        return 10;
@@ -1562,35 +1567,32 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
         return false;
     }
 
-    boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
-    if (local_time_zone == nullptr) {
-        return false;                            
+    cctz::time_zone nyc;
+    re2::StringPiece value;
+    if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value,1)) {
+        bool postive = value[0] != '-';
+        int offset = std::stoi(value.substr(1, 2).as_string()) * 60 * 60 +
+                std::stoi(value.substr(4, 2).as_string()) * 60;
+        offset *= postive ? 1 : -1;
+
+        nyc = cctz::fixed_time_zone(cctz::seconds(offset));
+    } else {
+        cctz::load_time_zone(timezone, &nyc);
     }
 
-    int64_t current_t = timestamp;
-    boost::posix_time::ptime time = boost::posix_time::ptime(boost::gregorian::date(1970,1,1));
-
-    while (current_t > 0) {
-        int32_t seconds_to_add = 0;
-        if(current_t >= std::numeric_limits<int32_t>::max()) {
-            seconds_to_add = std::numeric_limits<int32_t>::max();
-        } else {
-            seconds_to_add = static_cast<int32_t>(current_t);
-        }
-        current_t -= seconds_to_add;
-        time += boost::posix_time::seconds(seconds_to_add);
-    }
-    boost::local_time::local_date_time lt(time, local_time_zone);
-    boost::posix_time::ptime local_ptime = lt.local_time();
+    static const cctz::time_point<cctz::sys_seconds> epoch =
+            std::chrono::time_point_cast<cctz::sys_seconds>(std::chrono::system_clock::from_time_t(0));
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
+    const auto tp = cctz::convert(t, nyc);
 
     _neg = 0;
     _type = TIME_DATETIME;
-    _year = local_ptime.date().year();
-    _month = local_ptime.date().month();
-    _day = local_ptime.date().day();
-    _hour = local_ptime.time_of_day().hours();
-    _minute = local_ptime.time_of_day().minutes();
-    _second = local_ptime.time_of_day().seconds();
+    _year = tp.year();
+    _month = tp.month();
+    _day = tp.day();
+    _hour = tp.hour();
+    _minute = tp.minute();
+    _second = tp.second();
     _microsecond = 0;
     
     return true;
