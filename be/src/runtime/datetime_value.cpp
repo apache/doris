@@ -23,7 +23,10 @@
 
 #include <limits>
 #include <sstream>
+#include <chrono>
 
+#include "cctz/civil_time.h"
+#include "cctz/time_zone.h"
 #include "common/logging.h"
 
 namespace doris {
@@ -1562,6 +1565,25 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
         return false;
     }
 
+    cctz::time_zone nyc;
+    cctz::load_time_zone(timezone, &nyc);
+    //cctz::time_zone nyc = cctz::fixed_time_zone(cctz::sys_seconds(8 * 60 *60));
+
+    static const cctz::time_point<cctz::sys_seconds> epoch =
+            std::chrono::time_point_cast<cctz::sys_seconds>(std::chrono::system_clock::from_time_t(0));
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
+    const auto tp = cctz::convert(t, nyc);
+    _neg = 0;
+    _type = TIME_DATETIME;
+    _year = tp.year();
+    _month = tp.month();
+    _day = tp.day();
+    _hour = tp.hour();
+    _minute = tp.minute();
+    _second = tp.second();
+    _microsecond = 0;
+
+    /*
     boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
     if (local_time_zone == nullptr) {
         return false;                            
@@ -1592,6 +1614,7 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
     _minute = local_ptime.time_of_day().minutes();
     _second = local_ptime.time_of_day().seconds();
     _microsecond = 0;
+     */
     
     return true;
 }
