@@ -26,6 +26,7 @@
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "exprs/timezone_db.h"
+#include <re2/re2.h>
 
 namespace doris {
 
@@ -548,6 +549,7 @@ private:
 
     static DateTimeValue _s_min_datetime_value;
     static DateTimeValue _s_max_datetime_value;
+    static RE2 time_zone_offset_format_reg;
 };
 
 // only support DATE - DATE (no support DATETIME - DATETIME)
