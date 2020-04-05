@@ -21,10 +21,12 @@
 #include <string.h>
 #include <time.h>
 
+#include <string>
 #include <limits>
 #include <sstream>
 #include <chrono>
 
+#include <re2/re2.h>
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
 #include "common/logging.h"
@@ -1566,8 +1568,21 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
     }
 
     cctz::time_zone nyc;
-    cctz::load_time_zone(timezone, &nyc);
-    //cctz::time_zone nyc = cctz::fixed_time_zone(cctz::sys_seconds(8 * 60 *60));
+    /*
+    re2::StringPiece group[0];
+    RE2 re("^[+-]{0,1}\\d{1,2}\\:\\d{2}$");
+    if (re.Match(timezone,0,timezone.size(),RE2::UNANCHORED,group,3)) {
+        re2::StringPiece value = group[0];
+        bool postive = value.substr(0, 1) != "-";
+        int offset = std::stoi(value.substr(1, 3).as_string()) * 60 * 60 + std::stoi(value.substr(4, 6).as_string()) * 60;
+        offset *= postive ? 1 : -1;
+
+        nyc = cctz::fixed_time_zone(cctz::seconds(offset));
+    } else {
+    */
+        cctz::load_time_zone("Asia/Shanghai", &nyc);
+        //cctz::load_time_zone(timezone, &nyc);
+    //}
 
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(std::chrono::system_clock::from_time_t(0));
