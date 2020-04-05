@@ -306,6 +306,9 @@ TEST_F(DateTimeValueTest, from_unixtime) {
     value.from_unixtime(0, TimezoneDatabase::default_time_zone);
     value.to_string(str);
     ASSERT_STREQ("1970-01-01 08:00:00", str);
+
+    ASSERT_FALSE(value.from_unixtime(1586098092, "+20:00"));
+    ASSERT_FALSE(value.from_unixtime(1586098092, "foo"));
 }
 
 // Calculate format

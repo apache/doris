@@ -24,10 +24,7 @@
 #include <string>
 #include <limits>
 #include <sstream>
-#include <chrono>
-#include <re2/re2.h>
-#include "cctz/civil_time.h"
-#include "cctz/time_zone.h"
+
 #include "common/logging.h"
 
 namespace doris {
@@ -68,7 +65,7 @@ static uint32_t calc_days_in_year(uint32_t year) {
 DateTimeValue DateTimeValue::_s_min_datetime_value(0, TIME_DATETIME, 0, 0, 0, 0, 0, 1, 1);
 DateTimeValue DateTimeValue::_s_max_datetime_value(0, TIME_DATETIME, 23, 59, 59, 0, 
                                                    9999, 12, 31);
-RE2 DateTimeValue::time_zone_offset_format_reg("^[+-]{0,1}\\d{1,2}\\:\\d{2}$");
+RE2 DateTimeValue::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 // jint length_of_str(DateTimeValue& value) {
 // j    if (_type == TIME_DATE) {
 // j        return 10;
@@ -1539,26 +1536,15 @@ bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezo
         *timestamp = 0;			    
         return true;
     }
-    boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
-    if (local_time_zone == nullptr) {
+
+    cctz::time_zone ctz;
+    if (!find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    char buf[64];
-    char* to = to_datetime_string(buf);
-    boost::posix_time::ptime pt = boost::posix_time::time_from_string(std::string(buf, to - buf -1));
 
-    boost::local_time::local_date_time lt(pt.date(), pt.time_of_day(), local_time_zone,
-                                              boost::local_time::local_date_time::NOT_DATE_TIME_ON_ERROR);
-
-    boost::posix_time::ptime utc_ptime = lt.utc_time();
-    boost::posix_time::ptime utc_start(boost::gregorian::date(1970, 1, 1));
-    boost::posix_time::time_duration dur = utc_ptime - utc_start;
-    int64_t ts = dur.total_milliseconds() / 1000;
-    // date before 1970-01-01 or after 2038-01-19 03:14:07 should return 0 for unix_timestamp() function
-    ts = ts < 0 ? 0 : ts;
-    ts = ts > INT_MAX ? 0 : ts;
-    *timestamp = ts < 0 ? 0 : ts;
-    return true;
+    const auto tp1 =
+            cctz::convert(cctz::civil_second(_year, _month, _day, _hour, _minute, _second), ctz);
+    return tp1.time_since_epoch().count();
 }
 
 bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
@@ -1567,23 +1553,16 @@ bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone
         return false;
     }
 
-    cctz::time_zone nyc;
-    re2::StringPiece value;
-    if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value,1)) {
-        bool postive = value[0] != '-';
-        int offset = std::stoi(value.substr(1, 2).as_string()) * 60 * 60 +
-                std::stoi(value.substr(4, 2).as_string()) * 60;
-        offset *= postive ? 1 : -1;
-
-        nyc = cctz::fixed_time_zone(cctz::seconds(offset));
-    } else {
-        cctz::load_time_zone(timezone, &nyc);
+    cctz::time_zone ctz;
+    if (!find_cctz_time_zone(timezone, ctz)) {
+        return false;
     }
 
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
-    const auto tp = cctz::convert(t, nyc);
+
+    const auto tp = cctz::convert(t, ctz);
 
     _neg = 0;
     _type = TIME_DATETIME;
