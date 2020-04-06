@@ -17,6 +17,18 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DigitalVersion;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
+
+import org.apache.commons.lang.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -28,17 +40,6 @@ import java.util.Objects;
 import java.util.Properties;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-
-import org.apache.commons.lang.StringUtils;
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.DigitalVersion;
-import org.apache.doris.persist.gson.GsonUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.google.common.base.Strings;
-import com.google.gson.annotations.SerializedName;
 
 public class PluginInfo implements Writable {
     public static final Logger LOG = LoggerFactory.getLogger(PluginInfo.class);
@@ -53,7 +54,7 @@ public class PluginInfo implements Writable {
         IMPORT,
         STORAGE;
 
-        public static int MAX_PLUGIN_SIZE = PluginType.values().length;
+        public static int MAX_PLUGIN_TYPE_SIZE = PluginType.values().length;
     }
 
     @SerializedName("name")
@@ -77,10 +78,17 @@ public class PluginInfo implements Writable {
     @SerializedName("soName")
     protected String soName;
 
+    // this source field is only used for persisting. it should be passed to the source field in 'PluginLoader',
+    // and then use 'source' in 'PluginLoader' to get the source.
     @SerializedName("source")
     protected String source;
 
     public PluginInfo() { }
+
+    // used for persisting uninstall operation
+    public PluginInfo(String name) {
+        this.name = name;
+    }
 
     public PluginInfo(String name, PluginType type, String description) {
         this.name = name;
@@ -233,5 +241,4 @@ public class PluginInfo implements Writable {
         String s = Text.readString(in);
         return GsonUtils.GSON.fromJson(s, PluginInfo.class);
     }
-
 }
