@@ -178,7 +178,7 @@ OLAPStatus StorageEngine::_open() {
 }
 
 OLAPStatus StorageEngine::_init_store_map() {
-    std::vector < std::pair<DataDir*> tmp_stores;
+    std::vector<DataDir*> tmp_stores;
     std::vector<std::thread> threads;
     std::atomic<bool> init_error{false};
     for (auto& path : _options.store_paths) {
@@ -189,7 +189,7 @@ OLAPStatus StorageEngine::_init_store_map() {
             auto st = store->init();
             if (!st.ok()) {
                 init_error = true;
-                LOG(WARNING) << "Store load failed, path=" << store->path();
+                LOG(WARNING) << "Store load failed, status="<< st.to_string() << ", path=" << store->path();
             }
         });
     }
