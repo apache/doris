@@ -184,7 +184,6 @@ OLAPStatus StorageEngine::_init_store_map() {
     for (auto& path : _options.store_paths) {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                                      _tablet_manager.get(), _txn_manager.get());
-        Status* st = new Status();
         tmp_stores.emplace_back(store);
         threads.emplace_back([store, &init_error]() {
             auto st = store->init();
