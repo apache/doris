@@ -47,16 +47,16 @@ public:
     };
 
 public:
-    static std::map<std::string, Field>* _s_fieldlist;
+    static std::map<std::string, Field>* _s_field_map;
 
 public:
     Register(const char* ftype, const char* fname, void* fstorage, const char* fdefval,
              bool fvalmutable) {
-        if (_s_fieldlist == nullptr) {
-            _s_fieldlist = new std::map<std::string, Field>();
+        if (_s_field_map == nullptr) {
+            _s_field_map = new std::map<std::string, Field>();
         }
         Field field(ftype, fname, fstorage, fdefval, fvalmutable);
-        _s_fieldlist->insert(std::make_pair(std::string(fname), field));
+        _s_field_map->insert(std::make_pair(std::string(fname), field));
     }
 };
 

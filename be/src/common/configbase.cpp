@@ -34,7 +34,7 @@
 namespace doris {
 namespace config {
 
-std::map<std::string, Register::Field>* Register::_s_fieldlist = nullptr;
+std::map<std::string, Register::Field>* Register::_s_field_map = nullptr;
 std::map<std::string, std::string>* full_conf_map = nullptr;
 
 Properties props;
@@ -275,7 +275,7 @@ bool init(const char* filename, bool fillconfmap) {
     }
 
     // set conf fields
-    for (const auto& it : *Register::_s_fieldlist) {
+    for (const auto& it : *Register::_s_field_map) {
         SET_FIELD(it.second, bool, fillconfmap);
         SET_FIELD(it.second, int16_t, fillconfmap);
         SET_FIELD(it.second, int32_t, fillconfmap);
@@ -308,8 +308,8 @@ bool init(const char* filename, bool fillconfmap) {
     }
 
 Status set_config(const std::string& field, const std::string& value) {
-    auto it = Register::_s_fieldlist->find(field);
-    if (it == Register::_s_fieldlist->end()) {
+    auto it = Register::_s_field_map->find(field);
+    if (it == Register::_s_field_map->end()) {
         return Status::NotFound(strings::Substitute("'$0' is not found", field));
     }
 
