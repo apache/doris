@@ -128,6 +128,7 @@ public class DeleteTask extends MasterTask {
     public boolean isQuorum() {
         return isQuorum;
     }
+    
 
     public void join(long timeout) {
         synchronized (lock) {
