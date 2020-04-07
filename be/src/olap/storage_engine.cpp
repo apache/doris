@@ -148,7 +148,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
 OLAPStatus StorageEngine::_open() {
     // init store_map
-    RETURN_NOT_OK(init_store_map());
+    RETURN_NOT_OK(_init_store_map());
 
     _effective_cluster_id = config::cluster_id;
     RETURN_NOT_OK_LOG(_check_all_root_path_cluster_id(), "fail to check cluster info.");
