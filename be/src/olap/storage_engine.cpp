@@ -148,32 +148,7 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
 OLAPStatus StorageEngine::_open() {
     // init store_map
-    std::vector<std::pair<DataDir*,std::future<Status>>> tmp_vec;
-    for (auto& path : _options.store_paths) {
-        LOG(INFO) << "store_path " << path.path;
-        DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
-                                     _tablet_manager.get(), _txn_manager.get());
-        tmp_vec.emplace_back(std::make_pair(store,std::async([store](){ return store->init();})));
-    }
-
-    try {
-        for (auto& pair : tmp_vec) {
-            DataDir* store = pair.first;
-            auto st = pair.second.get();
-            if (!st.ok()) {
-                throw std::runtime_error("Store load failed, path=" + store->path());
-            }
-            _store_map.emplace(store->path(), store);
-        }
-    } catch (std::exception& e) {
-        LOG(WARNING) << e.what();
-        // _store_map is a subset of tmp_vec, just clear _store_map, and delete stores one by one in tmp_vec
-        _store_map.clear();
-        for (auto& pair : tmp_vec) {
-            delete pair.first;
-        }
-        return OLAP_ERR_INVALID_ROOT_PATH;
-    }
+    RETURN_NOT_OK(init_store_map());
 
     _effective_cluster_id = config::cluster_id;
     RETURN_NOT_OK_LOG(_check_all_root_path_cluster_id(), "fail to check cluster info.");
@@ -199,6 +174,40 @@ OLAPStatus StorageEngine::_open() {
 
     _parse_default_rowset_type();
 
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus StorageEngine::_init_store_map() {
+    std::vector < std::pair<DataDir*> tmp_stores;
+    std::vector<std::thread> threads;
+    std::atomic<bool> init_error{false};
+    for (auto& path : _options.store_paths) {
+        DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
+                                     _tablet_manager.get(), _txn_manager.get());
+        Status* st = new Status();
+        tmp_stores.emplace_back(store);
+        threads.emplace_back([store, &init_error]() {
+            auto st = store->init();
+            if (!st.ok()) {
+                init_error = true;
+                LOG(WARNING) << "Store load failed, path=" << store->path();
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    if (init_error) {
+        for (auto store : tmp_stores) {
+            delete store;
+        }
+        return OLAP_ERR_INVALID_ROOT_PATH;
+    }
+
+    for (auto store : tmp_stores) {
+        _store_map.emplace(store->path(), store);
+    }
     return OLAP_SUCCESS;
 }
 
