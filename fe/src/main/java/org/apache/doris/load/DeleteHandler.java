@@ -1,25 +1,14 @@
 package org.apache.doris.load;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.HashBasedTable;
-import com.google.common.collect.LinkedListMultimap;
-import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Table.Cell;
-import com.google.common.util.concurrent.FutureCallback;
-import com.google.common.util.concurrent.Futures;
-import com.google.common.util.concurrent.ListenableFuture;
-import com.google.common.util.concurrent.ListeningExecutorService;
-import com.google.common.util.concurrent.MoreExecutors;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -36,17 +25,13 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.ListComparator;
-import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.meta.MetaContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -61,7 +46,6 @@ import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
@@ -70,24 +54,15 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DeleteHandler implements Writable {
@@ -195,9 +170,9 @@ public class DeleteHandler implements Writable {
             String label = "delete_" + UUID.randomUUID();
 
             // begin txn here and generate txn id
-            transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(), label,
-                    "FE: " + FrontendOptions.getLocalHostAddress(), TransactionState.LoadJobSourceType.FRONTEND,
-                    Config.stream_load_default_timeout_second);
+            transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                    Lists.newArrayList(table.getId()), label,"FE: " + FrontendOptions.getLocalHostAddress(),
+                    TransactionState.LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
 
             TransactionState state = Catalog.getCurrentGlobalTransactionMgr()
                     .getTransactionState(transactionId);

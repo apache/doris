@@ -7,18 +7,14 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.TabletDeleteInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Future;
-import java.util.concurrent.FutureTask;
 
 public class DeleteTask extends MasterTask {
     private static final Logger LOG = LogManager.getLogger(DeleteTask.class);

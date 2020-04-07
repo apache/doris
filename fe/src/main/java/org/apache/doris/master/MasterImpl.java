@@ -17,7 +17,6 @@
 
 package org.apache.doris.master;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.alter.MaterializedViewHandler;
