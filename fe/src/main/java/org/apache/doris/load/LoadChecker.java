@@ -305,7 +305,7 @@ public class LoadChecker extends MasterDaemon {
         }
     }
     
-    public static void tryCommitJob(LoadJob job, Database db) {
+    private void tryCommitJob(LoadJob job, Database db) {
         // check transaction state
         Load load = Catalog.getInstance().getLoadInstance();
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
@@ -337,7 +337,7 @@ public class LoadChecker extends MasterDaemon {
         }
     }
 
-    public static Set<Long> submitPushTasks(LoadJob job, Database db) {
+    private Set<Long> submitPushTasks(LoadJob job, Database db) {
         Map<Long, TabletLoadInfo> tabletLoadInfos = job.getIdToTabletLoadInfo();
         boolean needDecompress = (job.getEtlJobType() == EtlJobType.HADOOP) ? true : false;
         AgentBatchTask batchTask = new AgentBatchTask();

@@ -18,6 +18,7 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.Load;
 
 import com.google.common.collect.ImmutableList;
@@ -38,11 +39,11 @@ public class DeleteInfoProcDir implements ProcDirInterface {
             .add("State")
             .build();
 
-    private Load load;
+    private DeleteHandler deleteHandler;
     private long dbId;
 
-    public DeleteInfoProcDir(Load load, long dbId) {
-        this.load = load;
+    public DeleteInfoProcDir(DeleteHandler deleteHandler, long dbId) {
+        this.deleteHandler = deleteHandler;
         this.dbId = dbId;
     }
 
@@ -51,7 +52,7 @@ public class DeleteInfoProcDir implements ProcDirInterface {
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
-        List<List<Comparable>> infos = load.getDeleteInfosByDb(dbId, false);
+        List<List<Comparable>> infos = deleteHandler.getDeleteInfosByDb(dbId, false);
         for (List<Comparable> info : infos) {
             List<String> oneInfo = new ArrayList<String>(TITLE_NAMES.size());
             for (Comparable element : info) {
@@ -77,7 +78,8 @@ public class DeleteInfoProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid job id format: " + jobIdStr);
         }
 
-        return new DeleteJobProcNode(load, jobId);
+        // return new DeleteJobProcNode(load, jobId);
+        return null;
     }
 
 }

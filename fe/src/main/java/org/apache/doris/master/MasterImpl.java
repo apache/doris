@@ -17,6 +17,7 @@
 
 package org.apache.doris.master;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.alter.AlterJob;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.alter.MaterializedViewHandler;
@@ -288,6 +289,7 @@ public class MasterImpl {
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
+        long transactionId = ((PushTask) task).getTransactionId();
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
@@ -345,19 +347,29 @@ public class MasterImpl {
                                                                        task.getDbId());
             // handle load job
             // TODO yiguolei: why delete should check request version and task version?
-            long loadJobId = pushTask.getLoadJobId();
-            LoadJob job = Catalog.getInstance().getLoadInstance().getLoadJob(loadJobId);
-            if (job == null) {
-                throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
-            }
-            for (TTabletInfo tTabletInfo : finishTabletInfos) {
-                checkReplica(olapTable, partition, backendId, pushIndexId, pushTabletId,
-                        tTabletInfo, pushState);
-                Replica replica = findRelatedReplica(olapTable, partition,
-                                                            backendId, tTabletInfo);
-                // if the replica is under schema change, could not find the replica with aim schema hash
-                if (replica != null) {
-                    job.addFinishedReplica(replica);
+            if (pushTask.getPushType() == TPushType.LOAD || pushTask.getPushType() == TPushType.LOAD_DELETE) {
+                long loadJobId = pushTask.getLoadJobId();
+                LoadJob job = Catalog.getInstance().getLoadInstance().getLoadJob(loadJobId);
+                if (job == null) {
+                    throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
+                }
+                for (TTabletInfo tTabletInfo : finishTabletInfos) {
+                    checkReplica(olapTable, partition, backendId, pushIndexId, pushTabletId,
+                            tTabletInfo, pushState);
+                    Replica replica = findRelatedReplica(olapTable, partition,
+                            backendId, tTabletInfo);
+                    // if the replica is under schema change, could not find the replica with aim schema hash
+                    if (replica != null) {
+                        job.addFinishedReplica(replica);
+                    }
+                }
+            } else if (pushTask.getPushType() == TPushType.DELETE) {
+                for (TTabletInfo tTabletInfo : finishTabletInfos) {
+                    Replica replica = findRelatedReplica(olapTable, partition,
+                            backendId, tTabletInfo);
+                    if (replica != null) {
+                        Catalog.getInstance().getDeleteHandler().addFinishedReplica(transactionId, pushTabletId, replica);
+                    }
                 }
             }
             

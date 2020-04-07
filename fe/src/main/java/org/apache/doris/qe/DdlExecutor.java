@@ -148,7 +148,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof StopRoutineLoadStmt) {
             catalog.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
         }  else if (ddlStmt instanceof DeleteStmt) {
-            catalog.getLoadInstance().deleteV2((DeleteStmt) ddlStmt);
+            catalog.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
             catalog.getAuth().createUser(stmt);

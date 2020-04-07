@@ -136,6 +136,7 @@ import org.apache.doris.http.meta.MetaBaseAction;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
+import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
@@ -289,6 +290,7 @@ public class Catalog {
     private ConsistencyChecker consistencyChecker;
     private BackupHandler backupHandler;
     private PublishVersionDaemon publishVersionDaemon;
+    private DeleteHandler deleteHandler;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -459,6 +461,7 @@ public class Catalog {
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
+        this.deleteHandler = new DeleteHandler(this);
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
@@ -4587,6 +4590,10 @@ public class Catalog {
 
     public BackupHandler getBackupHandler() {
         return this.backupHandler;
+    }
+
+    public DeleteHandler getDeleteHandler() {
+        return this.deleteHandler;
     }
 
     public Load getLoadInstance() {

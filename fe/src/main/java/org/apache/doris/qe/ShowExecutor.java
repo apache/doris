@@ -108,6 +108,7 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -1051,8 +1052,8 @@ public class ShowExecutor {
         }
         long dbId = db.getId();
 
-        Load load = catalog.getLoadInstance();
-        List<List<Comparable>> deleteInfos = load.getDeleteInfosByDb(dbId, true);
+        DeleteHandler deleteHandler = catalog.getDeleteHandler();
+        List<List<Comparable>> deleteInfos = deleteHandler.getDeleteInfosByDb(dbId, true);
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> deleteInfo : deleteInfos) {
             List<String> oneInfo = new ArrayList<String>(deleteInfo.size());
