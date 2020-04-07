@@ -41,26 +41,26 @@ const static std::string HEADER_JSON = "application/json";
 void UpdateConfigAction::handle(HttpRequest* req) {
     LOG(INFO) << req->debug_string();
 
-    bool success = true;
+    Status s;
     std::string msg;
     if (req->params()->size() != 1) {
-        success = false;
-        msg = "Now only support to set a single config once, via 'config_name=new_value'.";
+        s = Status::InvalidArgument();
+        msg = "Now only support to set a single config once, via 'config_name=new_value'";
     } else {
         DCHECK(req->params()->size() == 1);
-        for (const auto& it : *req->params()) {
-            Status s = config::set_config(it.first, it.second);
-            success = s.ok();
-            LOG(WARNING) << "set_config " << it.first << "=" << it.second
-                         << (success ? " success" : " failed");
-            if (!success) {
-                msg = strings::Substitute("set $0=$1 failed, reason: $2", it.first, it.second,
-                                          s.to_string());
-            }
+        const std::string& config = req->params()->begin().first;
+        const std::string& new_value = req->params()->begin().second;
+        s = config::set_config(config, new_value);
+        if (s.ok()) {
+            LOG(INFO) << "set_config " << config << "=" << new_value << " success";
+        } else {
+            LOG(WARNING) << "set_config " << config << "=" << new_value << " failed";
+            msg = strings::Substitute("set $0=$1 failed, reason: $2", config, new_value,
+                                      s.to_string());
         }
     }
 
-    std::string status(success ? "OK" : "BAD");
+    std::string status(s.ok() ? "OK" : "BAD");
     rapidjson::Document root;
     root.SetObject();
     root.AddMember("status", rapidjson::Value(status.c_str(), status.size()), root.GetAllocator());
