@@ -148,16 +148,8 @@ void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
 
 OLAPStatus StorageEngine::_open() {
     // init store_map
-    for (auto& path : _options.store_paths) {
-        DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
-                                     _tablet_manager.get(), _txn_manager.get());
-        auto st = store->init();
-        if (!st.ok()) {
-            LOG(WARNING) << "Store load failed, path=" << path.path;
-            return OLAP_ERR_INVALID_ROOT_PATH;
-        }
-        _store_map.emplace(path.path, store);
-    }
+    RETURN_NOT_OK(_init_store_map());
+
     _effective_cluster_id = config::cluster_id;
     RETURN_NOT_OK_LOG(_check_all_root_path_cluster_id(), "fail to check cluster info.");
 
@@ -182,6 +174,39 @@ OLAPStatus StorageEngine::_open() {
 
     _parse_default_rowset_type();
 
+    return OLAP_SUCCESS;
+}
+
+OLAPStatus StorageEngine::_init_store_map() {
+    std::vector<DataDir*> tmp_stores;
+    std::vector<std::thread> threads;
+    std::atomic<bool> init_error{false};
+    for (auto& path : _options.store_paths) {
+        DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
+                                     _tablet_manager.get(), _txn_manager.get());
+        tmp_stores.emplace_back(store);
+        threads.emplace_back([store, &init_error]() {
+            auto st = store->init();
+            if (!st.ok()) {
+                init_error = true;
+                LOG(WARNING) << "Store load failed, status="<< st.to_string() << ", path=" << store->path();
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    if (init_error) {
+        for (auto store : tmp_stores) {
+            delete store;
+        }
+        return OLAP_ERR_INVALID_ROOT_PATH;
+    }
+
+    for (auto store : tmp_stores) {
+        _store_map.emplace(store->path(), store);
+    }
     return OLAP_SUCCESS;
 }
 

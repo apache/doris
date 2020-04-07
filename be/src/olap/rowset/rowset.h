@@ -204,8 +204,6 @@ public:
     // return whether `path` is one of the files in this rowset
     virtual bool check_path(const std::string& path) = 0;
 
-    std::string rowset_path() const { return _rowset_path; }
-
     // return an unique identifier string for this rowset
     std::string unique_id() const {
         return _rowset_path + "/" + rowset_id().to_string();
