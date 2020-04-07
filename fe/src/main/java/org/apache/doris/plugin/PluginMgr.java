@@ -106,6 +106,8 @@ public class PluginMgr implements Writable {
         // other builtin plugins
     }
 
+    // install a plugin from user's command.
+    // install should be successfully, or nothing should be left if failed to install.
     public PluginInfo installPlugin(InstallPluginStmt stmt) throws IOException, UserException {
         PluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, stmt.getPluginPath());
         pluginLoader.setStatus(PluginStatus.INSTALLING);
@@ -124,7 +126,6 @@ public class PluginMgr implements Writable {
             if (!addDynamicPluginNameIfAbsent(info.getName())) {
                 throw new UserException("plugin " + info.getName() + " has already been installed.");
             }
-            
             plugins[info.getTypeId()].put(info.getName(), pluginLoader);
             
             Catalog.getCurrentCatalog().getEditLog().logInstallPlugin(info);
@@ -137,7 +138,8 @@ public class PluginMgr implements Writable {
     }
 
     /**
-     * Dynamic uninstall plugin
+     * Dynamic uninstall plugin.
+     * If uninstall failed, the plugin should NOT be removed from plugin manager.
      */
     public PluginInfo uninstallPlugin(String name) throws IOException, UserException {
         if (!checkDynamicPluginNameExist(name)) {
@@ -161,6 +163,8 @@ public class PluginMgr implements Writable {
                 loader.setStatus(PluginStatus.UNINSTALLING);
                 // uninstall plugin
                 loader.uninstall();
+
+                // uninstall succeed, remove the plugin
                 plugins[i].remove(name);
                 loader.setStatus(PluginStatus.UNINSTALLED);
                 removeDynamicPluginName(name);
@@ -192,15 +196,15 @@ public class PluginMgr implements Writable {
         return checkLoader == null;
     }
 
-    /**
-     * Load plugin:
-     * - if has already benn installed, return
-     * - if not installed, install
+    /*
+     * replay load plugin.
+     * It must add the plugin to the "plugins" and "dynamicPluginNames", even if the plugin
+     * is not loaded successfully.
      */
     public void replayLoadDynamicPlugin(PluginInfo info) throws IOException, UserException {
         DynamicPluginLoader pluginLoader = new DynamicPluginLoader(Config.plugin_dir, info);
-
         try {
+            // should add to "plugins" first before loading.
             PluginLoader checkLoader = plugins[info.getTypeId()].putIfAbsent(info.getName(), pluginLoader);
             if (checkLoader != null) {
                 throw new UserException("plugin " + info.getName() + " has already been installed.");
