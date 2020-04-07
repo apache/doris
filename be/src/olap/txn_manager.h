@@ -133,7 +133,7 @@ public:
 
     // get all expired txns and save tham in expire_txn_map.
     // This is currently called before reporting all tablet info, to avoid iterating txn map for every tablets.
-    void build_expire_txn_map(std::map<TabletInfo, std::set<int64_t>>* expire_txn_map);
+    void build_expire_txn_map(std::map<TabletInfo, std::vector<int64_t>>* expire_txn_map);
 
     void force_rollback_tablet_related_txns(OlapMeta* meta, TTabletId tablet_id, SchemaHash schema_hash, TabletUid tablet_uid);
 

@@ -493,24 +493,25 @@ bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_i
     return found;
 }
 
-void TxnManager::build_expire_txn_map(std::map<TabletInfo, std::set<int64_t>>* expire_txn_map) {
+void TxnManager::build_expire_txn_map(std::map<TabletInfo, std::vector<int64_t>>* expire_txn_map) {
     time_t now = time(nullptr);
-    int64_t counter = 0;
     // traverse the txn map, and get all expired txns
     ReadLock txn_rdlock(&_txn_map_lock);
     for (auto& it : _txn_tablet_map) {
+        auto txn_id = it.first.second;
         for (auto& t_map : it.second) {
             double diff = difftime(now, t_map.second.creation_time);
             if (diff >= config::pending_data_expire_time_sec) {
-                if (expire_txn_map->find(t_map.first) == expire_txn_map->end()) {
-                    (*expire_txn_map)[t_map.first] = std::set<int64_t>();
+                (*expire_txn_map)[t_map.first].push_back(txn_id);
+                if (VLOG_IS_ON(3)) {
+                    VLOG(3) << "find expired txn."
+                            << " tablet=" << t_map.first.to_string()
+                            << " transaction_id=" << txn_id
+                            << " exist_sec=" << diff;
                 }
-                (*expire_txn_map)[t_map.first].insert(it.first.second);
-                counter++;
             }
         }
     }
-    LOG(INFO) << "get " << counter << " expired txns";
 }
 
 void TxnManager::get_partition_ids(const TTransactionId transaction_id, std::vector<TPartitionId>* partition_ids) {
