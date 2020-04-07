@@ -44,12 +44,12 @@ void UpdateConfigAction::handle(HttpRequest* req) {
     Status s;
     std::string msg;
     if (req->params()->size() != 1) {
-        s = Status::InvalidArgument();
+        s = Status::InvalidArgument("");
         msg = "Now only support to set a single config once, via 'config_name=new_value'";
     } else {
         DCHECK(req->params()->size() == 1);
-        const std::string& config = req->params()->begin().first;
-        const std::string& new_value = req->params()->begin().second;
+        const std::string& config = req->params()->begin()->first;
+        const std::string& new_value = req->params()->begin()->second;
         s = config::set_config(config, new_value);
         if (s.ok()) {
             LOG(INFO) << "set_config " << config << "=" << new_value << " success";
