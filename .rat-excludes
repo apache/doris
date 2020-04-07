@@ -3,13 +3,17 @@
 .*svg
 .*xml
 .*zip
+.clang-format
 .gitattributes
 .gitignore
 .rat-excludes
 .travis.yml
+DISCLAIMER-WIP
 LICENSE
 NOTICE
 gutil/*
 manifest
 patches/*
 test_data/*
+test.zip
+test.zip.md5
