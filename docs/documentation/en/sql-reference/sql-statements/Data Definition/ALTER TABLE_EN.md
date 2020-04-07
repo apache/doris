@@ -72,6 +72,8 @@ under the License.
             ADD ROLLUP rollup_name (column_name1, column_name2, ...)
             [FROM from_index_name]
             [PROPERTIES ("key"="value", ...)]
+ 
+            properties: Support setting timeout time, the default timeout time is 1 day.
         example:
             ADD ROLLUP r1(col1,col2) from r0
     1.2 Batch create rollup index
@@ -236,6 +238,12 @@ under the License.
         ALTER TABLE example_db.my_table
         ADD ROLLUP example_rollup_index2 (k1, v1)
         FROM example_rollup_index;
+
+    3. Create index: example_rollup_index3, based on base index (k1, k2, k3, v1), custom rollup timeout time is one hour.
+        
+        ALTER TABLE example_db.my_table
+        ADD ROLLUP example_rollup_index(k1, k3, v1)
+        PROPERTIES("storage_type"="column", "timeout" = "3600");
     
     3. Delete index: example_rollup_index2
         ALTER TABLE example_db.my_table
@@ -261,7 +269,7 @@ under the License.
           ALTER TABLE example_db.my_table
           ADD COLUMN new_col INT SUM DEFAULT "0" AFTER col1
           TO example_rollup_index;
-    
+   
     5. Add multiple columns to the example_rollup_index (aggregate model)
         ALTER TABLE example_db.my_table
         ADD COLUMN (col1 INT DEFAULT "1", col2 FLOAT SUM DEFAULT "2.3")

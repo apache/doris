@@ -72,6 +72,8 @@ under the License.
             ADD ROLLUP rollup_name (column_name1, column_name2, ...)
             [FROM from_index_name]
             [PROPERTIES ("key"="value", ...)]
+
+            properties: 支持设置超时时间，默认超时时间为1天。
         例子：
             ADD ROLLUP r1(col1,col2) from r0
     1.2 批量创建 rollup index
@@ -234,10 +236,17 @@ under the License.
         ALTER TABLE example_db.my_table
         ADD ROLLUP example_rollup_index2 (k1, v1)
         FROM example_rollup_index;
-    
-    3. 删除 index: example_rollup_index2
+
+    3. 创建 index: example_rollup_index3, 基于 base index (k1,k2,k3,v1), 自定义 rollup 超时时间一小时。
+        ALTER TABLE example_db.my_table
+        ADD ROLLUP example_rollup_index(k1, k3, v1)
+        PROPERTIES("storage_type"="column", "timeout" = "3600");
+
+    4. 删除 index: example_rollup_index2
         ALTER TABLE example_db.my_table
         DROP ROLLUP example_rollup_index2;
+
+
 
     [schema change]
     1. 向 example_rollup_index 的 col1 后添加一个key列 new_col(非聚合模型)
