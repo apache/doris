@@ -137,7 +137,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
 
     TabletSchema tablet_schema;
     tablet_schema.init_from_pb(tablet_meta_pb.schema());
-    string data_path_prefix = _data_dir->get_absolute_tablet_path(&tablet_meta_pb, true);
+    string data_path_prefix = _data_dir->get_absolute_tablet_path(tablet_meta_pb, true);
     // check converted new tabletmeta pb and its files
     // check visible delta
     ASSERT_TRUE(tablet_meta_pb.rs_metas().size() == header_msg.delta().size());

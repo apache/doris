@@ -37,7 +37,7 @@ class TabletManager;
 class TabletMeta;
 class TxnManager;
 
-// A DataDir used to manange data in same path.
+// A DataDir used to manage data in same path.
 // Now, After DataDir was created, it will never be deleted for easy implementation.
 class DataDir {
 public:
@@ -84,15 +84,12 @@ public:
 
     TStorageMedium::type storage_medium() const { return _storage_medium; }
 
-    OLAPStatus register_tablet(Tablet* tablet);
-    OLAPStatus deregister_tablet(Tablet* tablet);
+    void register_tablet(Tablet* tablet);
+    void deregister_tablet(Tablet* tablet);
     void clear_tablets(std::vector<TabletInfo>* tablet_infos);
 
-    std::string get_absolute_tablet_path(TabletMeta* tablet_meta, bool with_schema_hash);
-
-    std::string get_absolute_tablet_path(OLAPHeaderMessage& olap_header_msg, bool with_schema_hash);
-
-    std::string get_absolute_tablet_path(TabletMetaPB* tablet_meta, bool with_schema_hash);
+    template <typename T>
+    std::string get_absolute_tablet_path(const T& tablet_meta, bool with_schema_hash);
 
     std::string get_absolute_shard_path(const std::string& shard_string);
 
@@ -122,8 +119,8 @@ public:
     // check if the capacity reach the limit after adding the incoming data
     // return true if limit reached, otherwise, return false.
     // TODO(cmy): for now we can not precisely calculate the capacity Doris used,
-    // so in order to avoid running out of disk capacity, we currenty use the actual
-    // disk avaiable capacity and total capacity to do the calculation.
+    // so in order to avoid running out of disk capacity, we currently use the actual
+    // disk available capacity and total capacity to do the calculation.
     // So that the capacity Doris actually used may exceeds the user specified capacity.
     bool reach_capacity_limit(int64_t incoming_data_size);
 
@@ -186,15 +183,16 @@ private:
     static const uint32_t MAX_SHARD_NUM = 1024;
     char* _test_file_read_buf;
     char* _test_file_write_buf;
+
     OlapMeta* _meta = nullptr;
     RowsetIdGenerator* _id_generator = nullptr;
 
-    std::set<std::string> _all_check_paths;
     std::mutex _check_path_mutex;
     std::condition_variable _cv;
+    std::set<std::string> _all_check_paths;
 
-    std::set<std::string> _pending_path_ids;
     RWMutex _pending_path_mutex;
+    std::set<std::string> _pending_path_ids;
 
     // used in convert process
     bool _convert_old_data_success;
