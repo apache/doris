@@ -88,7 +88,6 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
-import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentClient;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.PushTask;
@@ -97,11 +96,8 @@ import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TMiniLoadRequest;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
-import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
-import org.apache.doris.transaction.TabletCommitInfo;
-import org.apache.doris.transaction.TabletQuorumFailedException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionStatus;
@@ -123,7 +119,6 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -1259,11 +1254,6 @@ public class Load {
             }
             idToLoadJob.put(jobId, job);
             dbDeleteJobs.add(job);
-        }
-
-        // delete job will be run immediately, no need to be execute by load checker with jobState
-        if (job.isSyncDeleteJob()) {
-            return;
         }
 
         // beginTransaction Here
@@ -3098,7 +3088,7 @@ public class Load {
         }
     }
 
-    public void checkDeleteV2(OlapTable table, Partition partition, List<Predicate> conditions, List<String> deleteConditions, boolean preCheck)
+    private void checkDeleteV2(OlapTable table, Partition partition, List<Predicate> conditions, List<String> deleteConditions, boolean preCheck)
             throws DdlException {
 
         // check partition state

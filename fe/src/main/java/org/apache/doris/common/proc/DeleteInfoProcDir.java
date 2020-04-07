@@ -19,7 +19,6 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.Load;
 
 import com.google.common.collect.ImmutableList;
 
