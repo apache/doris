@@ -81,7 +81,7 @@ public class DeleteTask extends MasterTask {
             short quorumNum = (short) (replicaNum / 2 + 1);
 
             for (TabletDeleteInfo tDeleteInfo : tabletDeleteInfoMap.values()) {
-                if (tDeleteInfo.getFinishedReplicas().size() > quorumNum) {
+                if (tDeleteInfo.getFinishedReplicas().size() >= quorumNum) {
                     quorumTablets.add(tDeleteInfo.getTabletId());
                 }
             }

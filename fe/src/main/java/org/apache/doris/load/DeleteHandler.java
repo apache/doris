@@ -68,6 +68,7 @@ import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -76,6 +77,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
@@ -84,8 +86,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class DeleteHandler implements Writable {
     private static final Logger LOG = LogManager.getLogger(DeleteHandler.class);
-
-    private Catalog catalog;
 
     // TransactionId -> DeleteTask
     private Map<Long, DeleteTask> idToDeleteTask;
@@ -97,9 +97,9 @@ public class DeleteHandler implements Writable {
 
     private BlockingQueue<DeleteTask> queue;
 
-    private ReentrantReadWriteLock lock;
-
     private DeleteTaskChecker checker;
+
+    private ReentrantReadWriteLock lock;
 
     public void readLock() {
         lock.readLock().lock();
@@ -117,13 +117,9 @@ public class DeleteHandler implements Writable {
         lock.writeLock().unlock();
     }
 
-    public DeleteHandler() {
-        // for persist
-    }
 
-    public DeleteHandler(Catalog catalog) {
-        this.catalog = catalog;
-        idToDeleteTask = Maps.newConcurrentMap();
+    public DeleteHandler() {
+        idToDeleteTask = Maps.newHashMap();
         dbToDeleteInfos = Maps.newHashMap();
         executor = new MasterTaskExecutor(Config.delete_thread_num);
         queue = new LinkedBlockingQueue(Config.delete_thread_num);
@@ -203,6 +199,14 @@ public class DeleteHandler implements Writable {
 
             // task in fe
             deleteTask = new DeleteTask(transactionId, deleteInfo);
+
+            writeLock();
+            try {
+                idToDeleteTask.put(transactionId, deleteTask);
+            } finally {
+                writeUnlock();
+            }
+
             // task sent to be
             AgentBatchTask batchTask = new AgentBatchTask();
 
@@ -258,26 +262,10 @@ public class DeleteHandler implements Writable {
             db.readUnlock();
         }
 
-        // for show delete
-        writeLock();
-        try {
-            if (dbToDeleteInfos.containsKey(db.getId())) {
-                dbToDeleteInfos.get(db.getId()).add(deleteInfo);
-            } else {
-                List<DeleteInfo> deleteInfoList = Lists.newArrayList();
-                deleteInfoList.add(deleteInfo);
-                dbToDeleteInfos.put(db.getId(), deleteInfoList);
-            }
-        } finally {
-            writeUnlock();
-        }
-
-        long startDeleteTime = System.currentTimeMillis();
         long timeout = deleteTask.getTimeout();
-        long stragglerTimeout = timeout / 2;
-        // wait until delete task finish or timeout
         LOG.info("waiting delete task finish, signature: {}, timeout: {}", transactionId, timeout);
-        deleteTask.join(stragglerTimeout);
+        // wait until delete task finish or timeout
+        deleteTask.join(timeout);
         if (deleteTask.isQuorum()) {
             commitTask(deleteTask, db);
         } else {
@@ -287,14 +275,15 @@ public class DeleteHandler implements Writable {
             }
         }
 
-        long leftTime = timeout - (System.currentTimeMillis() - startDeleteTime);
-        afterCommit(deleteTask, db, System.currentTimeMillis(), leftTime);
+        // wait until transaction state become visible
+        afterCommit(deleteTask, db, timeout);
     }
 
-    private void afterCommit(DeleteTask deleteTask, Database db, long startDeleteTime, long leftTime) throws DdlException {
+    private void afterCommit(DeleteTask deleteTask, Database db, long leftTime) throws DdlException {
         try {
+            long startDeleteTime = System.currentTimeMillis();
             long transactionId = deleteTask.getSignature();
-            while (leftTime > 0) {
+            while (true) {
                 db.writeLock();
                 try {
                     // check if the job is aborted in transaction manager
@@ -318,7 +307,9 @@ public class DeleteHandler implements Writable {
                             removeTask(deleteTask);
                             return;
                     }
-                    leftTime -= (System.currentTimeMillis() - startDeleteTime);
+                    if (leftTime < System.currentTimeMillis() - startDeleteTime) {
+                        cancelTask(deleteTask, "delete timeout when waiting transaction commit");
+                    }
                 } finally {
                     db.writeUnlock();
                 }
@@ -366,7 +357,7 @@ public class DeleteHandler implements Writable {
                         // re add to the tail
                         queue.put(task);
                     }
-                    // task isQuorum or isCanceled need remove
+                    // remove task isQuorum or isCanceled
                     removeTask(task);
                 } catch (InterruptedException e) {
                     // do nothing
@@ -380,8 +371,6 @@ public class DeleteHandler implements Writable {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         TransactionState transactionState = globalTransactionMgr.getTransactionState(transactionId);
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
-        // when be finish load task, fe will update job's finish task info, use lock here to prevent
-        // concurrent problems
         db.writeLock();
         try {
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
@@ -418,6 +407,18 @@ public class DeleteHandler implements Writable {
                 AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
                         pushTask.getVersion(), pushTask.getVersionHash(),
                         pushTask.getPushType(), pushTask.getTaskType());
+            }
+            if (task.isQuorum()) {
+                DeleteInfo deleteInfo = task.getDeleteInfo();
+                long dbId = deleteInfo.getDbId();
+                if (dbToDeleteInfos.containsKey(dbId)) {
+                    dbToDeleteInfos.get(dbId).add(deleteInfo);
+                } else {
+                    List<DeleteInfo> deleteInfoList = Lists.newArrayList();
+                    deleteInfoList.add(deleteInfo);
+                    dbToDeleteInfos.put(dbId, deleteInfoList);
+                }
+                Catalog.getInstance().getEditLog().logFinishSyncDelete(deleteInfo);
             }
         } finally {
             writeUnlock();
@@ -597,7 +598,7 @@ public class DeleteHandler implements Writable {
 //                } else {
 //                    info.add(loadJob.getState().name());
 //                }
-                info.add("DELETING");
+                info.add("FINISHED");
                 infos.add(info);
             }
 
@@ -618,7 +619,7 @@ public class DeleteHandler implements Writable {
     }
 
     public boolean addFinishedReplica(Long transactionId, long tabletId, Replica replica) {
-        readLock();
+        writeLock();
         try {
             DeleteTask task = idToDeleteTask.get(transactionId);
             if (task != null) {
@@ -627,17 +628,57 @@ public class DeleteHandler implements Writable {
                 return false;
             }
         } finally {
-            readUnlock();
+            writeUnlock();
         }
     }
 
+    public void replayDelete(DeleteInfo deleteInfo, Catalog catalog) {
+        Database db = catalog.getDb(deleteInfo.getDbId());
+        db.writeLock();
+        try {
+            writeLock();
+            try {
+                // add to deleteInfos
+                long dbId = deleteInfo.getDbId();
+                List<DeleteInfo> deleteInfos = dbToDeleteInfos.get(dbId);
+                if (deleteInfos == null) {
+                    deleteInfos = Lists.newArrayList();
+                    dbToDeleteInfos.put(dbId, deleteInfos);
+                }
+                deleteInfos.add(deleteInfo);
+            } finally {
+                writeUnlock();
+            }
+        } finally {
+            db.writeUnlock();
+        }
+    }
+
+    // for delete handler, we only persist those delete already finished.
     @Override
     public void write(DataOutput out) throws IOException {
-//        repoMgr.write(out);
-//
-//        out.writeInt(dbIdToBackupOrRestoreJob.size());
-//        for (AbstractJob job : dbIdToBackupOrRestoreJob.values()) {
-//            job.write(out);
-//        }
+        out.writeInt(dbToDeleteInfos.size());
+        for (Entry<Long, List<DeleteInfo>> dbToDeleteInfoList : dbToDeleteInfos.entrySet()) {
+            out.writeLong(dbToDeleteInfoList.getKey());
+            out.writeInt(dbToDeleteInfoList.getValue().size());
+            for (DeleteInfo deleteInfo : dbToDeleteInfoList.getValue()) {
+                deleteInfo.write(out);
+            }
+        }
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            long dbId = in.readLong();
+            int length = in.readInt();
+            List<DeleteInfo> deleteInfoList = Lists.newArrayList();
+            for (int j = 0; j < length; j++) {
+                DeleteInfo deleteInfo = new DeleteInfo();
+                deleteInfo.readFields(in);
+                deleteInfoList.add(deleteInfo);
+            }
+            dbToDeleteInfos.put(dbId, deleteInfoList);
+        }
     }
 }

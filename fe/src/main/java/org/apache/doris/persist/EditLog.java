@@ -45,6 +45,7 @@ import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.BDBJEJournal;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.AsyncDeleteJob;
+import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
@@ -378,8 +379,8 @@ public class EditLog {
                     break;
                 case OperationType.OP_FINISH_SYNC_DELETE: {
                     DeleteInfo info = (DeleteInfo) journal.getData();
-                    Load load = catalog.getLoadInstance();
-                    load.replayDelete(info, catalog);
+                    DeleteHandler deleteHandler = catalog.getDeleteHandler();
+                    deleteHandler.replayDelete(info, catalog);
                     break;
                 }
                 case OperationType.OP_FINISH_ASYNC_DELETE: {
