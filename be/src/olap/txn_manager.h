@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_SRC_OLAP_TXN_MANAGER_H
 #define DORIS_BE_SRC_OLAP_TXN_MANAGER_H
 
-#include <ctime>
 #include <list>
 #include <map>
 #include <mutex>
@@ -46,6 +45,7 @@
 #include "olap/options.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "util/time.h"
 
 namespace doris {
 
@@ -59,7 +59,7 @@ struct TabletTxnInfo {
         RowsetSharedPtr rowset) :
         load_id(load_id),
         rowset(rowset),
-        creation_time(time(nullptr)) {}
+        creation_time(UnixSeconds()) {}
 
     TabletTxnInfo() {}
 };

@@ -66,7 +66,8 @@ OLAPStatus CumulativeCompaction::compact() {
 
 OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    _tablet->pick_candicate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    _tablet->pick_candicate_rowsets_to_cumulative_compaction(
+        config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
 
     if (candidate_rowsets.empty()) {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;
