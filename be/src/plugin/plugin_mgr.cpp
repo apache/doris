@@ -17,6 +17,7 @@
 
 #include <boost/foreach.hpp>
 
+#include "common/config.h"
 #include "plugin/plugin_mgr.h"
 #include "gutil/strings/substitute.h"
 

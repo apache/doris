@@ -20,6 +20,7 @@
 #include <string>
 
 #include "olap/bloom_filter.hpp"
+#include "common/configbase.h"
 #include "util/logging.h"
 
 using std::string;

@@ -42,7 +42,6 @@
 // This is including a glog internal file.  We want this to expose the
 // function to get the stack trace.
 #include <glog/logging.h>
-#include <common/config.h>
 #undef MutexLock
 #endif
 
