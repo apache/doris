@@ -28,6 +28,7 @@
 #include "olap/hll.h"
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
+#include "util/monotime.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -108,9 +109,7 @@ void NodeChannel::open() {
     // This ref is for RPC's reference
     _open_closure->ref();
     _open_closure->cntl.set_timeout_ms(config::tablet_writer_open_rpc_timeout_sec * 1000);
-    _stub->tablet_writer_open(&_open_closure->cntl,
-                              &request,
-                              &_open_closure->result,
+    _stub->tablet_writer_open(&_open_closure->cntl, &request, &_open_closure->result,
                               _open_closure);
     request.release_id();
     request.release_schema();
@@ -180,7 +179,8 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // so in the ideal case, mem limit is a matter for _plan node.
     // But there is still some unfinished things, we do mem limit here temporarily.
     while (_parent->_mem_tracker->any_limit_exceeded()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        SCOPED_RAW_TIMER(&_mem_exceeded_block_ns);
+        SleepFor(MonoDelta::FromMilliseconds(10));
     }
 
     auto row_no = _cur_batch->add_row();
@@ -209,8 +209,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
 Status NodeChannel::mark_close() {
     auto st = none_of({_cancelled, _eos_is_produced});
     if (!st.ok()) {
-        return st.clone_and_prepend(
-                "already stopped, can't mark as closed. cancelled/eos: ");
+        return st.clone_and_prepend("already stopped, can't mark as closed. cancelled/eos: ");
     }
 
     _cur_add_batch_request.set_eos(true);
@@ -227,8 +226,7 @@ Status NodeChannel::mark_close() {
 Status NodeChannel::close_wait(RuntimeState* state) {
     auto st = none_of({_cancelled, !_eos_is_produced});
     if (!st.ok()) {
-        return st.clone_and_prepend(
-                "already stopped, skip waiting for close. cancelled/!eos: ");
+        return st.clone_and_prepend("already stopped, skip waiting for close. cancelled/!eos: ");
     }
 
     // wait for finished, loop interval is difficult to determine, use yield
@@ -435,6 +433,8 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
         _load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
     }
 
+    _send_interval_ms = config::olap_table_sink_send_interval_ms;
+
     return Status::OK();
 }
 
@@ -640,7 +640,8 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
         SCOPED_TIMER(_profile->total_time_counter());
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
-        int64_t serialize_batch_ns = 0, queue_push_lock_ns = 0, actual_consume_ns = 0;
+        int64_t serialize_batch_ns = 0, mem_exceeded_block_ns = 0, queue_push_lock_ns = 0,
+                actual_consume_ns = 0;
         {
             SCOPED_TIMER(_close_timer);
             for (auto index_channel : _channels) {
@@ -650,19 +651,22 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
 
             for (auto index_channel : _channels) {
                 index_channel->for_each_node_channel([&status, &state, &node_add_batch_counter_map,
-                                                      &serialize_batch_ns, &queue_push_lock_ns,
+                                                      &serialize_batch_ns, &mem_exceeded_block_ns,
+                                                      &queue_push_lock_ns,
                                                       &actual_consume_ns](NodeChannel* ch) {
                     status = ch->close_wait(state);
                     if (!status.ok()) {
                         LOG(WARNING) << "close channel failed, " << ch->print_load_info();
                     }
                     ch->time_report(node_add_batch_counter_map, &serialize_batch_ns,
-                                    &queue_push_lock_ns, &actual_consume_ns);
+                                    &mem_exceeded_block_ns, &queue_push_lock_ns,
+                                    &actual_consume_ns);
                 });
             }
         }
         // TODO need to be improved
-        LOG(INFO) << "total queue_push_lock_ns=" << queue_push_lock_ns
+        LOG(INFO) << "total mem_exceeded_block_ns=" << mem_exceeded_block_ns
+                  << ", total queue_push_lock_ns=" << queue_push_lock_ns
                   << ", total actual_consume_ns=" << actual_consume_ns;
 
         COUNTER_SET(_input_rows_counter, _number_input_rows);
@@ -922,7 +926,7 @@ void OlapTableSink::_send_batch_process() {
                          "consumer thread exit.";
             return;
         }
-        std::this_thread::yield();
+        SleepFor(MonoDelta::FromMilliseconds(_send_interval_ms));
     }
 }
 

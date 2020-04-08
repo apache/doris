@@ -169,11 +169,11 @@ public:
     int try_send_and_fetch_status();
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>& add_batch_counter_map,
-                     int64_t* serialize_batch_ns, int64_t* queue_push_lock_ns,
-                     int64_t* actual_consume_ns) {
+                     int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
+                     int64_t* queue_push_lock_ns, int64_t* actual_consume_ns) {
         add_batch_counter_map[_node_id] += _add_batch_counter;
         *serialize_batch_ns += _serialize_batch_ns;
-        LOG(INFO) << name() << " queue_push_ns: " << _queue_push_lock_ns;
+        *mem_exceeded_block_ns += _mem_exceeded_block_ns;
         *queue_push_lock_ns += _queue_push_lock_ns;
         *actual_consume_ns += _actual_consume_ns;
     }
@@ -227,8 +227,10 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
 
     AddBatchCounter _add_batch_counter;
-    int64_t _queue_push_lock_ns = 0;
     int64_t _serialize_batch_ns = 0;
+
+    int64_t _mem_exceeded_block_ns = 0;
+    int64_t _queue_push_lock_ns = 0;
     int64_t _actual_consume_ns = 0;
 };
 
@@ -352,6 +354,7 @@ private:
     // index_channel
     std::vector<IndexChannel*> _channels;
 
+    int _send_interval_ms = 30;
     std::thread _sender_thread;
 
     std::vector<DecimalValue> _max_decimal_val;
