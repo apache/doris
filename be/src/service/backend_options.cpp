@@ -21,6 +21,7 @@
 
 #include "gutil/strings/split.h"
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "util/network_util.h"

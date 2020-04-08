@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 #include <unistd.h>
 
+#include "common/configbase.h"
 #include "util/logging.h"
 
 using std::vector;

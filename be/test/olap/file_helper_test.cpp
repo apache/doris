@@ -23,6 +23,7 @@
 #include "olap/olap_define.h"
 #include "olap/file_helper.h"
 #include "boost/filesystem.hpp"
+#include "common/configbase.h"
 #include "util/logging.h"
 
 #ifndef BE_TEST

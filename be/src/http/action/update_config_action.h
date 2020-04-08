@@ -17,42 +17,17 @@
 
 #pragma once
 
-#include "common/config.h"
-#include "common/status.h"
-#include "gen_cpp/FrontendService_types.h"
+#include "http/http_handler.h"
 
 namespace doris {
 
-class ExecEnv;
-class FrontendServiceClient;
-template <class T> 
-class ClientConnection;
-
-// this class is a helper for jni call. easy for unit test
-class ThriftRpcHelper {
+// Update BE config.
+class UpdateConfigAction : public HttpHandler {
 public:
-    static void setup(ExecEnv* exec_env);
+    UpdateConfigAction() {}
+    virtual ~UpdateConfigAction() {}
 
-    // for default timeout
-    template<typename T>
-    static Status rpc(
-        const std::string& ip,
-        const int32_t port,
-        std::function<void (ClientConnection<T>&)> callback) {
-
-        return rpc(ip, port, callback, config::thrift_rpc_timeout_ms);
-    }
-
-    template<typename T>
-    static Status rpc(
-        const std::string& ip,
-        const int32_t port,
-        std::function<void (ClientConnection<T>&)> callback,
-        int timeout_ms);
-
-private:
-    static ExecEnv* _s_exec_env;
+    void handle(HttpRequest* req) override;
 };
 
-}
-
+} // namespace doris

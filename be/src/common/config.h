@@ -40,9 +40,9 @@ namespace config {
     //// tcmalloc gc parameter
     ////
     // min memory for TCmalloc, when used memory is smaller than this, do not returned to OS
-    CONF_Int64(tc_use_memory_min, "10737418240");
+    CONF_mInt64(tc_use_memory_min, "10737418240");
     // free memory rate.[0-100]
-    CONF_Int64(tc_free_memory_rate, "20");
+    CONF_mInt64(tc_free_memory_rate, "20");
 
     // process memory limit specified as number of bytes
     // ('<int>[bB]?'), megabytes ('<float>[mM]'), gigabytes ('<float>[gG]'),
@@ -87,29 +87,29 @@ namespace config {
     // the count of thread to release snapshot
     CONF_Int32(release_snapshot_worker_count, "5");
     // the interval time(seconds) for agent report tasks signatrue to FE
-    CONF_Int32(report_task_interval_seconds, "10");
+    CONF_mInt32(report_task_interval_seconds, "10");
     // the interval time(seconds) for agent report disk state to FE
-    CONF_Int32(report_disk_state_interval_seconds, "60");
+    CONF_mInt32(report_disk_state_interval_seconds, "60");
     // the interval time(seconds) for agent report olap table to FE
-    CONF_Int32(report_tablet_interval_seconds, "60");
+    CONF_mInt32(report_tablet_interval_seconds, "60");
     // the interval time(seconds) for agent report plugin status to FE
     // CONF_Int32(report_plugin_interval_seconds, "120");
     // the timeout(seconds) for alter table
-    CONF_Int32(alter_tablet_timeout_seconds, "86400");
+    // CONF_Int32(alter_tablet_timeout_seconds, "86400");
     // the timeout(seconds) for make snapshot
-    CONF_Int32(make_snapshot_timeout_seconds, "600");
+    // CONF_Int32(make_snapshot_timeout_seconds, "600");
     // the timeout(seconds) for release snapshot
-    CONF_Int32(release_snapshot_timeout_seconds, "600");
+    // CONF_Int32(release_snapshot_timeout_seconds, "600");
     // the max download speed(KB/s)
-    CONF_Int32(max_download_speed_kbps, "50000");
+    CONF_mInt32(max_download_speed_kbps, "50000");
     // download low speed limit(KB/s)
-    CONF_Int32(download_low_speed_limit_kbps, "50");
+    CONF_mInt32(download_low_speed_limit_kbps, "50");
     // download low speed time(seconds)
-    CONF_Int32(download_low_speed_time, "300");
+    CONF_mInt32(download_low_speed_time, "300");
     // curl verbose mode
-    CONF_Int64(curl_verbose_mode, "1");
+    // CONF_Int64(curl_verbose_mode, "1");
     // seconds to sleep for each time check table status
-    CONF_Int32(check_status_sleep_time_seconds, "10");
+    // CONF_Int32(check_status_sleep_time_seconds, "10");
     // sleep time for one second
     CONF_Int32(sleep_one_second, "1");
     // sleep time for five seconds
@@ -142,7 +142,7 @@ namespace config {
     CONF_String(default_query_options, "");
 
     // If non-zero, Doris will output memory usage every log_mem_usage_interval'th fragment completion.
-    CONF_Int32(log_mem_usage_interval, "0");
+    // CONF_Int32(log_mem_usage_interval, "0");
 
     // cgroups allocated for doris
     CONF_String(doris_cgroups, "");
@@ -156,7 +156,7 @@ namespace config {
     // serialize and deserialize each returned row batch
     CONF_Bool(serialize_batch, "false");
     // interval between profile reports; in seconds
-    CONF_Int32(status_report_interval, "5");
+    CONF_mInt32(status_report_interval, "5");
     // Local directory to copy UDF libraries from HDFS into
     CONF_String(local_library_dir, "${UDF_RUNTIME_DIR}");
     // number of olap scanner thread pool size
@@ -172,63 +172,63 @@ namespace config {
     // default thrift client connect timeout(in seconds)
     CONF_Int32(thrift_connect_timeout_seconds, "3");
     // max row count number for single scan range
-    CONF_Int32(doris_scan_range_row_count, "524288");
+    CONF_mInt32(doris_scan_range_row_count, "524288");
     // size of scanner queue between scanner thread and compute thread
-    CONF_Int32(doris_scanner_queue_size, "1024");
+    CONF_mInt32(doris_scanner_queue_size, "1024");
     // single read execute fragment row size
-    CONF_Int32(doris_scanner_row_num, "16384");
+    CONF_mInt32(doris_scanner_row_num, "16384");
     // number of max scan keys
-    CONF_Int32(doris_max_scan_key_num, "1024");
+    CONF_mInt32(doris_max_scan_key_num, "1024");
     // return_row / total_row
-    CONF_Int32(doris_max_pushdown_conjuncts_return_rate, "90");
+    CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
     // (Advanced) Maximum size of per-query receive-side buffer
-    CONF_Int32(exchg_node_buffer_size_bytes, "10485760");
+    CONF_mInt32(exchg_node_buffer_size_bytes, "10485760");
     // insert sort threadhold for sorter
-    CONF_Int32(insertion_threadhold, "16");
+    // CONF_Int32(insertion_threadhold, "16");
     // the block_size every block allocate for sorter
     CONF_Int32(sorter_block_size, "8388608");
     // push_write_mbytes_per_sec
     CONF_Int32(push_write_mbytes_per_sec, "10");
 
-    CONF_Int64(column_dictionary_key_ratio_threshold, "0");
-    CONF_Int64(column_dictionary_key_size_threshold, "0");
+    CONF_mInt64(column_dictionary_key_ratio_threshold, "0");
+    CONF_mInt64(column_dictionary_key_size_threshold, "0");
     // if true, output IR after optimization passes
-    CONF_Bool(dump_ir, "false");
+    // CONF_Bool(dump_ir, "false");
     // if set, saves the generated IR to the output file.
-    CONF_String(module_output, "");
+    //CONF_String(module_output, "");
     // memory_limitation_per_thread_for_schema_change unit GB
-    CONF_Int32(memory_limitation_per_thread_for_schema_change, "2");
+    CONF_mInt32(memory_limitation_per_thread_for_schema_change, "2");
 
-    CONF_Int64(max_unpacked_row_block_size, "104857600");
+    // CONF_Int64(max_unpacked_row_block_size, "104857600");
 
-    CONF_Int32(file_descriptor_cache_clean_interval, "3600");
-    CONF_Int32(disk_stat_monitor_interval, "5");
-    CONF_Int32(unused_rowset_monitor_interval, "30");
+    CONF_mInt32(file_descriptor_cache_clean_interval, "3600");
+    CONF_mInt32(disk_stat_monitor_interval, "5");
+    CONF_mInt32(unused_rowset_monitor_interval, "30");
     CONF_String(storage_root_path, "${DORIS_HOME}/storage");
     // BE process will exit if the percentage of error disk reach this value.
-    CONF_Int32(max_percentage_of_error_disk, "0");
-    CONF_Int32(default_num_rows_per_data_block, "1024");
-    CONF_Int32(default_num_rows_per_column_file_block, "1024");
+    CONF_mInt32(max_percentage_of_error_disk, "0");
+    // CONF_Int32(default_num_rows_per_data_block, "1024");
+    CONF_mInt32(default_num_rows_per_column_file_block, "1024");
     CONF_Int32(max_tablet_num_per_shard, "1024");
     // pending data policy
-    CONF_Int32(pending_data_expire_time_sec, "1800");
+    CONF_mInt32(pending_data_expire_time_sec, "1800");
     // inc_rowset expired interval
-    CONF_Int32(inc_rowset_expired_sec, "1800");
+    CONF_mInt32(inc_rowset_expired_sec, "1800");
     // garbage sweep policy
     CONF_Int32(max_garbage_sweep_interval, "3600");
     CONF_Int32(min_garbage_sweep_interval, "180");
-    CONF_Int32(snapshot_expire_time_sec, "172800");
+    CONF_mInt32(snapshot_expire_time_sec, "172800");
     // 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
-    CONF_Int32(trash_file_expire_time_sec, "259200");
+    CONF_mInt32(trash_file_expire_time_sec, "259200");
     // check row nums for BE/CE and schema change. true is open, false is closed.
-    CONF_Bool(row_nums_check, "true")
+    CONF_mBool(row_nums_check, "true")
     //file descriptors cache, by default, cache 32768 descriptors
     CONF_Int32(file_descriptor_cache_capacity, "32768");
     // minimum file descriptor number
     // modify them upon necessity
     CONF_Int32(min_file_descriptor_number, "60000");
     CONF_Int64(index_stream_cache_capacity, "10737418240");
-    CONF_Int64(max_packed_row_block_size, "20971520");
+    // CONF_Int64(max_packed_row_block_size, "20971520");
 
     // Cache for stoage page size
     CONF_String(storage_page_cache_limit, "20G");
@@ -236,26 +236,26 @@ namespace config {
     CONF_Bool(disable_storage_page_cache, "false");
 
     // be policy
-    CONF_Int64(base_compaction_start_hour, "20");
-    CONF_Int64(base_compaction_end_hour, "7");
-    CONF_Int32(base_compaction_check_interval_seconds, "60");
-    CONF_Int64(base_compaction_num_cumulative_deltas, "5");
+    // CONF_Int64(base_compaction_start_hour, "20");
+    // CONF_Int64(base_compaction_end_hour, "7");
+    CONF_mInt32(base_compaction_check_interval_seconds, "60");
+    CONF_mInt64(base_compaction_num_cumulative_deltas, "5");
     CONF_Int32(base_compaction_num_threads_per_disk, "1");
-    CONF_Double(base_cumulative_delta_ratio, "0.3");
-    CONF_Int64(base_compaction_interval_seconds_since_last_operation, "86400");
-    CONF_Int32(base_compaction_write_mbytes_per_sec, "5");
+    CONF_mDouble(base_cumulative_delta_ratio, "0.3");
+    CONF_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
+    CONF_mInt32(base_compaction_write_mbytes_per_sec, "5");
 
     // cumulative compaction policy: max delta file's size unit:B
-    CONF_Int32(cumulative_compaction_check_interval_seconds, "10");
-    CONF_Int64(min_cumulative_compaction_num_singleton_deltas, "5");
-    CONF_Int64(max_cumulative_compaction_num_singleton_deltas, "1000");
+    CONF_mInt32(cumulative_compaction_check_interval_seconds, "10");
+    CONF_mInt64(min_cumulative_compaction_num_singleton_deltas, "5");
+    CONF_mInt64(max_cumulative_compaction_num_singleton_deltas, "1000");
     CONF_Int32(cumulative_compaction_num_threads_per_disk, "1");
-    CONF_Int64(cumulative_compaction_budgeted_bytes, "104857600");
-    CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
+    CONF_mInt64(cumulative_compaction_budgeted_bytes, "104857600");
+    // CONF_Int32(cumulative_compaction_write_mbytes_per_sec, "100");
 
     // if compaction of a tablet failed, this tablet should not be chosen to
     // compaction until this interval passes.
-    CONF_Int64(min_compaction_failure_interval_sec, "600") // 10 min
+    CONF_mInt64(min_compaction_failure_interval_sec, "600") // 10 min
     // Too many compaction tasks may run out of memory.
     // This config is to limit the max concurrency of running compaction tasks.
     // -1 means no limit, and the max concurrency will be:
@@ -269,17 +269,17 @@ namespace config {
     // Number of webserver workers
     CONF_Int32(webserver_num_workers, "5");
     // Period to update rate counters and sampling counters in ms.
-    CONF_Int32(periodic_counter_update_period_ms, "500");
+    CONF_mInt32(periodic_counter_update_period_ms, "500");
 
     // Used for mini Load. mini load data file will be removed after this time.
     CONF_Int64(load_data_reserve_hours, "4");
     // log error log will be removed after this time
-    CONF_Int64(load_error_log_reserve_hours, "48");
+    CONF_mInt64(load_error_log_reserve_hours, "48");
     // Deprecated, use streaming_load_max_mb instead
-    CONF_Int64(mini_load_max_mb, "2048");
+    // CONF_Int64(mini_load_max_mb, "2048");
     CONF_Int32(number_tablet_writer_threads, "16");
 
-    CONF_Int64(streaming_load_max_mb, "10240");
+    CONF_mInt64(streaming_load_max_mb, "10240");
     // the alive time of a TabletsChannel.
     // If the channel does not receive any data till this time,
     // the channel will be removed.
@@ -291,14 +291,14 @@ namespace config {
     // the timeout of a rpc to process one batch in tablet writer.
     // you may need to increase this timeout if using larger 'streaming_load_max_mb',
     // or encounter 'tablet writer write failed' error when loading.
-    CONF_Int32(tablet_writer_rpc_timeout_sec, "600");
+    // CONF_Int32(tablet_writer_rpc_timeout_sec, "600");
 
     // Fragment thread pool
     CONF_Int32(fragment_pool_thread_num, "64");
     CONF_Int32(fragment_pool_queue_size, "1024");
 
     //for cast
-    CONF_Bool(cast, "true");
+    // CONF_Bool(cast, "true");
 
     // Spill to disk when query
     // Writable scratch directories, splitted by ";"
@@ -342,26 +342,26 @@ namespace config {
     CONF_String(pprof_profile_dir, "${DORIS_HOME}/log")
 
     // for partition
-    CONF_Bool(enable_partitioned_hash_join, "false")
+    // CONF_Bool(enable_partitioned_hash_join, "false")
     CONF_Bool(enable_partitioned_aggregation, "true")
 
     // to forward compatibility, will be removed later
-    CONF_Bool(enable_token_check, "true");
+    CONF_mBool(enable_token_check, "true");
 
     // to open/close system metrics
     CONF_Bool(enable_system_metrics, "true");
 
-    CONF_Bool(enable_prefetch, "true");
+    CONF_mBool(enable_prefetch, "true");
 
     // Number of cores Doris will used, this will effect only when it's greater than 0.
     // Otherwise, Doris will use all cores returned from "/proc/cpuinfo".
     CONF_Int32(num_cores, "0");
 
-    CONF_Bool(thread_creation_fault_injection, "false");
+    // CONF_Bool(thread_creation_fault_injection, "false");
 
     // Set this to encrypt and perform an integrity
     // check on all data spilled to disk during a query
-    CONF_Bool(disk_spill_encryption, "false");
+    // CONF_Bool(disk_spill_encryption, "false");
 
     // When BE start, If there is a broken disk, BE process will exit by default.
     // Otherwise, we will ignore the broken disk,
@@ -372,7 +372,7 @@ namespace config {
 
     // If false and --scratch_dirs contains multiple directories on the same device,
     // then only the first writable directory is used
-    CONF_Bool(allow_multiple_scratch_dirs_per_device, "false");
+    // CONF_Bool(allow_multiple_scratch_dirs_per_device, "false");
 
     // linux transparent huge page
     CONF_Bool(madvise_huge_pages, "false");
@@ -387,13 +387,13 @@ namespace config {
     CONF_String(buffer_pool_clean_pages_limit, "20G");
 
     // Sleep time in seconds between memory maintenance iterations
-    CONF_Int64(memory_maintenance_sleep_time_s, "10");
+    CONF_mInt64(memory_maintenance_sleep_time_s, "10");
 
     // Aligement
     CONF_Int32(memory_max_alignment, "16");
 
     // write buffer size before flush
-    CONF_Int64(write_buffer_size, "104857600");
+    CONF_mInt64(write_buffer_size, "104857600");
 
     // following 2 configs limit the memory consumption of load process on a Backend.
     // eg: memory limit to 80% of mem limit config but up to 100GB(default)
@@ -404,31 +404,31 @@ namespace config {
     CONF_Int32(load_process_max_memory_limit_percent, "80");    // 80%
 
     // update interval of tablet stat cache
-    CONF_Int32(tablet_stat_cache_update_interval_second, "300");
+    CONF_mInt32(tablet_stat_cache_update_interval_second, "300");
 
     // result buffer cancelled time (unit: second)
-    CONF_Int32(result_buffer_cancelled_interval_time, "300");
+    CONF_mInt32(result_buffer_cancelled_interval_time, "300");
 
     // can perform recovering tablet
     CONF_Bool(force_recovery, "false");
 
     // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
-    CONF_Int32(priority_queue_remaining_tasks_increased_frequency, "512");
+    CONF_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
 
     // sync tablet_meta when modifing meta
-    CONF_Bool(sync_tablet_meta, "false");
+    CONF_mBool(sync_tablet_meta, "false");
 
     // default thrift rpc timeout ms
-    CONF_Int32(thrift_rpc_timeout_ms, "5000");
+    CONF_mInt32(thrift_rpc_timeout_ms, "5000");
 
     // txn commit rpc timeout
-    CONF_Int32(txn_commit_rpc_timeout_ms, "10000");
+    CONF_mInt32(txn_commit_rpc_timeout_ms, "10000");
 
     // If set to true, metric calculator will run
     CONF_Bool(enable_metric_calculator, "true");
 
     // max consumer num in one data consumer group, for routine load
-    CONF_Int32(max_consumer_num_per_group, "3");
+    CONF_mInt32(max_consumer_num_per_group, "3");
 
     // the size of thread pool for routine load task.
     // this should be larger than FE config 'max_concurrent_task_num_per_be' (default 5)
@@ -436,15 +436,15 @@ namespace config {
 
     // Is set to true, index loading failure will not causing BE exit,
     // and the tablet will be marked as bad, so that FE will try to repair it.
-    CONF_Bool(auto_recover_index_loading_failure, "false");
+    // CONF_Bool(auto_recover_index_loading_failure, "false");
 
     // max external scan cache batch count, means cache max_memory_cache_batch_count * batch_size row
     // default is 20, batch_size's defualt value is 1024 means 20 * 1024 rows will be cached
-    CONF_Int32(max_memory_sink_batch_count, "20");
+    CONF_mInt32(max_memory_sink_batch_count, "20");
 
     // This configuration is used for the context gc thread schedule period
     // note: unit is minute, default is 5min
-    CONF_Int32(scan_context_gc_interval_min, "5");
+    CONF_mInt32(scan_context_gc_interval_min, "5");
 
     // es scroll keep-alive
     CONF_String(es_scroll_keepalive, "5m");
@@ -463,22 +463,22 @@ namespace config {
     // path gc
     CONF_Bool(path_gc_check, "true");
     CONF_Int32(path_gc_check_interval_second, "86400");
-    CONF_Int32(path_gc_check_step, "1000");
-    CONF_Int32(path_gc_check_step_interval_ms, "10");
-    CONF_Int32(path_scan_interval_second, "86400");
+    CONF_mInt32(path_gc_check_step, "1000");
+    CONF_mInt32(path_gc_check_step_interval_ms, "10");
+    CONF_mInt32(path_scan_interval_second, "86400");
 
     // The following 2 configs limit the max usage of disk capacity of a data dir.
     // If both of these 2 threshold reached, no more data can be writen into that data dir.
     // The percent of max used capacity of a data dir
-    CONF_Int32(storage_flood_stage_usage_percent, "95");    // 95%
+    CONF_mInt32(storage_flood_stage_usage_percent, "95");    // 95%
     // The min bytes that should be left of a data dir
-    CONF_Int64(storage_flood_stage_left_capacity_bytes, "1073741824")   // 1GB
+    CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824")   // 1GB
     // number of thread for flushing memtable per store
     CONF_Int32(flush_thread_num_per_store, "2");
 
     // config for tablet meta checkpoint
-    CONF_Int32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
-    CONF_Int32(tablet_meta_checkpoint_min_interval_secs, "600");
+    CONF_mInt32(tablet_meta_checkpoint_min_new_rowsets_num, "10");
+    CONF_mInt32(tablet_meta_checkpoint_min_interval_secs, "600");
 
     // config for default rowset type
     // Valid configs: ALPHA, BETA
@@ -489,12 +489,12 @@ namespace config {
 
     // max number of txns in txn manager
     // this is a self protection to avoid too many txns saving in manager
-    CONF_Int64(max_runnings_transactions, "2000");
+    CONF_mInt64(max_runnings_transactions, "2000");
 
     // tablet_map_lock shard size, the value is 2^n, n=0,1,2,3,4
     // this is a an enhancement for better performance to manage tablet
     CONF_Int32(tablet_map_shard_size, "1");
-    
+
     CONF_String(plugin_path, "${DORIS_HOME}/plugin")
 
 } // namespace config
