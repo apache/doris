@@ -494,7 +494,7 @@ bool TxnManager::has_txn(TPartitionId partition_id, TTransactionId transaction_i
 }
 
 void TxnManager::build_expire_txn_map(std::map<TabletInfo, std::vector<int64_t>>* expire_txn_map) {
-    time_t now = time(nullptr);
+    int64_t now = UnixSeconds();
     // traverse the txn map, and get all expired txns
     ReadLock txn_rdlock(&_txn_map_lock);
     for (auto& it : _txn_tablet_map) {

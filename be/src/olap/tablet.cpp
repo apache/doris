@@ -387,7 +387,7 @@ void Tablet::_delete_inc_rowset_by_version(const Version& version,
 }
 
 void Tablet::delete_expired_inc_rowsets() {
-    time_t now = time(nullptr);
+    int64_t now = UnixSeconds();
     vector<pair<Version, VersionHash>> expired_versions;
     WriteLock wrlock(&_meta_lock);
     for (auto& rs_meta : _tablet_meta->all_inc_rs_metas()) {
@@ -933,11 +933,12 @@ TabletInfo Tablet::get_tablet_info() const {
     return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
 }
 
-void Tablet::pick_candicate_rowsets_to_cumulative_compaction(
-        vector<RowsetSharedPtr>* candidate_rowsets) {
+void Tablet::pick_candicate_rowsets_to_cumulative_compaction(int64_t skip_window_sec,
+                                                             std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    int64_t now = UnixSeconds();
     ReadLock rdlock(&_meta_lock);
     for (auto& it : _rs_version_map) {
-        if (it.first.first >= _cumulative_point) {
+        if (it.first.first >= _cumulative_point && (it.second->creation_time() + skip_window_sec < now)) {
             candidate_rowsets->push_back(it.second);
         }
     }
