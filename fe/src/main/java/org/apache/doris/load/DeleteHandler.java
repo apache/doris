@@ -276,6 +276,7 @@ public class DeleteHandler implements Writable {
         long timeout = deleteTask.getTimeout();
         long stragglerTimeout = timeout / 2;
         // wait until delete task finish or timeout
+        LOG.info("waiting delete task finish, signature: {}, timeout: {}", transactionId, timeout);
         deleteTask.join(stragglerTimeout);
         if (deleteTask.isQuorum()) {
             commitTask(deleteTask, db);
@@ -339,6 +340,7 @@ public class DeleteHandler implements Writable {
 
         @Override
         public void run() {
+            LOG.info("delete task checker start");
             try {
                 loop();
             } finally {

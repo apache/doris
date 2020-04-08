@@ -86,6 +86,8 @@ public class DeleteTask extends MasterTask {
                 }
             }
 
+            LOG.info("delete task running, signature: {}, total tablets: {}, quorum tablets: {},",
+                    signature, totalTablets.size(), quorumTablets.size());
             if (quorumTablets.containsAll(totalTablets)) {
                 isQuorum= true;
             }
@@ -128,7 +130,6 @@ public class DeleteTask extends MasterTask {
     public boolean isQuorum() {
         return isQuorum;
     }
-    
 
     public void join(long timeout) {
         synchronized (lock) {
