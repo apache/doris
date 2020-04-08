@@ -257,6 +257,20 @@ BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predi
                 };
                 break;
             }
+            case TExprNodeType::COMPOUND_PRED: {
+                ExtCompPredicates* compound_predicates = (ExtCompPredicates *)predicate;
+                // reserved for compound_not
+                if (compound_predicates->op == TExprOpcode::COMPOUND_AND) {
+                    BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
+                    for (auto es_predicate : compound_predicates->conjuncts) {
+                        vector<ExtPredicate*> or_predicates = es_predicate->get_predicate_list();
+                        BooleanQueryBuilder* inner_bool_query = new BooleanQueryBuilder(or_predicates);
+                        bool_query->must(inner_bool_query);
+                    }
+                    _should_clauses.push_back(bool_query);
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -355,6 +369,23 @@ void BooleanQueryBuilder::validate(const std::vector<EsPredicate*>& espredicates
                     if (op != TExprOpcode::EQ && op != TExprOpcode::NE 
                         && op != TExprOpcode::LT && op != TExprOpcode::LE
                         && op != TExprOpcode::GT && op != TExprOpcode::GE) {
+                        flag = false;
+                    }
+                    break;
+                }
+                case TExprNodeType::COMPOUND_PRED: {
+                    ExtCompPredicates* compound_predicates = (ExtCompPredicates *)predicate;
+                    if (compound_predicates->op == TExprOpcode::COMPOUND_AND) {
+                        std::vector<bool> list;
+                        validate(compound_predicates->conjuncts, &list);
+                        for(int i = list.size() - 1; i >= 0; i--) {
+                            if(!list[i]) {
+                                flag = false;
+                                break;
+                            }
+                        }
+                    } else {
+                        // reserved for compound_not
                         flag = false;
                     }
                     break;
