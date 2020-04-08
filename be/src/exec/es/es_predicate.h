@@ -34,6 +34,7 @@ namespace doris {
 class Status;
 class ExprContext;
 class ExtBinaryPredicate;
+class EsPredicate;
 
 class ExtLiteral {
 public:
@@ -83,6 +84,15 @@ struct ExtPredicate {
     }
 
     TExprNodeType::type node_type;
+};
+
+// this used for placeholder for compound_and
+struct ExtCompAndPredicates : public ExtPredicate {
+    ExtCompAndPredicates(std::vector<EsPredicate*> conjuncts) : ExtPredicate(TExprNodeType::COMPOUND_PRED), op(TExprOpcode::COMPOUND_AND), conjuncts(conjuncts) {
+    }
+
+    TExprOpcode::type op;
+    std::vector<EsPredicate*> conjuncts;
 };
 
 struct ExtBinaryPredicate : public ExtPredicate {
@@ -169,7 +179,7 @@ struct ExtFunction : public ExtPredicate {
 
 class EsPredicate {
 public:
-    EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc);
+    EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc, ObjectPool* pool);
     ~EsPredicate();
     const std::vector<ExtPredicate*>& get_predicate_list();
     Status build_disjuncts_list();
@@ -191,7 +201,10 @@ private:
     int _disjuncts_num;
     const TupleDescriptor* _tuple_desc;
     std::vector<ExtPredicate*> _disjuncts;
+    // used for compound_and
+    std::vector<ExtPredicate*> _conjuncts;
     Status _es_query_status;
+    ObjectPool *_pool;
 };
 
 }
