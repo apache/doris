@@ -124,6 +124,9 @@ public abstract class StatementBase implements ParseNode {
         Preconditions.checkNotNull(resultExprs);
         Preconditions.checkState(resultExprs.size() == types.size());
         for (int i = 0; i < types.size(); ++i) {
+            if (resultExprs.get(i).getType().isDateType() && types.get(i).isDateType()) {
+                continue;                               
+            }
             if (!resultExprs.get(i).getType().equals(types.get(i))) {
                 resultExprs.set(i, resultExprs.get(i).castTo(types.get(i)));
             }
