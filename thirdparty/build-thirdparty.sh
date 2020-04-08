@@ -671,6 +671,14 @@ build_orc() {
     make -j$PARALLEL && make install
 }
 
+#cctz
+build_cctz() {
+    check_if_source_exist $CCTZ_SOURCE
+    cd $TP_SOURCE_DIR/cctz-2.3
+    export PREFIX=$TP_INSTALL_DIR
+    make -j$PARALLEL && make install
+}
+
 # See https://github.com/apache/incubator-doris/issues/2910
 # LLVM related codes have already be removed in master, so there is
 # no need to build llvm tool here.
@@ -706,5 +714,6 @@ build_s2
 build_bitshuffle
 build_croaringbitmap
 build_orc
+build_cctz
 
 echo "Finihsed to build all thirdparties"
