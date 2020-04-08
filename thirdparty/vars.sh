@@ -61,7 +61,7 @@ LIBEVENT_SOURCE=libevent-master
 LIBEVENT_MD5SUM="e8b9ba50270ba3b520aec8ff1089f9d7"
 
 # openssl
-OPENSSL_DOWNLOAD="https://www.openssl.org/source/openssl-1.0.2k.tar.gz"
+OPENSSL_DOWNLOAD="https://www.openssl.org/source/old/1.0.2/openssl-1.0.2k.tar.gz"
 OPENSSL_NAME=openssl-1.0.2k.tar.gz
 OPENSSL_SOURCE=openssl-1.0.2k
 OPENSSL_MD5SUM="f965fc0bf01bf882b31314b61391ae65"
