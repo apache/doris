@@ -201,8 +201,6 @@ private:
     int _disjuncts_num;
     const TupleDescriptor* _tuple_desc;
     std::vector<ExtPredicate*> _disjuncts;
-    // used for compound_and
-    std::vector<ExtPredicate*> _conjuncts;
     Status _es_query_status;
     ObjectPool *_pool;
 };

@@ -258,8 +258,8 @@ BooleanQueryBuilder::BooleanQueryBuilder(const std::vector<ExtPredicate*>& predi
                 break;
             }
             case TExprNodeType::COMPOUND_PRED: {
-                ExtCompAndPredicates *comp_and_predicate = (ExtCompAndPredicates *)predicate;
-                BooleanQueryBuilder *bool_query = new BooleanQueryBuilder();
+                ExtCompAndPredicates* comp_and_predicate = (ExtCompAndPredicates *)predicate;
+                BooleanQueryBuilder* bool_query = new BooleanQueryBuilder();
                 for (auto es_predicate : comp_and_predicate->conjuncts) {
                     vector<ExtPredicate*> or_predicates = es_predicate->get_predicate_list();
                     BooleanQueryBuilder* inner_bool_query = new BooleanQueryBuilder(or_predicates);
