@@ -86,9 +86,15 @@ struct ExtPredicate {
     TExprNodeType::type node_type;
 };
 
-// this used for placeholder for compound_and
-struct ExtCompAndPredicates : public ExtPredicate {
-    ExtCompAndPredicates(std::vector<EsPredicate*> conjuncts) : ExtPredicate(TExprNodeType::COMPOUND_PRED), op(TExprOpcode::COMPOUND_AND), conjuncts(conjuncts) {
+// this used for placeholder for compound_predicate
+// reserved for compound_not
+struct ExtCompPredicates : public ExtPredicate {
+    ExtCompPredicates(
+            TExprOpcode::type expr_op,
+            const std::vector<EsPredicate*>& es_predicates) : 
+            ExtPredicate(TExprNodeType::COMPOUND_PRED),
+            op(expr_op),
+            conjuncts(es_predicates) {
     }
 
     TExprOpcode::type op;

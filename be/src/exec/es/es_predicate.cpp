@@ -392,27 +392,28 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         return Status::OK();
     }
     if (TExprNodeType::COMPOUND_PRED == conjunct->node_type()) {
-        if (TExprOpcode::COMPOUND_OR != conjunct->op()) {
-            // processe COMPOUND_AND, such as:
-            // k = 1 or (k1 = 7 and (k2 in (6,7) or k3 = 12))
-            // k1 = 7 and (k2 in (6,7) or k3 = 12) is compound pred, we should rebuild this sub tree
-            if (TExprOpcode::COMPOUND_AND == conjunct->op()) {
-                std::vector<EsPredicate*> conjuncts;
-                for (int i = 0; i < conjunct->get_num_children(); ++i) {
-                    EsPredicate *predicate = _pool->add(new EsPredicate(_context, _tuple_desc, _pool));
-                    Status status = predicate->build_disjuncts_list(conjunct->children()[i]);
-                    if (status.ok()) {
-                        conjuncts.push_back(predicate);
-                    } else {
-                        return Status::InternalError("build conjuncts failed");
-                    }
+        // processe COMPOUND_AND, such as:
+        // k = 1 or (k1 = 7 and (k2 in (6,7) or k3 = 12))
+        // k1 = 7 and (k2 in (6,7) or k3 = 12) is compound pred, we should rebuild this sub tree
+        if (conjunct->op() == TExprOpcode::COMPOUND_AND) {
+            std::vector<EsPredicate*> conjuncts;
+            for (int i = 0; i < conjunct->get_num_children(); ++i) {
+                EsPredicate *predicate = _pool->add(new EsPredicate(_context, _tuple_desc, _pool));
+                Status status = predicate->build_disjuncts_list(conjunct->children()[i]);
+                if (status.ok()) {
+                    conjuncts.push_back(predicate);
+                } else {
+                    return Status::InternalError("build COMPOUND_AND conjuncts failed");
                 }
-                ExtCompAndPredicates *comp_and_predicate = new ExtCompAndPredicates(conjuncts);
-                _disjuncts.push_back(comp_and_predicate);
-                return Status::OK();
             }
-            return Status::InternalError("build disjuncts failed: op is not COMPOUND_OR");
+            ExtCompPredicates *compound_predicate = new ExtCompPredicates(TExprOpcode::COMPOUND_AND, conjuncts);
+            _disjuncts.push_back(compound_predicate);
+            return Status::OK();
+        } else if (conjunct->op() == TExprOpcode::COMPOUND_NOT){
+            // reserved for processing COMPOUND_NOT
+            return Status::InternalError("currently do not support COMPOUND_NOT push-down");
         }
+        DCHECK(conjunct->op() == TExprOpcode::COMPOUND_OR);
         Status status = build_disjuncts_list(conjunct->get_child(0));
         if (!status.ok()) {
             return status;
@@ -421,7 +422,6 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         if (!status.ok()) {
             return status;
         }
-
         return Status::OK();
     }
 
