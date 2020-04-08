@@ -399,7 +399,7 @@ void DataDir::register_tablet(Tablet* tablet) {
     TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
 
     std::lock_guard<std::mutex> l(_mutex);
-    _tablet_set.emplace(tablet_info);
+    _tablet_set.emplace(std::move(tablet_info));
 }
 
 void DataDir::deregister_tablet(Tablet* tablet) {
