@@ -21,6 +21,7 @@
 #include "boost/filesystem.hpp"
 #include "olap/byte_buffer.h"
 #include "olap/file_helper.h"
+#include "common/configbase.h"
 #include "util/logging.h"
 
 namespace doris {

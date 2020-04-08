@@ -70,7 +70,6 @@ private:
     bool _is_stop;
     std::unique_ptr<std::thread> _keep_alive_reaper;
     std::mutex _lock;
-    u_int32_t _scan_context_gc_interval_min;
 };
 
 }
