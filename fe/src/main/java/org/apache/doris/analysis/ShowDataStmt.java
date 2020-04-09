@@ -53,7 +53,7 @@ public class ShowDataStmt extends ShowStmt {
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("DataSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("ReplicaSize", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
@@ -61,7 +61,7 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("DataSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("ReplicaSize", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .build();
 
     private String dbName;
@@ -96,7 +96,7 @@ public class ShowDataStmt extends ShowStmt {
         try {
             if (tableName == null) {
                 long totalSize = 0;
-                long totalReplicaSize = 0;
+                long totalReplicaCount = 0;
 
                 // sort by table name
                 List<Table> tables = db.getTables();
@@ -123,23 +123,23 @@ public class ShowDataStmt extends ShowStmt {
 
                     OlapTable olapTable = (OlapTable) table;
                     long tableSize = olapTable.getDataSize();
-                    long replicaSize = olapTable.getReplicaSize();
+                    long replicaCount = olapTable.getReplicaCount();
 
                     Pair<Double, String> tableSizePair = DebugUtil.getByteUint(tableSize);
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
                             + tableSizePair.second;
 
-                    List<String> row = Arrays.asList(table.getName(), readableSize, String.valueOf(replicaSize));
+                    List<String> row = Arrays.asList(table.getName(), readableSize, String.valueOf(replicaCount));
                     totalRows.add(row);
 
                     totalSize += tableSize;
-                    totalReplicaSize += replicaSize;
+                    totalReplicaCount += replicaCount;
                 } // end for tables
 
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
                         + totalSizePair.second;
-                List<String> total = Arrays.asList("Total", readableSize, String.valueOf(totalReplicaSize));
+                List<String> total = Arrays.asList("Total", readableSize, String.valueOf(totalReplicaCount));
                 totalRows.add(total);
 
                 // quota
@@ -154,11 +154,11 @@ public class ShowDataStmt extends ShowStmt {
 
                 // left
                 long left = Math.max(0, quota - totalSize);
-                long replicaSizeLeft = Math.max(0, replicaQuota - totalReplicaSize);
+                long replicaCountLeft = Math.max(0, replicaQuota - totalReplicaCount);
                 Pair<Double, String> leftPair = DebugUtil.getByteUint(left);
                 String readableLeft = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(leftPair.first) + " "
                         + leftPair.second;
-                List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaSizeLeft));
+                List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft));
                 totalRows.add(leftRow);
             } else {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
@@ -197,7 +197,7 @@ public class ShowDataStmt extends ShowStmt {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize();
-                        indexReplicaSize += mIndex.getReplicaSize();
+                        indexReplicaSize += mIndex.getReplicaCount();
                     }
 
                     Pair<Double, String> indexSizePair = DebugUtil.getByteUint(indexSize);

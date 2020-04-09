@@ -39,7 +39,7 @@ import java.util.List;
  */
 public class DbsProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("DbId").add("DbName").add("TableNum").add("Quota")
+            .add("DbId").add("DbName").add("TableNum").add("DataQuota").add("ReplicaQuota")
             .add("LastConsistencyCheckTime")
             .build();
 
@@ -103,11 +103,13 @@ public class DbsProcDir implements ProcDirInterface {
                 dbInfo.add(dbName);
                 dbInfo.add(tableNum);
 
-                long quota = db.getDataQuota();
-                Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(quota);
+                long dataQuota = db.getDataQuota();
+                Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuota);
                 String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
                         + quotaUnitPair.second;
                 dbInfo.add(readableQuota);
+                long replicaQuota = db.getReplicaQuota();
+                dbInfo.add(replicaQuota);
 
                 dbInfo.add(TimeUtils.longToTimeString(db.getLastCheckTime()));
             } finally {

@@ -43,7 +43,7 @@ import java.util.List;
 public class TablesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TableId").add("TableName").add("IndexNum").add("PartitionColumnName")
-            .add("PartitionNum").add("State").add("Type").add("LastConsistencyCheckTime")
+            .add("PartitionNum").add("ReplicaCount").add("State").add("Type").add("LastConsistencyCheckTime")
             .build();
 
     private Database db;
@@ -97,6 +97,7 @@ public class TablesProcDir implements ProcDirInterface {
                 List<Comparable> tableInfo = new ArrayList<Comparable>();
 
                 int partitionNum = 1;
+                long replicaCount = 0;
                 String partitionKey = "N/A";
                 if (table.getType() == TableType.OLAP) {
                     OlapTable olapTable = (OlapTable) table;
@@ -113,11 +114,13 @@ public class TablesProcDir implements ProcDirInterface {
                             ++idx;
                         }
                     }
+                    replicaCount = olapTable.getReplicaCount();
                     tableInfo.add(table.getId());
                     tableInfo.add(table.getName());
                     tableInfo.add(olapTable.getIndexNameToId().size());
                     tableInfo.add(partitionKey);
                     tableInfo.add(partitionNum);
+                    tableInfo.add(replicaCount);
                     tableInfo.add(olapTable.getState());
                     tableInfo.add(table.getType());
                 } else {
@@ -126,6 +129,7 @@ public class TablesProcDir implements ProcDirInterface {
                     tableInfo.add("N/A");
                     tableInfo.add(partitionKey);
                     tableInfo.add(partitionNum);
+                    tableInfo.add(replicaCount);
                     tableInfo.add("N/A");
                     tableInfo.add(table.getType());
                 }

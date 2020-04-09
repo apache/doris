@@ -1162,12 +1162,12 @@ public class OlapTable extends Table {
         return dataSize;
     }
 
-    public long getReplicaSize() {
-        long replicaSize = 0;
+    public long getReplicaCount() {
+        long replicaCount = 0;
         for (Partition partition : getAllPartitions()) {
-            replicaSize += partition.getReplicaSize();
+            replicaCount += partition.getReplicaCount();
         }
-        return replicaSize;
+        return replicaCount;
     }
 
     public void checkStableAndNormal(String clusterName) throws DdlException {
