@@ -6435,7 +6435,7 @@ public class Catalog {
 
     public void replayInstallPlugin(PluginInfo pluginInfo)  {
         try {
-            pluginMgr.loadDynamicPlugin(pluginInfo);
+            pluginMgr.replayLoadDynamicPlugin(pluginInfo);
         } catch (Exception e) {
             LOG.warn("replay install plugin failed.", e);
         }

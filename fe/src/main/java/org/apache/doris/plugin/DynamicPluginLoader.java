@@ -17,6 +17,7 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.UserException;
 
 import org.apache.commons.io.FileUtils;
@@ -70,16 +71,24 @@ public class DynamicPluginLoader extends PluginLoader {
             return pluginInfo;
         }
 
-        if (installPath == null) {
-            // download plugin and extract
-            PluginZip zip = new PluginZip(source);
-            // generation a tmp dir to extract the zip
-            Path tmpTarget = Files.createTempDirectory(pluginDir, ".install_");
-            // for now, installPath point to the temp dir which contains all extracted files from zip file.
-            installPath = zip.extract(tmpTarget);
-        }
+        Path tmpTarget = null;
 
-        pluginInfo = PluginInfo.readFromProperties(installPath, source);
+        try {
+            if (installPath == null) {
+                // download plugin and extract
+                PluginZip zip = new PluginZip(source);
+                // generation a tmp dir to extract the zip
+                tmpTarget = Files.createTempDirectory(pluginDir, ".install_");
+                // for now, installPath point to the temp dir which contains all extracted files from zip file.
+                installPath = zip.extract(tmpTarget);
+            }
+            pluginInfo = PluginInfo.readFromProperties(installPath, source);
+        } catch (Exception e) {
+            if (tmpTarget != null) {
+                Files.delete(tmpTarget);
+            }
+            throw e;
+        }
 
         return pluginInfo;
     }
@@ -89,14 +98,14 @@ public class DynamicPluginLoader extends PluginLoader {
      */
     public void install() throws UserException, IOException {
         if (hasInstalled()) {
-            throw new UserException("Plugin " + pluginInfo.getName() + " is already install.");
+            throw new UserException("Plugin " + pluginInfo.getName() + " has already been installed.");
         }
 
         getPluginInfo();
 
         movePlugin();
 
-        plugin = dynamicLoadPlugin();
+        plugin = dynamicLoadPlugin(true);
 
         pluginInstallValid();
 
@@ -132,13 +141,23 @@ public class DynamicPluginLoader extends PluginLoader {
     }
 
     /**
-     * reload plugin if plugin has already been installed, else will re-install
+     * reload plugin if plugin has already been installed, else will re-install.
+     * Notice that this method will create a new instance of plugin.
      * 
      * @throws PluginException
      */
     public void reload() throws IOException, UserException {
+        if (Catalog.isCheckpointThread()) {
+            /*
+             * No need to reload the plugin when this is a checkpoint thread.
+             * Because this reload() method will create a new instance of plugin and try to start it.
+             * But in checkpoint thread, we do not need a instance of plugin.
+             */
+            return;
+        }
+
         if (hasInstalled()) {
-            plugin = dynamicLoadPlugin();
+            plugin = dynamicLoadPlugin(true);
             pluginInstallValid();
             pluginContext.setPluginPath(installPath.toString());
             plugin.init(pluginInfo, pluginContext);
@@ -150,7 +169,23 @@ public class DynamicPluginLoader extends PluginLoader {
         }
     }
 
-    Plugin dynamicLoadPlugin() throws IOException, UserException {
+    /*
+     * Dynamic load the plugin.
+     * if closePreviousPlugin is true, we will check if there is already an instance of plugin, if yes, close it.
+     */
+    Plugin dynamicLoadPlugin(boolean closePreviousPlugin) throws IOException, UserException {
+        if (closePreviousPlugin) {
+            if (plugin != null) {
+                try {
+                    plugin.close();
+                } catch (Exception e) {
+                    LOG.warn("failed to close previous plugin {}, ignore it", e);
+                } finally {
+                    plugin = null;
+                }
+            }
+        }
+
         Set<URL> jarList = getJarUrl(installPath);
 
         // create a child to load the plugin in this bundle
