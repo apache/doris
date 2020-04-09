@@ -234,7 +234,6 @@ bool RestoreTabletAction::_get_latest_tablet_path_from_trash(int64_t tablet_id, 
     }
     if (schema_hash_paths.size() == 0) {
         LOG(WARNING) << "can not find tablet_id:" << tablet_id << ", schema_hash:" << schema_hash;
-        ;
         return false;
     } else if (schema_hash_paths.size() == 1) {
         *path = schema_hash_paths[0];
