@@ -15,24 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <iostream>
-#include <string>
-#include <sstream>
-#include <fstream>
+#include "olap/olap_snapshot_converter.h"
 
-#include "gtest/gtest.h"
+#include <boost/algorithm/string.hpp>
+#include <fstream>
+#include <iostream>
+#include <sstream>
+#include <string>
+
+#include "boost/filesystem.hpp"
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/lru_cache.h"
 #include "olap/olap_meta.h"
-#include "olap/olap_snapshot_converter.h"
-#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/alpha_rowset.h"
 #include "olap/rowset/alpha_rowset_meta.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/txn_manager.h"
-#include <boost/algorithm/string.hpp>
-#include "boost/filesystem.hpp"
-#include "json2pb/json_to_pb.h"
 #include "util/file_utils.h"
 
 #ifndef BE_TEST
@@ -77,16 +78,14 @@ public:
         copy_dir(test_engine_data_path, tmp_data_path);
         _tablet_id = 15007;
         _schema_hash = 368169781;
-        _tablet_data_path = tmp_data_path
-                + "/" + std::to_string(0)
-                + "/" + std::to_string(_tablet_id)
-                + "/" + std::to_string(_schema_hash);
+        _tablet_data_path = tmp_data_path + "/" + std::to_string(0) + "/" +
+                            std::to_string(_tablet_id) + "/" + std::to_string(_schema_hash);
         if (boost::filesystem::exists(_meta_path)) {
             boost::filesystem::remove_all(_meta_path);
         }
         ASSERT_TRUE(boost::filesystem::create_directory(_meta_path));
         ASSERT_TRUE(boost::filesystem::exists(_meta_path));
-        _meta = new(std::nothrow) OlapMeta(_meta_path);
+        _meta = new (std::nothrow) OlapMeta(_meta_path);
         ASSERT_NE(nullptr, _meta);
         OLAPStatus st = _meta->init();
         ASSERT_TRUE(st == OLAP_SUCCESS);
@@ -131,12 +130,13 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     TabletMetaPB tablet_meta_pb;
     vector<RowsetMetaPB> pending_rowsets;
     OLAPStatus status = converter.to_new_snapshot(header_msg, _tablet_data_path, _tablet_data_path,
-        &tablet_meta_pb, &pending_rowsets, true);
+                                                  &tablet_meta_pb, &pending_rowsets, true);
     ASSERT_TRUE(status == OLAP_SUCCESS);
 
     TabletSchema tablet_schema;
     tablet_schema.init_from_pb(tablet_meta_pb.schema());
-    string data_path_prefix = _data_dir->get_absolute_tablet_path(&tablet_meta_pb, true);
+    string data_path_prefix = _data_dir->get_absolute_tablet_path(
+            tablet_meta_pb.shard_id(), tablet_meta_pb.tablet_id(), tablet_meta_pb.schema_hash());
     // check converted new tabletmeta pb and its files
     // check visible delta
     ASSERT_TRUE(tablet_meta_pb.rs_metas().size() == header_msg.delta().size());
@@ -145,8 +145,8 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
         int64_t end_version = pdelta.end_version();
         bool found = false;
         for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
-            if (visible_rowset.start_version() == start_version
-                && visible_rowset.end_version() == end_version) {
+            if (visible_rowset.start_version() == start_version &&
+                visible_rowset.end_version() == end_version) {
                 found = true;
             }
         }
@@ -169,9 +169,9 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
         int64_t version_hash = pdelta.version_hash();
         bool found = false;
         for (auto& inc_rowset : tablet_meta_pb.inc_rs_metas()) {
-            if (inc_rowset.start_version() == start_version
-                && inc_rowset.end_version() == end_version
-                && inc_rowset.version_hash() == version_hash) {
+            if (inc_rowset.start_version() == start_version &&
+                inc_rowset.end_version() == end_version &&
+                inc_rowset.version_hash() == version_hash) {
                 found = true;
             }
         }
@@ -184,7 +184,7 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
         ASSERT_TRUE(rowset.init() == OLAP_SUCCESS);
         ASSERT_TRUE(rowset.load() == OLAP_SUCCESS);
         AlphaRowset tmp_rowset(&tablet_schema, data_path_prefix + "/incremental_delta",
-            alpha_rowset_meta);
+                               alpha_rowset_meta);
         ASSERT_TRUE(tmp_rowset.init() == OLAP_SUCCESS);
         std::vector<std::string> old_files;
         tmp_rowset.remove_old_files(&old_files);
@@ -196,10 +196,10 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
         int64_t transaction_id = pdelta.transaction_id();
         bool found = false;
         for (auto& pending_rowset : pending_rowsets) {
-            if (pending_rowset.partition_id() == partition_id
-                && pending_rowset.txn_id() == transaction_id
-                && pending_rowset.tablet_uid().hi() == tablet_meta_pb.tablet_uid().hi()
-                && pending_rowset.tablet_uid().lo() == tablet_meta_pb.tablet_uid().lo()) {
+            if (pending_rowset.partition_id() == partition_id &&
+                pending_rowset.txn_id() == transaction_id &&
+                pending_rowset.tablet_uid().hi() == tablet_meta_pb.tablet_uid().hi() &&
+                pending_rowset.tablet_uid().lo() == tablet_meta_pb.tablet_uid().lo()) {
                 found = true;
             }
         }
@@ -217,14 +217,14 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
 
     // old files are removed, then convert new snapshot to old snapshot
     OLAPHeaderMessage old_header_msg;
-    status = converter.to_old_snapshot(tablet_meta_pb, _tablet_data_path,
-        _tablet_data_path, &old_header_msg);
+    status = converter.to_old_snapshot(tablet_meta_pb, _tablet_data_path, _tablet_data_path,
+                                       &old_header_msg);
     ASSERT_TRUE(status == OLAP_SUCCESS);
     for (auto& pdelta : header_msg.delta()) {
         bool found = false;
         for (auto& converted_pdelta : old_header_msg.delta()) {
-            if (converted_pdelta.start_version() == pdelta.start_version()
-                && converted_pdelta.end_version() == pdelta.end_version()) {
+            if (converted_pdelta.start_version() == pdelta.start_version() &&
+                converted_pdelta.end_version() == pdelta.end_version()) {
                 found = true;
             }
         }
@@ -233,9 +233,9 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     for (auto& pdelta : header_msg.incremental_delta()) {
         bool found = false;
         for (auto& converted_pdelta : old_header_msg.incremental_delta()) {
-            if (converted_pdelta.start_version() == pdelta.start_version()
-                && converted_pdelta.end_version() == pdelta.end_version()
-                && converted_pdelta.version_hash() == pdelta.version_hash()) {
+            if (converted_pdelta.start_version() == pdelta.start_version() &&
+                converted_pdelta.end_version() == pdelta.end_version() &&
+                converted_pdelta.version_hash() == pdelta.version_hash()) {
                 found = true;
             }
         }
@@ -243,9 +243,9 @@ TEST_F(OlapSnapshotConverterTest, ToNewAndToOldSnapshot) {
     }
 }
 
-}  // namespace doris
+} // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
