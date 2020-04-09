@@ -184,9 +184,7 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id, Schem
     // Register tablet into DataDir, so that we can manage tablet from
     // the perspective of root path.
     // Example: unregister all tables when a bad disk found.
-    RETURN_NOT_OK_LOG(tablet->register_tablet_into_dir(), Substitute(
-            "fail to register tablet into StorageEngine. data_dir=$0",
-            tablet->data_dir()->path()));
+    tablet->register_tablet_into_dir();
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id].table_arr.push_back(tablet);
     tablet_map[tablet_id].table_arr.sort(_cmp_tablet_by_create_time);
@@ -1337,9 +1335,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
         }
     }
 
-    RETURN_NOT_OK_LOG(dropped_tablet->deregister_tablet_from_dir(), Substitute(
-            "fail to unregister from root path. tablet=$0, schema_hash=$1",
-            tablet_id, schema_hash));
+    dropped_tablet->deregister_tablet_from_dir();
     return OLAP_SUCCESS;
 }
 

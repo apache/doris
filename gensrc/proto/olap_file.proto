@@ -211,7 +211,7 @@ message OLAPHeaderMessage {
     optional bool in_restore_mode = 19 [default = false];   // TabletMetaPB.is_restore_mode
     optional int64 tablet_id = 20;  // TabletMetaPB.tablet_id
     optional int32 schema_hash = 21;    // TabletMetaPB.schema_hash? int32 vs int64
-    optional uint64 shard = 22; // TabletMetaPB.shard_id? int64 vs int32
+    optional uint64 shard_id = 22; // TabletMetaPB.shard_id? int64 vs int32
 }
 
 enum AlterTabletState {

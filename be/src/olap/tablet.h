@@ -59,8 +59,8 @@ public:
     bool is_used();
 
     inline DataDir* data_dir() const;
-    OLAPStatus register_tablet_into_dir();
-    OLAPStatus deregister_tablet_from_dir();
+    void register_tablet_into_dir();
+    void deregister_tablet_from_dir();
 
     std::string tablet_path() const;
 
@@ -324,12 +324,12 @@ inline DataDir* Tablet::data_dir() const {
     return _data_dir;
 }
 
-inline OLAPStatus Tablet::register_tablet_into_dir() {
-    return _data_dir->register_tablet(this);
+inline void Tablet::register_tablet_into_dir() {
+    _data_dir->register_tablet(this);
 }
 
-inline OLAPStatus Tablet::deregister_tablet_from_dir() {
-    return _data_dir->deregister_tablet(this);
+inline void Tablet::deregister_tablet_from_dir() {
+    _data_dir->deregister_tablet(this);
 }
 
 inline string Tablet::tablet_path() const {
