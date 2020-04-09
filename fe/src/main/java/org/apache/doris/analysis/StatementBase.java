@@ -124,6 +124,12 @@ public abstract class StatementBase implements ParseNode {
         Preconditions.checkNotNull(resultExprs);
         Preconditions.checkState(resultExprs.size() == types.size());
         for (int i = 0; i < types.size(); ++i) {
+            //The specific type of the date type is determined by the 
+            //actual type of the return value, not by the function return value type in FE Function
+            //such as the result of str_to_date may be either DATE or DATETIME
+            if (resultExprs.get(i).getType().isDateType() && types.get(i).isDateType()) {
+                continue;                               
+            }
             if (!resultExprs.get(i).getType().equals(types.get(i))) {
                 resultExprs.set(i, resultExprs.get(i).castTo(types.get(i)));
             }
