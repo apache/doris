@@ -35,6 +35,7 @@
 #include <sstream>
 
 #include "env/env.h"
+#include "gutil/strings/substitute.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/olap_snapshot_converter.h"
@@ -397,68 +398,35 @@ OLAPStatus DataDir::get_shard(uint64_t* shard) {
     return OLAP_SUCCESS;
 }
 
-OLAPStatus DataDir::register_tablet(Tablet* tablet) {
-    std::lock_guard<std::mutex> l(_mutex);
-
+void DataDir::register_tablet(Tablet* tablet) {
     TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
-    _tablet_set.insert(tablet_info);
-    return OLAP_SUCCESS;
+
+    std::lock_guard<std::mutex> l(_mutex);
+    _tablet_set.emplace(std::move(tablet_info));
 }
 
-OLAPStatus DataDir::deregister_tablet(Tablet* tablet) {
-    std::lock_guard<std::mutex> l(_mutex);
-
+void DataDir::deregister_tablet(Tablet* tablet) {
     TabletInfo tablet_info(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
+
+    std::lock_guard<std::mutex> l(_mutex);
     _tablet_set.erase(tablet_info);
-    return OLAP_SUCCESS;
 }
 
 void DataDir::clear_tablets(std::vector<TabletInfo>* tablet_infos) {
-    for (auto& tablet : _tablet_set) {
-        tablet_infos->push_back(tablet);
-    }
+    std::lock_guard<std::mutex> l(_mutex);
+
+    tablet_infos->insert(tablet_infos->end(), _tablet_set.begin(), _tablet_set.end());
     _tablet_set.clear();
 }
 
-std::string DataDir::get_absolute_shard_path(const std::string& shard_string) {
-    return _path + DATA_PREFIX + "/" + shard_string;
+std::string DataDir::get_absolute_shard_path(int64_t shard_id) {
+    return strings::Substitute("$0$1/$2", _path, DATA_PREFIX, shard_id);
 }
 
-std::string DataDir::get_absolute_tablet_path(TabletMeta* tablet_meta, bool with_schema_hash) {
-    if (with_schema_hash) {
-        return _path + DATA_PREFIX + "/" + std::to_string(tablet_meta->shard_id()) + "/" +
-               std::to_string(tablet_meta->tablet_id()) + "/" +
-               std::to_string(tablet_meta->schema_hash());
-
-    } else {
-        return _path + DATA_PREFIX + "/" + std::to_string(tablet_meta->shard_id()) + "/" +
-               std::to_string(tablet_meta->tablet_id());
-    }
-}
-
-std::string DataDir::get_absolute_tablet_path(TabletMetaPB* tablet_meta, bool with_schema_hash) {
-    if (with_schema_hash) {
-        return _path + DATA_PREFIX + "/" + std::to_string(tablet_meta->shard_id()) + "/" +
-               std::to_string(tablet_meta->tablet_id()) + "/" +
-               std::to_string(tablet_meta->schema_hash());
-
-    } else {
-        return _path + DATA_PREFIX + "/" + std::to_string(tablet_meta->shard_id()) + "/" +
-               std::to_string(tablet_meta->tablet_id());
-    }
-}
-
-std::string DataDir::get_absolute_tablet_path(OLAPHeaderMessage& olap_header_msg,
-                                              bool with_schema_hash) {
-    if (with_schema_hash) {
-        return _path + DATA_PREFIX + "/" + std::to_string(olap_header_msg.shard()) + "/" +
-               std::to_string(olap_header_msg.tablet_id()) + "/" +
-               std::to_string(olap_header_msg.schema_hash());
-
-    } else {
-        return _path + DATA_PREFIX + "/" + std::to_string(olap_header_msg.shard()) + "/" +
-               std::to_string(olap_header_msg.tablet_id());
-    }
+std::string DataDir::get_absolute_tablet_path(int64_t shard_id, int64_t tablet_id,
+                                              int32_t schema_hash) {
+    return strings::Substitute("$0/$1/$2", get_absolute_shard_path(shard_id), tablet_id,
+                               schema_hash);
 }
 
 void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
@@ -540,7 +508,9 @@ OLAPStatus DataDir::_convert_old_tablet() {
                        << tablet_id << "." << schema_hash;
             return false;
         }
-        string old_data_path_prefix = get_absolute_tablet_path(olap_header_msg, true);
+        string old_data_path_prefix =
+                get_absolute_tablet_path(olap_header_msg.shard_id(), olap_header_msg.tablet_id(),
+                                         olap_header_msg.schema_hash());
         OLAPStatus status = converter.to_new_snapshot(olap_header_msg, old_data_path_prefix,
                                                       old_data_path_prefix, &tablet_meta_pb,
                                                       &pending_rowsets, true);
@@ -617,7 +587,9 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
 
         TabletSchema tablet_schema;
         tablet_schema.init_from_pb(tablet_meta_pb.schema());
-        string data_path_prefix = get_absolute_tablet_path(&tablet_meta_pb, true);
+        string data_path_prefix =
+                get_absolute_tablet_path(tablet_meta_pb.shard_id(), tablet_meta_pb.tablet_id(),
+                                         tablet_meta_pb.schema_hash());
 
         // convert visible pdelta file to rowsets and remove old files
         for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
@@ -697,8 +669,8 @@ OLAPStatus DataDir::load() {
     // if one rowset load failed, then the total data dir will not be loaded
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
-    auto load_rowset_func = [this, &dir_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
-                                                      const std::string& meta_str) -> bool {
+    auto load_rowset_func = [&dir_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
+                                                const std::string& meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
@@ -741,7 +713,7 @@ OLAPStatus DataDir::load() {
         LOG(INFO) << "load rowset from meta finished, data dir: " << _path;
     }
 
-    // tranverse rowset
+    // traverse rowset
     // 1. add committed rowset to txn map
     // 2. add visible rowset to tablet
     // ignore any errors when load tablet or rowset, because fe will repair them after report
@@ -843,7 +815,7 @@ void DataDir::perform_path_gc_by_rowsetid() {
             // gc thread should get tablet include deleted tablet
             // or it will delete rowset file before tablet is garbage collected
             RowsetId rowset_id;
-            bool is_rowset_file = _tablet_manager->get_rowset_id_from_path(path, &rowset_id);
+            bool is_rowset_file = TabletManager::get_rowset_id_from_path(path, &rowset_id);
             if (is_rowset_file) {
                 TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id, schema_hash);
                 if (tablet != nullptr) {
@@ -863,7 +835,7 @@ void DataDir::perform_path_gc_by_rowsetid() {
 void DataDir::perform_path_scan() {
     {
         std::unique_lock<std::mutex> lck(_check_path_mutex);
-        if (_all_check_paths.size() > 0) {
+        if (!_all_check_paths.empty()) {
             LOG(INFO) << "_all_check_paths is not empty when path scan.";
             return;
         }
