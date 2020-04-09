@@ -965,6 +965,10 @@ public class SelectStmt extends QueryStmt {
                 Expr.isAggregatePredicate()))) {
             // We're not computing aggregates but we still need to register the HAVING
             // clause which could, e.g., contain a constant expression evaluating to false.
+            if (havingClauseAfterAnaylzed.contains(Subquery.class)) {
+                throw new AnalysisException("Only constant expr could be supported in having clause "
+                        + "when no aggregation in stmt");
+            }
             if (havingClauseAfterAnaylzed != null) {
                 analyzer.registerConjuncts(havingClauseAfterAnaylzed, true);
             }
