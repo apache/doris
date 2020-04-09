@@ -95,6 +95,8 @@ public class Database extends MetaObject implements Writable {
 
     private long dataQuotaBytes;
 
+    private long replicaQuotaSize;
+
     public enum DbState {
         NORMAL, LINK, MOVE
     }
@@ -116,6 +118,7 @@ public class Database extends MetaObject implements Writable {
         this.idToTable = new ConcurrentHashMap<>();
         this.nameToTable = new HashMap<String, Table>();
         this.dataQuotaBytes = FeConstants.default_db_data_quota_bytes;
+        this.replicaQuotaSize = FeConstants.default_db_replica_quota_size;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
@@ -192,8 +195,23 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    public void setReplicaQuotaWithLock(long newQuota) {
+        Preconditions.checkArgument(newQuota >= 0L);
+        LOG.info("database[{}] set replica quota from {} to {}", fullQualifiedName, replicaQuotaSize, newQuota);
+        writeLock();
+        try {
+            this.replicaQuotaSize = newQuota;
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public long getDataQuota() {
         return dataQuotaBytes;
+    }
+
+    public long getReplicaQuota() {
+        return replicaQuotaSize;
     }
 
     public long getDataQuotaLeftWithLock() {
@@ -232,7 +250,34 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
-    public void checkQuota() throws DdlException {
+
+    public long getReplicaQuotaLeftWithLock() {
+        long usedReplicaQuota = 0;
+        readLock();
+        try {
+            for (Table table : this.idToTable.values()) {
+                if (table.getType() != TableType.OLAP) {
+                    continue;
+                }
+
+                OlapTable olapTable = (OlapTable) table;
+                for (Partition partition : olapTable.getAllPartitions()) {
+                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                        for (Tablet tablet : mIndex.getTablets()) {
+                            usedReplicaQuota += tablet.getReplicas().size();
+                        } // end for tablets
+                    } // end for tables
+                } // end for table families
+            } // end for groups
+
+            long leftReplicaQuota = replicaQuotaSize - usedReplicaQuota;
+            return Math.max(leftReplicaQuota, 0L);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public void checkDataSizeQuota() throws DdlException {
         Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
         String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
                 + quotaUnitPair.second;
@@ -249,6 +294,22 @@ public class Database extends MetaObject implements Writable {
             throw new DdlException("Database[" + fullQualifiedName
                     + "] data size exceeds quota[" + readableQuota + "]");
         }
+    }
+
+    public void checkReplicaQuota() throws DdlException {
+        long leftReplicaQuota = getReplicaQuotaLeftWithLock();
+        LOG.info("database[{}] replica quota: left size: {} / total: {}",
+                fullQualifiedName, leftReplicaQuota, replicaQuotaSize);
+
+        if (leftReplicaQuota <= 0L) {
+            throw new DdlException("Database[" + fullQualifiedName
+                    + "] replica size exceeds quota[" + replicaQuotaSize + "]");
+        }
+    }
+
+    public void checkQuota() throws DdlException {
+        checkDataSizeQuota();
+        checkReplicaQuota();
     }
 
     public boolean createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
@@ -408,6 +469,8 @@ public class Database extends MetaObject implements Writable {
                 function.write(out);
             }
         }
+
+        out.writeLong(replicaQuotaSize);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -449,6 +512,10 @@ public class Database extends MetaObject implements Writable {
 
                 name2Function.put(name, builder.build());
             }
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_80) {
+            replicaQuotaSize = in.readLong();
         }
     }
 

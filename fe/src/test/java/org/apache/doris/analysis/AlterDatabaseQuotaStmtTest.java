@@ -18,21 +18,18 @@
 package org.apache.doris.analysis;
 
 import mockit.Expectations;
+import mockit.Mocked;
+
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
-
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import java.util.List;
-
-import mockit.Mocked;
 
 public class AlterDatabaseQuotaStmtTest {
     private Analyzer analyzer;
@@ -61,9 +58,9 @@ public class AlterDatabaseQuotaStmtTest {
         };
     }
     
-    private void testAlterDatabaseQuotaStmt(String dbName, String quotaQuantity, long quotaSize)
+    private void testAlterDatabaseDataQuotaStmt(String dbName, String quotaQuantity, long quotaSize)
             throws AnalysisException, UserException {
-        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt(dbName, quotaQuantity);
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt(dbName, QuotaType.DATA, quotaQuantity);
         stmt.analyze(analyzer);
         String expectedSql = "ALTER DATABASE testCluster:testDb SET DATA QUOTA " + quotaQuantity;
         Assert.assertEquals(expectedSql, stmt.toSql());
@@ -71,65 +68,91 @@ public class AlterDatabaseQuotaStmtTest {
     }
 
     @Test
-    public void testNormal() throws AnalysisException, UserException {
+    public void testNormalAlterDatabaseDataQuotaStmt() throws AnalysisException, UserException {
         // byte
-        testAlterDatabaseQuotaStmt("testDb", "102400", 102400L);
-        testAlterDatabaseQuotaStmt("testDb", "102400b", 102400L);
+        testAlterDatabaseDataQuotaStmt("testDb", "102400", 102400L);
+        testAlterDatabaseDataQuotaStmt("testDb", "102400b", 102400L);
 
         // kb
-        testAlterDatabaseQuotaStmt("testDb", "100kb", 100L * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100Kb", 100L * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100KB", 100L * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100K", 100L * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100k", 100L * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100kb", 100L * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100Kb", 100L * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100KB", 100L * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100K", 100L * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100k", 100L * 1024);
 
         // mb
-        testAlterDatabaseQuotaStmt("testDb", "100mb", 100L * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100Mb", 100L * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100MB", 100L * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100M", 100L * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100m", 100L * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100mb", 100L * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100Mb", 100L * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100MB", 100L * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100M", 100L * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100m", 100L * 1024 * 1024);
 
         // gb
-        testAlterDatabaseQuotaStmt("testDb", "100gb", 100L * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100Gb", 100L * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100GB", 100L * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100G", 100L * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100g", 100L * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100gb", 100L * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100Gb", 100L * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100GB", 100L * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100G", 100L * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100g", 100L * 1024 * 1024 * 1024);
 
         // tb
-        testAlterDatabaseQuotaStmt("testDb", "100tb", 100L * 1024 * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100Tb", 100L * 1024 * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100TB", 100L * 1024 * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100T", 100L * 1024 * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100t", 100L * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100tb", 100L * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100Tb", 100L * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100TB", 100L * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100T", 100L * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100t", 100L * 1024 * 1024 * 1024 * 1024);
 
         // tb
-        testAlterDatabaseQuotaStmt("testDb", "100pb", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100Pb", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100PB", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100P", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
-        testAlterDatabaseQuotaStmt("testDb", "100p", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100pb", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100Pb", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100PB", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100P", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
+        testAlterDatabaseDataQuotaStmt("testDb", "100p", 100L * 1024 * 1024 * 1024 * 1024 * 1024);
     }
 
     @Test(expected = AnalysisException.class)
-    public void testMinusQuota() throws AnalysisException, UserException {
-        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", "-100mb");
+    public void testDataMinusQuota() throws AnalysisException, UserException {
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", QuotaType.DATA, "-100mb");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testInvalidUnit() throws AnalysisException, UserException {
-        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", "100invalid_unit");
+    public void testDataInvalidUnit() throws AnalysisException, UserException {
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", QuotaType.DATA, "100invalid_unit");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
 
     @Test(expected = AnalysisException.class)
-    public void testInvalidQuantity() throws AnalysisException, UserException {
-        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", "invalid_100mb_quota");
+    public void testDataInvalidQuantity() throws AnalysisException, UserException {
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", QuotaType.DATA, "invalid_100mb_quota");
         stmt.analyze(analyzer);
         Assert.fail("No exception throws.");
     }
+
+
+    @Test
+    public void testNormalAlterDatabaseReplicaQuotaStmt() throws AnalysisException, UserException {
+        long quotaSize = 1000;
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", QuotaType.REPLICA, String.valueOf(quotaSize));
+        stmt.analyze(analyzer);
+        String expectedSql = "ALTER DATABASE testCluster:testDb SET REPLICA QUOTA 1000";
+        Assert.assertEquals(expectedSql, stmt.toSql());
+        Assert.assertEquals(quotaSize, stmt.getQuota());
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testReplicaMinusQuota() throws AnalysisException, UserException {
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", QuotaType.REPLICA, "-100");
+        stmt.analyze(analyzer);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testReplicaInvalidQuantity() throws AnalysisException, UserException {
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", QuotaType.REPLICA, "invalid_100_quota");
+        stmt.analyze(analyzer);
+        Assert.fail("No exception throws.");
+    }
+
 }

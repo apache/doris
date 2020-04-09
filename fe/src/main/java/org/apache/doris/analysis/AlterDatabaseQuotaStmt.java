@@ -30,11 +30,18 @@ import com.google.common.base.Strings;
 
 public class AlterDatabaseQuotaStmt extends DdlStmt {
     private String dbName;
+    private QuotaType quotaType;
     private String quotaQuantity;
     private long quota;
 
-    public AlterDatabaseQuotaStmt(String dbName, String quotaQuantity) {
+    public enum QuotaType {
+        DATA,
+        REPLICA
+    }
+
+    public AlterDatabaseQuotaStmt(String dbName, QuotaType quotaType, String quotaQuantity) {
         this.dbName = dbName;
+        this.quotaType = quotaType;
         this.quotaQuantity = quotaQuantity;
     }
 
@@ -46,7 +53,10 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         return quota;
     }
 
-   
+    public QuotaType getQuotaType() {
+        return quotaType;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -59,11 +69,16 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-        quota = ParseUtil.analyzeDataVolumn(quotaQuantity);
+        if (quotaType == QuotaType.DATA) {
+            quota = ParseUtil.analyzeDataVolumn(quotaQuantity);
+        } else if (quotaType == QuotaType.REPLICA) {
+            quota = ParseUtil.analyzeReplicaVolumn(quotaQuantity);
+        }
+
     }
 
     @Override
     public String toSql() {
-        return "ALTER DATABASE " + dbName + " SET DATA QUOTA " + quotaQuantity;
+        return "ALTER DATABASE " + dbName + " SET " + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA") +" QUOTA " + quotaQuantity;
     }
 }

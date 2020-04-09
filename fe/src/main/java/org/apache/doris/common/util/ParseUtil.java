@@ -71,4 +71,17 @@ public class ParseUtil {
         return dataVolumn;
     }
 
+    public static long analyzeReplicaVolumn(String replicaVolumnStr) throws AnalysisException {
+        long replicaVolumn = 0;
+        try {
+            replicaVolumn = Long.parseLong(replicaVolumnStr);
+        } catch (NumberFormatException nfe) {
+            throw new AnalysisException("invalid data volumn:" + replicaVolumnStr);
+        }
+        if (replicaVolumn < 0L) {
+            throw new AnalysisException("Replica volumn must larger than 0");
+        }
+        return replicaVolumn;
+    }
+
 }
