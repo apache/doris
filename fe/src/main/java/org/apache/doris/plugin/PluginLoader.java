@@ -19,6 +19,8 @@ package org.apache.doris.plugin;
 
 import org.apache.doris.common.UserException;
 
+import com.google.common.base.Strings;
+
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
@@ -31,7 +33,22 @@ public abstract class PluginLoader {
         INSTALLED,
         UNINSTALLING,
         UNINSTALLED,
-        ERROR,
+        ERROR;
+
+        private String msg;
+
+        public void setMsg(String msg) {
+            this.msg = msg;
+        }
+
+        @Override
+        public String toString() {
+            if (Strings.isNullOrEmpty(msg)) {
+                return this.name();
+            } else {
+                return this.name() + ": " + msg;
+            }
+        }
     }
 
     // the root dir of Frontend plugin, should always be Config.plugin_dir
@@ -80,7 +97,12 @@ public abstract class PluginLoader {
     }
 
     public void setStatus(PluginStatus status) {
+        setStatus(status, null);
+    }
+
+    public void setStatus(PluginStatus status, String msg) {
         this.status = status;
+        this.status.setMsg(msg);
     }
 
     public PluginStatus getStatus() {
