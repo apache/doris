@@ -173,7 +173,7 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
     std::string root_path =
             DataDir::get_root_path_from_schema_hash_path_in_trash(latest_tablet_path);
     DataDir* store = StorageEngine::instance()->get_store(root_path);
-    std::string restore_schema_hash_path = store->get_absolute_schema_hash_path(
+    std::string restore_schema_hash_path = store->get_absolute_tablet_path(
             tablet_meta.shard_id(), tablet_meta.tablet_id(), tablet_meta.schema_hash());
     Status s = FileUtils::create_dir(restore_schema_hash_path);
     if (!s.ok()) {

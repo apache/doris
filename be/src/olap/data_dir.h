@@ -85,8 +85,8 @@ public:
     void clear_tablets(std::vector<TabletInfo>* tablet_infos);
 
     std::string get_absolute_shard_path(int64_t shard_id);
-    std::string get_absolute_schema_hash_path(int64_t shard_id, int64_t tablet_id,
-                                              int32_t schema_hash);
+    std::string get_absolute_tablet_path(int64_t shard_id, int64_t tablet_id,
+                                         int32_t schema_hash);
 
     void find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths);
 

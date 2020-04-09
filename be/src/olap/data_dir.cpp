@@ -35,6 +35,7 @@
 #include <sstream>
 
 #include "env/env.h"
+#include "gutil/strings/substitute.h"
 #include "olap/file_helper.h"
 #include "olap/olap_define.h"
 #include "olap/olap_snapshot_converter.h"
@@ -420,9 +421,9 @@ std::string DataDir::get_absolute_shard_path(int64_t shard_id) {
     return strings::Substitute("$0$1/$2", _path, DATA_PREFIX, shard_id);
 }
 
-std::string DataDir::get_absolute_schema_hash_path(int64_t shard_id, int64_t tablet_id,
-                                                   int32_t schema_hash) {
-    return strings::Substitute("$0/$1/$2", get_absolute_tablet_path(shard_id), tablet_id,
+std::string DataDir::get_absolute_tablet_path(int64_t shard_id, int64_t tablet_id,
+                                              int32_t schema_hash) {
+    return strings::Substitute("$0/$1/$2", get_absolute_shard_path(shard_id), tablet_id,
                                schema_hash);
 }
 
