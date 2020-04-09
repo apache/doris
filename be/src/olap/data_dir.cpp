@@ -225,7 +225,9 @@ Status DataDir::_init_file_system() {
 
     bool is_find = false;
     struct mntent* mount_entry = NULL;
-    while ((mount_entry = getmntent(mount_tablet)) != NULL) {
+    struct mntent ent;
+    char buf[1024];
+    while ((mount_entry = getmntent_r(mount_tablet, &ent, buf, sizeof(buf))) != NULL) {
         if (strcmp(_path.c_str(), mount_entry->mnt_dir) == 0 ||
             strcmp(_path.c_str(), mount_entry->mnt_fsname) == 0) {
             is_find = true;
