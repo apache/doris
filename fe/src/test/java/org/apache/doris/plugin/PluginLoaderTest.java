@@ -72,7 +72,7 @@ public class PluginLoaderTest {
                     DigitalVersion.JDK_1_8_0, "plugin.PluginTest", "libtest.so", "plugin_test.jar");
 
             DynamicPluginLoader util = new DynamicPluginLoader(PluginTestUtil.getTestPathString(""), info);
-            Plugin p = util.dynamicLoadPlugin();
+            Plugin p = util.dynamicLoadPlugin(true);
 
             p.init(null, null);
             p.close();

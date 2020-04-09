@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -671,13 +672,23 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Catalog catalog = Catalog.getInstance();
         String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
         Database db = catalog.getDb(fullDbName);
-        Table table = db.getTable(request.tbl);
         if (db == null) {
             String dbName = fullDbName;
             if (Strings.isNullOrEmpty(request.getCluster())) {
                 dbName = request.getDb();
             }
             throw new UserException("unknown database, database=" + dbName);
+        }
+
+        Table table = null;
+        db.readLock();
+        try {
+            table = db.getTable(request.tbl);
+            if (table == null || table.getType() != TableType.OLAP) {
+                throw new UserException("unknown table, table=" + request.tbl);
+            }
+        } finally {
+            db.readUnlock();
         }
 
         // begin
