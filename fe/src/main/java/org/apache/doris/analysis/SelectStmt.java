@@ -575,36 +575,36 @@ public class SelectStmt extends QueryStmt {
      * then rebuild the expr to a and ((b and c) or (e and f))
      */
     private Expr processDuplicateOrs(List<List<Expr>> exprs) {
-        if (CollectionUtils.isEmpty(exprs) || exprs.size() < 2) {
+        if (exprs.size() < 2) {
             return null;
         }
-        // 1. remove duplcated elemnents [[a,a], [a, b], [a,b]] => [[a], [a,b]]
+        // 1. remove duplicated elements [[a,a], [a, b], [a,b]] => [[a], [a,b]]
         Set<Set<Expr>> set = new LinkedHashSet<>();
         for (List<Expr> ex : exprs) {
             Set<Expr> es = new LinkedHashSet<>();
             es.addAll(ex);
             set.add(es);
         }
-        exprs.clear();
+        List<List<Expr>> clearExprs = new ArrayList<>();
         for (Set<Expr> es : set) {
             List<Expr> el = new ArrayList<>();
             el.addAll(es);
-            exprs.add(el);
+            clearExprs.add(el);
         }
-        if (exprs.size() == 1) {
-            return makeCompound(exprs.get(0), CompoundPredicate.Operator.AND);
+        if (clearExprs.size() == 1) {
+            return makeCompound(clearExprs.get(0), CompoundPredicate.Operator.AND);
         }
         // 2. find duplcate cross the clause
-        List<Expr> cloneExprs = new ArrayList<>(exprs.get(0));
-        for (int i = 1; i < exprs.size(); ++i) {
-            cloneExprs.retainAll(exprs.get(i));
+        List<Expr> cloneExprs = new ArrayList<>(clearExprs.get(0));
+        for (int i = 1; i < clearExprs.size(); ++i) {
+            cloneExprs.retainAll(clearExprs.get(i));
         }
         List<Expr> temp = new ArrayList<>();
         if (CollectionUtils.isNotEmpty(cloneExprs)) {
             temp.add(makeCompound(cloneExprs, CompoundPredicate.Operator.AND));
         }
 
-        for (List<Expr> exprList : exprs) {
+        for (List<Expr> exprList : clearExprs) {
             exprList.removeAll(cloneExprs);
             temp.add(makeCompound(exprList, CompoundPredicate.Operator.AND));
         }
@@ -614,7 +614,7 @@ public class SelectStmt extends QueryStmt {
         Expr result = CollectionUtils.isNotEmpty(cloneExprs) ? new CompoundPredicate(CompoundPredicate.Operator.AND,
                 temp.get(0), makeCompound(temp.subList(1, temp.size()), CompoundPredicate.Operator.OR))
                 : makeCompound(temp, CompoundPredicate.Operator.OR);
-        LOG.info("rewrite ors: " + result.toSql());
+        LOG.debug("rewrite ors: " + result.toSql());
         return result;
     }
 
