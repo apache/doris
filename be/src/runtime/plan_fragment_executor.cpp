@@ -556,10 +556,12 @@ void PlanFragmentExecutor::close() {
         }
     }
      
-    // _mem_tracker init failed
+    // fragment mem tracker needs unregister
     if (_mem_tracker.get() != nullptr) {
-        _mem_tracker->release(_mem_tracker->consumption());
+        _mem_tracker->unregister_from_parent();
+        _mem_tracker->close();
     }
+    _mem_tracker.reset();
     _closed = true;
 }
 
