@@ -354,7 +354,7 @@ private:
     // index_channel
     std::vector<IndexChannel*> _channels;
 
-    int _send_interval_ms = 30;
+    int _send_interval_ms = 10;
     std::thread _sender_thread;
 
     std::vector<DecimalValue> _max_decimal_val;

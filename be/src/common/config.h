@@ -297,7 +297,7 @@ namespace config {
     // or encounter 'tablet writer write failed' error when loading.
     // CONF_Int32(tablet_writer_rpc_timeout_sec, "600");
     // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
-    CONF_Int32(olap_table_sink_send_interval_ms, "30");
+    CONF_Int32(olap_table_sink_send_interval_ms, "10");
 
     // Fragment thread pool
     CONF_Int32(fragment_pool_thread_num, "64");
