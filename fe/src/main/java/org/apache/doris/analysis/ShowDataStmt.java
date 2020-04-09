@@ -182,7 +182,7 @@ public class ShowDataStmt extends ShowStmt {
                 OlapTable olapTable = (OlapTable) table;
                 int i = 0;
                 long totalSize = 0;
-                long totalReplicaSize = 0;
+                long totalReplicaCount = 0;
 
                 // sort by index name
                 Map<String, Long> indexNames = olapTable.getIndexNameToId();
@@ -193,11 +193,11 @@ public class ShowDataStmt extends ShowStmt {
 
                 for (Long indexId : sortedIndexNames.values()) {
                     long indexSize = 0;
-                    long indexReplicaSize = 0;
+                    long indexReplicaCount = 0;
                     for (Partition partition : olapTable.getAllPartitions()) {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize();
-                        indexReplicaSize += mIndex.getReplicaCount();
+                        indexReplicaCount += mIndex.getReplicaCount();
                     }
 
                     Pair<Double, String> indexSizePair = DebugUtil.getByteUint(indexSize);
@@ -208,15 +208,15 @@ public class ShowDataStmt extends ShowStmt {
                     if (i == 0) {
                         row = Arrays.asList(tableName,
                                             olapTable.getIndexNameById(indexId),
-                                            readableSize, String.valueOf(indexReplicaSize));
+                                            readableSize, String.valueOf(indexReplicaCount));
                     } else {
                         row = Arrays.asList("",
                                             olapTable.getIndexNameById(indexId),
-                                            readableSize, String.valueOf(indexReplicaSize));
+                                            readableSize, String.valueOf(indexReplicaCount));
                     }
 
                     totalSize += indexSize;
-                    totalReplicaSize += indexReplicaSize;
+                    totalReplicaCount += indexReplicaCount;
                     totalRows.add(row);
 
                     i++;
@@ -225,7 +225,7 @@ public class ShowDataStmt extends ShowStmt {
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
                         + totalSizePair.second;
-                List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaSize));
+                List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount));
                 totalRows.add(row);
             }
         } finally {
