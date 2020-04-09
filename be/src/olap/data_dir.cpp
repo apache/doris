@@ -416,26 +416,15 @@ void DataDir::clear_tablets(std::vector<TabletInfo>* tablet_infos) {
     _tablet_set.clear();
 }
 
-std::string DataDir::get_absolute_shard_path(const std::string& shard_string) {
-    return _path + DATA_PREFIX + "/" + shard_string;
+std::string DataDir::get_absolute_shard_path(int64_t shard_id) {
+    return strings::Substitute("$0$1/$2", _path, DATA_PREFIX, shard_id);
 }
 
-template <typename T>
-std::string DataDir::get_absolute_tablet_path(const T& tablet_meta, bool with_schema_hash) {
-    auto tablet_path = _path + DATA_PREFIX + "/" + std::to_string(tablet_meta.shard_id())
-            + "/" + std::to_string(tablet_meta.tablet_id());
-    if (with_schema_hash) {
-        return tablet_path + "/" + std::to_string(tablet_meta.schema_hash());
-    }
-    return tablet_path;
+std::string DataDir::get_absolute_schema_hash_path(int64_t shard_id, int64_t tablet_id,
+                                                   int32_t schema_hash) {
+    return strings::Substitute("$0/$1/$2", get_absolute_tablet_path(shard_id), tablet_id,
+                               schema_hash);
 }
-
-template std::string DataDir::get_absolute_tablet_path<TabletMetaPB>(
-    const TabletMetaPB& tablet_meta, bool with_schema_hash);
-template std::string DataDir::get_absolute_tablet_path<OLAPHeaderMessage>(
-    const OLAPHeaderMessage& tablet_meta, bool with_schema_hash);
-template std::string DataDir::get_absolute_tablet_path<TabletMeta>(
-    const TabletMeta& tablet_meta, bool with_schema_hash);
 
 void DataDir::find_tablet_in_trash(int64_t tablet_id, std::vector<std::string>* paths) {
     // path: /root_path/trash/time_label/tablet_id/schema_hash
@@ -516,7 +505,9 @@ OLAPStatus DataDir::_convert_old_tablet() {
                        << tablet_id << "." << schema_hash;
             return false;
         }
-        string old_data_path_prefix = get_absolute_tablet_path(olap_header_msg, true);
+        string old_data_path_prefix =
+                get_absolute_tablet_path(olap_header_msg.shard_id(), olap_header_msg.tablet_id(),
+                                         olap_header_msg.schema_hash());
         OLAPStatus status = converter.to_new_snapshot(olap_header_msg, old_data_path_prefix,
                                                       old_data_path_prefix, &tablet_meta_pb,
                                                       &pending_rowsets, true);
@@ -593,7 +584,9 @@ OLAPStatus DataDir::remove_old_meta_and_files() {
 
         TabletSchema tablet_schema;
         tablet_schema.init_from_pb(tablet_meta_pb.schema());
-        string data_path_prefix = get_absolute_tablet_path(tablet_meta_pb, true);
+        string data_path_prefix =
+                get_absolute_tablet_path(tablet_meta_pb.shard_id(), tablet_meta_pb.tablet_id(),
+                                         tablet_meta_pb.schema_hash());
 
         // convert visible pdelta file to rowsets and remove old files
         for (auto& visible_rowset : tablet_meta_pb.rs_metas()) {
@@ -674,8 +667,7 @@ OLAPStatus DataDir::load() {
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
     auto load_rowset_func = [&dir_rowset_metas](TabletUid tablet_uid, RowsetId rowset_id,
-        const std::string& meta_str) -> bool {
-
+                                                const std::string& meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new AlphaRowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
