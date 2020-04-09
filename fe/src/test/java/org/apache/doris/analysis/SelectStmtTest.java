@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 import org.junit.AfterClass;
@@ -29,6 +30,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import java.io.IOException;
 import java.util.UUID;
 
 public class SelectStmtTest {
@@ -89,10 +91,196 @@ public class SelectStmtTest {
                 "FROM db1.tbl1;";
         SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
         stmt.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertEquals("SELECT CASE WHEN `$a$1`.`$c$1` > `k4` THEN `$a$2`.`$c$2` ELSE `$a$3`.`$c$3` END" +
-                " AS `kk4` FROM `default_cluster:db1`.`tbl1` (SELECT count(*) / 2.0 AS `count(*) / 2.0` FROM " +
-                "`default_cluster:db1`.`tbl1`) $a$1 (SELECT avg(`k4`) AS `avg(``k4``)` FROM" +
-                " `default_cluster:db1`.`tbl1`) $a$2 (SELECT sum(`k4`) AS `sum(``k4``)` " +
-                "FROM `default_cluster:db1`.`tbl1`) $a$3", stmt.toSql());
+        Assert.assertTrue(stmt.toSql().contains("`$a$1`.`$c$1` > `k4` THEN `$a$2`.`$c$2` ELSE `$a$3`.`$c$3`"));
+    }
+
+    @Test
+    public void testDeduplicateOrs() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        String sql = "select\n" +
+                "   avg(t1.k4)\n" +
+                "from\n" +
+                "   db1.tbl1 t1,\n" +
+                "   db1.tbl1 t2,\n" +
+                "   db1.tbl1 t3,\n" +
+                "   db1.tbl1 t4,\n" +
+                "   db1.tbl1 t5,\n" +
+                "   db1.tbl1 t6\n" +
+                "where\n" +
+                "   t2.k1 = t1.k1\n" +
+                "   and t1.k2 = t6.k2\n" +
+                "   and t6.k4 = 2001\n" +
+                "   and(\n" +
+                "      (\n" +
+                "         t1.k2 = t4.k2\n" +
+                "         and t3.k3 = t1.k3\n" +
+                "         and t3.k1 = 'D'\n" +
+                "         and t4.k3 = '2 yr Degree'\n" +
+                "         and t1.k4 between 100.00\n" +
+                "         and 150.00\n" +
+                "         and t4.k4 = 3\n" +
+                "      )\n" +
+                "      or (\n" +
+                "         t1.k2 = t4.k2\n" +
+                "         and t3.k3 = t1.k3\n" +
+                "         and t3.k1 = 'S'\n" +
+                "         and t4.k3 = 'Secondary'\n" +
+                "         and t1.k4 between 50.00\n" +
+                "         and 100.00\n" +
+                "         and t4.k4 = 1\n" +
+                "      )\n" +
+                "      or (\n" +
+                "         t1.k2 = t4.k2\n" +
+                "         and t3.k3 = t1.k3\n" +
+                "         and t3.k1 = 'W'\n" +
+                "         and t4.k3 = 'Advanced Degree'\n" +
+                "         and t1.k4 between 150.00\n" +
+                "         and 200.00\n" +
+                "         and t4.k4  = 1\n" +
+                "      )\n" +
+                "   )\n" +
+                "   and(\n" +
+                "      (\n" +
+                "         t1.k1 = t5.k1\n" +
+                "         and t5.k2 = 'United States'\n" +
+                "         and t5.k3  in ('CO', 'IL', 'MN')\n" +
+                "         and t1.k4 between 100\n" +
+                "         and 200\n" +
+                "      )\n" +
+                "      or (\n" +
+                "         t1.k1 = t5.k1\n" +
+                "         and t5.k2 = 'United States'\n" +
+                "         and t5.k3 in ('OH', 'MT', 'NM')\n" +
+                "         and t1.k4 between 150\n" +
+                "         and 300\n" +
+                "      )\n" +
+                "      or (\n" +
+                "         t1.k1 = t5.k1\n" +
+                "         and t5.k2 = 'United States'\n" +
+                "         and t5.k3 in ('TX', 'MO', 'MI')\n" +
+                "         and t1.k4 between 50 and 250\n" +
+                "      )\n" +
+                "   );";
+        SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, ctx);
+        stmt.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        String rewritedFragment1 = "(((`t1`.`k2` = `t4`.`k2`) AND (`t3`.`k3` = `t1`.`k3`)) AND ((((((`t3`.`k1` = 'D')" +
+                " AND (`t4`.`k3` = '2 yr Degree')) AND ((`t1`.`k4` >= 100.00) AND (`t1`.`k4` <= 150.00))) AND" +
+                " (`t4`.`k4` = 3)) OR ((((`t3`.`k1` = 'S') AND (`t4`.`k3` = 'Secondary')) AND ((`t1`.`k4` >= 50.00)" +
+                " AND (`t1`.`k4` <= 100.00))) AND (`t4`.`k4` = 1))) OR ((((`t3`.`k1` = 'W') AND " +
+                "(`t4`.`k3` = 'Advanced Degree')) AND ((`t1`.`k4` >= 150.00) AND (`t1`.`k4` <= 200.00)))" +
+                " AND (`t4`.`k4` = 1))))";
+        String rewritedFragment2 = "(((`t1`.`k1` = `t5`.`k1`) AND (`t5`.`k2` = 'United States')) AND" +
+                " ((((`t5`.`k3` IN ('CO', 'IL', 'MN')) AND ((`t1`.`k4` >= 100) AND (`t1`.`k4` <= 200)))" +
+                " OR ((`t5`.`k3` IN ('OH', 'MT', 'NM')) AND ((`t1`.`k4` >= 150) AND (`t1`.`k4` <= 300))))" +
+                " OR ((`t5`.`k3` IN ('TX', 'MO', 'MI')) AND ((`t1`.`k4` >= 50) AND (`t1`.`k4` <= 250)))))";
+        Assert.assertTrue(stmt.toSql().contains(rewritedFragment1));
+        Assert.assertTrue(stmt.toSql().contains(rewritedFragment2));
+
+        String sql2 = "select\n" +
+                "   avg(t1.k4)\n" +
+                "from\n" +
+                "   db1.tbl1 t1,\n" +
+                "   db1.tbl1 t2\n" +
+                "where\n" +
+                "(\n" +
+                "   t1.k1 = t2.k3\n" +
+                "   and t2.k2 = 'United States'\n" +
+                "   and t2.k3  in ('CO', 'IL', 'MN')\n" +
+                "   and t1.k4 between 100\n" +
+                "   and 200\n" +
+                ")\n" +
+                "or (\n" +
+                "   t1.k1 = t2.k1\n" +
+                "   and t2.k2 = 'United States1'\n" +
+                "   and t2.k3 in ('OH', 'MT', 'NM')\n" +
+                "   and t1.k4 between 150\n" +
+                "   and 300\n" +
+                ")\n" +
+                "or (\n" +
+                "   t1.k1 = t2.k1\n" +
+                "   and t2.k2 = 'United States'\n" +
+                "   and t2.k3 in ('TX', 'MO', 'MI')\n" +
+                "   and t1.k4 between 50 and 250\n" +
+                ")";
+        SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
+        stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        String fragment3 = "(((((`t1`.`k1` = `t2`.`k3`) AND (`t2`.`k2` = 'United States')) AND " +
+                "(`t2`.`k3` IN ('CO', 'IL', 'MN'))) AND ((`t1`.`k4` >= 100) AND (`t1`.`k4` <= 200))) OR" +
+                " ((((`t1`.`k1` = `t2`.`k1`) AND (`t2`.`k2` = 'United States1')) AND (`t2`.`k3` IN ('OH', 'MT', 'NM')))" +
+                " AND ((`t1`.`k4` >= 150) AND (`t1`.`k4` <= 300)))) OR ((((`t1`.`k1` = `t2`.`k1`) AND " +
+                "(`t2`.`k2` = 'United States')) AND (`t2`.`k3` IN ('TX', 'MO', 'MI'))) AND ((`t1`.`k4` >= 50)" +
+                " AND (`t1`.`k4` <= 250)))";
+        Assert.assertTrue(stmt2.toSql().contains(fragment3));
+
+        String sql3 = "select\n" +
+                "   avg(t1.k4)\n" +
+                "from\n" +
+                "   db1.tbl1 t1,\n" +
+                "   db1.tbl1 t2\n" +
+                "where\n" +
+                "   t1.k1 = t2.k3 or t1.k1 = t2.k3 or t1.k1 = t2.k3";
+        SelectStmt stmt3 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql3, ctx);
+        stmt3.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertFalse(stmt3.toSql().contains("((`t1`.`k1` = `t2`.`k3`) OR (`t1`.`k1` = `t2`.`k3`)) OR" +
+                " (`t1`.`k1` = `t2`.`k3`)"));
+
+        String sql4 = "select\n" +
+                "   avg(t1.k4)\n" +
+                "from\n" +
+                "   db1.tbl1 t1,\n" +
+                "   db1.tbl1 t2\n" +
+                "where\n" +
+                "   t1.k1 = t2.k2 or t1.k1 = t2.k3 or t1.k1 = t2.k3";
+        SelectStmt stmt4 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql4, ctx);
+        stmt4.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt4.toSql().contains("(`t1`.`k1` = `t2`.`k2`) OR (`t1`.`k1` = `t2`.`k3`)"));
+
+        String sql5 = "select\n" +
+                "   avg(t1.k4)\n" +
+                "from\n" +
+                "   db1.tbl1 t1,\n" +
+                "   db1.tbl1 t2\n" +
+                "where\n" +
+                "   t2.k1 is not null or t1.k1 is not null or t1.k1 is not null";
+        SelectStmt stmt5 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql5, ctx);
+        stmt5.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt5.toSql().contains("(`t2`.`k1` IS NOT NULL) OR (`t1`.`k1` IS NOT NULL)"));
+        Assert.assertEquals(2, stmt5.toSql().split(" OR ").length);
+
+        String sql6 = "select\n" +
+                "   avg(t1.k4)\n" +
+                "from\n" +
+                "   db1.tbl1 t1,\n" +
+                "   db1.tbl1 t2\n" +
+                "where\n" +
+                "   t2.k1 is not null or t1.k1 is not null and t1.k1 is not null";
+        SelectStmt stmt6 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql6, ctx);
+        stmt6.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt6.toSql().contains("(`t2`.`k1` IS NOT NULL) OR (`t1`.`k1` IS NOT NULL)"));
+        Assert.assertEquals(2, stmt6.toSql().split(" OR ").length);
+
+        String sql7 = "select\n" +
+                "   avg(t1.k4)\n" +
+                "from\n" +
+                "   db1.tbl1 t1,\n" +
+                "   db1.tbl1 t2\n" +
+                "where\n" +
+                "   t2.k1 is not null or t1.k1 is not null and t1.k2 is not null";
+        SelectStmt stmt7 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql7, ctx);
+        stmt7.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt7.toSql().contains("(`t2`.`k1` IS NOT NULL) OR ((`t1`.`k1` IS NOT NULL) " +
+                "AND (`t1`.`k2` IS NOT NULL))"));
+
+        String sql8 = "select\n" +
+                "   avg(t1.k4)\n" +
+                "from\n" +
+                "   db1.tbl1 t1,\n" +
+                "   db1.tbl1 t2\n" +
+                "where\n" +
+                "   t2.k1 is not null and t1.k1 is not null and t1.k1 is not null";
+        SelectStmt stmt8 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql8, ctx);
+        stmt8.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        Assert.assertTrue(stmt8.toSql().contains("((`t2`.`k1` IS NOT NULL) AND (`t1`.`k1` IS NOT NULL))" +
+                " AND (`t1`.`k1` IS NOT NULL)"));
     }
 }
