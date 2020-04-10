@@ -20,17 +20,16 @@
 
 #include <stdint.h>
 
-#include <iostream>
-#include <cstddef>
-
-#include "udf/udf.h"
-#include "util/hash_util.hpp"
-#include "exprs/timezone_db.h"
-
 #include <chrono>
+#include <cstddef>
+#include <iostream>
 #include <re2/re2.h>
+
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
+#include "exprs/timezone_db.h"
+#include "udf/udf.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -501,10 +500,13 @@ private:
 
     bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) const {
         re2::StringPiece value;
-        if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value,1)) {
+        if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value, 1)) {
             bool postive = value[0] != '-';
+
+            //Regular expression guarantees hour and minute mush be int 
             int hour = std::stoi(value.substr(1, 2).as_string());
             int minute = std::stoi(value.substr(4, 2).as_string());
+
             // timezone offsets around the world extended from -12:00 to +14:00
             if (!postive && hour > 1200) {
                 return false;

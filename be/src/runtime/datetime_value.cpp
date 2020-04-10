@@ -21,7 +21,6 @@
 #include <string.h>
 #include <time.h>
 
-#include <string>
 #include <limits>
 #include <sstream>
 
@@ -1542,9 +1541,9 @@ bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezo
         return false;
     }
 
-    const auto tp1 =
+    const auto tp =
             cctz::convert(cctz::civil_second(_year, _month, _day, _hour, _minute, _second), ctz);
-    return tp1.time_since_epoch().count();
+    return tp.time_since_epoch().count();
 }
 
 bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
