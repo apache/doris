@@ -26,6 +26,7 @@
 #include <mutex>
 #include <iomanip>
 
+#include "common/config.h"
 #include "util/spinlock.h"
 #include "util/core_local.h"
 

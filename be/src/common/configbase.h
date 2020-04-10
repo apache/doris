@@ -20,56 +20,72 @@
 
 #include <stdint.h>
 
-#include <list>
 #include <map>
+#include <string>
 #include <vector>
 
 namespace doris {
+class Status;
+
 namespace config {
 
 class Register {
 public:
     struct Field {
-        const char* type;
-        const char* name;
-        void* storage;
-        const char* defval;
-        Field(const char* ftype, const char* fname, void* fstorage, const char* fdefval)
-                : type(ftype), name(fname), storage(fstorage), defval(fdefval) {}
+        const char* type = nullptr;
+        const char* name = nullptr;
+        void* storage = nullptr;
+        const char* defval = nullptr;
+        bool valmutable = false;
+        Field(const char* ftype, const char* fname, void* fstorage, const char* fdefval,
+              bool fvalmutable)
+                : type(ftype),
+                  name(fname),
+                  storage(fstorage),
+                  defval(fdefval),
+                  valmutable(fvalmutable) {}
     };
 
 public:
-    static std::list<Field>* _s_fieldlist;
+    static std::map<std::string, Field>* _s_field_map;
 
 public:
-    Register(const char* ftype, const char* fname, void* fstorage, const char* fdefval) {
-        if (_s_fieldlist == NULL) {
-            _s_fieldlist = new std::list<Field>();
+    Register(const char* ftype, const char* fname, void* fstorage, const char* fdefval,
+             bool fvalmutable) {
+        if (_s_field_map == nullptr) {
+            _s_field_map = new std::map<std::string, Field>();
         }
-        Field field(ftype, fname, fstorage, fdefval);
-        _s_fieldlist->push_back(field);
+        Field field(ftype, fname, fstorage, fdefval, fvalmutable);
+        _s_field_map->insert(std::make_pair(std::string(fname), field));
     }
 };
 
-#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT) \
-    FIELD_TYPE FIELD_NAME;                                  \
-    static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &FIELD_NAME, FIELD_DEFAULT);
+#define DEFINE_FIELD(FIELD_TYPE, FIELD_NAME, FIELD_DEFAULT, VALMUTABLE)                    \
+    FIELD_TYPE FIELD_NAME;                                                                 \
+    static Register reg_##FIELD_NAME(#FIELD_TYPE, #FIELD_NAME, &FIELD_NAME, FIELD_DEFAULT, \
+                                     VALMUTABLE);
 
 #define DECLARE_FIELD(FIELD_TYPE, FIELD_NAME) extern FIELD_TYPE FIELD_NAME;
 
 #ifdef __IN_CONFIGBASE_CPP__
-#define CONF_Bool(name, defaultstr) DEFINE_FIELD(bool, name, defaultstr)
-#define CONF_Int16(name, defaultstr) DEFINE_FIELD(int16_t, name, defaultstr)
-#define CONF_Int32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr)
-#define CONF_Int64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr)
-#define CONF_Double(name, defaultstr) DEFINE_FIELD(double, name, defaultstr)
-#define CONF_String(name, defaultstr) DEFINE_FIELD(std::string, name, defaultstr)
-#define CONF_Bools(name, defaultstr) DEFINE_FIELD(std::vector<bool>, name, defaultstr)
-#define CONF_Int16s(name, defaultstr) DEFINE_FIELD(std::vector<int16_t>, name, defaultstr)
-#define CONF_Int32s(name, defaultstr) DEFINE_FIELD(std::vector<int32_t>, name, defaultstr)
-#define CONF_Int64s(name, defaultstr) DEFINE_FIELD(std::vector<int64_t>, name, defaultstr)
-#define CONF_Doubles(name, defaultstr) DEFINE_FIELD(std::vector<double>, name, defaultstr)
-#define CONF_Strings(name, defaultstr) DEFINE_FIELD(std::vector<std::string>, name, defaultstr)
+#define CONF_Bool(name, defaultstr) DEFINE_FIELD(bool, name, defaultstr, false)
+#define CONF_Int16(name, defaultstr) DEFINE_FIELD(int16_t, name, defaultstr, false)
+#define CONF_Int32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, false)
+#define CONF_Int64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, false)
+#define CONF_Double(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, false)
+#define CONF_String(name, defaultstr) DEFINE_FIELD(std::string, name, defaultstr, false)
+#define CONF_Bools(name, defaultstr) DEFINE_FIELD(std::vector<bool>, name, defaultstr, false)
+#define CONF_Int16s(name, defaultstr) DEFINE_FIELD(std::vector<int16_t>, name, defaultstr, false)
+#define CONF_Int32s(name, defaultstr) DEFINE_FIELD(std::vector<int32_t>, name, defaultstr, false)
+#define CONF_Int64s(name, defaultstr) DEFINE_FIELD(std::vector<int64_t>, name, defaultstr, false)
+#define CONF_Doubles(name, defaultstr) DEFINE_FIELD(std::vector<double>, name, defaultstr, false)
+#define CONF_Strings(name, defaultstr) \
+    DEFINE_FIELD(std::vector<std::string>, name, defaultstr, false)
+#define CONF_mBool(name, defaultstr) DEFINE_FIELD(bool, name, defaultstr, true)
+#define CONF_mInt16(name, defaultstr) DEFINE_FIELD(int16_t, name, defaultstr, true)
+#define CONF_mInt32(name, defaultstr) DEFINE_FIELD(int32_t, name, defaultstr, true)
+#define CONF_mInt64(name, defaultstr) DEFINE_FIELD(int64_t, name, defaultstr, true)
+#define CONF_mDouble(name, defaultstr) DEFINE_FIELD(double, name, defaultstr, true)
 #else
 #define CONF_Bool(name, defaultstr) DECLARE_FIELD(bool, name)
 #define CONF_Int16(name, defaultstr) DECLARE_FIELD(int16_t, name)
@@ -83,39 +99,32 @@ public:
 #define CONF_Int64s(name, defaultstr) DECLARE_FIELD(std::vector<int64_t>, name)
 #define CONF_Doubles(name, defaultstr) DECLARE_FIELD(std::vector<double>, name)
 #define CONF_Strings(name, defaultstr) DECLARE_FIELD(std::vector<std::string>, name)
+#define CONF_mBool(name, defaultstr) DECLARE_FIELD(bool, name)
+#define CONF_mInt16(name, defaultstr) DECLARE_FIELD(int16_t, name)
+#define CONF_mInt32(name, defaultstr) DECLARE_FIELD(int32_t, name)
+#define CONF_mInt64(name, defaultstr) DECLARE_FIELD(int64_t, name)
+#define CONF_mDouble(name, defaultstr) DECLARE_FIELD(double, name)
 #endif
 
+// configuration properties load from config file.
 class Properties {
 public:
     bool load(const char* filename);
     template <typename T>
     bool get(const char* key, const char* defstr, T& retval) const;
-    const std::map<std::string, std::string>& getmap() const;
 
 private:
-    template <typename T>
-    static bool strtox(const std::string& valstr, std::vector<T>& retval);
-    template <typename T>
-    static bool strtointeger(const std::string& valstr, T& retval);
-    static bool strtox(const std::string& valstr, bool& retval);
-    static bool strtox(const std::string& valstr, int16_t& retval);
-    static bool strtox(const std::string& valstr, int32_t& retval);
-    static bool strtox(const std::string& valstr, int64_t& retval);
-    static bool strtox(const std::string& valstr, double& retval);
-    static bool strtox(const std::string& valstr, std::string& retval);
-    static std::string& trim(std::string& s);
-    static void splitkv(const std::string& s, std::string& k, std::string& v);
-    static bool replaceenv(std::string& s);
-
-private:
-    std::map<std::string, std::string> propmap;
+    std::map<std::string, std::string> file_conf_map;
 };
 
 extern Properties props;
 
-extern std::map<std::string, std::string>* confmap;
+// full configurations.
+extern std::map<std::string, std::string>* full_conf_map;
 
 bool init(const char* filename, bool fillconfmap = false);
+
+Status set_config(const std::string& field, const std::string& value);
 
 } // namespace config
 } // namespace doris

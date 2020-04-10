@@ -200,6 +200,8 @@ private:
     // Clear status(tables, ...)
     void _clear();
 
+    OLAPStatus _init_store_map();
+
     void _update_storage_medium_type_count();
 
     // Some check methods

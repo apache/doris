@@ -77,6 +77,8 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
             this.streamLoader = new DorisStreamLoader(conf);
             this.loadThread = new Thread(new LoadWorker(this.streamLoader), "audit loader thread");
             this.loadThread.start();
+
+            isInit = true;
         }
     }
 

@@ -387,7 +387,7 @@ void Tablet::_delete_inc_rowset_by_version(const Version& version,
 }
 
 void Tablet::delete_expired_inc_rowsets() {
-    time_t now = time(nullptr);
+    int64_t now = UnixSeconds();
     vector<pair<Version, VersionHash>> expired_versions;
     WriteLock wrlock(&_meta_lock);
     for (auto& rs_meta : _tablet_meta->all_inc_rs_metas()) {
@@ -716,6 +716,8 @@ OLAPStatus Tablet::_max_continuous_version_from_begining_unlocked(Version* versi
 OLAPStatus Tablet::calculate_cumulative_point() {
     WriteLock wrlock(&_meta_lock);
     if (_cumulative_point != -1) {
+        // only calculate the point once.
+        // after that, cumulative point will be updated along with compaction process.
         return OLAP_SUCCESS;
     }
 
@@ -736,7 +738,16 @@ OLAPStatus Tablet::calculate_cumulative_point() {
             // There is a hole, do not continue
             break;
         }
-        if (rs->is_segments_overlapping()) {
+        // break the loop if segments in this rowset is overlapping, or overlap flag is NOT NONOVERLAPPING
+        // even if is_segments_overlapping() return false, the overlap flag may be OVERLAPPING.
+        // eg: tablet with versions(rowsets):
+        //      [0-1] NONOVERLAPPING
+        //      [2-2] OVERLAPPING
+        // [2-2]'s overlap flag is OVERLAPPING because it is newly written by the delta writer.
+        // but is has only one segment, so is_segments_overlapping() will return false.
+        // but we should not continue increasing the cumulative point, because we need
+        // the compaction process to change the overlap flag from OVERLAPPING to NONOVERLAPPING.
+        if (rs->is_segments_overlapping() || rs->segments_overlap() != NONOVERLAPPING) {
             _cumulative_point = rs->version().first;
             break;
         }
@@ -922,11 +933,12 @@ TabletInfo Tablet::get_tablet_info() const {
     return TabletInfo(tablet_id(), schema_hash(), tablet_uid());
 }
 
-void Tablet::pick_candicate_rowsets_to_cumulative_compaction(
-        vector<RowsetSharedPtr>* candidate_rowsets) {
+void Tablet::pick_candicate_rowsets_to_cumulative_compaction(int64_t skip_window_sec,
+                                                             std::vector<RowsetSharedPtr>* candidate_rowsets) {
+    int64_t now = UnixSeconds();
     ReadLock rdlock(&_meta_lock);
     for (auto& it : _rs_version_map) {
-        if (it.first.first >= _cumulative_point) {
+        if (it.first.first >= _cumulative_point && (it.second->creation_time() + skip_window_sec < now)) {
             candidate_rowsets->push_back(it.second);
         }
     }

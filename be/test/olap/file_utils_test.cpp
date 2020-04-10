@@ -28,6 +28,7 @@
 #include "util/file_utils.h"
 #include "util/logging.h"
 #include "env/env.h"
+#include "common/configbase.h"
 
 #ifndef BE_TEST
 #define BE_TEST

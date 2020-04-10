@@ -26,7 +26,7 @@
 
 namespace doris {
 
-// Calculate the totol memory limit of all load tasks on this BE
+// Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
     if (process_mem_limit == -1) {
         // no limit

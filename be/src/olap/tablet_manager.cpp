@@ -70,6 +70,7 @@ TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
     : _tablet_map_lock_shard_size(tablet_map_lock_shard_size),
       _last_update_stat_ms(0) {
     DCHECK_GT(_tablet_map_lock_shard_size, 0);
+    DCHECK_EQ(_tablet_map_lock_shard_size & (tablet_map_lock_shard_size - 1), 0);
     _tablet_map_lock_array = new RWMutex[_tablet_map_lock_shard_size];
     _tablet_map_array = new tablet_map_t[_tablet_map_lock_shard_size];
 }
@@ -183,9 +184,7 @@ OLAPStatus TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id, Schem
     // Register tablet into DataDir, so that we can manage tablet from
     // the perspective of root path.
     // Example: unregister all tables when a bad disk found.
-    RETURN_NOT_OK_LOG(tablet->register_tablet_into_dir(), Substitute(
-            "fail to register tablet into StorageEngine. data_dir=$0",
-            tablet->data_dir()->path()));
+    tablet->register_tablet_into_dir();
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id].table_arr.push_back(tablet);
     tablet_map[tablet_id].table_arr.sort(_cmp_tablet_by_create_time);
@@ -918,8 +917,9 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
     LOG(INFO) << "begin to report all tablets info";
 
     // build the expired txn map first, outside the tablet map lock
-    std::map<TabletInfo, std::set<int64_t>> expire_txn_map;
+    std::map<TabletInfo, std::vector<int64_t>> expire_txn_map;
     StorageEngine::instance()->txn_manager()->build_expire_txn_map(&expire_txn_map);
+    LOG(INFO) << "find expired transactions for " << expire_txn_map.size() << " tablets";
 
     DorisMetrics::report_all_tablets_requests_total.increment(1);
 
@@ -937,16 +937,13 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
                 TTabletInfo tablet_info;
                 tablet_ptr->build_tablet_report_info(&tablet_info);
 
-                // find expire transaction corresponding to this tablet
+                // find expired transaction corresponding to this tablet
                 TabletInfo tinfo(tablet_id, tablet_ptr->schema_hash(), tablet_ptr->tablet_uid());
-                vector<int64_t> transaction_ids;
                 auto find = expire_txn_map.find(tinfo);
                 if (find != expire_txn_map.end()) {
-                    for(auto& it : find->second) {
-                        transaction_ids.push_back(it);
-                    }
+                    tablet_info.__set_transaction_ids(find->second);
+                    expire_txn_map.erase(find);
                 }
-                tablet_info.__set_transaction_ids(transaction_ids);
                 t_tablet.tablet_infos.push_back(tablet_info);
             }
 
@@ -1338,9 +1335,7 @@ OLAPStatus TabletManager::_drop_tablet_directly_unlocked(
         }
     }
 
-    RETURN_NOT_OK_LOG(dropped_tablet->deregister_tablet_from_dir(), Substitute(
-            "fail to unregister from root path. tablet=$0, schema_hash=$1",
-            tablet_id, schema_hash));
+    dropped_tablet->deregister_tablet_from_dir();
     return OLAP_SUCCESS;
 }
 

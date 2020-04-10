@@ -23,6 +23,7 @@
 #include <sstream>
 #include <gtest/gtest.h>
 
+#include "common/configbase.h"
 #include "common/logging.h"
 
 namespace doris {

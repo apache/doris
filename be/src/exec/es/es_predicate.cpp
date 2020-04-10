@@ -168,11 +168,12 @@ std::string ExtLiteral::get_largeint_string() {
 }
 
 EsPredicate::EsPredicate(ExprContext* context,
-            const TupleDescriptor* tuple_desc) :
+            const TupleDescriptor* tuple_desc, ObjectPool* pool) :
     _context(context),
     _disjuncts_num(0),
     _tuple_desc(tuple_desc),
-    _es_query_status(Status::OK()) {
+    _es_query_status(Status::OK()),
+    _pool(pool) {
 }
 
 EsPredicate::~EsPredicate() {
@@ -225,6 +226,11 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         SlotRef* slot_ref = nullptr;
         TExprOpcode::type op;
         Expr* expr = nullptr;
+        // k1 = 2  k1 is float (marked for processing later),
+        // doris on es should ignore this doris native cast transformation, we push down this `cast` to elasticsearch
+        // conjunct->get_child(0)->node_type() return CAST_EXPR
+        // conjunct->get_child(1)->node_type()return FLOAT_LITERAL
+        // conjunct->op() return  EQ
         if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()) {
             expr = conjunct->get_child(1);
             slot_ref = (SlotRef*)(conjunct->get_child(0));
@@ -384,12 +390,30 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         _disjuncts.push_back(predicate);
 
         return Status::OK();
-    } 
-    
+    }
     if (TExprNodeType::COMPOUND_PRED == conjunct->node_type()) {
-        if (TExprOpcode::COMPOUND_OR != conjunct->op()) {
-            return Status::InternalError("build disjuncts failed: op is not COMPOUND_OR");
+        // processe COMPOUND_AND, such as:
+        // k = 1 or (k1 = 7 and (k2 in (6,7) or k3 = 12))
+        // k1 = 7 and (k2 in (6,7) or k3 = 12) is compound pred, we should rebuild this sub tree
+        if (conjunct->op() == TExprOpcode::COMPOUND_AND) {
+            std::vector<EsPredicate*> conjuncts;
+            for (int i = 0; i < conjunct->get_num_children(); ++i) {
+                EsPredicate *predicate = _pool->add(new EsPredicate(_context, _tuple_desc, _pool));
+                Status status = predicate->build_disjuncts_list(conjunct->children()[i]);
+                if (status.ok()) {
+                    conjuncts.push_back(predicate);
+                } else {
+                    return Status::InternalError("build COMPOUND_AND conjuncts failed");
+                }
+            }
+            ExtCompPredicates *compound_predicate = new ExtCompPredicates(TExprOpcode::COMPOUND_AND, conjuncts);
+            _disjuncts.push_back(compound_predicate);
+            return Status::OK();
+        } else if (conjunct->op() == TExprOpcode::COMPOUND_NOT){
+            // reserved for processing COMPOUND_NOT
+            return Status::InternalError("currently do not support COMPOUND_NOT push-down");
         }
+        DCHECK(conjunct->op() == TExprOpcode::COMPOUND_OR);
         Status status = build_disjuncts_list(conjunct->get_child(0));
         if (!status.ok()) {
             return status;
@@ -398,7 +422,6 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         if (!status.ok()) {
             return status;
         }
-
         return Status::OK();
     }
 

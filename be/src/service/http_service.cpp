@@ -28,6 +28,7 @@
 #include "http/action/restore_tablet_action.h"
 #include "http/action/snapshot_action.h"
 #include "http/action/stream_load.h"
+#include "http/action/update_config_action.h"
 #include "http/default_path_handlers.h"
 #include "http/download_action.h"
 #include "http/ev_http_server.h"
@@ -118,6 +119,9 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/show", show_compaction_action);
     CompactionAction* run_compaction_action = new CompactionAction(CompactionActionType::RUN_COMPACTION);
     _ev_http_server->register_handler(HttpMethod::POST, "/api/compaction/run", run_compaction_action);
+
+    UpdateConfigAction* update_config_action = new UpdateConfigAction();
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/update_config", update_config_action);
 
     RETURN_IF_ERROR(_ev_http_server->start());
     return Status::OK();

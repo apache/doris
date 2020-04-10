@@ -21,6 +21,7 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "util/cpu_info.h"
 

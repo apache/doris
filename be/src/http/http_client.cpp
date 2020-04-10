@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/config.h"
 #include "http/http_client.h"
 
 namespace doris {
