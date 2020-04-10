@@ -233,7 +233,7 @@ public class DeleteHandler implements Writable {
             commitJob(deleteJob, db, timeoutMs);
         } else {
             deleteJob.checkQuorum();
-            if (deleteJob.getState() == DeleteState.QUORUM_FINISHED) {
+            if (deleteJob.getState() != DeleteState.UN_QUORUM) {
                 long nowQuorumTimeMs = System.currentTimeMillis();
                 long endQuorumTimeoutMs = nowQuorumTimeMs + timeoutMs / 2;
                 // if job's state is finished or stay in quorum_finished for long time, try to commit it.
@@ -251,8 +251,9 @@ public class DeleteHandler implements Writable {
                 // only show at most 5 results
                 List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
                 String errMsg = "Unfinished replicas:" + Joiner.on(", ").join(subList);
-                LOG.warn("failed to delete replicas from job: {}, {}", transactionId, errMsg);
+                LOG.warn("delete job timeout: {}, {}", transactionId, errMsg);
                 cancelJob(deleteJob, "delete job timeout");
+                throw new DdlException("failed to delete replicas from job: {}, {}, transactionId, errMsg");
             }
         }
     }
@@ -262,7 +263,6 @@ public class DeleteHandler implements Writable {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         TransactionState transactionState = globalTransactionMgr.getTransactionState(transactionId);
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
-        db.writeLock();
         try {
             TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
             for (TabletDeleteInfo tDeleteInfo : job.getTabletDeleteInfo()) {
@@ -284,8 +284,6 @@ public class DeleteHandler implements Writable {
             LOG.warn("errors while commit delete job, transaction [{}], reason is {}",
                     transactionState.getTransactionId(), e);
             cancelJob(job, transactionState.getReason());
-        } finally {
-            db.writeUnlock();
         }
     }
 

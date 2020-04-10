@@ -370,7 +370,7 @@ public class MasterImpl {
                             backendId, tTabletInfo);
                     if (replica != null) {
                         deleteJob.addFinishedReplica(pushTabletId, replica);
-                        pushTask.countDownLatch(backendId, tableId);
+                        pushTask.countDownLatch(backendId, pushTabletId);
                     }
                 }
             }

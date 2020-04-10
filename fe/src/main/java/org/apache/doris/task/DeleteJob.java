@@ -50,6 +50,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     private long signature;
     private Set<Long> totalTablets;
     private Set<Long> quorumTablets;
+    private Set<Long> finishedTablets;
     Map<Long, TabletDeleteInfo> tabletDeleteInfoMap;
     private Set<PushTask> pushTasks;
     private DeleteInfo deleteInfo;
@@ -58,6 +59,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         this.signature = transactionId;
         this.deleteInfo = deleteInfo;
         totalTablets = Sets.newHashSet();
+        finishedTablets = Sets.newHashSet();
         quorumTablets = Sets.newHashSet();
         tabletDeleteInfoMap = Maps.newConcurrentMap();
         pushTasks = Sets.newHashSet();
@@ -89,10 +91,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         }
 
         short quorumNum = (short) (replicaNum / 2 + 1);
-        boolean isFinished = true;
-        for (TabletDeleteInfo tDeleteInfo : tabletDeleteInfoMap.values()) {
-            if (tDeleteInfo.getFinishedReplicas().size() < replicaNum) {
-                isFinished = false;
+        for (TabletDeleteInfo tDeleteInfo : getTabletDeleteInfo()) {
+            if (tDeleteInfo.getFinishedReplicas().size() == replicaNum) {
+                finishedTablets.add(tDeleteInfo.getTabletId());
             }
             if (tDeleteInfo.getFinishedReplicas().size() >= quorumNum) {
                 quorumTablets.add(tDeleteInfo.getTabletId());
@@ -101,7 +102,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         LOG.info("check delete job quorum, transaction id: {}, total tablets: {}, quorum tablets: {},",
                 signature, totalTablets.size(), quorumTablets.size());
 
-        if (isFinished) {
+        if (finishedTablets.containsAll(totalTablets)) {
             setState(DeleteState.FINISHED);
         } else if (quorumTablets.containsAll(totalTablets)) {
             setState(DeleteState.QUORUM_FINISHED);
