@@ -93,7 +93,7 @@ public class Frontend implements Writable {
         return lastUpdateTime;
     }
 
-    /*
+    /**
      * handle Frontend's heartbeat response.
      * Because the replayed journal id is very likely to be changed at each heartbeat response,
      * so we simple return true if the heartbeat status is OK.
@@ -149,10 +149,11 @@ public class Frontend implements Writable {
         return frontend;
     }
     
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("name: ").append(nodeName).append(", role: ").append(role.name());
-        sb.append(", ").append(host + ":" + editLogPort);
+        sb.append(", ").append(host).append(":").append(editLogPort);
         return sb.toString();
     }
 }
