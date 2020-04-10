@@ -26,7 +26,11 @@
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "exprs/timezone_db.h"
+
+#include <chrono>
 #include <re2/re2.h>
+#include "cctz/civil_time.h"
+#include "cctz/time_zone.h"
 
 namespace doris {
 
@@ -493,6 +497,27 @@ private:
         int64_t ymd = ((_year * 13 + _month) << 5) | _day;
         int64_t tmp = make_packed_time(ymd << 17, 0);
         return _neg ? -tmp : tmp;
+    }
+
+    bool find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) const {
+        re2::StringPiece value;
+        if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value,1)) {
+            bool postive = value[0] != '-';
+            int hour = std::stoi(value.substr(1, 2).as_string());
+            int minute = std::stoi(value.substr(4, 2).as_string());
+            // timezone offsets around the world extended from -12:00 to +14:00
+            if (!postive && hour > 1200) {
+                return false;
+            } else if (postive && hour > 1400) {
+                return false;
+            }
+            int offset = hour * 60 * 60 + minute * 60;
+            offset *= postive ? 1 : -1;
+            ctz = cctz::fixed_time_zone(cctz::seconds(offset));
+            return true;
+        } else {
+            return cctz::load_time_zone(timezone, &ctz);
+        }
     }
 
     // Check wether value of field is valid.
