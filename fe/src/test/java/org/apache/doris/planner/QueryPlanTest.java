@@ -459,4 +459,27 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("2011-11-09"));
         Assert.assertFalse(explainString.contains("2011-11-09 00:00:00"));
     }
+
+    @Test
+    public void testNormalizeCountRule() throws Exception {
+        String countSql = "explain select max(k1) from test.baseall having count(1) > 0";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, countSql);
+        Assert.assertTrue(!explainString.contains("count(1)"));
+
+        countSql = "explain select max(k1) from test.baseall having count(*) > 0";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, countSql);
+        Assert.assertTrue(!explainString.contains("count(*)"));
+
+        countSql = "explain select max(k1) from test.baseall having 0 < count(*)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, countSql);
+        Assert.assertTrue(!explainString.contains("count(*)"));
+
+        countSql = "explain select max(k1) from test.baseall having count(*) < 0";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, countSql);
+        Assert.assertTrue(explainString.contains("count(*)"));
+
+        countSql = "explain select max(k1) from test.baseall having count(*) > 5";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, countSql);
+        Assert.assertTrue(explainString.contains("count(*)"));
+    }
 }
