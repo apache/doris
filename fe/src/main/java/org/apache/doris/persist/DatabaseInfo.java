@@ -111,16 +111,8 @@ public class DatabaseInfo implements Writable {
         return dbState;
     }
 
-    public void setDbState(DbState dbState) {
-        this.dbState = dbState;
-    }
-
     public QuotaType getQuotaType() {
         return quotaType;
-    }
-
-    public void setQuotaType(QuotaType quotaType) {
-        this.quotaType = quotaType;
     }
 
 }

@@ -2788,7 +2788,7 @@ public class Catalog {
         } else if (quotaType == QuotaType.REPLICA) {
             db.setReplicaQuotaWithLock(stmt.getQuota());
         }
-        long quota = (quotaType == QuotaType.DATA ? db.getDataQuota() : db.getReplicaQuota());
+        long quota = stmt.getQuota();
         DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", quota, quotaType);
         editLog.logAlterDb(dbInfo);
     }
@@ -2845,7 +2845,7 @@ public class Catalog {
             fullNameToDb.remove(fullDbName);
             fullNameToDb.put(newFullDbName, db);
 
-            DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L, QuotaType.DATA);
+            DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L, QuotaType.NONE);
             editLog.logDatabaseRename(dbInfo);
         } finally {
             unlock();

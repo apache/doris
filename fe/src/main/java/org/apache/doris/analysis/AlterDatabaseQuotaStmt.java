@@ -31,18 +31,19 @@ import com.google.common.base.Strings;
 public class AlterDatabaseQuotaStmt extends DdlStmt {
     private String dbName;
     private QuotaType quotaType;
-    private String quotaQuantity;
+    private String quotaValue;
     private long quota;
 
     public enum QuotaType {
+        NONE,
         DATA,
         REPLICA
     }
 
-    public AlterDatabaseQuotaStmt(String dbName, QuotaType quotaType, String quotaQuantity) {
+    public AlterDatabaseQuotaStmt(String dbName, QuotaType quotaType, String quotaValue) {
         this.dbName = dbName;
         this.quotaType = quotaType;
-        this.quotaQuantity = quotaQuantity;
+        this.quotaValue = quotaValue;
     }
 
     public String getDbName() {
@@ -70,15 +71,15 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         }
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         if (quotaType == QuotaType.DATA) {
-            quota = ParseUtil.analyzeDataVolumn(quotaQuantity);
+            quota = ParseUtil.analyzeDataVolumn(quotaValue);
         } else if (quotaType == QuotaType.REPLICA) {
-            quota = ParseUtil.analyzeReplicaVolumn(quotaQuantity);
+            quota = ParseUtil.analyzeReplicaNumber(quotaValue);
         }
 
     }
 
     @Override
     public String toSql() {
-        return "ALTER DATABASE " + dbName + " SET " + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA") +" QUOTA " + quotaQuantity;
+        return "ALTER DATABASE " + dbName + " SET " + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA") +" QUOTA " + quotaValue;
     }
 }

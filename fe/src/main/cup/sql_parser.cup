@@ -714,9 +714,9 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.DATA, quota_quantity);
     :}
-    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_REPLICA KW_QUOTA quantity:quota_quantity
+    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_REPLICA KW_QUOTA INTEGER_LITERAL: number
     {:
-        RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.REPLICA, quota_quantity);
+        RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.REPLICA, String.valueOf(number));
     :}
 
     | KW_ALTER KW_DATABASE ident:dbName KW_RENAME ident:newDbName

@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
-import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -224,24 +221,8 @@ public class Database extends MetaObject implements Writable {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                for (Partition partition : olapTable.getAllPartitions()) {
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                        // skip ROLLUP index
-                        if (mIndex.getState() == IndexState.ROLLUP) {
-                            continue;
-                        }
-
-                        for (Tablet tablet : mIndex.getTablets()) {
-                            for (Replica replica : tablet.getReplicas()) {
-                                if (replica.getState() == ReplicaState.NORMAL
-                                        || replica.getState() == ReplicaState.SCHEMA_CHANGE) {
-                                    usedDataQuota += replica.getDataSize();
-                                }
-                            } // end for replicas
-                        } // end for tablets
-                    } // end for tables
-                } // end for table families
-            } // end for groups
+                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+            }
 
             long leftDataQuota = dataQuotaBytes - usedDataQuota;
             return Math.max(leftDataQuota, 0L);
@@ -261,14 +242,8 @@ public class Database extends MetaObject implements Writable {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                for (Partition partition : olapTable.getAllPartitions()) {
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.ALL)) {
-                        for (Tablet tablet : mIndex.getTablets()) {
-                            usedReplicaQuota += tablet.getReplicas().size();
-                        } // end for tablets
-                    } // end for tables
-                } // end for table families
-            } // end for groups
+                usedReplicaQuota = usedReplicaQuota + olapTable.getReplicaCount();
+            }
 
             long leftReplicaQuota = replicaQuotaSize - usedReplicaQuota;
             return Math.max(leftReplicaQuota, 0L);
@@ -298,12 +273,12 @@ public class Database extends MetaObject implements Writable {
 
     public void checkReplicaQuota() throws DdlException {
         long leftReplicaQuota = getReplicaQuotaLeftWithLock();
-        LOG.info("database[{}] replica quota: left size: {} / total: {}",
+        LOG.info("database[{}] replica quota: left number: {} / total: {}",
                 fullQualifiedName, leftReplicaQuota, replicaQuotaSize);
 
         if (leftReplicaQuota <= 0L) {
             throw new DdlException("Database[" + fullQualifiedName
-                    + "] replica size exceeds quota[" + replicaQuotaSize + "]");
+                    + "] replica number exceeds quota[" + replicaQuotaSize + "]");
         }
     }
 
@@ -516,6 +491,8 @@ public class Database extends MetaObject implements Writable {
 
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_80) {
             replicaQuotaSize = in.readLong();
+        } else {
+            replicaQuotaSize = FeConstants.default_db_replica_quota_size;
         }
     }
 
