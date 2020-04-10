@@ -94,7 +94,7 @@ public class DatabaseInfo implements Writable {
             this.clusterName = Text.readString(in);
             this.dbState = DbState.valueOf(Text.readString(in));
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_80) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
             this.quotaType = QuotaType.valueOf(Text.readString(in));
         }
     }
