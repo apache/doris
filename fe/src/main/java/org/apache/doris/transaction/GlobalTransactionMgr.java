@@ -826,9 +826,9 @@ public class GlobalTransactionMgr implements Writable {
         if (CollectionUtils.isEmpty(sourceTableIdList) || CollectionUtils.isEmpty(targetTableIdList)) {
             return true;
         }
-        for (Long aLong : sourceTableIdList) {
-            for (Long value : targetTableIdList) {
-                if (aLong.equals(value)) {
+        for (Long srcValue : sourceTableIdList) {
+            for (Long targetValue : targetTableIdList) {
+                if (srcValue.equals(targetValue)) {
                     return true;
                 }
             }
@@ -1390,12 +1390,12 @@ public class GlobalTransactionMgr implements Writable {
         return null;
     }
 
-    public List<Long> getTransactionIdByCoordinateBe(String coordinate, int limit) {
+    public List<Long> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
         ArrayList<Long> txnIds = new ArrayList<>();
         readLock();
         try {
             idToTransactionState.values().stream()
-                    .filter(t -> (t.getCoordinator().contains(coordinate) && (!t.getTransactionStatus().isFinalStatus())))
+                    .filter(t -> (t.getCoordinator().contains(coordinateHost) && (!t.getTransactionStatus().isFinalStatus())))
                     .limit(limit)
                     .forEach(t -> { txnIds.add(t.getTransactionId()); });
         } finally {
@@ -1408,13 +1408,13 @@ public class GlobalTransactionMgr implements Writable {
      * If a Coordinate BE is down when running txn, the txn will remain in FE until killed by timeout
      * So when FE identify the Coordiante BE is down, FE should cancel it initiative
      */
-    public void abortTxnWhenCoordinateBeDown(String coordinate, int limit) {
-        List<Long> transactionIdByCoordinateBe = getTransactionIdByCoordinateBe(coordinate, limit);
+    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
+        List<Long> transactionIdByCoordinateBe = getTransactionIdByCoordinateBe(coordinateHost, limit);
         for (Long txnId : transactionIdByCoordinateBe) {
             try {
                 abortTransaction(txnId, "coordinate BE is down");
             } catch (UserException e) {
-                LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinate, e.getMessage());
+                LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
             }
         }
     }
