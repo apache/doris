@@ -24,8 +24,11 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.TabletDeleteInfo;
+import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -33,69 +36,84 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 
-public class DeleteTask extends MasterTask {
-    private static final Logger LOG = LogManager.getLogger(DeleteTask.class);
+public class DeleteJob extends AbstractTxnStateChangeCallback {
+    private static final Logger LOG = LogManager.getLogger(DeleteJob.class);
 
-    private DeleteInfo deleteInfo;
+    public enum DeleteState {
+        UN_QUORUM,
+        QUORUM_FINISHED,
+        FINISHED
+    }
 
+    private DeleteState state;
+
+    private long signature;
     private Set<Long> totalTablets;
     private Set<Long> quorumTablets;
     Map<Long, TabletDeleteInfo> tabletDeleteInfoMap;
     private Set<PushTask> pushTasks;
+    private DeleteInfo deleteInfo;
 
-    boolean isQuorum;
-    boolean isCanceled;
-
-    private Object lock;
-
-    public DeleteTask(long transactionId, DeleteInfo deleteInfo) {
+    public DeleteJob(long transactionId, DeleteInfo deleteInfo) {
         this.signature = transactionId;
         this.deleteInfo = deleteInfo;
         totalTablets = Sets.newHashSet();
         quorumTablets = Sets.newHashSet();
         tabletDeleteInfoMap = Maps.newConcurrentMap();
         pushTasks = Sets.newHashSet();
-        isQuorum = false;
-        isCanceled = false;
-        lock = new Object();
+        state = DeleteState.UN_QUORUM;
     }
 
-    @Override
-    protected void exec() {
+    public void checkQuorum() throws DdlException {
         long dbId = deleteInfo.getDbId();
         long tableId = deleteInfo.getTableId();
         long partitionId = deleteInfo.getPartitionId();
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
             LOG.warn("can not find database "+ dbId +" when commit delete");
+            return;
         }
 
+        short replicaNum = -1;
         db.readLock();
         try {
             OlapTable table = (OlapTable) db.getTable(tableId);
             if (table == null) {
                 LOG.warn("can not find table "+ tableId +" when commit delete");
+                return;
             }
 
-            short replicaNum = table.getPartitionInfo().getReplicationNum(partitionId);
-            short quorumNum = (short) (replicaNum / 2 + 1);
-
-            for (TabletDeleteInfo tDeleteInfo : tabletDeleteInfoMap.values()) {
-                if (tDeleteInfo.getFinishedReplicas().size() >= quorumNum) {
-                    quorumTablets.add(tDeleteInfo.getTabletId());
-                }
-            }
-
-            LOG.info("delete task running, signature: {}, total tablets: {}, quorum tablets: {},",
-                    signature, totalTablets.size(), quorumTablets.size());
-            if (quorumTablets.containsAll(totalTablets)) {
-                isQuorum= true;
-            }
-        } catch (Throwable t) {
-            t.printStackTrace();
+            replicaNum = table.getPartitionInfo().getReplicationNum(partitionId);
         } finally {
             db.readUnlock();
         }
+
+        short quorumNum = (short) (replicaNum / 2 + 1);
+        boolean isFinished = true;
+        for (TabletDeleteInfo tDeleteInfo : tabletDeleteInfoMap.values()) {
+            if (tDeleteInfo.getFinishedReplicas().size() < replicaNum) {
+                isFinished = false;
+            }
+            if (tDeleteInfo.getFinishedReplicas().size() >= quorumNum) {
+                quorumTablets.add(tDeleteInfo.getTabletId());
+            }
+        }
+        LOG.info("check delete job quorum, transaction id: {}, total tablets: {}, quorum tablets: {},",
+                signature, totalTablets.size(), quorumTablets.size());
+
+        if (isFinished) {
+            setState(DeleteState.FINISHED);
+        } else if (quorumTablets.containsAll(totalTablets)) {
+            setState(DeleteState.QUORUM_FINISHED);
+        }
+    }
+
+    public void setState(DeleteState state) {
+        this.state = state;
+    }
+
+    public DeleteState getState() {
+        return this.state;
     }
 
     public boolean addTablet(long tabletId) {
@@ -123,35 +141,24 @@ public class DeleteTask extends MasterTask {
         return pushTasks;
     }
 
+    @Override
+    public long getId() {
+        return this.signature;
+    }
+
+    @Override
+    public void afterVisible(TransactionState txnState, boolean txnOperated) {
+        Catalog catalog = Catalog.getInstance();
+        catalog.getEditLog().logFinishSyncDelete(deleteInfo);
+        catalog.getDeleteHandler().recordFinishedJob(this);
+    }
+
+    public long getTransactionId() {
+        return this.signature;
+    }
+
     public Collection<TabletDeleteInfo> getTabletDeleteInfo() {
         return tabletDeleteInfoMap.values();
-    }
-
-    public boolean isQuorum() {
-        return isQuorum;
-    }
-
-    public void join(long timeout) {
-        synchronized (lock) {
-            try {
-                lock.wait(timeout);
-            } catch (InterruptedException e) {
-            }
-        }
-    }
-
-    public void unJoin() {
-        synchronized (lock) {
-            lock.notifyAll();
-        }
-    }
-
-    public void setCancel() {
-        isCanceled = true;
-    }
-
-    public boolean isCancel() {
-        return isCanceled;
     }
 
     public long getTimeout() {

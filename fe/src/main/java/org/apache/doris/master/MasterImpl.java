@@ -47,6 +47,7 @@ import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.CreateRollupTask;
+import org.apache.doris.task.DeleteJob;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.PublishVersionTask;
@@ -363,11 +364,13 @@ public class MasterImpl {
                     }
                 }
             } else if (pushTask.getPushType() == TPushType.DELETE) {
+                DeleteJob deleteJob = Catalog.getInstance().getDeleteHandler().getDeleteJob(transactionId);
                 for (TTabletInfo tTabletInfo : finishTabletInfos) {
                     Replica replica = findRelatedReplica(olapTable, partition,
                             backendId, tTabletInfo);
                     if (replica != null) {
-                        Catalog.getInstance().getDeleteHandler().addFinishedReplica(transactionId, pushTabletId, replica);
+                        deleteJob.addFinishedReplica(pushTabletId, replica);
+                        pushTask.countDownLatch(backendId, tableId);
                     }
                 }
             }

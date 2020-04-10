@@ -1438,6 +1438,7 @@ public class Catalog {
             checksum = loadLoadJobsV2(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
+            checksum = loadDeleteHandler(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1768,6 +1769,18 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadDeleteHandler(DataInputStream dis, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
+            getDeleteHandler().readField(dis);
+        }
+        return checksum;
+    }
+
+    public long saveDeleteHandler(DataOutputStream dos, long checksum) throws IOException {
+        getDeleteHandler().write(dos);
+        return checksum;
+    }
+
     public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
             // CAN NOT use PaloAuth.read(), cause this auth instance is already passed to DomainResolver
@@ -1872,6 +1885,7 @@ public class Catalog {
             checksum = saveLoadJobsV2(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
+            checksum = saveDeleteHandler(dos, checksum);
             dos.writeLong(checksum);
         }
 
