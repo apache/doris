@@ -960,28 +960,36 @@ OLAPStatus TabletManager::start_trash_sweep() {
     {
         std::vector<int64_t> tablets_to_clean;
         for (int32 i = 0; i < _tablet_map_lock_shard_size; i++) {
-            WriteLock rlock(&_tablet_map_lock_array[i]);
             tablet_map_t& tablet_map = _tablet_map_array[i];
-            for (auto& item : tablet_map) {
-                // try to clean empty item
-                if (item.second.table_arr.empty()) {
-                    // try to get schema change lock if could get schema change lock, then nobody
-                    // own the lock could remove the item
-                    // it will core if schema change thread may hold the lock and this thread will deconstruct lock
-                    if (item.second.schema_change_lock.trylock() == OLAP_SUCCESS) {
-                        item.second.schema_change_lock.unlock();
+            {
+                ReadLock r_lock(&_tablet_map_lock_array[i]);
+                for (auto& item : tablet_map) {
+                    // try to clean empty item
+                    if (item.second.table_arr.empty()) {
                         tablets_to_clean.push_back(item.first);
                     }
-                }
-                for (TabletSharedPtr tablet : item.second.table_arr) {
-                    tablet->delete_expired_inc_rowsets();
+                    for (TabletSharedPtr tablet : item.second.table_arr) {
+                        tablet->delete_expired_inc_rowsets();
+                    }
                 }
             }
-            // clean empty tablet id item
-            for (const auto& tablet_id_to_clean : tablets_to_clean) {
-                if (tablet_map[tablet_id_to_clean].table_arr.empty()) {
-                    tablet_map.erase(tablet_id_to_clean);
+
+            if (!tablets_to_clean.empty()) {
+                WriteLock w_lock(&_tablet_map_lock_array[i]);
+                // clean empty tablet id item
+                for (const auto& tablet_id_to_clean : tablets_to_clean) {
+                    auto& item = tablet_map[tablet_id_to_clean];
+                    if (item.table_arr.empty()) {
+                        // try to get schema change lock if could get schema change lock, then nobody
+                        // own the lock could remove the item
+                        // it will core if schema change thread may hold the lock and this thread will deconstruct lock
+                        if (item.schema_change_lock.trylock() == OLAP_SUCCESS) {
+                            item.schema_change_lock.unlock();
+                            tablet_map.erase(tablet_id_to_clean);
+                        }
+                    }
                 }
+                tablets_to_clean.clear(); // We should clear the vector before next loop
             }
         }
     }
