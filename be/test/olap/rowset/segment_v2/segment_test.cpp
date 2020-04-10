@@ -1124,14 +1124,12 @@ TEST_F(SegmentReaderWriterTest, TestBloomFilterIndexUniqueModel) {
 
     // for not base segment
     SegmentWriterOptions opts1;
-    opts1.whether_to_filter_value = false;
     shared_ptr<Segment> seg1;
     build_segment(opts1, schema, schema, 100, DefaultIntGenerator, &seg1);
-    ASSERT_FALSE(column_contains_index(seg1->footer().columns(3), BLOOM_FILTER_INDEX));
+    ASSERT_TRUE(column_contains_index(seg1->footer().columns(3), BLOOM_FILTER_INDEX));
 
     // for base segment
     SegmentWriterOptions opts2;
-    opts2.whether_to_filter_value = true;
     shared_ptr<Segment> seg2;
     build_segment(opts2, schema, schema, 100, DefaultIntGenerator, &seg2);
     ASSERT_TRUE(column_contains_index(seg2->footer().columns(3), BLOOM_FILTER_INDEX));

@@ -192,7 +192,6 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer() {
 
     DCHECK(wblock != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
-    writer_options.whether_to_filter_value = _context.version.first == 0;
     _segment_writer.reset(new segment_v2::SegmentWriter(
             wblock.get(), _num_segment, _context.tablet_schema, writer_options));
     _wblocks.push_back(std::move(wblock));

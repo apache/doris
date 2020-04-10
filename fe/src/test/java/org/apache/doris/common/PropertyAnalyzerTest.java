@@ -49,10 +49,10 @@ public class PropertyAnalyzerTest {
         columns.get(1).setIsKey(true);
 
         Map<String, String> properties = Maps.newHashMap();
-        properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k1,v1");
+        properties.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, "k1");
 
         Set<String> bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, columns);
-        Assert.assertEquals(Sets.newHashSet("k1", "v1"), bfColumns);
+        Assert.assertEquals(Sets.newHashSet("k1"), bfColumns);
     }
 
     @Test

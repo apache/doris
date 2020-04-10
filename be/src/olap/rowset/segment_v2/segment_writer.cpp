@@ -71,25 +71,9 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         }
         if (column.is_bf_column()) {
             opts.need_bloom_filter = true;
-            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
-                    || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
-                    && !_opts.whether_to_filter_value) {
-                // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or
-                // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
-                // do not write the bloom filter index because it is useless
-                opts.need_bloom_filter = false;
-            }
         }
         if (column.has_bitmap_index()) {
             opts.need_bitmap_index = true;
-            if ((column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE
-                 || column.aggregation() == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
-                && !_opts.whether_to_filter_value) {
-                // if the column's Aggregation type is OLAP_FIELD_AGGREGATION_REPLACE or
-                // OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL and the segment is not in base rowset,
-                // do not write the bitmap index because it is useless
-                opts.need_bitmap_index = false;
-            }
         }
 
         std::unique_ptr<ColumnWriter> writer(
