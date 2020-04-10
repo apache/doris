@@ -79,17 +79,17 @@ public class DynamicPluginLoader extends PluginLoader {
                 PluginZip zip = new PluginZip(source);
                 // generation a tmp dir to extract the zip
                 tmpTarget = Files.createTempDirectory(pluginDir, ".install_");
-                // for now, installPath point to the temp dir which contains all extracted files from zip file.
+                // for now, installPath point to the temp dir which contains
+                // all files extracted from zip or copied from user specified dir.
                 installPath = zip.extract(tmpTarget);
             }
             pluginInfo = PluginInfo.readFromProperties(installPath, source);
         } catch (Exception e) {
             if (tmpTarget != null) {
-                Files.delete(tmpTarget);
+                FileUtils.deleteQuietly(tmpTarget.toFile());
             }
             throw e;
         }
-
         return pluginInfo;
     }
 
