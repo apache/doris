@@ -253,9 +253,13 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         }
 
         ExtLiteral literal(expr->type().type, _context->get_value(expr, NULL));
+        std::string col = slot_desc->col_name();
+        if (_field_context.find(col) != _field_context.end()) {
+            col = _field_context[col];
+        }
         ExtPredicate* predicate = new ExtBinaryPredicate(
                     TExprNodeType::BINARY_PRED,
-                    slot_desc->col_name(),
+                    col,
                     slot_desc->type(),
                     op,
                     literal);
@@ -298,8 +302,12 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         } else {
             is_not_null = true;
         }
+        std::string col = slot_desc->col_name();
+        if (_field_context.find(col) != _field_context.end()) {
+            col = _field_context[col];
+        }
         // use TExprNodeType::IS_NULL_PRED for BooleanQueryBuilder translate
-        ExtIsNullPredicate* predicate = new ExtIsNullPredicate(TExprNodeType::IS_NULL_PRED, slot_desc->col_name(), slot_desc->type(), is_not_null);
+        ExtIsNullPredicate* predicate = new ExtIsNullPredicate(TExprNodeType::IS_NULL_PRED, col, slot_desc->type(), is_not_null);
         _disjuncts.push_back(predicate);
         return Status::OK();
     }
@@ -331,11 +339,14 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         if (type != TYPE_VARCHAR && type != TYPE_CHAR) {
             return Status::InternalError("build disjuncts failed: like value is not a string");
         }
-
+        std::string col = slot_desc->col_name();
+        if (_field_context.find(col) != _field_context.end()) {
+            col = _field_context[col];
+        }
         ExtLiteral literal(type, _context->get_value(expr, NULL));
         ExtPredicate* predicate = new ExtLikePredicate(
                     TExprNodeType::LIKE_PRED,
-                    slot_desc->col_name(),
+                    col,
                     slot_desc->type(),
                     literal);
 
@@ -380,11 +391,14 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             in_pred_values.emplace_back(literal);
             iter->next();
         }
-
+        std::string col = slot_desc->col_name();
+        if (_field_context.find(col) != _field_context.end()) {
+            col = _field_context[col];
+        }
         ExtPredicate* predicate = new ExtInPredicate(
                     TExprNodeType::IN_PRED,
                     pred->is_not_in(),
-                    slot_desc->col_name(),
+                    col,
                     slot_desc->type(),
                     in_pred_values);
         _disjuncts.push_back(predicate);
@@ -399,6 +413,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             std::vector<EsPredicate*> conjuncts;
             for (int i = 0; i < conjunct->get_num_children(); ++i) {
                 EsPredicate *predicate = _pool->add(new EsPredicate(_context, _tuple_desc, _pool));
+                predicate->field_context(_field_context);
                 Status status = predicate->build_disjuncts_list(conjunct->children()[i]);
                 if (status.ok()) {
                     conjuncts.push_back(predicate);
