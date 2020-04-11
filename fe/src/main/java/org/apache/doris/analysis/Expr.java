@@ -1458,7 +1458,8 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         List<Subquery> subqueries = Lists.newArrayList();
         collect(Subquery.class, subqueries);
-        Preconditions.checkState(subqueries.size() == 1);
+        Preconditions.checkState(subqueries.size() == 1,
+                "only support one subquery in " + this.toSql());
         return subqueries.get(0);
     }
 
