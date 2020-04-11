@@ -198,7 +198,7 @@ public:
         return _es_query_status;
     }
 
-    void field_context(const std::map<std::string, std::string>& field_context) {
+    void set_field_context(const std::map<std::string, std::string>& field_context) {
         _field_context = field_context;
     }
 

@@ -413,7 +413,7 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
             std::vector<EsPredicate*> conjuncts;
             for (int i = 0; i < conjunct->get_num_children(); ++i) {
                 EsPredicate *predicate = _pool->add(new EsPredicate(_context, _tuple_desc, _pool));
-                predicate->field_context(_field_context);
+                predicate->set_field_context(_field_context);
                 Status status = predicate->build_disjuncts_list(conjunct->children()[i]);
                 if (status.ok()) {
                     conjuncts.push_back(predicate);

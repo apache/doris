@@ -97,7 +97,7 @@ Status EsHttpScanNode::build_conjuncts_list() {
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         EsPredicate* predicate = _pool->add(
                     new EsPredicate(_conjunct_ctxs[i], _tuple_desc, _pool));
-        predicate->field_context(_fields_context);
+        predicate->set_field_context(_fields_context);
         status = predicate->build_disjuncts_list();
         if (status.ok()) {
             _predicates.push_back(predicate);
