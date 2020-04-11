@@ -105,7 +105,8 @@ public class StmtRewriter {
             rewriteWhereClauseSubqueries(result, analyzer);
         }
         // Rewrite all subquery in the having clause
-        if (result.getHavingPred() != null && result.getHavingPred().getSubquery() != null) {
+        if (result.getHavingClauseAfterAnaylzed() != null
+                && result.getHavingClauseAfterAnaylzed().getSubquery() != null) {
             result = rewriteHavingClauseSubqueries(result, analyzer);
         }
         result.sqlString_ = null;
