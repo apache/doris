@@ -141,7 +141,8 @@ class PluginZip {
     }
 
     /**
-     * unzip the specified .zip file "zip" to the target path
+     * if `zipOrPath` is a zip file, unzip the specified .zip file to the targetPath.
+     * if `zipOrPath` is a dir, copy the dir and its content to targetPath.
      */
     Path extractZip(Path zip, Path targetPath) throws IOException, UserException {
         if (!Files.exists(zip)) {
@@ -149,7 +150,9 @@ class PluginZip {
         }
 
         if (Files.isDirectory(zip)) {
-            return zip;
+            // user install the plugin by dir/, so just copy the dir to the target path
+            FileUtils.copyDirectory(zip.toFile(), targetPath.toFile());
+            return targetPath;
         }
 
         try (ZipInputStream zipInput = new ZipInputStream(Files.newInputStream(zip))) {
