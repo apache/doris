@@ -196,7 +196,7 @@ public class EsTable extends Table {
                         + " shoud be like 'true' or 'false'， value should be double quotation marks");
             }
         } else {
-            enableKeywordSniff = false;
+            enableKeywordSniff = true;
         }
 
         if (!Strings.isNullOrEmpty(properties.get(TYPE))
