@@ -959,6 +959,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
 OLAPStatus TabletManager::start_trash_sweep() {
     {
         std::vector<int64_t> tablets_to_clean;
+        std::vector<TabletSharedPtr> all_tablets; // we use this vector to save all tablet ptr for saving lock time.
         for (int32 i = 0; i < _tablet_map_lock_shard_size; i++) {
             tablet_map_t& tablet_map = _tablet_map_array[i];
             {
@@ -969,10 +970,15 @@ OLAPStatus TabletManager::start_trash_sweep() {
                         tablets_to_clean.push_back(item.first);
                     }
                     for (TabletSharedPtr tablet : item.second.table_arr) {
-                        tablet->delete_expired_inc_rowsets();
+                        all_tablets.push_back(tablet);
                     }
                 }
             }
+
+            for (const auto& tablet : all_tablets) {
+                tablet->delete_expired_inc_rowsets();
+            }
+            all_tablets.clear();
 
             if (!tablets_to_clean.empty()) {
                 WriteLock w_lock(&_tablet_map_lock_array[i]);
