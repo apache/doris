@@ -278,7 +278,7 @@ public class Partition extends MetaObject implements Writable {
 
     public long getReplicaCount() {
         long replicaCount = 0;
-        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.ALL)) {
+        for (MaterializedIndex mIndex : getMaterializedIndices(IndexExtState.VISIBLE)) {
             replicaCount += mIndex.getReplicaCount();
         }
         return replicaCount;
