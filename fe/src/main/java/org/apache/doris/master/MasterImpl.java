@@ -365,6 +365,9 @@ public class MasterImpl {
                 }
             } else if (pushTask.getPushType() == TPushType.DELETE) {
                 DeleteJob deleteJob = Catalog.getInstance().getDeleteHandler().getDeleteJob(transactionId);
+                if (deleteJob == null) {
+                    throw new MetaNotFoundException("cannot find delete job, job[" + transactionId + "]");
+                }
                 for (TTabletInfo tTabletInfo : finishTabletInfos) {
                     Replica replica = findRelatedReplica(olapTable, partition,
                             backendId, tTabletInfo);

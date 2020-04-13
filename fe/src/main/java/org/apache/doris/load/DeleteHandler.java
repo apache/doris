@@ -18,6 +18,7 @@
 package org.apache.doris.load;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.doris.analysis.BinaryPredicate;
@@ -46,6 +47,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
@@ -65,6 +67,7 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -94,6 +97,13 @@ public class DeleteHandler implements Writable {
         dbToDeleteInfos = Maps.newConcurrentMap();
     }
 
+    private enum CancelType {
+        METADATA_MISSING,
+        TIMEOUT,
+        COMMIT_FAIL,
+        UNKNOWN
+    }
+
     public void process(DeleteStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
@@ -105,203 +115,254 @@ public class DeleteHandler implements Writable {
         }
 
         DeleteJob deleteJob = null;
-        DeleteInfo deleteInfo = null;
-        long transactionId;
-        MarkedCountDownLatch<Long, Long> countDownLatch;
-        db.readLock();
         try {
-            Table table = db.getTable(tableName);
-            if (table == null) {
-                throw new DdlException("Table does not exist. name: " + tableName);
-            }
-
-            if (table.getType() != Table.TableType.OLAP) {
-                throw new DdlException("Not olap type table. type: " + table.getType().name());
-            }
-            OlapTable olapTable = (OlapTable) table;
-
-            if (olapTable.getState() != OlapTable.OlapTableState.NORMAL) {
-                throw new DdlException("Table's state is not normal: " + tableName);
-            }
-
-            if (partitionName == null) {
-                if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
-                    throw new DdlException("This is a range partitioned table."
-                            + " You should specify partition in delete stmt");
-                } else {
-                    // this is a unpartitioned table, use table name as partition name
-                    partitionName = olapTable.getName();
+            MarkedCountDownLatch<Long, Long> countDownLatch;
+            long transactionId = -1;
+            db.readLock();
+            try {
+                Table table = db.getTable(tableName);
+                if (table == null) {
+                    throw new DdlException("Table does not exist. name: " + tableName);
                 }
-            }
 
-            Partition partition = olapTable.getPartition(partitionName);
-            if (partition == null) {
-                throw new DdlException("Partition does not exist. name: " + partitionName);
-            }
-
-            List<String> deleteConditions = Lists.newArrayList();
-
-            // pre check
-            checkDeleteV2(olapTable, partition, conditions, deleteConditions, true);
-
-            // generate label
-            String label = "delete_" + UUID.randomUUID();
-
-            // begin txn here and generate txn id
-            transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                    Lists.newArrayList(table.getId()), label,"FE: " + FrontendOptions.getLocalHostAddress(),
-                    TransactionState.LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
-
-            deleteInfo = new DeleteInfo(db.getId(), olapTable.getId(), tableName,
-                    partition.getId(), partitionName,
-                    -1, 0, deleteConditions);
-            deleteJob = new DeleteJob(transactionId, deleteInfo);
-            idToDeleteJob.put(deleteJob.getTransactionId(), deleteJob);
-            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(deleteJob);
-            // task sent to be
-            AgentBatchTask batchTask = new AgentBatchTask();
-            // count total replica num
-            int totalReplicaNum = 0;
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                for (Tablet tablet : index.getTablets()) {
-                    totalReplicaNum += tablet.getReplicas().size();
+                if (table.getType() != Table.TableType.OLAP) {
+                    throw new DdlException("Not olap type table. type: " + table.getType().name());
                 }
-            }
-            countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
+                OlapTable olapTable = (OlapTable) table;
 
-            for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                long indexId = index.getId();
-                int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+                if (olapTable.getState() != OlapTable.OlapTableState.NORMAL) {
+                    throw new DdlException("Table's state is not normal: " + tableName);
+                }
 
-                for (Tablet tablet : index.getTablets()) {
-                    long tabletId = tablet.getId();
+                if (partitionName == null) {
+                    if (olapTable.getPartitionInfo().getType() == PartitionType.RANGE) {
+                        throw new DdlException("This is a range partitioned table."
+                                + " You should specify partition in delete stmt");
+                    } else {
+                        // this is a unpartitioned table, use table name as partition name
+                        partitionName = olapTable.getName();
+                    }
+                }
 
-                    // set push type
-                    TPushType type = TPushType.DELETE;
+                Partition partition = olapTable.getPartition(partitionName);
+                if (partition == null) {
+                    throw new DdlException("Partition does not exist. name: " + partitionName);
+                }
 
-                    for (Replica replica : tablet.getReplicas()) {
-                        long replicaId = replica.getId();
-                        long backendId = replica.getBackendId();
-                        countDownLatch.addMark(backendId, tabletId);
+                List<String> deleteConditions = Lists.newArrayList();
 
-                        // create push task for each replica
-                        PushTask pushTask = new PushTask(null,
-                                replica.getBackendId(), db.getId(), olapTable.getId(),
-                                partition.getId(), indexId,
-                                tabletId, replicaId, schemaHash,
-                                -1, 0, "", -1, 0,
-                                -1, type, conditions,
-                                true, TPriority.NORMAL,
-                                TTaskType.REALTIME_PUSH,
-                                transactionId,
-                                Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
-                        pushTask.setIsSchemaChanging(true);
-                        pushTask.setCountDownLatch(countDownLatch);
+                // pre check
+                checkDeleteV2(olapTable, partition, conditions, deleteConditions, true);
 
-                        if (AgentTaskQueue.addTask(pushTask)) {
-                            batchTask.addTask(pushTask);
-                            deleteJob.addPushTask(pushTask);
-                            deleteJob.addTablet(tabletId);
+                // generate label
+                String label = "delete_" + UUID.randomUUID();
+
+                // begin txn here and generate txn id
+                transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                        Lists.newArrayList(table.getId()), label, "FE: " + FrontendOptions.getLocalHostAddress(),
+                        TransactionState.LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+
+                DeleteInfo deleteInfo = new DeleteInfo(db.getId(), olapTable.getId(), tableName,
+                        partition.getId(), partitionName,
+                        -1, 0, deleteConditions);
+                deleteJob = new DeleteJob(transactionId, deleteInfo);
+                idToDeleteJob.put(deleteJob.getTransactionId(), deleteJob);
+
+                Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(deleteJob);
+                // task sent to be
+                AgentBatchTask batchTask = new AgentBatchTask();
+                // count total replica num
+                int totalReplicaNum = 0;
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    for (Tablet tablet : index.getTablets()) {
+                        totalReplicaNum += tablet.getReplicas().size();
+                    }
+                }
+                countDownLatch = new MarkedCountDownLatch<Long, Long>(totalReplicaNum);
+
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+                    long indexId = index.getId();
+                    int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
+
+                    for (Tablet tablet : index.getTablets()) {
+                        long tabletId = tablet.getId();
+
+                        // set push type
+                        TPushType type = TPushType.DELETE;
+
+                        for (Replica replica : tablet.getReplicas()) {
+                            long replicaId = replica.getId();
+                            long backendId = replica.getBackendId();
+                            countDownLatch.addMark(backendId, tabletId);
+
+                            // create push task for each replica
+                            PushTask pushTask = new PushTask(null,
+                                    replica.getBackendId(), db.getId(), olapTable.getId(),
+                                    partition.getId(), indexId,
+                                    tabletId, replicaId, schemaHash,
+                                    -1, 0, "", -1, 0,
+                                    -1, type, conditions,
+                                    true, TPriority.NORMAL,
+                                    TTaskType.REALTIME_PUSH,
+                                    transactionId,
+                                    Catalog.getCurrentGlobalTransactionMgr().getTransactionIDGenerator().getNextTransactionId());
+                            pushTask.setIsSchemaChanging(false);
+                            pushTask.setCountDownLatch(countDownLatch);
+
+                            if (AgentTaskQueue.addTask(pushTask)) {
+                                batchTask.addTask(pushTask);
+                                deleteJob.addPushTask(pushTask);
+                                deleteJob.addTablet(tabletId);
+                            }
                         }
                     }
                 }
+
+                // submit push tasks
+                if (batchTask.getTaskNum() > 0) {
+                    AgentTaskExecutor.submit(batchTask);
+                }
+
+            } catch (Throwable t) {
+                LOG.warn("error occurred during delete process", t);
+                // if transaction has been begun, need to abort it
+                if (Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId) != null) {
+                    cancelJob(deleteJob, CancelType.UNKNOWN, t.getMessage());
+                }
+                throw new DdlException(t.getMessage(), t);
+            } finally {
+                db.readUnlock();
             }
 
-            // submit push tasks
-            if (batchTask.getTaskNum() > 0) {
-                AgentTaskExecutor.submit(batchTask);
+            long timeoutMs = deleteJob.getTimeoutMs();
+            LOG.info("waiting delete Job finish, signature: {}, timeout: {}", transactionId, timeoutMs);
+            boolean ok = false;
+            try {
+                ok = countDownLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                LOG.warn("InterruptedException: ", e);
+                ok = false;
             }
 
-        } catch (Throwable t) {
-            LOG.warn("error occurred during delete process", t);
-            throw new DdlException(t.getMessage(), t);
-        } finally {
-            db.readUnlock();
-        }
-
-        long timeoutMs = deleteJob.getTimeout();
-        LOG.info("waiting delete Job finish, signature: {}, timeout: {}", transactionId, timeoutMs);
-        boolean ok = false;
-        try {
-            ok = countDownLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            LOG.warn("InterruptedException: ", e);
-            ok = false;
-        }
-
-        if (ok) {
-            commitJob(deleteJob, db, timeoutMs);
-        } else {
-            deleteJob.checkQuorum();
-            if (deleteJob.getState() != DeleteState.UN_QUORUM) {
-                long nowQuorumTimeMs = System.currentTimeMillis();
-                long endQuorumTimeoutMs = nowQuorumTimeMs + timeoutMs / 2;
-                // if job's state is finished or stay in quorum_finished for long time, try to commit it.
-                try {
-                    while (deleteJob.getState() == DeleteState.QUORUM_FINISHED && endQuorumTimeoutMs > nowQuorumTimeMs) {
-                        deleteJob.checkQuorum();
-                        Thread.sleep(1000);
-                        nowQuorumTimeMs = System.currentTimeMillis();
-                    }
-                    commitJob(deleteJob, db, timeoutMs);
-                } catch (InterruptedException e) {
+            if (!ok) {
+                DeleteState state = deleteJob.getState();
+                switch (state) {
+                    case UN_QUORUM:
+                        List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                        // only show at most 5 results
+                        List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
+                        String errMsg = "Unfinished replicas:" + Joiner.on(", ").join(subList);
+                        LOG.warn("delete job timeout: transactionId {}, {}", transactionId, errMsg);
+                        cancelJob(deleteJob, CancelType.TIMEOUT, "delete job timeout");
+                        throw new DdlException("failed to delete replicas from job: {}, {}, transactionId, errMsg");
+                    case QUORUM_FINISHED:
+                    case FINISHED:
+                        try {
+                            deleteJob.checkAndUpdateQuorum();
+                            long nowQuorumTimeMs = System.currentTimeMillis();
+                            long endQuorumTimeoutMs = nowQuorumTimeMs + timeoutMs / 2;
+                            // if job's state is quorum_finished then wait for a period of time and commit it.
+                            while (deleteJob.getState() == DeleteState.QUORUM_FINISHED && endQuorumTimeoutMs > nowQuorumTimeMs) {
+                                deleteJob.checkAndUpdateQuorum();
+                                Thread.sleep(1000);
+                                nowQuorumTimeMs = System.currentTimeMillis();
+                            }
+                        } catch (MetaNotFoundException e) {
+                            cancelJob(deleteJob, CancelType.METADATA_MISSING, e.getMessage());
+                            throw new DdlException(e.getMessage(), e);
+                        } catch (InterruptedException e) {
+                            cancelJob(deleteJob, CancelType.UNKNOWN, e.getMessage());
+                            throw new DdlException(e.getMessage(), e);
+                        }
+                        commitJob(deleteJob, db, timeoutMs);
+                        break;
+                    default:
+                        Preconditions.checkState(false, "wrong delete job state: " + state.name());
+                        break;
                 }
             } else {
-                List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-                // only show at most 5 results
-                List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
-                String errMsg = "Unfinished replicas:" + Joiner.on(", ").join(subList);
-                LOG.warn("delete job timeout: {}, {}", transactionId, errMsg);
-                cancelJob(deleteJob, "delete job timeout");
-                throw new DdlException("failed to delete replicas from job: {}, {}, transactionId, errMsg");
+                commitJob(deleteJob, db, timeoutMs);
             }
+        } finally {
+            clearJob(deleteJob);
         }
     }
 
-    private void commitJob(DeleteJob job, Database db, long timeout) {
+    private void commitJob(DeleteJob job, Database db, long timeoutMs) throws DdlException {
+        TransactionStatus status = null;
+        try {
+            unprotectedCommitJob(job, db, timeoutMs);
+            status = Catalog.getCurrentGlobalTransactionMgr().
+                    getTransactionState(job.getTransactionId()).getTransactionStatus();
+        } catch (UserException e) {
+            cancelJob(job, CancelType.COMMIT_FAIL, e.getMessage());
+            throw new DdlException(e.getMessage(), e);
+        }
+
+        switch (status) {
+            case COMMITTED:
+                // Although publish is unfinished we should tell user that commit already success.
+                throw new DdlException("delete job is committed but may be taking effect later, transactionId: " + job.getTransactionId());
+            case VISIBLE:
+                break;
+            default:
+                Preconditions.checkState(false, "wrong transaction status: " + status.name());
+                break;
+        }
+    }
+
+    /**
+     * unprotected commit delete job
+     * return true when successfully commit and publish
+     * return false when successfully commit but publish unfinished.
+     * A UserException thrown if both commit and publish failed.
+     * @param job
+     * @param db
+     * @param timeoutMs
+     * @return
+     * @throws UserException
+     */
+    private boolean unprotectedCommitJob(DeleteJob job, Database db, long timeoutMs) throws UserException {
         long transactionId = job.getTransactionId();
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        TransactionState transactionState = globalTransactionMgr.getTransactionState(transactionId);
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
-        try {
-            TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
-            for (TabletDeleteInfo tDeleteInfo : job.getTabletDeleteInfo()) {
-                for (Replica replica : tDeleteInfo.getFinishedReplicas()) {
-                    // the inverted index contains rolling up replica
-                    Long tabletId = invertedIndex.getTabletIdByReplica(replica.getId());
-                    if (tabletId == null) {
-                        LOG.warn("could not find tablet id for replica {}, the tablet maybe dropped", replica);
-                        continue;
-                    }
-                    tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
+        TabletInvertedIndex invertedIndex = Catalog.getCurrentInvertedIndex();
+        for (TabletDeleteInfo tDeleteInfo : job.getTabletDeleteInfo()) {
+            for (Replica replica : tDeleteInfo.getFinishedReplicas()) {
+                // the inverted index contains rolling up replica
+                Long tabletId = invertedIndex.getTabletIdByReplica(replica.getId());
+                if (tabletId == null) {
+                    LOG.warn("could not find tablet id for replica {}, the tablet maybe dropped", replica);
+                    continue;
                 }
+                tabletCommitInfos.add(new TabletCommitInfo(tabletId, replica.getBackendId()));
             }
-            boolean isSuccess = globalTransactionMgr.commitAndPublishTransaction(db, transactionId, tabletCommitInfos, timeout);
-            if (!isSuccess) {
-                cancelJob(job, "delete timeout when waiting transaction commit");
-            }
-        } catch (UserException e) {
-            LOG.warn("errors while commit delete job, transaction [{}], reason is {}",
-                    transactionState.getTransactionId(), e);
-            cancelJob(job, transactionState.getReason());
         }
+        return globalTransactionMgr.commitAndPublishTransaction(db, transactionId, tabletCommitInfos, timeoutMs);
     }
 
-    private void removeJob(DeleteJob job) {
-        long signature = job.getTransactionId();
-        if (idToDeleteJob.containsKey(signature)) {
-            idToDeleteJob.remove(signature);
-        }
-        for (PushTask pushTask : job.getPushTasks()) {
-            AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
-                    pushTask.getVersion(), pushTask.getVersionHash(),
-                    pushTask.getPushType(), pushTask.getTaskType());
+    /**
+     * This method should always be called in the end of the delete process to clean the job.
+     * Better put it in finally block.
+     * @param job
+     */
+    private void clearJob(DeleteJob job) {
+        if (job != null) {
+            long signature = job.getTransactionId();
+            if (idToDeleteJob.containsKey(signature)) {
+                idToDeleteJob.remove(signature);
+            }
+            for (PushTask pushTask : job.getPushTasks()) {
+                AgentTaskQueue.removePushTask(pushTask.getBackendId(), pushTask.getSignature(),
+                        pushTask.getVersion(), pushTask.getVersionHash(),
+                        pushTask.getPushType(), pushTask.getTaskType());
+            }
+            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(job.getId());
         }
     }
 
     public void recordFinishedJob(DeleteJob job) {
         if (job!= null) {
-            removeJob(job);
             long dbId = job.getDeleteInfo().getDbId();
             List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
             if (deleteInfoList == null) {
@@ -312,18 +373,25 @@ public class DeleteHandler implements Writable {
         }
     }
 
-    private boolean cancelJob(DeleteJob job, String reason) {
+    public boolean cancelJob(DeleteJob job, CancelType cancelType, String reason) {
+        LOG.info("start to cancel delete job, transactionId: {}, cancelType: {}", job.getTransactionId(), cancelType.name());
+        GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         try {
             if (job != null) {
-                removeJob(job);
-                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                        job.getTransactionId(), reason);
-                return true;
+                globalTransactionMgr.abortTransaction(job.getTransactionId(), reason);
             }
         } catch (Exception e) {
-            LOG.info("errors while abort transaction", e);
+            TransactionState state = globalTransactionMgr.getTransactionState(job.getTransactionId());
+            if (state == null) {
+                LOG.warn("cancel delete job failed because txn not found, transactionId: {}", job.getTransactionId());
+            } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED || state.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                LOG.warn("cancel delete job {} failed because it has been committed, transactionId: {}", job.getTransactionId());
+            } else {
+                LOG.warn("errors while abort transaction", e);
+            }
+            return false;
         }
-        return false;
+        return true;
     }
 
     public DeleteJob getDeleteJob(long transactionId) {

@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.TabletDeleteInfo;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
@@ -66,14 +66,19 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         state = DeleteState.UN_QUORUM;
     }
 
-    public void checkQuorum() throws DdlException {
+    /**
+     * check and update if this job's state is QUORUM_FINISHED or FINISHED
+     * The meaning of state:
+     * QUORUM_FINISHED: For each tablet there are more than half of its replicas have been finished
+     * FINISHED: All replicas of this jobs have finished
+     */
+    public void checkAndUpdateQuorum() throws MetaNotFoundException {
         long dbId = deleteInfo.getDbId();
         long tableId = deleteInfo.getTableId();
         long partitionId = deleteInfo.getPartitionId();
         Database db = Catalog.getInstance().getDb(dbId);
         if (db == null) {
-            LOG.warn("can not find database "+ dbId +" when commit delete");
-            return;
+            throw new MetaNotFoundException("can not find database "+ dbId +" when commit delete");
         }
 
         short replicaNum = -1;
@@ -81,10 +86,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         try {
             OlapTable table = (OlapTable) db.getTable(tableId);
             if (table == null) {
-                LOG.warn("can not find table "+ tableId +" when commit delete");
-                return;
+                throw new MetaNotFoundException("can not find table "+ tableId +" when commit delete");
             }
-
             replicaNum = table.getPartitionInfo().getReplicationNum(partitionId);
         } finally {
             db.readUnlock();
@@ -149,9 +152,13 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
 
     @Override
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
-        Catalog catalog = Catalog.getInstance();
-        catalog.getEditLog().logFinishSyncDelete(deleteInfo);
-        catalog.getDeleteHandler().recordFinishedJob(this);
+        executeFinish();
+        Catalog.getCurrentCatalog().getEditLog().logFinishSyncDelete(deleteInfo);
+    }
+
+    public void executeFinish() {
+        setState(DeleteState.FINISHED);
+        Catalog.getCurrentCatalog().getDeleteHandler().recordFinishedJob(this);
     }
 
     public long getTransactionId() {
@@ -162,7 +169,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         return tabletDeleteInfoMap.values();
     }
 
-    public long getTimeout() {
+    public long getTimeoutMs() {
         // timeout is between 30 seconds to 5 min
         long timeout = Math.max(totalTablets.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
         return Math.min(timeout, Config.load_straggler_wait_second * 1000L);
