@@ -69,7 +69,6 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
     // fragment mem tracker needs unregister
     if (_mem_tracker.get() != nullptr) {
         _mem_tracker->unregister_from_parent();
-        _mem_tracker->close();
     }
 }
 
