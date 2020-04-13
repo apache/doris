@@ -46,6 +46,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
@@ -156,16 +157,17 @@ public class DeleteHandler implements Writable {
 
                 // generate label
                 String label = "delete_" + UUID.randomUUID();
-
+                //generate jobId
+                long jobId = Catalog.getCurrentCatalog().getNextId();
                 // begin txn here and generate txn id
                 transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                        Lists.newArrayList(table.getId()), label, "FE: " + FrontendOptions.getLocalHostAddress(),
-                        TransactionState.LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
+                        Lists.newArrayList(table.getId()), label, null, "FE: " + FrontendOptions.getLocalHostAddress(),
+                        TransactionState.LoadJobSourceType.FRONTEND, jobId, Config.stream_load_default_timeout_second);
 
                 DeleteInfo deleteInfo = new DeleteInfo(db.getId(), olapTable.getId(), tableName,
                         partition.getId(), partitionName,
                         -1, 0, deleteConditions);
-                deleteJob = new DeleteJob(transactionId, deleteInfo);
+                deleteJob = new DeleteJob(jobId, transactionId, deleteInfo);
                 idToDeleteJob.put(deleteJob.getTransactionId(), deleteJob);
 
                 Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(deleteJob);
@@ -245,6 +247,12 @@ public class DeleteHandler implements Writable {
             }
 
             if (!ok) {
+                try {
+                    deleteJob.checkAndUpdateQuorum();
+                } catch (MetaNotFoundException e) {
+                    cancelJob(deleteJob, CancelType.METADATA_MISSING, e.getMessage());
+                    throw new DdlException(e.getMessage(), e);
+                }
                 DeleteState state = deleteJob.getState();
                 switch (state) {
                     case UN_QUORUM:
@@ -254,11 +262,10 @@ public class DeleteHandler implements Writable {
                         String errMsg = "Unfinished replicas:" + Joiner.on(", ").join(subList);
                         LOG.warn("delete job timeout: transactionId {}, {}", transactionId, errMsg);
                         cancelJob(deleteJob, CancelType.TIMEOUT, "delete job timeout");
-                        throw new DdlException("failed to delete replicas from job: {}, {}, transactionId, errMsg");
+                        throw new DdlException("failed to delete replicas from job: " + transactionId + ", " + errMsg);
                     case QUORUM_FINISHED:
                     case FINISHED:
                         try {
-                            deleteJob.checkAndUpdateQuorum();
                             long nowQuorumTimeMs = System.currentTimeMillis();
                             long endQuorumTimeoutMs = nowQuorumTimeMs + timeoutMs / 2;
                             // if job's state is quorum_finished then wait for a period of time and commit it.
@@ -284,7 +291,9 @@ public class DeleteHandler implements Writable {
                 commitJob(deleteJob, db, timeoutMs);
             }
         } finally {
-            clearJob(deleteJob);
+            if (!FeConstants.runningUnitTest) {
+                clearJob(deleteJob);
+            }
         }
     }
 
@@ -362,8 +371,10 @@ public class DeleteHandler implements Writable {
     }
 
     public void recordFinishedJob(DeleteJob job) {
-        if (job!= null) {
+        if (job != null) {
             long dbId = job.getDeleteInfo().getDbId();
+            LOG.info("record finished deleteJob, transactionId {}, dbId {}",
+                    job.getTransactionId(), dbId);
             List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
             if (deleteInfoList == null) {
                 deleteInfoList = Lists.newArrayList();
@@ -531,7 +542,6 @@ public class DeleteHandler implements Writable {
 
             List<Comparable> info = Lists.newArrayList();
             if (!forUser) {
-                // There is no job for delete, set job id to -1
                 info.add(-1L);
                 info.add(deleteInfo.getTableId());
             }

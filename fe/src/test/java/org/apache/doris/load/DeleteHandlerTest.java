@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.PaloAuth;
@@ -33,6 +34,8 @@ import org.apache.doris.task.DeleteJob;
 import org.apache.doris.task.DeleteJob.DeleteState;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionStatus;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -74,10 +77,11 @@ public class DeleteHandlerTest {
 
     @Before
     public void setUp() {
+        FeConstants.runningUnitTest = true;
+
         deleteHandler = new DeleteHandler();
         auth = AccessTestUtil.fetchAdminAccess();
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-
         try {
             db = CatalogMocker.mockDb();
         } catch (AnalysisException e) {
@@ -186,6 +190,15 @@ public class DeleteHandlerTest {
             }
         };
 
+        new MockUp<GlobalTransactionMgr>() {
+            @Mock
+            public TransactionState getTransactionState(long transactionId) {
+                TransactionState transactionState =  new TransactionState();
+                transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
+                return transactionState;
+            }
+        };
+
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
@@ -220,6 +233,15 @@ public class DeleteHandlerTest {
             @Mock
             public Collection<TabletDeleteInfo> getTabletDeleteInfo() {
                 return Lists.newArrayList(tabletDeleteInfo);
+            }
+        };
+
+        new MockUp<GlobalTransactionMgr>() {
+            @Mock
+            public TransactionState getTransactionState(long transactionId) {
+                TransactionState transactionState =  new TransactionState();
+                transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
+                return transactionState;
             }
         };
 

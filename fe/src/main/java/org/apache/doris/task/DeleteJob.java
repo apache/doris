@@ -47,6 +47,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
 
     private DeleteState state;
 
+    // jobId(listenerId). use in beginTransaction to callback function
+    private long id;
+    // transaction id.
     private long signature;
     private Set<Long> totalTablets;
     private Set<Long> quorumTablets;
@@ -55,7 +58,8 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     private Set<PushTask> pushTasks;
     private DeleteInfo deleteInfo;
 
-    public DeleteJob(long transactionId, DeleteInfo deleteInfo) {
+    public DeleteJob(long id, long transactionId, DeleteInfo deleteInfo) {
+        this.id = id;
         this.signature = transactionId;
         this.deleteInfo = deleteInfo;
         totalTablets = Sets.newHashSet();
@@ -147,11 +151,14 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
 
     @Override
     public long getId() {
-        return this.signature;
+        return this.id;
     }
 
     @Override
     public void afterVisible(TransactionState txnState, boolean txnOperated) {
+        if (!txnOperated) {
+            return;
+        }
         executeFinish();
         Catalog.getCurrentCatalog().getEditLog().logFinishSyncDelete(deleteInfo);
     }
@@ -159,6 +166,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     public void executeFinish() {
         setState(DeleteState.FINISHED);
         Catalog.getCurrentCatalog().getDeleteHandler().recordFinishedJob(this);
+        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getId());
     }
 
     public long getTransactionId() {
