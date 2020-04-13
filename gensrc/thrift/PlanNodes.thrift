@@ -222,6 +222,18 @@ struct TEsScanNode {
     // {"city": "city.raw"}
     // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
     3: optional map<string, string> docvalue_context
+    // used to indicate which string-type field predicate should used xxx.keyword etc.
+    // "k1": {
+    //    "type": "text",
+    //    "fields": {
+    //        "keyword": {
+    //            "type": "keyword",
+    //            "ignore_above": 256
+    //           }
+    //    }
+    // }
+    // k1 > 'abc' -> k1.keyword > 'abc'
+    4: optional map<string, string> fields_context
 }
 
 struct TMiniLoadEtlFunction {

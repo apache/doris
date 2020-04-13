@@ -90,9 +90,6 @@ public class EsStateStore extends MasterDaemon {
                         esTable.getUserName(), esTable.getPasswd());
                 // if user not specify the es version, try to get the remote cluster versoin
                 // in the future, we maybe need this version
-                if (esTable.majorVersion == null) {
-                    esTable.majorVersion = client.version();
-                }
                 String indexMetaData = client.getIndexMetaData(esTable.getIndexName());
                 if (indexMetaData == null) {
                     continue;
@@ -197,7 +194,7 @@ public class EsStateStore extends MasterDaemon {
         // {"city": "city.raw"}
         JSONObject indicesMetaMap = jsonObject.getJSONObject("metadata").getJSONObject("indices");
         JSONObject indexMetaMap = indicesMetaMap.optJSONObject(esTable.getIndexName());
-        if (esTable.isDocValueScanEnable() && indexMetaMap != null) {
+        if (indexMetaMap != null && (esTable.isKeywordSniffEnable() || esTable.isDocValueScanEnable())) {
             JSONObject mappings = indexMetaMap.optJSONObject("mappings");
             JSONObject rootSchema = mappings.optJSONObject(esTable.getMappingType());
             JSONObject schema = rootSchema.optJSONObject("properties");
@@ -209,36 +206,54 @@ public class EsStateStore extends MasterDaemon {
                 }
                 JSONObject fieldObject = schema.optJSONObject(colName);
                 String fieldType = fieldObject.optString("type");
-                if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
-                    JSONObject fieldsObject = fieldObject.optJSONObject("fields");
-                    if (fieldsObject != null) {
-                        for (String key : fieldsObject.keySet()) {
-                            JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
-                            if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(innerTypeObject.optString("type"))) {
-                                continue;
-                            }
-                            if (innerTypeObject.has("doc_values")) {
-                                boolean docValue = innerTypeObject.getBoolean("doc_values");
-                                if (docValue) {
-                                    esTable.addDocValueField(colName, colName);
+                // string-type field used keyword type to generate predicate
+                if (esTable.isKeywordSniffEnable()) {
+                    // if text field type seen, we should use the `field` keyword type?
+                    if ("text".equals(fieldType)) {
+                        JSONObject fieldsObject = fieldObject.optJSONObject("fields");
+                        if (fieldsObject != null) {
+                            for (String key : fieldsObject.keySet()) {
+                                JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
+                                // just for text type
+                                if ("keyword".equals(innerTypeObject.optString("type"))) {
+                                    esTable.addFetchField(colName, colName + "." + key);
                                 }
-                            } else {
-                                // a : {c : {}} -> a -> a.c
-                                esTable.addDocValueField(colName, colName + "." + key);
                             }
                         }
                     }
-                    // skip this field
-                    continue;
                 }
-                // set doc_value = false manually
-                if (fieldObject.has("doc_values")) {
-                    boolean docValue = fieldObject.optBoolean("doc_values");
-                    if (!docValue) {
+                if (esTable.isDocValueScanEnable()) {
+                    if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
+                        JSONObject fieldsObject = fieldObject.optJSONObject("fields");
+                        if (fieldsObject != null) {
+                            for (String key : fieldsObject.keySet()) {
+                                JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
+                                if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(innerTypeObject.optString("type"))) {
+                                    continue;
+                                }
+                                if (innerTypeObject.has("doc_values")) {
+                                    boolean docValue = innerTypeObject.getBoolean("doc_values");
+                                    if (docValue) {
+                                        esTable.addDocValueField(colName, colName);
+                                    }
+                                } else {
+                                    // a : {c : {}} -> a -> a.c
+                                    esTable.addDocValueField(colName, colName + "." + key);
+                                }
+                            }
+                        }
+                        // skip this field
                         continue;
                     }
+                    // set doc_value = false manually
+                    if (fieldObject.has("doc_values")) {
+                        boolean docValue = fieldObject.optBoolean("doc_values");
+                        if (!docValue) {
+                            continue;
+                        }
+                    }
+                    esTable.addDocValueField(colName, colName);
                 }
-                esTable.addDocValueField(colName, colName);
             }
         }
 

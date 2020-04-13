@@ -56,6 +56,7 @@ public class EsTable extends Table {
     public static final String TRANSPORT_HTTP = "http";
     public static final String TRANSPORT_THRIFT = "thrift";
     public static final String DOC_VALUE_SCAN = "enable_docvalue_scan";
+    public static final String KEYWORD_SNIFF = "enable_keyword_sniff";
 
     private String hosts;
     private String[] seeds;
@@ -69,6 +70,7 @@ public class EsTable extends Table {
     private PartitionInfo partitionInfo;
     private EsTableState esTableState;
     private boolean enableDocValueScan = false;
+    private boolean enableKeywordSniff = true;
 
     public EsMajorVersion majorVersion = null;
 
@@ -93,6 +95,8 @@ public class EsTable extends Table {
     // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
     private Map<String, String> docValueContext = new HashMap<>();
 
+    private Map<String, String> fieldsContext = new HashMap<>();
+
     public EsTable() {
         super(TableType.ELASTICSEARCH);
     }
@@ -104,6 +108,13 @@ public class EsTable extends Table {
         validate(properties);
     }
 
+    public void addFetchField(String originName, String replaceName) {
+        fieldsContext.put(originName, replaceName);
+    }
+
+    public Map<String, String> fieldsContext() {
+        return fieldsContext;
+    }
 
     public void addDocValueField(String name, String fieldsName) {
         docValueContext.put(name, fieldsName);
@@ -115,6 +126,10 @@ public class EsTable extends Table {
 
     public boolean isDocValueScanEnable() {
         return enableDocValueScan;
+    }
+
+    public boolean isKeywordSniffEnable() {
+        return enableKeywordSniff;
     }
 
 
@@ -159,7 +174,7 @@ public class EsTable extends Table {
             }
         }
 
-        // Explicit setting for cluster version to avoid detecting version failure
+        // enable doc value scan for Elasticsearch
         if (properties.containsKey(DOC_VALUE_SCAN)) {
             try {
                 enableDocValueScan = Boolean.parseBoolean(properties.get(DOC_VALUE_SCAN).trim());
@@ -170,6 +185,18 @@ public class EsTable extends Table {
             }
         } else {
             enableDocValueScan = false;
+        }
+
+        if (properties.containsKey(KEYWORD_SNIFF)) {
+            try {
+                enableKeywordSniff = Boolean.parseBoolean(properties.get(KEYWORD_SNIFF).trim());
+            } catch (Exception e) {
+                throw new DdlException("fail to parse enable_keyword_sniff, enable_keyword_sniff= "
+                        + properties.get(VERSION).trim() + " ,`enable_keyword_sniff`"
+                        + " shoud be like 'true' or 'false'， value should be double quotation marks");
+            }
+        } else {
+            enableKeywordSniff = true;
         }
 
         if (!Strings.isNullOrEmpty(properties.get(TYPE))
@@ -194,6 +221,7 @@ public class EsTable extends Table {
             tableContext.put("majorVersion", majorVersion.toString());
         }
         tableContext.put("enableDocValueScan", String.valueOf(enableDocValueScan));
+        tableContext.put("enableKeywordSniff", String.valueOf(enableKeywordSniff));
     }
 
     public TTableDescriptor toThrift() {
@@ -278,6 +306,11 @@ public class EsTable extends Table {
             }
 
             enableDocValueScan = Boolean.parseBoolean(tableContext.get("enableDocValueScan"));
+            if (tableContext.containsKey("enableKeywordSniff")) {
+                enableKeywordSniff = Boolean.parseBoolean(tableContext.get("enableKeywordSniff"));
+            } else {
+                enableKeywordSniff = true;
+            }
 
             PartitionType partType = PartitionType.valueOf(Text.readString(in));
             if (partType == PartitionType.UNPARTITIONED) {
@@ -311,6 +344,7 @@ public class EsTable extends Table {
             tableContext.put("mappingType", mappingType);
             tableContext.put("transport", transport);
             tableContext.put("enableDocValueScan", "false");
+            tableContext.put(KEYWORD_SNIFF, "true");
         }
     }
 
