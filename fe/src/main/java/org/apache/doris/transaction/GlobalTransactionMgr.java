@@ -56,6 +56,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -122,7 +123,7 @@ public class GlobalTransactionMgr implements Writable {
         return callbackFactory;
     }
 
-    public long beginTransaction(long dbId, List<Long> tableIdList, String label, String coordinator, LoadJobSourceType sourceType,
+    public long beginTransaction(long dbId, List<Long> tableIdList, String label, TxnCoordinator coordinator, LoadJobSourceType sourceType,
             long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
         return beginTransaction(dbId, tableIdList, label, null, coordinator, sourceType, -1, timeoutSecond);
@@ -142,7 +143,7 @@ public class GlobalTransactionMgr implements Writable {
      * @throws IllegalTransactionParameterException
      */
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
-            String coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
+                                 TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
 
         if (Config.disable_load_job) {
@@ -1272,7 +1273,7 @@ public class GlobalTransactionMgr implements Writable {
     private void getTxnStateInfo(TransactionState txnState, List<String> info) {
         info.add(String.valueOf(txnState.getTransactionId()));
         info.add(txnState.getLabel());
-        info.add(txnState.getCoordinator());
+        info.add(txnState.getCoordinator().toString());
         info.add(txnState.getTransactionStatus().name());
         info.add(txnState.getSourceType().name());
         info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
@@ -1395,9 +1396,11 @@ public class GlobalTransactionMgr implements Writable {
         readLock();
         try {
             idToTransactionState.values().stream()
-                    .filter(t -> (t.getCoordinator().contains(coordinateHost) && (!t.getTransactionStatus().isFinalStatus())))
+                    .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
+                            && t.getCoordinator().ip.equals(coordinateHost)
+                            && (!t.getTransactionStatus().isFinalStatus())))
                     .limit(limit)
-                    .forEach(t -> { txnIds.add(t.getTransactionId()); });
+                    .forEach(t -> txnIds.add(t.getTransactionId()));
         } finally {
             readUnlock();
         }

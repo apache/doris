@@ -32,6 +32,8 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TMiniLoadBeginRequest;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Sets;
 
@@ -97,7 +99,8 @@ public class MiniLoadJob extends LoadJob {
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, Lists.newArrayList(tableId), label, requestId, "FE: " + FrontendOptions.getLocalHostAddress(),
+                .beginTransaction(dbId, Lists.newArrayList(tableId), label, requestId,
+                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                                   TransactionState.LoadJobSourceType.BACKEND_STREAMING, id,
                                   timeoutSecond);
     }
@@ -129,6 +132,7 @@ public class MiniLoadJob extends LoadJob {
         Text.writeString(out, tableName);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         tableName = Text.readString(in);
