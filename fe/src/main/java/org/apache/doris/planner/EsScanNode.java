@@ -123,6 +123,9 @@ public class EsScanNode extends ScanNode {
         if (table.isDocValueScanEnable()) {
             esScanNode.setDocvalue_context(table.docValueContext());
         }
+        if (table.isKeywordSniffEnable() && table.fieldsContext().size() > 0) {
+            esScanNode.setFields_context(table.fieldsContext());
+        }
         msg.es_scan_node = esScanNode;
 
     }
