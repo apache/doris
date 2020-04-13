@@ -50,7 +50,14 @@ Status dynamic_open(const char* library, void** handle) {
 }
 
 void dynamic_close(void* handle) {
-    dlclose(handle);
+// There is an issue of LSAN can't deal well with dlclose(), so we disable LSAN here, more details:
+// https://github.com/google/sanitizers/issues/89
+#if defined(__has_feature)
+#if __has_feature(leak_sanitizer)
+#else
+   dlclose(handle);
+#endif
+#endif
 }
 
 }

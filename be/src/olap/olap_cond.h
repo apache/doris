@@ -150,6 +150,9 @@ public:
     typedef std::map<int32_t, CondColumn*> CondColumns;
 
     Conditions() {}
+    ~Conditions() {
+        finalize();
+    }
 
     void finalize() {
         for (auto& it : _columns) {

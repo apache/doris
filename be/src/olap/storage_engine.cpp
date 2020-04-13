@@ -157,9 +157,6 @@ OLAPStatus StorageEngine::_open() {
 
     RETURN_NOT_OK(_check_file_descriptor_number());
 
-    auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
-    FileHandler::set_fd_cache(cache);
-
     _index_stream_lru_cache = new_lru_cache(config::index_stream_cache_capacity);
 
     auto dirs = get_stores<false>();
@@ -457,9 +454,6 @@ bool StorageEngine::_delete_tablets_on_unused_root_path() {
 }
 
 void StorageEngine::_clear() {
-    // 删除lru中所有内容,其实进程退出这么做本身意义不大,但对单测和更容易发现问题还是有很大意义的
-    delete FileHandler::get_fd_cache();
-    FileHandler::set_fd_cache(nullptr);
     SAFE_DELETE(_index_stream_lru_cache);
 
     std::lock_guard<std::mutex> l(_store_lock);

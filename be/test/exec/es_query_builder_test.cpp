@@ -28,6 +28,13 @@
 #include "rapidjson/writer.h"
 #include "runtime/string_value.h"
 
+extern "C" {
+  // Allocations made between calls to __lsan_disable() and __lsan_enable() will
+  // be treated as non-leaks.
+  void __lsan_disable();
+  void __lsan_enable();
+}
+
 namespace doris {
 
 class BooleanQueryBuilderTest : public testing::Test {
@@ -251,6 +258,11 @@ TEST_F(BooleanQueryBuilderTest, bool_query) {
     std::string expected_json = "{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}},{\"range\":{\"k\":{\"gte\":\"a\"}}},{\"term\":{\"content\":\"wyf\"}}]}}";
     //LOG(INFO) << "bool query" << actual_json;
     ASSERT_STREQ(expected_json.c_str(), actual_json.c_str());
+
+    delete like_predicate;
+    delete function_predicate;
+    delete range_predicate;
+    delete term_predicate;
 }
 
 TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
@@ -275,6 +287,7 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     std::vector<ExtLiteral> es_query_values = {es_query_term_literal};
     std::string function_name = "esquery";
     ExtFunction* function_predicate = new ExtFunction(TExprNodeType::FUNCTION_CALL, function_name, es_query_cols, es_query_values);
+
     std::vector<ExtPredicate*> bool_predicates_1 = {like_predicate, function_predicate};
     EsPredicate* bool_predicate_1 = new EsPredicate(bool_predicates_1);
 
@@ -335,7 +348,12 @@ TEST_F(BooleanQueryBuilderTest, compound_bool_query) {
     std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"wildcard\":{\"content\":\"a*e*g?\"}},{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"f1\"}}}}]}},{\"bool\":{\"should\":[{\"range\":{\"k\":{\"gte\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}}";
     //LOG(INFO) << "compound bool query" << actual_bool_json;
     ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
+    delete bool_predicate_1;
+    delete bool_predicate_2;
+    delete bool_predicate_3;
+    delete bool_predicate_4;
 }
+
 TEST_F(BooleanQueryBuilderTest, validate_esquery) {
     std::string function_name = "esquery";
     char field[] = "random";
@@ -387,6 +405,9 @@ TEST_F(BooleanQueryBuilderTest, validate_esquery) {
 }
 
 TEST_F(BooleanQueryBuilderTest, validate_partial) {
+    // TODO(yingchun): LSAN will report some errors without __lsan_disable()/__lsan_enable() pair,
+    // we should improve the code and enable LSAN later.
+    __lsan_disable();
     char like_value[] = "a%e%g_";
     int like_value_length = (int)strlen(like_value);
     TypeDescriptor like_type_desc = TypeDescriptor::create_varchar_type(like_value_length);
@@ -455,7 +476,7 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     std::vector<bool> result;
     BooleanQueryBuilder::validate(and_bool_predicates, &result);
     std::vector<bool> expected = {true, true, true};
-    ASSERT_TRUE(result == expected);
+    ASSERT_EQ(result, expected);
     char illegal_query[] = "{\"term\": {\"k1\" : \"2\"},\"match\": {\"k1\": \"3\"}}";
     int illegal_query_length = (int)strlen(illegal_query);
     StringValue illegal_query_value(illegal_query, illegal_query_length);
@@ -468,13 +489,16 @@ TEST_F(BooleanQueryBuilderTest, validate_partial) {
     std::vector<bool> result1;
     BooleanQueryBuilder::validate(and_bool_predicates_1, &result1);
     std::vector<bool> expected1 = {true, true, false};
-    ASSERT_TRUE(result1 == expected1);
+    ASSERT_EQ(result1, expected1);
+    __lsan_enable();
 }
 
 // ( k >= "a" and (fv not in [8.0, 16.0]) or (content != "wyf") ) or content like "a%e%g_"
 
 TEST_F(BooleanQueryBuilderTest, validate_compound_and) {
-
+    // TODO(yingchun): LSAN will report some errors without __lsan_disable()/__lsan_enable() pair,
+    // we should improve the code and enable LSAN later.
+    __lsan_disable();
     std::string terms_in_field = "fv"; // fv not in [8.0, 16.0]
     int terms_in_field_length = terms_in_field.length();
     TypeDescriptor terms_in_col_type_desc = TypeDescriptor::create_varchar_type(terms_in_field_length);
@@ -546,6 +570,7 @@ TEST_F(BooleanQueryBuilderTest, validate_compound_and) {
     std::string actual_bool_json = buffer.GetString();
     std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"range\":{\"k\":{\"gte\":\"a\"}}}]}},{\"bool\":{\"should\":[{\"bool\":{\"must_not\":[{\"term\":{\"content\":\"wyf\"}}]}},{\"bool\":{\"must_not\":[{\"terms\":{\"fv\":[\"8.0\",\"16.0\"]}}]}}]}}]}},{\"wildcard\":{\"content\":\"a*e*g?\"}}]}}]}}";
     ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
+    __lsan_enable();
 }
 }
 

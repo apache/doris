@@ -38,6 +38,13 @@
 #include "runtime/result_queue_mgr.h"
 #include "runtime/thread_resource_mgr.h"
 
+extern "C" {
+  // There is a known memory leak in brpc, for more details:
+  // https://github.com/apache/incubator-brpc/blob/0.9.5/src/brpc/server.cpp#L1128
+  void __lsan_disable();
+  void __lsan_enable();
+}
+
 namespace doris {
 namespace stream_load {
 
@@ -58,15 +65,13 @@ public:
 
         config::tablet_writer_open_rpc_timeout_sec = 60;
     }
+
     void TearDown() override {
-        delete _env->_brpc_stub_cache;
-        _env->_brpc_stub_cache = nullptr;
-        delete _env->_load_stream_mgr;
-        _env->_load_stream_mgr = nullptr;
-        delete _env->_master_info;
-        _env->_master_info = nullptr;
-        delete _env->_thread_mgr;
-        _env->_thread_mgr = nullptr;
+        SAFE_DELETE(_env->_brpc_stub_cache);
+        SAFE_DELETE(_env->_load_stream_mgr);
+        SAFE_DELETE(_env->_master_info);
+        SAFE_DELETE(_env->_thread_mgr);
+        SAFE_DELETE(_env->_buffer_reservation);
     }
 private:
     ExecEnv* _env;
@@ -335,7 +340,9 @@ TEST_F(OlapTableSinkTest, normal) {
     auto service = new TestInternalService();
     server->AddService(service, brpc::SERVER_OWNS_SERVICE);
     brpc::ServerOptions options;
+    __lsan_disable();
     server->Start(4356, &options);
+    __lsan_enable();
 
     TUniqueId fragment_id;
     TQueryOptions query_options;
@@ -443,7 +450,9 @@ TEST_F(OlapTableSinkTest, convert) {
     auto service = new TestInternalService();
     server->AddService(service, brpc::SERVER_OWNS_SERVICE);
     brpc::ServerOptions options;
+    __lsan_disable();
     server->Start(4356, &options);
+    __lsan_enable();
 
     TUniqueId fragment_id;
     TQueryOptions query_options;
@@ -754,7 +763,9 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     auto service = new TestInternalService();
     server->AddService(service, brpc::SERVER_OWNS_SERVICE);
     brpc::ServerOptions options;
+    __lsan_disable();
     server->Start(4356, &options);
+    __lsan_enable();
 
     TUniqueId fragment_id;
     TQueryOptions query_options;
@@ -849,7 +860,9 @@ TEST_F(OlapTableSinkTest, decimal) {
     auto service = new TestInternalService();
     server->AddService(service, brpc::SERVER_OWNS_SERVICE);
     brpc::ServerOptions options;
+    __lsan_disable();
     server->Start(4356, &options);
+    __lsan_enable();
 
     TUniqueId fragment_id;
     TQueryOptions query_options;

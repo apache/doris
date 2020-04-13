@@ -151,6 +151,10 @@ RuntimeState::~RuntimeState() {
         _buffer_reservation->Close();
     }
 
+    if (_exec_env != nullptr) {
+        _exec_env->thread_mgr()->unregister_pool(_resource_pool);
+    }
+
 #ifndef BE_TEST
     // _query_mem_tracker must be valid as long as _instance_mem_tracker is so
     // delete _instance_mem_tracker first.

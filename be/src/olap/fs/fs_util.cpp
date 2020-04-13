@@ -38,7 +38,8 @@ BlockManager* block_manager() {
 BlockManager* block_mgr_for_ut() {
     fs::BlockManagerOptions bm_opts;
     bm_opts.read_only = false;
-    return new FileBlockManager(Env::Default(), std::move(bm_opts));
+    static FileBlockManager block_mgr(Env::Default(), std::move(bm_opts));
+    return &block_mgr;
 }
 
 } // namespace fs_util

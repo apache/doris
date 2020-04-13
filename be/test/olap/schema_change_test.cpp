@@ -75,6 +75,9 @@ public:
         SAFE_DELETE(_shared_buffer);
 
         _offsets.clear();
+        for (auto in_stream : _map_in_streams) {
+            delete in_stream.second;
+        }
         _map_in_streams.clear();
         _present_buffers.clear();
         _data_buffers.clear();
@@ -106,6 +109,7 @@ public:
         UniqueIdToColumnIdMap segment_included;
         segment_included[0] = 0;
 
+        SAFE_DELETE(_column_reader);
         _column_reader = ColumnReader::create(0,
                                      tablet_schema,
                                      included,
@@ -164,9 +168,15 @@ public:
         ASSERT_EQ(OLAP_SUCCESS, helper.open_with_mode("./ut_dir/tmp_file", 
                 O_RDONLY, S_IRUSR | S_IWUSR)); 
 
+        SAFE_DELETE(_shared_buffer);
         _shared_buffer = StorageByteBuffer::create(
                 OLAP_DEFAULT_COLUMN_STREAM_BUFFER_SIZE + sizeof(StreamHead));
         ASSERT_TRUE(_shared_buffer != NULL);
+
+        for (auto in_stream : _map_in_streams) {
+            delete in_stream.second;
+        }
+        _map_in_streams.clear();
 
         for (int i = 0; i < off.size(); ++i) {
             ReadOnlyFileStream* in_stream = new (std::nothrow) ReadOnlyFileStream(
@@ -178,7 +188,6 @@ public:
                     buffer_size[i],
                     &_stats);
             ASSERT_EQ(OLAP_SUCCESS, in_stream->init());
-
             _map_in_streams[name[i]] = in_stream;
         }
 
@@ -564,39 +573,60 @@ TEST_F(TestColumn, ConvertVarcharToDate) {
     ASSERT_EQ(st, OLAP_ERR_INVALID_SCHEMA);
 }
 
-TEST_F(TestColumn, ConvertVarcharToTinyInt) {
+TEST_F(TestColumn, ConvertVarcharToTinyInt1) {
     test_convert_from_varchar("TINYINT", 1, "127", OLAP_SUCCESS);
+}
+
+TEST_F(TestColumn, ConvertVarcharToTinyInt2) {
     test_convert_from_varchar("TINYINT", 1, "128", OLAP_ERR_INVALID_SCHEMA);
 }
 
-TEST_F(TestColumn, ConvertVarcharToSmallInt) {
+TEST_F(TestColumn, ConvertVarcharToSmallInt1) {
     test_convert_from_varchar("SMALLINT", 2, "32767", OLAP_SUCCESS);
+}
+
+TEST_F(TestColumn, ConvertVarcharToSmallInt2) {
     test_convert_from_varchar("SMALLINT", 2, "32768", OLAP_ERR_INVALID_SCHEMA);
 }
 
-TEST_F(TestColumn, ConvertVarcharToInt) {
+TEST_F(TestColumn, ConvertVarcharToInt1) {
     test_convert_from_varchar("INT", 4, "2147483647", OLAP_SUCCESS);
+}
+
+TEST_F(TestColumn, ConvertVarcharToInt2) {
     test_convert_from_varchar("INT", 4, "2147483648", OLAP_ERR_INVALID_SCHEMA);
 }
 
-TEST_F(TestColumn, ConvertVarcharToBigInt) {
+TEST_F(TestColumn, ConvertVarcharToBigInt1) {
     test_convert_from_varchar("BIGINT", 8, "9223372036854775807", OLAP_SUCCESS);
+}
+
+TEST_F(TestColumn, ConvertVarcharToBigInt2) {
     test_convert_from_varchar("BIGINT", 8, "9223372036854775808", OLAP_ERR_INVALID_SCHEMA);
 }
 
-TEST_F(TestColumn, ConvertVarcharToLargeInt) {
+TEST_F(TestColumn, ConvertVarcharToLargeInt1) {
     test_convert_from_varchar("LARGEINT", 16, "170141183460469000000000000000000000000", OLAP_SUCCESS);
+}
+
+TEST_F(TestColumn, ConvertVarcharToLargeInt2) {
     test_convert_from_varchar("LARGEINT", 16, "1701411834604690000000000000000000000000", OLAP_ERR_INVALID_SCHEMA);
 }
 
-TEST_F(TestColumn, ConvertVarcharToFloat) {
+TEST_F(TestColumn, ConvertVarcharToFloat1) {
     test_convert_from_varchar("FLOAT", 4, "3.40282e+38", OLAP_SUCCESS); 
+}
+
+TEST_F(TestColumn, ConvertVarcharToFloat2) {
     test_convert_from_varchar("FLOAT", 4, "1797690000000000063230304921389426434930330364336853362154109832891264341489062899406152996321966094455338163203127744334848599000464911410516510916727344709727599413825823048028128827530592629736371829425359826368844446113768685826367454055532068818593409163400929532301499014067384276511218551077374242324480.999", OLAP_ERR_INVALID_SCHEMA);
 }
 
-TEST_F(TestColumn, ConvertVarcharToDouble) {
+TEST_F(TestColumn, ConvertVarcharToDouble1) {
     test_convert_from_varchar("DOUBLE", 8,
             "123.456", OLAP_SUCCESS);
+}
+
+TEST_F(TestColumn, ConvertVarcharToDouble2) {
     test_convert_from_varchar("DOUBLE", 8,
             "1797690000000000063230304921389426434930330364336853362154109832891264341489062899406152996321966094455338163203127744334848599000464911410516510916727344709727599413825823048028128827530592629736371829425359826368844446113768685826367454055532068818593409163400929532301499014067384276511218551077374242324480.0000000000", OLAP_ERR_INVALID_SCHEMA);
 }

@@ -165,8 +165,15 @@ public:
     Status get(FieldType data_type, EncodingTypePB encoding_type, const EncodingInfo** out);
 
 private:
+    // Not thread-safe
     template<FieldType type, EncodingTypePB encoding_type, bool optimize_value_seek = false>
     void _add_map() {
+        auto key = std::make_pair(type, encoding_type);
+        auto it = _encoding_map.find(key);
+        if (it != _encoding_map.end()) {
+            return;
+        }
+
         EncodingTraits<type, encoding_type> traits;
         std::unique_ptr<EncodingInfo> encoding(new EncodingInfo(traits));
         if (_default_encoding_type_map.find(type) == std::end(_default_encoding_type_map)) {
@@ -175,7 +182,6 @@ private:
         if (optimize_value_seek && _value_seek_encoding_map.find(type) == _value_seek_encoding_map.end()) {
             _value_seek_encoding_map[type] = encoding_type;
         }
-        auto key = std::make_pair(type, encoding_type);
         _encoding_map.emplace(key, encoding.release());
     }
 

@@ -46,7 +46,6 @@ static std::mutex s_mutex;
 ChunkAllocator* ChunkAllocator::instance() {
     std::lock_guard<std::mutex> l(s_mutex);
     if (_s_instance == nullptr) {
-        DorisMetrics::instance()->initialize("common_ut");
         CpuInfo::init();
         ChunkAllocator::init_instance(4096);
     }

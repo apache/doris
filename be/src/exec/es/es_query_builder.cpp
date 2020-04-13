@@ -22,6 +22,7 @@
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "common/logging.h"
+#include "olap/olap_define.h"
 
 namespace doris {
 
@@ -169,20 +170,16 @@ BooleanQueryBuilder::BooleanQueryBuilder() {
 }
 BooleanQueryBuilder::~BooleanQueryBuilder() {
     for (auto clause : _must_clauses) {
-        delete clause;
-        clause = nullptr;
+        SAFE_DELETE(clause);
     }
     for (auto clause : _must_not_clauses) {
-        delete clause;
-        clause = nullptr;
+        SAFE_DELETE(clause);
     }
     for (auto clause : _filter_clauses) {
-        delete clause;
-        clause = nullptr;
+        SAFE_DELETE(clause);
     }
     for (auto clause : _should_clauses) {
-        delete clause;
-        clause = nullptr;
+        SAFE_DELETE(clause);
     }
 }
 
