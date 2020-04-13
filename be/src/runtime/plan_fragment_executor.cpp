@@ -65,6 +65,11 @@ PlanFragmentExecutor::~PlanFragmentExecutor() {
     // }
     // at this point, the report thread should have been stopped
     DCHECK(!_report_thread_active);
+
+    // fragment mem tracker needs unregister
+    if (_mem_tracker.get() != nullptr) {
+        _mem_tracker->unregister_from_parent();
+    }
 }
 
 Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
