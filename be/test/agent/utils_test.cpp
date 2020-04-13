@@ -30,9 +30,9 @@ using std::string;
 namespace doris {
 
 TEST(AgentUtilsTest, Test) {
-    const char* host_name = BackendOptions::get_localhost().c_str();
-    int cnt = std::count(host_name, host_name + 17, '.');
-    EXPECT_EQ(3, cnt);
+    std::string host_name = BackendOptions::get_localhost();
+    int cnt = std::count(host_name.begin(), host_name.end(), '.');
+    ASSERT_EQ(3, cnt);
 }
 
 }  // namespace doris

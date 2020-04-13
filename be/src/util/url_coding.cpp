@@ -91,7 +91,8 @@ bool url_decode(const std::string& in, std::string* out) {
 static void encode_base64_internal(const std::string& in, std::string* out,
                                    const unsigned char* basis, bool padding) {
     size_t len = in.size();
-    std::unique_ptr<unsigned char[]> buf(new unsigned char[len]);
+    // Every 3 source bytes will be encoded into 4 bytes.
+    std::unique_ptr<unsigned char[]> buf(new unsigned char[(((len + 2) / 3) * 4)]);
     const unsigned char* s = reinterpret_cast<const unsigned char*>(in.data());
     unsigned char* d = buf.get();
     while (len > 2) {

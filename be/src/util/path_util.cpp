@@ -70,13 +70,19 @@ vector<string> split_path(const string& path) {
     return segments;
 }
 
+struct FreeDeleter {
+    inline void operator()(void* ptr) const {
+        free(ptr);
+    }
+};
+
 string dir_name(const string& path) {
-    std::unique_ptr<char[]> path_copy(strdup(path.c_str()));
+    std::unique_ptr<char[], FreeDeleter> path_copy(strdup(path.c_str()));
     return dirname(path_copy.get());
 }
 
 string base_name(const string& path) {
-    std::unique_ptr<char[]> path_copy(strdup(path.c_str()));
+    std::unique_ptr<char[], FreeDeleter> path_copy(strdup(path.c_str()));
     return basename(path_copy.get());
 }
 
