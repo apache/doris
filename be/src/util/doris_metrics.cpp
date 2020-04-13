@@ -28,10 +28,6 @@
 
 namespace doris {
 
-const char* DorisMetrics::_s_hook_name = "doris_metrics";
-
-DorisMetrics DorisMetrics::_s_doris_metrics;
-
 // counters
 IntCounter DorisMetrics::fragment_requests_total;
 IntCounter DorisMetrics::fragment_request_duration_us;
@@ -152,24 +148,8 @@ UIntGauge DorisMetrics::stream_load_pipe_count;
 UIntGauge DorisMetrics::brpc_endpoint_stub_count;
 UIntGauge DorisMetrics::tablet_writer_count;
 
-DorisMetrics::~DorisMetrics() {
-    delete _system_metrics;
-    delete _metrics;
-}
-
-void DorisMetrics::initialize(
-        const std::string& name,
-        const std::vector<std::string>& paths,
-        bool init_system_metrics,
-        const std::set<std::string>& disk_devices,
-        const std::vector<std::string>& network_interfaces) {
-    if (_metrics != nullptr) {
-        return;
-    }
-    DCHECK(_metrics == nullptr && _system_metrics == nullptr);
-    _metrics = new MetricRegistry(name);
-#define REGISTER_DORIS_METRIC(name) _metrics->register_metric(#name, &name)
-
+DorisMetrics::DorisMetrics() : _name("doris_be"), _hook_name("doris_metrics"), _metrics(_name) {
+#define REGISTER_DORIS_METRIC(name) _metrics.register_metric(#name, &name)
     // You can put DorisMetrics's metrics initial code here
     REGISTER_DORIS_METRIC(fragment_requests_total);
     REGISTER_DORIS_METRIC(fragment_request_duration_us);
@@ -184,10 +164,10 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(memtable_flush_duration_us);
 
     // push request
-    _metrics->register_metric(
+    _metrics.register_metric(
         "push_requests_total", MetricLabels().add("status", "SUCCESS"),
         &push_requests_success_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "push_requests_total", MetricLabels().add("status", "FAIL"),
         &push_requests_fail_total);
     REGISTER_DORIS_METRIC(push_request_duration_us);
@@ -195,7 +175,7 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(push_request_write_rows);
 
 #define REGISTER_ENGINE_REQUEST_METRIC(type, status, metric) \
-    _metrics->register_metric( \
+    _metrics.register_metric( \
         "engine_requests_total", MetricLabels().add("type", #type).add("status", #status), &metric)
 
     REGISTER_ENGINE_REQUEST_METRIC(create_tablet, total, create_tablet_requests_total);
@@ -232,62 +212,62 @@ void DorisMetrics::initialize(
     REGISTER_ENGINE_REQUEST_METRIC(publish, total, publish_task_request_total);
     REGISTER_ENGINE_REQUEST_METRIC(publish, failed, publish_task_failed_total);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "compaction_deltas_total", MetricLabels().add("type", "base"),
         &base_compaction_deltas_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "compaction_deltas_total", MetricLabels().add("type", "cumulative"),
         &cumulative_compaction_deltas_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "compaction_bytes_total", MetricLabels().add("type", "base"),
         &base_compaction_bytes_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "compaction_bytes_total", MetricLabels().add("type", "cumulative"),
         &cumulative_compaction_bytes_total);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "meta_request_total", MetricLabels().add("type", "write"),
         &meta_write_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "meta_request_total", MetricLabels().add("type", "read"),
         &meta_read_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "meta_request_duration", MetricLabels().add("type", "write"),
         &meta_write_request_duration_us);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "meta_request_duration", MetricLabels().add("type", "read"),
         &meta_read_request_duration_us);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "segment_read", MetricLabels().add("type", "segment_total_read_times"),
         &segment_read_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "segment_read", MetricLabels().add("type", "segment_total_row_num"),
         &segment_row_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "segment_read", MetricLabels().add("type", "segment_rows_by_short_key"),
         &segment_rows_by_short_key);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "segment_read", MetricLabels().add("type", "segment_rows_read_by_zone_map"),
         &segment_rows_read_by_zone_map);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "txn_request", MetricLabels().add("type", "begin"),
         &txn_begin_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "txn_request", MetricLabels().add("type", "commit"),
         &txn_commit_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "txn_request", MetricLabels().add("type", "rollback"),
         &txn_rollback_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "txn_request", MetricLabels().add("type", "exec"),
         &txn_exec_plan_total);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "stream_load", MetricLabels().add("type", "receive_bytes"),
         &stream_receive_bytes_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "stream_load", MetricLabels().add("type", "load_rows"),
         &stream_load_rows_total);
 
@@ -301,25 +281,13 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(tablet_cumulative_max_compaction_score);
     REGISTER_DORIS_METRIC(tablet_base_max_compaction_score);
 
-    // disk usage
-    for (auto& path : paths) {
-        IntGauge* gauge = disks_total_capacity.set_key(path);
-        _metrics->register_metric("disks_total_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_avail_capacity.set_key(path);
-        _metrics->register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_data_used_capacity.set_key(path);
-        _metrics->register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_state.set_key(path);
-        _metrics->register_metric("disks_state", MetricLabels().add("path", path), gauge);
-    }
-
     REGISTER_DORIS_METRIC(push_request_write_bytes_per_second);
     REGISTER_DORIS_METRIC(query_scan_bytes_per_second);
     REGISTER_DORIS_METRIC(max_disk_io_util_percent);
     REGISTER_DORIS_METRIC(max_network_send_bytes_rate);
     REGISTER_DORIS_METRIC(max_network_receive_bytes_rate);
 
-    _metrics->register_hook(_s_hook_name, std::bind(&DorisMetrics::update, this));
+    _metrics.register_hook(_hook_name, std::bind(&DorisMetrics::_update, this));
 
     REGISTER_DORIS_METRIC(readable_blocks_total);
     REGISTER_DORIS_METRIC(writable_blocks_total);
@@ -330,16 +298,32 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(disk_sync_total);
     REGISTER_DORIS_METRIC(blocks_open_reading);
     REGISTER_DORIS_METRIC(blocks_open_writing);
-
     REGISTER_DORIS_METRIC(blocks_push_remote_duration_us);
+}
+
+void DorisMetrics::initialize(
+        const std::vector<std::string>& paths,
+        bool init_system_metrics,
+        const std::set<std::string>& disk_devices,
+        const std::vector<std::string>& network_interfaces) {
+    // disk usage
+    for (auto& path : paths) {
+        IntGauge* gauge = disks_total_capacity.set_key(path);
+        _metrics.register_metric("disks_total_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_avail_capacity.set_key(path);
+        _metrics.register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_data_used_capacity.set_key(path);
+        _metrics.register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_state.set_key(path);
+        _metrics.register_metric("disks_state", MetricLabels().add("path", path), gauge);
+    }
 
     if (init_system_metrics) {
-        _system_metrics = new SystemMetrics();
-        _system_metrics->install(_metrics, disk_devices, network_interfaces);
+        _system_metrics.install(&_metrics, disk_devices, network_interfaces);
     }
 }
 
-void DorisMetrics::update() {
+void DorisMetrics::_update() {
     _update_process_thread_num();
     _update_process_fd_num();
 }

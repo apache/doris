@@ -24,10 +24,9 @@
 #include <unordered_map>
 
 #include "util/metrics.h"
+#include "util/system_metrics.h"
 
 namespace doris {
-
-class SystemMetrics;
 
 class IntGaugeMetricsMap {
 public:
@@ -189,33 +188,36 @@ public:
     static UIntGauge brpc_endpoint_stub_count;
     static UIntGauge tablet_writer_count;
 
-    ~DorisMetrics();
+
+    static DorisMetrics* instance() {
+        static DorisMetrics instance;
+        return &instance;
+    }
+
     // not thread-safe, call before calling metrics
     void initialize(
-        const std::string& name,
         const std::vector<std::string>& paths = std::vector<std::string>(),
         bool init_system_metrics = false,
         const std::set<std::string>& disk_devices = std::set<std::string>(),
         const std::vector<std::string>& network_interfaces = std::vector<std::string>());
 
-    static DorisMetrics* instance() { return &_s_doris_metrics; }
-    static MetricRegistry* metrics() { return _s_doris_metrics._metrics; }
-    static SystemMetrics* system_metrics() { return _s_doris_metrics._system_metrics; }
+    MetricRegistry* metrics() { return &_metrics; }
+    SystemMetrics* system_metrics() { return &_system_metrics; }
+
 private:
     // Don't allow constrctor
-    DorisMetrics() {}
+    DorisMetrics();
 
-    void update();
+    void _update();
     void _update_process_thread_num();
     void _update_process_fd_num();
 
 private:
-    static const char* _s_hook_name;
+    const char* _name;
+    const char* _hook_name;
 
-    static DorisMetrics _s_doris_metrics;
-
-    MetricRegistry* _metrics = nullptr;
-    SystemMetrics* _system_metrics = nullptr;
+    MetricRegistry _metrics;
+    SystemMetrics _system_metrics;
 };
 
 };
