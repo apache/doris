@@ -198,6 +198,10 @@ public:
         return _es_query_status;
     }
 
+    void set_field_context(const std::map<std::string, std::string>& field_context) {
+        _field_context = field_context;
+    }
+
 private:
     Status build_disjuncts_list(const Expr* conjunct);
     bool is_match_func(const Expr* conjunct);
@@ -209,6 +213,7 @@ private:
     std::vector<ExtPredicate*> _disjuncts;
     Status _es_query_status;
     ObjectPool *_pool;
+    std::map<std::string, std::string> _field_context;
 };
 
 }
