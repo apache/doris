@@ -350,13 +350,6 @@ struct RowsetId {
     }
 };
 
-struct RowsetIdHash {
-    size_t operator()(const RowsetId& rowset_id) const {
-        // hi is an increasing number on a BE instance, we can use it as the hash value simply.
-        return rowset_id.hi;
-    }
-};
-
 }  // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_OLAP_COMMON_H
