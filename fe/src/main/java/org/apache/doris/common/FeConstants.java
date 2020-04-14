@@ -31,6 +31,7 @@ public class FeConstants {
     public static int shortkey_max_column_count = 3;
     public static int shortkey_maxsize_bytes = 36;
     public static long default_db_data_quota_bytes = 1024 * 1024 * 1024 * 1024L; // 1TB
+    public static long default_db_replica_quota_size = 1024 * 1024 * 1024;
 
     public static int heartbeat_interval_second = 5;
     public static int checkpoint_interval_second = 60; // 1 minutes
