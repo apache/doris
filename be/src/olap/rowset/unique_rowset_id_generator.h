@@ -24,7 +24,7 @@
 namespace doris {
 
 class UniqueRowsetIdGenerator : public RowsetIdGenerator {
-public:    
+public:
     UniqueRowsetIdGenerator(const UniqueId& backend_uid);
     ~UniqueRowsetIdGenerator() {}
 
@@ -39,7 +39,7 @@ private:
     const UniqueId _backend_uid;
     const int64_t _version = 2; // modify it when create new version id generator
     std::atomic<int64_t> _inc_id;
-    std::unordered_set<RowsetId, RowsetIdHash> _valid_rowset_ids;
+    std::unordered_set<int64_t> _valid_rowset_id_hi;
 
     DISALLOW_COPY_AND_ASSIGN(UniqueRowsetIdGenerator);
 }; // UniqueRowsetIdGenerator
