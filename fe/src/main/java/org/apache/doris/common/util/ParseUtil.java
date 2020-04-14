@@ -51,7 +51,7 @@ public class ParseUtil {
             } catch (NumberFormatException nfe) {
                 throw new AnalysisException("invalid data volumn:" + m.group(1));
             }
-            if (dataVolumn < 0L) {
+            if (dataVolumn <= 0L) {
                 throw new AnalysisException("Data volumn must larger than 0");
             }
 
@@ -69,6 +69,19 @@ public class ParseUtil {
             throw new AnalysisException("invalid data volumn expression:" + dataVolumnStr);
         }
         return dataVolumn;
+    }
+
+    public static long analyzeReplicaNumber(String replicaNumberStr) throws AnalysisException {
+        long replicaNumber = 0;
+        try {
+            replicaNumber = Long.parseLong(replicaNumberStr);
+        } catch (NumberFormatException nfe) {
+            throw new AnalysisException("invalid data volumn:" + replicaNumberStr);
+        }
+        if (replicaNumber <= 0L) {
+            throw new AnalysisException("Replica volumn must larger than 0");
+        }
+        return replicaNumber;
     }
 
 }

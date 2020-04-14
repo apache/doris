@@ -23,6 +23,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.SetOperationStmt.Qualifier;
 import org.apache.doris.analysis.SetOperationStmt.Operation;
 import org.apache.doris.analysis.SetOperationStmt.SetOperand;
@@ -711,8 +712,13 @@ alter_stmt ::=
     :}
     | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_DATA KW_QUOTA quantity:quota_quantity
     {:
-        RESULT = new AlterDatabaseQuotaStmt(dbName, quota_quantity);
+        RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.DATA, quota_quantity);
     :}
+    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_REPLICA KW_QUOTA INTEGER_LITERAL:number
+    {:
+        RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.REPLICA, String.valueOf(number));
+    :}
+
     | KW_ALTER KW_DATABASE ident:dbName KW_RENAME ident:newDbName
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);

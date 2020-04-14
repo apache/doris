@@ -43,7 +43,7 @@ import java.util.List;
 public class TablesProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TableId").add("TableName").add("IndexNum").add("PartitionColumnName")
-            .add("PartitionNum").add("State").add("Type").add("LastConsistencyCheckTime")
+            .add("PartitionNum").add("State").add("Type").add("LastConsistencyCheckTime").add("ReplicaCount")
             .build();
 
     private Database db;
@@ -97,6 +97,7 @@ public class TablesProcDir implements ProcDirInterface {
                 List<Comparable> tableInfo = new ArrayList<Comparable>();
 
                 int partitionNum = 1;
+                long replicaCount = 0;
                 String partitionKey = "N/A";
                 if (table.getType() == TableType.OLAP) {
                     OlapTable olapTable = (OlapTable) table;
@@ -113,6 +114,7 @@ public class TablesProcDir implements ProcDirInterface {
                             ++idx;
                         }
                     }
+                    replicaCount = olapTable.getReplicaCount();
                     tableInfo.add(table.getId());
                     tableInfo.add(table.getName());
                     tableInfo.add(olapTable.getIndexNameToId().size());
@@ -132,7 +134,7 @@ public class TablesProcDir implements ProcDirInterface {
 
                 // last check time
                 tableInfo.add(TimeUtils.longToTimeString(table.getLastCheckTime()));
-
+                tableInfo.add(replicaCount);
                 tableInfos.add(tableInfo);
             }
         } finally {
