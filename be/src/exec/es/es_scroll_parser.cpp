@@ -104,6 +104,17 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
         } \
     } while (false)
 
+#define RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col, type) \
+    do { \
+        if (!col.IsNumber()) { \
+            std::stringstream ss; \
+            ss << "Expected value of type: " \
+               << type_to_string(type) \
+               << "; but found type: " <<json_type_to_string(col.GetType()) \
+               << "; Document value is: " << json_value_to_string(col); \
+            return Status::RuntimeError(ss.str()); \
+        } \
+     } while (false)
 
 #define RETURN_ERROR_IF_PARSING_FAILED(result, col, type) \
     do { \
@@ -129,14 +140,13 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 
 template <typename T>
 static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, void* slot, bool pure_doc_value) {
-
-
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
         return Status::OK();
     }
 
     if (pure_doc_value && col.IsArray()) {
+        RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
         return Status::OK();
     }
