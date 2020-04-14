@@ -146,7 +146,7 @@ static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, voi
     }
 
     if (pure_doc_value && col.IsArray()) {
-	RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col, type);
+        RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col, type);
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
         return Status::OK();
     }
