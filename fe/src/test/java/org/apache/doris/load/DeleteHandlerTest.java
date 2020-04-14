@@ -127,6 +127,10 @@ public class DeleteHandlerTest {
                 catalog.getAuth();
                 minTimes = 0;
                 result = auth;
+
+                catalog.getNextId();
+                minTimes = 0;
+                result = 10L;
             }
         };
 
