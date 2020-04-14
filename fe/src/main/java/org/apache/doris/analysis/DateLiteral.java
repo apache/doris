@@ -102,7 +102,7 @@ public class DateLiteral extends LiteralExpr {
     public DateLiteral(Type type, boolean isMax) throws AnalysisException {
         super();
         this.type = type;
-        if (type == Type.DATE) {
+        if (type.equals(Type.DATE)) {
             if (isMax) {
                 copy(MAX_DATE);
             } else {
