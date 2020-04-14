@@ -70,6 +70,7 @@ public class PluginMgrTest {
     @Test
     public void testInstallPluginZip() {
         try {
+            // path "target/audit_plugin_demo" is where we are going to install the plugin
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
 
@@ -112,20 +113,17 @@ public class PluginMgrTest {
     @Test
     public void testInstallPluginLocal() {
         try {
+            // path "target/audit_plugin_demo" is where we are going to install the plugin
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo")));
             assertFalse(Files.exists(PluginTestUtil.getTestPath("target/audit_plugin_demo/auditdemo.jar")));
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("test_plugin")));
 
-            FileUtils.copyDirectory(PluginTestUtil.getTestPath("test_local_plugin").toFile(),
-                    PluginTestUtil.getTestPath("test_plugin").toFile());
-
-            InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("test_plugin"));
+            InstallPluginStmt stmt = new InstallPluginStmt(PluginTestUtil.getTestPathString("test_local_plugin"));
             Catalog.getCurrentCatalog().installPlugin(stmt);
 
             PluginMgr pluginMgr = Catalog.getCurrentPluginMgr();
 
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("test_plugin")));
-            assertFalse(Files.exists(PluginTestUtil.getTestPath("test_plugin/auditdemo.jar")));
+            assertTrue(Files.exists(PluginTestUtil.getTestPath("test_local_plugin")));
+            assertTrue(Files.exists(PluginTestUtil.getTestPath("test_local_plugin/auditdemo.jar")));
 
             Plugin p = pluginMgr.getActivePlugin("audit_plugin_demo", PluginInfo.PluginType.AUDIT);
 
