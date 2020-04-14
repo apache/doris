@@ -169,8 +169,10 @@ public final class FeMetaVersion {
     public static final int VERSION_78 = 78;
     // for transaction state in table level
     public static final int VERSION_79 = 79;
-      // optimize alterJobV2 memory consumption
+    // optimize alterJobV2 memory consumption
     public static final int VERSION_80 = 80;
+    // replica quota support
+    public static final int VERSION_81 = 81;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_80;
+    public static final int VERSION_CURRENT = VERSION_81;
 }

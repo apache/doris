@@ -1162,6 +1162,14 @@ public class OlapTable extends Table {
         return dataSize;
     }
 
+    public long getReplicaCount() {
+        long replicaCount = 0;
+        for (Partition partition : getAllPartitions()) {
+            replicaCount += partition.getReplicaCount();
+        }
+        return replicaCount;
+    }
+
     public void checkStableAndNormal(String clusterName) throws DdlException {
         if (state != OlapTableState.NORMAL) {
             throw new DdlException("Table[" + name + "]'s state is not NORMAL. "

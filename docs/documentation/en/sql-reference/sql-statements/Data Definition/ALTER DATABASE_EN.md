@@ -29,6 +29,7 @@ ALTER DATABASE db_name RENAME new_db_name;
 
 Explain:
 After renaming the database, use REVOKE and GRANT commands to modify the corresponding user rights if necessary.
+The database's default data quota is 1024GB, and the default replica quota is 1073741824.
 
 ## example
 1. Setting the specified database data quota

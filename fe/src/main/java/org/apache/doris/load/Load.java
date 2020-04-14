@@ -381,7 +381,7 @@ public class Load {
         // for original job, check quota
         // for delete job, not check
         if (!job.isSyncDeleteJob()) {
-            db.checkQuota();
+            db.checkDataSizeQuota();
         }
 
         // check if table is in restore process

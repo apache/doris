@@ -34,6 +34,7 @@ import org.apache.doris.analysis.AdminSetReplicaStatusStmt;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterClusterStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
+import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.analysis.AlterDatabaseRename;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
@@ -2781,16 +2782,25 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
 
-        db.setDataQuotaWithLock(stmt.getQuota());
-
-        DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", db.getDataQuota());
+        QuotaType quotaType = stmt.getQuotaType();
+        if (quotaType == QuotaType.DATA) {
+            db.setDataQuotaWithLock(stmt.getQuota());
+        } else if (quotaType == QuotaType.REPLICA) {
+            db.setReplicaQuotaWithLock(stmt.getQuota());
+        }
+        long quota = stmt.getQuota();
+        DatabaseInfo dbInfo = new DatabaseInfo(dbName, "", quota, quotaType);
         editLog.logAlterDb(dbInfo);
     }
 
-    public void replayAlterDatabaseQuota(String dbName, long quota) {
+    public void replayAlterDatabaseQuota(String dbName, long quota, QuotaType quotaType) {
         Database db = getDb(dbName);
         Preconditions.checkNotNull(db);
-        db.setDataQuotaWithLock(quota);
+        if (quotaType == QuotaType.DATA) {
+            db.setDataQuotaWithLock(quota);
+        } else if (quotaType == QuotaType.REPLICA) {
+            db.setReplicaQuotaWithLock(quota);
+        }
     }
 
     public void renameDatabase(AlterDatabaseRename stmt) throws DdlException {
@@ -2835,7 +2845,7 @@ public class Catalog {
             fullNameToDb.remove(fullDbName);
             fullNameToDb.put(newFullDbName, db);
 
-            DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L);
+            DatabaseInfo dbInfo = new DatabaseInfo(fullDbName, newFullDbName, -1L, QuotaType.NONE);
             editLog.logDatabaseRename(dbInfo);
         } finally {
             unlock();

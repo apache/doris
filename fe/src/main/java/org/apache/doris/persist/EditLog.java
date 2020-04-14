@@ -150,7 +150,7 @@ public class EditLog {
                     DatabaseInfo dbInfo = (DatabaseInfo) journal.getData();
                     String dbName = dbInfo.getDbName();
                     LOG.info("Begin to unprotect alter db info {}", dbName);
-                    catalog.replayAlterDatabaseQuota(dbName, dbInfo.getQuota());
+                    catalog.replayAlterDatabaseQuota(dbName, dbInfo.getQuota(), dbInfo.getQuotaType());
                     break;
                 }
                 case OperationType.OP_ERASE_DB: {
