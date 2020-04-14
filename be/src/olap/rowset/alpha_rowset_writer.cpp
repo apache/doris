@@ -102,6 +102,7 @@ OLAPStatus AlphaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
         RETURN_NOT_OK(segment_group->link_segments_to_path(_rowset_writer_context.rowset_path_prefix,
                                                            _rowset_writer_context.rowset_id));
         _cur_segment_group->set_empty(segment_group->empty());
+        _cur_segment_group->set_segment_group_id(segment_group->segment_group_id());
         _cur_segment_group->set_num_segments(segment_group->num_segments());
         _cur_segment_group->add_zone_maps(segment_group->get_zone_maps());
         RETURN_NOT_OK(flush());
