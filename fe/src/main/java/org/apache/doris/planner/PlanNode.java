@@ -300,8 +300,7 @@ abstract public class PlanNode extends TreeNode<PlanNode> {
      * The root node header line will be prefixed by rootPrefix and the remaining plan
      * output will be prefixed by prefix.
      */
-    protected final String getExplainString(String rootPrefix, String prefix,
-      TExplainLevel detailLevel) {
+    protected final String getExplainString(String rootPrefix, String prefix, TExplainLevel detailLevel) {
         StringBuilder expBuilder = new StringBuilder();
         String detailPrefix = prefix;
         boolean traverseChildren = children != null
