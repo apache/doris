@@ -21,9 +21,8 @@
 
 namespace doris {
 
-UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid) :
-    _backend_uid(backend_uid), _inc_id(0) {
-}
+UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
+        : _backend_uid(backend_uid), _inc_id(0) {}
 
 // generate a unique rowset id and save it in a set to check whether it is valid in the future
 RowsetId UniqueRowsetIdGenerator::next_id() {
@@ -31,7 +30,7 @@ RowsetId UniqueRowsetIdGenerator::next_id() {
     rowset_id.init(_version, ++_inc_id, _backend_uid.hi, _backend_uid.lo);
     {
         std::lock_guard<SpinLock> l(_lock);
-        _valid_rowset_ids.insert(rowset_id);
+        _valid_rowset_id_hi.insert(rowset_id.hi);
     }
     return rowset_id;
 }
@@ -42,13 +41,17 @@ bool UniqueRowsetIdGenerator::id_in_use(const RowsetId& rowset_id) const {
     if (rowset_id.version < _version) {
         return true;
     }
+    if ((rowset_id.mi != _backend_uid.hi) || (rowset_id.lo != _backend_uid.lo)) {
+        return false;
+    }
+
     std::lock_guard<SpinLock> l(_lock);
-    return _valid_rowset_ids.count(rowset_id) == 1;
+    return _valid_rowset_id_hi.count(rowset_id.hi) == 1;
 }
 
 void UniqueRowsetIdGenerator::release_id(const RowsetId& rowset_id) {
     std::lock_guard<SpinLock> l(_lock);
-    _valid_rowset_ids.erase(rowset_id);
+    _valid_rowset_id_hi.erase(rowset_id.hi);
 }
 
 } // namespace doris
