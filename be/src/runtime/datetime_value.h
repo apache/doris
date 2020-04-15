@@ -508,15 +508,18 @@ private:
             int minute = std::stoi(value.substr(4, 2).as_string());
 
             // timezone offsets around the world extended from -12:00 to +14:00
-            if (!postive && hour > 1200) {
+            if (!postive && hour > 12) {
                 return false;
-            } else if (postive && hour > 1400) {
+            } else if (postive && hour > 14) {
                 return false;
             }
             int offset = hour * 60 * 60 + minute * 60;
             offset *= postive ? 1 : -1;
             ctz = cctz::fixed_time_zone(cctz::seconds(offset));
             return true;
+        } else if (timezone == "CST"){
+            // Supports offset and region timezone type, "CST" use here is compatibility purposes.
+            ctz = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
         } else {
             return cctz::load_time_zone(timezone, &ctz);
         }

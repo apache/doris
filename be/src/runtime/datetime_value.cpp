@@ -1543,7 +1543,8 @@ bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezo
 
     const auto tp =
             cctz::convert(cctz::civil_second(_year, _month, _day, _hour, _minute, _second), ctz);
-    return tp.time_since_epoch().count();
+    *timestamp = tp.time_since_epoch().count();
+    return true;
 }
 
 bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {

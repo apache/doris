@@ -320,7 +320,7 @@ TEST_F(DateTimeValueTest, unix_timestamp) {
     ASSERT_EQ(0, timestamp);
     value.from_date_int64(19700101);
     value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
-    ASSERT_EQ(0, timestamp);
+    ASSERT_EQ(0 - 28800, timestamp);
     value.from_date_int64(19700102);
     value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
     ASSERT_EQ(86400 - 28800, timestamp);
@@ -332,7 +332,7 @@ TEST_F(DateTimeValueTest, unix_timestamp) {
     ASSERT_EQ(2147472000 - 28800, timestamp);
     value.from_date_int64(20380120);
     value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
-    ASSERT_EQ(0, timestamp);
+    ASSERT_EQ(2147529600, timestamp);
 	
     value.from_date_int64(10000101);
     value.unix_timestamp(&timestamp, TimezoneDatabase::default_time_zone);
