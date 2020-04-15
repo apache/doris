@@ -26,15 +26,19 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.common.UserException;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TMySQLScanNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRangeLocations;
+
+import com.google.common.base.Joiner;
 import com.google.common.base.Objects;
 import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.Logger;
+
 import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,15 +51,14 @@ public class MysqlScanNode extends ScanNode {
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
-    private       String     tabName;
+    private String tblName;
 
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
     public MysqlScanNode(PlanNodeId id, TupleDescriptor desc, MysqlTable tbl) {
         super(id, desc, "SCAN MYSQL");
-        // tabName = ((BaseTableRef)desc.getRef()).mysqlTableRefToSql();
-        tabName = "`" + tbl.getMysqlTableName() + "`";
+        tblName = "`" + tbl.getMysqlTableName() + "`";
     }
 
     @Override
@@ -71,6 +74,27 @@ public class MysqlScanNode extends ScanNode {
         createMySQLFilters(analyzer);
     }
 
+    @Override
+    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        StringBuilder output = new StringBuilder();
+        output.append(prefix).append("TABLE: ").append(tblName).append("\n");
+        output.append(prefix).append("Query: ").append(getMysqlQueryStr()).append("\n");
+        return output.toString();
+    }
+
+    private String getMysqlQueryStr() {
+        StringBuilder sql = new StringBuilder("SELECT ");
+        sql.append(Joiner.on(", ").join(columns));
+        sql.append(" FROM ").append(tblName);
+
+        if (!filters.isEmpty()) {
+            sql.append(" WHERE (");
+            sql.append(Joiner.on(") AND (").join(filters));
+            sql.append(")");
+        }
+        return sql.toString();
+    }
+
     private void createMySQLColumns(Analyzer analyzer) {
         for (SlotDescriptor slot : desc.getSlots()) {
             if (!slot.isMaterialized()) {
@@ -79,7 +103,7 @@ public class MysqlScanNode extends ScanNode {
             Column col = slot.getColumn();
             columns.add("`" + col.getName() + "`");
         }
-        // this happend when count(*)
+        // this happens when count(*)
         if (0 == columns.size()) {
             columns.add("*");
         }
@@ -109,11 +133,11 @@ public class MysqlScanNode extends ScanNode {
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.MYSQL_SCAN_NODE;
-        msg.mysql_scan_node = new TMySQLScanNode(desc.getId().asInt(), tabName, columns, filters);
+        msg.mysql_scan_node = new TMySQLScanNode(desc.getId().asInt(), tblName, columns, filters);
     }
 
     /**
-     * We query MySQL Meta to get request's data localtion
+     * We query MySQL Meta to get request's data location
      * extra result info will pass to backend ScanNode
      */
     @Override

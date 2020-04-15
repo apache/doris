@@ -21,11 +21,13 @@ import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
@@ -186,6 +188,33 @@ public class QueryPlanTest {
                 "\"dynamic_partition.time_unit\" = \"day\",\n" +
                 "\"dynamic_partition.prefix\" = \"p\",\n" +
                 "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");");
+
+        createTable("CREATE TABLE test.`app_profile` (\n" +
+                "  `event_date` date NOT NULL COMMENT \"\",\n" +
+                "  `app_name` varchar(64) NOT NULL COMMENT \"\",\n" +
+                "  `package_name` varchar(64) NOT NULL COMMENT \"\",\n" +
+                "  `age` varchar(32) NOT NULL COMMENT \"\",\n" +
+                "  `gender` varchar(32) NOT NULL COMMENT \"\",\n" +
+                "  `level` varchar(64) NOT NULL COMMENT \"\",\n" +
+                "  `city` varchar(64) NOT NULL COMMENT \"\",\n" +
+                "  `model` varchar(64) NOT NULL COMMENT \"\",\n" +
+                "  `brand` varchar(64) NOT NULL COMMENT \"\",\n" +
+                "  `hours` varchar(16) NOT NULL COMMENT \"\",\n" +
+                "  `use_num` int(11) SUM NOT NULL COMMENT \"\",\n" +
+                "  `use_time` double SUM NOT NULL COMMENT \"\",\n" +
+                "  `start_times` bigint(20) SUM NOT NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "AGGREGATE KEY(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`)\n"
+                +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE(`event_date`)\n" +
+                "(PARTITION p_20200301 VALUES [('2020-02-27'), ('2020-03-02')),\n" +
+                "PARTITION p_20200306 VALUES [('2020-03-02'), ('2020-03-07')))\n" +
+                "DISTRIBUTED BY HASH(`event_date`, `app_name`, `package_name`, `age`, `gender`, `level`, `city`, `model`, `brand`, `hours`) BUCKETS 1\n"
+                +
+                "PROPERTIES (\n" +
+                " \"replication_num\" = \"1\"\n" +
                 ");");
     }
 
@@ -458,5 +487,21 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + castSql2);
         Assert.assertTrue(explainString.contains("2011-11-09"));
         Assert.assertFalse(explainString.contains("2011-11-09 00:00:00"));
+    }
+
+    @Test
+    public void testDateTypeEquality() throws Exception {
+        // related to Github issue #3309
+        String loadStr = "load label test.app_profile_20200306\n" +
+                "(DATA INFILE('filexxx')INTO TABLE app_profile partition (p_20200306)\n" +
+                "COLUMNS TERMINATED BY '\\t'\n" +
+                "(app_name,package_name,age,gender,level,city,model,brand,hours,use_num,use_time,start_times)\n" +
+                "SET\n" +
+                "(event_date = default_value('2020-03-06'))) \n" +
+                "PROPERTIES ( 'max_filter_ratio'='0.0001' );\n" +
+                "";
+        LoadStmt loadStmt = (LoadStmt) UtFrameUtils.parseAndAnalyzeStmt(loadStr, connectContext);
+        Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
+                System.currentTimeMillis());
     }
 }

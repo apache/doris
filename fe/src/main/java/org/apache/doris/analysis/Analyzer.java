@@ -1412,7 +1412,7 @@ public class Analyzer {
             // TODO(zc)
             compatibleType = Type.getCmpType(compatibleType, exprs.get(i).getType());
         }
-        if (compatibleType == Type.VARCHAR) {
+        if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {
                 compatibleType = Type.DATETIME;
             }

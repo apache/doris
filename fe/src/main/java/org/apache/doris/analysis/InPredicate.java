@@ -147,7 +147,7 @@ public class InPredicate extends Predicate {
 //       OpcodeRegistry.BuiltinFunction match = OpcodeRegistry.instance().getFunctionInfo(
 //               FunctionOperator.FILTER_IN, true, true, type);
 //       Preconditions.checkState(match != null);
-//       Preconditions.checkState(match.getReturnType() == Type.BOOLEAN);
+//       Preconditions.checkState(match.getReturnType().equals(Type.BOOLEAN));
 //       this.vectorOpcode = match.opcode;
 //       LOG.info(debugString() + " opcode: " + vectorOpcode);
    }

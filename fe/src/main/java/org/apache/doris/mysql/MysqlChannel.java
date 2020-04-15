@@ -82,7 +82,7 @@ public class MysqlChannel {
                     remoteIp = channel.getRemoteAddress().toString();
                 }
             } catch (Exception e) {
-                  LOG.warn("get remote host string failed: " + e.toString());
+                LOG.warn("get remote host string failed: ", e);
             }
         }
     }

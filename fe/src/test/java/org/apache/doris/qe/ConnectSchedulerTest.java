@@ -17,9 +17,6 @@
 
 package org.apache.doris.qe;
 
-import mockit.Delegate;
-import mockit.Expectations;
-import mockit.Mocked;
 import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlProto;
@@ -32,6 +29,10 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicLong;
+
+import mockit.Delegate;
+import mockit.Expectations;
+import mockit.Mocked;
 
 public class ConnectSchedulerTest {
     private static final Logger LOG = LoggerFactory.getLogger(ConnectScheduler.class);

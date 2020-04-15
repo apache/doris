@@ -1441,7 +1441,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Negates a boolean Expr.
      */
     public Expr negate() {
-        Preconditions.checkState(type == Type.BOOLEAN);
+        Preconditions.checkState(type.equals(Type.BOOLEAN));
         return new CompoundPredicate(CompoundPredicate.Operator.NOT, this, null);
     }
 
