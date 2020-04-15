@@ -151,6 +151,7 @@ void DorisMetrics::initialize(
         return;
     }
     DCHECK(_metrics == nullptr && _system_metrics == nullptr);
+    _metrics = new MetricRegistry(name);
 #define REGISTER_DORIS_METRIC(name) _metrics->register_metric(#name, &name)
 
     // You can put DorisMetrics's metrics initial code here
