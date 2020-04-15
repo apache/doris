@@ -860,7 +860,7 @@ public class FunctionSet {
                     null, false, true, true));
 
             // count in multi distinct
-            if (t == Type.CHAR || t == Type.VARCHAR) {
+            if (t.equals(Type.CHAR) || t.equals(Type.VARCHAR)) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
                     Type.VARCHAR,
@@ -872,8 +872,8 @@ public class FunctionSet {
                     null,
                     prefix + "30count_distinct_string_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     false, true, true));
-            } else if (t == Type.TINYINT || t == Type.SMALLINT || t == Type.INT
-                || t == Type.BIGINT || t == Type.LARGEINT || t == Type.DOUBLE) {
+            } else if (t.equals(Type.TINYINT) || t.equals(Type.SMALLINT) || t.equals(Type.INT)
+                    || t.equals(Type.BIGINT) || t.equals(Type.LARGEINT) || t.equals(Type.DOUBLE)) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
                     Type.VARCHAR,
@@ -885,7 +885,7 @@ public class FunctionSet {
                     null,
                     prefix + MULTI_DISTINCT_COUNT_FINALIZE_SYMBOL.get(t),
                     false, true, true));
-            } else if (t == Type.DATE || t == Type.DATETIME) {
+            } else if (t.equals(Type.DATE) || t.equals(Type.DATETIME)) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
                     Type.VARCHAR,
@@ -897,7 +897,7 @@ public class FunctionSet {
                     null,
                     prefix + "28count_distinct_date_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     false, true, true));
-            } else if (t == Type.DECIMAL) {
+            } else if (t.equals(Type.DECIMAL)) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
                     Type.VARCHAR,
@@ -909,7 +909,7 @@ public class FunctionSet {
                     null,
                     prefix + "31count_distinct_decimal_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     false, true, true));
-            } else if (t == Type.DECIMALV2) {
+            } else if (t.equals(Type.DECIMALV2)) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_count", Lists.newArrayList(t),
                     Type.BIGINT,
                     Type.VARCHAR,
@@ -924,7 +924,7 @@ public class FunctionSet {
             }
 
             // sum in multi distinct
-            if (t == Type.BIGINT || t == Type.LARGEINT || t == Type.DOUBLE) {
+            if (t.equals(Type.BIGINT) || t.equals(Type.LARGEINT) || t.equals(Type.DOUBLE)) {
                 addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
                     t,
                     Type.VARCHAR,
@@ -936,7 +936,7 @@ public class FunctionSet {
                     null,
                     prefix + MULTI_DISTINCT_SUM_FINALIZE_SYMBOL.get(t),
                     false, true, true));
-            }  else if (t == Type.DECIMAL) {
+            } else if (t.equals(Type.DECIMAL)) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
                     MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
                     Type.VARCHAR,
@@ -948,7 +948,7 @@ public class FunctionSet {
                     null,
                     prefix + "29sum_distinct_decimal_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                     false, true, true));
-            }  else if (t == Type.DECIMALV2) {
+            } else if (t.equals(Type.DECIMALV2)) {
                addBuiltin(AggregateFunction.createBuiltin("multi_distinct_sum", Lists.newArrayList(t),
                     MULTI_DISTINCT_SUM_RETURN_TYPE.get(t),
                     Type.VARCHAR,
@@ -1302,16 +1302,16 @@ public class FunctionSet {
                     t.isStringType() ? initNullString : initNull,
                     prefix + FIRST_VALUE_UPDATE_SYMBOL.get(t),
                     null,
-                    t == Type.VARCHAR ? stringValGetValue : null,
-                    t == Type.VARCHAR ? stringValSerializeOrFinalize : null));
+                    t.equals(Type.VARCHAR) ? stringValGetValue : null,
+                    t.equals(Type.VARCHAR) ? stringValSerializeOrFinalize : null));
             // Implements FIRST_VALUE for some windows that require rewrites during planning.
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "first_value_rewrite", Lists.newArrayList(t, Type.BIGINT), t, t,
                     t.isStringType() ? initNullString : initNull,
                     prefix + FIRST_VALUE_REWRITE_UPDATE_SYMBOL.get(t),
                     null,
-                    t == Type.VARCHAR ? stringValGetValue : null,
-                    t == Type.VARCHAR ? stringValSerializeOrFinalize : null,
+                    t.equals(Type.VARCHAR) ? stringValGetValue : null,
+                    t.equals(Type.VARCHAR) ? stringValSerializeOrFinalize : null,
                     false));
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
@@ -1319,8 +1319,8 @@ public class FunctionSet {
                     t.isStringType() ? initNullString : initNull,
                     prefix + LAST_VALUE_UPDATE_SYMBOL.get(t),
                     prefix + LAST_VALUE_REMOVE_SYMBOL.get(t),
-                    t == Type.VARCHAR ? stringValGetValue : null,
-                    t == Type.VARCHAR ? stringValSerializeOrFinalize : null));
+                    t.equals(Type.VARCHAR) ? stringValGetValue : null,
+                    t.equals(Type.VARCHAR) ? stringValSerializeOrFinalize : null));
 
             addBuiltin(AggregateFunction.createAnalyticBuiltin(
                     "lag", Lists.newArrayList(t, Type.BIGINT, t), t, t,
