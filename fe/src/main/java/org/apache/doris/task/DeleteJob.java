@@ -51,6 +51,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     private long id;
     // transaction id.
     private long signature;
+    private String label;
     private Set<Long> totalTablets;
     private Set<Long> quorumTablets;
     private Set<Long> finishedTablets;
@@ -58,9 +59,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     private Set<PushTask> pushTasks;
     private DeleteInfo deleteInfo;
 
-    public DeleteJob(long id, long transactionId, DeleteInfo deleteInfo) {
+    public DeleteJob(long id, long transactionId, String label, DeleteInfo deleteInfo) {
         this.id = id;
         this.signature = transactionId;
+        this.label = label;
         this.deleteInfo = deleteInfo;
         totalTablets = Sets.newHashSet();
         finishedTablets = Sets.newHashSet();
@@ -144,6 +146,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         return deleteInfo;
     }
 
+    public String getLabel() {
+        return this.label;
+    }
+
     public Set<PushTask> getPushTasks() {
         return pushTasks;
     }
@@ -159,7 +165,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
             return;
         }
         executeFinish();
-        Catalog.getCurrentCatalog().getEditLog().logFinishSyncDelete(deleteInfo);
+        Catalog.getCurrentCatalog().getEditLog().logFinishDelete(deleteInfo);
     }
 
     public void executeFinish() {

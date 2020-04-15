@@ -1053,7 +1053,9 @@ public class ShowExecutor {
         long dbId = db.getId();
 
         DeleteHandler deleteHandler = catalog.getDeleteHandler();
+        Load load = catalog.getLoadInstance();
         List<List<Comparable>> deleteInfos = deleteHandler.getDeleteInfosByDb(dbId, true);
+        deleteInfos.addAll(load.getDeleteInfosByDb(dbId, true));
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> deleteInfo : deleteInfos) {
             List<String> oneInfo = new ArrayList<String>(deleteInfo.size());

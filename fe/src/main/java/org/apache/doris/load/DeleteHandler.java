@@ -90,6 +90,8 @@ import java.util.concurrent.TimeUnit;
 public class DeleteHandler implements Writable {
     private static final Logger LOG = LogManager.getLogger(DeleteHandler.class);
 
+    private ConnectContext context;
+
     // TransactionId -> DeleteJob
     private Map<Long, DeleteJob> idToDeleteJob;
 
@@ -97,7 +99,8 @@ public class DeleteHandler implements Writable {
     @SerializedName(value = "dbToDeleteInfos")
     private Map<Long, List<DeleteInfo>> dbToDeleteInfos;
 
-    public DeleteHandler() {
+    public DeleteHandler(ConnectContext connectContext) {
+        context = connectContext;
         idToDeleteJob = Maps.newConcurrentMap();
         dbToDeleteInfos = Maps.newConcurrentMap();
     }
@@ -171,7 +174,7 @@ public class DeleteHandler implements Writable {
                 DeleteInfo deleteInfo = new DeleteInfo(db.getId(), olapTable.getId(), tableName,
                         partition.getId(), partitionName,
                         -1, 0, deleteConditions);
-                deleteJob = new DeleteJob(jobId, transactionId, deleteInfo);
+                deleteJob = new DeleteJob(jobId, transactionId, label, deleteInfo);
                 idToDeleteJob.put(deleteJob.getTransactionId(), deleteJob);
 
                 Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().addCallback(deleteJob);
@@ -308,16 +311,29 @@ public class DeleteHandler implements Writable {
             status = Catalog.getCurrentGlobalTransactionMgr().
                     getTransactionState(job.getTransactionId()).getTransactionStatus();
         } catch (UserException e) {
-            cancelJob(job, CancelType.COMMIT_FAIL, e.getMessage());
-            throw new DdlException(e.getMessage(), e);
+            if (cancelJob(job, CancelType.COMMIT_FAIL, e.getMessage())) {
+                throw new DdlException(e.getMessage(), e);
+            }
         }
 
+        StringBuilder sb = new StringBuilder();
+        sb.append("{'label':'").append(job.getLabel()).append("', 'status':'").append(status.name());
+        sb.append("', 'txnId':'").append(job.getTransactionId()).append("'");
+
         switch (status) {
-            case COMMITTED:
+            case COMMITTED: {
                 // Although publish is unfinished we should tell user that commit already success.
-                throw new DdlException("delete job is committed but may be taking effect later, transactionId: " + job.getTransactionId());
-            case VISIBLE:
+                String errMsg = "delete job is committed but may be taking effect later";
+                sb.append(", 'err':'").append(errMsg).append("'");
+                sb.append("}");
+                context.getState().setOk(0L, 0, sb.toString());
                 break;
+            }
+            case VISIBLE: {
+                sb.append("}");
+                context.getState().setOk(0L, 0, sb.toString());
+                break;
+            }
             default:
                 Preconditions.checkState(false, "wrong transaction status: " + status.name());
                 break;
@@ -387,6 +403,16 @@ public class DeleteHandler implements Writable {
         }
     }
 
+    /**
+     * abort delete job
+     * return true when successfully abort.
+     * return true when some unknown error happened, just ignore it.
+     * return false when the job is already committed
+     * @param job
+     * @param cancelType
+     * @param reason
+     * @return
+     */
     public boolean cancelJob(DeleteJob job, CancelType cancelType, String reason) {
         LOG.info("start to cancel delete job, transactionId: {}, cancelType: {}", job.getTransactionId(), cancelType.name());
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
@@ -400,10 +426,10 @@ public class DeleteHandler implements Writable {
                 LOG.warn("cancel delete job failed because txn not found, transactionId: {}", job.getTransactionId());
             } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED || state.getTransactionStatus() == TransactionStatus.VISIBLE) {
                 LOG.warn("cancel delete job {} failed because it has been committed, transactionId: {}", job.getTransactionId());
+                return false;
             } else {
                 LOG.warn("errors while abort transaction", e);
             }
-            return false;
         }
         return true;
     }
@@ -584,19 +610,13 @@ public class DeleteHandler implements Writable {
     }
 
     public void replayDelete(DeleteInfo deleteInfo, Catalog catalog) {
-        Database db = catalog.getDb(deleteInfo.getDbId());
-        db.writeLock();
-        try {
-            // add to deleteInfos
-            long dbId = deleteInfo.getDbId();
-            LOG.info("replay delete, dbId {}", dbId);
-            dbToDeleteInfos.putIfAbsent(dbId, Lists.newArrayList());
-            List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
-            synchronized (deleteInfoList) {
-                deleteInfoList.add(deleteInfo);
-            }
-        } finally {
-            db.writeUnlock();
+        // add to deleteInfos
+        long dbId = deleteInfo.getDbId();
+        LOG.info("replay delete, dbId {}", dbId);
+        dbToDeleteInfos.putIfAbsent(dbId, Lists.newArrayList());
+        List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
+        synchronized (deleteInfoList) {
+            deleteInfoList.add(deleteInfo);
         }
     }
 

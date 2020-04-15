@@ -379,6 +379,12 @@ public class EditLog {
                     break;
                 case OperationType.OP_FINISH_SYNC_DELETE: {
                     DeleteInfo info = (DeleteInfo) journal.getData();
+                    Load load = catalog.getLoadInstance();
+                    load.replayDelete(info, catalog);
+                    break;
+                }
+                case OperationType.OP_FINISH_DELETE: {
+                    DeleteInfo info = (DeleteInfo) journal.getData();
                     DeleteHandler deleteHandler = catalog.getDeleteHandler();
                     deleteHandler.replayDelete(info, catalog);
                     break;
@@ -1000,6 +1006,10 @@ public class EditLog {
 
     public void logFinishSyncDelete(DeleteInfo info) {
         logEdit(OperationType.OP_FINISH_SYNC_DELETE, info);
+    }
+
+    public void logFinishDelete(DeleteInfo info) {
+        logEdit(OperationType.OP_FINISH_DELETE, info);
     }
 
     public void logFinishAsyncDelete(AsyncDeleteJob job) {

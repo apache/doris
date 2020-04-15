@@ -461,7 +461,7 @@ public class Catalog {
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
-        this.deleteHandler = new DeleteHandler();
+        this.deleteHandler = new DeleteHandler(ConnectContext.get());
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
@@ -1770,7 +1770,7 @@ public class Catalog {
     }
 
     public long loadDeleteHandler(DataInputStream dis, long checksum) throws IOException {
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_82) {
             this.deleteHandler = DeleteHandler.read(dis);
         }
         return checksum;

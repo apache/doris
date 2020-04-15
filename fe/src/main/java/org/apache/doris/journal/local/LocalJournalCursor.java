@@ -322,6 +322,12 @@ public final class LocalJournalCursor implements JournalCursor {
                 ret.setData(info);
                 break;
             }
+            case OperationType.OP_FINISH_DELETE: {
+                DeleteInfo info = new DeleteInfo();
+                info.readFields(in);
+                ret.setData(info);
+                break;
+            }
             case OperationType.OP_FINISH_ASYNC_DELETE: {
                 AsyncDeleteJob deleteJob = AsyncDeleteJob.read(in);
                 ret.setData(deleteJob);
