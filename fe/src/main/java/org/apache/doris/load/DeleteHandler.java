@@ -58,6 +58,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -90,8 +91,6 @@ import java.util.concurrent.TimeUnit;
 public class DeleteHandler implements Writable {
     private static final Logger LOG = LogManager.getLogger(DeleteHandler.class);
 
-    private ConnectContext context;
-
     // TransactionId -> DeleteJob
     private Map<Long, DeleteJob> idToDeleteJob;
 
@@ -99,8 +98,7 @@ public class DeleteHandler implements Writable {
     @SerializedName(value = "dbToDeleteInfos")
     private Map<Long, List<DeleteInfo>> dbToDeleteInfos;
 
-    public DeleteHandler(ConnectContext connectContext) {
-        context = connectContext;
+    public DeleteHandler() {
         idToDeleteJob = Maps.newConcurrentMap();
         dbToDeleteInfos = Maps.newConcurrentMap();
     }
@@ -112,7 +110,7 @@ public class DeleteHandler implements Writable {
         UNKNOWN
     }
 
-    public void process(DeleteStmt stmt) throws DdlException {
+    public void process(DeleteStmt stmt) throws DdlException, QueryStateException {
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
         String partitionName = stmt.getPartitionName();
@@ -304,7 +302,7 @@ public class DeleteHandler implements Writable {
         }
     }
 
-    private void commitJob(DeleteJob job, Database db, long timeoutMs) throws DdlException {
+    private void commitJob(DeleteJob job, Database db, long timeoutMs) throws DdlException, QueryStateException {
         TransactionStatus status = null;
         try {
             unprotectedCommitJob(job, db, timeoutMs);
@@ -326,13 +324,11 @@ public class DeleteHandler implements Writable {
                 String errMsg = "delete job is committed but may be taking effect later";
                 sb.append(", 'err':'").append(errMsg).append("'");
                 sb.append("}");
-                context.getState().setOk(0L, 0, sb.toString());
-                break;
+                throw new QueryStateException(sb.toString());
             }
             case VISIBLE: {
                 sb.append("}");
-                context.getState().setOk(0L, 0, sb.toString());
-                break;
+                throw new QueryStateException(sb.toString());
             }
             default:
                 Preconditions.checkState(false, "wrong transaction status: " + status.name());

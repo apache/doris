@@ -29,6 +29,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -89,7 +90,7 @@ public class DeleteHandlerTest {
 
         globalTransactionMgr = new GlobalTransactionMgr(catalog);
         globalTransactionMgr.setEditLog(editLog);
-        deleteHandler = new DeleteHandler(connectContext);
+        deleteHandler = new DeleteHandler();
         auth = AccessTestUtil.fetchAdminAccess();
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         try {
@@ -166,7 +167,7 @@ public class DeleteHandlerTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testUnQuorumTimeout() throws DdlException {
+    public void testUnQuorumTimeout() throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
@@ -182,7 +183,7 @@ public class DeleteHandlerTest {
     }
 
     @Test
-    public void testQuorumTimeout() throws DdlException {
+    public void testQuorumTimeout() throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
@@ -216,7 +217,10 @@ public class DeleteHandlerTest {
         } catch (UserException e) {
             Assert.fail();
         }
-        deleteHandler.process(deleteStmt);
+        try {
+            deleteHandler.process(deleteStmt);
+        }catch (QueryStateException e) {
+        }
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
         Collection<DeleteJob> jobs = idToDeleteJob.values();
@@ -227,7 +231,7 @@ public class DeleteHandlerTest {
     }
 
     @Test
-    public void testNormalTimeout() throws DdlException {
+    public void testNormalTimeout() throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
@@ -262,7 +266,11 @@ public class DeleteHandlerTest {
         } catch (UserException e) {
             Assert.fail();
         }
-        deleteHandler.process(deleteStmt);
+
+        try {
+            deleteHandler.process(deleteStmt);
+        } catch (QueryStateException e) {
+        }
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
         Collection<DeleteJob> jobs = idToDeleteJob.values();
@@ -273,7 +281,7 @@ public class DeleteHandlerTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testCommitFail(@Mocked MarkedCountDownLatch countDownLatch) throws DdlException {
+    public void testCommitFail(@Mocked MarkedCountDownLatch countDownLatch) throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
@@ -329,12 +337,13 @@ public class DeleteHandlerTest {
                 Assert.assertEquals(job.getState(), DeleteState.FINISHED);
             }
             throw e;
+        } catch (QueryStateException e) {
         }
         Assert.fail();
     }
 
     @Test
-    public void testPublishFail(@Mocked MarkedCountDownLatch countDownLatch, @Mocked AgentTaskExecutor taskExecutor) throws DdlException {
+    public void testPublishFail(@Mocked MarkedCountDownLatch countDownLatch, @Mocked AgentTaskExecutor taskExecutor) throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
@@ -377,8 +386,11 @@ public class DeleteHandlerTest {
         } catch (UserException e) {
             Assert.fail();
         }
+        try {
+            deleteHandler.process(deleteStmt);
+        } catch (QueryStateException e) {
+        }
 
-        deleteHandler.process(deleteStmt);
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
         Collection<DeleteJob> jobs = idToDeleteJob.values();
         Assert.assertEquals(1, jobs.size());
@@ -388,7 +400,7 @@ public class DeleteHandlerTest {
     }
 
     @Test
-    public void testNormal(@Mocked MarkedCountDownLatch countDownLatch) throws DdlException {
+    public void testNormal(@Mocked MarkedCountDownLatch countDownLatch) throws DdlException, QueryStateException {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, new SlotRef(null, "k1"),
                 new IntLiteral(3));
 
@@ -424,7 +436,10 @@ public class DeleteHandlerTest {
         } catch (UserException e) {
             Assert.fail();
         }
-        deleteHandler.process(deleteStmt);
+        try {
+            deleteHandler.process(deleteStmt);
+        } catch (QueryStateException e) {
+        }
 
         Map<Long, DeleteJob> idToDeleteJob = Deencapsulation.getField(deleteHandler, "idToDeleteJob");
         Collection<DeleteJob> jobs = idToDeleteJob.values();
@@ -433,6 +448,4 @@ public class DeleteHandlerTest {
             Assert.assertEquals(job.getState(), DeleteState.FINISHED);
         }
     }
-
-
 }

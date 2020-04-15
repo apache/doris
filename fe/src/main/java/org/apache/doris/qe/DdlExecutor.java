@@ -81,7 +81,7 @@ import org.apache.doris.load.Load;
 
 public class DdlExecutor {
     public static void execute(Catalog catalog, DdlStmt ddlStmt, OriginStatement origStmt)
-            throws DdlException, Exception {
+            throws DdlException, QueryStateException, Exception {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
             catalog.createCluster(stmt);

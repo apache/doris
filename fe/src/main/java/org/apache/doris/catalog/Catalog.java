@@ -461,7 +461,7 @@ public class Catalog {
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
-        this.deleteHandler = new DeleteHandler(ConnectContext.get());
+        this.deleteHandler = new DeleteHandler();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
