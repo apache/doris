@@ -59,6 +59,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryStateException;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -324,11 +325,11 @@ public class DeleteHandler implements Writable {
                 String errMsg = "delete job is committed but may be taking effect later";
                 sb.append(", 'err':'").append(errMsg).append("'");
                 sb.append("}");
-                throw new QueryStateException(sb.toString());
+                throw new QueryStateException(MysqlStateType.OK, sb.toString());
             }
             case VISIBLE: {
                 sb.append("}");
-                throw new QueryStateException(sb.toString());
+                throw new QueryStateException(MysqlStateType.OK, sb.toString());
             }
             default:
                 Preconditions.checkState(false, "wrong transaction status: " + status.name());

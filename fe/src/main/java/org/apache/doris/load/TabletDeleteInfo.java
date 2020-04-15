@@ -28,7 +28,7 @@ public class TabletDeleteInfo {
 
     public TabletDeleteInfo(long tabletId) {
         this.tabletId = tabletId;
-        this.finishedReplicas = Sets.newHashSet();
+        this.finishedReplicas = Sets.newConcurrentHashSet();
     }
 
     public long getTabletId() {

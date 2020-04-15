@@ -868,7 +868,7 @@ public class StmtExecutor {
             DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt, originStmt);
             context.getState().setOk();
         } catch (QueryStateException e) {
-            context.getState().setOk(0L, 0, e.getMessage());
+            context.setState(e.getQueryState());
         } catch (UserException e) {
             // Return message to info client what happened.
             context.getState().setError(e.getMessage());

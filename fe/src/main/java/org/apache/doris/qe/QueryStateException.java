@@ -18,12 +18,35 @@
 package org.apache.doris.qe;
 
 import com.google.common.base.Strings;
+import org.apache.doris.common.UserException;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 
-public class QueryStateException extends Exception {
-    public QueryStateException(String msg) {
+public class QueryStateException extends UserException {
+    private QueryState queryState;
+    public QueryStateException(MysqlStateType stateType, String msg) {
         super(Strings.nullToEmpty(msg));
+        createQueryState(stateType, msg);
     }
-    public QueryStateException(String msg, Throwable cause) {
-        super(Strings.nullToEmpty(msg), cause);
+
+    public void createQueryState(MysqlStateType stateType, String msg) {
+        this.queryState = new QueryState();
+        switch (stateType) {
+            case OK:
+                queryState.setOk(0L, 0, msg);
+                break;
+            case ERR:
+                queryState.setError(msg);
+                break;
+            case EOF:
+                queryState.setEof();
+                queryState.setMsg(msg);
+                break;
+            case NOOP:
+                break;
+        }
+    }
+
+    public QueryState getQueryState() {
+        return queryState;
     }
 }
