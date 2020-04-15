@@ -1771,7 +1771,7 @@ public class Catalog {
 
     public long loadDeleteHandler(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
-            getDeleteHandler().readField(dis);
+            this.deleteHandler = DeleteHandler.read(dis);
         }
         return checksum;
     }

@@ -133,12 +133,11 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     }
 
     public boolean addFinishedReplica(long tabletId, Replica replica) {
-        TabletDeleteInfo tDeleteInfo = tabletDeleteInfoMap.get(tabletId);
-        if (tDeleteInfo == null) {
-            tDeleteInfo = new TabletDeleteInfo(tabletId);
-            tabletDeleteInfoMap.put(tabletId, tDeleteInfo);
+        tabletDeleteInfoMap.putIfAbsent(tabletId, new TabletDeleteInfo(tabletId));
+        TabletDeleteInfo tDeleteInfo =  tabletDeleteInfoMap.get(tabletId);
+        synchronized (tDeleteInfo) {
+            return tDeleteInfo.addFinishedReplica(replica);
         }
-        return tDeleteInfo.addFinishedReplica(replica);
     }
 
     public DeleteInfo getDeleteInfo() {

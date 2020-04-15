@@ -21,6 +21,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -50,10 +51,12 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentBatchTask;
@@ -91,6 +94,7 @@ public class DeleteHandler implements Writable {
     private Map<Long, DeleteJob> idToDeleteJob;
 
     // Db -> DeleteInfo list
+    @SerializedName(value = "dbToDeleteInfos")
     private Map<Long, List<DeleteInfo>> dbToDeleteInfos;
 
     public DeleteHandler() {
@@ -375,12 +379,11 @@ public class DeleteHandler implements Writable {
             long dbId = job.getDeleteInfo().getDbId();
             LOG.info("record finished deleteJob, transactionId {}, dbId {}",
                     job.getTransactionId(), dbId);
+            dbToDeleteInfos.putIfAbsent(dbId, Lists.newArrayList());
             List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
-            if (deleteInfoList == null) {
-                deleteInfoList = Lists.newArrayList();
-                dbToDeleteInfos.put(dbId, deleteInfoList);
+            synchronized (deleteInfoList) {
+                deleteInfoList.add(job.getDeleteInfo());
             }
-            deleteInfoList.add(job.getDeleteInfo());
         }
     }
 
@@ -586,12 +589,12 @@ public class DeleteHandler implements Writable {
         try {
             // add to deleteInfos
             long dbId = deleteInfo.getDbId();
-            List<DeleteInfo> deleteInfos = dbToDeleteInfos.get(dbId);
-            if (deleteInfos == null) {
-                deleteInfos = Lists.newArrayList();
-                dbToDeleteInfos.put(dbId, deleteInfos);
+            LOG.info("replay delete, dbId {}", dbId);
+            dbToDeleteInfos.putIfAbsent(dbId, Lists.newArrayList());
+            List<DeleteInfo> deleteInfoList = dbToDeleteInfos.get(dbId);
+            synchronized (deleteInfoList) {
+                deleteInfoList.add(deleteInfo);
             }
-            deleteInfos.add(deleteInfo);
         } finally {
             db.writeUnlock();
         }
@@ -600,28 +603,11 @@ public class DeleteHandler implements Writable {
     // for delete handler, we only persist those delete already finished.
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(dbToDeleteInfos.size());
-        for (Entry<Long, List<DeleteInfo>> dbToDeleteInfoList : dbToDeleteInfos.entrySet()) {
-            out.writeLong(dbToDeleteInfoList.getKey());
-            out.writeInt(dbToDeleteInfoList.getValue().size());
-            for (DeleteInfo deleteInfo : dbToDeleteInfoList.getValue()) {
-                deleteInfo.write(out);
-            }
-        }
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readField(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            long dbId = in.readLong();
-            int length = in.readInt();
-            List<DeleteInfo> deleteInfoList = Lists.newArrayList();
-            for (int j = 0; j < length; j++) {
-                DeleteInfo deleteInfo = new DeleteInfo();
-                deleteInfo.readFields(in);
-                deleteInfoList.add(deleteInfo);
-            }
-            dbToDeleteInfos.put(dbId, deleteInfoList);
-        }
+    public static DeleteHandler read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, DeleteHandler.class);
     }
 }
