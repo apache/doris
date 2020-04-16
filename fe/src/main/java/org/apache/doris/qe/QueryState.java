@@ -100,7 +100,7 @@ public class QueryState {
         return errType;
     }
 
-    public void setQuery(boolean isQuery) {
+    public void setIsQuery(boolean isQuery) {
         this.isQuery = isQuery;
     }
 

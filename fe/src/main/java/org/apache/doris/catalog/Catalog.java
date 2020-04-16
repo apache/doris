@@ -199,6 +199,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PullLoadJobMgr;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
@@ -3070,7 +3071,8 @@ public class Catalog {
                     singlePartitionDesc.getVersionInfo(),
                     bfColumns, olapTable.getBfFpp(),
                     tabletIdSet, olapTable.getCopiedIndexes(),
-                    singlePartitionDesc.isInMemory());
+                    singlePartitionDesc.isInMemory(),
+                    olapTable.getTableProperty().getStorageFormat());
 
             // check again
             db.writeLock();
@@ -3381,7 +3383,8 @@ public class Catalog {
                                                  double bfFpp,
                                                  Set<Long> tabletIdSet,
                                                  List<Index> indexes,
-                                                 boolean isInMemory) throws DdlException {
+                                                 boolean isInMemory,
+                                                 TStorageFormat storageFormat) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -3446,6 +3449,7 @@ public class Catalog {
                             countDownLatch,
                             indexes,
                             isInMemory);
+                    task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
                     // not for resending task
@@ -3684,6 +3688,15 @@ public class Catalog {
         }
         Preconditions.checkNotNull(versionInfo);
 
+        // get storage format
+        TStorageFormat storageFormat = TStorageFormat.DEFAULT; // default means it's up to BE's config
+        try {
+            storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setStorageFormat(storageFormat);
+
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
         Set<Long> tabletIdSet = new HashSet<Long>();
@@ -3706,7 +3719,7 @@ public class Catalog {
                         partitionInfo.getReplicationNum(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory);
+                        isInMemory, storageFormat);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 try {
@@ -3735,7 +3748,7 @@ public class Catalog {
                             partitionInfo.getReplicationNum(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
-                            isInMemory);
+                            isInMemory, storageFormat);
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -6157,7 +6170,8 @@ public class Catalog {
                         copiedTbl.getBfFpp(),
                         tabletIdSet,
                         copiedTbl.getCopiedIndexes(),
-                        copiedTbl.isInMemory());
+                        copiedTbl.isInMemory(),
+                        copiedTbl.getTableProperty().getStorageFormat());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

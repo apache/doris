@@ -220,7 +220,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
     private long loadMemLimit = 0L;
 
-    // the default rowset type flag which will be passed to Backends througth heartbeat
+    // the default rowset type flag which will be passed to Backends through heartbeat
     @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
     private String defaultRowsetType = "alpha";
 
@@ -446,8 +446,8 @@ public class SessionVariable implements Serializable, Writable {
         return divPrecisionIncrement;
     }
 
-    public void setDivPrecisionIncrement(int divPrecisionIncrement) {
-        this.divPrecisionIncrement = divPrecisionIncrement;
+    public String getDefaultRowsetType() {
+        return defaultRowsetType;
     }
 
     // Serialize to thrift object

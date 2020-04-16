@@ -39,6 +39,7 @@ import org.apache.doris.common.util.RangeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TOlapTable;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -1454,5 +1455,13 @@ public class OlapTable extends Table {
 
     public boolean existTempPartitions() {
         return !tempPartitions.isEmpty();
+    }
+
+    public void setStorageFormat(TStorageFormat storageFormat) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, storageFormat.name());
+        tableProperty.buildStorageFormat();
     }
 }
