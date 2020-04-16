@@ -59,7 +59,7 @@ The following describes the parameters used in the delete statement:
 
 说明：
 
-1. The type of `OP` in the WHERE condition can only include `=, >, <, > =, < =,!=`.
+1. The type of `OP` in the WHERE condition can only include `=, >, <, > =, < =,!=`. Currently, where key in (value1, Value2, value3) mode is not supported yet, may be added this support later.
 2. The column in the WHERE condition can only be the `key` column.
 3. Cannot delete when the `key` column does not exist in any rollup table.
 4. Each condition in WHERE condition can only be realated by `and`. If you want `or`, you are suggested to write these conditions into two delete statements.
@@ -83,7 +83,7 @@ Query OK, 0 rows affected (0.04 sec)
 2. Submitted successfully, but not visible
 
 
-    If delete has been submitted and executed but is not visible, the following results will be returned
+    The transaction submission of Doris is divided into two steps: submission and publish version. Only after the publish version step is completed, the result will be visible to the user. If it has been submitted successfully, then it can be considered that the publish version step will eventually success. Doris will try to wait for publishing for a period of time after submitting. If it has timed out, even if the publishing version has not been completed, it will return to the user in priority and prompt the user that the submission has been completed but not visible. If delete has been committed and executed, but has not been published and visible, the following results will be returned.
     
     ```
 	mysql> delete from test_tbl PARTITION p1 where k1 = 1;
