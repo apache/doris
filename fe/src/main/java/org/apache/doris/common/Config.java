@@ -398,6 +398,10 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int load_etl_thread_num_normal_priority = 10;
     /*
+     * Concurrency of delete jobs.
+     */
+    @ConfField public static int delete_thread_num = 10;
+    /*
      * Not available.
      */
     @ConfField(mutable = true, masterOnly = true)

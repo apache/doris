@@ -88,6 +88,10 @@ public class QueryState {
         this.errorMessage = msg;
     }
 
+    public void setMsg(String msg) {
+        this.errorMessage = msg;
+    }
+
     public void setErrType(ErrType errType) {
         this.errType = errType;
     }

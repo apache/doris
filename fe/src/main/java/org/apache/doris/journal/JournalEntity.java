@@ -282,6 +282,12 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_FINISH_DELETE: {
+                data = new DeleteInfo();
+                ((DeleteInfo) data).readFields(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_FINISH_ASYNC_DELETE: {
                 data = AsyncDeleteJob.read(in);
                 isRead = true;
