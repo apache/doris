@@ -69,7 +69,6 @@ public:
         delete _state;
         delete _row_desc;
         delete _mem_tracker;
-        delete _desc_tbl;
         delete _exec_env->_result_queue_mgr;
         delete _exec_env->_thread_mgr;
         delete _exec_env->_buffer_reservation;

@@ -32,18 +32,12 @@
 #include "service/brpc.h"
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
+#include "util/debug/leakcheck_disabler.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/thread_resource_mgr.h"
-
-extern "C" {
-  // There is a known memory leak in brpc, for more details:
-  // https://github.com/apache/incubator-brpc/blob/0.9.5/src/brpc/server.cpp#L1128
-  void __lsan_disable();
-  void __lsan_enable();
-}
 
 namespace doris {
 namespace stream_load {
@@ -340,9 +334,10 @@ TEST_F(OlapTableSinkTest, normal) {
     auto service = new TestInternalService();
     server->AddService(service, brpc::SERVER_OWNS_SERVICE);
     brpc::ServerOptions options;
-    __lsan_disable();
-    server->Start(4356, &options);
-    __lsan_enable();
+    {
+        debug::ScopedLeakCheckDisabler disable_lsan;
+        server->Start(4356, &options);
+    }
 
     TUniqueId fragment_id;
     TQueryOptions query_options;
@@ -450,9 +445,10 @@ TEST_F(OlapTableSinkTest, convert) {
     auto service = new TestInternalService();
     server->AddService(service, brpc::SERVER_OWNS_SERVICE);
     brpc::ServerOptions options;
-    __lsan_disable();
-    server->Start(4356, &options);
-    __lsan_enable();
+    {
+        debug::ScopedLeakCheckDisabler disable_lsan;
+        server->Start(4356, &options);
+    }
 
     TUniqueId fragment_id;
     TQueryOptions query_options;
@@ -763,9 +759,10 @@ TEST_F(OlapTableSinkTest, add_batch_failed) {
     auto service = new TestInternalService();
     server->AddService(service, brpc::SERVER_OWNS_SERVICE);
     brpc::ServerOptions options;
-    __lsan_disable();
-    server->Start(4356, &options);
-    __lsan_enable();
+    {
+        debug::ScopedLeakCheckDisabler disable_lsan;
+        server->Start(4356, &options);
+    }
 
     TUniqueId fragment_id;
     TQueryOptions query_options;
@@ -860,9 +857,10 @@ TEST_F(OlapTableSinkTest, decimal) {
     auto service = new TestInternalService();
     server->AddService(service, brpc::SERVER_OWNS_SERVICE);
     brpc::ServerOptions options;
-    __lsan_disable();
-    server->Start(4356, &options);
-    __lsan_enable();
+    {
+        debug::ScopedLeakCheckDisabler disable_lsan;
+        server->Start(4356, &options);
+    }
 
     TUniqueId fragment_id;
     TQueryOptions query_options;

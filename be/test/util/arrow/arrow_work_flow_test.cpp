@@ -66,7 +66,6 @@ protected:
 
         delete _state;
         delete _mem_tracker;
-        delete _desc_tbl;
     }
 
     void init();
@@ -90,10 +89,8 @@ void ArrowWorkFlowTest::init() {
 }
 
 void ArrowWorkFlowTest::init_runtime_state() {
-    ResultQueueMgr* result_queue_mgr = new ResultQueueMgr();
-    ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
-    _exec_env->_result_queue_mgr = result_queue_mgr;
-    _exec_env->_thread_mgr = thread_mgr;
+    _exec_env->_result_queue_mgr = new ResultQueueMgr();
+    _exec_env->_thread_mgr = new ThreadResourceMgr();
     _exec_env->_buffer_reservation = new ReservationTracker();
     TQueryOptions query_options;
     query_options.batch_size = 1024;
