@@ -408,7 +408,7 @@ public class SessionVariable implements Serializable, Writable {
         return forwardToMaster;
     }
 
-    public boolean getUseV2Rollup() { return useV2Rollup; }
+    public boolean isUseV2Rollup() { return useV2Rollup; }
 
     public boolean getTestMaterializedView() {
         return this.testMaterializedView;
