@@ -170,15 +170,19 @@ BooleanQueryBuilder::BooleanQueryBuilder() {
 BooleanQueryBuilder::~BooleanQueryBuilder() {
     for (auto clause : _must_clauses) {
         delete clause;
+        clause = nullptr;
     }
     for (auto clause : _must_not_clauses) {
         delete clause;
+        clause = nullptr;
     }
     for (auto clause : _filter_clauses) {
         delete clause;
+        clause = nullptr;
     }
     for (auto clause : _should_clauses) {
         delete clause;
+        clause = nullptr;
     }
 }
 
