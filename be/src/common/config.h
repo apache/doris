@@ -506,7 +506,7 @@ namespace config {
     CONF_Int32(txn_map_shard_size, "128");
 
     // txn_lock shard size, the value is 2^n, n=0,1,2,3,4
-    // this is a an enhancement for better performance to publish txn
+    // this is a an enhancement for better performance to commit and publish txn
     CONF_Int32(txn_shard_size, "1024")
 
 } // namespace config
