@@ -32,7 +32,6 @@
 
 #include "gen_cpp/PlanNodes_types.h"
 #include "olap/olap_common.h"
-#include "olap/olap_define.h"
 #include "olap/utils.h"
 #include "runtime/client_cache.h"
 #include "runtime/runtime_state.h"
@@ -179,7 +178,7 @@ EsPredicate::EsPredicate(ExprContext* context,
 
 EsPredicate::~EsPredicate() {
     for(int i=0; i < _disjuncts.size(); i++) {
-        SAFE_DELETE(_disjuncts[i]);
+        delete _disjuncts[i];
     }
     _disjuncts.clear();
 }
