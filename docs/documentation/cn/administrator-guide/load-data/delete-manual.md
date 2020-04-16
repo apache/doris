@@ -19,7 +19,7 @@ under the License.
 
 #Delete
 
-Delete不同于其他导入方式，它是一个同步过程。和Insert into相似，所有的Delete操作在Doris中是一个独立的导入作业，一般Delete语句需要指定表和分区以及删除的条件来涮选要删除的数据，并将会同时删除base表和rollup表的数据。
+Delete不同于其他导入方式，它是一个同步过程。和Insert into相似，所有的Delete操作在Doris中是一个独立的导入作业，一般Delete语句需要指定表和分区以及删除的条件来筛选要删除的数据，并将会同时删除base表和rollup表的数据。
 
 ##语法
 
@@ -57,7 +57,7 @@ DELETE FROM my_table PARTITION p1
 
 说明：
 
-1. `Where`语句中的op的类型可包括`=,>,<,>=,<=,!=`
+1. `Where`语句中的op的类型可包括`=,>,<,>=,<=,!=`，目前暂时不支持 where key in (value1, value2, value3) 的方式选定范围，后续将加上此功能。
 2. `Where`语句中的列只能是`key`列
 3.  当选定的`key`列不存在某个rollup表内时，无法进行delete
 4.  条件语句中各个条件只能是`and`关系，如希望达成`or`可将条件分别写入两个delete语句中
@@ -80,7 +80,7 @@ Query OK, 0 rows affected (0.04 sec)
 	
 2. 提交成功，但未可见
 
-    如果Delete已经提交并执行，但是仍未可见，将返回下列结果
+    Doris的事务提交分为两步：提交和发布版本，只有完成了发布版本步骤，结果才对用户是可见的。若已经提交成功了，那么就可以认为最终一定会发布成功，Doris会尝试在提交完后等待发布一段时间，如果超时后即使发布版本还未完成也会优先返回给用户，提示用户提交已经完成。若如果Delete已经提交并执行，但是仍未发布版本和可见，将返回下列结果
     
     ```
 	mysql> delete from test_tbl PARTITION p1 where k1 = 1;
