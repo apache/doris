@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.google.gson.annotations.SerializedName;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
@@ -34,16 +35,25 @@ import com.google.common.collect.Lists;
 
 public class DeleteInfo implements Writable {
 
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tableId")
     private long tableId;
+    @SerializedName(value = "tableName")
     private String tableName;
+    @SerializedName(value = "partitionId")
     private long partitionId;
+    @SerializedName(value = "partitionName")
     private String partitionName;
+    @SerializedName(value = "partitionVersion")
     private long partitionVersion;
+    @SerializedName(value = "partitionVersionHash")
     private long partitionVersionHash;
     private List<ReplicaPersistInfo> replicaInfos;
 
+    @SerializedName(value = "deleteConditions")
     private List<String> deleteConditions;
+    @SerializedName(value = "createTimeMs")
     private long createTimeMs;
 
     private AsyncDeleteJob asyncDeleteJob;

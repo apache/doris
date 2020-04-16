@@ -263,6 +263,10 @@ public class ConnectContext {
         return state;
     }
 
+    public void setState(QueryState state) {
+        this.state = state;
+    }
+
     public MysqlCapability getCapability() {
         return capability;
     }

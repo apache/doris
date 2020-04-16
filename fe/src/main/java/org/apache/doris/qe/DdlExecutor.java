@@ -81,7 +81,7 @@ import org.apache.doris.load.Load;
 
 public class DdlExecutor {
     public static void execute(Catalog catalog, DdlStmt ddlStmt, OriginStatement origStmt)
-            throws DdlException, Exception {
+            throws DdlException, QueryStateException, Exception {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
             catalog.createCluster(stmt);
@@ -148,7 +148,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof StopRoutineLoadStmt) {
             catalog.getRoutineLoadManager().stopRoutineLoadJob((StopRoutineLoadStmt) ddlStmt);
         }  else if (ddlStmt instanceof DeleteStmt) {
-            catalog.getLoadInstance().delete((DeleteStmt) ddlStmt);
+            catalog.getDeleteHandler().process((DeleteStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
             catalog.getAuth().createUser(stmt);
