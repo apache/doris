@@ -3095,7 +3095,7 @@ public class Load {
         PartitionState state = partition.getState();
         if (state != PartitionState.NORMAL) {
             // ErrorReport.reportDdlException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), state.name());
-            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORNAL: " + state.name());
+            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORMAL: " + state.name());
         }
         // do not need check whether partition has loading job
 
