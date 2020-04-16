@@ -31,6 +31,7 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id,
     const TabletColumn& column = schema.column(column_id);
 
     switch (column.type()) {
+    case OLAP_FIELD_TYPE_BOOL:
     case OLAP_FIELD_TYPE_TINYINT:
     case OLAP_FIELD_TYPE_UNSIGNED_TINYINT: {
         column_writer = new(std::nothrow) ByteColumnWriter(column_id,
