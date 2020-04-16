@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.task;
+package org.apache.doris.load;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -25,8 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.load.DeleteInfo;
-import org.apache.doris.load.TabletDeleteInfo;
+import org.apache.doris.task.PushTask;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.logging.log4j.LogManager;
