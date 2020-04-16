@@ -136,6 +136,7 @@ import org.apache.doris.http.meta.MetaBaseAction;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
+import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
@@ -289,6 +290,7 @@ public class Catalog {
     private ConsistencyChecker consistencyChecker;
     private BackupHandler backupHandler;
     private PublishVersionDaemon publishVersionDaemon;
+    private DeleteHandler deleteHandler;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
     private MasterDaemon txnCleaner; // To clean aborted or timeout txns
@@ -459,6 +461,7 @@ public class Catalog {
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
+        this.deleteHandler = new DeleteHandler();
 
         this.replayedJournalId = new AtomicLong(0L);
         this.isElectable = false;
@@ -1435,6 +1438,7 @@ public class Catalog {
             checksum = loadLoadJobsV2(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
+            checksum = loadDeleteHandler(dis, checksum);
 
             long remoteChecksum = dis.readLong();
             Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
@@ -1765,6 +1769,18 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadDeleteHandler(DataInputStream dis, long checksum) throws IOException {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_82) {
+            this.deleteHandler = DeleteHandler.read(dis);
+        }
+        return checksum;
+    }
+
+    public long saveDeleteHandler(DataOutputStream dos, long checksum) throws IOException {
+        getDeleteHandler().write(dos);
+        return checksum;
+    }
+
     public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_43) {
             // CAN NOT use PaloAuth.read(), cause this auth instance is already passed to DomainResolver
@@ -1869,6 +1885,7 @@ public class Catalog {
             checksum = saveLoadJobsV2(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
+            checksum = saveDeleteHandler(dos, checksum);
             dos.writeLong(checksum);
         }
 
@@ -4587,6 +4604,10 @@ public class Catalog {
 
     public BackupHandler getBackupHandler() {
         return this.backupHandler;
+    }
+
+    public DeleteHandler getDeleteHandler() {
+        return this.deleteHandler;
     }
 
     public Load getLoadInstance() {

@@ -205,7 +205,7 @@ public class ColumnDef {
                 break;
             case FLOAT:
                 FloatLiteral floatLiteral = new FloatLiteral(defaultValue);
-                if (floatLiteral.getType() == Type.DOUBLE) {
+                if (floatLiteral.getType().equals(Type.DOUBLE)) {
                     throw new AnalysisException("Default value will loose precision: " + defaultValue);
                 }
             case DOUBLE:

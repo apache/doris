@@ -17,15 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.util.Date;
-import java.util.Objects;
-import java.util.TimeZone;
-import java.util.regex.Pattern;
-
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
@@ -35,6 +26,9 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+
+import com.google.common.base.Preconditions;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.joda.time.DateTime;
@@ -43,7 +37,14 @@ import org.joda.time.LocalDateTime;
 import org.joda.time.format.DateTimeFormatter;
 import org.joda.time.format.DateTimeFormatterBuilder;
 
-import com.google.common.base.Preconditions;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.util.Date;
+import java.util.Objects;
+import java.util.TimeZone;
+import java.util.regex.Pattern;
 
 public class DateLiteral extends LiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DateLiteral.class);
@@ -101,7 +102,7 @@ public class DateLiteral extends LiteralExpr {
     public DateLiteral(Type type, boolean isMax) throws AnalysisException {
         super();
         this.type = type;
-        if (type == Type.DATE) {
+        if (type.equals(Type.DATE)) {
             if (isMax) {
                 copy(MAX_DATE);
             } else {
@@ -131,7 +132,7 @@ public class DateLiteral extends LiteralExpr {
         hour = dt.getHourOfDay();
         minute = dt.getMinuteOfHour();
         second = dt.getSecondOfMinute();
-        if (type == Type.DATE) {
+        if (type.equals(Type.DATE)) {
             hour = 0;
             minute = 0;
             second = 0;
@@ -191,7 +192,7 @@ public class DateLiteral extends LiteralExpr {
         try {
             Preconditions.checkArgument(type.isDateType());
             LocalDateTime dateTime;
-            if (type == Type.DATE) {
+            if (type.equals(Type.DATE)) {
                 if (s.split("-")[0].length() == 2) {
                     dateTime = DATE_FORMATTER_TWO_DIGIT.parseLocalDateTime(s);
                 } else {
@@ -247,9 +248,9 @@ public class DateLiteral extends LiteralExpr {
 
     @Override
     public Object getRealValue() {
-        if (type == Type.DATE) {
+        if (type.equals(Type.DATE)) {
             return year * 16 * 32L + month * 32 + day;
-        } else if (type == Type.DATETIME) {
+        } else if (type.equals(Type.DATETIME)) {
             return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
         } else {
             Preconditions.checkState(false, "invalid date type: " + type);
@@ -355,9 +356,9 @@ public class DateLiteral extends LiteralExpr {
     public void write(DataOutput out) throws IOException {
         super.write(out);
         //set flag bit in meta, 0 is DATETIME and 1 is DATE
-        if (this.type == Type.DATETIME) {
+        if (this.type.equals(Type.DATETIME)) {
             out.writeShort(DateLiteralType.DATETIME.value());
-        } else if (this.type == Type.DATE) {
+        } else if (this.type.equals(Type.DATE)) {
             out.writeShort(DateLiteralType.DATE.value());
         } else {
             throw new IOException("Error date literal type : " + type);
@@ -439,7 +440,7 @@ public class DateLiteral extends LiteralExpr {
     //Return the date stored in the dateliteral as pattern format.
     //eg : "%Y-%m-%d" or "%Y-%m-%d %H:%i:%s"
     public String dateFormat(String pattern) throws AnalysisException {
-        if (type == Type.DATE) {
+        if (type.equals(Type.DATE)) {
             return DATE_FORMATTER.parseLocalDateTime(getStringValue())
                     .toString(formatBuilder(pattern).toFormatter());
         } else {
@@ -559,9 +560,9 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public LocalDateTime getTimeFormatter() throws AnalysisException {
-        if (type == Type.DATE) {
+        if (type.equals(Type.DATE)) {
             return DATE_FORMATTER.parseLocalDateTime(getStringValue());                        
-        } else if (type == Type.DATETIME) {
+        } else if (type.equals(Type.DATETIME)) {
             return DATE_TIME_FORMATTER.parseLocalDateTime(getStringValue());
         } else {
             throw new AnalysisException("Not support date literal type");
