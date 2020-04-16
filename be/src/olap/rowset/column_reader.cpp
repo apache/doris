@@ -547,6 +547,7 @@ ColumnReader* ColumnReader::create(uint32_t column_id,
     }
 
     switch (column.type()) {
+    case OLAP_FIELD_TYPE_BOOL:
     case OLAP_FIELD_TYPE_TINYINT:
     case OLAP_FIELD_TYPE_UNSIGNED_TINYINT: {
         reader = new(std::nothrow) TinyColumnReader(column_id, column_unique_id);
