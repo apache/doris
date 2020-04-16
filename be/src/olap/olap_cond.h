@@ -193,6 +193,10 @@ private:
         return -1;
     }
 
+    bool _cond_column_is_key_or_duplicate(const CondColumn* cc) const {
+        return cc->is_key() || _schema->keys_type() == KeysType::DUP_KEYS;
+    }
+
 private:
     const TabletSchema* _schema;
     CondColumns _columns;   // list of condition column

@@ -3123,7 +3123,7 @@ public class Load {
             }
 
             Column column = nameToColumn.get(columnName);
-            if (!column.isKey()) {
+            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
                 throw new DdlException("Column[" + columnName + "] is not key column");
             }
@@ -3163,10 +3163,6 @@ public class Load {
                 Column column = indexColNameToColumn.get(columnName);
                 if (column == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, indexName);
-                }
-
-                if (table.getKeysType() == KeysType.DUP_KEYS && !column.isKey()) {
-                    throw new DdlException("Column[" + columnName + "] is not key column in index[" + indexName + "]");
                 }
             }
 

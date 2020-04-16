@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
@@ -478,7 +479,7 @@ public class DeleteHandler implements Writable {
             }
 
             Column column = nameToColumn.get(columnName);
-            if (!column.isKey()) {
+            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
                 throw new DdlException("Column[" + columnName + "] is not key column");
             }
@@ -519,8 +520,8 @@ public class DeleteHandler implements Writable {
                 if (column == null) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, indexName);
                 }
-
-                if (table.getKeysType() == KeysType.DUP_KEYS && !column.isKey()) {
+                MaterializedIndexMeta indexMeta = table.getIndexIdToMeta().get(index.getId());
+                if (indexMeta.getKeysType() != KeysType.DUP_KEYS && !column.isKey()) {
                     throw new DdlException("Column[" + columnName + "] is not key column in index[" + indexName + "]");
                 }
             }
