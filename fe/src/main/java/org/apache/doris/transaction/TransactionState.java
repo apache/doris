@@ -597,7 +597,7 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_82) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_83) {
            TxnSourceType sourceType = TxnSourceType.valueOf(in.readInt());
            String ip = Text.readString(in);
            txnCoordinator = new TxnCoordinator(sourceType, ip);

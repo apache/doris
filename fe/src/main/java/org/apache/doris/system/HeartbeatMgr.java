@@ -176,7 +176,9 @@ public class HeartbeatMgr extends MasterDaemon {
                     if (hbResponse.getStatus() != HbStatus.OK) {
                         // invalid all connections cached in ClientPool
                         ClientPool.backendPool.clearPool(new TNetworkAddress(be.getHost(), be.getBePort()));
-                        Catalog.getCurrentCatalog().getGlobalTransactionMgr().abortTxnWhenCoordinateBeDown(be.getHost(), 100);
+                        if (!isReplay) {
+                            Catalog.getCurrentCatalog().getGlobalTransactionMgr().abortTxnWhenCoordinateBeDown(be.getHost(), 100);
+                        }
                     }
                     return isChanged;
                 }
