@@ -265,9 +265,10 @@ public class DeleteHandler implements Writable {
                         // only show at most 5 results
                         List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
                         String errMsg = "Unfinished replicas:" + Joiner.on(", ").join(subList);
-                        LOG.warn("delete job timeout: transactionId {}, {}", transactionId, errMsg);
+                        LOG.warn("delete job timeout: transactionId {}, timeout {}, {}", transactionId, timeoutMs, errMsg);
                         cancelJob(deleteJob, CancelType.TIMEOUT, "delete job timeout");
-                        throw new DdlException("failed to delete replicas from job: " + transactionId + ", " + errMsg);
+                        throw new DdlException("failed to delete replicas from job: transactionId " + transactionId +
+                                ", timeout " + timeoutMs + ", " + errMsg);
                     case QUORUM_FINISHED:
                     case FINISHED:
                         try {
