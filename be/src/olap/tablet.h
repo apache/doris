@@ -51,7 +51,6 @@ public:
                                                    DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
-    ~Tablet();
 
     OLAPStatus init();
     inline bool init_succeeded();
@@ -69,11 +68,10 @@ public:
 
     // Property encapsulated in TabletMeta
     inline const TabletMetaSharedPtr tablet_meta();
-    OLAPStatus save_meta();
+    void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
     OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
-
 
     inline TabletUid tablet_uid() const;
     inline int64_t table_id() const;
@@ -111,8 +109,8 @@ public:
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
-    OLAPStatus modify_rowsets(const vector<RowsetSharedPtr>& to_add,
-                              const vector<RowsetSharedPtr>& to_delete);
+    void modify_rowsets(const vector<RowsetSharedPtr>& to_add,
+                        const vector<RowsetSharedPtr>& to_delete);
 
     // _rs_version_map and _inc_rs_version_map should be protected by _meta_lock
     // The caller must call hold _meta_lock when call this two function.
@@ -144,7 +142,7 @@ public:
 
     // message for alter task
     AlterTabletTaskSharedPtr alter_task();
-    OLAPStatus add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
+    void add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
                         const vector<Version>& versions_to_alter,
                         const AlterTabletType alter_type);
     void delete_alter_task();
@@ -177,8 +175,8 @@ public:
     bool can_do_compaction();
     const uint32_t calc_cumulative_compaction_score() const;
     const uint32_t calc_base_compaction_score() const;
-    void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
-                                           VersionHash* version_hash) const;
+    static void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
+                                                  VersionHash* version_hash);
 
     // operation for clone
     void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
@@ -187,7 +185,7 @@ public:
 
     // This function to find max continous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
-    OLAPStatus max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
+    void max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
 
     // operation for query
     OLAPStatus split_range(
@@ -217,7 +215,7 @@ public:
 
     void delete_all_files();
 
-    bool check_path(const std::string& check_path);
+    bool check_path(const std::string& check_path) const;
     bool check_rowset_id(const RowsetId& rowset_id);
 
     OLAPStatus set_partition_id(int64_t partition_id);
@@ -228,7 +226,7 @@ public:
                                                          std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
 
-    OLAPStatus calculate_cumulative_point();
+    void calculate_cumulative_point();
     // TODO(ygl):
     inline bool is_primary_replica() { return false; }
 
@@ -237,24 +235,24 @@ public:
     // eco mode also means save money in palo
     inline bool in_eco_mode() { return false; }
 
-    OLAPStatus do_tablet_meta_checkpoint();
+    void do_tablet_meta_checkpoint();
 
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
-    void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta);
+    void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const;
 
     // return a json string to show the compaction status of this tablet
-    OLAPStatus get_compaction_status(std::string* json_result);
+    void get_compaction_status(std::string* json_result);
 
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
     OLAPStatus _contains_version(const Version& version);
-    OLAPStatus _max_continuous_version_from_begining_unlocked(Version* version,
-                                                              VersionHash* v_hash) const ;
+    void _max_continuous_version_from_begining_unlocked(Version* version,
+                                                        VersionHash* v_hash) const ;
     void _gen_tablet_path();
     RowsetSharedPtr _rowset_with_largest_size();
     void _delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);
@@ -262,6 +260,7 @@ private:
                                                     vector<RowsetSharedPtr>* rowsets) const;
 
 private:
+    static const int64_t kInvalidCumulativePoint = -1;
     TabletState _state;
     TabletMetaSharedPtr _tablet_meta;
     TabletSchema _schema;
@@ -281,7 +280,7 @@ private:
 
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
     // explain how these two locks work together.
-    RWMutex _meta_lock;
+    mutable RWMutex _meta_lock;
     // A new load job will produce a new rowset, which will be inserted into both _rs_version_map
     // and _inc_rs_version_map. Only the most recent rowsets are kept in _inc_rs_version_map to
     // reduce the amount of data that needs to be copied during the clone task.
