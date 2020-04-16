@@ -113,7 +113,8 @@ public class TableProperty implements Writable {
     }
 
     public TableProperty buildStorageFormat() {
-        storageFormat = TStorageFormat.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, "DEFAULT"));
+        storageFormat = TStorageFormat.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT,
+                TStorageFormat.DEFAULT.name()));
         return this;
     }
 
@@ -154,6 +155,7 @@ public class TableProperty implements Writable {
         return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
                 .buildDynamicProperty()
                 .buildReplicationNum()
-                .buildInMemory();
+                .buildInMemory()
+                .buildStorageFormat();
     }
 }

@@ -3927,22 +3927,21 @@ public class Catalog {
             // properties
             sb.append("\nPROPERTIES (\n");
 
-            // 1. storage type
-            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE).append("\" = \"");
-            TStorageType storageType = olapTable.getStorageTypeByIndexId(
-                    olapTable.getIndexIdByName(olapTable.getName()));
-            sb.append(storageType.name()).append("\"");
+            // replicationNum
+            Short replicationNum = olapTable.getDefaultReplicationNum();
+            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
+            sb.append(replicationNum).append("\"");
 
-            // 2. bloom filter
+            // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
             if (bfColumnNames != null) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
                 sb.append(Joiner.on(", ").join(olapTable.getCopiedBfColumns())).append("\"");
             }
 
             if (separatePartition) {
-                // 3. version info
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
+                // version info
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
                 Partition partition = null;
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     partition = olapTable.getPartition(olapTable.getName());
@@ -3954,26 +3953,25 @@ public class Catalog {
                         .append("\"");
             }
 
-            // 5. colocateTable
+            // colocateTable
             String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
                 sb.append(colocateTable).append("\"");
             }
 
-            // 6. dynamic partition
+            // dynamic partition
             if (olapTable.dynamicPartitionExists()) {
                 sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().toString());
             }
 
-            // 7. replicationNum
-            Short replicationNum = olapTable.getDefaultReplicationNum();
-            sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
-            sb.append(replicationNum).append("\"");
-
-            // 8. in memory
-            sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
+            // in memory
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
             sb.append(olapTable.isInMemory()).append("\"");
+
+            // storage type
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
+            sb.append(olapTable.getTableProperty().getStorageFormat()).append("\"");
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {

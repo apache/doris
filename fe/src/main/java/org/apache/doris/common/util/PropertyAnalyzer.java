@@ -373,6 +373,8 @@ public class PropertyAnalyzer {
             return TStorageFormat.V1;
         } else if (storageFormat.equalsIgnoreCase("v2")) {
             return TStorageFormat.V2;
+        } else if (storageFormat.equalsIgnoreCase("default")) {
+            return TStorageFormat.DEFAULT;
         } else {
             throw new AnalysisException("unknown storage format: " + storageFormat);
         }
