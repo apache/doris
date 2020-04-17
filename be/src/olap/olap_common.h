@@ -224,6 +224,8 @@ struct HashOfVersion {
 struct Vertex {
     int64_t value = 0;
     std::list<int64_t> edges;
+
+    Vertex(int64_t v) : value(v) {}
 };
 
 class Field;

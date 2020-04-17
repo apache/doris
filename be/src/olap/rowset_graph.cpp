@@ -137,7 +137,7 @@ OLAPStatus RowsetGraph::_add_vertex_to_graph(int64_t vertex_value) {
         return OLAP_SUCCESS;
     }
 
-    _version_graph.emplace_back(Vertex());
+    _version_graph.emplace_back(Vertex(vertex_value));
     _vertex_index_map[vertex_value] = _version_graph.size() - 1;
     return OLAP_SUCCESS;
 }
