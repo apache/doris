@@ -24,7 +24,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-/*
+/**
  * Frontend heartbeat response contains Frontend's query port, rpc port and current replayed journal id.
  * (http port is supposed to the same, so no need to be carried on heartbeat response)
  */
@@ -87,6 +87,7 @@ public class FrontendHbResponse extends HeartbeatResponse implements Writable {
         out.writeLong(replayedJournalId);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         name = Text.readString(in);

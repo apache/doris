@@ -23,7 +23,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-/*
+/**
  * Backend heartbeat response contains Backend's be port, http port and brpc port
  */
 public class BackendHbResponse extends HeartbeatResponse implements Writable {

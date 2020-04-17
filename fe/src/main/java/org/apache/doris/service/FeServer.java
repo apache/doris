@@ -26,7 +26,9 @@ import org.apache.thrift.TProcessor;
 
 import java.io.IOException;
 
-// Doris frontend thrift server
+/**
+ * Doris frontend thrift server
+ */
 public class FeServer {
     private static final Logger LOG = LogManager.getLogger(FeServer.class);
     

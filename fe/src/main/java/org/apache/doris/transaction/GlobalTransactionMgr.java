@@ -56,6 +56,7 @@ import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -122,7 +123,7 @@ public class GlobalTransactionMgr implements Writable {
         return callbackFactory;
     }
 
-    public long beginTransaction(long dbId, List<Long> tableIdList, String label, String coordinator, LoadJobSourceType sourceType,
+    public long beginTransaction(long dbId, List<Long> tableIdList, String label, TxnCoordinator coordinator, LoadJobSourceType sourceType,
             long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
         return beginTransaction(dbId, tableIdList, label, null, coordinator, sourceType, -1, timeoutSecond);
@@ -142,7 +143,7 @@ public class GlobalTransactionMgr implements Writable {
      * @throws IllegalTransactionParameterException
      */
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TUniqueId requestId,
-            String coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
+                                 TxnCoordinator coordinator, LoadJobSourceType sourceType, long listenerId, long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
 
         if (Config.disable_load_job) {
@@ -383,7 +384,7 @@ public class GlobalTransactionMgr implements Writable {
                     continue;
                 }
 
-                List<MaterializedIndex> allIndices = null;
+                List<MaterializedIndex> allIndices;
                 if (transactionState.getLoadedTblIndexes().isEmpty()) {
                     allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
                 } else {
@@ -553,7 +554,7 @@ public class GlobalTransactionMgr implements Writable {
         }
         abortTransaction(transactionId, reason);
     }
-    
+
     public void abortTransaction(long transactionId, String reason) throws UserException {
         abortTransaction(transactionId, reason, null);
     }
@@ -592,8 +593,6 @@ public class GlobalTransactionMgr implements Writable {
         if (txnOperated && transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
             clearBackendTransactions(transactionState);
         }
-
-        return;
     }
     
     private void clearBackendTransactions(TransactionState transactionState) {
@@ -707,7 +706,7 @@ public class GlobalTransactionMgr implements Writable {
                     }
                     int quorumReplicaNum = partitionInfo.getReplicationNum(partitionId) / 2 + 1;
 
-                    List<MaterializedIndex> allIndices = null;
+                    List<MaterializedIndex> allIndices;
                     if (transactionState.getLoadedTblIndexes().isEmpty()) {
                         allIndices = partition.getMaterializedIndices(IndexExtState.ALL);
                     } else {
@@ -799,10 +798,11 @@ public class GlobalTransactionMgr implements Writable {
             db.writeUnlock();
         }
         LOG.info("finish transaction {} successfully", transactionState);
-        return;
     }
-    
-    // check if there exists a load job before the endTransactionId have all finished
+
+    /**
+     * check if there exists a load job before the endTransactionId have all finished
+     */
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList) {
         for (Map.Entry<Long, TransactionState> entry : idToTransactionState.entrySet()) {
             if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
@@ -818,16 +818,18 @@ public class GlobalTransactionMgr implements Writable {
         return true;
     }
 
-    // check if there exists a intersection between the source tableId list and target tableId list
-    // if one of them is null or empty, that means that we don't know related tables in tableList,
-    // we think the two lists may have intersection for right ordered txns
+    /**
+     * check if there exists a intersection between the source tableId list and target tableId list
+     * if one of them is null or empty, that means that we don't know related tables in tableList,
+     * we think the two lists may have intersection for right ordered txns
+     */
     public boolean isIntersectionNotEmpty(List<Long> sourceTableIdList, List<Long> targetTableIdList) {
         if (CollectionUtils.isEmpty(sourceTableIdList) || CollectionUtils.isEmpty(targetTableIdList)) {
             return true;
         }
-        for (int i = 0; i < sourceTableIdList.size(); i++) {
-            for (int j = 0; j < targetTableIdList.size(); j++) {
-                if (sourceTableIdList.get(i).equals(targetTableIdList.get(j))) {
+        for (Long srcValue : sourceTableIdList) {
+            for (Long targetValue : targetTableIdList) {
+                if (srcValue.equals(targetValue)) {
                     return true;
                 }
             }
@@ -835,7 +837,7 @@ public class GlobalTransactionMgr implements Writable {
         return false;
     }
     
-    /*
+    /**
      * The txn cleaner will run at a fixed interval and try to delete expired and timeout txns:
      * expired: txn is in VISIBLE or ABORTED, and is expired.
      * timeout: txn is in PREPARE, but timeout
@@ -922,7 +924,7 @@ public class GlobalTransactionMgr implements Writable {
         }
         idToTransactionState.put(transactionState.getTransactionId(), transactionState);
         updateTxnLabels(transactionState);
-        updateDBRunningTxnNum(transactionState.getPreStatus(), transactionState);
+        updateDbRunningTxnNum(transactionState.getPreStatus(), transactionState);
     }
 
     private void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
@@ -1000,7 +1002,7 @@ public class GlobalTransactionMgr implements Writable {
             TransactionState preTxnState = idToTransactionState.get(transactionState.getTransactionId());
             idToTransactionState.put(transactionState.getTransactionId(), transactionState);
             updateTxnLabels(transactionState);
-            updateDBRunningTxnNum(preTxnState == null ? null : preTxnState.getTransactionStatus(),
+            updateDbRunningTxnNum(preTxnState == null ? null : preTxnState.getTransactionStatus(),
                                   transactionState);
         } finally {
             writeUnlock();
@@ -1135,7 +1137,7 @@ public class GlobalTransactionMgr implements Writable {
         txnIds.add(transactionState.getTransactionId());
     }
     
-    private void updateDBRunningTxnNum(TransactionStatus preStatus, TransactionState curTxnState) {
+    private void updateDbRunningTxnNum(TransactionStatus preStatus, TransactionState curTxnState) {
         Map<Long, Integer> txnNumMap = null;
         if (curTxnState.getSourceType() == LoadJobSourceType.ROUTINE_LOAD_TASK) {
             txnNumMap = runningRoutineLoadTxnNums;
@@ -1148,8 +1150,7 @@ public class GlobalTransactionMgr implements Writable {
                 && (curTxnState.getTransactionStatus() == TransactionStatus.PREPARE
                 || curTxnState.getTransactionStatus() == TransactionStatus.COMMITTED)) {
             ++txnNum;
-        } else if (preStatus != null
-                && (preStatus == TransactionStatus.PREPARE
+        } else if ((preStatus == TransactionStatus.PREPARE
                 || preStatus == TransactionStatus.COMMITTED)
                 && (curTxnState.getTransactionStatus() == TransactionStatus.VISIBLE
                 || curTxnState.getTransactionStatus() == TransactionStatus.ABORTED)) {
@@ -1203,7 +1204,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public List<List<String>> getDbTransInfo(long dbId, boolean running, int limit) throws AnalysisException {
-        List<List<String>> infos = new ArrayList<List<String>>();
+        List<List<String>> infos = new ArrayList<>();
         readLock();
         try {
             Database db = Catalog.getInstance().getDb(dbId);
@@ -1213,8 +1214,8 @@ public class GlobalTransactionMgr implements Writable {
 
             // get transaction order by txn id desc limit 'limit'
             idToTransactionState.values().stream()
-                    .filter(t -> (t.getDbId() == dbId && (running ? !t.getTransactionStatus().isFinalStatus()
-                            : t.getTransactionStatus().isFinalStatus()))).sorted(TransactionState.TXN_ID_COMPARATOR)
+                    .filter(t -> (t.getDbId() == dbId && (running != t.getTransactionStatus().isFinalStatus())))
+                    .sorted(TransactionState.TXN_ID_COMPARATOR)
                     .limit(limit)
                     .forEach(t -> {
                         List<String> info = Lists.newArrayList();
@@ -1272,7 +1273,7 @@ public class GlobalTransactionMgr implements Writable {
     private void getTxnStateInfo(TransactionState txnState, List<String> info) {
         info.add(String.valueOf(txnState.getTransactionId()));
         info.add(txnState.getLabel());
-        info.add(txnState.getCoordinator());
+        info.add(txnState.getCoordinator().toString());
         info.add(txnState.getTransactionStatus().name());
         info.add(txnState.getSourceType().name());
         info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
@@ -1285,7 +1286,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public List<List<Comparable>> getTableTransInfo(long txnId) throws AnalysisException {
-        List<List<Comparable>> tableInfos = new ArrayList<List<Comparable>>();
+        List<List<Comparable>> tableInfos = new ArrayList<>();
         readLock();
         try {
             TransactionState transactionState = idToTransactionState.get(txnId);
@@ -1294,10 +1295,10 @@ public class GlobalTransactionMgr implements Writable {
             }
 
             for (Map.Entry<Long, TableCommitInfo> entry : transactionState.getIdToTableCommitInfos().entrySet()) {
-                List<Comparable> tableInfo = new ArrayList<Comparable>();
+                List<Comparable> tableInfo = new ArrayList<>();
                 tableInfo.add(entry.getKey());
                 tableInfo.add(Joiner.on(", ").join(entry.getValue().getIdToPartitionCommitInfo().values().stream().map(
-                        e -> e.getPartitionId()).collect(Collectors.toList())));
+                        PartitionCommitInfo::getPartitionId).collect(Collectors.toList())));
                 tableInfos.add(tableInfo);
             }
         } finally {
@@ -1356,7 +1357,7 @@ public class GlobalTransactionMgr implements Writable {
             TransactionState preTxnState = idToTransactionState.get(transactionState.getTransactionId());
             idToTransactionState.put(transactionState.getTransactionId(), transactionState);
             updateTxnLabels(transactionState);
-            updateDBRunningTxnNum(preTxnState == null ? null : preTxnState.getTransactionStatus(),
+            updateDbRunningTxnNum(preTxnState == null ? null : preTxnState.getTransactionStatus(),
                                   transactionState);
         }
         idGenerator.readFields(in);
@@ -1388,5 +1389,36 @@ public class GlobalTransactionMgr implements Writable {
             readUnlock();
         }
         return null;
+    }
+
+    public List<Long> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
+        ArrayList<Long> txnIds = new ArrayList<>();
+        readLock();
+        try {
+            idToTransactionState.values().stream()
+                    .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
+                            && t.getCoordinator().ip.equals(coordinateHost)
+                            && (!t.getTransactionStatus().isFinalStatus())))
+                    .limit(limit)
+                    .forEach(t -> txnIds.add(t.getTransactionId()));
+        } finally {
+            readUnlock();
+        }
+        return txnIds;
+    }
+
+    /**
+     * If a Coordinate BE is down when running txn, the txn will remain in FE until killed by timeout
+     * So when FE identify the Coordiante BE is down, FE should cancel it initiative
+     */
+    public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
+        List<Long> transactionIdByCoordinateBe = getTransactionIdByCoordinateBe(coordinateHost, limit);
+        for (Long txnId : transactionIdByCoordinateBe) {
+            try {
+                abortTransaction(txnId, "coordinate BE is down");
+            } catch (UserException e) {
+                LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
+            }
+        }
     }
 }
