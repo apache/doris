@@ -410,6 +410,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isUseV2Rollup() { return useV2Rollup; }
 
+    // for unit test
+    public void setUseV2Rollup(boolean useV2Rollup) {
+        this.useV2Rollup = useV2Rollup;
+    }
+
     public boolean getTestMaterializedView() {
         return this.testMaterializedView;
     }
