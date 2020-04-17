@@ -976,7 +976,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_83) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
             storageFormat = TStorageFormat.valueOf(Text.readString(in));
         }
     }
@@ -1074,7 +1074,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
 
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_83) {
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
             storageFormat = TStorageFormat.valueOf(Text.readString(in));
         }
     }
