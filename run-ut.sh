@@ -24,6 +24,7 @@ ROOT=`cd "$ROOT"; pwd`
 export DORIS_HOME=${ROOT}
 
 . ${DORIS_HOME}/env.sh
+export BUILD_TYPE=DEBUG
 
 PARALLEL=$[$(nproc)/4+1]
 
