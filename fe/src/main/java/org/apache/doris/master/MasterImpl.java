@@ -86,7 +86,7 @@ public class MasterImpl {
         reportHandler.start();
     }
     
-    public TMasterResult finishTask(TFinishTaskRequest request) throws TException {
+    public TMasterResult finishTask(TFinishTaskRequest request) {
         TMasterResult result = new TMasterResult();
         TStatus tStatus = new TStatus(TStatusCode.OK);
         result.setStatus(tStatus);
@@ -105,7 +105,7 @@ public class MasterImpl {
         Backend backend = Catalog.getCurrentSystemInfo().getBackendWithBePort(host, bePort);
         if (backend == null) {
             tStatus.setStatus_code(TStatusCode.CANCELLED);
-            List<String> errorMsgs = new ArrayList<String>();
+            List<String> errorMsgs = new ArrayList<>();
             errorMsgs.add("backend not exist.");
             tStatus.setError_msgs(errorMsgs);
             LOG.warn("backend does not found. host: {}, be port: {}. task: {}", host, bePort, request.toString());
@@ -146,7 +146,7 @@ public class MasterImpl {
         }
  
         try {
-            List<TTabletInfo> finishTabletInfos = null;
+            List<TTabletInfo> finishTabletInfos;
             switch (taskType) {
                 case CREATE:
                     Preconditions.checkState(request.isSetReport_version());

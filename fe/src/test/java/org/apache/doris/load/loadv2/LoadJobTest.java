@@ -107,7 +107,8 @@ public class LoadJobTest {
         LoadJob loadJob = new BrokerLoadJob();
         new Expectations() {
             {
-                globalTransactionMgr.beginTransaction(anyLong, Lists.newArrayList(), anyString, (TUniqueId) any, anyString,
+                globalTransactionMgr.beginTransaction(anyLong, Lists.newArrayList(), anyString, (TUniqueId) any,
+                        (TransactionState.TxnCoordinator) any,
                         (TransactionState.LoadJobSourceType) any, anyLong, anyLong);
                 minTimes = 0;
                 result = 1;

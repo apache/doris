@@ -99,8 +99,10 @@ import org.apache.doris.thrift.TPriority;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -3328,7 +3330,8 @@ public class Load {
             loadDeleteJob.setState(JobState.LOADING);
             long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
                     Lists.newArrayList(table.getId()), jobLabel,
-                    "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
+                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    LoadJobSourceType.FRONTEND,
                     Config.stream_load_default_timeout_second);
             loadDeleteJob.setTransactionId(transactionId);
             // the delete job will be persist in editLog

@@ -45,6 +45,8 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -292,7 +294,8 @@ public class InsertStmt extends DdlStmt {
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                        Lists.newArrayList(targetTable.getId()), label, "FE: " + FrontendOptions.getLocalHostAddress(),
+                        Lists.newArrayList(targetTable.getId()), label,
+                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                         sourceType, timeoutSecond);
             }
             isTransactionBegin = true;
@@ -340,7 +343,7 @@ public class InsertStmt extends DdlStmt {
                 slotDesc.setIsMaterialized(true);
                 slotDesc.setType(col.getType());
                 slotDesc.setColumn(col);
-                if (true == col.isAllowNull()) {
+                if (col.isAllowNull()) {
                     slotDesc.setIsNullable(true);
                 } else {
                     slotDesc.setIsNullable(false);
@@ -547,16 +550,14 @@ public class InsertStmt extends DdlStmt {
 
         ArrayList<Expr> row = rows.get(rowIdx);
         if (!origColIdxsForShadowCols.isEmpty()) {
-            /*
+            /**
              * we should extends the row for shadow columns.
              * eg:
              *      the origin row has exprs: (expr1, expr2, expr3), and targetColumns is (A, B, C, __doris_shadow_b)
              *      after processing, extentedRow is (expr1, expr2, expr3, expr2)
              */
             ArrayList<Expr> extentedRow = Lists.newArrayList();
-            for (Expr expr : row) {
-                extentedRow.add(expr);
-            }
+            extentedRow.addAll(row);
             
             for (Integer idx : origColIdxsForShadowCols) {
                 extentedRow.add(extentedRow.get(idx));
@@ -724,6 +725,7 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
+    @Override
     public ArrayList<Expr> getResultExprs() {
         return resultExprs;
     }

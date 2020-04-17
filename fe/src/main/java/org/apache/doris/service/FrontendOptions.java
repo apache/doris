@@ -44,7 +44,7 @@ public class FrontendOptions {
 
     public static void init() throws UnknownHostException {
         localAddr = null;
-        if (!Config.frontend_address.equals("0.0.0.0")) {
+        if (!"0.0.0.0".equals(Config.frontend_address)) {
             if (!InetAddressValidator.getInstance().isValidInet4Address(Config.frontend_address)) {
                 throw new UnknownHostException("invalid frontend_address: " + Config.frontend_address);
             }
@@ -56,7 +56,7 @@ public class FrontendOptions {
         analyzePriorityCidrs();
 
         // if not set frontend_address, get a non-loopback ip
-        List<InetAddress> hosts = new ArrayList<InetAddress>();
+        List<InetAddress> hosts = new ArrayList<>();
         NetUtils.getHosts(hosts);
         if (hosts.isEmpty()) {
             LOG.error("fail to get localhost");
@@ -106,7 +106,7 @@ public class FrontendOptions {
             InetAddress address = InetAddress.getByName(ip);
             hostName = address.getHostName();
         } catch (UnknownHostException e) {
-            LOG.info("unknow host for {}", ip, e);
+            LOG.info("unknown host for {}", ip, e);
             hostName = "unknown";
         }
         return hostName;

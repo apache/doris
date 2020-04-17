@@ -173,8 +173,10 @@ public final class FeMetaVersion {
     public static final int VERSION_80 = 80;
     // replica quota support
     public static final int VERSION_81 = 81;
-	// optimize delete job
-	public static final int VERSION_82 = 82;
+    // optimize delete job
+    public static final int VERSION_82 = 82;
+    // modify TransactionState Field
+    public static final int VERSION_83 = 83;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_82;
+    public static final int VERSION_CURRENT = VERSION_83;
 }
