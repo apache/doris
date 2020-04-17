@@ -206,7 +206,7 @@ Syntax:
 
         storage_medium:         SSD or HDD, The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD.
         storage_cooldown_time:  If storage_medium is SSD, data will be automatically moved to HDD   when timeout.
-                                Default is 7 days.
+                                Default is 30 days.
                                 Format: "yyyy-MM-dd HH:mm:ss"
         replication_num:        Replication number of a partition. Default is 3.
         If table is not range partitions. This property takes on Table level. Or it will takes on   Partition level.
