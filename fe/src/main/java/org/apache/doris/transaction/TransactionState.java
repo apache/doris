@@ -55,13 +55,7 @@ public class TransactionState implements Writable {
     public static class TxnStateComparator implements Comparator<TransactionState> {
         @Override
         public int compare(TransactionState t1, TransactionState t2) {
-            if (t1.getTransactionId() > t2.getTransactionId()) {
-                return -1;
-            } else if (t1.getTransactionId() < t2.getTransactionId()) {
-                return 1;
-            } else {
-                return 0;
-            }
+            return Long.compare(t2.getTransactionId(), t1.getTransactionId());
         }
     }
 
@@ -128,6 +122,48 @@ public class TransactionState implements Writable {
         }
     }
 
+    public enum TxnSourceType {
+        FE(1),
+        BE(2);
+
+        public int value() {
+            return flag;
+        }
+
+        private int flag;
+
+        TxnSourceType(int flag) {
+            this.flag = flag;
+        }
+
+        public static TxnSourceType valueOf(int flag) {
+            switch (flag) {
+                case 1:
+                    return FE;
+                case 2:
+                    return BE;
+                default:
+                    return null;
+            }
+        }
+    }
+
+    public static class TxnCoordinator {
+        public TxnSourceType sourceType;
+        public String ip;
+
+        public TxnCoordinator() {}
+        public TxnCoordinator(TxnSourceType sourceType, String ip) {
+            this.sourceType = sourceType;
+            this.ip = ip;
+        }
+
+        @Override
+        public String toString() {
+            return sourceType.toString() + ": " + ip;
+        }
+    }
+
     private long dbId;
     private List<Long> tableIdList;
     private long transactionId;
@@ -137,7 +173,7 @@ public class TransactionState implements Writable {
     private TUniqueId requsetId;
     private Map<Long, TableCommitInfo> idToTableCommitInfos;
     // coordinator is show who begin this txn (FE, or one of BE, etc...)
-    private String coordinator;
+    private TxnCoordinator txnCoordinator;
     private TransactionStatus transactionStatus;
     private LoadJobSourceType sourceType;
     private long prepareTime;
@@ -176,7 +212,7 @@ public class TransactionState implements Writable {
         this.transactionId = -1;
         this.label = "";
         this.idToTableCommitInfos = Maps.newHashMap();
-        this.coordinator = "";
+        this.txnCoordinator = new TxnCoordinator();
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = LoadJobSourceType.FRONTEND;
         this.prepareTime = -1;
@@ -190,14 +226,14 @@ public class TransactionState implements Writable {
     }
     
     public TransactionState(long dbId, List<Long> tableIdList, long transactionId, String label, TUniqueId requsetId,
-                            LoadJobSourceType sourceType, String coordinator, long callbackId, long timeoutMs) {
+                            LoadJobSourceType sourceType, TxnCoordinator txnCoordinator, long callbackId, long timeoutMs) {
         this.dbId = dbId;
         this.tableIdList = (tableIdList == null ? Lists.newArrayList() : tableIdList);
         this.transactionId = transactionId;
         this.label = label;
         this.requsetId = requsetId;
         this.idToTableCommitInfos = Maps.newHashMap();
-        this.coordinator = coordinator;
+        this.txnCoordinator = txnCoordinator;
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = sourceType;
         this.prepareTime = -1;
@@ -254,8 +290,8 @@ public class TransactionState implements Writable {
         return this.label;
     }
     
-    public String getCoordinator() {
-        return coordinator;
+    public TxnCoordinator getCoordinator() {
+        return txnCoordinator;
     }
     
     public TransactionStatus getTransactionStatus() {
@@ -479,7 +515,7 @@ public class TransactionState implements Writable {
         sb.append(", db id: ").append(dbId);
         sb.append(", table id list: ").append(StringUtils.join(tableIdList, ","));
         sb.append(", callback id: ").append(callbackId);
-        sb.append(", coordinator: ").append(coordinator);
+        sb.append(", coordinator: ").append(txnCoordinator.toString());
         sb.append(", transaction status: ").append(transactionStatus);
         sb.append(", error replicas num: ").append(errorReplicas.size());
         sb.append(", replica ids: ").append(Joiner.on(",").join(errorReplicas.stream().limit(5).toArray()));
@@ -524,7 +560,8 @@ public class TransactionState implements Writable {
         for (TableCommitInfo info : idToTableCommitInfos.values()) {
             info.write(out);
         }
-        Text.writeString(out, coordinator);
+        out.writeInt(txnCoordinator.sourceType.value());
+        Text.writeString(out, txnCoordinator.ip);
         out.writeInt(transactionStatus.value());
         out.writeInt(sourceType.value());
         out.writeLong(prepareTime);
@@ -560,7 +597,14 @@ public class TransactionState implements Writable {
             info.readFields(in);
             idToTableCommitInfos.put(info.getTableId(), info);
         }
-        coordinator = Text.readString(in);
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_83) {
+           TxnSourceType sourceType = TxnSourceType.valueOf(in.readInt());
+           String ip = Text.readString(in);
+           txnCoordinator = new TxnCoordinator(sourceType, ip);
+        } else {
+            // to compatible old version
+            Text.readString(in);
+        }
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
         prepareTime = in.readLong();

@@ -50,6 +50,8 @@ import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -79,7 +81,7 @@ public class GlobalTransactionMgrTest {
     private static Catalog masterCatalog;
     private static Catalog slaveCatalog;
 
-    private String transactionSource = "localfe";
+    private TransactionState.TxnCoordinator transactionSource = new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE, "localfe");
 
     @Before
     public void setUp() throws InstantiationException, IllegalAccessException, IllegalArgumentException,
@@ -115,7 +117,7 @@ public class GlobalTransactionMgrTest {
         assertEquals(transactionId, transactionState.getTransactionId());
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
         assertEquals(CatalogTestUtil.testDbId1, transactionState.getDbId());
-        assertEquals(transactionSource, transactionState.getCoordinator());
+        assertEquals(transactionSource.toString(), transactionState.getCoordinator().toString());
     }
 
     @Test
@@ -128,9 +130,7 @@ public class GlobalTransactionMgrTest {
                     CatalogTestUtil.testTxnLable1,
                     transactionSource,
                     LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
-        } catch (AnalysisException e) {
-            e.printStackTrace();
-        } catch (LabelAlreadyUsedException e) {
+        } catch (AnalysisException | LabelAlreadyUsedException e) {
             e.printStackTrace();
         }
         TransactionState transactionState = masterTransMgr.getTransactionState(transactionId);
@@ -138,7 +138,7 @@ public class GlobalTransactionMgrTest {
         assertEquals(transactionId, transactionState.getTransactionId());
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
         assertEquals(CatalogTestUtil.testDbId1, transactionState.getDbId());
-        assertEquals(transactionSource, transactionState.getCoordinator());
+        assertEquals(transactionSource.toString(), transactionState.getCoordinator().toString());
 
         try {
             transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
@@ -321,7 +321,7 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
+                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
@@ -388,7 +388,7 @@ public class GlobalTransactionMgrTest {
         Deencapsulation.setField(routineLoadTaskInfo, "txnId", 1L);
         routineLoadTaskInfoList.add(routineLoadTaskInfo);
         TransactionState transactionState = new TransactionState(1L, Lists.newArrayList(1L), 1L, "label", null,
-                LoadJobSourceType.ROUTINE_LOAD_TASK, "be1", routineLoadJob.getId(),
+                LoadJobSourceType.ROUTINE_LOAD_TASK, new TxnCoordinator(TxnSourceType.BE, "be1"), routineLoadJob.getId(),
                 Config.stream_load_default_timeout_second);
         transactionState.setTransactionStatus(TransactionStatus.PREPARE);
         masterTransMgr.getCallbackFactory().addCallback(routineLoadJob);
@@ -612,7 +612,7 @@ public class GlobalTransactionMgrTest {
         assertEquals(transactionId, transactionState.getTransactionId());
         assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
         assertEquals(CatalogTestUtil.testDbId1, transactionState.getDbId());
-        assertEquals(transactionSource, transactionState.getCoordinator());
+        assertEquals(transactionSource.toString(), transactionState.getCoordinator().toString());
 
         masterTransMgr.deleteTransaction(transactionId);
         transactionState = fakeEditLog.getTransaction(transactionId);

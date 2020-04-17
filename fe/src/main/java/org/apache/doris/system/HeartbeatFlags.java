@@ -34,18 +34,18 @@ public class HeartbeatFlags {
     private static final Logger LOG = LogManager.getLogger(HeartbeatFlags.class);
 
     public static boolean isValidRowsetType(String rowsetType) {
-        return rowsetType.equalsIgnoreCase("alpha") || rowsetType.equalsIgnoreCase("beta");
+        return "alpha".equalsIgnoreCase(rowsetType) || "beta".equalsIgnoreCase(rowsetType);
     }
 
     public long getHeartbeatFlags () {
         long heartbeatFlags = 0;
         try {
             String defaultRowsetType = VariableMgr.getValue(null, new SysVariableDesc(SessionVariable.DEFAULT_ROWSET_TYPE, SetType.GLOBAL));
-            if (defaultRowsetType.equalsIgnoreCase("beta")) {
+            if ("beta".equalsIgnoreCase(defaultRowsetType)) {
                 heartbeatFlags |= HeartbeatServiceConstants.IS_SET_DEFAULT_ROWSET_TO_BETA_BIT;
             }
         } catch (AnalysisException e) {
-            LOG.warn("parse default rowset type failed.error:{}", e);
+            LOG.warn("parse default rowset type failed.error:{}", e.getMessage());
         }
 
         return heartbeatFlags;

@@ -24,7 +24,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-/*
+/**
  * This the superclass of all kinds of heartbeat response
  */
 public class HeartbeatResponse implements Writable {
@@ -43,8 +43,10 @@ public class HeartbeatResponse implements Writable {
 
     protected HbStatus status;
 
-    // msg and hbTime are no need to be synchronized to other Frontends,
-    // and only Master Frontend has these info
+    /**
+     * msg and hbTime are no need to be synchronized to other Frontends,
+     * and only Master Frontend has these info
+     */
     protected String msg;
     protected long hbTime;
 

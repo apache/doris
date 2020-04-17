@@ -30,6 +30,8 @@ import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.base.Joiner;
 
@@ -81,7 +83,8 @@ public abstract class LoadPendingTask extends MasterTask {
             if (job.getTransactionId() < 0) {
                 long transactionId = Catalog.getCurrentGlobalTransactionMgr()
                         .beginTransaction(dbId, Lists.newArrayList(tableId), DebugUtil.printId(UUID.randomUUID()),
-                                          "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
+                                          new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                                          LoadJobSourceType.FRONTEND,
                                           job.getTimeoutSecond());
                 job.setTransactionId(transactionId);
             }

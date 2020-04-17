@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-/*
+/**
  * Class for processing all audit events.
  * It will receive audit events and handle them to all AUDIT type plugins. 
  */
@@ -81,7 +81,7 @@ public class AuditEventProcessor {
     public class Worker implements Runnable {
         @Override
         public void run() {
-            AuditEvent auditEvent = null;
+            AuditEvent auditEvent;
             while (!isStopped) {
                 // update audit plugin list every UPDATE_PLUGIN_INTERVAL_MS.
                 // because some of plugins may be installed or uninstalled at runtime.

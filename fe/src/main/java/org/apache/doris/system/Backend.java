@@ -573,7 +573,7 @@ public class Backend implements Writable {
         return DecommissionType.SystemDecommission;
     }
 
-    /*
+    /**
      * handle Backend's heartbeat response.
      * return true if any port changed, or alive state is changed.
      */
