@@ -243,7 +243,7 @@ Replication_num
 
     * The BE data storage directory can be explicitly specified as SSD or HDD (differentiated by .SSD or .HDD suffix). When you build a table, you can uniformly specify the media for all Partition initial storage. Note that the suffix is ​​to explicitly specify the disk media without checking to see if it matches the actual media type.
     * The default initial storage media can be specified by `default_storage_medium= XXX` in the fe configuration file `fe.conf`, or, if not, by default, HDD. If specified as an SSD, the data is initially stored on the SSD.
-    * If storage\_cooldown\_time is not specified, the data is automatically migrated from the SSD to the HDD after 7 days by default. If storage\_cooldown\_time is specified, the data will not migrate until the storage_cooldown_time time is reached.
+    * If storage\_cooldown\_time is not specified, the data is automatically migrated from the SSD to the HDD after 30 days by default. If storage\_cooldown\_time is specified, the data will not migrate until the storage_cooldown_time time is reached.
     * Note that this parameter is just a "best effort" setting when storage_medium is specified. Even if no SSD storage media is set in the cluster, no error is reported and it is automatically stored in the available data directory. Similarly, if the SSD media is inaccessible and out of space, the data may initially be stored directly on other available media. When the data expires and is migrated to the HDD, if the HDD media is inaccessible and there is not enough space, the migration may fail (but will continue to try).
 
 ### ENGINE
