@@ -21,12 +21,14 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.doris.thrift.TStorageMedium;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -114,5 +116,14 @@ public class PropertyAnalyzerTest {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_BF_FPP, "0.05");
         Assert.assertEquals(0.05, PropertyAnalyzer.analyzeBloomFilterFpp(properties), 0.0001);
+    }
+
+    @Test
+    public void testStorageMedium() throws AnalysisException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, "2020-05-01 00:00:00");
+        DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals(1588262400, dataProperty.getCooldownTimeMs() / 1000);
     }
 }
