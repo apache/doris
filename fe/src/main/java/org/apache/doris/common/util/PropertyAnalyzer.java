@@ -110,7 +110,7 @@ public class PropertyAnalyzer {
             } else if (!hasCooldown && key.equalsIgnoreCase(PROPERTIES_STORAGE_COLDOWN_TIME)) {
                 hasCooldown = true;
                 DateLiteral dateLiteral = new DateLiteral(value, Type.DATETIME);
-                coolDownTimeStamp = dateLiteral.getLongValue();
+                coolDownTimeStamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
             }
         } // end for properties
 
