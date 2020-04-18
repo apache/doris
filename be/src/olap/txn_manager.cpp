@@ -81,7 +81,7 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_map_locks = new RWMutex[_txn_map_shard_size];
     _txn_tablet_maps = new txn_tablet_map_t[_txn_map_shard_size];
     _txn_partition_maps = new txn_partition_map_t[_txn_map_shard_size];
-    _rowset_meta_mutex = new Mutex[_txn_shard_size];
+    _txn_mutex = new Mutex[_txn_shard_size];
 }
 
 OLAPStatus TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id, 
