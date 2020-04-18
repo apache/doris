@@ -185,6 +185,7 @@ OLAPStatus TxnManager::commit_txn(
         return OLAP_ERR_ROWSET_INVALID;
     }
 
+    MutexLock txn_lock(&_get_txn_lock(transaction_id));
     {
         // get tx
         ReadLock rdlock(&_get_txn_map_lock(transaction_id));

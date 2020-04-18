@@ -183,16 +183,16 @@ private:
     const int32_t _txn_shard_size;
 
     // _txn_map_locks[i] protect _txn_tablet_maps[i], i=0,1,2...,and i < _txn_map_shard_size
-    txn_tablet_map_t *_txn_tablet_maps;
+    txn_tablet_map_t* _txn_tablet_maps;
     // transaction_id -> corresponding partition ids
     // This is mainly for the clear txn task received from FE, which may only has transaction id,
     // so we need this map to find out which partitions are corresponding to a transaction id.
     // The _txn_partition_maps[i] should be constructed/deconstructed/modified alongside with '_txn_tablet_maps[i]'
-    txn_partition_map_t *_txn_partition_maps;
+    txn_partition_map_t* _txn_partition_maps;
 
-    RWMutex *_txn_map_locks;
+    RWMutex* _txn_map_locks;
 
-    Mutex *_txn_mutex;
+    Mutex* _txn_mutex;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 };  // TxnManager
 
