@@ -68,13 +68,13 @@ struct TabletTxnInfo {
 // txn manager is used to manage mapping between tablet and txns
 class TxnManager {
 public:
-    TxnManager(int32_t txn_map_shard_size, int32_t rowset_meta_shard_size);
+    TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size);
 
     ~TxnManager() {
         delete [] _txn_tablet_maps;
         delete [] _txn_partition_maps;
         delete [] _txn_map_locks;
-        delete [] _rowset_meta_mutex;
+        delete [] _txn_mutex;
     }
 
     OLAPStatus prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id, 
@@ -180,7 +180,7 @@ private:
 private:
     const int32_t _txn_map_shard_size;
 
-    const int32_t _rowset_meta_shard_size;
+    const int32_t _txn_shard_size;
 
     // _txn_map_locks[i] protect _txn_tablet_maps[i], i=0,1,2...,and i < _txn_map_shard_size
     txn_tablet_map_t* _txn_tablet_maps;
@@ -192,7 +192,7 @@ private:
 
     RWMutex* _txn_map_locks;
 
-    Mutex* _rowset_meta_mutex;
+    Mutex* _txn_mutex;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 };  // TxnManager
 
@@ -209,7 +209,7 @@ inline TxnManager::txn_partition_map_t& TxnManager::_get_txn_partition_map(TTran
 }
 
 inline Mutex& TxnManager::_get_txn_lock(TTransactionId transactionId) {
-    return _rowset_meta_mutex[transactionId & (_rowset_meta_shard_size - 1)];
+    return _txn_mutex[transactionId & (_txn_shard_size - 1)];
 }
 
 }

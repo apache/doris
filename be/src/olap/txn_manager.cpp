@@ -71,17 +71,17 @@ using std::vector;
 
 namespace doris {
 
-TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t rowset_meta_shard_size)
+TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
         : _txn_map_shard_size(txn_map_shard_size),
-          _rowset_meta_shard_size(rowset_meta_shard_size) {
+          _txn_shard_size(txn_shard_size) {
     DCHECK_GT(_txn_map_shard_size, 0);
-    DCHECK_GT(_rowset_meta_shard_size, 0);
+    DCHECK_GT(_txn_shard_size, 0);
     DCHECK_EQ(_txn_map_shard_size & (_txn_map_shard_size - 1), 0);
-    DCHECK_EQ(_rowset_meta_shard_size & (_rowset_meta_shard_size - 1), 0);
+    DCHECK_EQ(_txn_shard_size & (_txn_shard_size - 1), 0);
     _txn_map_locks = new RWMutex[_txn_map_shard_size];
     _txn_tablet_maps = new txn_tablet_map_t[_txn_map_shard_size];
     _txn_partition_maps = new txn_partition_map_t[_txn_map_shard_size];
-    _rowset_meta_mutex = new Mutex[_rowset_meta_shard_size];
+    _rowset_meta_mutex = new Mutex[_txn_shard_size];
 }
 
 OLAPStatus TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr& tablet, TTransactionId transaction_id, 
