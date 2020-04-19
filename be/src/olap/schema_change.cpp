@@ -1588,7 +1588,7 @@ OLAPStatus SchemaChangeHandler::_add_alter_task(
                                alter_tablet_type);
     new_tablet->save_meta();
     LOG(INFO) << "successfully add alter task to both base and new";
-    return res;
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus SchemaChangeHandler::_save_alter_state(
