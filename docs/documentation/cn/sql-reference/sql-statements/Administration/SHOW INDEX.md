@@ -23,7 +23,9 @@ under the License.
 
     该语句用于展示一个表中索引的相关信息，目前只支持bitmap 索引
     语法：
-        SHOW INDEX[ES] FROM [db_name.]table_name;
+        SHOW INDEX[ES] FROM [db_name.]table_name [FROM database];
+        或者
+        SHOW KEY[S] FROM [db_name.]table_name [FROM database];
 
 ## example
 
