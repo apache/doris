@@ -234,9 +234,10 @@ under the License.
         NULL值：\N
 
 ## example
-    1. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。指定group.id和client.id，并且自动默认消费所有分区，且从末尾（OFFSET_END）开始订阅
+    1. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。指定列分隔符和 group.id 和 client.id，并且自动默认消费所有分区，且从有数据的位置（OFFSET_BEGINNING）开始订阅
 
         CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        COLUMNS TERMINATED BY ",",
         COLUMNS(k1, k2, k3, v1, v2, v3 = k1 * 100)
         PROPERTIES
         (
@@ -251,7 +252,8 @@ under the License.
             "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
             "kafka_topic" = "my_topic",
             "property.group.id" = "xxx",
-            "property.client.id" = "xxx"
+            "property.client.id" = "xxx",
+            "property.kafka_default_offsets" = "OFFSET_BEGINNING"
         );
 
     2. 为 example_db 的 example_tbl 创建一个名为 test1 的 Kafka 例行导入任务。导入任务为严格模式。
