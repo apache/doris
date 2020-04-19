@@ -47,7 +47,7 @@ import org.apache.doris.task.ClearAlterTask;
 import org.apache.doris.task.CloneTask;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.CreateRollupTask;
-import org.apache.doris.task.DeleteJob;
+import org.apache.doris.load.DeleteJob;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.PublishVersionTask;

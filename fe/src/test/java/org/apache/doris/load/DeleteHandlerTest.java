@@ -34,8 +34,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.DeleteJob;
-import org.apache.doris.task.DeleteJob.DeleteState;
+import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
@@ -173,6 +172,16 @@ public class DeleteHandlerTest {
 
         DeleteStmt deleteStmt = new DeleteStmt(new TableName("test_db", "test_tbl"),
                 new PartitionNames(false, Lists.newArrayList("test_tbl")), binaryPredicate);
+
+        new Expectations(globalTransactionMgr) {
+            {
+                try {
+                    globalTransactionMgr.abortTransaction(anyLong, anyString);
+                } catch (UserException e) {
+                }
+                minTimes = 0;
+            }
+        };
         try {
             deleteStmt.analyze(analyzer);
         } catch (UserException e) {
