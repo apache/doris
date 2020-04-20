@@ -177,6 +177,8 @@ public class DatabaseTransactionMgr {
     public void deleteTransactionState(TransactionState transactionState) {
         writeLock();
         try {
+            // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
+            // it must at the front of the finalStatusTransactionStateDeque
             if (!finalStatusTransactionStateDeque.isEmpty() &&
             transactionState.getTransactionId() == finalStatusTransactionStateDeque.getFirst().getTransactionId()) {
                 finalStatusTransactionStateDeque.pop();
@@ -326,11 +328,7 @@ public class DatabaseTransactionMgr {
 
     private boolean unprotectAbortTransaction(long transactionId, String reason)
             throws UserException {
-        TransactionState transactionState = idToRunningTransactionState.get(transactionId);
-        if (transactionState == null) {
-            transactionState = idToFinalStatusTransactionState.get(transactionId);
-        }
-
+        TransactionState transactionState = getTransactionState(transactionId);
         if (transactionState == null) {
             throw new UserException("transaction not found");
         }
@@ -384,10 +382,7 @@ public class DatabaseTransactionMgr {
         List<List<Comparable>> tableInfos = new ArrayList<>();
         readLock();
         try {
-            TransactionState transactionState = idToRunningTransactionState.get(txnId);
-            if (transactionState == null) {
-                transactionState = idToFinalStatusTransactionState.get(txnId);
-            }
+            TransactionState transactionState = getTransactionState(txnId);
             if (null == transactionState) {
                 throw new AnalysisException("Transaction[" + txnId + "] does not exist.");
             }
@@ -409,11 +404,7 @@ public class DatabaseTransactionMgr {
         List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
         readLock();
         try {
-            TransactionState transactionState = idToRunningTransactionState.get(txnId);
-            if (transactionState == null) {
-                transactionState = idToFinalStatusTransactionState.get(txnId);
-            }
-
+            TransactionState transactionState = getTransactionState(txnId);
             if (null == transactionState) {
                 throw new AnalysisException("Transaction[" + txnId + "] does not exist.");
             }
