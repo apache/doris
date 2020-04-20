@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
+import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -243,7 +244,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         AgentTaskExecutor.submit(batchTask);
 
         // colocation
-        Catalog.getCurrentColocateIndex().removeTable(olapTable.getId());
+        if (Catalog.getCurrentColocateIndex().removeTable(olapTable.getId())) {
+            Catalog.getCurrentCatalog().getEditLog().logColocateRemoveTable(
+                    ColocatePersistInfo.createForRemoveTable(olapTable.getId()));
+        }
     }
 
     private synchronized void eraseTableWithSameName(long dbId, String tableName) {
