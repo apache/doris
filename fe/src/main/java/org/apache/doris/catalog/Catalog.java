@@ -5161,8 +5161,31 @@ public class Catalog {
     }
 
     // The caller need to hold the db write lock
-    public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) {
+    public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
+        short newReplicationNum = (short) -1;
+        try {
+            newReplicationNum = Short.valueOf(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+            if (newReplicationNum <= 0) {
+                throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
+            }
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        for (Partition partition : table.getPartitions()) {
+            PartitionInfo partitionInfo = table.getPartitionInfo();
+            boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
+            DataProperty newDataProperty = partitionInfo.getDataProperty(partition.getId());
+            partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
+            // log
+            ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), table.getId(), partition.getId(),
+                    newDataProperty, newReplicationNum, isInMemory);
+            editLog.logModifyPartition(info);
+            LOG.debug("modify partition[{}-{}-{}] replication num to {}", db.getId(), table.getId(), partition.getName(),
+                    newReplicationNum);
+        }
+
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
             tableProperty = new TableProperty(properties);
