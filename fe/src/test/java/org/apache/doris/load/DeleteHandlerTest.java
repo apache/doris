@@ -176,7 +176,7 @@ public class DeleteHandlerTest {
         new Expectations(globalTransactionMgr) {
             {
                 try {
-                    globalTransactionMgr.abortTransaction(anyLong, anyString);
+                    globalTransactionMgr.abortTransaction(db.getId(), anyLong, anyString);
                 } catch (UserException e) {
                 }
                 minTimes = 0;

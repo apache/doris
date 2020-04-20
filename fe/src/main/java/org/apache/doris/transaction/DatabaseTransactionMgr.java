@@ -42,6 +42,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -57,8 +59,12 @@ public class DatabaseTransactionMgr {
     // no other locks should be inside this lock
     private ReentrantReadWriteLock transactionLock = new ReentrantReadWriteLock(true);
 
-    // transactionId -> TransactionState
-    private Map<Long, TransactionState> idToTransactionState = Maps.newConcurrentMap();
+    // transactionId -> running TransactionState
+    private Map<Long, TransactionState> idToRunningTransactionState = Maps.newConcurrentMap();
+
+    // transactionId -> final status TransactionState
+    private Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newConcurrentMap();
+
 
     // to store transtactionStates with final status
     private ArrayDeque<TransactionState> finalStatusTransactionStateDeque = new ArrayDeque<>();
@@ -66,7 +72,8 @@ public class DatabaseTransactionMgr {
     // label -> txn ids
     // this is used for checking if label already used. a label may correspond to multiple txns,
     // and only one is success.
-    // this member should be consistent with idToTransactionState, which means if a txn exist in idToTransactionState,
+    // this member should be consistent with idToTransactionState,
+    // which means if a txn exist in idToRunningTransactionState or idToFinalStatusTransactionState
     // it must exists in dbIdToTxnLabels, and vice versa
     private Map<String, Set<Long>> labelToTxnIds = Maps.newConcurrentMap();
 
@@ -102,7 +109,12 @@ public class DatabaseTransactionMgr {
     }
 
     public TransactionState getTransactionState(Long transactionId) {
-        return idToTransactionState.get(transactionId);
+        TransactionState transactionState = idToRunningTransactionState.get(transactionId);
+        if (transactionState != null) {
+            return transactionState;
+        } else {
+            return idToFinalStatusTransactionState.get(transactionId);
+        }
     }
 
     public Set<Long> getTxnIdsByLabel(String label) {
@@ -127,7 +139,7 @@ public class DatabaseTransactionMgr {
         readLock();
         try {
             if (running) {
-                transactionStateCollection = idToTransactionState.values();
+                transactionStateCollection = idToRunningTransactionState.values();
             } else {
                 transactionStateCollection = finalStatusTransactionStateDeque;
             }
@@ -168,6 +180,7 @@ public class DatabaseTransactionMgr {
             if (!finalStatusTransactionStateDeque.isEmpty() &&
             transactionState.getTransactionId() == finalStatusTransactionStateDeque.getFirst().getTransactionId()) {
                 finalStatusTransactionStateDeque.pop();
+                idToFinalStatusTransactionState.remove(transactionState.getTransactionId());
                 Set<Long> txnIds = labelToTxnIds.get(transactionState.getLabel());
                 txnIds.remove(transactionState.getTransactionId());
                 if (txnIds.isEmpty()) {
@@ -179,8 +192,8 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    public Map<Long, TransactionState> getIdToTransactionState() {
-        return idToTransactionState;
+    public Map<Long, TransactionState> getIdToRunningTransactionState() {
+        return idToRunningTransactionState;
     }
 
     public ArrayDeque<TransactionState> getFinalStatusTransactionStateDeque() {
@@ -234,11 +247,12 @@ public class DatabaseTransactionMgr {
             }
         }
 
-        if (transactionState.getTransactionStatus().isFinalStatus()) {
-            idToTransactionState.remove(transactionState.getTransactionId());
-            finalStatusTransactionStateDeque.add(transactionState);
+        if (transactionState.isRunning()) {
+            idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState);
         } else {
-            idToTransactionState.put(transactionState.getTransactionId(), transactionState);
+            idToRunningTransactionState.remove(transactionState.getTransactionId());
+            idToFinalStatusTransactionState.put(transactionState.getTransactionId(), transactionState);
+            finalStatusTransactionStateDeque.add(transactionState);
         }
 
         updateTxnLabels(transactionState);
@@ -279,7 +293,7 @@ public class DatabaseTransactionMgr {
             LOG.info("transaction id is {}, less than 0, maybe this is an old type load job, ignore abort operation", transactionId);
             return;
         }
-        TransactionState transactionState = idToTransactionState.get(transactionId);
+        TransactionState transactionState = idToRunningTransactionState.get(transactionId);
         if (transactionState == null) {
             throw new UserException("transaction not found");
         }
@@ -312,7 +326,11 @@ public class DatabaseTransactionMgr {
 
     private boolean unprotectAbortTransaction(long transactionId, String reason)
             throws UserException {
-        TransactionState transactionState = idToTransactionState.get(transactionId);
+        TransactionState transactionState = idToRunningTransactionState.get(transactionId);
+        if (transactionState == null) {
+            transactionState = idToFinalStatusTransactionState.get(transactionId);
+        }
+
         if (transactionState == null) {
             throw new UserException("transaction not found");
         }
@@ -362,17 +380,13 @@ public class DatabaseTransactionMgr {
     }
 
 
-    List<List<Comparable>> getTableTransInfo(long txnId) {
+    List<List<Comparable>> getTableTransInfo(long txnId) throws AnalysisException {
         List<List<Comparable>> tableInfos = new ArrayList<>();
         readLock();
         try {
-            TransactionState transactionState = idToTransactionState.get(txnId);
+            TransactionState transactionState = idToRunningTransactionState.get(txnId);
             if (transactionState == null) {
-                for (TransactionState txn : finalStatusTransactionStateDeque) {
-                    if (txnId == txn.getTransactionId()) {
-                        transactionState = txn;
-                    }
-                }
+                transactionState = idToFinalStatusTransactionState.get(txnId);
             }
             if (null == transactionState) {
                 throw new AnalysisException("Transaction[" + txnId + "] does not exist.");
@@ -391,18 +405,19 @@ public class DatabaseTransactionMgr {
         return tableInfos;
     }
 
-    public List<List<Comparable>> getPartitionTransInfo(long txnId, long tableId) {
+    public List<List<Comparable>> getPartitionTransInfo(long txnId, long tableId) throws AnalysisException {
         List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
         readLock();
         try {
-            TransactionState transactionState = idToTransactionState.get(txnId);
+            TransactionState transactionState = idToRunningTransactionState.get(txnId);
             if (transactionState == null) {
-                for (TransactionState txn : finalStatusTransactionStateDeque) {
-                    if (txnId == txn.getTransactionId()) {
-                        transactionState = txn;
-                    }
-                }
+                transactionState = idToFinalStatusTransactionState.get(txnId);
             }
+
+            if (null == transactionState) {
+                throw new AnalysisException("Transaction[" + txnId + "] does not exist.");
+            }
+
             TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(tableId);
             Map<Long, PartitionCommitInfo> idToPartitionCommitInfo = tableCommitInfo.getIdToPartitionCommitInfo();
             for (Map.Entry<Long, PartitionCommitInfo> entry : idToPartitionCommitInfo.entrySet()) {
@@ -444,14 +459,14 @@ public class DatabaseTransactionMgr {
     }
 
     public int getTransactionNum() {
-        return idToTransactionState.size() + finalStatusTransactionStateDeque.size();
+        return idToRunningTransactionState.size() + finalStatusTransactionStateDeque.size();
     }
 
 
     public TransactionState getTransactionStateByCallbackIdAndStatus(long callbackId, Set<TransactionStatus> status) {
         readLock();
         try {
-            for (TransactionState txn : idToTransactionState.values()) {
+            for (TransactionState txn : idToRunningTransactionState.values()) {
                 if (txn.getCallbackId() == callbackId && status.contains(txn.getTransactionStatus())) {
                     return txn;
                 }
@@ -470,7 +485,7 @@ public class DatabaseTransactionMgr {
     public TransactionState getTransactionStateByCallbackId(long callbackId) {
         readLock();
         try {
-            for (TransactionState txn : idToTransactionState.values()) {
+            for (TransactionState txn : idToRunningTransactionState.values()) {
                 if (txn.getCallbackId() == callbackId) {
                     return txn;
                 }
@@ -490,7 +505,7 @@ public class DatabaseTransactionMgr {
         ArrayList<Pair<Long, Long>> txnInfos = new ArrayList<>();
         readLock();
         try {
-            idToTransactionState.values().stream()
+            idToRunningTransactionState.values().stream()
                     .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
                             && t.getCoordinator().ip.equals(coordinateHost)
                             && (!t.getTransactionStatus().isFinalStatus())))

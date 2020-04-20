@@ -187,7 +187,7 @@ public class TabletInvertedIndex {
                                     List<Long> transactionIds = backendTabletInfo.getTransaction_ids();
                                     GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
                                     for (Long transactionId : transactionIds) {
-                                        TransactionState transactionState = transactionMgr.getTransactionState(transactionId);
+                                        TransactionState transactionState = transactionMgr.getTransactionState(tabletMeta.getDbId(), transactionId);
                                         if (transactionState == null || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
                                             transactionsToClear.put(transactionId, tabletMeta.getPartitionId());
                                             LOG.debug("transaction id [{}] is not valid any more, " 
