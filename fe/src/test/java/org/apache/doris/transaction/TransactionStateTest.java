@@ -17,6 +17,8 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -48,6 +50,10 @@ public class TransactionStateTest {
 
     @Test
     public void testSerDe() throws IOException {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_83);
+        metaContext.setThreadLocalInfo();
+
         // 1. Write objects to file
         File file = new File(fileName);
         file.createNewFile();
@@ -65,7 +71,6 @@ public class TransactionStateTest {
 
         // 2. Read objects from file
         DataInputStream in = new DataInputStream(new FileInputStream(file));
-
         TransactionState readTransactionState = new TransactionState();
         readTransactionState.readFields(in);
 
