@@ -1,8 +1,27 @@
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
 # Segment V2 升级手册
 
 ## 背景
 
-Doris 0.12 版本中实现了新的存储格式：Segment v2，引入词典压缩、bitmap索引、page cache等优化，能够提升系统性能。
+Doris 0.12 版本中实现了新的存储格式：Segment V2，引入词典压缩、bitmap索引、page cache等优化，能够提升系统性能。
 
 0.12 版本会同时支持读写原有的 Segment V1（以下简称V1） 和新的 Segment V2（以下简称V2） 两种格式。如果原有数据想使用 V2 相关特性，需通过命令将 V1 转换成 V2 格式。
 
@@ -14,7 +33,7 @@ V2 格式的表可以支持以下新的特性：
 2. 内存表
 3. page cache
 4. 字典压缩
-5. 延迟物化（Lazy materialization）
+5. 延迟物化（Lazy Materialization）
 
 ## 集群升级
 
@@ -42,12 +61,12 @@ V2 格式的表可以支持以下新的特性：
     操作步骤如下：
     
     ```
-    ## 创建 V2 格式的 ROLLUP
+    ## 创建 V2 格式的 Rollup
     
     ALTER TABLE table_name ADD ROLLUP table_name (columns) PROPERTIES ("storage_format" = "v2");
     ```
 
-    其中， Rollup 的名称必须为表名。columns 字段可以任意填写，系统不会检查该字段的合法性。该语句会自动生成一个名为 `__v2_table_name` 的 Rollup，并且该 Rollup 列包含表的全部列。
+    其中， Rollup 的名称必须为表名。columns 字段可以任意填写，系统不会检查该字段的合法性。该语句会自动生成一个名为 `__V2_table_name` 的 Rollup，并且该 Rollup 列包含表的全部列。
     
     通过以下语句查看创建进度：
     
@@ -64,11 +83,11 @@ V2 格式的表可以支持以下新的特性：
     select * from table_name limit 10;
     ```
     
-    `use_v2_rollup` 这个变量会强制查询名为 `__v2_table_name` 的 Rollup，并且不会考虑其他 rollup 的命中条件。所以该参数仅用于对 V2 格式数据进行验证。
+    `use_V2_Rollup` 这个变量会强制查询名为 `__V2_table_name` 的 Rollup，并且不会考虑其他 Rollup 的命中条件。所以该参数仅用于对 V2 格式数据进行验证。
 
 2. 转换现有表数据格式
 
-    该方式相当于给指定的表发送一个 schema change 作业，作业完成后，表的所有数据会被转换成 v2 格式。该方法不会保留原有 v1 格式，所以请先使用方法1进行格式验证。
+    该方式相当于给指定的表发送一个 schema change 作业，作业完成后，表的所有数据会被转换成 V2 格式。该方法不会保留原有 v1 格式，所以请先使用方法1进行格式验证。
     
     ```
     ALTER TABLE table_name SET ("storage_format" = "v2");
@@ -80,7 +99,7 @@ V2 格式的表可以支持以下新的特性：
     SHOW ALTER TABLE COLUMN;
     ```
     
-    作业完成后，该表的所有数据（包括rollup）都转换为了 V2。且 V1 版本的数据已被删除。如果该表是分区表，则之后创建的分区也都是 V2 格式。
+    作业完成后，该表的所有数据（包括Rollup）都转换为了 V2。且 V1 版本的数据已被删除。如果该表是分区表，则之后创建的分区也都是 V2 格式。
     
     **V2 格式的表不能重新转换为 V1**
     
