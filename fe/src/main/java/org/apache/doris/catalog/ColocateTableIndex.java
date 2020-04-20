@@ -208,7 +208,7 @@ public class ColocateTableIndex implements Writable {
             if (unstableGroups.remove(groupId)) {
                 if (needEditLog) {
                     ColocatePersistInfo info = ColocatePersistInfo.createForMarkStable(groupId);
-                    Catalog.getInstance().getEditLog().logColocateMarkUnstable(info);
+                    Catalog.getInstance().getEditLog().logColocateMarkStable(info);
                 }
                 LOG.info("mark group {} as stable", groupId);
             }
