@@ -22,8 +22,12 @@ under the License.
 ## description
 
     This statement is used to show all index(only bitmap index in current version) of a table
-    语法：
-        SHOW INDEX[ES] FROM [db_name.]table_name;
+    Grammar:
+        SHOW INDEX[ES] FROM [db_name.]table_name [FROM database];
+        
+        OR
+
+        SHOW KEY[S] FROM [db_name.]table_name [FROM database];
 
 ## example
 
