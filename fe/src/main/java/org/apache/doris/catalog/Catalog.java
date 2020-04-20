@@ -5149,34 +5149,6 @@ public class Catalog {
         editLog.logDynamicPartition(info);
     }
 
-    public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info) {
-        long dbId = info.getDbId();
-        long tableId = info.getTableId();
-        Map<String, String> properties = info.getProperties();
-
-        Database db = getDb(dbId);
-        db.writeLock();
-        try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            TableProperty tableProperty = olapTable.getTableProperty();
-            if (tableProperty == null) {
-                olapTable.setTableProperty(new TableProperty(properties).buildProperty(opCode));
-            } else {
-                tableProperty.modifyTableProperties(properties);
-                tableProperty.buildProperty(opCode);
-            }
-
-            // need to replay partition info meta
-            if (opCode == OperationType.OP_MODIFY_IN_MEMORY) {
-                for(Partition partition: olapTable.getPartitions()) {
-                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
-                }
-            }
-        } finally {
-            db.writeUnlock();
-        }
-    }
-
     // The caller need to hold the db write lock
     public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
@@ -5209,6 +5181,34 @@ public class Catalog {
 
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
         editLog.logModifyInMemory(info);
+    }
+
+    public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        Map<String, String> properties = info.getProperties();
+
+        Database db = getDb(dbId);
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            TableProperty tableProperty = olapTable.getTableProperty();
+            if (tableProperty == null) {
+                olapTable.setTableProperty(new TableProperty(properties).buildProperty(opCode));
+            } else {
+                tableProperty.modifyTableProperties(properties);
+                tableProperty.buildProperty(opCode);
+            }
+
+            // need to replay partition info meta
+            if (opCode == OperationType.OP_MODIFY_IN_MEMORY) {
+                for(Partition partition: olapTable.getPartitions()) {
+                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
+                }
+            }
+        } finally {
+            db.writeUnlock();
+        }
     }
 
     /*
