@@ -35,9 +35,12 @@ public class TransTablesProcDir implements ProcDirInterface {
             .add("CommittedPartitionIds")
             .build();
 
+    private long dbId;
     private long txnId;
 
-    public TransTablesProcDir(long txnId) {
+
+    public TransTablesProcDir(long dbId, long txnId) {
+        this.dbId = dbId;
         this.txnId = txnId;
     }
 
@@ -50,7 +53,7 @@ public class TransTablesProcDir implements ProcDirInterface {
     public ProcResult fetchResult() throws AnalysisException {
         // get info
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        List<List<Comparable>> tableInfos = transactionMgr.getTableTransInfo(txnId);
+        List<List<Comparable>> tableInfos = transactionMgr.getTableTransInfo(dbId, txnId);
         // sort by table id
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0);
         Collections.sort(tableInfos, comparator);
@@ -83,6 +86,6 @@ public class TransTablesProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid table id format: " + tableIdStr);
         }
 
-        return new TransPartitionProcNode(txnId, tableId);
+        return new TransPartitionProcNode(dbId, txnId, tableId);
     }
 }

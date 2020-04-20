@@ -1,13 +1,36 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.transaction;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.tuple.ImmutablePair;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.UserException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -24,6 +47,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 public class DatabaseTransactionMgr {
 
@@ -97,6 +121,47 @@ public class DatabaseTransactionMgr {
         return finalStatusTransactionStateDeque.size();
     }
 
+    public List<List<String>> getTxnStateInfoList(boolean running, int limit) {
+        List<List<String>> infos = Lists.newArrayList();
+        Collection<TransactionState> transactionStateCollection = null;
+        readLock();
+        try {
+            if (running) {
+                transactionStateCollection = idToTransactionState.values();
+            } else {
+                transactionStateCollection = finalStatusTransactionStateDeque;
+            }
+            // get transaction order by txn id desc limit 'limit'
+            transactionStateCollection.stream()
+                    .filter(t -> running != t.getTransactionStatus().isFinalStatus())
+                    .sorted(TransactionState.TXN_ID_COMPARATOR)
+                    .limit(limit)
+                    .forEach(t -> {
+                        List<String> info = Lists.newArrayList();
+                        getTxnStateInfo(t, info);
+                        infos.add(info);
+                    });
+        } finally {
+            readUnlock();
+        }
+        return infos;
+    }
+
+    protected void getTxnStateInfo(TransactionState txnState, List<String> info) {
+        info.add(String.valueOf(txnState.getTransactionId()));
+        info.add(txnState.getLabel());
+        info.add(txnState.getCoordinator().toString());
+        info.add(txnState.getTransactionStatus().name());
+        info.add(txnState.getSourceType().name());
+        info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
+        info.add(TimeUtils.longToTimeString(txnState.getCommitTime()));
+        info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
+        info.add(txnState.getReason());
+        info.add(String.valueOf(txnState.getErrorReplicas().size()));
+        info.add(String.valueOf(txnState.getCallbackId()));
+        info.add(String.valueOf(txnState.getTimeoutMs()));
+    }
+
     public void deleteTransactionState(TransactionState transactionState) {
         writeLock();
         try {
@@ -116,6 +181,10 @@ public class DatabaseTransactionMgr {
 
     public Map<Long, TransactionState> getIdToTransactionState() {
         return idToTransactionState;
+    }
+
+    public ArrayDeque<TransactionState> getFinalStatusTransactionStateDeque() {
+        return finalStatusTransactionStateDeque;
     }
 
     void  unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
@@ -142,7 +211,7 @@ public class DatabaseTransactionMgr {
             transactionState.putIdToTableCommitInfo(tableId, tableCommitInfo);
         }
         // persist transactionState
-        unprotectUpsertTransactionState(transactionState);
+        unprotectUpsertTransactionState(transactionState, false);
 
         // add publish version tasks. set task to null as a placeholder.
         // tasks will be created when publishing version.
@@ -152,15 +221,19 @@ public class DatabaseTransactionMgr {
     }
 
     // for add/update/delete TransactionState
-    void unprotectUpsertTransactionState(TransactionState transactionState) {
-        if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE
-                || transactionState.getSourceType() == TransactionState.LoadJobSourceType.FRONTEND) {
-            // if this is a prepare txn, and load source type is not FRONTEND
-            // no need to persist it. if prepare txn lost, the following commit will just be failed.
-            // user only need to retry this txn.
-            // The FRONTEND type txn is committed and running asynchronously, so we have to persist it.
-            editLog.logInsertTransactionState(transactionState);
+    void unprotectUpsertTransactionState(TransactionState transactionState, boolean isReplay) {
+        // if this is a replay operation, we should not log it
+        if (!isReplay) {
+            if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE
+                    || transactionState.getSourceType() == TransactionState.LoadJobSourceType.FRONTEND) {
+                // if this is a prepare txn, and load source type is not FRONTEND
+                // no need to persist it. if prepare txn lost, the following commit will just be failed.
+                // user only need to retry this txn.
+                // The FRONTEND type txn is committed and running asynchronously, so we have to persist it.
+                editLog.logInsertTransactionState(transactionState);
+            }
         }
+
         if (transactionState.getTransactionStatus().isFinalStatus()) {
             idToTransactionState.remove(transactionState.getTransactionId());
             finalStatusTransactionStateDeque.add(transactionState);
@@ -254,7 +327,7 @@ public class DatabaseTransactionMgr {
         transactionState.setFinishTime(System.currentTimeMillis());
         transactionState.setReason(reason);
         transactionState.setTransactionStatus(TransactionStatus.ABORTED);
-        unprotectUpsertTransactionState(transactionState);
+        unprotectUpsertTransactionState(transactionState, false);
         for (PublishVersionTask task : transactionState.getPublishVersionTasks().values()) {
             AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUBLISH_VERSION, task.getSignature());
         }
@@ -288,6 +361,63 @@ public class DatabaseTransactionMgr {
         }
     }
 
+
+    List<List<Comparable>> getTableTransInfo(long txnId) {
+        List<List<Comparable>> tableInfos = new ArrayList<>();
+        readLock();
+        try {
+            TransactionState transactionState = idToTransactionState.get(txnId);
+            if (transactionState == null) {
+                for (TransactionState txn : finalStatusTransactionStateDeque) {
+                    if (txnId == txn.getTransactionId()) {
+                        transactionState = txn;
+                    }
+                }
+            }
+            if (null == transactionState) {
+                throw new AnalysisException("Transaction[" + txnId + "] does not exist.");
+            }
+
+            for (Map.Entry<Long, TableCommitInfo> entry : transactionState.getIdToTableCommitInfos().entrySet()) {
+                List<Comparable> tableInfo = new ArrayList<>();
+                tableInfo.add(entry.getKey());
+                tableInfo.add(Joiner.on(", ").join(entry.getValue().getIdToPartitionCommitInfo().values().stream().map(
+                        PartitionCommitInfo::getPartitionId).collect(Collectors.toList())));
+                tableInfos.add(tableInfo);
+            }
+        } finally {
+            readUnlock();
+        }
+        return tableInfos;
+    }
+
+    public List<List<Comparable>> getPartitionTransInfo(long txnId, long tableId) {
+        List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
+        readLock();
+        try {
+            TransactionState transactionState = idToTransactionState.get(txnId);
+            if (transactionState == null) {
+                for (TransactionState txn : finalStatusTransactionStateDeque) {
+                    if (txnId == txn.getTransactionId()) {
+                        transactionState = txn;
+                    }
+                }
+            }
+            TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(tableId);
+            Map<Long, PartitionCommitInfo> idToPartitionCommitInfo = tableCommitInfo.getIdToPartitionCommitInfo();
+            for (Map.Entry<Long, PartitionCommitInfo> entry : idToPartitionCommitInfo.entrySet()) {
+                List<Comparable> partitionInfo = new ArrayList<Comparable>();
+                partitionInfo.add(entry.getKey());
+                partitionInfo.add(entry.getValue().getVersion());
+                partitionInfo.add(entry.getValue().getVersionHash());
+                partitionInfos.add(partitionInfo);
+            }
+        } finally {
+            readUnlock();
+        }
+        return partitionInfos;
+    }
+
     public void removeExpiredTxns() {
         long currentMillis = System.currentTimeMillis();
         writeLock();
@@ -311,6 +441,65 @@ public class DatabaseTransactionMgr {
         } finally {
             writeUnlock();
         }
+    }
+
+    public int getTransactionNum() {
+        return idToTransactionState.size() + finalStatusTransactionStateDeque.size();
+    }
+
+
+    public TransactionState getTransactionStateByCallbackIdAndStatus(long callbackId, Set<TransactionStatus> status) {
+        readLock();
+        try {
+            for (TransactionState txn : idToTransactionState.values()) {
+                if (txn.getCallbackId() == callbackId && status.contains(txn.getTransactionStatus())) {
+                    return txn;
+                }
+            }
+            for (TransactionState txn : finalStatusTransactionStateDeque) {
+                if (txn.getCallbackId() == callbackId && status.contains(txn.getTransactionStatus())) {
+                    return txn;
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return null;
+    }
+
+    public TransactionState getTransactionStateByCallbackId(long callbackId) {
+        readLock();
+        try {
+            for (TransactionState txn : idToTransactionState.values()) {
+                if (txn.getCallbackId() == callbackId) {
+                    return txn;
+                }
+            }
+            for (TransactionState txn : finalStatusTransactionStateDeque) {
+                if (txn.getCallbackId() == callbackId) {
+                    return txn;
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return null;
+    }
+
+    public List<Pair<Long, Long>> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
+        ArrayList<Pair<Long, Long>> txnInfos = new ArrayList<>();
+        readLock();
+        try {
+            idToTransactionState.values().stream()
+                    .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
+                            && t.getCoordinator().ip.equals(coordinateHost)
+                            && (!t.getTransactionStatus().isFinalStatus())))
+                    .limit(limit)
+                    .forEach(t -> txnInfos.add(new ImmutablePair<>(t.getDbId(), t.getTransactionId())));
+        } finally {
+            readUnlock();
+        }
+        return txnInfos;
     }
 
 }

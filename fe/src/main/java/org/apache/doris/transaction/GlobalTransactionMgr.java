@@ -41,25 +41,18 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.ClearTransactionTask;
-import org.apache.doris.task.PublishVersionTask;
-import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -71,14 +64,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -110,7 +98,9 @@ public class GlobalTransactionMgr implements Writable {
 
     public DatabaseTransactionMgr getDatabaseTransactioMgr(long dbId) {
         DatabaseTransactionMgr dbTransactionMgr = dbIdToDatabaseTransactionMgrs.get(dbId);
-        Preconditions.checkNotNull(dbTransactionMgr);
+        if (dbTransactionMgr == null) {
+            throw new NullPointerException("databaseTransactionMgr[" + dbId + "] does not exist");
+        }
         return dbTransactionMgr;
     }
 
@@ -194,7 +184,7 @@ public class GlobalTransactionMgr implements Writable {
             TransactionState transactionState = new TransactionState(dbId, tableIdList, tid, label, requestId, sourceType,
                     coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
-            dbTransactionMgr.unprotectUpsertTransactionState(transactionState);
+            dbTransactionMgr.unprotectUpsertTransactionState(transactionState, false);
 
             if (MetricRepo.isInit.get()) {
                 MetricRepo.COUNTER_TXN_BEGIN.increase(1L);
@@ -284,7 +274,6 @@ public class GlobalTransactionMgr implements Writable {
             throw new MetaNotFoundException("could not find db [" + dbId + "]");
         }
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
-
         TransactionState transactionState =  dbTransactionMgr.getTransactionState(transactionId);
         if (transactionState == null
                 || transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
@@ -588,7 +577,7 @@ public class GlobalTransactionMgr implements Writable {
                 transactionState.setTransactionStatus(TransactionStatus.ABORTED);
                 transactionState.setReason("db is dropped");
                 LOG.warn("db is dropped during transaction, abort transaction {}", transactionState);
-                dbTransactionMgr.unprotectUpsertTransactionState(transactionState);
+                dbTransactionMgr.unprotectUpsertTransactionState(transactionState, false);
                 return;
             } finally {
                 dbTransactionMgr.writeUnlock();
@@ -711,13 +700,8 @@ public class GlobalTransactionMgr implements Writable {
                 transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
-                dbTransactionMgr.unprotectUpsertTransactionState(transactionState);
+                dbTransactionMgr.unprotectUpsertTransactionState(transactionState, false);
                 txnOperated = true;
-                // TODO(cmy): We found a very strange problem. When delete-related transactions are processed here,
-                // subsequent `updateCatalogAfterVisible()` is called, but it does not seem to be executed here
-                // (because the relevant editlog does not see the log of visible transactions).
-                // So I add a log here for observation.
-                LOG.debug("after set transaction {} to visible", transactionState);
             } finally {
                 dbTransactionMgr.writeUnlock();
                 transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
@@ -834,15 +818,14 @@ public class GlobalTransactionMgr implements Writable {
                 LOG.info("replay a visible transaction {}", transactionState);
                 updateCatalogAfterVisible(transactionState, db);
             }
-            dbTransactionMgr.unprotectUpsertTransactionState(transactionState);
+            dbTransactionMgr.unprotectUpsertTransactionState(transactionState, true);
         } finally {
             dbTransactionMgr.writeUnlock();
         }
     }
     
     public void replayDeleteTransactionState(TransactionState transactionState) {
-        DatabaseTransactionMgr dbTransactionMgr = dbIdToDatabaseTransactionMgrs.get(transactionState.getDbId());
-        Preconditions.checkNotNull(dbTransactionMgr);
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(transactionState.getDbId());
         dbTransactionMgr.deleteTransactionState(transactionState);
     }
     
@@ -988,34 +971,8 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public List<List<String>> getDbTransInfo(long dbId, boolean running, int limit) throws AnalysisException {
-        List<List<String>> infos = new ArrayList<>();
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
-        dbTransactionMgr.readLock();
-        try {
-            Database db = Catalog.getInstance().getDb(dbId);
-            if (db == null) {
-                throw new AnalysisException("Database[" + dbId + "] does not exist");
-            }
-
-            // get transaction order by txn id desc limit 'limit'
-            dbTransactionMgr.getIdToTransactionState().values().stream()
-                    .filter(t -> running != t.getTransactionStatus().isFinalStatus())
-                    .sorted(TransactionState.TXN_ID_COMPARATOR)
-                    .limit(limit)
-                    .forEach(t -> {
-                        List<String> info = Lists.newArrayList();
-                        getTxnStateInfo(t, info);
-                        infos.add(info);
-                    });
-
-            if (infos.size() < limit && !running) {
-
-            }
-
-        } finally {
-            dbTransactionMgr.readUnlock();
-        }
-        return infos;
+        return dbTransactionMgr.getTxnStateInfoList(running, limit);
     }
     
     // get show info of a specified txnId
@@ -1053,77 +1010,31 @@ public class GlobalTransactionMgr implements Writable {
             }
             
             List<String> info = Lists.newArrayList();
-            getTxnStateInfo(txnState, info);
+            dbTransactionMgr.getTxnStateInfo(txnState, info);
             infos.add(info);
         } finally {
             dbTransactionMgr.readUnlock();
         }
         return infos;
     }
-    
-    private void getTxnStateInfo(TransactionState txnState, List<String> info) {
-        info.add(String.valueOf(txnState.getTransactionId()));
-        info.add(txnState.getLabel());
-        info.add(txnState.getCoordinator().toString());
-        info.add(txnState.getTransactionStatus().name());
-        info.add(txnState.getSourceType().name());
-        info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getCommitTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
-        info.add(txnState.getReason());
-        info.add(String.valueOf(txnState.getErrorReplicas().size()));
-        info.add(String.valueOf(txnState.getCallbackId()));
-        info.add(String.valueOf(txnState.getTimeoutMs()));
-    }
 
-    public List<List<Comparable>> getTableTransInfo(long txnId) throws AnalysisException {
-        List<List<Comparable>> tableInfos = new ArrayList<>();
-        readLock();
-        try {
-            TransactionState transactionState = idToTransactionState.get(txnId);
-            if (null == transactionState) {
-                throw new AnalysisException("Transaction[" + txnId + "] does not exist.");
-            }
-
-            for (Map.Entry<Long, TableCommitInfo> entry : transactionState.getIdToTableCommitInfos().entrySet()) {
-                List<Comparable> tableInfo = new ArrayList<>();
-                tableInfo.add(entry.getKey());
-                tableInfo.add(Joiner.on(", ").join(entry.getValue().getIdToPartitionCommitInfo().values().stream().map(
-                        PartitionCommitInfo::getPartitionId).collect(Collectors.toList())));
-                tableInfos.add(tableInfo);
-            }
-        } finally {
-            readUnlock();
-        }
-        return tableInfos;
+    public List<List<Comparable>> getTableTransInfo(long dbId, long txnId) throws AnalysisException {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
+        return dbTransactionMgr.getTableTransInfo(txnId);
     }
     
-    public List<List<Comparable>> getPartitionTransInfo(long tid, long tableId)
+    public List<List<Comparable>> getPartitionTransInfo(long dbId, long tid, long tableId)
             throws AnalysisException {
-        List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
-        readLock();
-        try {
-            TransactionState transactionState = idToTransactionState.get(tid);
-            if (null == transactionState) {
-                throw new AnalysisException("Transaction[" + tid + "] does not exist.");
-            }
-            TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(tableId);
-            Map<Long, PartitionCommitInfo> idToPartitionCommitInfo = tableCommitInfo.getIdToPartitionCommitInfo();
-            for (Map.Entry<Long, PartitionCommitInfo> entry : idToPartitionCommitInfo.entrySet()) {
-                List<Comparable> partitionInfo = new ArrayList<Comparable>();
-                partitionInfo.add(entry.getKey());
-                partitionInfo.add(entry.getValue().getVersion());
-                partitionInfo.add(entry.getValue().getVersionHash());
-                partitionInfos.add(partitionInfo);
-            }
-        } finally {
-            readUnlock();
-        }
-        return partitionInfos;
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
+        return dbTransactionMgr.getPartitionTransInfo(tid, tableId);
     }
     
     public int getTransactionNum() {
-        return this.idToTransactionState.size();
+        int txnNum = 0;
+        for (DatabaseTransactionMgr dbTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
+            txnNum = txnNum + dbTransactionMgr.getTransactionNum();
+        }
+        return txnNum;
     }
     
     public TransactionIdGenerator getTransactionIDGenerator() {
@@ -1132,11 +1043,20 @@ public class GlobalTransactionMgr implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        int numTransactions = idToTransactionState.size();
+        int numTransactions = getTransactionNum();
         out.writeInt(numTransactions);
-        for (Map.Entry<Long, TransactionState> entry : idToTransactionState.entrySet()) {
-            entry.getValue().write(out);
+        for (DatabaseTransactionMgr dbTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
+            Map<Long, TransactionState> idToTransactionState = dbTransactionMgr.getIdToTransactionState();
+            for (Map.Entry<Long, TransactionState> entry : idToTransactionState.entrySet()) {
+                entry.getValue().write(out);
+            }
+
+            ArrayDeque<TransactionState>transactionStateDeque = dbTransactionMgr.getFinalStatusTransactionStateDeque();
+            for (TransactionState transactionState : transactionStateDeque) {
+                transactionState.write(out);
+            }
         }
+
         idGenerator.write(out);
     }
     
@@ -1146,57 +1066,30 @@ public class GlobalTransactionMgr implements Writable {
             TransactionState transactionState = new TransactionState();
             transactionState.readFields(in);
             DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(transactionState.getDbId());
-            TransactionState preTxnState = idToTransactionState.get(transactionState.getTransactionId());
-            idToTransactionState.put(transactionState.getTransactionId(), transactionState);
-            updateTxnLabels(transactionState);
-            updateDbRunningTxnNum(preTxnState == null ? null : preTxnState.getTransactionStatus(),
-                                  transactionState);
+            dbTransactionMgr.unprotectUpsertTransactionState(transactionState, true);
         }
         idGenerator.readFields(in);
     }
 
-    public TransactionState getTransactionStateByCallbackIdAndStatus(long callbackId, Set<TransactionStatus> status) {
-        readLock();
-        try {
-            for (TransactionState txn : idToTransactionState.values()) {
-                if (txn.getCallbackId() == callbackId && status.contains(txn.getTransactionStatus())) {
-                    return txn;
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-        return null;
+    public TransactionState getTransactionStateByCallbackIdAndStatus(long dbId, long callbackId, Set<TransactionStatus> status) {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
+        return dbTransactionMgr.getTransactionStateByCallbackIdAndStatus(callbackId, status);
     }
 
-    public TransactionState getTransactionStateByCallbackId(long callbackId) {
-        readLock();
-        try {
-            for (TransactionState txn : idToTransactionState.values()) {
-                if (txn.getCallbackId() == callbackId) {
-                    return txn;
-                }
-            }
-        } finally {
-            readUnlock();
-        }
-        return null;
+    public TransactionState getTransactionStateByCallbackId(long dbId, long callbackId) {
+        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
+        return dbTransactionMgr.getTransactionStateByCallbackId(callbackId);
     }
 
-    public List<Long> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
-        ArrayList<Long> txnIds = new ArrayList<>();
-        readLock();
-        try {
-            idToTransactionState.values().stream()
-                    .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
-                            && t.getCoordinator().ip.equals(coordinateHost)
-                            && (!t.getTransactionStatus().isFinalStatus())))
-                    .limit(limit)
-                    .forEach(t -> txnIds.add(t.getTransactionId()));
-        } finally {
-            readUnlock();
+    public List<Pair<Long, Long>> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {
+        ArrayList<Pair<Long, Long>> txnInfos = new ArrayList<>();
+        for (DatabaseTransactionMgr databaseTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
+            txnInfos.addAll(databaseTransactionMgr.getTransactionIdByCoordinateBe(coordinateHost, limit));
+            if (txnInfos.size() > limit) {
+                break;
+            }
         }
-        return txnIds;
+        return txnInfos.size() > limit ? new ArrayList<>(txnInfos.subList(0, limit)) : txnInfos;
     }
 
     /**
@@ -1204,10 +1097,11 @@ public class GlobalTransactionMgr implements Writable {
      * So when FE identify the Coordiante BE is down, FE should cancel it initiative
      */
     public void abortTxnWhenCoordinateBeDown(String coordinateHost, int limit) {
-        List<Long> transactionIdByCoordinateBe = getTransactionIdByCoordinateBe(coordinateHost, limit);
-        for (Long txnId : transactionIdByCoordinateBe) {
+        List<Pair<Long, Long>> transactionIdByCoordinateBe = getTransactionIdByCoordinateBe(coordinateHost, limit);
+        for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
             try {
-                abortTransaction(txnId, "coordinate BE is down");
+                DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(txnInfo.getKey());
+                dbTransactionMgr.abortTransaction(txnInfo.getValue(), "coordinate BE is down", null);
             } catch (UserException e) {
                 LOG.warn("Abort txn on coordinate BE {} failed, msg={}", coordinateHost, e.getMessage());
             }
