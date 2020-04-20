@@ -109,6 +109,14 @@ public class GlobalTransactionMgr implements Writable {
         return dbTransactionMgr;
     }
 
+    public void addDatabaseTransactionMgr(Long dbId) {
+        dbIdToDatabaseTransactionMgrs.put(dbId, new DatabaseTransactionMgr(editLog));
+    }
+
+    public void removeDatabaseTransactionMgr(Long dbId) {
+        dbIdToDatabaseTransactionMgrs.remove(dbId);
+    }
+
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TxnCoordinator coordinator, LoadJobSourceType sourceType,
             long timeoutSecond)
             throws AnalysisException, LabelAlreadyUsedException, BeginTransactionException, DuplicatedRequestException {
@@ -751,16 +759,21 @@ public class GlobalTransactionMgr implements Writable {
      */
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList) {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
-        for (Map.Entry<Long, TransactionState> entry : dbTransactionMgr.getIdToRunningTransactionState().entrySet()) {
-            if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
-                    tableIdList) || !entry.getValue().isRunning()) {
-                continue;
+        dbTransactionMgr.readLock();
+        try {
+            for (Map.Entry<Long, TransactionState> entry : dbTransactionMgr.getIdToRunningTransactionState().entrySet()) {
+                if (entry.getValue().getDbId() != dbId || !isIntersectionNotEmpty(entry.getValue().getTableIdList(),
+                        tableIdList) || !entry.getValue().isRunning()) {
+                    continue;
+                }
+                if (entry.getKey() <= endTransactionId) {
+                    LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
+                            entry.getKey(), dbId, endTransactionId);
+                    return false;
+                }
             }
-            if (entry.getKey() <= endTransactionId) {
-                LOG.debug("find a running txn with txn_id={} on db: {}, less than watermark txn_id {}",
-                        entry.getKey(), dbId, endTransactionId);
-                return false;
-            }
+        } finally {
+            dbTransactionMgr.readUnlock();
         }
         return true;
     }

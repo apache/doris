@@ -60,10 +60,10 @@ public class DatabaseTransactionMgr {
     private ReentrantReadWriteLock transactionLock = new ReentrantReadWriteLock(true);
 
     // transactionId -> running TransactionState
-    private Map<Long, TransactionState> idToRunningTransactionState = Maps.newConcurrentMap();
+    private Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
 
     // transactionId -> final status TransactionState
-    private Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newConcurrentMap();
+    private Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
 
 
     // to store transtactionStates with final status
@@ -435,7 +435,7 @@ public class DatabaseTransactionMgr {
                     Set<Long> txnIds = labelToTxnIds.get(transactionState.getLabel());
                     txnIds.remove(transactionState.getTransactionId());
                     if (txnIds.isEmpty()) {
-                        labelToTxnIds.remove(transactionState.getDbId(), transactionState.getLabel());
+                        labelToTxnIds.remove(transactionState.getLabel());
                     }
                     editLog.logDeleteTransactionState(transactionState);
                     LOG.info("transaction [" + transactionState.getTransactionId() + "] is expired, remove it from transaction manager");
