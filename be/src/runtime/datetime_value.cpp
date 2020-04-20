@@ -1531,11 +1531,6 @@ bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit uni
 }
 
 bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezone) const{
-    if (_year < 1970) {
-        *timestamp = 0;			    
-        return true;
-    }
-
     cctz::time_zone ctz;
     if (!find_cctz_time_zone(timezone, ctz)) {
         return false;
@@ -1548,11 +1543,6 @@ bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezo
 }
 
 bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
-    // timestamp should between 1970-01-01 00:00:00 ~ 9999-12-31 23:59:59
-    if (timestamp < 0 || timestamp > 253402271999L) {
-        return false;
-    }
-
     cctz::time_zone ctz;
     if (!find_cctz_time_zone(timezone, ctz)) {
         return false;

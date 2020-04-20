@@ -520,6 +520,7 @@ private:
         } else if (timezone == "CST"){
             // Supports offset and region timezone type, "CST" use here is compatibility purposes.
             ctz = cctz::fixed_time_zone(cctz::seconds(8 * 60 * 60));
+            return true;
         } else {
             return cctz::load_time_zone(timezone, &ctz);
         }

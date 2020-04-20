@@ -101,6 +101,15 @@ TEST_F(TimestampFunctionsTest, to_unix) {
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx).val);
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, dt_val).val);
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, StringVal("2019-08-06 01:38:57"), "%Y-%m-%d %H:%i:%S").val);
+
+    DateTimeValue dt_value;
+    dt_value.from_date_int64(99991230);
+    dt_value.to_datetime_val(&dt_val);
+    ASSERT_EQ(0, TimestampFunctions::to_unix(ctx, dt_val).val);
+
+    dt_value.from_date_int64(10000101);
+    dt_value.to_datetime_val(&dt_val);
+    ASSERT_EQ(0, TimestampFunctions::to_unix(ctx, dt_val).val);
 }
 
 TEST_F(TimestampFunctionsTest, curtime) {
