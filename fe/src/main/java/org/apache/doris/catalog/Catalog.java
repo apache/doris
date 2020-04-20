@@ -5132,6 +5132,7 @@ public class Catalog {
     }
 
     public void modifyTableDynamicPartition(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
+        Map<String, String> logProperties = new HashMap<>(properties);
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
             DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(table, properties);
@@ -5144,36 +5145,8 @@ public class Catalog {
         DynamicPartitionUtil.registerOrRemoveDynamicPartitionTable(db.getId(), table);
         dynamicPartitionScheduler.createOrUpdateRuntimeInfo(
                 table.getName(), DynamicPartitionScheduler.LAST_UPDATE_TIME, TimeUtils.getCurrentFormatTime());
-        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
+        ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), logProperties);
         editLog.logDynamicPartition(info);
-    }
-
-    public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info) {
-        long dbId = info.getDbId();
-        long tableId = info.getTableId();
-        Map<String, String> properties = info.getProperties();
-
-        Database db = getDb(dbId);
-        db.writeLock();
-        try {
-            OlapTable olapTable = (OlapTable) db.getTable(tableId);
-            TableProperty tableProperty = olapTable.getTableProperty();
-            if (tableProperty == null) {
-                olapTable.setTableProperty(new TableProperty(properties).buildProperty(opCode));
-            } else {
-                tableProperty.modifyTableProperties(properties);
-                tableProperty.buildProperty(opCode);
-            }
-
-            // need to replay partition info meta
-            if (opCode == OperationType.OP_MODIFY_IN_MEMORY) {
-                for(Partition partition: olapTable.getPartitions()) {
-                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
-                }
-            }
-        } finally {
-            db.writeUnlock();
-        }
     }
 
     // The caller need to hold the db write lock
@@ -5208,6 +5181,34 @@ public class Catalog {
 
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
         editLog.logModifyInMemory(info);
+    }
+
+    public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        Map<String, String> properties = info.getProperties();
+
+        Database db = getDb(dbId);
+        db.writeLock();
+        try {
+            OlapTable olapTable = (OlapTable) db.getTable(tableId);
+            TableProperty tableProperty = olapTable.getTableProperty();
+            if (tableProperty == null) {
+                olapTable.setTableProperty(new TableProperty(properties).buildProperty(opCode));
+            } else {
+                tableProperty.modifyTableProperties(properties);
+                tableProperty.buildProperty(opCode);
+            }
+
+            // need to replay partition info meta
+            if (opCode == OperationType.OP_MODIFY_IN_MEMORY) {
+                for(Partition partition: olapTable.getPartitions()) {
+                    olapTable.getPartitionInfo().setIsInMemory(partition.getId(), tableProperty.IsInMemory());
+                }
+            }
+        } finally {
+            db.writeUnlock();
+        }
     }
 
     /*
