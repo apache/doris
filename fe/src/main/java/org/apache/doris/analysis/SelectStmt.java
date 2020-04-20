@@ -1362,9 +1362,24 @@ public class SelectStmt extends QueryStmt {
             if (!item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                 continue;
             }
+            CaseExpr caseExpr = (CaseExpr) item.getExpr();
+
+            int childIdx = 0;
+            if (caseExpr.hasCaseExpr()
+                    && caseExpr.getChild(childIdx++).contains(Predicates.instanceOf(Subquery.class))) {
+                throw new AnalysisException("Only support subquery in binary predicate in case statement.");
+            }
+            while (childIdx + 2 <= caseExpr.getChildren().size()) {
+                Expr child = caseExpr.getChild(childIdx++);
+                // case
+                if (!(child instanceof BinaryPredicate) && child.contains(Predicates.instanceOf(Subquery.class))) {
+                    throw new AnalysisException("Only support subquery in binary predicate in case statement.");
+                }
+                // when
+                childIdx++;
+            }
             item.setExpr(rewriteSubquery(item.getExpr(), analyzer));
         }
-
         selectList.rewriteExprs(rewriter, analyzer);
     }
 

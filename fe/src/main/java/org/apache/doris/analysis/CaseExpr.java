@@ -101,6 +101,9 @@ public class CaseExpr extends Expr {
         CaseExpr expr = (CaseExpr) obj;
         return hasCaseExpr == expr.hasCaseExpr && hasElseExpr == expr.hasElseExpr;
     }
+    public boolean hasCaseExpr() {
+        return hasCaseExpr;
+    }
 
     @Override
     public String toSqlImpl() {
