@@ -5161,7 +5161,7 @@ public class Catalog {
     }
 
     /**
-     * Set replication number for a table that only have one partition.
+     * Set replication number for unpartitioned table.
      * @param db
      * @param table
      * @param properties
