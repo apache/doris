@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
@@ -160,14 +159,20 @@ public class MaterializedViewSelector {
     }
 
     private long priorities(OlapScanNode scanNode, Map<Long, List<Column>> candidateIndexIdToSchema) {
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().isUseV2Rollup()) {
-            // if user set `use_v2_rollup` variable to true, and there is a segment v2 rollup,
-            // just return the segment v2 rollup, because user want to check the v2 format data.
-            OlapTable tbl = scanNode.getOlapTable();
-            Long v2RollupIndexId = tbl.getSegmentV2FormatIndexId();
-            if (v2RollupIndexId != null && candidateIndexIdToSchema.containsKey(v2RollupIndexId)) {
-                return v2RollupIndexId;
+        OlapTable tbl = scanNode.getOlapTable();
+        Long v2RollupIndexId = tbl.getSegmentV2FormatIndexId();
+        if (v2RollupIndexId != null) {
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null && connectContext.getSessionVariable().isUseV2Rollup()) {
+                // if user set `use_v2_rollup` variable to true, and there is a segment v2 rollup,
+                // just return the segment v2 rollup, because user want to check the v2 format data.
+                if (candidateIndexIdToSchema.containsKey(v2RollupIndexId)) {
+                    return v2RollupIndexId;
+                }
+            } else {
+                // `use_v2_rollup` is not set, so v2 format rollup should not be selected, remove it from
+                // candidateIndexIdToSchema
+                candidateIndexIdToSchema.remove(v2RollupIndexId);
             }
         }
 
@@ -242,16 +247,6 @@ public class MaterializedViewSelector {
                     selectedIndexId = indexId;
                 }
             }
-        }
-        String tableName = olapTable.getName();
-        String v2RollupIndexName = MaterializedViewHandler.NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + tableName;
-        Long v2RollupIndexId = olapTable.getIndexIdByName(v2RollupIndexName);
-        long baseIndexId = olapTable.getBaseIndexId();
-        if (v2RollupIndexId != null && v2RollupIndexId == selectedIndexId) {
-            // if the selectedIndexId is v2RollupIndex
-            // but useV2Rollup is false, use baseIndexId as selectedIndexId
-            // just make sure to use baseIndex instead of v2RollupIndex if the useV2Rollup is false
-            selectedIndexId = baseIndexId;
         }
         return selectedIndexId;
     }
