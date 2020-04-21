@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.backup.Status;
 import org.apache.doris.backup.Status.ErrCode;
@@ -308,6 +309,11 @@ public class OlapTable extends Table {
 
     public Long getIndexIdByName(String indexName) {
         return indexNameToId.get(indexName);
+    }
+
+    public Long getSegmentV2FormatIndexId() {
+        String v2RollupIndexName = MaterializedViewHandler.NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + getName();
+        return indexNameToId.get(v2RollupIndexName);
     }
 
     public String getIndexNameById(long indexId) {

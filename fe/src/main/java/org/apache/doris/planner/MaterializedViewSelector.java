@@ -110,18 +110,6 @@ public class MaterializedViewSelector {
         Preconditions.checkState(scanNode instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
 
-        ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().isUseV2Rollup()) {
-            // if user set `use_v2_rollup` variable to true, and there is a segment v2 rollup,
-            // just return the segment v2 rollup, because user want to check the v2 format data.
-            OlapTable tbl = olapScanNode.getOlapTable();
-            String v2RollupIndexName = MaterializedViewHandler.NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + tbl.getName();
-            Long v2RollupIndexId = tbl.getIndexIdByName(v2RollupIndexName);
-            if (v2RollupIndexId != null) {
-                return new BestIndexInfo(v2RollupIndexId, false, "use_v2_rollup is true");
-            }
-        }
-
         Map<Long, List<Column>> candidateIndexIdToSchema = predicates(olapScanNode);
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
         LOG.debug("The best materialized view is {} for scan node {} in query {}, cost {}",
@@ -172,6 +160,17 @@ public class MaterializedViewSelector {
     }
 
     private long priorities(OlapScanNode scanNode, Map<Long, List<Column>> candidateIndexIdToSchema) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().isUseV2Rollup()) {
+            // if user set `use_v2_rollup` variable to true, and there is a segment v2 rollup,
+            // just return the segment v2 rollup, because user want to check the v2 format data.
+            OlapTable tbl = scanNode.getOlapTable();
+            Long v2RollupIndexId = tbl.getSegmentV2FormatIndexId();
+            if (v2RollupIndexId != null && candidateIndexIdToSchema.containsKey(v2RollupIndexId)) {
+                return v2RollupIndexId;
+            }
+        }
+
         // Step1: the candidate indexes that satisfies the most prefix index
         final Set<String> equivalenceColumns = Sets.newHashSet();
         final Set<String> unequivalenceColumns = Sets.newHashSet();
