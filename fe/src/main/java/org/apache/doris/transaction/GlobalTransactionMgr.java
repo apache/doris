@@ -81,8 +81,6 @@ public class GlobalTransactionMgr implements Writable {
 
     private Map<Long, DatabaseTransactionMgr> dbIdToDatabaseTransactionMgrs = Maps.newConcurrentMap();
 
-    private EditLog editLog;
-
     private TransactionIdGenerator idGenerator = new TransactionIdGenerator();
     private TxnStateCallbackFactory callbackFactory = new TxnStateCallbackFactory();
     
@@ -104,7 +102,7 @@ public class GlobalTransactionMgr implements Writable {
         return dbTransactionMgr;
     }
 
-    public void addDatabaseTransactionMgr(Long dbId) {
+    public void addDatabaseTransactionMgr(Long dbId, EditLog editLog) {
         dbIdToDatabaseTransactionMgrs.put(dbId, new DatabaseTransactionMgr(editLog));
     }
 
@@ -843,7 +841,6 @@ public class GlobalTransactionMgr implements Writable {
     }
     
     public void setEditLog(EditLog editLog) {
-        this.editLog = editLog;
         this.idGenerator.setEditLog(editLog);
     }
 
@@ -872,7 +869,7 @@ public class GlobalTransactionMgr implements Writable {
     
     public void replayDeleteTransactionState(TransactionState transactionState) {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(transactionState.getDbId());
-        dbTransactionMgr.deleteTransactionState(transactionState);
+        dbTransactionMgr.deleteTransaction(transactionState);
     }
     
     private void updateCatalogAfterCommitted(TransactionState transactionState, Database db) {

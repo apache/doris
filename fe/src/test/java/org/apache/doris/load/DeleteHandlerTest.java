@@ -94,7 +94,7 @@ public class DeleteHandlerTest {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         try {
             db = CatalogMocker.mockDb();
-            globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
+            globalTransactionMgr.addDatabaseTransactionMgr(db.getId(), editLog);
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();

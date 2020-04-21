@@ -94,15 +94,11 @@ public class GlobalTransactionMgrTest {
         metaContext.setMetaVersion(FeMetaVersion.VERSION_40);
         metaContext.setThreadLocalInfo();
 
-        // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
-        // slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         masterTransMgr = masterCatalog.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterCatalog.getEditLog());
-        masterTransMgr.addDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
 
         slaveTransMgr = slaveCatalog.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveCatalog.getEditLog());
-        slaveTransMgr.addDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
     }
 
     @Test

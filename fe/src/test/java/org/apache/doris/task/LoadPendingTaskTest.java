@@ -88,7 +88,7 @@ public class LoadPendingTaskTest {
 
         GlobalTransactionMgr globalTransactionMgr = new GlobalTransactionMgr(catalog);
         globalTransactionMgr.setEditLog(editLog);
-        globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
+        globalTransactionMgr.addDatabaseTransactionMgr(db.getId(), editLog);
 
         // mock catalog
         new Expectations(catalog) {

@@ -150,7 +150,6 @@ public class DatabaseTransactionMgr {
             }
             // get transaction order by txn id desc limit 'limit'
             transactionStateCollection.stream()
-                    .filter(t -> running != t.getTransactionStatus().isFinalStatus())
                     .sorted(TransactionState.TXN_ID_COMPARATOR)
                     .limit(limit)
                     .forEach(t -> {
@@ -179,7 +178,7 @@ public class DatabaseTransactionMgr {
         info.add(String.valueOf(txnState.getTimeoutMs()));
     }
 
-    public void deleteTransactionState(TransactionState transactionState) {
+    public void deleteTransaction(TransactionState transactionState) {
         writeLock();
         try {
             // here we only delete the oldest element, so if element exist in finalStatusTransactionStateDeque,
@@ -191,7 +190,7 @@ public class DatabaseTransactionMgr {
                 Set<Long> txnIds = labelToTxnIds.get(transactionState.getLabel());
                 txnIds.remove(transactionState.getTransactionId());
                 if (txnIds.isEmpty()) {
-                    labelToTxnIds.remove(transactionState.getDbId(), transactionState.getLabel());
+                    labelToTxnIds.remove(transactionState.getLabel());
                 }
             }
         } finally {
@@ -207,7 +206,7 @@ public class DatabaseTransactionMgr {
         return finalStatusTransactionStateDeque;
     }
 
-    void  unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
+    protected void  unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
                                                Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
                                                Database db) {
         // transaction state is modified during check if the transaction could committed
@@ -241,7 +240,7 @@ public class DatabaseTransactionMgr {
     }
 
     // for add/update/delete TransactionState
-    void unprotectUpsertTransactionState(TransactionState transactionState, boolean isReplay) {
+    protected void unprotectUpsertTransactionState(TransactionState transactionState, boolean isReplay) {
         // if this is a replay operation, we should not log it
         if (!isReplay) {
             if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE
@@ -383,7 +382,7 @@ public class DatabaseTransactionMgr {
     }
 
 
-    List<List<Comparable>> getTableTransInfo(long txnId) throws AnalysisException {
+    protected List<List<Comparable>> getTableTransInfo(long txnId) throws AnalysisException {
         List<List<Comparable>> tableInfos = new ArrayList<>();
         readLock();
         try {
@@ -405,7 +404,7 @@ public class DatabaseTransactionMgr {
         return tableInfos;
     }
 
-    public List<List<Comparable>> getPartitionTransInfo(long txnId, long tableId) throws AnalysisException {
+    protected List<List<Comparable>> getPartitionTransInfo(long txnId, long tableId) throws AnalysisException {
         List<List<Comparable>> partitionInfos = new ArrayList<List<Comparable>>();
         readLock();
         try {
@@ -503,8 +502,7 @@ public class DatabaseTransactionMgr {
         try {
             idToRunningTransactionState.values().stream()
                     .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
-                            && t.getCoordinator().ip.equals(coordinateHost)
-                            && (!t.getTransactionStatus().isFinalStatus())))
+                            && t.getCoordinator().ip.equals(coordinateHost)))
                     .limit(limit)
                     .forEach(t -> txnInfos.add(new ImmutablePair<>(t.getDbId(), t.getTransactionId())));
         } finally {
