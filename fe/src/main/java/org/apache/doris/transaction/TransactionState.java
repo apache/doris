@@ -17,8 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import com.google.common.collect.Lists;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
@@ -32,9 +30,11 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -212,7 +212,7 @@ public class TransactionState implements Writable {
         this.transactionId = -1;
         this.label = "";
         this.idToTableCommitInfos = Maps.newHashMap();
-        this.txnCoordinator = new TxnCoordinator();
+        this.txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1"); // mocked, to avoid NPE
         this.transactionStatus = TransactionStatus.PREPARE;
         this.sourceType = LoadJobSourceType.FRONTEND;
         this.prepareTime = -1;
@@ -602,8 +602,22 @@ public class TransactionState implements Writable {
            String ip = Text.readString(in);
            txnCoordinator = new TxnCoordinator(sourceType, ip);
         } else {
-            // to compatible old version
-            Text.readString(in);
+            // to compatible old version, the old txn coordinator looks like: "BE: 192.186.1.1"
+            String coordStr = Text.readString(in);
+            String[] parts = coordStr.split(":");
+            if (parts.length != 2) {
+                // should not happen, just create a mocked TxnCoordinator
+                txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
+            } else {
+                if (parts[0].trim().equalsIgnoreCase("FE")) {
+                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, parts[1].trim());
+                } else if (parts[0].trim().equalsIgnoreCase("BE")) {
+                    txnCoordinator = new TxnCoordinator(TxnSourceType.BE, parts[1].trim());
+                } else {
+                    // unknown format, should not happen, just create a mocked TxnCoordinator
+                    txnCoordinator = new TxnCoordinator(TxnSourceType.FE, "127.0.0.1");
+                }
+            }
         }
         transactionStatus = TransactionStatus.valueOf(in.readInt());
         sourceType = LoadJobSourceType.valueOf(in.readInt());
