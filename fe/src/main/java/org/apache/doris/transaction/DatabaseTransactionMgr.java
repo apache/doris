@@ -28,10 +28,15 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -88,19 +93,19 @@ public class DatabaseTransactionMgr {
 
     private List<ClearTransactionTask> clearTransactionTasks = Lists.newArrayList();
 
-    void readLock() {
+    protected void readLock() {
         this.transactionLock.readLock().lock();
     }
 
-    void readUnlock() {
+    protected void readUnlock() {
         this.transactionLock.readLock().unlock();
     }
 
-    void writeLock() {
+    protected void writeLock() {
         this.transactionLock.writeLock().lock();
     }
 
-    void writeUnlock() {
+    protected void writeUnlock() {
         this.transactionLock.writeLock().unlock();
     }
 
@@ -159,7 +164,7 @@ public class DatabaseTransactionMgr {
         return infos;
     }
 
-    protected void getTxnStateInfo(TransactionState txnState, List<String> info) {
+    private void getTxnStateInfo(TransactionState txnState, List<String> info) {
         info.add(String.valueOf(txnState.getTransactionId()));
         info.add(txnState.getLabel());
         info.add(txnState.getCoordinator().toString());
@@ -506,6 +511,48 @@ public class DatabaseTransactionMgr {
             readUnlock();
         }
         return txnInfos;
+    }
+
+    // get show info of a specified txnId
+    public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
+        List<List<String>> infos = new ArrayList<List<String>>();
+        readLock();
+        try {
+            Database db = Catalog.getInstance().getDb(dbId);
+            if (db == null) {
+                throw new AnalysisException("Database[" + dbId + "] does not exist");
+            }
+
+            TransactionState txnState = getTransactionState(txnId);
+            if (txnState == null) {
+                throw new AnalysisException("transaction with id " + txnId + " does not exist");
+            }
+
+            if (ConnectContext.get() != null) {
+                // check auth
+                Set<Long> tblIds = txnState.getIdToTableCommitInfos().keySet();
+                for (Long tblId : tblIds) {
+                    Table tbl = db.getTable(tblId);
+                    if (tbl != null) {
+                        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
+                                tbl.getName(), PrivPredicate.SHOW)) {
+                            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
+                                    "SHOW TRANSACTION",
+                                    ConnectContext.get().getQualifiedUser(),
+                                    ConnectContext.get().getRemoteIP(),
+                                    tbl.getName());
+                        }
+                    }
+                }
+            }
+
+            List<String> info = Lists.newArrayList();
+            getTxnStateInfo(txnState, info);
+            infos.add(info);
+        } finally {
+            readUnlock();
+        }
+        return infos;
     }
 
 }

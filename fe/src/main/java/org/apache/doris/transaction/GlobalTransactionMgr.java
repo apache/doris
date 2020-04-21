@@ -26,14 +26,11 @@ import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Replica;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -43,9 +40,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
@@ -1030,43 +1025,7 @@ public class GlobalTransactionMgr implements Writable {
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
         List<List<String>> infos = new ArrayList<List<String>>();
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
-        dbTransactionMgr.readLock();
-        try {
-            Database db = Catalog.getInstance().getDb(dbId);
-            if (db == null) {
-                throw new AnalysisException("Database[" + dbId + "] does not exist");
-            }
-            
-            TransactionState txnState = dbTransactionMgr.getTransactionState(txnId);
-            if (txnState == null) {
-                throw new AnalysisException("transaction with id " + txnId + " does not exist");
-            }
-            
-            if (ConnectContext.get() != null) {
-                // check auth
-                Set<Long> tblIds = txnState.getIdToTableCommitInfos().keySet();
-                for (Long tblId : tblIds) {
-                    Table tbl = db.getTable(tblId);
-                    if (tbl != null) {
-                        if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
-                                tbl.getName(), PrivPredicate.SHOW)) {
-                            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
-                                    "SHOW TRANSACTION",
-                                    ConnectContext.get().getQualifiedUser(),
-                                    ConnectContext.get().getRemoteIP(),
-                                    tbl.getName());
-                        }
-                    }
-                }
-            }
-            
-            List<String> info = Lists.newArrayList();
-            dbTransactionMgr.getTxnStateInfo(txnState, info);
-            infos.add(info);
-        } finally {
-            dbTransactionMgr.readUnlock();
-        }
-        return infos;
+        return dbTransactionMgr.getSingleTranInfo(dbId, txnId);
     }
 
     public List<List<Comparable>> getTableTransInfo(long dbId, long txnId) throws AnalysisException {
