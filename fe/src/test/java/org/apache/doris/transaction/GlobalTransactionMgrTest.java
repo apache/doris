@@ -19,7 +19,6 @@ package org.apache.doris.transaction;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.apache.doris.catalog.Catalog;
@@ -466,7 +465,12 @@ public class GlobalTransactionMgrTest {
         // check partition next version
         Tablet tablet = testPartition.getIndex(CatalogTestUtil.testIndexId1).getTablet(CatalogTestUtil.testTabletId1);
         for (Replica replica : tablet.getReplicas()) {
-            assertEquals(CatalogTestUtil.testStartVersion + 1, replica.getVersion());
+            if (replica.getId() == CatalogTestUtil.testReplicaId1) {
+                assertEquals(CatalogTestUtil.testStartVersion, replica.getVersion());
+            } else {
+                assertEquals(CatalogTestUtil.testStartVersion + 1, replica.getVersion());
+            }
+
         }
         // slave replay new state and compare catalog
         slaveTransMgr.replayUpsertTransactionState(transactionState);
@@ -600,27 +604,5 @@ public class GlobalTransactionMgrTest {
         FakeCatalog.setCatalog(slaveCatalog);
         slaveTransMgr.replayUpsertTransactionState(transactionState);
         assertTrue(CatalogTestUtil.compareCatalog(masterCatalog, slaveCatalog));
-    }
-
-    @Test
-    public void testDeleteTransaction() throws LabelAlreadyUsedException,
-            AnalysisException, BeginTransactionException, DuplicatedRequestException {
-
-//        long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
-//                CatalogTestUtil.testTxnLable1,
-//                transactionSource,
-//                LoadJobSourceType.FRONTEND, Config.stream_load_default_timeout_second);
-//        TransactionState transactionState = masterTransMgr.getTransactionState(CatalogTestUtil.testDbId1, transactionId);
-//        assertNotNull(transactionState);
-//        assertEquals(transactionId, transactionState.getTransactionId());
-//        assertEquals(TransactionStatus.PREPARE, transactionState.getTransactionStatus());
-//        assertEquals(CatalogTestUtil.testDbId1, transactionState.getDbId());
-//        assertEquals(transactionSource.toString(), transactionState.getCoordinator().toString());
-//
-//        masterTransMgr.deleteTransaction(CatalogTestUtil.testDb1, transactionId);
-//        transactionState = fakeEditLog.getTransaction(transactionId);
-//        assertNull(transactionState);
-//        transactionState = masterTransMgr.getTransactionState(transactionId);
-//        assertNull(transactionState);
     }
 }
