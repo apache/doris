@@ -296,7 +296,11 @@ public class IntLiteral extends LiteralExpr {
         }
         if (targetType.isFixedPointType()) {
             if (!targetType.isScalarType(PrimitiveType.LARGEINT)) {
-                this.type = targetType;
+                if (!type.equals(targetType)) {
+                    IntLiteral intLiteral = new IntLiteral(this);
+                    intLiteral.setType(targetType);
+                    return intLiteral;
+                }
                 return this;
             } else {
                 //return new LargeIntLiteral(Long.toString(value));

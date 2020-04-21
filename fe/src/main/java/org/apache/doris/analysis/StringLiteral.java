@@ -207,8 +207,9 @@ public class StringLiteral extends LiteralExpr {
         } else if (targetType.equals(type)) {
             return this;
         } else if (targetType.isStringType()) {
-            type = targetType;
-            return this;
+            StringLiteral stringLiteral = new StringLiteral(this);
+            stringLiteral.setType(targetType);
+            return stringLiteral;
         }
         return super.uncheckedCastTo(targetType);
     }

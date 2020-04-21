@@ -120,7 +120,11 @@ public class NullLiteral extends LiteralExpr {
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         Preconditions.checkState(targetType.isValid());
-        type = targetType;
+        if (!type.equals(targetType)) {
+            NullLiteral nullLiteral = new NullLiteral(this);
+            nullLiteral.setType(targetType);
+            return nullLiteral;
+        }
         return this;
     }
 
