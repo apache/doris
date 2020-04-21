@@ -23,6 +23,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TStorageFormat;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -49,6 +50,16 @@ public class TableProperty implements Writable {
     private Short replicationNum = FeConstants.default_replication_num;
 
     private boolean isInMemory = false;
+
+    /*
+     * the default storage format of this table.
+     * DEFAULT: depends on BE's config 'default_rowset_type'
+     * V1: alpha rowset
+     * V2: beta rowset
+     * 
+     * This property should be set when creating the table, and can only be changed to V2 using Alter Table stmt.
+     */
+    private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
@@ -101,6 +112,12 @@ public class TableProperty implements Writable {
         return this;
     }
 
+    public TableProperty buildStorageFormat() {
+        storageFormat = TStorageFormat.valueOf(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT,
+                TStorageFormat.DEFAULT.name()));
+        return this;
+    }
+
     public void modifyTableProperties(Map<String, String> modifyProperties) {
         properties.putAll(modifyProperties);
     }
@@ -125,6 +142,10 @@ public class TableProperty implements Writable {
         return isInMemory;
     }
 
+    public TStorageFormat getStorageFormat() {
+        return storageFormat;
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
@@ -134,6 +155,7 @@ public class TableProperty implements Writable {
         return GsonUtils.GSON.fromJson(Text.readString(in), TableProperty.class)
                 .buildDynamicProperty()
                 .buildReplicationNum()
-                .buildInMemory();
+                .buildInMemory()
+                .buildStorageFormat();
     }
 }

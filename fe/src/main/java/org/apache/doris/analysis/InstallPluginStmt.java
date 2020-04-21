@@ -43,7 +43,8 @@ public class InstallPluginStmt extends DdlStmt {
         super.analyze(analyzer);
 
         if (!Config.plugin_enable) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "INSTALL PLUGIN");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_OPERATION_DISABLED, "INSTALL PLUGIN",
+                    "Please enable it by setting 'plugin_enable' = 'true'");
         }
 
         // check operation privilege

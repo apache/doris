@@ -17,7 +17,6 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.alter.MaterializedViewHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
@@ -109,9 +108,10 @@ public class MaterializedViewSelector {
         long start = System.currentTimeMillis();
         Preconditions.checkState(scanNode instanceof OlapScanNode);
         OlapScanNode olapScanNode = (OlapScanNode) scanNode;
+
         Map<Long, List<Column>> candidateIndexIdToSchema = predicates(olapScanNode);
         long bestIndexId = priorities(olapScanNode, candidateIndexIdToSchema);
-        LOG.info("The best materialized view is {} for scan node {} in query {}, cost {}",
+        LOG.debug("The best materialized view is {} for scan node {} in query {}, cost {}",
                  bestIndexId, scanNode.getId(), selectStmt.toSql(), (System.currentTimeMillis() - start));
         return new BestIndexInfo(bestIndexId, isPreAggregation, reasonOfDisable);
     }
@@ -159,6 +159,23 @@ public class MaterializedViewSelector {
     }
 
     private long priorities(OlapScanNode scanNode, Map<Long, List<Column>> candidateIndexIdToSchema) {
+        OlapTable tbl = scanNode.getOlapTable();
+        Long v2RollupIndexId = tbl.getSegmentV2FormatIndexId();
+        if (v2RollupIndexId != null) {
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null && connectContext.getSessionVariable().isUseV2Rollup()) {
+                // if user set `use_v2_rollup` variable to true, and there is a segment v2 rollup,
+                // just return the segment v2 rollup, because user want to check the v2 format data.
+                if (candidateIndexIdToSchema.containsKey(v2RollupIndexId)) {
+                    return v2RollupIndexId;
+                }
+            } else {
+                // `use_v2_rollup` is not set, so v2 format rollup should not be selected, remove it from
+                // candidateIndexIdToSchema
+                candidateIndexIdToSchema.remove(v2RollupIndexId);
+            }
+        }
+
         // Step1: the candidate indexes that satisfies the most prefix index
         final Set<String> equivalenceColumns = Sets.newHashSet();
         final Set<String> unequivalenceColumns = Sets.newHashSet();
@@ -230,27 +247,6 @@ public class MaterializedViewSelector {
                     selectedIndexId = indexId;
                 }
             }
-        }
-        String tableName = olapTable.getName();
-        String v2RollupIndexName = MaterializedViewHandler.NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + tableName;
-        Long v2RollupIndex = olapTable.getIndexIdByName(v2RollupIndexName);
-        long baseIndexId = olapTable.getBaseIndexId();
-        ConnectContext connectContext = ConnectContext.get();
-        boolean useV2Rollup = false;
-        if (connectContext != null) {
-            useV2Rollup = connectContext.getSessionVariable().getUseV2Rollup();
-        }
-        if (baseIndexId == selectedIndexId && v2RollupIndex != null && useV2Rollup) {
-            // if the selectedIndexId is baseIndexId
-            // check whether there is a V2 rollup index and useV2Rollup flag is true,
-            // if both true, use v2 rollup index
-            selectedIndexId = v2RollupIndex;
-        }
-        if (!useV2Rollup && v2RollupIndex != null && v2RollupIndex == selectedIndexId) {
-            // if the selectedIndexId is v2RollupIndex
-            // but useV2Rollup is false, use baseIndexId as selectedIndexId
-            // just make sure to use baseIndex instead of v2RollupIndex if the useV2Rollup is false
-            selectedIndexId = baseIndexId;
         }
         return selectedIndexId;
     }
@@ -393,8 +389,7 @@ public class MaterializedViewSelector {
     }
 
     private void compensateCandidateIndex(Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, Map<Long,
-            MaterializedIndexMeta> allVisibleIndexes,
-                                 OlapTable table) {
+            MaterializedIndexMeta> allVisibleIndexes, OlapTable table) {
         isPreAggregation = false;
         reasonOfDisable = "The aggregate operator does not match";
         int keySizeOfBaseIndex = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();

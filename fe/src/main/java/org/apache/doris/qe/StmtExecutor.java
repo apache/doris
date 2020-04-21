@@ -234,6 +234,7 @@ public class StmtExecutor {
             }
 
             if (parsedStmt instanceof QueryStmt) {
+                context.getState().setIsQuery(true);
                 int retryTime = Config.max_query_retry_time;
                 for (int i = 0; i < retryTime; i ++) {
                     try {

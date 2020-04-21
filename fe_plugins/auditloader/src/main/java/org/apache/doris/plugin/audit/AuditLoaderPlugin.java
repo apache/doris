@@ -190,8 +190,8 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public String frontendHostPort = "127.0.0.1:9030";
         public String user = "root";
         public String password = "";
-        public String database = "__doris_audit_db";
-        public String table = "__doris_audit_tbl";
+        public String database = "doris_audit_db__";
+        public String table = "doris_audit_tbl__";
 
         public void init(Map<String, String> properties) throws PluginException {
             try {

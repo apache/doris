@@ -50,8 +50,9 @@ $ python setup.py install
 
 # Output Example Format
 
-```
+The first number is about segment v2, the latter one is the total count.
 
+```
 ==========SUMMARY()===========
 rowset_count: 289845 / 289845
 rowset_disk_size: 84627551189 / 84627551189
@@ -67,5 +68,4 @@ rowset_count: 79650 / 79650
 rowset_disk_size: 24473921575 / 24473921575
 rowset_row_count: 331449328 / 331449328
 ===========================================================
-
 ```
