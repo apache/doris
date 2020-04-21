@@ -163,7 +163,7 @@ PROPERTIES (
     ```
 
     ```
-    curl --location-trusted -u root: -H "label:123" -H "temporary_partition: tp1, tp2, ..." -T testData http://host:port/api/testDb/testTbl/_stream_load    
+    curl --location-trusted -u root: -H "label:123" -H "temporary_partitions: tp1, tp2, ..." -T testData http://host:port/api/testDb/testTbl/_stream_load    
     ```
 
     ```
