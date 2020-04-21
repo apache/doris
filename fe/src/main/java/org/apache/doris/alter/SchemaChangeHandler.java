@@ -871,6 +871,7 @@ public class SchemaChangeHandler extends AlterHandler {
         
         // property 3: timeout
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
+
         TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
 
         // create job
@@ -944,7 +945,9 @@ public class SchemaChangeHandler extends AlterHandler {
             } else if (hasIndexChange) {
                 needAlter = true;
             } else if (storageFormat == TStorageFormat.V2) {
-                needAlter = true;
+                if (olapTable.getTableProperty().getStorageFormat() != TStorageFormat.V2) {
+                    needAlter = true;
+                }
             }
 
             if (!needAlter) {

@@ -360,18 +360,23 @@ public class PropertyAnalyzer {
     // analyzeStorageFormat will parse the storage format from properties
     // sql: alter table tablet_name set ("storage_format" = "v2")
     // Use this sql to convert all tablets(base and rollup index) to a new format segment
-    public static TStorageFormat analyzeStorageFormat(Map<String, String> properties) {
-        String storage_format = "";
+    public static TStorageFormat analyzeStorageFormat(Map<String, String> properties) throws AnalysisException {
+        String storageFormat = "";
         if (properties != null && properties.containsKey(PROPERTIES_STORAGE_FORMAT)) {
-            storage_format = properties.get(PROPERTIES_STORAGE_FORMAT);
+            storageFormat = properties.get(PROPERTIES_STORAGE_FORMAT);
             properties.remove(PROPERTIES_STORAGE_FORMAT);
-        }
-        if (storage_format.equalsIgnoreCase("v1")) {
-            return TStorageFormat.V1;
-        } else if(storage_format.equalsIgnoreCase("v2")) {
-            return TStorageFormat.V2;
         } else {
             return TStorageFormat.DEFAULT;
+        }
+
+        if (storageFormat.equalsIgnoreCase("v1")) {
+            return TStorageFormat.V1;
+        } else if (storageFormat.equalsIgnoreCase("v2")) {
+            return TStorageFormat.V2;
+        } else if (storageFormat.equalsIgnoreCase("default")) {
+            return TStorageFormat.DEFAULT;
+        } else {
+            throw new AnalysisException("unknown storage format: " + storageFormat);
         }
     }
 

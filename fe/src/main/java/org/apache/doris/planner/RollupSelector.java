@@ -64,9 +64,20 @@ public final class RollupSelector {
             Collection<Long> partitionIds, List<Expr> conjuncts, boolean isPreAggregation)
             throws UserException {
         Preconditions.checkArgument(partitionIds != null , "Paritition can't be null.");
+        
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().isUseV2Rollup()) {
+            // if user set `use_v2_rollup` variable to true, and there is a segment v2 rollup,
+            // just return the segment v2 rollup, because user want to check the v2 format data.
+            String v2RollupIndexName = MaterializedViewHandler.NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + table.getName();
+            Long v2RollupIndexId = table.getIndexIdByName(v2RollupIndexName);
+            if (v2RollupIndexId != null) {
+                return v2RollupIndexId;
+            }
+        }
+
         // Get first partition to select best prefix index rollups, because MaterializedIndex ids in one rollup's partitions are all same.
-        final List<Long> bestPrefixIndexRollups =
-                selectBestPrefixIndexRollup(conjuncts, isPreAggregation);
+        final List<Long> bestPrefixIndexRollups = selectBestPrefixIndexRollup(conjuncts, isPreAggregation);
         return selectBestRowCountRollup(bestPrefixIndexRollups, partitionIds);
     }
 
@@ -93,20 +104,9 @@ public final class RollupSelector {
         }
         String tableName = table.getName();
         String v2RollupIndexName = MaterializedViewHandler.NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + tableName;
-        Long v2RollupIndex = table.getIndexIdByName(v2RollupIndexName);
+        Long v2RollupIndexId = table.getIndexIdByName(v2RollupIndexName);
         long baseIndexId = table.getBaseIndexId();
-        ConnectContext connectContext = ConnectContext.get();
-        boolean useV2Rollup = false;
-        if (connectContext != null) {
-            useV2Rollup = connectContext.getSessionVariable().getUseV2Rollup();
-        }
-        if (baseIndexId == selectedIndexId && v2RollupIndex != null && useV2Rollup) {
-            // if the selectedIndexId is baseIndexId
-            // check whether there is a V2 rollup index and useV2Rollup flag is true,
-            // if both true, use v2 rollup index
-            selectedIndexId = v2RollupIndex;
-        }
-        if (!useV2Rollup && v2RollupIndex != null && v2RollupIndex == selectedIndexId) {
+        if (v2RollupIndexId != null && v2RollupIndexId == selectedIndexId) {
             // if the selectedIndexId is v2RollupIndex
             // but useV2Rollup is false, use baseIndexId as selectedIndexId
             // just make sure to use baseIndex instead of v2RollupIndex if the useV2Rollup is false

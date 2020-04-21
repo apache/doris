@@ -43,7 +43,8 @@ public class UninstallPluginStmt extends DdlStmt {
         super.analyze(analyzer);
 
         if (!Config.plugin_enable) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "UNINSTALL PLUGIN");
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_OPERATION_DISABLED, "UNINSTALL PLUGIN",
+                    "Please enable it by setting 'plugin_enable' = 'true'");
         }
 
         // check operation privilege
