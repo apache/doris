@@ -5163,29 +5163,34 @@ public class Catalog {
     // The caller need to hold the db write lock
     public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
-        short newReplicationNum = (short) -1;
-        try {
-            newReplicationNum = Short.valueOf(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
-            if (newReplicationNum <= 0) {
-                throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
-            }
-        } catch (Exception e) {
-            throw new DdlException(e.getMessage());
+        String defaultReplicationNumName = "default."+ PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+        PartitionInfo partitionInfo = table.getPartitionInfo();
+        if (partitionInfo.getType() == PartitionType.RANGE) {
+            throw new DdlException("This is a range partitioned table, you should specify partitions with MODIFY PARTITION clause." +
+                    " If you want to set default replication number, please use '" + defaultReplicationNumName +
+                    "' instead of '" + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM + "' to escape misleading.");
+        }
+        String partitionName = table.getName();
+        Partition partition = table.getPartition(partitionName);
+        if (partition == null) {
+            throw new DdlException("Partition does not exist. name: " + partitionName);
         }
 
-        for (Partition partition : table.getPartitions()) {
-            PartitionInfo partitionInfo = table.getPartitionInfo();
-            boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
-            DataProperty newDataProperty = partitionInfo.getDataProperty(partition.getId());
-            partitionInfo.setReplicationNum(partition.getId(), newReplicationNum);
-            // log
-            ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), table.getId(), partition.getId(),
-                    newDataProperty, newReplicationNum, isInMemory);
-            editLog.logModifyPartition(info);
-            LOG.debug("modify partition[{}-{}-{}] replication num to {}", db.getId(), table.getId(), partition.getName(),
-                    newReplicationNum);
-        }
+        short replicationNum = Short.valueOf(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        boolean isInMemory = partitionInfo.getIsInMemory(partition.getId());
+        DataProperty newDataProperty = partitionInfo.getDataProperty(partition.getId());
+        partitionInfo.setReplicationNum(partition.getId(), replicationNum);
+        // log
+        ModifyPartitionInfo info = new ModifyPartitionInfo(db.getId(), table.getId(), partition.getId(),
+                newDataProperty, replicationNum, isInMemory);
+        editLog.logModifyPartition(info);
+        LOG.debug("modify partition[{}-{}-{}] replication num to {}", db.getId(), table.getId(), partition.getName(),
+                replicationNum);
+    }
 
+    // The caller need to hold the db write lock
+    public void modifyTableDefaultReplicationNum(Database db, OlapTable table, Map<String, String> properties) {
+        Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
             tableProperty = new TableProperty(properties);

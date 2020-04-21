@@ -184,6 +184,26 @@ public class PropertyAnalyzer {
         return replicationNum;
     }
 
+    public static Short analyzeDefaultReplicationNum(Map<String, String> properties, short oldReplicationNum)
+            throws AnalysisException {
+        Short replicationNum = oldReplicationNum;
+        String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+        if (properties != null && properties.containsKey(defaultReplicationNumName)) {
+            try {
+                replicationNum = Short.valueOf(properties.get(defaultReplicationNumName));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
+            }
+
+            if (replicationNum <= 0) {
+                throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
+            }
+
+            properties.remove(PROPERTIES_REPLICATION_NUM);
+        }
+        return replicationNum;
+    }
+
     public static String analyzeColumnSeparator(Map<String, String> properties, String oldColumnSeparator) {
         String columnSeparator = oldColumnSeparator;
         if (properties != null && properties.containsKey(PROPERTIES_COLUMN_SEPARATOR)) {
