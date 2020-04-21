@@ -1227,7 +1227,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Create an expression equivalent to 'this' but returning targetType;
      * possibly by inserting an implicit cast,
      * or by returning an altogether new expression
-     * or by returning 'this' with a modified return type'.
      *
      * @param targetType type to be cast to
      * @return cast expression, or converted literal,

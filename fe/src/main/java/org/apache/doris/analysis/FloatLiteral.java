@@ -156,7 +156,11 @@ public class FloatLiteral extends LiteralExpr {
             return super.uncheckedCastTo(targetType);
         }
         if (targetType.isFloatingPointType()) {
-            type = targetType;
+            if (!type.equals(targetType)) {
+                FloatLiteral floatLiteral = new FloatLiteral(this);
+                floatLiteral.setType(targetType);
+                return floatLiteral;
+            }
             return this;
         } else if (targetType.isDecimal() || targetType.isDecimalV2()) {
             return new DecimalLiteral(new BigDecimal(value));
