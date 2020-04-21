@@ -79,11 +79,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            short replicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, (short) -1);
-            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, Short.toString(replicationNum));
+            PropertyAnalyzer.analyzeReplicationNum(properties, false);
         } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            short defaultReplicationNum = PropertyAnalyzer.analyzeDefaultReplicationNum(properties, (short) -1);
-            properties.put("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, Short.toString(defaultReplicationNum));
+            short defaultReplicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, true);
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, Short.toString(defaultReplicationNum));
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;

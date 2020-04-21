@@ -5198,8 +5198,11 @@ public class Catalog {
             tableProperty.modifyTableProperties(properties);
         }
         tableProperty.buildReplicationNum();
+        // log
         ModifyTablePropertyOperationLog info = new ModifyTablePropertyOperationLog(db.getId(), table.getId(), properties);
         editLog.logModifyReplicationNum(info);
+        LOG.debug("modify table[{}] replication num to {}", table.getName(),
+                properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
     }
 
     // The caller need to hold the db write lock

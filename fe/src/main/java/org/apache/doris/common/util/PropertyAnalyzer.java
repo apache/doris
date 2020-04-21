@@ -184,22 +184,16 @@ public class PropertyAnalyzer {
         return replicationNum;
     }
 
-    public static Short analyzeDefaultReplicationNum(Map<String, String> properties, short oldReplicationNum)
-            throws AnalysisException {
-        Short replicationNum = oldReplicationNum;
-        String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
-        if (properties != null && properties.containsKey(defaultReplicationNumName)) {
-            try {
-                replicationNum = Short.valueOf(properties.get(defaultReplicationNumName));
-            } catch (Exception e) {
-                throw new AnalysisException(e.getMessage());
-            }
-
-            if (replicationNum <= 0) {
-                throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
-            }
-
-            properties.remove(PROPERTIES_REPLICATION_NUM);
+    public static Short analyzeReplicationNum(Map<String, String> properties, boolean isDefault) throws AnalysisException {
+        String key = "default.";
+        if (isDefault) {
+            key += PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+        } else {
+            key = PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
+        }
+        short replicationNum = Short.valueOf(properties.get(key));
+        if (replicationNum <= 0) {
+            throw new AnalysisException("Replication num should larger than 0. (suggested 3)");
         }
         return replicationNum;
     }
