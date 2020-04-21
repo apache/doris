@@ -1,10 +1,3 @@
----
-{
-    "title": "left",
-    "language": "zh-CN"
-}
----
-
 <!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -24,24 +17,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# left
+# length
 ## description
 ### Syntax
 
-`VARCHAR left(VARCHAR str)`
+`INT char_length_utf8(VARCHAR str)`
 
 
-它返回具有指定长度的字符串的左边部分, 长度的单位为utf8字符
+返回字符串的长度，对于多字节字符，返回的字符数。
 
 ## example
 
 ```
-mysql> select left("Hello doris",5);
-+------------------------+
-| left('Hello doris', 5) |
-+------------------------+
-| Hello                  |
-+------------------------+
+mysql> select length("abc");
++---------------+
+| length('abc') |
++---------------+
+|             3 |
++---------------+
+
+mysql> select length("中国");
++------------------+
+| length('中国')   |
++------------------+
+|                6 |
++------------------+
 ```
 ##keyword
-LEFT
+LENGTH

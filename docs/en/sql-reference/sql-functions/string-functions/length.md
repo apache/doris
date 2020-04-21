@@ -31,7 +31,7 @@ under the License.
 'INT length (VARCHAR str)'
 
 
-Returns the length of the string and the number of characters returned for multi-byte characters. For example, five two-byte width words return a length of 10.
+Returns the length of the string in byte size.
 
 ## example
 
