@@ -49,22 +49,7 @@ TEST_F(ConfigTest, DumpAllConfigs) {
     for (const auto& it : *(config::full_conf_map)) {
         ss << it.first << "=" << it.second << std::endl;
     }
-    ASSERT_EQ(
-            R"*(cfg_bool_false=0
-cfg_bool_true=1
-cfg_double=123.456
-cfg_int16_t=2561
-cfg_int32_t=65536123
-cfg_int64_t=4294967296123
-cfg_std_string=doris_config_test_string
-cfg_std_vector_bool=1, 0, 1
-cfg_std_vector_double=123.456, 123.457, 123.457
-cfg_std_vector_int16_t=2561, 2562, 2563
-cfg_std_vector_int32_t=65536123, 65536234, 65536345
-cfg_std_vector_int64_t=4294967296123, 4294967296234, 4294967296345
-cfg_std_vector_std_string=doris, config, test, string
-)*",
-            ss.str());
+    ASSERT_EQ("cfg_bool_false=0\ncfg_bool_true=1\ncfg_double=123.456\ncfg_int16_t=2561\ncfg_int32_t=65536123\ncfg_int64_t=4294967296123\ncfg_std_string=doris_config_test_string\ncfg_std_vector_bool=1, 0, 1\ncfg_std_vector_double=123.456, 123.457, 123.457\ncfg_std_vector_int16_t=2561, 2562, 2563\ncfg_std_vector_int32_t=65536123, 65536234, 65536345\ncfg_std_vector_int64_t=4294967296123, 4294967296234, 4294967296345\ncfg_std_vector_std_string=doris, config, test, string\n", ss.str());
 }
 
 TEST_F(ConfigTest, UpdateConfigs) {
