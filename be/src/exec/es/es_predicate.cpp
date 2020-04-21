@@ -230,14 +230,19 @@ Status EsPredicate::build_disjuncts_list(const Expr* conjunct) {
         // doris on es should ignore this doris native cast transformation, we push down this `cast` to elasticsearch
         // conjunct->get_child(0)->node_type() return CAST_EXPR
         // conjunct->get_child(1)->node_type()return FLOAT_LITERAL
-        // conjunct->op() return  EQ
-        if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()) {
+        // the left child is literal and right child is SlotRef maybe not happend, but here we just process
+        // this situation regardless of the rewrite logic from the FE's Query Engine
+        if (TExprNodeType::SLOT_REF == conjunct->get_child(0)->node_type()
+            || TExprNodeType::CAST_EXPR == conjunct->get_child(0)->node_type()) {
             expr = conjunct->get_child(1);
-            slot_ref = (SlotRef*)(conjunct->get_child(0));
+            // process cast expr, such as:
+            // k (float) > 2.0, k(int) > 3.2
+            slot_ref = (SlotRef*)Expr::expr_without_cast(conjunct->get_child(0));
             op = conjunct->op();
-        } else if (TExprNodeType::SLOT_REF == conjunct->get_child(1)->node_type()) {
+        } else if (TExprNodeType::SLOT_REF == conjunct->get_child(1)->node_type()
+            || TExprNodeType::CAST_EXPR == conjunct->get_child(1)->node_type()) {
             expr = conjunct->get_child(0);
-            slot_ref = (SlotRef*)(conjunct->get_child(1));
+            slot_ref = (SlotRef*)Expr::expr_without_cast(conjunct->get_child(1));
             op = conjunct->op();
         } else {
             return Status::InternalError("build disjuncts failed: no SLOT_REF child");
