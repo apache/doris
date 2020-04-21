@@ -5160,6 +5160,13 @@ public class Catalog {
         editLog.logDynamicPartition(info);
     }
 
+    /**
+     * Set replication number for a table that only have one partition.
+     * @param db
+     * @param table
+     * @param properties
+     * @throws DdlException
+     */
     // The caller need to hold the db write lock
     public void modifyTableReplicationNum(Database db, OlapTable table, Map<String, String> properties) throws DdlException {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
@@ -5188,6 +5195,13 @@ public class Catalog {
                 replicationNum);
     }
 
+    /**
+     * Set default replication number for a specified table.
+     * You can see the default replication number by Show Create Table stmt.
+     * @param db
+     * @param table
+     * @param properties
+     */
     // The caller need to hold the db write lock
     public void modifyTableDefaultReplicationNum(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(db.isWriteLockHeldByCurrentThread());
