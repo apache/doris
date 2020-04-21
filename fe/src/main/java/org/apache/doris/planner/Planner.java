@@ -180,7 +180,7 @@ public class Planner {
             InsertStmt insertStmt = (InsertStmt) statement;
             rootFragment = distributedPlanner.createInsertFragment(rootFragment, insertStmt, fragments);
             rootFragment.setSink(insertStmt.getDataSink());
-            insertStmt.finalize();
+            insertStmt.close();
             ArrayList<Expr> exprs = ((InsertStmt) statement).getResultExprs();
             List<Expr> resExprs = Expr.substituteList(
                     exprs, rootFragment.getPlanRoot().getOutputSmap(), analyzer, true);
