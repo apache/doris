@@ -99,9 +99,11 @@ public class GlobalTransactionMgrTest {
         // slaveCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         masterTransMgr = masterCatalog.getGlobalTransactionMgr();
         masterTransMgr.setEditLog(masterCatalog.getEditLog());
+        masterTransMgr.addDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
 
         slaveTransMgr = slaveCatalog.getGlobalTransactionMgr();
         slaveTransMgr.setEditLog(slaveCatalog.getEditLog());
+        slaveTransMgr.addDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
     }
 
     @Test
@@ -352,7 +354,7 @@ public class GlobalTransactionMgrTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
-        Deencapsulation.setField(masterTransMgr, "idToTransactionState", idToTransactionState);
+        Deencapsulation.setField(masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
         masterTransMgr.commitTransaction(1L, 1L, transTablets, txnCommitAttachment);
 
         Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
@@ -418,7 +420,7 @@ public class GlobalTransactionMgrTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
-        Deencapsulation.setField(masterTransMgr, "idToTransactionState", idToTransactionState);
+        Deencapsulation.setField(masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
         masterTransMgr.commitTransaction(1L, 1L, transTablets, txnCommitAttachment);
 
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
@@ -430,6 +432,7 @@ public class GlobalTransactionMgrTest {
         Assert.assertEquals(RoutineLoadJob.JobState.PAUSED, routineLoadJob.getState());
     }
 
+    @Test
     public void testFinishTransaction() throws UserException {
         long transactionId = masterTransMgr.beginTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(CatalogTestUtil.testTableId1),
                 CatalogTestUtil.testTxnLable1,
