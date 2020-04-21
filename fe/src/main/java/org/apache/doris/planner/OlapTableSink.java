@@ -118,7 +118,7 @@ public class OlapTableSink extends DataSink {
     }
 
     // must called after tupleDescriptor is computed
-    public void close() throws UserException {
+    public void completeq() throws UserException {
         TOlapTableSink tSink = tDataSink.getOlap_table_sink();
 
         tSink.setTable_id(dstTable.getId());
