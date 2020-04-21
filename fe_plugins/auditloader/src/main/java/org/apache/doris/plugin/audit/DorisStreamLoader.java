@@ -22,6 +22,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -76,6 +77,25 @@ public class DorisStreamLoader {
         }
     }
 
+    private HttpURLConnection getConnection(String urlStr, String label) throws IOException {
+        URL url = new URL(urlStr);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setInstanceFollowRedirects(false);
+        conn.setRequestMethod("PUT");
+        conn.setRequestProperty("Authorization", "Basic " + authEncoding);
+        conn.addRequestProperty("Expect", "100-continue");
+        conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
+
+        conn.addRequestProperty("label", label);
+        conn.addRequestProperty("max_fiter_ratio", "1.0");
+        conn.addRequestProperty("columns", "query_id, time, client_ip, user, db, state, query_time, scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, stmt");
+
+        conn.setDoOutput(true);
+        conn.setDoInput(true);
+
+        return conn;
+    }
+
     public LoadResponse loadBatch(StringBuilder sb) {
         Calendar calendar = Calendar.getInstance();
         String label = String.format("audit_%s%02d%02d_%02d%02d%02d",
@@ -83,32 +103,31 @@ public class DorisStreamLoader {
                 calendar.get(Calendar.HOUR), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND));
 
 
+        HttpURLConnection feConn = null;
+        HttpURLConnection beConn = null;
         try {
-            // build requst
-            URL loadUrl = new URL(loadUrlStr);
-            HttpURLConnection conn = (HttpURLConnection) loadUrl.openConnection();
-            conn.setRequestMethod("PUT");
-            conn.setRequestProperty("Authorization", "Basic " + authEncoding);
-            conn.addRequestProperty("Expect", "100-continue");
-            conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
-
-            conn.addRequestProperty("label", label);
-            conn.addRequestProperty("max_fiter_ratio", "1.0");
-            conn.addRequestProperty("columns", "query_id, time, client_ip, user, db, state, query_time, scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, stmt");
-
-            conn.setDoOutput(true);
-            conn.setDoInput(true);
-
-            // send data
-            BufferedOutputStream bos = new BufferedOutputStream(conn.getOutputStream());
+            // build request and send to fe
+            feConn = getConnection(loadUrlStr, label);
+            int status = feConn.getResponseCode();
+            // fe send back http response code TEMPORARY_REDIRECT 307 and new be location
+            if (status != 307) {
+                throw new Exception("status is not TEMPORARY_REDIRECT 307, status: " + status);
+            }
+            String location = feConn.getHeaderField("Location");
+            if (location == null) {
+                throw new Exception("redirect location is null");
+            }
+            // build request and send to new be location
+            beConn = getConnection(location, label);
+            // send data to be
+            BufferedOutputStream bos = new BufferedOutputStream(beConn.getOutputStream());
             bos.write(sb.toString().getBytes());
             bos.close();
 
             // get respond
-            int status = conn.getResponseCode();
-            String respMsg = conn.getResponseMessage();
-
-            InputStream stream = (InputStream) conn.getContent();
+            status = beConn.getResponseCode();
+            String respMsg = beConn.getResponseMessage();
+            InputStream stream = (InputStream) beConn.getContent();
             BufferedReader br = new BufferedReader(new InputStreamReader(stream));
             StringBuilder response = new StringBuilder();
             String line;
@@ -126,6 +145,13 @@ public class DorisStreamLoader {
             String err = "failed to load audit via AuditLoader plugin with label: " + label;
             LOG.warn(err, e);
             return new LoadResponse(-1, e.getMessage(), err);
+        } finally {
+            if (feConn != null) {
+                feConn.disconnect();
+            }
+            if (beConn != null) {
+                beConn.disconnect();
+            }
         }
     }
 
