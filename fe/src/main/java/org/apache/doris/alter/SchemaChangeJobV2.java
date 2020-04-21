@@ -110,7 +110,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     // The schema change job will wait all transactions before this txn id finished, then send the schema change tasks.
     protected long watershedTxnId = -1;
 
-    private TStorageFormat storageFormat = null;
+    private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
@@ -571,6 +571,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             tbl.setIndexes(indexes);
         }
 
+        // set storage format of table, only set if format is v2
+        if (storageFormat == TStorageFormat.V2) {
+            tbl.setStorageFormat(storageFormat);
+        }
+
         tbl.setState(OlapTableState.NORMAL);
     }
 
@@ -890,6 +895,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 out.writeBoolean(false);
             }
         }
+
+        Text.writeString(out, storageFormat.name());
     }
 
     /**
@@ -968,6 +975,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 }
             }
         }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
+            storageFormat = TStorageFormat.valueOf(Text.readString(in));
+        }
     }
 
     /**
@@ -1013,6 +1024,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 out.writeBoolean(false);
             }
         }
+
+        Text.writeString(out, storageFormat.name());
     }
 
     /**
@@ -1059,6 +1072,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             } else {
                 this.indexes = null;
             }
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_84) {
+            storageFormat = TStorageFormat.valueOf(Text.readString(in));
         }
     }
 

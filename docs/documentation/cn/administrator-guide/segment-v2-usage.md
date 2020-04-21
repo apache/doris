@@ -1,118 +1,147 @@
-# Doris Segment V2上线和试用手册
+<!-- 
+Licensed to the Apache Software Foundation (ASF) under one
+or more contributor license agreements.  See the NOTICE file
+distributed with this work for additional information
+regarding copyright ownership.  The ASF licenses this file
+to you under the Apache License, Version 2.0 (the
+"License"); you may not use this file except in compliance
+with the License.  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing,
+software distributed under the License is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+KIND, either express or implied.  See the License for the
+specific language governing permissions and limitations
+under the License.
+-->
+
+# Segment V2 升级手册
 
 ## 背景
 
-Doris 0.12版本中实现了segment v2（新的存储格式），引入词典压缩、bitmap索引、page cache等优化，能够提升系统性能。目前0.12版本已经发布alpha版本，正在内部上线过程中，上线的方案和试用方法记录如下
+Doris 0.12 版本中实现了新的存储格式：Segment V2，引入词典压缩、bitmap索引、page cache等优化，能够提升系统性能。
 
-## 上线
+0.12 版本会同时支持读写原有的 Segment V1（以下简称V1） 和新的 Segment V2（以下简称V2） 两种格式。如果原有数据想使用 V2 相关特性，需通过命令将 V1 转换成 V2 格式。
 
-为了保证上线的稳定性，上线分为三个阶段：
-第一个阶段是上线0.12版本，但是不全量开启segment v2的功能，只在验证的时候，创建segment v2的表（或者索引）
-第二个阶段是全量开启segment v2的功能，替换现有的segment存储格式，这样对新表会创建segment v2的格式的存储文件，但是对于旧表，需要依赖于compaction和schema change等过程，实现格式的转化
-第三个阶段就是转化旧的segment格式到新的segment v2的格式，这个需要在验证segment v2的正确性和性能没有问题之后，可以按照用户意愿逐步完成。
+本文档主要介绍从 0.11 版本升级至 0.12 版本后，如何转换和使用 V2 格式。
 
-### 上线验证
+V2 格式的表可以支持以下新的特性：
 
-- 正确性
+1. bitmap 索引
+2. 内存表
+3. page cache
+4. 字典压缩
+5. 延迟物化（Lazy Materialization）
 
-正确性是segment v2上线最需要保证的指标。 在第一阶段，为了保证线上环境的稳定性，并且验证segment v2的正确性，采用如下的方案：
-1. 选择几个需要验证的表，使用以下语句，创建segment v2格式的rollup表，该rollup表与base表的schema相同
+## 集群升级
 
-	alter table table_name add rollup table_name (columns) properties ("storage_format" = "v2");
+0.12 版本仅支持从 0.11 版本升级，不支持从 0.11 之前的版本升级。请先确保升级的前的 Doris 集群版本为 0.11。
 
-	其中，
-	rollup后面的index名字直接指定为base table的table name，该语句会自动生成一个__v2_table_name。
+0.12 版本有两个 V2 相关的重要参数：
 
-	columns可以随便指定一个列名即可，这里一方面是为了兼容现有的语法，一方面是为了方便。
+* `default_rowset_type`：FE 一个全局变量（Global Variable）设置，默认为 "alpha"，即 V1 版本。
+* `default_rowset_type`：BE 的一个配置项，默认为 "ALPHA"，即 V1 版本。
 
-2. 上面的创建出来的rollup index名字格式类似：__v2_table_name
+保持上述配置默认的话，按常规步骤对集群升级后，原有集群数据的存储格式不会变更，即依然为 V1 格式。如果对 V2 格式没有需求，则继续正常使用集群即可，无需做任何额外操作。所有原有数据、以及新导入的数据，都依然是 V1 版本。
 
-	通过命令 :
+## V2 格式转换
 
-	`desc table_name all;`
+### 已有表数据转换成 V2
 
-	查看table中是否存在名字：__v2_table_name的rollup。由于创建segment v2的rollup表是一个异步操作，所以并不会立即成功。如果上面命令中并没有显示新创建的 rollup，可能是还在创建过程中。
+对于已有表数据的格式转换，Doris 提供两种方式：
 
-    可以通过下面命令查看正在进行的 rollup 表。
+1. 创建一个 V2 格式的特殊 Rollup
 
-	`show alter table rollup;`
+    该方式会针对指定表，创建一个 V2 格式的特殊 Rollup。创建完成后，新的 V2 格式的 Rollup 会和原有表格式数据并存。用户可以指定对 V2 格式的 Rollup 进行查询验证。
+    
+    该方式主要用于对 V2 格式的验证，因为不会修改原有表数据，因此可以安全的进行 V2 格式的数据验证，而不用担心表数据因格式转换而损坏。通常先使用这个方式对数据进行校验，之后再使用方法2对整个表进行数据格式转换。
+    
+    操作步骤如下：
+    
+    ```
+    ## 创建 V2 格式的 Rollup
+    
+    ALTER TABLE table_name ADD ROLLUP table_name (columns) PROPERTIES ("storage_format" = "v2");
+    ```
 
-	看到会有一个名字为__v2_table_name的rollup表正在创建。
+    其中， Rollup 的名称必须为表名。columns 字段可以任意填写，系统不会检查该字段的合法性。该语句会自动生成一个名为 `__V2_table_name` 的 Rollup，并且该 Rollup 列包含表的全部列。
+    
+    通过以下语句查看创建进度：
+    
+    ```
+    SHOW ALTER TABLE ROLLUP;
+    ```
+    
+    创建完成后，可以通过 `DESC table_name ALL;` 查看到名为 `__v2_table_name` 的 Rollup。
+    
+    之后，通过如下命令，切换到 V2 格式查询：
 
-3. 通过查询base表和segment v2格式的rollup表，验证查询结果是否一致（查询可以来自audit日志）
+    ```
+    set use_v2_rollup = true;
+    select * from table_name limit 10;
+    ```
+    
+    `use_V2_Rollup` 这个变量会强制查询名为 `__V2_table_name` 的 Rollup，并且不会考虑其他 Rollup 的命中条件。所以该参数仅用于对 V2 格式数据进行验证。
 
-	为了让查询使用segment v2的rollup表，增加了一个session变量，通过在查询中使用如下的语句，来查询segment v2格式的index：
+2. 转换现有表数据格式
 
-	set use_v2_rollup = true;
+    该方式相当于给指定的表发送一个 schema change 作业，作业完成后，表的所有数据会被转换成 V2 格式。该方法不会保留原有 v1 格式，所以请先使用方法1进行格式验证。
+    
+    ```
+    ALTER TABLE table_name SET ("storage_format" = "v2");
+    ```
 
-	比如说，要当前db中有一个simple的表，直接查询如下：
+    之后通过如下命令查看作业进度：
+    
+    ```
+    SHOW ALTER TABLE COLUMN;
+    ```
+    
+    作业完成后，该表的所有数据（包括Rollup）都转换为了 V2。且 V1 版本的数据已被删除。如果该表是分区表，则之后创建的分区也都是 V2 格式。
+    
+    **V2 格式的表不能重新转换为 V1**
+    
+### 创建新的 V2 格式的表
 
-	```
-		mysql> select * from simple;         
-		+------+-------+
-		| key  | value |
-		+------+-------+
-		|    2 |     6 |
-		|    1 |     6 |
-		|    4 |     5 |
-		+------+-------+
-		3 rows in set (0.01 sec)
-	```
+在不改变默认配置参数的情况下，用户可以创建 V2 格式的表：
 
-	然后使用使用如下的query查询__v2_simpel的rollup表：
+```
+CREATE TABLE tbl_name
+(
+    k1 INT,
+    k2 INT
+)
+DISTRIBUTED BY HASH(k1) BUCKETS 1
+PROPERTIES
+(
+    "storage_format" = "v2"
+);
+```
 
-	```
-		mysql> set use_v2_rollup = true;
-		Query OK, 0 rows affected (0.04 sec)
+在 `properties` 中指定 `"storage_format" = "v2"` 后，该表将使用 V2 格式创建。如果是分区表，则之后创建的分区也都是 V2 格式。
 
-		mysql> select * from simple;
-		+------+-------+	
-		| key  | value |
-		+------+-------+
-		|    4 |     5 |
-		|    1 |     6 |
-		|    2 |     6 |
-		+------+-------+
-		3 rows in set (0.01 sec)
-	```
+### 全量格式转换(试验功能)
 
-	期望的结果是两次查询的结果相同。
-	如果结果不一致，需要进行排查。第一步需要定位是否是因为由于两次查询之间有新的导入，导致数据不一致。如果是的话，需要进行重试。如果不是，则需要进一步定位原因。
+通过以下方式可以开启整个集群的全量数据格式转换（V1 -> V2）。全量数据转换是通过 BE 后台的数据 compaction 过程异步进行的。
 
-4. 对比同样查询在base表和segment v2的rollup表中的结果是否一致
+1. 从 BE 开启全量格式转换
 
-- 查询延时
+    在 `be.conf` 中添加变量 `default_rowset_type=BETA` 并重启 BE 节点。在之后的 compaction 流程中，数据会自动从 V1 转换成 V2。
+    
+2. 从 FE 开启全量格式转换
 
-	在segment v2中优化了v1中的随机读取，并且增加了bitmap索引、lazy materialization等优化，预计查询延时会有下降，
+    通过 mysql 客户端连接 Doris 后，执行如下语句：
+    
+    `SET GLOBAL default_rowset_type = beta;`
 
-- 导入延时
-- page cache命中率
-- string类型字段压缩率
-- bitmap索引的性能提升率和空间占用
+    执行完成后，FE 会通过心跳将信息发送给 BE，之后 BE 的 compaction 流程中，数据会自动从 V1 转换成 V2。
+    
+    FE 的配置参数优先级高于 BE 的配置。即使 BE 中的配置 `default_rowset_type` 为 ALPHA，如果 FE 配置为 beta 后，则 BE 依然开始进行 V1 到 V2 的数据格式转换。
 
-### 全量开启segment v2
+    **建议先通过对单独表的数据格式转换验证后，再进行全量转换。全量转换的时间比较长，且进度依赖于 compaction 的进度。**可能出现 compaction 无法完成的情况，因此需要通过显式的执行 `ALTER TABLE` 操作进行个别表的数据格式转换。
 
-有两个方式：
-1. fe中有一个全局变量，通过设置全局变量default_rowset_type，来设置BE中使用segment v2作为默认的存储格式，命令如下：
+3. 查看全量转换进度
 
-	set global default_rowset_type = beta;
-
-	使用这个方式，只需要执行上述命令，之后等待10s左右，FE会将配置同步到BE中。不需要在每个BE中进行配置。推荐使用这个配置。不过该方式目前没有简单的方式来验证BE上的default rowset type是否已经变更，一种办法是建一个表，然后查看对应的表的元数据。但是这样子比较麻烦，后续看需要可以在某个地方实现状态查看。
-
-2. 修改BE中的配置文件中的配置default_rowset_type为BETA。这种方式需要在每个BE中添加对应的配置。
-
-
-### 转化segment v1格式为v2
-
-如果不想等待系统后台自动转换存储格式（比如想要使用bitmap索引、词典压缩），可以手动指定触发某个表的存储格式转换。具体是通过schema change来实现将v1的格式转化为v2的格式：
-
-	alter table table_name set ("storage_format" = "v2");
-
-	将存储格式转化为v2.
-
-如果在没有设置默认的存储格式为v2的时候，想要新建一个v2的表，需要按照以下的步骤进行操作：
-1. 使用create table来创建v1的表
-2. 使用上面的schema change命令进行格式的转化
-
-
-
+    全量转换进度须通过脚本查看。脚本位置为代码库的 `tools/show_segment_status/` 目录。请参阅其中的 `README` 文档查看使用帮助。

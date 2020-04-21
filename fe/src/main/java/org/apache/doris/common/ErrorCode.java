@@ -230,7 +230,9 @@ public enum ErrorCode {
     ERROR_DYNAMIC_PARTITION_ENABLE(5068, new byte[] {'4', '2', '0', '0', '0'},
             "Invalid dynamic partition enable: %s. Expected true or false"),
     ERROR_DYNAMIC_PARTITION_PREFIX(5069, new byte[] {'4', '2', '0', '0', '0'},
-            "Invalid dynamic partition prefix: %s.");
+            "Invalid dynamic partition prefix: %s."),
+    ERR_OPERATION_DISABLED(5070, new byte[] {'4', '2', '0', '0', '0'},
+            "Operation %s is disabled. %s");
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
         this.code = code;

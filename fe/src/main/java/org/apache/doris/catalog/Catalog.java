@@ -199,6 +199,7 @@ import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.task.PullLoadJobMgr;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTaskType;
@@ -3070,7 +3071,8 @@ public class Catalog {
                     singlePartitionDesc.getVersionInfo(),
                     bfColumns, olapTable.getBfFpp(),
                     tabletIdSet, olapTable.getCopiedIndexes(),
-                    singlePartitionDesc.isInMemory());
+                    singlePartitionDesc.isInMemory(),
+                    olapTable.getTableProperty().getStorageFormat());
 
             // check again
             db.writeLock();
@@ -3381,7 +3383,8 @@ public class Catalog {
                                                  double bfFpp,
                                                  Set<Long> tabletIdSet,
                                                  List<Index> indexes,
-                                                 boolean isInMemory) throws DdlException {
+                                                 boolean isInMemory,
+                                                 TStorageFormat storageFormat) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -3446,6 +3449,7 @@ public class Catalog {
                             countDownLatch,
                             indexes,
                             isInMemory);
+                    task.setStorageFormat(storageFormat);
                     batchTask.addTask(task);
                     // add to AgentTaskQueue for handling finish report.
                     // not for resending task
@@ -3684,6 +3688,15 @@ public class Catalog {
         }
         Preconditions.checkNotNull(versionInfo);
 
+        // get storage format
+        TStorageFormat storageFormat = TStorageFormat.DEFAULT; // default means it's up to BE's config
+        try {
+            storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        olapTable.setStorageFormat(storageFormat);
+
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
         Set<Long> tabletIdSet = new HashSet<Long>();
@@ -3706,7 +3719,7 @@ public class Catalog {
                         partitionInfo.getReplicationNum(partitionId),
                         versionInfo, bfColumns, bfFpp,
                         tabletIdSet, olapTable.getCopiedIndexes(),
-                        isInMemory);
+                        isInMemory, storageFormat);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE) {
                 try {
@@ -3735,7 +3748,7 @@ public class Catalog {
                             partitionInfo.getReplicationNum(entry.getValue()),
                             versionInfo, bfColumns, bfFpp,
                             tabletIdSet, olapTable.getCopiedIndexes(),
-                            isInMemory);
+                            isInMemory, storageFormat);
                     olapTable.addPartition(partition);
                 }
             } else {
@@ -3914,22 +3927,21 @@ public class Catalog {
             // properties
             sb.append("\nPROPERTIES (\n");
 
-            // 1. storage type
-            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE).append("\" = \"");
-            TStorageType storageType = olapTable.getStorageTypeByIndexId(
-                    olapTable.getIndexIdByName(olapTable.getName()));
-            sb.append(storageType.name()).append("\"");
+            // replicationNum
+            Short replicationNum = olapTable.getDefaultReplicationNum();
+            sb.append("\"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
+            sb.append(replicationNum).append("\"");
 
-            // 2. bloom filter
+            // bloom filter
             Set<String> bfColumnNames = olapTable.getCopiedBfColumns();
             if (bfColumnNames != null) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BF_COLUMNS).append("\" = \"");
                 sb.append(Joiner.on(", ").join(olapTable.getCopiedBfColumns())).append("\"");
             }
 
             if (separatePartition) {
-                // 3. version info
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
+                // version info
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_VERSION_INFO).append("\" = \"");
                 Partition partition = null;
                 if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     partition = olapTable.getPartition(olapTable.getName());
@@ -3941,26 +3953,25 @@ public class Catalog {
                         .append("\"");
             }
 
-            // 5. colocateTable
+            // colocateTable
             String colocateTable = olapTable.getColocateGroup();
             if (colocateTable != null) {
-                sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH).append("\" = \"");
                 sb.append(colocateTable).append("\"");
             }
 
-            // 6. dynamic partition
+            // dynamic partition
             if (olapTable.dynamicPartitionExists()) {
                 sb.append(olapTable.getTableProperty().getDynamicPartitionProperty().toString());
             }
 
-            // 7. replicationNum
-            Short replicationNum = olapTable.getDefaultReplicationNum();
-            sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM).append("\" = \"");
-            sb.append(replicationNum).append("\"");
-
-            // 8. in memory
-            sb.append(",\n \"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
+            // in memory
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_INMEMORY).append("\" = \"");
             sb.append(olapTable.isInMemory()).append("\"");
+
+            // storage type
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
+            sb.append(olapTable.getTableProperty().getStorageFormat()).append("\"");
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
@@ -6158,7 +6169,8 @@ public class Catalog {
                         copiedTbl.getBfFpp(),
                         tabletIdSet,
                         copiedTbl.getCopiedIndexes(),
-                        copiedTbl.isInMemory());
+                        copiedTbl.isInMemory(),
+                        copiedTbl.getTableProperty().getStorageFormat());
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

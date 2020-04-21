@@ -71,7 +71,7 @@ public class AuditEvent {
     public String queryId = "";
     @AuditField(value = "IsQuery")
     public boolean isQuery = false;
-    @AuditField(value = "fe_ip")
+    @AuditField(value = "feIp")
     public String feIp = "";
     @AuditField(value = "Stmt")
     public String stmt = "";
