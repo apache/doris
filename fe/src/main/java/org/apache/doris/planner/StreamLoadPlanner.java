@@ -114,7 +114,7 @@ public class StreamLoadPlanner {
         List<Long> partitionIds = getAllPartitionIds();
         OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds);
         olapTableSink.init(loadId, streamLoadTask.getTxnId(), db.getId(), streamLoadTask.getTimeout());
-        olapTableSink.finalize();
+        olapTableSink.complete();
 
         // for stream load, we only need one fragment, ScanNode -> DataSink.
         // OlapTableSink can dispatch data to corresponding node.
