@@ -14,34 +14,32 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+#ifndef DORIS_UTIL_DEBUG_LEAKCHECK_DISABLER_H_
+#define DORIS_UTIL_DEBUG_LEAKCHECK_DISABLER_H_
 
-#include "olap/fs/fs_util.h"
-
-#include "common/status.h"
-#include "env/env.h"
-#include "olap/storage_engine.h"
-#include "olap/fs/file_block_manager.h"
-#include "runtime/exec_env.h"
+#include "gutil/macros.h"
+#include "util/debug/leak_annotations.h"
 
 namespace doris {
-namespace fs {
-namespace fs_util {
+namespace debug {
 
-BlockManager* block_manager() {
-#ifdef BE_TEST
-    return block_mgr_for_ut();
-#else
-    return ExecEnv::GetInstance()->storage_engine()->block_manager();
+// Scoped object that generically disables LSAN leak checking in a given scope.
+// While this object is alive, calls to "new" will not be checked for leaks.
+class ScopedLeakCheckDisabler {
+ public:
+  ScopedLeakCheckDisabler() {}
+
+ private:
+
+#ifdef LEAK_SANITIZER
+  ScopedLSANDisabler lsan_disabler;
 #endif
-}
 
-BlockManager* block_mgr_for_ut() {
-    fs::BlockManagerOptions bm_opts;
-    bm_opts.read_only = false;
-    static FileBlockManager block_mgr(Env::Default(), std::move(bm_opts));
-    return &block_mgr;
-}
+  DISALLOW_COPY_AND_ASSIGN(ScopedLeakCheckDisabler);
+};
 
-} // namespace fs_util
-} // namespace fs
+} // namespace debug
 } // namespace doris
+
+#endif // DORIS_UTIL_DEBUG_LEAKCHECK_DISABLER_H_
+

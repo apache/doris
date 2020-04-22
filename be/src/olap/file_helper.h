@@ -104,9 +104,6 @@ public:
     static Cache* get_fd_cache() {
         return _s_fd_cache;
     }
-    static void set_fd_cache(Cache* cache) {
-        _s_fd_cache = cache;
-    }
 
 private:
     static Cache* _s_fd_cache;

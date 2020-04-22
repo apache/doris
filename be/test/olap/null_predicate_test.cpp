@@ -141,6 +141,7 @@ TEST_F(TestNullPredicate, TYPE_NAME##_COLUMN) { \
     _vectorized_batch->set_selected_in_use(false); \
     pred->evaluate(_vectorized_batch); \
     ASSERT_EQ(_vectorized_batch->size(), 5); \
+    delete pred; \
 } \
 
 TEST_IN_LIST_PREDICATE(int8_t, TINYINT, "TINYINT")
@@ -188,6 +189,7 @@ TEST_F(TestNullPredicate, FLOAT_COLUMN) {
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
     ASSERT_EQ(_vectorized_batch->size(), 5);
+    delete pred;
 }
 
 TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
@@ -230,6 +232,7 @@ TEST_F(TestNullPredicate, DOUBLE_COLUMN) {
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
     ASSERT_EQ(_vectorized_batch->size(), 5);
+    delete pred;
 }
 
 TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
@@ -275,6 +278,7 @@ TEST_F(TestNullPredicate, DECIMAL_COLUMN) {
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
     ASSERT_EQ(_vectorized_batch->size(), 4);
+    delete pred;
 }
 
 TEST_F(TestNullPredicate, STRING_COLUMN) {
@@ -330,6 +334,7 @@ TEST_F(TestNullPredicate, STRING_COLUMN) {
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
     ASSERT_EQ(_vectorized_batch->size(), 4);
+    delete pred;
 }
 
 TEST_F(TestNullPredicate, DATE_COLUMN) {
@@ -383,6 +388,7 @@ TEST_F(TestNullPredicate, DATE_COLUMN) {
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
     ASSERT_EQ(_vectorized_batch->size(), 2);
+    delete pred;
 }
 
 TEST_F(TestNullPredicate, DATETIME_COLUMN) {
@@ -436,6 +442,7 @@ TEST_F(TestNullPredicate, DATETIME_COLUMN) {
     _vectorized_batch->set_selected_in_use(false);
     pred->evaluate(_vectorized_batch);
     ASSERT_EQ(_vectorized_batch->size(), 2);
+    delete pred;
 }
 
 } // namespace doris

@@ -65,6 +65,15 @@ public:
         }
     }
 
+    ~MemoryScratchSinkTest() {
+        delete _state;
+        delete _row_desc;
+        delete _mem_tracker;
+        delete _exec_env->_result_queue_mgr;
+        delete _exec_env->_thread_mgr;
+        delete _exec_env->_buffer_reservation;
+    }
+
     virtual void SetUp() {
         config::periodic_counter_update_period_ms = 500;
         config::storage_root_path = "./data";
@@ -84,19 +93,17 @@ public:
     void init_desc_tbl();
     void init_runtime_state();
 
-    virtual ~MemoryScratchSinkTest() {}
-
 private:
     ObjectPool _obj_pool;
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     // std::vector<TExpr> _exprs;
     TDescriptorTable _t_desc_table;
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
     TPlanNode _tnode;
-    RowDescriptor* _row_desc;
+    RowDescriptor* _row_desc = nullptr;
     TMemoryScratchSink _tsink;
-    MemTracker *_mem_tracker;
-    DescriptorTbl* _desc_tbl;
+    MemTracker *_mem_tracker = nullptr;
+    DescriptorTbl* _desc_tbl = nullptr;
     std::vector<TExpr> _exprs;
 };
 
@@ -108,10 +115,8 @@ void MemoryScratchSinkTest::init() {
 }
 
 void MemoryScratchSinkTest::init_runtime_state() {
-    ResultQueueMgr* result_queue_mgr = new ResultQueueMgr();
-    ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
-    _exec_env->_result_queue_mgr = result_queue_mgr;
-    _exec_env->_thread_mgr = thread_mgr;
+    _exec_env->_result_queue_mgr = new ResultQueueMgr();
+    _exec_env->_thread_mgr = new ThreadResourceMgr();
     _exec_env->_buffer_reservation = new ReservationTracker();
     TQueryOptions query_options;
     query_options.batch_size = 1024;
@@ -232,7 +237,8 @@ TEST_F(MemoryScratchSinkTest, work_flow_normal) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), new MemTracker(-1));
+    std::unique_ptr<MemTracker> mem_tracker(new MemTracker(-1));
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), mem_tracker.get());
     bool eos = false;
 
     while (!eos) {

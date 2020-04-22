@@ -181,8 +181,6 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetWriter) {
     row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());
     _alpha_rowset_writer->add_row(row);
     _alpha_rowset_writer->flush();
-    auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
-    FileHandler::set_fd_cache(cache);
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
     ASSERT_TRUE(alpha_rowset != nullptr);
     RowsetId rowset_id;
@@ -216,8 +214,6 @@ TEST_F(AlphaRowsetTest, TestAlphaRowsetReader) {
     ASSERT_EQ(OLAP_SUCCESS, res);
     res = _alpha_rowset_writer->flush();
     ASSERT_EQ(OLAP_SUCCESS, res);
-    auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
-    FileHandler::set_fd_cache(cache);
     RowsetSharedPtr alpha_rowset = _alpha_rowset_writer->build();
     ASSERT_TRUE(alpha_rowset != nullptr);
     RowsetId rowset_id;
