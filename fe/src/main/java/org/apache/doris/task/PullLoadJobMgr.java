@@ -31,6 +31,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.locks.ReentrantLock;
 
 @Deprecated
@@ -48,6 +49,7 @@ public class PullLoadJobMgr {
 
     public PullLoadJobMgr() {
         executorService = ThreadPoolManager.newDaemonCacheThreadPool(concurrency, "pull-load-job-mgr");
+        ThreadPoolManager.registerThreadPoolMetric("pull-load-job-mgr", (ThreadPoolExecutor) executorService);
     }
 
     /**

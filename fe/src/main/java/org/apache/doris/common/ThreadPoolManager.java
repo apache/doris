@@ -25,7 +25,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.SynchronousQueue;
@@ -36,18 +35,27 @@ import java.util.concurrent.TimeUnit;
 
 public class ThreadPoolManager {
 
-    public static Map<String, ExecutorService> nameToThreadPoolMap = new HashMap<>();
+    private static Map<String, ThreadPoolExecutor> nameToThreadPoolMap = new HashMap<>();
 
-    public static ExecutorService newDaemonCacheThreadPool(int maxNumThread, String poolName) {
+
+    public static Map<String, ThreadPoolExecutor> getNameToThreadPoolMap() {
+        return nameToThreadPoolMap;
+    }
+
+    public static void registerThreadPoolMetric(String poolName, ThreadPoolExecutor threadPool) {
+        nameToThreadPoolMap.put(poolName, threadPool);
+    }
+
+    public static ThreadPoolExecutor newDaemonCacheThreadPool(int maxNumThread, String poolName) {
         return newDaemonThreadPool(0, maxNumThread, 60L, TimeUnit.SECONDS, new SynchronousQueue(), new LogDiscardPolicy(poolName), poolName);
     }
 
-    public static ExecutorService newDaemonFixedThreadPool(int numThread, int queueSize, String poolName) {
+    public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread, int queueSize, String poolName) {
        return newDaemonThreadPool(numThread, numThread, 60L ,TimeUnit.SECONDS, new LinkedBlockingQueue<>(queueSize),
                new BlockedPolicy(poolName, 60), poolName);
     }
 
-    public static ExecutorService newDaemonThreadPool(int corePoolSize,
+    public static ThreadPoolExecutor newDaemonThreadPool(int corePoolSize,
                                                int maximumPoolSize,
                                                long keepAliveTime,
                                                TimeUnit unit,

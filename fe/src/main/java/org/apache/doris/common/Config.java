@@ -354,6 +354,12 @@ public class Config extends ConfigBase {
      */
     @ConfField public static int publish_version_interval_ms = 10;
 
+
+    /*
+     * The thrift server max worker threads
+     */
+    @ConfField public static int thrift_server_max_worker_threads = 4096;
+
     /*
      * Maximal wait seconds for straggler node in load
      * eg.

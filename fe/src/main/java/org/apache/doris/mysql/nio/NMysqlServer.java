@@ -32,6 +32,7 @@ import org.xnio.channels.AcceptingChannel;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 
 /**
  * mysql protocol implementation based on nio.
@@ -46,7 +47,7 @@ public class NMysqlServer extends MysqlServer {
     private AcceptingChannel<StreamConnection> server;
 
     // default task service.
-    private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_mysql_service_task_threads_num, "doris-mysql-nio TASK");
+    private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_mysql_service_task_threads_num, "doris-mysql-nio-pool");
 
     public NMysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;
@@ -56,6 +57,7 @@ public class NMysqlServer extends MysqlServer {
                 .setExternalExecutorService(taskService).build();
         // connectScheduler only used for idle check.
         this.acceptListener = new AcceptListener(connectScheduler);
+        ThreadPoolManager.registerThreadPoolMetric("doris-mysql-nio-pool", (ThreadPoolExecutor) taskService);
     }
 
     // start MySQL protocol service

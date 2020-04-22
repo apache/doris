@@ -35,6 +35,7 @@ import org.apache.thrift.TException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 
 // This class intend to publish the state of cluster to backends.
 public class ClusterStatePublisher {
@@ -48,6 +49,7 @@ public class ClusterStatePublisher {
     // Use public for unit test easily.
     public ClusterStatePublisher(SystemInfoService clusterInfoService) {
         this.clusterInfoService = clusterInfoService;
+        ThreadPoolManager.registerThreadPoolMetric("cluster-state-publisher", (ThreadPoolExecutor) executor);
     }
 
     // Fuck singleton.
