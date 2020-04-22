@@ -57,7 +57,7 @@ size_t get_utf8_byte_length(unsigned char byte) {
 StringVal StringFunctions::substring(
         FunctionContext* context, const StringVal& str,
         const IntVal& pos, const IntVal& len) {
-    if (str.is_null || pos.is_null || len.is_null) {
+    if (str.is_null || pos.is_null || len.is_null || pos.val > str.len) {
         return StringVal::null();
     }
     if (len.val <= 0 || str.len == 0) {
@@ -67,7 +67,7 @@ StringVal StringFunctions::substring(
     // create index indicate every char start byte
     // e.g.  "hello word 你好" => [0,1,2,3,4,5,6,7,8,9,10,11,14] 你 and 好 are 3 bytes
     // why use a vector as index? It is unnecessary if there is no negative pos val,
-    // but if has pos is negative it is not easy to determin where to start, so need a 
+    // but if has pos is negative it is not easy to determin where to start, so need a
     // index save every character's length
     size_t byte_pos = 0;
     std::vector<size_t> index;
@@ -75,6 +75,9 @@ StringVal StringFunctions::substring(
         char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
         index.push_back(byte_pos);
         byte_pos += char_size;
+        if (pos.val > 0 && index.size() > pos.val + len.val) {
+            break;
+        }
     }
 
     int fixed_pos = pos.val;

@@ -17,7 +17,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# length
+# char_length_utf8
 ## Description
 ### Syntax
 
