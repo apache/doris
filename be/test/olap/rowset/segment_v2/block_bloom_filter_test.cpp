@@ -138,8 +138,8 @@ TEST_F(BlockBloomFilterTest, SP) {
             false_count2 += bf2->test_bytes((char*)&to_check2, 4);
         }
     }
-    ASSERT_LE((double)false_count1 / (num * 10), _fpp);
-    ASSERT_LE((double)false_count2 / (num * 10), _fpp);
+    ASSERT_LE((double)false_count1 / (num * 9), _fpp);
+    ASSERT_LE((double)false_count2 / (num * 9), _fpp);
 }
 
 // Test for slice
