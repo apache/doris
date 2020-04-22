@@ -166,5 +166,6 @@ Status SetOperationNode::open(RuntimeState* state) {
         VLOG_ROW << "hash table content: " << _hash_tbl->debug_string(true, &child(0)->row_desc());
         build_batch.reset();
     }
+    return Status::OK();
 }
 } // namespace doris
