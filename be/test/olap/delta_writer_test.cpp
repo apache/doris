@@ -59,8 +59,7 @@ void set_up() {
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
-    DorisMetrics::instance()->initialize("test", {}, false, {}, {});
-
+    DorisMetrics::instance()->initialize("ut");
     doris::EngineOptions options;
     options.store_paths = paths;
     doris::StorageEngine::open(options, &k_engine);

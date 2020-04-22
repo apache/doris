@@ -78,7 +78,7 @@ public:
         k_response_str = "";
         config::streaming_load_max_mb = 1;
 
-        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+        DorisMetrics::instance()->initialize("ut");
         _env._thread_mgr = new ThreadResourceMgr();
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();
@@ -109,7 +109,6 @@ private:
 };
 
 TEST_F(StreamLoadActionTest, no_auth) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -124,7 +123,6 @@ TEST_F(StreamLoadActionTest, no_auth) {
 
 #if 0
 TEST_F(StreamLoadActionTest, no_content_length) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&__env);
 
     HttpRequest request(_evhttp_req);
@@ -139,7 +137,6 @@ TEST_F(StreamLoadActionTest, no_content_length) {
 }
 
 TEST_F(StreamLoadActionTest, unknown_encoding) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -156,7 +153,6 @@ TEST_F(StreamLoadActionTest, unknown_encoding) {
 #endif
 
 TEST_F(StreamLoadActionTest, normal) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -177,7 +173,6 @@ TEST_F(StreamLoadActionTest, normal) {
 }
 
 TEST_F(StreamLoadActionTest, put_fail) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -200,7 +195,6 @@ TEST_F(StreamLoadActionTest, put_fail) {
 }
 
 TEST_F(StreamLoadActionTest, commit_fail) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -221,7 +215,6 @@ TEST_F(StreamLoadActionTest, commit_fail) {
 }
 
 TEST_F(StreamLoadActionTest, begin_fail) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -243,7 +236,6 @@ TEST_F(StreamLoadActionTest, begin_fail) {
 
 #if 0
 TEST_F(StreamLoadActionTest, receive_failed) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);
@@ -260,7 +252,6 @@ TEST_F(StreamLoadActionTest, receive_failed) {
 #endif
 
 TEST_F(StreamLoadActionTest, plan_fail) {
-    DorisMetrics::instance()->initialize("StreamLoadActionTest");
     StreamLoadAction action(&_env);
 
     HttpRequest request(_evhttp_req);

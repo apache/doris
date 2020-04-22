@@ -87,7 +87,7 @@ public:
 
     static void SetUpTestCase() {
         s_server = new EvHttpServer(0);
-        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+        DorisMetrics::instance()->initialize("ut");
         s_server->register_handler(GET, "/api/get_small_file", &s_test_handler);
         s_server->start();
         real_port = s_server->get_real_port();

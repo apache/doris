@@ -62,7 +62,7 @@ protected:
                   << ", pool_size=" << config::fragment_pool_queue_size;
         config::fragment_pool_thread_num = 32;
         config::fragment_pool_queue_size = 1024;
-        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+        DorisMetrics::instance()->initialize("ut");
     }
     virtual void TearDown() {}
 };

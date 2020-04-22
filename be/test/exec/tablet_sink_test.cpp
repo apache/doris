@@ -50,7 +50,7 @@ public:
     OlapTableSinkTest() { }
     virtual ~OlapTableSinkTest() { }
     void SetUp() override {
-        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+        DorisMetrics::instance()->initialize("ut");
         k_add_batch_status = Status::OK();
         _env = ExecEnv::GetInstance();
         _env->_thread_mgr = new ThreadResourceMgr();

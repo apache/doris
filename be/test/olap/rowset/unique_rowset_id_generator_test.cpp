@@ -33,7 +33,7 @@ public:
     }
 
     virtual void SetUp() {
-        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+        DorisMetrics::instance()->initialize("ut");
     }
 };
 

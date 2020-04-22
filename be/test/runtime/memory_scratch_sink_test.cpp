@@ -78,12 +78,11 @@ public:
     virtual void SetUp() {
         config::periodic_counter_update_period_ms = 500;
         config::storage_root_path = "./data";
+        DorisMetrics::instance()->initialize("ut");
 
         system("mkdir -p ./test_run/output/");
         system("pwd");
         system("cp -r ./be/test/runtime/test_data/ ./test_run/.");
-
-        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
 
         init();
     }

@@ -31,7 +31,7 @@ namespace doris {
 class ExternalScanContextMgrTest : public testing::Test {
 public:
     ExternalScanContextMgrTest() {
-        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+        DorisMetrics::instance()->initialize("ut");
         FragmentMgr* fragment_mgr = new FragmentMgr(&_exec_env);
         ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
         ResultQueueMgr* result_queue_mgr = new  ResultQueueMgr();

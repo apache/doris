@@ -50,7 +50,7 @@ namespace doris {
 static const uint32_t MAX_PATH_LEN = 1024;
 
 void set_up() {
-    DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+    DorisMetrics::instance()->initialize("ut");
     config::path_gc_check = false;
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);

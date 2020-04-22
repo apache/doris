@@ -104,7 +104,7 @@ public:
         add_status = OLAP_SUCCESS;
         close_status = OLAP_SUCCESS;
         config::streaming_load_rpc_max_alive_time_sec = 120;
-        DorisMetrics::instance()->initialize("test", {}, false, {}, {});
+        DorisMetrics::instance()->initialize("ut");
     }
 private:
 };

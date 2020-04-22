@@ -152,9 +152,6 @@ UIntGauge DorisMetrics::stream_load_pipe_count;
 UIntGauge DorisMetrics::brpc_endpoint_stub_count;
 UIntGauge DorisMetrics::tablet_writer_count;
 
-DorisMetrics::DorisMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
-}
-
 DorisMetrics::~DorisMetrics() {
     delete _system_metrics;
     delete _metrics;

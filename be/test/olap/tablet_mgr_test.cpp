@@ -53,8 +53,6 @@ public:
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
         DorisMetrics::instance()->initialize("ut");
-        auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
-        FileHandler::set_fd_cache(cache);
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         boost::filesystem::remove_all(_engine_data_path);
