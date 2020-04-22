@@ -167,7 +167,7 @@ public:
     static IntCounter blocks_push_remote_duration_us;
 
     ~DorisMetrics();
-    // call before calling metrics
+    // not thread-safe, call before calling metrics
     void initialize(
         const std::string& name,
         const std::vector<std::string>& paths = std::vector<std::string>(),
@@ -180,7 +180,7 @@ public:
     static SystemMetrics* system_metrics() { return _s_doris_metrics._system_metrics; }
 private:
     // Don't allow constrctor
-    DorisMetrics();
+    DorisMetrics() {}
 
     void update();
     void _update_process_thread_num();
@@ -191,8 +191,8 @@ private:
 
     static DorisMetrics _s_doris_metrics;
 
-    MetricRegistry* _metrics;
-    SystemMetrics* _system_metrics;
+    MetricRegistry* _metrics = nullptr;
+    SystemMetrics* _system_metrics = nullptr;
 };
 
 };

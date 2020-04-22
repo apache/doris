@@ -89,6 +89,7 @@ TEST_F(PlainTextLineReaderTest, lz4_normal_use) {
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(eof);
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, lz4_test_limit) {
@@ -125,6 +126,7 @@ TEST_F(PlainTextLineReaderTest, lz4_test_limit) {
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
     ASSERT_FALSE(eof);
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, lz4_test_limit2) {
@@ -148,6 +150,7 @@ TEST_F(PlainTextLineReaderTest, lz4_test_limit2) {
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, lz4_test_limit3) {
@@ -177,6 +180,7 @@ TEST_F(PlainTextLineReaderTest, lz4_test_limit3) {
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, lz4_test_limit4) {
@@ -206,6 +210,7 @@ TEST_F(PlainTextLineReaderTest, lz4_test_limit4) {
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
+    delete decompressor;
 }
 
 TEST_F(PlainTextLineReaderTest, lz4_test_limit5) {
@@ -225,6 +230,7 @@ TEST_F(PlainTextLineReaderTest, lz4_test_limit5) {
     // Empty
     st = line_reader.read_line(&ptr, &size, &eof);
     ASSERT_TRUE(st.ok());
+    delete decompressor;
 }
 
 } // end namespace doris

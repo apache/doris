@@ -66,19 +66,14 @@ OLAPStatus RowsetGraph::construct_rowset_graph(const std::vector<RowsetMetaShare
         int64_t start_vertex_index = _vertex_index_map[rs_metas[i]->start_version()];
         int64_t end_vertex_index = _vertex_index_map[rs_metas[i]->end_version() + 1];
         // Add one edge from start_version to end_version.
-        std::list<int64_t>* edges = _version_graph[start_vertex_index].edges;
-        edges->insert(edges->begin(), end_vertex_index);
+        _version_graph[start_vertex_index].edges.push_front(end_vertex_index);
         // Add reverse edge from end_version to start_version.
-        std::list<int64_t>* r_edges = _version_graph[end_vertex_index].edges;
-        r_edges->insert(r_edges->begin(), start_vertex_index);
+        _version_graph[end_vertex_index].edges.push_front(start_vertex_index);
     }
     return OLAP_SUCCESS;
 }
 
 OLAPStatus RowsetGraph::reconstruct_rowset_graph(const std::vector<RowsetMetaSharedPtr>& rs_metas) {
-    for (auto& vertex : _version_graph) {
-        SAFE_DELETE(vertex.edges);
-    }
     _version_graph.clear();
     _vertex_index_map.clear();
     return construct_rowset_graph(rs_metas);
@@ -107,12 +102,10 @@ OLAPStatus RowsetGraph::add_version_to_graph(const Version& version) {
 
     // We assume this version is new version, so we just add two edges
     // into version graph. add one edge from start_version to end_version
-    std::list<int64_t>* edges = _version_graph[start_vertex_index].edges;
-    edges->insert(edges->begin(), end_vertex_index);
+    _version_graph[start_vertex_index].edges.push_front(end_vertex_index);
 
     // We add reverse edge(from end_version to start_version) to graph
-    std::list<int64_t>* r_edges = _version_graph[end_vertex_index].edges;
-    r_edges->insert(r_edges->begin(), start_vertex_index);
+    _version_graph[end_vertex_index].edges.push_front(start_vertex_index);
 
     return OLAP_SUCCESS;
 }
@@ -131,8 +124,8 @@ OLAPStatus RowsetGraph::delete_version_from_graph(const Version& version) {
     int64_t start_vertex_index = _vertex_index_map[start_vertex_value];
     int64_t end_vertex_index = _vertex_index_map[end_vertex_value];
     // Remove edge and its reverse edge.
-    _version_graph[start_vertex_index].edges->remove(end_vertex_index);
-    _version_graph[end_vertex_index].edges->remove(start_vertex_index);
+    _version_graph[start_vertex_index].edges.remove(end_vertex_index);
+    _version_graph[end_vertex_index].edges.remove(start_vertex_index);
 
     return OLAP_SUCCESS;
 }
@@ -144,9 +137,7 @@ OLAPStatus RowsetGraph::_add_vertex_to_graph(int64_t vertex_value) {
         return OLAP_SUCCESS;
     }
 
-    std::unique_ptr<std::list<int64_t>> edges(new std::list<int64_t>());
-    Vertex vertex = {vertex_value, edges.release()};
-    _version_graph.emplace_back(vertex);
+    _version_graph.emplace_back(Vertex(vertex_value));
     _vertex_index_map[vertex_value] = _version_graph.size() - 1;
     return OLAP_SUCCESS;
 }
@@ -205,18 +196,17 @@ OLAPStatus RowsetGraph::capture_consistent_versions(const Version& spec_version,
     while (bfs_queue.empty() == false && visited[end_vertex_index] == false) {
         int64_t top_vertex_index = bfs_queue.front();
         bfs_queue.pop();
-        auto it = _version_graph[top_vertex_index].edges->begin();
-        for (; it != _version_graph[top_vertex_index].edges->end(); ++it) {
-            if (visited[*it] == false) {
+        for (const auto& it : _version_graph[top_vertex_index].edges) {
+            if (visited[it] == false) {
                 // If we don't support reverse version in the path, and start vertex
                 // value is larger than the end vertex value, we skip this edge.
-                if (_version_graph[top_vertex_index].value > _version_graph[*it].value) {
+                if (_version_graph[top_vertex_index].value > _version_graph[it].value) {
                     continue;
                 }
 
-                visited[*it] = true;
-                predecessor[*it] = top_vertex_index;
-                bfs_queue.push(*it);
+                visited[it] = true;
+                predecessor[it] = top_vertex_index;
+                bfs_queue.push(it);
             }
         }
     }

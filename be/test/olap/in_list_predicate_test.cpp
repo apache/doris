@@ -183,6 +183,7 @@ TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN) { \
     ASSERT_EQ(_vectorized_batch->size(), 1); \
     sel = _vectorized_batch->selected(); \
     ASSERT_EQ(*(col_data + sel[0]), 5); \
+    delete pred; \
 } \
 
 TEST_IN_LIST_PREDICATE(int8_t, TINYINT, "TINYINT")
@@ -247,6 +248,7 @@ TEST_F(TestInListPredicate, TYPE_NAME##_COLUMN_V2) { \
     pred->evaluate(&column2, sel, &selected_size); \
     ASSERT_EQ(selected_size, 1); \
     ASSERT_EQ(*((TYPE*)column2.cell_ptr(sel[0])), 5); \
+    delete pred; \
 } \
 
 TEST_IN_LIST_PREDICATE_V2(int8_t, TINYINT, "TINYINT")
@@ -304,6 +306,7 @@ TEST_F(TestInListPredicate, FLOAT_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_FLOAT_EQ(*(col_data + sel[0]), 5.1);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
@@ -356,6 +359,7 @@ TEST_F(TestInListPredicate, DOUBLE_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_DOUBLE_EQ(*(col_data + sel[0]), 5.1);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
@@ -417,6 +421,7 @@ TEST_F(TestInListPredicate, DECIMAL_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value2);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, CHAR_COLUMN) {
@@ -500,6 +505,7 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value2);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
@@ -581,6 +587,7 @@ TEST_F(TestInListPredicate, VARCHAR_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(*(col_data + sel[0]), value2);
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, DATE_COLUMN) {
@@ -650,6 +657,7 @@ TEST_F(TestInListPredicate, DATE_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(datetime::to_date_string(*(col_data + sel[0])), "2017-09-10");
+    delete pred;
 }
 
 TEST_F(TestInListPredicate, DATETIME_COLUMN) {
@@ -719,6 +727,7 @@ TEST_F(TestInListPredicate, DATETIME_COLUMN) {
     ASSERT_EQ(_vectorized_batch->size(), 1);
     sel = _vectorized_batch->selected();
     ASSERT_EQ(datetime::to_datetime_string(*(col_data + sel[0])), "2017-09-10 01:00:00");
+    delete pred;
 }
 
 } // namespace doris

@@ -45,6 +45,7 @@ TEST_F(StringFunctionsTest, money_format_bigint) {
     result = StringFunctions::money_format(context, doris_udf::BigIntVal(9223372036854775807));
     expected = AnyValUtil::from_string_temp(context, std::string("9,223,372,036,854,775,807.00"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, money_format_large_int) {
@@ -61,6 +62,7 @@ TEST_F(StringFunctionsTest, money_format_large_int) {
     StringVal result = StringFunctions::money_format(context, doris_udf::LargeIntVal(value));
     StringVal expected = AnyValUtil::from_string_temp(context, std::string("170,141,183,460,469,231,731,687,303,715,884,105,727.00"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, money_format_double) {
@@ -81,6 +83,7 @@ TEST_F(StringFunctionsTest, money_format_double) {
     result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.454));
     expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, money_format_decimal) {
@@ -101,6 +104,7 @@ TEST_F(StringFunctionsTest, money_format_decimal) {
     result = StringFunctions::money_format(context, value2);
     expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, money_format_decimal_v2) {
@@ -121,6 +125,7 @@ TEST_F(StringFunctionsTest, money_format_decimal_v2) {
     result = StringFunctions::money_format(context, value2);
     expected = AnyValUtil::from_string_temp(context, std::string("-740,740,740.72"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, split_part) {
@@ -155,6 +160,7 @@ TEST_F(StringFunctionsTest, split_part) {
 
     ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
             StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 4));
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, ends_with) {
@@ -188,6 +194,7 @@ TEST_F(StringFunctionsTest, ends_with) {
     ASSERT_EQ(nullRet, StringFunctions::ends_with(context, StringVal::null(), StringVal("hello")));
 
     ASSERT_EQ(nullRet, StringFunctions::ends_with(context, StringVal::null(), StringVal::null()));
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, starts_with) {
@@ -221,6 +228,7 @@ TEST_F(StringFunctionsTest, starts_with) {
     ASSERT_EQ(nullRet, StringFunctions::starts_with(context, StringVal::null(), StringVal("hello world")));
 
     ASSERT_EQ(nullRet, StringFunctions::starts_with(context, StringVal::null(), StringVal::null()));
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, null_or_empty) {
@@ -241,6 +249,7 @@ TEST_F(StringFunctionsTest, null_or_empty) {
     ASSERT_EQ(falseRet, StringFunctions::null_or_empty(context, StringVal(".")));
 
     ASSERT_EQ(trueRet, StringFunctions::null_or_empty(context, StringVal::null()));
+    delete context;
 }
 
 }

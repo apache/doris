@@ -34,7 +34,7 @@ public:
     
     PluginLoader(const std::string& name, int type): _name(name), _type(type), _close(false) {}
     
-    ~PluginLoader() {};
+    virtual ~PluginLoader() {};
     
     virtual Status install() = 0;
     
@@ -75,7 +75,7 @@ public:
                                                            _install_path(install_path), _plugin_handler(nullptr) {
     };
 
-    ~DynamicPluginLoader() {
+    virtual ~DynamicPluginLoader() {
         // just close plugin, but don't clean install path (maybe other plugin has used)
         WARN_IF_ERROR(close_plugin(), "close plugin failed.");
     };
@@ -104,7 +104,7 @@ class BuiltinPluginLoader : public PluginLoader {
 public:
     BuiltinPluginLoader(const std::string& name, int type, const Plugin* plugin);
     
-    ~BuiltinPluginLoader() {
+    virtual ~BuiltinPluginLoader() {
         WARN_IF_ERROR(uninstall(), "close plugin failed.");
     }
 

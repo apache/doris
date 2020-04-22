@@ -66,6 +66,7 @@ TEST_F(TimestampFunctionsTest, day_of_week_test) {
     tv.type = TIME_DATETIME;
 
     ASSERT_EQ(7, TimestampFunctions::day_of_week(context, tv).val);
+    delete context;
 }
 
 TEST_F(TimestampFunctionsTest, time_diff_test) {
@@ -120,6 +121,7 @@ TEST_F(TimestampFunctionsTest, convert_tz_test) {
     t = TimestampFunctions::convert_tz(context, tv1, StringVal("CST"), StringVal("America/Los_Angeles"));
     DateTimeValue dt3 = DateTimeValue::from_datetime_val(t);
     ASSERT_EQ(20190806013857, dt3.to_int64());
+    delete context;
 }
 
 TEST_F(TimestampFunctionsTest, timestampdiff_test) {
@@ -171,6 +173,7 @@ TEST_F(TimestampFunctionsTest, timestampdiff_test) {
     ASSERT_EQ(8639, TimestampFunctions::minutes_diff(context, tv2, tv1).val);
     //SECOND
     ASSERT_EQ(518399, TimestampFunctions::seconds_diff(context, tv2, tv1).val);
+    delete context;
 }
 
 }
