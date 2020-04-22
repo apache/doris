@@ -18,11 +18,11 @@
 package org.apache.doris.common;
 
 
+import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -35,7 +35,7 @@ import java.util.concurrent.TimeUnit;
 
 public class ThreadPoolManager {
 
-    private static Map<String, ThreadPoolExecutor> nameToThreadPoolMap = new HashMap<>();
+    private static Map<String, ThreadPoolExecutor> nameToThreadPoolMap = Maps.newConcurrentMap();
 
 
     public static Map<String, ThreadPoolExecutor> getNameToThreadPoolMap() {
