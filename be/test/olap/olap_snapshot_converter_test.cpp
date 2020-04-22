@@ -52,6 +52,9 @@ static StorageEngine* k_engine = nullptr;
 class OlapSnapshotConverterTest : public testing::Test {
 public:
     virtual void SetUp() {
+        config::tablet_map_shard_size = 1;
+        config::txn_map_shard_size = 1;
+        config::txn_shard_size = 1;
         std::vector<StorePath> paths;
         paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;
@@ -61,8 +64,6 @@ public:
             k_engine = new StorageEngine(options);
         }
 
-        auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
-        FileHandler::set_fd_cache(cache);
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         boost::filesystem::remove_all(_engine_data_path);

@@ -22,6 +22,7 @@
 #include <string>
 
 #include <boost/algorithm/string.hpp>
+#include <glog/logging.h>
 
 #include "http/http_common.h"
 #include "http/http_headers.h"
@@ -88,7 +89,10 @@ public:
     struct evhttp_request* get_evhttp_request() const { return _ev_req; }
 
     void* handler_ctx() const { return _handler_ctx; }
-    void set_handler_ctx(void* ctx) { _handler_ctx = ctx; }
+    void set_handler_ctx(void* ctx) {
+        DCHECK(_handler != nullptr);
+        _handler_ctx = ctx;
+    }
 
     const char* remote_host() const;
 

@@ -113,6 +113,7 @@ void test_char(Slice src_val) {
         ASSERT_FALSE(type->equal((char*)&src_val, (char*)&dst_val));
         ASSERT_TRUE(type->cmp((char*)&src_val, (char*)&dst_val) < 0);
     }
+    delete field;
 }
 
 template<>

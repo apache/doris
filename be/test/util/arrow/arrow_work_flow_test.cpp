@@ -63,6 +63,9 @@ protected:
     virtual void TearDown() {
         _obj_pool.clear();
         system("rm -rf ./test_run");
+
+        delete _state;
+        delete _mem_tracker;
     }
 
     void init();
@@ -72,12 +75,11 @@ protected:
 private:
     ObjectPool _obj_pool;
     TDescriptorTable _t_desc_table;
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
     TPlanNode _tnode;
-    ExecEnv* _exec_env;
-    RuntimeState* _state;
-    MemTracker *_mem_tracker;
-    RowDescriptor* _row_desc;
+    ExecEnv* _exec_env = nullptr;
+    RuntimeState* _state = nullptr;
+    MemTracker *_mem_tracker = nullptr;
 }; // end class ArrowWorkFlowTest
 
 void ArrowWorkFlowTest::init() {
@@ -87,10 +89,8 @@ void ArrowWorkFlowTest::init() {
 }
 
 void ArrowWorkFlowTest::init_runtime_state() {
-    ResultQueueMgr* result_queue_mgr = new ResultQueueMgr();
-    ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
-    _exec_env->_result_queue_mgr = result_queue_mgr;
-    _exec_env->_thread_mgr = thread_mgr;
+    _exec_env->_result_queue_mgr = new ResultQueueMgr();
+    _exec_env->_thread_mgr = new ThreadResourceMgr();
     _exec_env->_buffer_reservation = new ReservationTracker();
     TQueryOptions query_options;
     query_options.batch_size = 1024;
@@ -252,7 +252,6 @@ void ArrowWorkFlowTest::init_desc_tbl() {
 
     vector<bool> nullable_tuples;
     nullable_tuples.push_back(false);
-    // _row_desc = _pool.add(new RowDescriptor(*_desc_tbl, row_tids, nullable_tuples));
 
     // node
     _tnode.node_id = 0;
@@ -333,7 +332,8 @@ TEST_F(ArrowWorkFlowTest, NormalUse) {
     status = scan_node.open(_state);
     ASSERT_TRUE(status.ok());
 
-    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), new MemTracker(-1));
+    std::unique_ptr<MemTracker> mem_tracker(new MemTracker(-1));
+    RowBatch row_batch(scan_node._row_descriptor, _state->batch_size(), mem_tracker.get());
     bool eos = false;
 
     while (!eos) {

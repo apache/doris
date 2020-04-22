@@ -42,18 +42,6 @@ public:
             _column_reader(NULL),
             _stream_factory(NULL) {
             _offsets.clear();
-        _map_in_streams.clear();
-
-        _present_buffers.clear();
-        
-        _data_buffers.clear();
-
-        _second_buffers.clear();
-
-        _dictionary_buffers.clear();
-
-        _length_buffers.clear();
-
         _mem_tracker.reset(new MemTracker(-1));
         _mem_pool.reset(new MemPool(_mem_tracker.get()));
     }
@@ -77,25 +65,19 @@ public:
     
     virtual void TearDown() {
         SAFE_DELETE(_column_writer);
-
         SAFE_DELETE(_column_reader);
-
         SAFE_DELETE(_stream_factory);
-        
         SAFE_DELETE(_shared_buffer);
         
         _offsets.clear();
-
+        for (auto in_stream : _map_in_streams) {
+            delete in_stream.second;
+        }
         _map_in_streams.clear();
-
         _present_buffers.clear();
-        
         _data_buffers.clear();
-
         _second_buffers.clear();
-
         _dictionary_buffers.clear();
-
         _length_buffers.clear();
     }
 
@@ -233,7 +215,6 @@ public:
     }
 
     ColumnWriter *_column_writer;
-
     ColumnReader *_column_reader;
     std::unique_ptr<MemTracker> _mem_tracker;
     std::unique_ptr<MemPool> _mem_pool;
@@ -242,23 +223,15 @@ public:
     OutStreamFactory *_stream_factory;
 
     std::vector<size_t> _offsets;
-
     std::vector<StorageByteBuffer*> _present_buffers;
-
     std::vector<StorageByteBuffer*> _data_buffers;
-
     std::vector<StorageByteBuffer*> _second_buffers;
-
     std::vector<StorageByteBuffer*> _dictionary_buffers;
-
     std::vector<StorageByteBuffer*> _length_buffers;
 
     StorageByteBuffer* _shared_buffer;
-
     std::map<StreamName, ReadOnlyFileStream *> _map_in_streams;
-
     FileHandler helper;
-
     OlapReaderStatistics _stats;
 };
 

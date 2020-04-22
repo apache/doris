@@ -163,6 +163,9 @@ TEST_F(EsPredicateTest, normal) {
     std::string expected_json = "{\"bool\":{\"filter\":[{\"bool\":{\"should\":[{\"range\":{\"id\":{\"gt\":\"10\"}}}]}}]}}";
     LOG(INFO) << "compound bool query" << actual_bool_json;
     ASSERT_STREQ(expected_json.c_str(), actual_bool_json.c_str());
+    for (auto predicate : predicates) {
+        delete predicate;
+    }
 }
 
 

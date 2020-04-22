@@ -136,9 +136,6 @@ IntGauge DorisMetrics::blocks_open_writing;
 
 IntCounter DorisMetrics::blocks_push_remote_duration_us;
 
-DorisMetrics::DorisMetrics() : _metrics(nullptr), _system_metrics(nullptr) {
-}
-
 DorisMetrics::~DorisMetrics() {
     delete _system_metrics;
     delete _metrics;
@@ -150,6 +147,10 @@ void DorisMetrics::initialize(
         bool init_system_metrics,
         const std::set<std::string>& disk_devices,
         const std::vector<std::string>& network_interfaces) {
+    if (_metrics != nullptr) {
+        return;
+    }
+    DCHECK(_metrics == nullptr && _system_metrics == nullptr);
     _metrics = new MetricRegistry(name);
 #define REGISTER_DORIS_METRIC(name) _metrics->register_metric(#name, &name)
 

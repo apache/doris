@@ -150,6 +150,7 @@ TEST_F(ColumnZoneMapTest, NormalTestIntPage) {
 
     ASSERT_EQ(true, zone_maps[2].has_null());
     ASSERT_EQ(false, zone_maps[2].has_not_null());
+    delete field;
 }
 
 // Test for string
@@ -157,6 +158,7 @@ TEST_F(ColumnZoneMapTest, NormalTestVarcharPage) {
     TabletColumn varchar_column = create_varchar_key(0);
     Field* field = FieldFactory::create(varchar_column);
     test_string("NormalTestVarcharPage", field);
+    delete field;
 }
 
 // Test for string
@@ -164,6 +166,7 @@ TEST_F(ColumnZoneMapTest, NormalTestCharPage) {
     TabletColumn char_column = create_char_key(0);
     Field* field = FieldFactory::create(char_column);
     test_string("NormalTestCharPage", field);
+    delete field;
 }
 
 }

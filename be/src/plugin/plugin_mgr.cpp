@@ -31,7 +31,6 @@ using namespace strings;
     }   \
 }
 
-
 Status PluginMgr::install_plugin(const TPluginMetaInfo& info) {
     {
         std::lock_guard<std::mutex> l(_lock);
