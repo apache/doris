@@ -713,9 +713,9 @@ public class InsertStmt extends DdlStmt {
         return dataSink;
     }
 
-    public void finalize() throws UserException {
+    public void complete() throws UserException {
         if (!isExplain() && targetTable instanceof OlapTable) {
-            ((OlapTableSink) dataSink).finalize();
+            ((OlapTableSink) dataSink).complete();
             // add table indexes to transaction state
             TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
             if (txnState == null) {
