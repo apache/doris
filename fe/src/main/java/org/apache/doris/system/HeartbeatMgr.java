@@ -22,6 +22,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.http.rest.BootstrapFinishAction;
@@ -53,7 +54,6 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -73,7 +73,8 @@ public class HeartbeatMgr extends MasterDaemon {
     public HeartbeatMgr(SystemInfoService nodeMgr) {
         super("heartbeat mgr", FeConstants.heartbeat_interval_second * 1000);
         this.nodeMgr = nodeMgr;
-        this.executor = Executors.newCachedThreadPool();
+        this.executor = ThreadPoolManager.newDaemonFixedThreadPool(Config.heartbeat_mgr_threads_num,
+                Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool");
         this.heartbeatFlags = new HeartbeatFlags();
     }
 
