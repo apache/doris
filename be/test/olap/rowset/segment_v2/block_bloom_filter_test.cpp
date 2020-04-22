@@ -103,27 +103,43 @@ TEST_F(BlockBloomFilterTest, SP) {
     ASSERT_TRUE(st.ok());
     ASSERT_TRUE(bf2->size() > 0);
 
-    int num = 1024;
-    int32_t values[1024];
-    for (int32_t i = 0; i < 1024; ++i) {
+    int num = _expected_num;
+    int32_t values[num];
+    for (int32_t i = 0; i < num; ++i) {
         values[i] = i * 10 + 1;
-    }
-    for (int i = 0; i < num; ++i) {
         bf->add_bytes((char*)&values[i], sizeof(int32_t));
     }
 
-    int32_t values2[1024];
-    for (int32_t i = 0; i < 1024; ++i) {
+    int32_t values2[num];
+    for (int32_t i = 0; i < num; ++i) {
         values2[i] = 15360 + i * 10 + 1;
-    }
-
-    for (int i = 0; i < num; ++i) {
         bf2->add_bytes((char*)&values2[i], sizeof(int32_t));
     }
 
-    int32_t to_check = 101;
-    ASSERT_TRUE(bf->test_bytes((char*)&to_check, 4));
-    ASSERT_FALSE(bf2->test_bytes((char*)&to_check, 4));
+    // true test
+    for (int i = 0; i < num; ++i) {
+        ASSERT_TRUE(bf->test_bytes((char*)&values[i], 4));
+        ASSERT_TRUE(bf2->test_bytes((char*)&values2[i], 4));
+    }
+
+    // false test
+    int false_count1 = 0;
+    int false_count2 = 0;
+    for (int i = 0; i < num; ++i) {
+        int32_t to_check1 = values[i];
+        for (int j = 1; j < 10; ++j) {
+            ++to_check1;
+            false_count1 += bf->test_bytes((char*)&to_check1, 4);
+        }
+
+        int32_t to_check2 = values2[i];
+        for (int j = 1; j < 10; ++j) {
+            ++to_check2;
+            false_count2 += bf2->test_bytes((char*)&to_check2, 4);
+        }
+    }
+    ASSERT_LE((double)false_count1 / (num * 9), _fpp);
+    ASSERT_LE((double)false_count2 / (num * 9), _fpp);
 }
 
 // Test for slice

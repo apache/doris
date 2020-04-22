@@ -72,6 +72,7 @@ public:
         _size = _num_bytes + 1;
         // reserve last byte for null flag
         _data = new char[_size];
+        memset(_data, 0, _size);
         _has_null = (bool*)(_data + _num_bytes);
         *_has_null = false;
         return Status::OK();
