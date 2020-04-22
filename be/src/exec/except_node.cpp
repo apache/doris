@@ -46,6 +46,7 @@ Status ExceptNode::open(RuntimeState* state) {
         _hash_tbl_iterator = _hash_tbl->begin();
         return Status::OK();
     }
+    bool eos = false;
 
     for (int i = 1; i < _children.size(); ++i) {
         // rebuid hash table, for first time will rebuild with the no duplicated _hash_tbl,

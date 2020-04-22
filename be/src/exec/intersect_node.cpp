@@ -49,6 +49,7 @@ Status IntersectNode::open(RuntimeState* state) {
         _hash_tbl_iterator = _hash_tbl->begin();
         return Status::OK();
     }
+    bool eos = false;
 
     for (int i = 1; i < _children.size(); ++i) {
         if (i > 1) {
