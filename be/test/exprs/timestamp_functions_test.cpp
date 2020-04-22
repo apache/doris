@@ -92,6 +92,10 @@ TEST_F(TimestampFunctionsTest, from_unix) {
     IntVal unixtimestamp(1565080737);
     StringVal sval = TimestampFunctions::from_unix(ctx, unixtimestamp);
     ASSERT_EQ("2019-08-06 01:38:57", std::string((char*) sval.ptr, sval.len));
+
+    IntVal unixtimestamp2(-123);
+    sval = TimestampFunctions::from_unix(ctx, unixtimestamp2);
+    ASSERT_TRUE(sval.is_null);
 }
 
 TEST_F(TimestampFunctionsTest, to_unix) {

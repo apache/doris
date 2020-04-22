@@ -523,7 +523,7 @@ DateTimeVal TimestampFunctions::timestamp(
 // FROM_UNIXTIME()
 StringVal TimestampFunctions::from_unix(
         FunctionContext* context, const IntVal& unix_time) {
-    if (unix_time.is_null) {
+    if (unix_time.is_null || unix_time.val < 0 || unix_time.val > INT_MAX) {
         return StringVal::null();
     }
     DateTimeValue dtv;
@@ -538,7 +538,7 @@ StringVal TimestampFunctions::from_unix(
 // FROM_UNIXTIME()
 StringVal TimestampFunctions::from_unix(
             FunctionContext* context, const IntVal& unix_time, const StringVal& fmt) {
-    if (unix_time.is_null || fmt.is_null) {
+    if (unix_time.is_null || fmt.is_null || unix_time.val < 0 || unix_time.val > INT_MAX) {
         return StringVal::null();
     }
     DateTimeValue dtv;
