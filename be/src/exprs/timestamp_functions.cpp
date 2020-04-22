@@ -567,7 +567,7 @@ IntVal TimestampFunctions::to_unix(
     if(!ts_value.unix_timestamp(&timestamp, context->impl()->state()->timezone())) {
         return IntVal::null();
     } else {
-        //To compatible to mysql, timestamp not between 1970-01-01 00:00:00 ~ 9999-12-31 23:59:59 return 0
+        //To compatible to mysql, timestamp not between 1970-01-01 00:00:00 ~ 2038-01-01 00:00:00 return 0
         timestamp = timestamp < 0 ? 0 : timestamp;
         timestamp = timestamp > INT_MAX ? 0 : timestamp;
         return IntVal(timestamp);
