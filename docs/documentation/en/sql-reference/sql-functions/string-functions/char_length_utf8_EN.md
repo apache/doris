@@ -28,20 +28,21 @@ Returns the length of the string and the number of characters returned for multi
 
 ## example
 
-```
-mysql> select length("abc");
-+---------------+
-| length('abc') |
-+---------------+
-|             3 |
-+---------------+
 
-mysql> select length("中国");
-+------------------+
-| length('中国')   |
-+------------------+
-|                6 |
-+------------------+
+```
+mysql> select char_length_utf8("abc");
++-------------------------+
+| char_length_utf8('abc') |
++-------------------------+
+|                       3 |
++-------------------------+
+
+mysql> select char_length_utf8("中国");
++------------------------ ---+
+| char_length_utf8('中国')   |
++----------------------------+
+|                          2 |
++----------------------------+
 ```
 ##keyword
-LENGTH
+CHAR_LENGTH_UTF8

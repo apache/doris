@@ -24,24 +24,24 @@ under the License.
 `INT char_length_utf8(VARCHAR str)`
 
 
-返回字符串的长度，对于多字节字符，返回的字符数。
+返回字符串的长度，对于多字节字符，返回字符数。
 
 ## example
 
 ```
-mysql> select length("abc");
-+---------------+
-| length('abc') |
-+---------------+
-|             3 |
-+---------------+
+mysql> select char_length_utf8("abc");
++-------------------------+
+| char_length_utf8('abc') |
++-------------------------+
+|                       3 |
++-------------------------+
 
-mysql> select length("中国");
-+------------------+
-| length('中国')   |
-+------------------+
-|                6 |
-+------------------+
+mysql> select char_length_utf8("中国");
++------------------------ ---+
+| char_length_utf8('中国')   |
++----------------------------+
+|                          2 |
++----------------------------+
 ```
 ##keyword
-LENGTH
+CHAR_LENGTH_UTF8
