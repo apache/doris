@@ -93,5 +93,8 @@ public class ExprRewriter {
 
     public void reset() { numChanges_ = 0; }
     public boolean changed() { return numChanges_ > 0; }
+    public void change() {
+        numChanges_++;
+    }
     public int getNumChanges() { return numChanges_; }
 }
