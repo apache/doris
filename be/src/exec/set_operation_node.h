@@ -41,6 +41,8 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state = nullptr);
     virtual Status prepare(RuntimeState* state);
     virtual Status close(RuntimeState* state);
+    virtual Status open(RuntimeState* state);
+
 
 protected:
     std::string get_row_output_string(TupleRow* row, const RowDescriptor& row_desc);
