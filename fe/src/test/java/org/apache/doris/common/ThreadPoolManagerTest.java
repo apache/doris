@@ -17,11 +17,13 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.metric.Metric;
+import org.apache.doris.metric.MetricRepo;
 import org.junit.Assert;
 import org.junit.Test;
 
-import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.List;
 
 public class ThreadPoolManagerTest {
 
@@ -30,10 +32,13 @@ public class ThreadPoolManagerTest {
         ThreadPoolExecutor testCachedPool = ThreadPoolManager.newDaemonCacheThreadPool(2, "test_cache_pool");
         ThreadPoolExecutor testFixedThreaddPool = ThreadPoolManager.newDaemonFixedThreadPool(2, 2,
                 "test_fixed_thread_pool");
+
         ThreadPoolManager.registerThreadPoolMetric("test_cache_pool", testCachedPool);
         ThreadPoolManager.registerThreadPoolMetric("test_fixed_thread_pool", testFixedThreaddPool);
-        Map<String, ThreadPoolExecutor> threadPoolExecutorMap = ThreadPoolManager.getNameToThreadPoolMap();
-        Assert.assertEquals(2, threadPoolExecutorMap.size());
+
+        List<Metric> metricList = MetricRepo.getMetricsByName("thread_pool");
+
+        Assert.assertEquals(6, metricList.size());
         Assert.assertEquals(ThreadPoolManager.LogDiscardPolicy.class, testCachedPool.getRejectedExecutionHandler().getClass());
         Assert.assertEquals(ThreadPoolManager.BlockedPolicy.class, testFixedThreaddPool.getRejectedExecutionHandler().getClass());
 
@@ -75,6 +80,7 @@ public class ThreadPoolManagerTest {
         Assert.assertEquals(0, testFixedThreaddPool.getActiveCount());
         Assert.assertEquals(0, testFixedThreaddPool.getQueue().size());
         Assert.assertEquals(4, testFixedThreaddPool.getCompletedTaskCount());
+
 
     }
 }

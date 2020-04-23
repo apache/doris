@@ -22,7 +22,6 @@ import org.apache.doris.alter.AlterJob.JobType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.loadv2.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
@@ -43,7 +42,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedMap;
 import java.util.Timer;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class MetricRepo {
@@ -139,33 +137,6 @@ public final class MetricRepo {
                 .addLabel(new MetricLabel("type", jobType.name()))
                 .addLabel(new MetricLabel("state", "running"));
             PALO_METRIC_REGISTER.addPaloMetrics(gauge);
-        }
-
-        // thread pool
-        Map<String, ThreadPoolExecutor> poolNameToThreadPoolExecutor = ThreadPoolManager.getNameToThreadPoolMap();
-        String[] poolMerticTypes = {"pool_size", "active_thread_num", "task_in_queue"};
-        for (Map.Entry<String, ThreadPoolExecutor> pool : poolNameToThreadPoolExecutor.entrySet()) {
-            for (String poolMetricType : poolMerticTypes) {
-                GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("thread_pool",
-                        "thread_pool statistics") {
-                    @Override
-                    public Integer getValue() {
-                        switch (poolMetricType) {
-                            case "pool_size":
-                                return pool.getValue().getPoolSize();
-                            case "active_thread_num":
-                                return pool.getValue().getActiveCount();
-                            case "task_in_queue":
-                                return pool.getValue().getQueue().size();
-                            default:
-                                return 0;
-                        }
-                    }
-                };
-                gauge.addLabel(new MetricLabel("name", pool.getKey()))
-                        .addLabel(new MetricLabel("type", poolMetricType));
-                PALO_METRIC_REGISTER.addPaloMetrics(gauge);
-            }
         }
 
         // capacity

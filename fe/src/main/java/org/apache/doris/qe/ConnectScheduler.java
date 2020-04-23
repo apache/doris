@@ -35,7 +35,6 @@ import java.util.Map;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 // 查询请求的调度器
@@ -62,7 +61,6 @@ public class ConnectScheduler {
         nextConnectionId = new AtomicInteger(0);
         checkTimer = new Timer("ConnectScheduler Check Timer", true);
         checkTimer.scheduleAtFixedRate(new TimeoutChecker(), 0, 1000);
-        ThreadPoolManager.registerThreadPoolMetric("connect-scheduler-pool", (ThreadPoolExecutor) executor);
     }
 
     private class TimeoutChecker extends TimerTask {

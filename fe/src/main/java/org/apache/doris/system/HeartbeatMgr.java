@@ -55,7 +55,6 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -76,7 +75,6 @@ public class HeartbeatMgr extends MasterDaemon {
         this.nodeMgr = nodeMgr;
         this.executor = ThreadPoolManager.newDaemonFixedThreadPool(Config.heartbeat_mgr_threads_num,
                 Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool");
-        ThreadPoolManager.registerThreadPoolMetric("heartbeat-mgr-pool", (ThreadPoolExecutor) executor);
         this.heartbeatFlags = new HeartbeatFlags();
     }
 

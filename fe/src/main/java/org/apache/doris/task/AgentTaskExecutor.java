@@ -21,14 +21,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
 
 public class AgentTaskExecutor {
 
     private static final ExecutorService EXECUTOR = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_agent_task_threads_num, "agent-task-pool");
 
     public AgentTaskExecutor() {
-        ThreadPoolManager.registerThreadPoolMetric("agent-task-pool", (ThreadPoolExecutor) EXECUTOR);
+
     }
     
     public static void submit(AgentBatchTask task) {

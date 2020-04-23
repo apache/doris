@@ -17,9 +17,11 @@
 
 package org.apache.doris.common;
 
-
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
+import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.MetricLabel;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,15 +37,38 @@ import java.util.concurrent.TimeUnit;
 
 public class ThreadPoolManager {
 
-    private static Map<String, ThreadPoolExecutor> nameToThreadPoolMap = Maps.newConcurrentMap();
+    private static Map<String, ThreadPoolExecutor> nameToThreadPool = Maps.newConcurrentMap();
 
+    private static String[] poolMerticTypes = {"pool_size", "active_thread_num", "task_in_queue"};
 
-    public static Map<String, ThreadPoolExecutor> getNameToThreadPoolMap() {
-        return nameToThreadPoolMap;
+    public static void registerAllThreadPoolMetric() {
+        for (Map.Entry<String, ThreadPoolExecutor> entry : nameToThreadPool.entrySet()) {
+            registerThreadPoolMetric(entry.getKey(), entry.getValue());
+        }
     }
 
     public static void registerThreadPoolMetric(String poolName, ThreadPoolExecutor threadPool) {
-        nameToThreadPoolMap.put(poolName, threadPool);
+        for (String poolMetricType : poolMerticTypes) {
+            GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("thread_pool", "thread_pool statistics") {
+                @Override
+                public Integer getValue() {
+                    String metricType = this.getLabels().get(1).getValue();
+                    switch (metricType) {
+                        case "pool_size":
+                            return threadPool.getPoolSize();
+                        case "active_thread_num":
+                            return threadPool.getActiveCount();
+                        case "task_in_queue":
+                            return threadPool.getQueue().size();
+                        default:
+                            return 0;
+                    }
+                }
+            };
+            gauge.addLabel(new MetricLabel("name", poolName))
+                    .addLabel(new MetricLabel("type", poolMetricType));
+            MetricRepo.addMetric(gauge);
+        }
     }
 
     public static ThreadPoolExecutor newDaemonCacheThreadPool(int maxNumThread, String poolName) {
@@ -63,7 +88,9 @@ public class ThreadPoolManager {
                                                RejectedExecutionHandler handler,
                                                String poolName) {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
-        return new ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
+        ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
+        nameToThreadPool.put(poolName, threadPool);
+        return threadPool;
     }
 
     /**
