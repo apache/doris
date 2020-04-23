@@ -17,33 +17,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-#Delete
+# Delete
 
 Unlike other import methods, delete is a synchronization process. Similar to insert into, all delete operations are an independent import job in Doris. Generally, delete statements need to specify tables, partitions and delete conditions to tell which data to be deleted, and the data on base index and rollup index will be deleted at the same time.
 
 
-##Syntax
+## Syntax
 
 The delete statement's syntax is as follows：
 
 ```
 DELETE FROM table_name [PARTITION partition_name]
-        WHERE
-        column_name1 op value[ AND column_name2 op value ...];
+WHERE
+column_name1 op value[ AND column_name2 op value ...];
 ```
 
 example 1：
 
 ```
-DELETE FROM my_table PARTITION p1
-        WHERE k1 = 3;
+DELETE FROM my_table PARTITION p1 WHERE k1 = 3;
 ```
 
 example 2:
 
 ```
-DELETE FROM my_table PARTITION p1
-        WHERE k1 < 3 AND k2 = "abc";
+DELETE FROM my_table PARTITION p1 WHERE k1 < 3 AND k2 = "abc";
 ```
 
 The following describes the parameters used in the delete statement:
@@ -51,7 +49,6 @@ The following describes the parameters used in the delete statement:
 * PARTITION
 	
 	The target partition of the delete statement. If not specified, the table must be a single partition table, otherwise it cannot be deleted
-
 
 * WHERE
 	
@@ -66,7 +63,7 @@ The following describes the parameters used in the delete statement:
 5. If the specified table is a range partitioned table, `PARTITION` must be specified unless the table is a single partition table,.
 6. Unlike the insert into command, delete statement cannot specify `label` manually. You can view the concept of `label` in [Insert Into] (./insert-into-manual.md)
 
-##Delete Result
+## Delete Result
 
 The delete command is an SQL command, and the returned results are synchronous. It can be divided into the following types:
 
@@ -76,8 +73,8 @@ The delete command is an SQL command, and the returned results are synchronous. 
 	
 	```
 	mysql> delete from test_tbl PARTITION p1 where k1 = 1;
-Query OK, 0 rows affected (0.04 sec)
-{'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005'}
+    Query OK, 0 rows affected (0.04 sec)
+    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005'}
 	```
 	
 2. Submitted successfully, but not visible
@@ -87,8 +84,8 @@ Query OK, 0 rows affected (0.04 sec)
     
     ```
 	mysql> delete from test_tbl PARTITION p1 where k1 = 1;
-Query OK, 0 rows affected (0.04 sec)
-{'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
+    Query OK, 0 rows affected (0.04 sec)
+    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
 	```
 	
      The result will return a JSON string at the same time:
@@ -111,7 +108,7 @@ Query OK, 0 rows affected (0.04 sec)
     
     ```
 	mysql> delete from test_tbl partition p1 where k1 > 80;
-ERROR 1064 (HY000): errCode = 2, detailMessage = {错误原因}
+    ERROR 1064 (HY000): errCode = 2, detailMessage = {错误原因}
 	```
 	
     example：
@@ -121,7 +118,7 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = {错误原因}
 
     ```
 	mysql> delete from test_tbl partition p1 where k1 > 80;
-ERROR 1064 (HY000): errCode = 2, detailMessage = failed to delete replicas from job: 4005, Unfinished replicas:10000=60000, 10001=60000, 10002=60000
+    ERROR 1064 (HY000): errCode = 2, detailMessage = failed to delete replicas from job: 4005, Unfinished replicas:10000=60000, 10001=60000, 10002=60000
 	```
 	
     **The correct processing logic for the returned results of the delete operation is as follows:**
@@ -133,9 +130,9 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = failed to delete replicas from 
     	1. If `status` is `committed`, the data deletion is committed and will be eventually invisible. Users can wait for a while and then use the `show delete` command to view the results.
     	2. If `status` is `visible`, the data have been deleted successfully.
 
-##Relevant Configuration
+## Relevant Configuration
 
-###FE configuration
+### FE configuration
 
 **TIMEOUT configuration**
 
@@ -143,33 +140,33 @@ In general, Doris's deletion timeout is limited from 30 seconds to 5 minutes. Th
 
 * tablet\_delete\_timeout\_second
 
-   The timeout of delete itself can be elastically changed by the number of tablets in the specified partition. This configuration represents the average timeout contributed by a tablet. The default value is 2.
+    The timeout of delete itself can be elastically changed by the number of tablets in the specified partition. This configuration represents the average timeout contributed by a tablet. The default value is 2.
    
-   Assuming that there are 5 tablets under the specified partition for this deletion, the timeout time available for the deletion is 10 seconds. Because the minimum timeout is 30 seconds which is higher than former timeout time, the final timeout is 30 seconds.
+    Assuming that there are 5 tablets under the specified partition for this deletion, the timeout time available for the deletion is 10 seconds. Because the minimum timeout is 30 seconds which is higher than former timeout time, the final timeout is 30 seconds.
    
 * load\_straggler\_wait\_second
 
-  If the user estimates a large amount of data, so that the upper limit of 5 minutes is insufficient, the user can adjust the upper limit of timeout through this item, and the default value is 300.
+    If the user estimates a large amount of data, so that the upper limit of 5 minutes is insufficient, the user can adjust the upper limit of timeout through this item, and the default value is 300.
   
-   **The specific calculation rule of timeout(seconds)**
+    **The specific calculation rule of timeout(seconds)**
   
-  `TIMEOUT = MIN(load_straggler_wait_second, MAX(30, tablet_delete_timeout_second * tablet_num))`
+    `TIMEOUT = MIN(load_straggler_wait_second, MAX(30, tablet_delete_timeout_second * tablet_num))`
   
 * query_timeout
   
-  Because delete itself is an SQL command, the deletion statement is also limited by the session variables, and the timeout is also affected by the session value `query'timeout`. You can increase the value by `set query'timeout = xxx`.
+    Because delete itself is an SQL command, the deletion statement is also limited by the session variables, and the timeout is also affected by the session value `query'timeout`. You can increase the value by `set query'timeout = xxx`.
   
-##Show delete history
+## Show delete history
 	
 1. The user can view the deletion completed in history through the show delete statement.
 
-	###Syntax
+	Syntax
 
 	```
 	SHOW DELETE [FROM db_name]
 	```
 	
-	###example
+	example
 	
 	```
 	mysql> show delete from test_db;

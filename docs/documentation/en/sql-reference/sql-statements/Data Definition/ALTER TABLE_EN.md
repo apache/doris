@@ -167,7 +167,7 @@ under the License.
             1) All columns in index must be written
             2) value is listed after the key column
             
-    6. Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute.
+    6. Modify the properties of the table, currently supports modifying the bloom filter column, the colocate_with attribute and the dynamic_partition attribute， the replication_num and default.replication_num.
         grammar:
             PROPERTIES ("key"="value")
         note:
@@ -199,6 +199,15 @@ under the License.
             DROP INDEX index_name；
 
 ## example
+
+    [table]
+    1. Modify the default number of replications of the table, which is used as default number of replications while creating new partition.
+        ATLER TABLE example_db.my_table 
+        SET ("default.replication_num" = "2");
+        
+    2. Modify the actual number of replications of a unpartitioned table (unpartitioned table only)
+        ALTER TABLE example_db.my_table
+        SET ("replication_num" = "3");
 
     [partition]
     1. Add partition, existing partition [MIN, 2013-01-01), add partition [2013-01-01, 2014-01-01), use default bucket mode
