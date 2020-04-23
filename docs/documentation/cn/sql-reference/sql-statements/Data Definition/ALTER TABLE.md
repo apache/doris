@@ -166,7 +166,7 @@ under the License.
             1) index 中的所有列都要写出来
             2) value 列在 key 列之后
             
-    6. 修改table的属性，目前支持修改bloom filter列, colocate_with 属性和dynamic_partition属性
+    6. 修改table的属性，目前支持修改bloom filter列, colocate_with 属性和dynamic_partition属性，replication_num和default.replication_num属性
         语法：
             PROPERTIES ("key"="value")
         注意：
@@ -197,6 +197,15 @@ under the License.
             DROP INDEX index_name；
 
 ## example
+
+    [table]
+    1. 修改表的默认副本数量, 新建分区副本数量默认使用此值
+        ATLER TABLE example_db.my_table 
+        SET ("default.replication_num" = "2");
+        
+    2. 修改单分区表的实际副本数量(只限单分区表)
+        ALTER TABLE example_db.my_table
+        SET ("replication_num" = "3");
 
     [partition]
     1. 增加分区, 现有分区 [MIN, 2013-01-01)，增加分区 [2013-01-01, 2014-01-01)，使用默认分桶方式

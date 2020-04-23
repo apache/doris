@@ -10,3 +10,4 @@
     stream-load-manual.md
     routine-load-manual.md
     insert-into-manual.md
+    delete-manual.md
