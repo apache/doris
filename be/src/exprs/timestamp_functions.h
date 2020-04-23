@@ -162,6 +162,8 @@ public:
     static doris_udf::DateTimeVal curdate(doris_udf::FunctionContext* context);
     static doris_udf::DateTimeVal utc_timestamp(doris_udf::FunctionContext* context);
     /// Returns the current time.
+    static doris_udf::IntVal to_unix(
+            FunctionContext* context, const DateTimeValue& ts_value);
     static doris_udf::IntVal to_unix(doris_udf::FunctionContext* context);
     /// Converts 'tv_val' to a unix time_t
     static doris_udf::IntVal to_unix(
