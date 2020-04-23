@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -69,6 +70,14 @@ public class AlterTest {
                 "    PARTITION p2 values less than('2020-03-01')\n" + 
                 ")\n" + 
                 "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" + 
+                "PROPERTIES('replication_num' = '1');");
+
+        createTable("CREATE TABLE test.tbl2\n" +
+                "(\n" +
+                "    k1 date,\n" +
+                "    v1 int sum\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH (k1) BUCKETS 3\n" +
                 "PROPERTIES('replication_num' = '1');");
     }
 
@@ -164,6 +173,21 @@ public class AlterTest {
         alterTable(stmt, false);
         Assert.assertEquals(Short.valueOf("3"), tbl.getDefaultReplicationNum());
 
+        // set range table's real replication num
+        Partition p1 = tbl.getPartition("p1");
+        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl.getPartitionInfo().getReplicationNum(p1.getId())));
+        stmt = "alter table test.tbl1 set ('replication_num' = '3');";
+        alterTable(stmt, true);
+        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl.getPartitionInfo().getReplicationNum(p1.getId())));
+
+        // set un-partitioned table's real replication num
+        OlapTable tbl2 = (OlapTable)db.getTable("tbl2");
+        Partition partition = tbl2.getPartition(tbl2.getName());
+        Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl2.getPartitionInfo().getReplicationNum(partition.getId())));
+        stmt = "alter table test.tbl2 set ('replication_num' = '3');";
+        alterTable(stmt, false);
+        Assert.assertEquals(Short.valueOf("3"), Short.valueOf(tbl2.getPartitionInfo().getReplicationNum(partition.getId())));
+
         // add partition without set replication num
         stmt = "alter table test.tbl1 add partition p4 values less than('2020-05-01')";
         alterTable(stmt, true);
@@ -172,6 +196,8 @@ public class AlterTest {
         stmt = "alter table test.tbl1 add partition p4 values less than('2020-05-01') ('replication_num' = '1')";
         alterTable(stmt, false);
     }
+
+
 
     private void waitSchemaChangeJobDone(boolean rollupJob) throws InterruptedException {
         Map<Long, AlterJobV2> alterJobs = Catalog.getCurrentCatalog().getSchemaChangeHandler().getAlterJobsV2();
