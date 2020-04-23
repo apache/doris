@@ -1371,11 +1371,11 @@ public class SelectStmt extends QueryStmt {
             }
             while (childIdx + 2 <= caseExpr.getChildren().size()) {
                 Expr child = caseExpr.getChild(childIdx++);
-                // case
+                // when
                 if (!(child instanceof BinaryPredicate) && child.contains(Predicates.instanceOf(Subquery.class))) {
                     throw new AnalysisException("Only support subquery in binary predicate in case statement.");
                 }
-                // when
+                // then
                 childIdx++;
             }
             item.setExpr(rewriteSubquery(item.getExpr(), analyzer));
@@ -1424,7 +1424,7 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException("Only support select subquery in case statement.");
             }
             SelectStmt subquery = (SelectStmt) ((Subquery) expr).getStatement();
-            if (subquery.resultExprs.size() != 1) {
+            if (subquery.resultExprs.size() != 1 || !subquery.returnsSingleRow()) {
                 throw new AnalysisException("Only support select subquery produce one column in case statement.");
             }
             subquery.reset();

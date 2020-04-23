@@ -92,6 +92,30 @@ public class SelectStmtTest {
         SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
         stmt.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
         Assert.assertTrue(stmt.toSql().contains("`$a$1`.`$c$1` > `k4` THEN `$a$2`.`$c$2` ELSE `$a$3`.`$c$3`"));
+
+        String sql2 = "select case when k1 in (select k1 from db1.tbl1) then \"true\" else k1 end a from db1.tbl1";
+        try {
+            SelectStmt stmt2 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql2, ctx);
+            stmt2.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+            Assert.fail("syntax not supported.");
+        } catch (AnalysisException e) {
+        } catch (Exception e) {
+            Assert.fail("must be AnalysisException.");
+        }
+        try {
+            String sql3 = "select case k1 when exists (select 1) then \"empty\" else \"p_test\" end a from db1.tbl1";
+            SelectStmt stmt3 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql3, ctx);
+            stmt3.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+            Assert.fail("syntax not supported.");
+        } catch (AnalysisException e) {
+        } catch (Exception e) {
+            Assert.fail("must be AnalysisException.");
+        }
+        String sql4 = "select case when (select sum(a.k4) sum from db1.tbl1 b left join db1.tbl1 a on a.k4 = b.k4 " +
+                "order by sum limit 1 offset 1) >= k4 then k1 else \"false\" end a from db1.tbl1 order by a";
+        SelectStmt stmt4 = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql4, ctx);
+        stmt4.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
+        System.out.printf(stmt4.toSql());
     }
 
     @Test
