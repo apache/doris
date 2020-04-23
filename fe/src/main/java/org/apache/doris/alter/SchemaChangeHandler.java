@@ -1394,6 +1394,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                     Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
                     return;
+                } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+                    Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+                    Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
+                    return;
                 } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
                     Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
                     return;

@@ -10,3 +10,4 @@ Load Data
     stream-load-manual_EN.md
     routine-load-manual_EN.md
     insert-into-manual_EN.md
+    delete-manual_EN.md
