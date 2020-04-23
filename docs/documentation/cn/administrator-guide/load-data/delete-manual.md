@@ -17,32 +17,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-#Delete
+# Delete
 
 Delete不同于其他导入方式，它是一个同步过程。和Insert into相似，所有的Delete操作在Doris中是一个独立的导入作业，一般Delete语句需要指定表和分区以及删除的条件来筛选要删除的数据，并将会同时删除base表和rollup表的数据。
 
-##语法
+## 语法
 
 主要的Delete语法如下：
 
 ```
 DELETE FROM table_name [PARTITION partition_name]
-        WHERE
-        column_name1 op value[ AND column_name2 op value ...];
+WHERE
+column_name1 op value[ AND column_name2 op value ...];
 ```
 
 示例1：
 
 ```
-DELETE FROM my_table PARTITION p1
-        WHERE k1 = 3;
+DELETE FROM my_table PARTITION p1 WHERE k1 = 3;
 ```
 
 示例2:
 
 ```
-DELETE FROM my_table PARTITION p1
-        WHERE k1 < 3 AND k2 = "abc";
+DELETE FROM my_table PARTITION p1 WHERE k1 < 3 AND k2 = "abc";
 ```
 
 下面介绍删除语句中使用到的参数：
@@ -64,7 +62,7 @@ DELETE FROM my_table PARTITION p1
 5.  如果指定表为RANGE分区表，则必须指定 `PARTITION`。如果是单分区表，可以不指定。
 6.  不同于Insert into命令，delete不能手动指定`label`，有关label的概念可以查看[Insert Into文档] (./insert-into-manual.md)
 
-##返回结果
+## 返回结果
 
 Delete命令是一个SQL命令，返回结果是同步的，分为以下几种：
 
@@ -74,8 +72,8 @@ Delete命令是一个SQL命令，返回结果是同步的，分为以下几种�
 	
 	```
 	mysql> delete from test_tbl PARTITION p1 where k1 = 1;
-Query OK, 0 rows affected (0.04 sec)
-{'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005'}
+    Query OK, 0 rows affected (0.04 sec)
+    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005'}
 	```
 	
 2. 提交成功，但未可见
@@ -84,11 +82,11 @@ Query OK, 0 rows affected (0.04 sec)
     
     ```
 	mysql> delete from test_tbl PARTITION p1 where k1 = 1;
-Query OK, 0 rows affected (0.04 sec)
-{'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
+    Query OK, 0 rows affected (0.04 sec)
+    {'label':'delete_e7830c72-eb14-4cb9-bbb6-eebd4511d251', 'status':'VISIBLE', 'txnId':'4005', 'err':'delete job is committed but may be taking effect later' }
 	```
 	
-      结果会同时返回一个json字符串：
+    结果会同时返回一个json字符串：
 	
     `affected rows`表示此次删除影响的行，由于Doris的删除目前是逻辑删除，因此对于这个值是恒为0。
     
@@ -106,7 +104,7 @@ Query OK, 0 rows affected (0.04 sec)
     
     ```
 	mysql> delete from test_tbl partition p1 where k1 > 80;
-ERROR 1064 (HY000): errCode = 2, detailMessage = {错误原因}
+    ERROR 1064 (HY000): errCode = 2, detailMessage = {错误原因}
 	```
 	
     示例：
@@ -115,7 +113,7 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = {错误原因}
 
     ```
 	mysql> delete from test_tbl partition p1 where k1 > 80;
-ERROR 1064 (HY000): errCode = 2, detailMessage = failed to delete replicas from job: 4005, Unfinished replicas:10000=60000, 10001=60000, 10002=60000
+    ERROR 1064 (HY000): errCode = 2, detailMessage = failed to delete replicas from job: 4005, Unfinished replicas:10000=60000, 10001=60000, 10002=60000
 	```
 	
     **综上，对于Delete操作返回结果的正确处理逻辑为：**
@@ -127,9 +125,9 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = failed to delete replicas from 
     	1. 如果`status`为`COMMITTED`，表示数据仍不可见，用户可以稍等一段时间再用`show delete`命令查看结果
     	2. 如果`status`为`VISIBLE`，表示数据删除成功。
 
-##可配置项
+## 可配置项
 
-###FE配置
+### FE配置
 
 **TIMEOUT配置**
 
@@ -153,11 +151,11 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = failed to delete replicas from 
   
   因为delete本身是一个SQL命令，因此删除语句也会受session限制，timeout还受Session中的`query_timeout`值影响，可以通过`SET query_timeout = xxx`来增加超时时间，单位是秒。
   
-##查看历史记录
+## 查看历史记录
 	
 1. 用户可以通过show delete语句查看历史上已执行完成的删除记录
 
-	###语法
+	语法
 
 	```
 	SHOW DELETE [FROM db_name]

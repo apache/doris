@@ -7,6 +7,7 @@
 
     load-data/index
     alter-table/index
+    materialized-view/index
     http-actions/index
     operation/index
     config/index
