@@ -62,7 +62,7 @@ V2 格式的表可以支持以下新的特性：
     
     ```
     ## 创建 V2 格式的 Rollup
-    
+
     ALTER TABLE table_name ADD ROLLUP table_name (columns) PROPERTIES ("storage_format" = "v2");
     ```
 

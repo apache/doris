@@ -1470,4 +1470,11 @@ public class OlapTable extends Table {
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, storageFormat.name());
         tableProperty.buildStorageFormat();
     }
+
+    public TStorageFormat getStorageFormat() {
+        if (tableProperty == null) {
+            return TStorageFormat.DEFAULT;
+        }
+        return tableProperty.getStorageFormat();
+    }
 }
