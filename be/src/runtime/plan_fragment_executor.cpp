@@ -381,6 +381,7 @@ void PlanFragmentExecutor::report_profile() {
             VLOG_FILE << "Reporting " << (!_report_thread_active ? "final " : " ")
                       << "profile for instance " << _runtime_state->fragment_instance_id();
             std::stringstream ss;
+            profile()->compute_time_in_profile();
             profile()->pretty_print(&ss);
             VLOG_FILE << ss.str();
         }
@@ -556,6 +557,7 @@ void PlanFragmentExecutor::close() {
 
         {
             std::stringstream ss;
+            _runtime_state->runtime_profile()->compute_time_in_profile();
             _runtime_state->runtime_profile()->pretty_print(&ss);
             LOG(INFO) << ss.str();
         }

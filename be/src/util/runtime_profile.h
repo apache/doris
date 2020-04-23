@@ -106,8 +106,6 @@ public:
             _value.store(value);
         }
 
-        virtual void set(int value) { _value.store(value); }
-
         virtual void set(double value) {
             DCHECK_EQ(sizeof(value), sizeof(int64_t));
             _value.store(*reinterpret_cast<int64_t*>(&value));
