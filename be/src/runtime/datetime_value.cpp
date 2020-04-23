@@ -64,6 +64,7 @@ static uint32_t calc_days_in_year(uint32_t year) {
 DateTimeValue DateTimeValue::_s_min_datetime_value(0, TIME_DATETIME, 0, 0, 0, 0, 0, 1, 1);
 DateTimeValue DateTimeValue::_s_max_datetime_value(0, TIME_DATETIME, 23, 59, 59, 0, 
                                                    9999, 12, 31);
+RE2 DateTimeValue::time_zone_offset_format_reg("^[+-]{1}\\d{2}\\:\\d{2}$");
 // jint length_of_str(DateTimeValue& value) {
 // j    if (_type == TIME_DATE) {
 // j        return 10;
@@ -1530,67 +1531,37 @@ bool DateTimeValue::date_add_interval(const TimeInterval& interval, TimeUnit uni
 }
 
 bool DateTimeValue::unix_timestamp(int64_t* timestamp, const std::string& timezone) const{
-    if (_year < 1970) {
-        *timestamp = 0;			    
-        return true;
-    }
-    boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
-    if (local_time_zone == nullptr) {
+    cctz::time_zone ctz;
+    if (!find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    char buf[64];
-    char* to = to_datetime_string(buf);
-    boost::posix_time::ptime pt = boost::posix_time::time_from_string(std::string(buf, to - buf -1));
 
-    boost::local_time::local_date_time lt(pt.date(), pt.time_of_day(), local_time_zone,
-                                              boost::local_time::local_date_time::NOT_DATE_TIME_ON_ERROR);
-
-    boost::posix_time::ptime utc_ptime = lt.utc_time();
-    boost::posix_time::ptime utc_start(boost::gregorian::date(1970, 1, 1));
-    boost::posix_time::time_duration dur = utc_ptime - utc_start;
-    int64_t ts = dur.total_milliseconds() / 1000;
-    // date before 1970-01-01 or after 2038-01-19 03:14:07 should return 0 for unix_timestamp() function
-    ts = ts < 0 ? 0 : ts;
-    ts = ts > INT_MAX ? 0 : ts;
-    *timestamp = ts < 0 ? 0 : ts;
+    const auto tp =
+            cctz::convert(cctz::civil_second(_year, _month, _day, _hour, _minute, _second), ctz);
+    *timestamp = tp.time_since_epoch().count();
     return true;
 }
 
 bool DateTimeValue::from_unixtime(int64_t timestamp, const std::string& timezone) {
-    // timestamp should between 1970-01-01 00:00:00 ~ 9999-12-31 23:59:59
-    if (timestamp < 0 || timestamp > 253402271999L) {
+    cctz::time_zone ctz;
+    if (!find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
 
-    boost::local_time::time_zone_ptr local_time_zone = TimezoneDatabase::find_timezone(timezone);
-    if (local_time_zone == nullptr) {
-        return false;                            
-    }
+    static const cctz::time_point<cctz::sys_seconds> epoch =
+            std::chrono::time_point_cast<cctz::sys_seconds>(std::chrono::system_clock::from_time_t(0));
+    cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
 
-    int64_t current_t = timestamp;
-    boost::posix_time::ptime time = boost::posix_time::ptime(boost::gregorian::date(1970,1,1));
-
-    while (current_t > 0) {
-        int32_t seconds_to_add = 0;
-        if(current_t >= std::numeric_limits<int32_t>::max()) {
-            seconds_to_add = std::numeric_limits<int32_t>::max();
-        } else {
-            seconds_to_add = static_cast<int32_t>(current_t);
-        }
-        current_t -= seconds_to_add;
-        time += boost::posix_time::seconds(seconds_to_add);
-    }
-    boost::local_time::local_date_time lt(time, local_time_zone);
-    boost::posix_time::ptime local_ptime = lt.local_time();
+    const auto tp = cctz::convert(t, ctz);
 
     _neg = 0;
     _type = TIME_DATETIME;
-    _year = local_ptime.date().year();
-    _month = local_ptime.date().month();
-    _day = local_ptime.date().day();
-    _hour = local_ptime.time_of_day().hours();
-    _minute = local_ptime.time_of_day().minutes();
-    _second = local_ptime.time_of_day().seconds();
+    _year = tp.year();
+    _month = tp.month();
+    _day = tp.day();
+    _hour = tp.hour();
+    _minute = tp.minute();
+    _second = tp.second();
     _microsecond = 0;
     
     return true;

@@ -231,6 +231,9 @@ set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(orc STATIC IMPORTED)
 set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liborc.a)
 
+add_library(cctz STATIC IMPORTED)
+set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 # Check if functions are supported in this platform. All flags will generated
@@ -412,6 +415,7 @@ set(DORIS_DEPENDENCIES
     arrow
     parquet
     orc
+    cctz
     ${WL_END_GROUP}
 )
 
