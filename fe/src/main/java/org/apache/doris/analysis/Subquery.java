@@ -158,6 +158,17 @@ public class Subquery extends Expr {
         return new StructType(structFields);
     }
 
+    @Override
+    public boolean isCorrelatedPredicate(List<TupleId> tupleIdList) {
+        List<TupleId> tupleIdFromSubquery = stmt.collectTupleIds();
+        for (TupleId tupleId : tupleIdList) {
+            if (tupleIdFromSubquery.contains(tupleId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Returns true if the toSql() of the Subqueries is identical. May return false for
      * equivalent statements even due to minor syntactic differences like parenthesis.
