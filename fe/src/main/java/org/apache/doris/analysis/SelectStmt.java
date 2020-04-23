@@ -183,7 +183,7 @@ public class SelectStmt extends QueryStmt {
         baseTblSmap.clear();
         groupingInfo = null;
     }
-    
+
     @Override
     public QueryStmt clone() {
         return new SelectStmt(this);
@@ -990,8 +990,8 @@ public class SelectStmt extends QueryStmt {
 
         if (selectList.isDistinct()
                 && (groupByClause != null
-                            || TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
-                            || (havingClauseAfterAnaylzed != null && havingClauseAfterAnaylzed.contains(Expr.isAggregatePredicate())))) {
+                || TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
+                || (havingClauseAfterAnaylzed != null && havingClauseAfterAnaylzed.contains(Expr.isAggregatePredicate())))) {
             throw new AnalysisException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY");
         }
 
@@ -1436,20 +1436,8 @@ public class SelectStmt extends QueryStmt {
             } catch (UserException e) {
                 throw new AnalysisException(e.getMessage());
             }
-            SelectList sl = new SelectList();
-            sl.addItem(new SelectListItem(new SlotRef(inlineViewRef.getAliasAsName(), colAlias), colAlias));
-            FromClause fc = new FromClause(Arrays.asList(inlineViewRef));
-            SelectStmt newStmt = new SelectStmt(sl, fc, null, null, null, null, LimitElement.NO_LIMIT);
-            InlineViewRef newIlv = new InlineViewRef(getTableAliasGenerator().getNextAlias(),
-                    newStmt, Arrays.asList(colAlias));
-            try {
-                newStmt.analyze(analyzer);
-                newIlv.analyze(analyzer);
-            } catch (UserException e) {
-                throw new AnalysisException(e.getMessage());
-            }
-            fromClause_.add(newIlv);
-            expr = new SlotRef(newIlv.getAliasAsName(), colAlias);
+            fromClause_.add(inlineViewRef);
+            expr = new SlotRef(inlineViewRef.getAliasAsName(), colAlias);
         } else if (CollectionUtils.isNotEmpty(expr.getChildren())) {
             for (int i = 0; i < expr.getChildren().size(); ++i) {
                 expr.setChild(i, rewriteSubquery(expr.getChild(i), analyzer));
