@@ -3971,7 +3971,7 @@ public class Catalog {
 
             // storage type
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT).append("\" = \"");
-            sb.append(olapTable.getTableProperty().getStorageFormat()).append("\"");
+            sb.append(olapTable.getStorageFormat()).append("\"");
 
             sb.append("\n)");
         } else if (table.getType() == TableType.MYSQL) {
