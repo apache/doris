@@ -91,7 +91,8 @@ public class SelectStmtTest {
                 "FROM db1.tbl1;";
         SelectStmt stmt = (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql1, ctx);
         stmt.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
-        Assert.assertTrue(stmt.toSql().contains("`$a$1`.`$c$1` > `k4` THEN `$a$2`.`$c$2` ELSE `$a$3`.`$c$3`"));
+        Assert.assertTrue(stmt.toSql()
+                .contains("CASE WHEN `$a$2`.`$c$1` > `k4` THEN `$a$4`.`$c$2` ELSE `$a$6`.`$c$3` END AS `kk4`"));
 
         String sql2 = "select case when k1 in (select k1 from db1.tbl1) then \"true\" else k1 end a from db1.tbl1";
         try {
