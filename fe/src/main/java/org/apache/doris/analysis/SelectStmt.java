@@ -495,6 +495,20 @@ public class SelectStmt extends QueryStmt {
         return result;
     }
 
+    @Override
+    public List<TupleId> collectTupleIds() {
+        List<TupleId> result = Lists.newArrayList();
+        resultExprs.stream().forEach(expr -> expr.getIds(result, null));
+        result.addAll(getTableRefIds());
+        if (whereClause != null) {
+            whereClause.getIds(result, null);
+        }
+        if (havingClauseAfterAnaylzed != null) {
+            havingClauseAfterAnaylzed.getIds(result, null);
+        }
+        return result;
+    }
+
     private void whereClauseRewrite() {
         Expr deDuplicatedWhere = deduplicateOrs(whereClause);
         if (deDuplicatedWhere != null) {
@@ -1077,6 +1091,18 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("desctbl: " + analyzer.getDescTbl().debugString());
             LOG.debug("resultexprs: " + Expr.debugString(resultExprs));
         }
+
+        if (havingClauseAfterAnaylzed != null) {
+            // forbidden correlated subquery in having clause
+            List<Subquery> subqueryInHaving = Lists.newArrayList();
+            havingClauseAfterAnaylzed.collect(Subquery.class, subqueryInHaving);
+            for (Subquery subquery : subqueryInHaving) {
+                if (subquery.isCorrelatedPredicate(getTableRefIds())) {
+                    throw new AnalysisException("The correlated having clause is not supported");
+                }
+            }
+        }
+
         /*
          * All of columns of result and having clause are replaced by new slot ref which is bound by top tuple of agg info.
          * For example:
