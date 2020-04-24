@@ -1322,11 +1322,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         // check if new_tablet.ce_point > base_tablet.ce_point?
         new_tablet->set_cumulative_layer_point(-1);
         // save tablet meta
-        res = new_tablet->save_meta();
-        if (res != OLAP_SUCCESS) {
-            LOG(FATAL) << "fail to save tablet meta after remove rowset from new tablet"
-                        << new_tablet->full_name();
-        }
+        new_tablet->save_meta();
         for (auto& rowset : rowsets_to_delete) {
             // do not call rowset.remove directly, using gc thread to delete it
             StorageEngine::instance()->add_unused_rowset(rowset);
@@ -1399,10 +1395,7 @@ OLAPStatus SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletRe
         if (res != OLAP_SUCCESS) {
             break;
         }
-        res = new_tablet->save_meta();
-        if (res != OLAP_SUCCESS) {
-            break;
-        }
+        new_tablet->save_meta();
     } while(0);
 
     if (res == OLAP_SUCCESS) {
@@ -1588,25 +1581,14 @@ OLAPStatus SchemaChangeHandler::_add_alter_task(
                                 new_tablet->schema_hash(),
                                 versions_to_be_changed,
                                 alter_tablet_type);
-    OLAPStatus res = base_tablet->save_meta();
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save base tablet meta. res=" << res
-                   << ", tablet=" << base_tablet->full_name();
-        return res;
-    }
-
+    base_tablet->save_meta();
     new_tablet->add_alter_task(base_tablet->tablet_id(),
                                base_tablet->schema_hash(),
                                vector<Version>(),  // empty versions
                                alter_tablet_type);
-    res = new_tablet->save_meta();
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save new tablet meta. res=" << res
-                   << ", tablet=" << new_tablet->full_name();
-        return res;
-    }
+    new_tablet->save_meta();
     LOG(INFO) << "successfully add alter task to both base and new";
-    return res;
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus SchemaChangeHandler::_save_alter_state(
@@ -1627,13 +1609,7 @@ OLAPStatus SchemaChangeHandler::_save_alter_state(
                      << " res=" << res;
         return res;
     }
-    res = base_tablet->save_meta();
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save base tablet meta. res=" << res
-                   << ", base_tablet=" << base_tablet->full_name();
-        return res;
-    }
-
+    base_tablet->save_meta();
     AlterTabletTaskSharedPtr new_alter_task = new_tablet->alter_task();
     if (new_alter_task == nullptr) {
         LOG(INFO) << "could not find alter task info from new tablet " << new_tablet->full_name();
@@ -1646,14 +1622,9 @@ OLAPStatus SchemaChangeHandler::_save_alter_state(
                      << " res" << res;
         return res;
     }
-    res = new_tablet->save_meta();
-    if (res != OLAP_SUCCESS) {
-        LOG(FATAL) << "fail to save new tablet meta. res=" << res
-                   << ", new_tablet=" << base_tablet->full_name();
-        return res;
-    }
+    new_tablet->save_meta();
 
-    return res;
+    return OLAP_SUCCESS;
 }
 
 OLAPStatus SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams& sc_params) {
@@ -1794,7 +1765,7 @@ PROCESS_ALTER_EXIT:
     {
         // save tablet meta here because rowset meta is not saved during add rowset
         WriteLock new_wlock(sc_params.new_tablet->get_header_lock_ptr());
-        res = sc_params.new_tablet->save_meta();
+        sc_params.new_tablet->save_meta();
     }
     if (res == OLAP_SUCCESS) {
         Version test_version(0, end_version);

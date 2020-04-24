@@ -150,11 +150,6 @@ OLAPStatus RowsetGraph::capture_consistent_versions(const Version& spec_version,
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
 
-    if (version_path == nullptr) {
-        LOG(WARNING) << "param version_path is nullptr.";
-        return OLAP_ERR_INPUT_PARAMETER_ERROR;
-    }
-
     // bfs_queue's element is vertex_index.
     std::queue<int64_t> bfs_queue;
     // predecessor[i] means the predecessor of vertex_index 'i'.
@@ -227,24 +222,25 @@ OLAPStatus RowsetGraph::capture_consistent_versions(const Version& spec_version,
         reversed_path.push_back(tmp_vertex_index);
     }
 
-    // Make version_path from reversed_path.
-    std::stringstream shortest_path_for_debug;
-    for (size_t path_id = reversed_path.size() - 1; path_id > 0; --path_id) {
-        int64_t tmp_start_vertex_value = _version_graph[reversed_path[path_id]].value;
-        int64_t tmp_end_vertex_value = _version_graph[reversed_path[path_id - 1]].value;
+    if (version_path != nullptr) {
+        // Make version_path from reversed_path.
+        std::stringstream shortest_path_for_debug;
+        for (size_t path_id = reversed_path.size() - 1; path_id > 0; --path_id) {
+            int64_t tmp_start_vertex_value = _version_graph[reversed_path[path_id]].value;
+            int64_t tmp_end_vertex_value = _version_graph[reversed_path[path_id - 1]].value;
 
-        // tmp_start_vertex_value mustn't be equal to tmp_end_vertex_value
-        if (tmp_start_vertex_value <= tmp_end_vertex_value) {
-            version_path->emplace_back(tmp_start_vertex_value, tmp_end_vertex_value - 1);
-        } else {
-            version_path->emplace_back(tmp_end_vertex_value, tmp_start_vertex_value - 1);
+            // tmp_start_vertex_value mustn't be equal to tmp_end_vertex_value
+            if (tmp_start_vertex_value <= tmp_end_vertex_value) {
+                version_path->emplace_back(tmp_start_vertex_value, tmp_end_vertex_value - 1);
+            } else {
+                version_path->emplace_back(tmp_end_vertex_value, tmp_start_vertex_value - 1);
+            }
+
+            shortest_path_for_debug << (*version_path)[version_path->size() - 1] << ' ';
         }
-
-        shortest_path_for_debug << (*version_path)[version_path->size() - 1] << ' ';
+        VLOG(10) << "success to find path for spec_version. spec_version=" << spec_version
+                 << ", path=" << shortest_path_for_debug.str();
     }
-
-    VLOG(10) << "success to find path for spec_version. spec_version=" << spec_version
-            << ", path=" << shortest_path_for_debug.str();
 
     return OLAP_SUCCESS;
 }
