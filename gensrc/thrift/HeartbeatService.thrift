@@ -28,6 +28,7 @@ struct TMasterInfo {
     5: optional string backend_ip
     6: optional Types.TPort http_port
     7: optional i64 heartbeat_flags
+    8: optional i64 backend_id
 }
 
 struct TBackendInfo {

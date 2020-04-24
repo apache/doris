@@ -321,6 +321,10 @@ void FragmentExecState::coordinator_callback(
         params.__isset.error_log = (params.error_log.size() > 0);
     }
 
+    if (_exec_env->master_info()->__isset.backend_id) {
+        params.__set_backend_id(_exec_env->master_info()->backend_id);
+    }
+
     TReportExecStatusResult res;
     Status rpc_status;
 
