@@ -1323,7 +1323,7 @@ public class SelectStmt extends QueryStmt {
     @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
         Preconditions.checkState(isAnalyzed());
-]        rewriteSelectList(rewriter);
+        rewriteSelectList(rewriter);
         for (TableRef ref : fromClause_) {
             ref.rewriteExprs(rewriter, analyzer);
         }
