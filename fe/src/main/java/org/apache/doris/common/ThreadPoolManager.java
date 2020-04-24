@@ -34,15 +34,32 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * ThreadPoolManager is a helper class for construct daemon thread pool with limit thread and memory resource.
+ * thread names in thread pool are formatted as poolName-ID, where ID is a unique, sequentially assigned integer.
+ * it provide three function to construct thread pool now.
+ *
+ * 1. newDaemonCacheThreadPool
+ *    Wrapper over newCachedThreadPool with additional maxNumThread limit.
+ * 2. newDaemonFixedThreadPool
+ *    Wrapper over newCachedThreadPool with additional blocking queue capacity limit.
+ * 3. newDaemonThreadPool
+ *    Wrapper over ThreadPoolExecutor, user can use it to construct thread pool more flexibly.
+ *
+ *  All thread pool constructed by ThreadPoolManager will be added to the nameToThreadPool,
+ *  so the pool name in the fe must be unique.
+ *  when all thread pools are constructed, ThreadPoolManager will register some metrics of all thread pool to MetricRepo,
+ *  so we can know the runtime state for all thread pool by prometheus metrics
+ */
 
 public class ThreadPoolManager {
 
-    private static Map<String, ThreadPoolExecutor> nameToThreadPool = Maps.newConcurrentMap();
+    private static Map<String, ThreadPoolExecutor> nameToThreadPoolMap = Maps.newConcurrentMap();
 
     private static String[] poolMerticTypes = {"pool_size", "active_thread_num", "task_in_queue"};
 
     public static void registerAllThreadPoolMetric() {
-        for (Map.Entry<String, ThreadPoolExecutor> entry : nameToThreadPool.entrySet()) {
+        for (Map.Entry<String, ThreadPoolExecutor> entry : nameToThreadPoolMap.entrySet()) {
             registerThreadPoolMetric(entry.getKey(), entry.getValue());
         }
     }
@@ -89,7 +106,7 @@ public class ThreadPoolManager {
                                                String poolName) {
         ThreadFactory threadFactory = namedThreadFactory(poolName);
         ThreadPoolExecutor threadPool = new ThreadPoolExecutor(corePoolSize, maximumPoolSize, keepAliveTime, unit, workQueue, threadFactory, handler);
-        nameToThreadPool.put(poolName, threadPool);
+        nameToThreadPoolMap.put(poolName, threadPool);
         return threadPool;
     }
 
