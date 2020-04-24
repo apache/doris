@@ -40,7 +40,7 @@ OLAPStatus CumulativeCompaction::compact() {
     }
 
     // 1.calculate cumulative point 
-    RETURN_NOT_OK(_tablet->calculate_cumulative_point());
+    _tablet->calculate_cumulative_point();
 
     // 2. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
