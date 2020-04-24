@@ -1382,7 +1382,7 @@ public class SelectStmt extends QueryStmt {
                 // then
                 childIdx++;
             }
-            rewriteSubquery(item.getExpr(), analyzer, rewriter);
+            rewriteSubquery(item.getExpr(), analyzer);
         }
         selectList.rewriteExprs(rewriter, analyzer);
     }
@@ -1421,7 +1421,7 @@ public class SelectStmt extends QueryStmt {
      *         FROM t
      *     ) t3;
      */
-    private Expr rewriteSubquery(Expr expr, Analyzer analyzer, ExprRewriter rewriter)
+    private Expr rewriteSubquery(Expr expr, Analyzer analyzer)
             throws AnalysisException {
         if (expr instanceof Subquery) {
             if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
@@ -1442,10 +1442,9 @@ public class SelectStmt extends QueryStmt {
             }
             fromClause_.add(inlineViewRef);
             expr = new SlotRef(inlineViewRef.getAliasAsName(), colAlias);
-            rewriter.change();
         } else if (CollectionUtils.isNotEmpty(expr.getChildren())) {
             for (int i = 0; i < expr.getChildren().size(); ++i) {
-                expr.setChild(i, rewriteSubquery(expr.getChild(i), analyzer, rewriter));
+                expr.setChild(i, rewriteSubquery(expr.getChild(i), analyzer));
             }
         }
         return expr;
