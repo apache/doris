@@ -19,10 +19,9 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.rewrite.ExprRewriter;
-import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -30,7 +29,6 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.io.IOException;
 import java.util.UUID;
 
 public class SelectStmtTest {
@@ -50,9 +48,11 @@ public class SelectStmtTest {
         UtFrameUtils.createMinDorisCluster(runningDir);
         String createTblStmtStr = "create table db1.tbl1(k1 varchar(32), k2 varchar(32), k3 varchar(32), k4 int) "
                 + "AGGREGATE KEY(k1, k2,k3,k4) distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
+        String createBaseAllStmtStr = "create table db1.baseall(k1 int) distributed by hash(k1) "
+                + "buckets 3 properties('replication_num' = '1');";
         dorisAssert = new DorisAssert();
         dorisAssert.withDatabase("db1").useDatabase("db1");
-        dorisAssert.withTable(createTblStmtStr);
+        dorisAssert.withTable(createTblStmtStr).withTable(createBaseAllStmtStr);
     }
 
     @Test
@@ -282,5 +282,17 @@ public class SelectStmtTest {
         stmt8.rewriteExprs(new Analyzer(ctx.getCatalog(), ctx).getExprRewriter());
         Assert.assertTrue(stmt8.toSql().contains("((`t2`.`k1` IS NOT NULL) AND (`t1`.`k1` IS NOT NULL))" +
                 " AND (`t1`.`k1` IS NOT NULL)"));
+    }
+
+    @Test
+    public void testForbiddenCorrelatedSubqueryInHavingClause() throws Exception {
+        String sql = "SELECT k1 FROM baseall GROUP BY k1 HAVING EXISTS(SELECT k4 FROM tbl1 GROUP BY k4 HAVING SUM"
+                + "(baseall.k1) = k4);";
+        try {
+            dorisAssert.query(sql).explainQuery();
+            Assert.fail("The correlated subquery in having clause should be forbidden.");
+        } catch (AnalysisException e) {
+            System.out.println(e.getMessage());
+        }
     }
 }

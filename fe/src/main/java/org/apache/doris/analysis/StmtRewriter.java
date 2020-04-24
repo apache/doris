@@ -161,7 +161,7 @@ public class StmtRewriter {
         Preconditions.checkState(havingClause != null);
         Preconditions.checkState(havingClause.getSubquery() != null);
         List<OrderByElement> orderByElements = stmt.getOrderByElementsAfterAnalyzed();
-        long limit = stmt.getLimit();
+        LimitElement limitElement = new LimitElement(stmt.getOffset(), stmt.getLimit());
         TableAliasGenerator tableAliasGenerator = stmt.getTableAliasGenerator();
 
         /*
@@ -260,7 +260,7 @@ public class StmtRewriter {
         newTableRefList.add(inlineViewRef);
         FromClause newFromClause = new FromClause(newTableRefList);
         SelectStmt result = new SelectStmt(newSelectList, newFromClause, newWherePredicate, null, null,
-                newOrderByElements, new LimitElement(limit));
+                newOrderByElements, limitElement);
         result.setTableAliasGenerator(tableAliasGenerator);
         try {
             result.analyze(analyzer);
@@ -514,7 +514,7 @@ public class StmtRewriter {
                     && ((BinaryPredicate) conjunct).getOp() == BinaryPredicate.Operator.EQ) {
                 return;
             }
-            throw new AnalysisException("scalar subquery's unCorrelatedPredicates's operator must be EQ");
+            throw new AnalysisException("scalar subquery's correlatedPredicates's operator must be EQ");
         }
     }
 
