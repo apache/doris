@@ -230,10 +230,14 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
 
     // _query_mem_tracker = MemTracker::get_query_mem_tracker(
     //         query_id, bytes_limit, _exec_env->process_mem_tracker());
+
+    auto mem_tracker_counter = ADD_COUNTER(&_profile, "MemoryLimit", TUnit::BYTES);
+    mem_tracker_counter->set(bytes_limit);
+
     _query_mem_tracker.reset(
             new MemTracker(bytes_limit, runtime_profile()->name(), _exec_env->process_mem_tracker()));
     _instance_mem_tracker.reset(
-            new MemTracker(-1, runtime_profile()->name(), _query_mem_tracker.get()));
+            new MemTracker(&_profile, bytes_limit, runtime_profile()->name(), _query_mem_tracker.get()));
 
     /*
     // TODO: this is a stopgap until we implement ExprContext
