@@ -56,10 +56,7 @@ Status CompactionAction::_handle_show_compaction(HttpRequest *req, std::string* 
         return Status::NotFound("Tablet not found");
     }
 
-    OLAPStatus s = tablet->get_compaction_status(json_result);
-    if (s != OLAP_SUCCESS) {
-        return Status::InternalError(strings::Substitute("failed to get tablet compaction status. res $0", s));
-    }
+    tablet->get_compaction_status(json_result);
     return Status::OK();
 }
 
