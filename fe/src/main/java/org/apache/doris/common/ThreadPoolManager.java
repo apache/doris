@@ -37,7 +37,7 @@ import java.util.concurrent.TimeUnit;
 /**
  * ThreadPoolManager is a helper class for construct daemon thread pool with limit thread and memory resource.
  * thread names in thread pool are formatted as poolName-ID, where ID is a unique, sequentially assigned integer.
- * it provide three function to construct thread pool now.
+ * it provide three functions to construct thread pool now.
  *
  * 1. newDaemonCacheThreadPool
  *    Wrapper over newCachedThreadPool with additional maxNumThread limit.
@@ -46,8 +46,8 @@ import java.util.concurrent.TimeUnit;
  * 3. newDaemonThreadPool
  *    Wrapper over ThreadPoolExecutor, user can use it to construct thread pool more flexibly.
  *
- *  All thread pool constructed by ThreadPoolManager will be added to the nameToThreadPool,
- *  so the pool name in the fe must be unique.
+ *  All thread pool constructed by ThreadPoolManager will be added to the nameToThreadPoolMap,
+ *  so the thread pool name in fe must be unique.
  *  when all thread pools are constructed, ThreadPoolManager will register some metrics of all thread pool to MetricRepo,
  *  so we can know the runtime state for all thread pool by prometheus metrics
  */
