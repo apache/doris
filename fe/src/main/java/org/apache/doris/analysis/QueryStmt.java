@@ -437,6 +437,8 @@ public abstract class QueryStmt extends StatementBase {
      */
     public abstract void collectTableRefs(List<TableRef> tblRefs);
 
+    abstract List<TupleId> collectTupleIds();
+
     public ArrayList<OrderByElement> getOrderByElements() {
         return orderByElements;
     }

@@ -18,18 +18,18 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.alter.AlterJobV2;
-import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropTableStmt;
-import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExplainLevel;
@@ -140,9 +140,19 @@ public class DorisAssert {
             Assert.assertFalse(explainQuery().contains(s));
         }
 
-        private String explainQuery() throws Exception {
+        public String explainQuery() throws Exception {
             StmtExecutor stmtExecutor = new StmtExecutor(connectContext, "explain " + sql);
             stmtExecutor.execute();
+            QueryState queryState = connectContext.getState();
+            if (queryState.getStateType() == QueryState.MysqlStateType.ERR) {
+                switch (queryState.getErrType()){
+                    case ANALYSIS_ERR:
+                        throw new AnalysisException(queryState.getErrorMessage());
+                    case OTHER_ERR:
+                    default:
+                        throw new Exception(queryState.getErrorMessage());
+                }
+            }
             Planner planner = stmtExecutor.planner();
             String explainString = planner.getExplainString(planner.getFragments(), TExplainLevel.VERBOSE);
             System.out.println(explainString);

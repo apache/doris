@@ -542,6 +542,13 @@ public class SetOperationStmt extends QueryStmt {
     }
 
     @Override
+    public List<TupleId> collectTupleIds() {
+        List<TupleId> result = Lists.newArrayList();
+        for (SetOperand op: operands) result.addAll(op.getQueryStmt().collectTupleIds());
+        return result;
+    }
+
+    @Override
     public String toSql() {
         if (toSqlString != null) {
             return toSqlString;
