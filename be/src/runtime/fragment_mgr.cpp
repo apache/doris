@@ -37,6 +37,7 @@
 #include "util/url_coding.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
+#include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
