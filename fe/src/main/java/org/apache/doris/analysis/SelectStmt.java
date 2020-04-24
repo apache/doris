@@ -183,7 +183,7 @@ public class SelectStmt extends QueryStmt {
         baseTblSmap.clear();
         groupingInfo = null;
     }
-    
+
     @Override
     public QueryStmt clone() {
         return new SelectStmt(this);
@@ -1004,8 +1004,8 @@ public class SelectStmt extends QueryStmt {
 
         if (selectList.isDistinct()
                 && (groupByClause != null
-                            || TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
-                            || (havingClauseAfterAnaylzed != null && havingClauseAfterAnaylzed.contains(Expr.isAggregatePredicate())))) {
+                || TreeNode.contains(resultExprs, Expr.isAggregatePredicate())
+                || (havingClauseAfterAnaylzed != null && havingClauseAfterAnaylzed.contains(Expr.isAggregatePredicate())))) {
             throw new AnalysisException("cannot combine SELECT DISTINCT with aggregate functions or GROUP BY");
         }
 
@@ -1388,9 +1388,24 @@ public class SelectStmt extends QueryStmt {
             if (!item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                 continue;
             }
-            item.setExpr(rewriteSubquery(item.getExpr(), analyzer));
-        }
+            CaseExpr caseExpr = (CaseExpr) item.getExpr();
 
+            int childIdx = 0;
+            if (caseExpr.hasCaseExpr()
+                    && caseExpr.getChild(childIdx++).contains(Predicates.instanceOf(Subquery.class))) {
+                throw new AnalysisException("Only support subquery in binary predicate in case statement.");
+            }
+            while (childIdx + 2 <= caseExpr.getChildren().size()) {
+                Expr child = caseExpr.getChild(childIdx++);
+                // when
+                if (!(child instanceof BinaryPredicate) && child.contains(Predicates.instanceOf(Subquery.class))) {
+                    throw new AnalysisException("Only support subquery in binary predicate in case statement.");
+                }
+                // then
+                childIdx++;
+            }
+            rewriteSubquery(item.getExpr(), analyzer);
+        }
         selectList.rewriteExprs(rewriter, analyzer);
     }
 
@@ -1435,7 +1450,7 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException("Only support select subquery in case statement.");
             }
             SelectStmt subquery = (SelectStmt) ((Subquery) expr).getStatement();
-            if (subquery.resultExprs.size() != 1) {
+            if (subquery.resultExprs.size() != 1 || !subquery.returnsSingleRow()) {
                 throw new AnalysisException("Only support select subquery produce one column in case statement.");
             }
             subquery.reset();
