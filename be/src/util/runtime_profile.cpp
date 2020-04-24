@@ -47,6 +47,7 @@ static const std::string ROOT_COUNTER = "";
 
 RuntimeProfile::PeriodicCounterUpdateState RuntimeProfile::_s_periodic_counter_update_state;
 
+// TODO: we do not use the param pool should we del the param ObjectPool
 RuntimeProfile::RuntimeProfile(ObjectPool* pool, const std::string& name, bool is_averaged_profile)
         : _pool(new ObjectPool()),
           _own_pool(false),
@@ -520,7 +521,7 @@ void RuntimeProfile::pretty_print(std::ostream* s, const std::string& prefix) co
     if (total_time->second->value() != 0) {
         stream << "(Active: "
                << PrettyPrinter::print(total_time->second->value(), total_time->second->type())
-               << ", % non-child: " << std::setprecision(2) << _local_time_percent << "%)";
+               << ", non-child: " << std::setprecision(2) << _local_time_percent << "%)";
     }
 
     stream << std::endl;

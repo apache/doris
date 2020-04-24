@@ -1268,8 +1268,6 @@ void BufferedBlockMgr2::init(
     _profile.reset(new RuntimeProfile(&_obj_pool, "BlockMgr"));
     parent_profile->add_child(_profile.get(), true, NULL);
 
-    _mem_tracker_counter = ADD_COUNTER(_profile.get(), "MemoryLimit", TUnit::BYTES);
-    _mem_tracker_counter->set(mem_limit);
     _block_size_counter = ADD_COUNTER(_profile.get(), "MaxBlockSize", TUnit::BYTES);
     _block_size_counter->set(_max_block_size);
     _created_block_counter = ADD_COUNTER(_profile.get(), "BlocksCreated", TUnit::UNIT);
