@@ -58,6 +58,8 @@ public class ThreadPoolManager {
 
     private static String[] poolMerticTypes = {"pool_size", "active_thread_num", "task_in_queue"};
 
+    private final static Long KEEP_ALIVE_TIME = 60L;
+
     public static void registerAllThreadPoolMetric() {
         for (Map.Entry<String, ThreadPoolExecutor> entry : nameToThreadPoolMap.entrySet()) {
             registerThreadPoolMetric(entry.getKey(), entry.getValue());
@@ -89,11 +91,11 @@ public class ThreadPoolManager {
     }
 
     public static ThreadPoolExecutor newDaemonCacheThreadPool(int maxNumThread, String poolName) {
-        return newDaemonThreadPool(0, maxNumThread, 60L, TimeUnit.SECONDS, new SynchronousQueue(), new LogDiscardPolicy(poolName), poolName);
+        return newDaemonThreadPool(0, maxNumThread, KEEP_ALIVE_TIME, TimeUnit.SECONDS, new SynchronousQueue(), new LogDiscardPolicy(poolName), poolName);
     }
 
     public static ThreadPoolExecutor newDaemonFixedThreadPool(int numThread, int queueSize, String poolName) {
-       return newDaemonThreadPool(numThread, numThread, 60L ,TimeUnit.SECONDS, new LinkedBlockingQueue<>(queueSize),
+       return newDaemonThreadPool(numThread, numThread, KEEP_ALIVE_TIME ,TimeUnit.SECONDS, new LinkedBlockingQueue<>(queueSize),
                new BlockedPolicy(poolName, 60), poolName);
     }
 
