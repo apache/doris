@@ -166,13 +166,13 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             allBackendIds.remove(loadId);
         }
 
-        public synchronized void updateLoadProgress(long beId, TUniqueId loadId, TUniqueId fragmentId, long rows,
-                boolean isDone) {
+        public synchronized void updateLoadProgress(long backendId, TUniqueId loadId, TUniqueId fragmentId,
+                long rows, boolean isDone) {
             if (counterTbl.contains(loadId, fragmentId)) {
                 counterTbl.put(loadId, fragmentId, rows);
             }
             if (isDone && unfinishedBackendIds.containsKey(loadId)) {
-                unfinishedBackendIds.get(loadId).remove(beId);
+                unfinishedBackendIds.get(loadId).remove(backendId);
             }
         }
 
