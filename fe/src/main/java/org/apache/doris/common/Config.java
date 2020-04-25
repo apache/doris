@@ -993,13 +993,13 @@ public class Config extends ConfigBase {
     /*
      * Decide how often to check dynamic partition
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static int dynamic_partition_check_interval_seconds = 600;
+    @ConfField public static int dynamic_partition_check_interval_seconds = 600;
 
     /*
      * If set to true, dynamic partition feature will open
      */
-    @ConfField public static boolean dynamic_partition_enable = false;
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean dynamic_partition_enable = false;
 
     /*
      * control rollup job concurrent limit
