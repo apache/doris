@@ -999,8 +999,7 @@ public class Config extends ConfigBase {
     /*
      * If set to true, dynamic partition feature will open
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean dynamic_partition_enable = false;
+    @ConfField public static boolean dynamic_partition_enable = false;
 
     /*
      * control rollup job concurrent limit
