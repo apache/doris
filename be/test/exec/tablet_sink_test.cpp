@@ -33,6 +33,7 @@
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
 #include "util/debug/leakcheck_disabler.h"
+#include "util/doris_metrics.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/bufferpool/reservation_tracker.h"
 #include "runtime/exec_env.h"
@@ -49,6 +50,7 @@ public:
     OlapTableSinkTest() { }
     virtual ~OlapTableSinkTest() { }
     void SetUp() override {
+        DorisMetrics::instance()->initialize("ut");
         k_add_batch_status = Status::OK();
         _env = ExecEnv::GetInstance();
         _env->_thread_mgr = new ThreadResourceMgr();

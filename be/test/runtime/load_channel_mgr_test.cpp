@@ -30,6 +30,7 @@
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "runtime/descriptor_helper.h"
+#include "util/doris_metrics.h"
 #include "util/thrift_util.h"
 #include "olap/delta_writer.h"
 #include "olap/memtable_flush_executor.h"
@@ -103,6 +104,7 @@ public:
         add_status = OLAP_SUCCESS;
         close_status = OLAP_SUCCESS;
         config::streaming_load_rpc_max_alive_time_sec = 120;
+        DorisMetrics::instance()->initialize("ut");
     }
 private:
 };

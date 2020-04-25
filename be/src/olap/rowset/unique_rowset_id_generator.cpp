@@ -16,13 +16,20 @@
 // under the License.
 
 #include "olap/rowset/unique_rowset_id_generator.h"
+
+#include "util/doris_metrics.h"
 #include "util/spinlock.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
 UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
-        : _backend_uid(backend_uid), _inc_id(0) {}
+        : _backend_uid(backend_uid), _inc_id(0) {
+    REGISTER_GAUGE_DORIS_METRIC(rowset_count_generated_and_in_use, [this]() {
+        std::lock_guard<SpinLock> l(_lock);
+        return _valid_rowset_id_hi.size();
+    });
+}
 
 // generate a unique rowset id and save it in a set to check whether it is valid in the future
 RowsetId UniqueRowsetIdGenerator::next_id() {
