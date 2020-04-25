@@ -23,15 +23,25 @@
 #include "olap/memtable.h"
 #include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
+
+std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
 
 TabletsChannel::TabletsChannel(const TabletsChannelKey& key, MemTracker* mem_tracker):
         _key(key), _state(kInitialized), _closed_senders(64) {
     _mem_tracker.reset(new MemTracker(-1, "tablets channel", mem_tracker));
+    static std::once_flag once_flag;
+    std::call_once(once_flag, [] {
+        REGISTER_GAUGE_DORIS_METRIC(tablet_writer_count, [&]() {
+            return _s_tablet_writer_count.load();
+        });
+    });
 }
 
 TabletsChannel::~TabletsChannel() {
+    _s_tablet_writer_count -= _tablet_writers.size();
     for (auto& it : _tablet_writers) {
         delete it.second;
     }
@@ -237,6 +247,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& params)
         }
         _tablet_writers.emplace(tablet.tablet_id(), writer);
     }
+    _s_tablet_writer_count += _tablet_writers.size();
     DCHECK(_tablet_writers.size() == params.tablets_size());
     return Status::OK();
 }

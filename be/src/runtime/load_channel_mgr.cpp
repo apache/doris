@@ -22,6 +22,7 @@
 #include "runtime/load_channel.h"
 #include "runtime/mem_tracker.h"
 #include "service/backend_options.h"
+#include "util/doris_metrics.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -61,6 +62,10 @@ static int64_t calc_job_timeout_s(int64_t timeout_in_req_s) {
 }
 
 LoadChannelMgr::LoadChannelMgr() : _is_stopped(false) {
+    REGISTER_GAUGE_DORIS_METRIC(load_channel_count, [this]() {
+        std::lock_guard<std::mutex> l(_lock);
+        return _load_channels.size();
+    });
     _lastest_success_channel = new_lru_cache(1024);
 }
 

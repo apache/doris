@@ -124,6 +124,8 @@ private:
     std::unordered_set<int64_t> _partition_ids;
 
     std::unique_ptr<MemTracker> _mem_tracker;
+
+    static std::atomic<uint64_t> _s_tablet_writer_count;
 };
 
 

@@ -136,6 +136,22 @@ IntGauge DorisMetrics::blocks_open_writing;
 
 IntCounter DorisMetrics::blocks_push_remote_duration_us;
 
+UIntGauge DorisMetrics::rowset_count_generated_and_in_use;
+UIntGauge DorisMetrics::unused_rowsets_count;
+UIntGauge DorisMetrics::broker_count;
+UIntGauge DorisMetrics::data_stream_receiver_count;
+UIntGauge DorisMetrics::fragment_endpoint_count;
+UIntGauge DorisMetrics::active_scan_context_count;
+UIntGauge DorisMetrics::plan_fragment_count;
+UIntGauge DorisMetrics::load_channel_count;
+UIntGauge DorisMetrics::result_buffer_block_count;
+UIntGauge DorisMetrics::result_block_queue_count;
+UIntGauge DorisMetrics::routine_load_task_count;
+UIntGauge DorisMetrics::small_file_cache_count;
+UIntGauge DorisMetrics::stream_load_pipe_count;
+UIntGauge DorisMetrics::brpc_endpoint_stub_count;
+UIntGauge DorisMetrics::tablet_writer_count;
+
 DorisMetrics::~DorisMetrics() {
     delete _system_metrics;
     delete _metrics;

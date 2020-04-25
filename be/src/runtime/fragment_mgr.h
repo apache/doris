@@ -91,7 +91,6 @@ private:
     std::thread _cancel_thread;
     // every job is a pool
     PriorityThreadPool _thread_pool;
-
 };
 
 }

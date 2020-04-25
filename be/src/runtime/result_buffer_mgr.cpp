@@ -20,6 +20,7 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/raw_value.h"
 #include "util/debug_util.h"
+#include "util/doris_metrics.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/types.pb.h"
 
@@ -33,6 +34,12 @@ namespace doris {
 
 ResultBufferMgr::ResultBufferMgr()
     : _is_stop(false) {
+    // Each BufferControlBlock has a limited queue size of 1024, it's not needed to count the
+    // actual size of all BufferControlBlock.
+    REGISTER_GAUGE_DORIS_METRIC(result_buffer_block_count, [this]() {
+        boost::lock_guard<boost::mutex> l(_lock);
+        return _buffer_map.size();
+    });
 }
 
 ResultBufferMgr::~ResultBufferMgr() {

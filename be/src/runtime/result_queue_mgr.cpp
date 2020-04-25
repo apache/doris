@@ -24,11 +24,19 @@
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
 #include "util/arrow/row_batch.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
 ResultQueueMgr::ResultQueueMgr() {
+    // Each BlockingQueue has a limited size (default 20, by config::max_memory_sink_batch_count),
+    // it's not needed to count the actual size of all BlockingQueue.
+    REGISTER_GAUGE_DORIS_METRIC(result_block_queue_count, [this]() {
+        std::lock_guard<std::mutex> l(_lock);
+        return _fragment_queue_map.size();
+    });
 }
+
 ResultQueueMgr::~ResultQueueMgr() {
 }
 

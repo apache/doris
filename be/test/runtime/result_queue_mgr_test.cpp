@@ -25,6 +25,7 @@
 #include "gen_cpp/DorisExternalService_types.h"
 #include "runtime/result_queue_mgr.h"
 #include "util/blocking_queue.hpp"
+#include "util/doris_metrics.h"
 
 namespace doris {
 
@@ -37,6 +38,7 @@ public:
 
 protected:
     virtual void SetUp() {
+        DorisMetrics::instance()->initialize("ut");
     }
 
 };
