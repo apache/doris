@@ -205,6 +205,24 @@ public class Config extends ConfigBase {
     public static int bdbje_lock_timeout_second = 1;
 
     /*
+     * num of thread to handle heartbeat events in heartbeat_mgr.
+     */
+    @ConfField(masterOnly = true)
+    public static int heartbeat_mgr_threads_num = 8;
+
+     /*
+     * blocking queue size to store heartbeat task in heartbeat_mgr.
+     */
+    @ConfField(masterOnly = true)
+    public static int heartbeat_mgr_blocking_queue_size = 1024;
+
+    /*
+    * max num of thread to handle agent task in agent task thread-pool.
+    */
+    @ConfField(masterOnly = true)
+    public static int max_agent_task_threads_num = 4096;
+
+    /*
      * the max txn number which bdbje can rollback when trying to rejoin the group
      */
     @ConfField public static int txn_rollback_limit = 100;
@@ -289,6 +307,12 @@ public class Config extends ConfigBase {
      * num of thread to handle io events in mysql.
      */
     @ConfField public static int mysql_service_io_threads_num = 4;
+
+    /*
+     * max num of thread to handle task in mysql.
+     */
+    @ConfField public static int max_mysql_service_task_threads_num = 4096;
+
     /*
      * Cluster name will be shown as the title of web page
      */
@@ -329,6 +353,12 @@ public class Config extends ConfigBase {
      * minimal intervals between two publish version action
      */
     @ConfField public static int publish_version_interval_ms = 10;
+
+
+    /*
+     * The thrift server max worker threads
+     */
+    @ConfField public static int thrift_server_max_worker_threads = 4096;
 
     /*
      * Maximal wait seconds for straggler node in load
@@ -635,6 +665,11 @@ public class Config extends ConfigBase {
      * Maximal number of connections per user, per FE.
      */
     @ConfField public static int max_conn_per_user = 100;
+
+    /*
+     * Maximal number of thread in connection-scheduler-pool.
+     */
+    @ConfField public static int max_connection_scheduler_threads_num = 4096;
 
     /*
     * The memory_limit for colocote join PlanFragment instance =
