@@ -504,4 +504,19 @@ public class QueryPlanTest {
         Catalog.getCurrentCatalog().getLoadManager().createLoadJobV1FromStmt(loadStmt, EtlJobType.HADOOP,
                 System.currentTimeMillis());
     }
+
+    @Test
+    public void testConvertCaseWhenToConstant() throws Exception {
+        String caseWhenSql = "select "
+                + "case when date_format(now(),'%H%i')  < 123 then 1 else 0 end as col_name "
+                + "from test.test1 "
+                + "where time = case when date_format(now(),'%H%i')  < 123 then date_format(date_sub(now(),2),'%Y%m%d') else date_format(date_sub(now(),1),'%Y%m%d') end";
+        SelectStmt selectStmt =
+                (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(caseWhenSql, connectContext);
+        selectStmt = (SelectStmt) UtFrameUtils.rewriteStmt(selectStmt, connectContext);
+        selectStmt = (SelectStmt) UtFrameUtils.reAnalyze(selectStmt, connectContext);
+
+        Assert.assertTrue(!selectStmt.toSql().contains("CASE WHEN") && !selectStmt.toSql().contains("case when"));
+
+    }
 }
