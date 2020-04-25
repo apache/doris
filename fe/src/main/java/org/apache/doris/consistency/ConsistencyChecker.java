@@ -226,7 +226,7 @@ public class ConsistencyChecker extends MasterDaemon {
         }
     }
 
-    /*
+    /**
      *  choose a tablet to check it's consistency
      *  we use a priority queue to sort db/table/partition/index/tablet by 'lastCheckTime'.
      *  chose a tablet which has the smallest 'lastCheckTime'.
@@ -242,7 +242,7 @@ public class ConsistencyChecker extends MasterDaemon {
         if (dbIds.isEmpty()) {
             return chosenTablets;
         }
-        Queue<MetaObject> dbQueue = new PriorityQueue<MetaObject>(dbIds.size(), COMPARATOR);
+        Queue<MetaObject> dbQueue = new PriorityQueue<>(Math.max(dbIds.size(), 1), COMPARATOR);
         for (Long dbId : dbIds) {
             if (dbId == 0L) {
                 // skip 'information_schema' database
@@ -264,7 +264,7 @@ public class ConsistencyChecker extends MasterDaemon {
                 try {
                     // sort tables
                     List<Table> tables = db.getTables();
-                    Queue<MetaObject> tableQueue = new PriorityQueue<MetaObject>(tables.size(), COMPARATOR);
+                    Queue<MetaObject> tableQueue = new PriorityQueue<>(Math.max(tables.size(), 1), COMPARATOR);
                     for (Table table : tables) {
                         if (table.getType() != TableType.OLAP) {
                             continue;
@@ -277,7 +277,7 @@ public class ConsistencyChecker extends MasterDaemon {
 
                         // sort partitions
                         Queue<MetaObject> partitionQueue =
-                                new PriorityQueue<>(table.getAllPartitions().size(), COMPARATOR);
+                                new PriorityQueue<>(Math.max(table.getAllPartitions().size(), 1), COMPARATOR);
                         for (Partition partition : table.getPartitions()) {
                             // check partition's replication num. if 1 replication. skip
                             if (table.getPartitionInfo().getReplicationNum(partition.getId()) == (short) 1) {
@@ -299,14 +299,14 @@ public class ConsistencyChecker extends MasterDaemon {
 
                             // sort materializedIndices
                             List<MaterializedIndex> visibleIndexs = partition.getMaterializedIndices(IndexExtState.VISIBLE);
-                            Queue<MetaObject> indexQueue = new PriorityQueue<MetaObject>(visibleIndexs.size(), COMPARATOR);
+                            Queue<MetaObject> indexQueue = new PriorityQueue<>(Math.max(visibleIndexs.size(), 1), COMPARATOR);
                             indexQueue.addAll(visibleIndexs);
 
                             while ((chosenOne = indexQueue.poll()) != null) {
                                 MaterializedIndex index = (MaterializedIndex) chosenOne;
 
                                 // sort tablets
-                                Queue<MetaObject> tabletQueue = new PriorityQueue<MetaObject>(index.getTablets().size(), COMPARATOR);
+                                Queue<MetaObject> tabletQueue = new PriorityQueue<>(Math.max(index.getTablets().size(), 1), COMPARATOR);
                                 tabletQueue.addAll(index.getTablets());
 
                                 while ((chosenOne = tabletQueue.poll()) != null) {
