@@ -34,6 +34,7 @@
 #include "olap/rowset/alpha_rowset_reader.h"
 #include "olap/data_dir.h"
 #include "olap/storage_engine.h"
+#include "util/doris_metrics.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -49,6 +50,7 @@ namespace doris {
 static const uint32_t MAX_PATH_LEN = 1024;
 
 void set_up() {
+    DorisMetrics::instance()->initialize("ut");
     config::path_gc_check = false;
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);

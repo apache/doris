@@ -123,6 +123,10 @@ StorageEngine::StorageEngine(const EngineOptions& options)
     if (_s_instance == nullptr) {
         _s_instance = this;
     }
+    REGISTER_GAUGE_DORIS_METRIC(unused_rowsets_count, [this]() {
+        MutexLock lock(&_gc_mutex);
+        return _unused_rowsets.size();
+    });
 }
 
 StorageEngine::~StorageEngine() {
