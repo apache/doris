@@ -17,11 +17,6 @@
 
 package org.apache.doris.planner;
 
-import java.util.List;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
@@ -34,11 +29,17 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TQueryOptions;
+
 import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.List;
 
 /**
  * Computation of analytic exprs.
@@ -148,7 +149,7 @@ public class AnalyticEvalNode extends PlanNode {
             orderByElementStrs.add(element.toSql());
         }
 
-        return Objects.toStringHelper(this)
+        return MoreObjects.toStringHelper(this)
                .add("analyticFnCalls", Expr.debugString(analyticFnCalls))
                .add("partitionExprs", Expr.debugString(partitionExprs))
                .add("subtitutedPartitionExprs", Expr.debugString(substitutedPartitionExprs))

@@ -25,8 +25,8 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSlotRef;
 
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
-import com.google.common.base.Objects.ToStringHelper;
 import com.google.common.base.Preconditions;
 
 import org.apache.logging.log4j.LogManager;
@@ -139,7 +139,7 @@ public class SlotRef extends Expr {
 
     @Override
     public String debugString() {
-        ToStringHelper helper = Objects.toStringHelper(this);
+        MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         helper.add("slotDesc", desc != null ? desc.debugString() : "null");
         helper.add("col", col);
         helper.add("label", label);
