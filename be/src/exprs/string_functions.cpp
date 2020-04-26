@@ -268,10 +268,10 @@ IntVal StringFunctions::length(FunctionContext* context, const StringVal& str) {
 }
 
 // Implementation of CHAR_LENGTH
-//   int char_length_utf8(string input)
+//   int char_utf8_length(string input)
 // Returns the length of characters of input. If input == NULL, returns
 // NULL per MySQL
-IntVal StringFunctions::char_length_utf8(FunctionContext* context, const StringVal& str) {
+IntVal StringFunctions::char_utf8_length(FunctionContext* context, const StringVal& str) {
     if (str.is_null) {
         return IntVal::null();
     }
