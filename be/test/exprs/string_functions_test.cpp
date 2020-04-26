@@ -309,22 +309,22 @@ TEST_F(StringFunctionsTest, length) {
     ASSERT_EQ(IntVal(5),
             StringFunctions::length(context, StringVal("hello")));
     ASSERT_EQ(IntVal(5),
-            StringFunctions::char_length_utf8(context, StringVal("hello")));
+            StringFunctions::char_utf8_length(context, StringVal("hello")));
     ASSERT_EQ(IntVal::null(),
             StringFunctions::length(context, StringVal::null()));
     ASSERT_EQ(IntVal::null(),
-            StringFunctions::char_length_utf8(context, StringVal::null()));
+            StringFunctions::char_utf8_length(context, StringVal::null()));
 
     ASSERT_EQ(IntVal(0),
             StringFunctions::length(context, StringVal("")));
     ASSERT_EQ(IntVal(0),
-            StringFunctions::char_length_utf8(context, StringVal("")));
+            StringFunctions::char_utf8_length(context, StringVal("")));
             
     ASSERT_EQ(IntVal(11),
             StringFunctions::length(context, StringVal("hello你好")));
             
     ASSERT_EQ(IntVal(7),
-            StringFunctions::char_length_utf8(context, StringVal("hello你好")));
+            StringFunctions::char_utf8_length(context, StringVal("hello你好")));
 }
 
 }
