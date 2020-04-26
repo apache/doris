@@ -270,7 +270,7 @@ mysql> show load order by createtime desc limit 1\G
  LoadStartTime: 2019-07-27 11:46:44
 LoadFinishTime: 2019-07-27 11:50:16
            URL: http://192.168.1.1:8040/api/_load_error_log?file=__shard_4/error_log_insert_stmt_4bb00753932c491a-a6da6e2725415317_4bb00753932c491a_a6da6e2725415317
-    JobDetails: {"ScannedRows":28133395,"TaskNumber":1,"FileNumber":1,"FileSize":200000}
+    JobDetails: {"Unfinished backends":{"9c3441027ff948a0-8287923329a2b6a7":[10002]},"ScannedRows":2390016,"TaskNumber":1,"All backends":{"9c3441027ff948a0-8287923329a2b6a7":[10002]},"FileNumber":1,"FileSize":1073741824}
 ```
 
 The following is mainly about the significance of viewing the parameters in the return result set of the import command:
@@ -343,6 +343,16 @@ The following is mainly about the significance of viewing the parameters in the 
 + URL
 
 	The error data sample of the import task can be obtained by accessing the URL address. When there is no error data in this import, the URL field is N/A.
+
++ JobDetails
+
+    Display some details of the running status of the job. Including file number, total file size(Bytes), num of sub tasks, scanned rows, related backend ids and unfinished backend ids.
+
+    ```
+    {"Unfinished backends":{"9c3441027ff948a0-8287923329a2b6a7":[10002]},"ScannedRows":2390016,"TaskNumber":1,"All backends":{"9c3441027ff948a0-8287923329a2b6a7":[10002]},"FileNumber":1,"FileSize":1073741824}
+    ```
+
+    This info will be updated every 5 seconds. the ScannedRows only for displaying the job progress, not indicate the real numbers.
 
 ### Cancel load
 
