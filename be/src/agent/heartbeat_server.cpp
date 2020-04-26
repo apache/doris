@@ -153,6 +153,10 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         heartbeat_flags->update(master_info.heartbeat_flags);
     }
 
+    if (master_info.__isset.backend_id) {
+        _master_info->__set_backend_id(master_info.backend_id);
+    }
+
     if (need_report) {
         LOG(INFO) << "Master FE is changed or restarted. report tablet and disk info immediately";
         _olap_engine->trigger_report();

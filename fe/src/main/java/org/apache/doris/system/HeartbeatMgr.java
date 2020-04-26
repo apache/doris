@@ -226,6 +226,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setBackend_ip(backend.getHost());
                 long flags = heartbeatFlags.getHeartbeatFlags();
                 copiedMasterInfo.setHeartbeat_flags(flags);
+                copiedMasterInfo.setBackend_id(backendId);
                 THeartbeatResult result = client.heartbeat(copiedMasterInfo);
 
                 ok = true;

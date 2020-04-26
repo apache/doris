@@ -37,6 +37,7 @@
 #include "util/url_coding.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
+#include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -319,6 +320,10 @@ void FragmentExecState::coordinator_callback(
         // Send new errors to coordinator
         runtime_state->get_unreported_errors(&(params.error_log));
         params.__isset.error_log = (params.error_log.size() > 0);
+    }
+
+    if (_exec_env->master_info()->__isset.backend_id) {
+        params.__set_backend_id(_exec_env->master_info()->backend_id);
     }
 
     TReportExecStatusResult res;
