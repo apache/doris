@@ -97,11 +97,6 @@ Status StorageEngine::open(const EngineOptions& options, StorageEngine** engine_
         LOG(WARNING) << "engine open failed, res=" << st;
         return Status::InternalError("open engine failed");
     }
-    st = engine->_start_bg_worker();
-    if (st != OLAP_SUCCESS) {
-        LOG(WARNING) << "engine start background failed, res=" << st;
-        return Status::InternalError("open engine failed");
-    }
     *engine_ptr = engine.release();
     LOG(INFO) << "success to init storage engine.";
     return Status::OK();
