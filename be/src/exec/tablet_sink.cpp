@@ -155,7 +155,6 @@ Status NodeChannel::close(RuntimeState* state) {
 }
 
 Status NodeChannel::_close(RuntimeState* state) {
-    RETURN_IF_ERROR(_wait_in_flight_packet());
     return _send_cur_batch(true);
 }
 
