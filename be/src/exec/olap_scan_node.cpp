@@ -694,10 +694,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                 state, this, _olap_scan_node.is_preaggregation, _need_agg_finalize, *scan_range, scanner_ranges);
             _scanner_pool->add(scanner);
             _olap_scanners.push_back(scanner);
-
-            if (disk_set.find(scanner->scan_disk()) == disk_set.end()) {
-                disk_set.insert(scanner->scan_disk());
-            }
+	    disk_set.insert(scanner->scan_disk());
         }
     }
     COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
