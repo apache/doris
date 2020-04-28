@@ -155,6 +155,11 @@ public class OperationType {
     public static final short OP_CREATE_LOAD_JOB = 230;
     // this finish op include finished and cancelled
     public static final short OP_END_LOAD_JOB = 231;
+    // update job info, used by spark load
+    //public static final short OP_UPDATE_LOAD_JOB = 232;
+    // load etl cluster
+    public static final short OP_ADD_ETL_CLUSTER = 233;
+    public static final short OP_DROP_ETL_CLUSTER = 234;
 
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;

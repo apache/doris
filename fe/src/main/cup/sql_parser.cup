@@ -972,6 +972,15 @@ alter_system_clause ::=
     {:
         RESULT = new AlterLoadErrorUrlClause(properties);
     :}
+	// set load etl cluster
+    | KW_ADD KW_LOAD KW_CLUSTER ident_or_text:clusterName opt_properties:properties
+    {:
+        RESULT = ModifyEtlClusterClause.createAddEtlClusterClause(clusterName, properties);
+    :}
+    | KW_DROP KW_LOAD KW_CLUSTER ident_or_text:clusterName
+    {:
+        RESULT = ModifyEtlClusterClause.createDropEtlClusterClause(clusterName);
+    :}
     ;
 
 alter_cluster_clause ::=

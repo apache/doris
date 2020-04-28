@@ -30,6 +30,7 @@ import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.analysis.DropFollowerClause;
 import org.apache.doris.analysis.DropObserverClause;
 import org.apache.doris.analysis.ModifyBrokerClause;
+import org.apache.doris.analysis.ModifyEtlClusterClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -188,6 +189,9 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof AlterLoadErrorUrlClause) {
             AlterLoadErrorUrlClause clause = (AlterLoadErrorUrlClause) alterClause;
             Catalog.getInstance().getLoadInstance().setLoadErrorHubInfo(clause.getProperties());
+        } else if (alterClause instanceof ModifyEtlClusterClause) {
+            ModifyEtlClusterClause clause = (ModifyEtlClusterClause) alterClause;
+            Catalog.getInstance().getEtlClusterMgr().execute(clause);
         } else {
             Preconditions.checkState(false, alterClause.getClass());
         }

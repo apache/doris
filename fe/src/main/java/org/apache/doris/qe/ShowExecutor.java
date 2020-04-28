@@ -38,6 +38,7 @@ import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
+import org.apache.doris.analysis.ShowEtlClusterStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
@@ -223,6 +224,8 @@ public class ShowExecutor {
             handleShowMigrations();
         } else if (stmt instanceof ShowBrokerStmt) {
             handleShowBroker();
+        } else if (stmt instanceof ShowEtlClusterStmt) {
+            handleShowEtlCluster();
         } else if (stmt instanceof ShowExportStmt) {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
@@ -1299,6 +1302,15 @@ public class ShowExecutor {
     private void handleShowBroker() {
         ShowBrokerStmt showStmt = (ShowBrokerStmt) stmt;
         List<List<String>> rowSet = Catalog.getInstance().getBrokerMgr().getBrokersInfo();
+
+        // Only success
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+    }
+
+    // Handle show etl clusters
+    private void handleShowEtlCluster() {
+        ShowEtlClusterStmt showStmt = (ShowEtlClusterStmt) stmt;
+        List<List<String>> rowSet = Catalog.getInstance().getEtlClusterMgr().getEtlClustersInfo();
 
         // Only success
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);

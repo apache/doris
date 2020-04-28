@@ -359,6 +359,7 @@ public class Catalog {
 
     private PullLoadJobMgr pullLoadJobMgr;
     private BrokerMgr brokerMgr;
+    private EtlClusterMgr etlClusterMgr;
 
     private GlobalTransactionMgr globalTransactionMgr;
 
@@ -496,6 +497,7 @@ public class Catalog {
 
         this.pullLoadJobMgr = new PullLoadJobMgr();
         this.brokerMgr = new BrokerMgr();
+        this.etlClusterMgr = new EtlClusterMgr();
 
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
         this.tabletStatMgr = new TabletStatMgr();
@@ -565,6 +567,10 @@ public class Catalog {
 
     public BrokerMgr getBrokerMgr() {
         return brokerMgr;
+    }
+
+    public EtlClusterMgr getEtlClusterMgr() {
+        return etlClusterMgr;
     }
 
     public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
@@ -1437,6 +1443,7 @@ public class Catalog {
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
+            checksum = loadEtlClusters(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
             checksum = loadDeleteHandler(dis, checksum);
@@ -1838,6 +1845,19 @@ public class Catalog {
         return checksum;
     }
 
+    public long loadEtlClusters(DataInputStream dis, long checksum) throws IOException {
+        if (MetaContext.get().getMetaVersion() >= FeMetaVersion.VERSION_85) {
+            int count = dis.readInt();
+            checksum ^= count;
+            for (long i = 0; i < count; ++i) {
+                EtlCluster etlCluster = EtlCluster.read(dis);
+                etlClusterMgr.replayAddEtlCluster(etlCluster);
+            }
+            LOG.info("finished replay etlClusterMgr from image");
+        }
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_52) {
             smallFileMgr.readFields(in);
@@ -1890,6 +1910,7 @@ public class Catalog {
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
             checksum = saveLoadJobsV2(dos, checksum);
+            checksum = saveEtlClusters(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             checksum = saveDeleteHandler(dos, checksum);
@@ -2158,6 +2179,18 @@ public class Catalog {
 
     public long saveLoadJobsV2(DataOutputStream out, long checksum) throws IOException {
         Catalog.getCurrentCatalog().getLoadManager().write(out);
+        return checksum;
+    }
+
+    public long saveEtlClusters(DataOutputStream dos, long checksum) throws IOException {
+        Collection<EtlCluster> etlClusters = etlClusterMgr.getEtlClusters();
+        int size = etlClusters.size();
+        checksum ^= size;
+        dos.writeInt(size);
+
+        for (EtlCluster etlCluster : etlClusters) {
+            etlCluster.write(dos);
+        }
         return checksum;
     }
 
