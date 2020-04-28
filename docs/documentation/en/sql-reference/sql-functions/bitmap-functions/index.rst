@@ -1,8 +1,0 @@
-================
-bitmap functions
-================
-
-.. toctree::
-    :glob:
-
-    *
