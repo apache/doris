@@ -55,9 +55,20 @@ import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
+/**
+ * Transaction Manager in database level, as a component in GlobalTransactionMgr
+ * DatabaseTransactionMgr mainly be responsible for the following content:
+ * 1. provide read/write lock in database level
+ * 2. provide basic txn infos interface in database level to GlobalTransactionMgr
+ * 3. do some transaction management, such as add/update/delete transaction.
+ * Attention: all api in DatabaseTransactionMgr should be only invoked by GlobalTransactionMgr
+ */
+
 public class DatabaseTransactionMgr {
 
     private static final Logger LOG = LogManager.getLogger(DatabaseTransactionMgr.class);
+
+    private long dbId;
 
     // the lock is used to control the access to transaction states
     // no other locks should be inside this lock
@@ -108,8 +119,13 @@ public class DatabaseTransactionMgr {
         this.transactionLock.writeLock().unlock();
     }
 
-    public DatabaseTransactionMgr(EditLog editLog) {
+    public DatabaseTransactionMgr(long dbId, EditLog editLog) {
+        this.dbId = dbId;
         this.editLog = editLog;
+    }
+
+    public long getDbId() {
+        return dbId;
     }
 
     public TransactionState getTransactionState(Long transactionId) {

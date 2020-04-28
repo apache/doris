@@ -103,7 +103,7 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void addDatabaseTransactionMgr(Long dbId, EditLog editLog) {
-        dbIdToDatabaseTransactionMgrs.put(dbId, new DatabaseTransactionMgr(editLog));
+        dbIdToDatabaseTransactionMgrs.put(dbId, new DatabaseTransactionMgr(dbId, editLog));
     }
 
     public void removeDatabaseTransactionMgr(Long dbId) {
@@ -183,7 +183,7 @@ public class GlobalTransactionMgr implements Writable {
                 }
             }
 
-            checkRunningTxnExceedLimit(dbTransactionMgr, dbId, sourceType);
+            checkRunningTxnExceedLimit(dbTransactionMgr, sourceType);
           
             long tid = idGenerator.getNextTransactionId();
             LOG.info("begin transaction: txn id {} with label {} from coordinator {}", tid, label, coordinator);
@@ -209,7 +209,7 @@ public class GlobalTransactionMgr implements Writable {
         }
     }
     
-    private void checkRunningTxnExceedLimit(DatabaseTransactionMgr dbTransactionMgr, Long dbId, LoadJobSourceType sourceType) throws BeginTransactionException {
+    private void checkRunningTxnExceedLimit(DatabaseTransactionMgr dbTransactionMgr, LoadJobSourceType sourceType) throws BeginTransactionException {
         switch (sourceType) {
             case ROUTINE_LOAD_TASK:
                 // no need to check limit for routine load task:
@@ -219,7 +219,7 @@ public class GlobalTransactionMgr implements Writable {
                 break;
             default:
                 if (dbTransactionMgr.getRunningTxnNums() >= Config.max_running_txn_num_per_db) {
-                    throw new BeginTransactionException("current running txns on db " + dbId + " is "
+                    throw new BeginTransactionException("current running txns on db " + dbTransactionMgr.getDbId() + " is "
                             + dbTransactionMgr.getRunningTxnNums() + ", larger than limit " + Config.max_running_txn_num_per_db);
                 }
                 break;
@@ -1035,7 +1035,10 @@ public class GlobalTransactionMgr implements Writable {
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
         return dbTransactionMgr.getPartitionTransInfo(tid, tableId);
     }
-    
+
+    /**
+     * It is a non thread safe method, only invoked by checkpoint thread without any lock or image dump thread with db lock
+     */
     public int getTransactionNum() {
         int txnNum = 0;
         for (DatabaseTransactionMgr dbTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
