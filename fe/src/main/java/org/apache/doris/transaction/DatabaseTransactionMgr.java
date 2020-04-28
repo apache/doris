@@ -52,7 +52,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -84,10 +83,10 @@ public class DatabaseTransactionMgr {
 
 
     // count the number of running txns of database, except for the routine load txn
-    private AtomicInteger runningTxnNums = new AtomicInteger(0);
+    private int runningTxnNums = 0;
 
     // count only the number of running routine load txns of database
-    private AtomicInteger runningRoutineLoadTxnNums = new AtomicInteger(0);
+    private int runningRoutineLoadTxnNums = 0;
 
     private EditLog editLog;
 
@@ -127,11 +126,11 @@ public class DatabaseTransactionMgr {
     }
 
     public int getRunningTxnNums() {
-        return runningTxnNums.get();
+        return runningTxnNums;
     }
 
     public int getRunningRoutineLoadTxnNums() {
-        return runningRoutineLoadTxnNums.get();
+        return runningRoutineLoadTxnNums;
     }
 
     public int getFinishedTxnNums() {
@@ -252,17 +251,17 @@ public class DatabaseTransactionMgr {
                 editLog.logInsertTransactionState(transactionState);
             }
         }
-
-        if (transactionState.isRunning()) {
+        // for commit transaction, there is nothing to do
+        if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
             idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState);
-        } else {
+            updateTxnLabels(transactionState);
+            updateDbRunningTxnNum(transactionState.getPreStatus(), transactionState);
+        } else if (transactionState.getTransactionStatus().isFinalStatus()) {
             idToRunningTransactionState.remove(transactionState.getTransactionId());
             idToFinalStatusTransactionState.put(transactionState.getTransactionId(), transactionState);
             finalStatusTransactionStateDeque.add(transactionState);
+            updateDbRunningTxnNum(transactionState.getPreStatus(), transactionState);
         }
-
-        updateTxnLabels(transactionState);
-        updateDbRunningTxnNum(transactionState.getPreStatus(), transactionState);
     }
 
     private void updateTxnLabels(TransactionState transactionState) {
@@ -275,22 +274,23 @@ public class DatabaseTransactionMgr {
     }
 
     private void updateDbRunningTxnNum(TransactionStatus preStatus, TransactionState curTxnState) {
-        AtomicInteger txnNum = null;
-        if (curTxnState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
-            txnNum = runningRoutineLoadTxnNums;
-        } else {
-            txnNum = runningTxnNums;
-        }
-
         if (preStatus == null
                 && (curTxnState.getTransactionStatus() == TransactionStatus.PREPARE
                 || curTxnState.getTransactionStatus() == TransactionStatus.COMMITTED)) {
-            txnNum.incrementAndGet();
+            if (curTxnState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
+                runningRoutineLoadTxnNums++;
+            } else {
+                runningTxnNums++;
+            }
         } else if ((preStatus == TransactionStatus.PREPARE
                 || preStatus == TransactionStatus.COMMITTED)
                 && (curTxnState.getTransactionStatus() == TransactionStatus.VISIBLE
                 || curTxnState.getTransactionStatus() == TransactionStatus.ABORTED)) {
-            txnNum.decrementAndGet();
+            if (curTxnState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
+                runningRoutineLoadTxnNums--;
+            } else {
+                runningTxnNums--;
+            }
         }
     }
 
@@ -299,7 +299,13 @@ public class DatabaseTransactionMgr {
             LOG.info("transaction id is {}, less than 0, maybe this is an old type load job, ignore abort operation", transactionId);
             return;
         }
-        TransactionState transactionState = idToRunningTransactionState.get(transactionId);
+        TransactionState transactionState = null;
+        readLock();
+        try {
+            transactionState = idToRunningTransactionState.get(transactionId);
+        } finally {
+            readUnlock();
+        }
         if (transactionState == null) {
             throw new UserException("transaction not found");
         }

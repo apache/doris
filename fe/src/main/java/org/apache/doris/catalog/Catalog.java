@@ -1558,6 +1558,7 @@ public class Catalog {
             if (db.getDbState() == DbState.LINK) {
                 fullNameToDb.put(db.getAttachDb(), db);
             }
+            globalTransactionMgr.addDatabaseTransactionMgr(db.getId(), editLog);
         }
 
         return newChecksum;
