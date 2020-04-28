@@ -188,7 +188,6 @@ public:
     static UIntGauge brpc_endpoint_stub_count;
     static UIntGauge tablet_writer_count;
 
-
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;
