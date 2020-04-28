@@ -47,8 +47,8 @@ private:
 };
 
 #define REGISTER_GAUGE_DORIS_METRIC(name, func) \
-  DorisMetrics::metrics()->register_metric(#name, &DorisMetrics::name); \
-  DorisMetrics::metrics()->register_hook(#name, [&]() { \
+  DorisMetrics::instance()->metrics()->register_metric(#name, &DorisMetrics::name); \
+  DorisMetrics::instance()->metrics()->register_hook(#name, [&]() { \
       DorisMetrics::name.set_value(func());  \
 });
 
