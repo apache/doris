@@ -605,6 +605,23 @@ public class FunctionCallExpr extends Expr {
             return;
         }
 
+        if (fn.getFunctionName().getFunction().equals("append_trailing_char_if_absent")) {
+            if (children.size() != 2) {
+                throw new AnalysisException("append_trailing_char_if_absent requires two parameters: " + this.toSql());
+            }
+
+            Expr arg0 = getChild(0);
+            Expr arg1 = getChild(1);
+            if ((!arg0.type.isStringType() && !arg0.type.isNull()) || (!arg1.type.isStringType() && !arg1.type.isNull())) {
+                throw new AnalysisException(
+                        "append_trailing_char_if_absent requires two parameter to be of type STRING: " + this.toSql());
+            }
+            if (((StringLiteral) arg1).getValue().length() != 1) {
+                throw new AnalysisException("Second argument of function append_trailing_char_if_absent must be a " +
+                        "one-character string.");
+            }
+        }
+
         if (isAggregateFunction()) {
             final String functionName = fnName.getFunction();
             // subexprs must not contain aggregates
