@@ -533,7 +533,7 @@ visible_functions = [
             '15FunctionContextERKNS1_9StringValERKNS1_6IntValES6_'],
     [['length'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions6lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['char_utf8_length'], 'INT', ['VARCHAR'],
+    [['char_length'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions16char_utf8_lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions5lowerEPN9doris_udf15FunctionContextERKNS1_9StringValE'],

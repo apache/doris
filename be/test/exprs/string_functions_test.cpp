@@ -270,7 +270,7 @@ TEST_F(StringFunctionsTest, substring) {
 
     ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string(" word")),
             StringFunctions::substring(context, StringVal("hello word"), -5, 5));
-            
+
     ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("hello word 你")),
             StringFunctions::substring(context, StringVal("hello word 你好"), 1, 12));
 
@@ -282,7 +282,7 @@ TEST_F(StringFunctionsTest, substring) {
 
     ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("rd 你好")),
             StringFunctions::substring(context, StringVal("hello word 你好"), -5, 5));
-            
+
     ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("h")),
             StringFunctions::substring(context, StringVal("hello word 你好"), 1, 1));
 }
@@ -298,7 +298,7 @@ TEST_F(StringFunctionsTest, reverse) {
 
     ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
             StringFunctions::reverse(context, StringVal("")));
-            
+
     ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("好你olleh")),
             StringFunctions::reverse(context, StringVal("hello你好")));
 }
@@ -309,22 +309,22 @@ TEST_F(StringFunctionsTest, length) {
     ASSERT_EQ(IntVal(5),
             StringFunctions::length(context, StringVal("hello")));
     ASSERT_EQ(IntVal(5),
-            StringFunctions::char_utf8_length(context, StringVal("hello")));
+            StringFunctions::char_length(context, StringVal("hello")));
     ASSERT_EQ(IntVal::null(),
             StringFunctions::length(context, StringVal::null()));
     ASSERT_EQ(IntVal::null(),
-            StringFunctions::char_utf8_length(context, StringVal::null()));
+            StringFunctions::char_length(context, StringVal::null()));
 
     ASSERT_EQ(IntVal(0),
             StringFunctions::length(context, StringVal("")));
     ASSERT_EQ(IntVal(0),
-            StringFunctions::char_utf8_length(context, StringVal("")));
-            
+            StringFunctions::char_length(context, StringVal("")));
+
     ASSERT_EQ(IntVal(11),
             StringFunctions::length(context, StringVal("hello你好")));
-            
+
     ASSERT_EQ(IntVal(7),
-            StringFunctions::char_utf8_length(context, StringVal("hello你好")));
+            StringFunctions::char_length(context, StringVal("hello你好")));
 }
 
 }

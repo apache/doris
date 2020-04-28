@@ -17,31 +17,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# char_utf8_length
+# char_length
 ## description
 ### Syntax
 
-`INT char_utf8_length(VARCHAR str)`
+`INT char_length(VARCHAR str)`
 
 
-返回字符串的长度，对于多字节字符，返回字符数。
+返回字符串的长度，对于多字节字符，返回字符数, 目前仅支持utf8 编码。
 
 ## example
 
 ```
-mysql> select char_utf8_length("abc");
-+-------------------------+
-| char_utf8_length('abc') |
-+-------------------------+
-|                       3 |
-+-------------------------+
+mysql> select char_length("abc");
++--------------------+
+| char_length('abc') |
++--------------------+
+|                  3 |
++--------------------+
 
-mysql> select char_utf8_length("中国");
-+------------------------ ---+
-| char_utf8_length('中国')   |
-+----------------------------+
-|                          2 |
-+----------------------------+
+mysql> select char_length("中国");
++------------------- ---+
+| char_length('中国')   |
++-----------------------+
+|                     2 |
++-----------------------+
 ```
 ##keyword
-CHAR_UTF8_LENGTH
+CHAR_LENGTH

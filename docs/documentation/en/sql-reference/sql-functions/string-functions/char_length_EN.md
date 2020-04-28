@@ -17,32 +17,32 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# char_utf8_length
+# char_length
 ## Description
 ### Syntax
 
-'INT char_utf8_length (VARCHAR str)'
+'INT char_length (VARCHAR str)'
 
 
-Returns the length of the string and the number of characters returned for multi-byte characters. For example, five two-byte width words return a length of 10.
+Returns the length of the string and the number of characters returned for multi-byte characters. For example, five two-byte width words return a length of 5, only utf8 encodeing is support at current version.
 
 ## example
 
 
 ```
-mysql> select char_utf8_length("abc");
-+-------------------------+
-| char_utf8_length('abc') |
-+-------------------------+
-|                       3 |
-+-------------------------+
+mysql> select char_length("abc");
++--------------------+
+| char_length('abc') |
++--------------------+
+|                  3 |
++--------------------+
 
-mysql> select char_length_utf8("中国");
-+------------------------ ---+
-| char_utf8_length('中国')   |
-+----------------------------+
-|                          2 |
-+----------------------------+
+mysql> select char_length("中国");
++------------------- ---+
+| char_length('中国')   |
++-----------------------+
+|                     2 |
++-----------------------+
 ```
-##keyword
-CHAR_UTF8_LENGTH
+## keyword
+CHAR_LENGTH
