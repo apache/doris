@@ -35,14 +35,15 @@ before_script:
   - sed -i 's/base:.*,/base:\"\/'$BRANCH'\/\",/g' .vuepress/config.js 
   - sed -i 's/docsBranch:.*,/docsBranch:\"'$BRANCH'\",/g' .vuepress/config.js 
   - rm -rf site-repo
-  - git config user.name "${GIT_NAME}"
-  - git config user.email "${GIT_EMAIL}"
-  - git clone https://${SITE_REPO} site-repo
   
 script:
   - npm run build
 
 after_script:
+  - if [ "$TRAVIS_EVENT_TYPE" != "push" ]; then exit 0; fi
+  - git config user.name "${GIT_NAME}"
+  - git config user.email "${GIT_EMAIL}"
+  - git clone https://${SITE_REPO} site-repo
   - cd site-repo
   - mkdir -p ${BRANCH} && rm -rf ${BRANCH}/*
   - cp -r ../.vuepress/dist/* ./${BRANCH}/

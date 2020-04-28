@@ -177,51 +177,6 @@ Once a PR accepted, travis ci will be triggered to build and deploy the whole we
 
 5. Push the new site to asf-site repo with `GitHub Token`(which is preset in Travis console as a variable used in .travis.yml).
 
-```yaml
-language: node_js
-# nodejs版本
-node_js: 
-    - '8'
-
-# Travis-CI Caching
-cache:
-  directories:
-    - docs/node_modules
-
-
-# S: Build Lifecycle
-install:
-  - cd docs && npm install
-
-before_script:
-  - export PR=https://api.github.com/repos/$TRAVIS_REPO_SLUG/pulls/$TRAVIS_PULL_REQUEST
-  - export BRANCH=$(if [ "$TRAVIS_PULL_REQUEST" == "false" ]; then echo $TRAVIS_BRANCH; else echo `curl -s $PR | jq -r .head.ref`; fi)
-  - echo $BRANCH
-  - sed -i 's/base:.*,/base:\"\/'$BRANCH'\/\",/g' .vuepress/config.js 
-  - sed -i 's/docsBranch:.*,/docsBranch:\"'$BRANCH'\",/g' .vuepress/config.js 
-  - rm -rf site-repo
-  - git config user.name "${GIT_NAME}"
-  - git config user.email "${GIT_EMAIL}"
-  - git clone https://${SITE_REPO} site-repo
-  
-script:
-  - npm run build
-
-after_script:
-  - cd site-repo
-  - mkdir -p ${BRANCH} && rm -rf ${BRANCH}/*
-  - cp -r ../.vuepress/dist/* ./${BRANCH}/
-  - git checkout ${SITE_BRANCH}
-  - git add .
-  - git commit -am "Auto Build"
-  - git push --force --quiet "https://${SITE_PUSH_TOKEN}@${SITE_REPO}" ${SITE_BRANCH}:${SITE_BRANCH}
-
-branches:
-  only:
-    - master
-    - /^branch-.*$/
-```
-
 ## asf-site repository
 
 Finally the asf-site repository will be like:
