@@ -28,7 +28,7 @@ import org.apache.doris.common.TreeNode;
 import org.apache.doris.thrift.TExprNode;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -177,7 +177,7 @@ public class AnalyticExpr extends Expr {
 
     @Override
     public String debugString() {
-        return Objects.toStringHelper(this)
+        return MoreObjects.toStringHelper(this)
                .add("fn", getFnCall())
                .add("window", window)
                .addValue(super.debugString())
