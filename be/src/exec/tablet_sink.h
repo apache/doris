@@ -244,7 +244,7 @@ public:
 
     Status add_row(Tuple* tuple, int64_t tablet_id);
 
-    void for_each_node_channel(std::function<void(NodeChannel*)> func) {
+    void for_each_node_channel(const std::function<void(NodeChannel*)>& func) {
         for (auto& it : _node_channels) {
             func(it.second);
         }
