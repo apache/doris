@@ -62,10 +62,7 @@ void Tablet::_gen_tablet_path() {
 }
 
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
-        _state(tablet_meta->tablet_state()),
-        _tablet_meta(tablet_meta),
-        _schema(tablet_meta->tablet_schema()),
-        _data_dir(data_dir),
+        BaseTablet(tablet_meta, data_dir),
         _is_bad(false),
         _last_cumu_compaction_failure_millis(0),
         _last_base_compaction_failure_millis(0),
@@ -116,16 +113,6 @@ OLAPStatus Tablet::_init_once_action() {
 
 OLAPStatus Tablet::init() {
     return _init_once.call([this] { return _init_once_action(); });
-}
-
-OLAPStatus Tablet::set_tablet_state(TabletState state) {
-    if (_tablet_meta->tablet_state() == TABLET_SHUTDOWN && state != TABLET_SHUTDOWN) {
-        LOG(WARNING) << "could not change tablet state from shutdown to " << state;
-        return OLAP_ERR_META_INVALID_ARGUMENT;
-    }
-    _tablet_meta->set_tablet_state(state);
-    _state = state;
-    return OLAP_SUCCESS;
 }
 
 // should save tablet meta to remote meta store

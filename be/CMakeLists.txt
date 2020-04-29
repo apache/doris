@@ -363,6 +363,7 @@ set(DORIS_LINK_LIBS
     Exec
     Exprs
     Gutil
+    Memory
     Olap
     Rowset
     OlapFs
@@ -490,6 +491,7 @@ add_subdirectory(${SRC_DIR}/gen_cpp)
 add_subdirectory(${SRC_DIR}/geo)
 add_subdirectory(${SRC_DIR}/gutil)
 add_subdirectory(${SRC_DIR}/http)
+add_subdirectory(${SRC_DIR}/memory)
 add_subdirectory(${SRC_DIR}/olap)
 add_subdirectory(${SRC_DIR}/runtime)
 add_subdirectory(${SRC_DIR}/service)

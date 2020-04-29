@@ -27,6 +27,7 @@ add_subdirectory(fs)
 add_library(Olap STATIC
     aggregate_func.cpp
     base_compaction.cpp
+    base_tablet.cpp
     bloom_filter.hpp
     bloom_filter_reader.cpp
     bloom_filter_writer.cpp
