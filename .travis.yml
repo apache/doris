@@ -1,0 +1,58 @@
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to You under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+language: node_js
+# nodejs版本
+node_js: 
+    - '8'
+
+# Travis-CI Caching
+cache:
+  directories:
+    - docs/node_modules
+
+
+# S: Build Lifecycle
+install:
+  - cd docs && npm install
+
+before_script:
+  - export PR=https://api.github.com/repos/$TRAVIS_REPO_SLUG/pulls/$TRAVIS_PULL_REQUEST
+  - export BRANCH=$(if [ "$TRAVIS_PULL_REQUEST" == "false" ]; then echo $TRAVIS_BRANCH; else echo `curl -s $PR | jq -r .head.ref`; fi)
+  - echo $BRANCH
+  - sed -i 's/base:.*,/base:\"\/'$BRANCH'\/\",/g' .vuepress/config.js 
+  - sed -i 's/docsBranch:.*,/docsBranch:\"'$BRANCH'\",/g' .vuepress/config.js 
+  - rm -rf site-repo
+  
+script:
+  - npm run build
+
+after_script:
+  - if [ "$TRAVIS_EVENT_TYPE" != "push" ]; then exit 0; fi
+  - git config user.name "${GIT_NAME}"
+  - git config user.email "${GIT_EMAIL}"
+  - git clone https://${SITE_REPO} site-repo
+  - cd site-repo
+  - mkdir -p ${BRANCH} && rm -rf ${BRANCH}/*
+  - cp -r ../.vuepress/dist/* ./${BRANCH}/
+  - git checkout ${SITE_BRANCH}
+  - git add .
+  - git commit -am "Auto Build"
+  - git push --force --quiet "https://${SITE_PUSH_TOKEN}@${SITE_REPO}" ${SITE_BRANCH}:${SITE_BRANCH}
+
+branches:
+  only:
+    - master
+    - /^branch-.*$/
