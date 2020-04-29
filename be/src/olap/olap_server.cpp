@@ -26,6 +26,7 @@
 
 #include <gperftools/profiler.h>
 
+#include "common/status.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -51,12 +52,13 @@ namespace doris {
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
 
-OLAPStatus StorageEngine::_start_bg_worker() {
+Status StorageEngine::start_bg_threads() {
     _unused_rowset_monitor_thread =  std::thread(
         [this] {
             _unused_rowset_monitor_thread_callback(nullptr);
         });
     _unused_rowset_monitor_thread.detach();
+    LOG(INFO) << "unused rowset monitor thread started";
 
     // start thread for monitoring the snapshot and trash folder
     _garbage_sweeper_thread = std::thread(
@@ -64,12 +66,15 @@ OLAPStatus StorageEngine::_start_bg_worker() {
             _garbage_sweeper_thread_callback(nullptr);
         });
     _garbage_sweeper_thread.detach();
+    LOG(INFO) << "garbage sweeper thread started";
+
     // start thread for monitoring the tablet with io error
     _disk_stat_monitor_thread = std::thread(
         [this] {
             _disk_stat_monitor_thread_callback(nullptr);
         });
     _disk_stat_monitor_thread.detach();
+    LOG(INFO) << "disk stat monitor thread started";
 
     // convert store map to vector
     std::vector<DataDir*> data_dirs;
@@ -101,6 +106,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
     for (auto& thread : _base_compaction_threads) {
         thread.detach();
     }
+    LOG(INFO) << "base compaction threads started. number: " << base_compaction_num_threads;
 
     _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
     for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
@@ -112,6 +118,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
     for (auto& thread : _cumulative_compaction_threads) {
         thread.detach();
     }
+    LOG(INFO) << "cumulative compaction threads started. number: " << cumulative_compaction_num_threads;
 
     // tablet checkpoint thread
     for (auto data_dir : data_dirs) {
@@ -123,6 +130,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
     for (auto& thread : _tablet_checkpoint_threads) {
         thread.detach();
     }
+    LOG(INFO) << "tablet checkpint thread started";
 
     // fd cache clean thread
     _fd_cache_clean_thread = std::thread(
@@ -130,6 +138,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
             _fd_cache_clean_callback(nullptr);
         });
     _fd_cache_clean_thread.detach();
+    LOG(INFO) << "fd cache clean thread started";
 
     // path scan and gc thread
     if (config::path_gc_check) {
@@ -150,10 +159,11 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         for (auto& thread : _path_gc_threads) {
             thread.detach();
         }
+        LOG(INFO) << "path scan/gc threads started. number:" << get_stores().size();
     }
 
-    VLOG(10) << "all bg worker started.";
-    return OLAP_SUCCESS;
+    LOG(INFO) << "all storage engine's backgroud threads are started.";
+    return Status::OK();
 }
 
 void* StorageEngine::_fd_cache_clean_callback(void* arg) {
