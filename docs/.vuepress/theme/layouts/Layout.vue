@@ -39,7 +39,7 @@ export default {
   mounted() {
     // fetching versions from asf-site repo
     axios
-      .get("https://hffariel.github.io/versions.json")
+      .get("/versions.json")
       .then(res => {
         Object.keys(this.$site.themeConfig.locales).forEach(k => {
           this.$site.themeConfig.locales[k].nav = this.$site.themeConfig.locales[k].nav.concat(
