@@ -3,7 +3,9 @@
 be/output
 be/build
 output
-docs/build
+docs/.temp
+docs/.vuepress/dist
+docs/node_modules
 gensrc/build
 fe/target
 thirdparty/src
