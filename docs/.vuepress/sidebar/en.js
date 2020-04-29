@@ -426,7 +426,7 @@ module.exports = [
     children: ["debug-tool", "format-code"],
   },
   {
-    title: "Apache Commnity",
+    title: "Apache Community",
     directoryPath: "community/",
     children: [
       "gitter",
