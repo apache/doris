@@ -135,10 +135,10 @@ public class AlterTest {
         waitSchemaChangeJobDone(true);
         
         // enable dynamic partition
+        // not adding the `start` property so that it won't drop the origin partition p1, p2 and p3
         stmt = "alter table test.tbl1 set (\n" + 
                 "'dynamic_partition.enable' = 'true',\n" + 
-                "'dynamic_partition.time_unit' = 'DAY',\n" + 
-                "'dynamic_partition.start' = '-3',\n" + 
+                "'dynamic_partition.time_unit' = 'DAY',\n" +
                 "'dynamic_partition.end' = '3',\n" + 
                 "'dynamic_partition.prefix' = 'p',\n" + 
                 "'dynamic_partition.buckets' = '3'\n" + 
@@ -181,7 +181,7 @@ public class AlterTest {
         Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl.getPartitionInfo().getReplicationNum(p1.getId())));
 
         // set un-partitioned table's real replication num
-        OlapTable tbl2 = (OlapTable)db.getTable("tbl2");
+        OlapTable tbl2 = (OlapTable) db.getTable("tbl2");
         Partition partition = tbl2.getPartition(tbl2.getName());
         Assert.assertEquals(Short.valueOf("1"), Short.valueOf(tbl2.getPartitionInfo().getReplicationNum(partition.getId())));
         stmt = "alter table test.tbl2 set ('replication_num' = '3');";
