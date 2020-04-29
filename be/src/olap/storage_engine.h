@@ -190,12 +190,13 @@ public:
         _heartbeat_flags = heartbeat_flags;
     }
 
+    // start all backgroud threads. This should be call after env is ready.
+    Status start_bg_threads();
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
     OLAPStatus _open();
-
-    OLAPStatus _start_bg_worker();
 
     // Clear status(tables, ...)
     void _clear();
