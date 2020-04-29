@@ -22,7 +22,7 @@ import org.apache.doris.catalog.ColumnStats;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TSlotDescriptor;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -257,7 +257,7 @@ public class SlotDescriptor {
         String colStr = (column == null ? "null" : column.getName());
         String typeStr = (type == null ? "null" : type.toString());
         String parentTupleId = (parent == null) ? "null" : parent.getId().toString();
-        return Objects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId)
+        return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("parent", parentTupleId)
                 .add("col", colStr).add("type", typeStr).add("materialized", isMaterialized)
                 .add("byteSize", byteSize).add("byteOffset", byteOffset)
                 .add("nullIndicatorByte", nullIndicatorByte)
