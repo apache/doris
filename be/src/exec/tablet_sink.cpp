@@ -229,10 +229,13 @@ Status NodeChannel::close_wait(RuntimeState* state) {
         return st.clone_and_prepend("already stopped, skip waiting for close. cancelled/!eos: ");
     }
 
-    // wait for finished, loop interval is difficult to determine, use yield
+    // waiting for finished, it may take a long time, so we could't set a timeout
+    // use log to make it easier
+    LOG(INFO) << name() << "start close_wait";
     while (!_add_batches_finished && !_cancelled) {
-        std::this_thread::yield();
+        SleepFor(MonoDelta::FromMilliseconds(1));
     }
+    LOG(INFO) << name() << "close_wait done";
 
     {
         std::lock_guard<std::mutex> lg(_pending_batches_lock);

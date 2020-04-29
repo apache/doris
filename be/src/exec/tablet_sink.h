@@ -180,7 +180,7 @@ public:
 
     int64_t node_id() const { return _node_id; }
     const NodeInfo* node_info() const { return _node_info; }
-    std::string print_load_info() { return _load_info; }
+    std::string print_load_info() const { return _load_info; }
     std::string name() const {
         return "NodeChannel[" + std::to_string(_index_id) + "-" + std::to_string(_node_id) + "]";
     }
@@ -250,7 +250,7 @@ public:
         }
     }
 
-    void mark_as_failed(NodeChannel* ch) { _failed_channels.insert(ch->node_id()); }
+    void mark_as_failed(const NodeChannel* ch) { _failed_channels.insert(ch->node_id()); }
     bool has_intolerable_failure();
 
 private:
