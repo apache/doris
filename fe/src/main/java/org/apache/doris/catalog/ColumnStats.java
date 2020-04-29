@@ -17,12 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.io.Writable;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
@@ -116,7 +115,7 @@ public class ColumnStats implements Writable {
 
     @Override
     public String toString() {
-        return Objects.toStringHelper(this.getClass()).add("avgSerializedSize",
+        return MoreObjects.toStringHelper(this.getClass()).add("avgSerializedSize",
           avgSerializedSize).add("maxSize", maxSize).add("numDistinct", numDistinctValues).add(
           "numNulls", numNulls).toString();
     }
