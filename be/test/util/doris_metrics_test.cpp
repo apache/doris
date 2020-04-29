@@ -211,7 +211,7 @@ TEST_F(DorisMetricsTest, Normal) {
         ASSERT_STREQ("20", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
-        DorisMetrics::storage_migrate_requests_total.increment(21);
+        DorisMetrics::instance()->storage_migrate_requests_total.increment(21);
         auto metric = metrics->get_metric("engine_requests_total",
                                           MetricLabels().add("type", "storage_migrate")
                                           .add("status", "total"));
@@ -219,7 +219,7 @@ TEST_F(DorisMetricsTest, Normal) {
         ASSERT_STREQ("21", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
-        DorisMetrics::delete_requests_total.increment(22);
+        DorisMetrics::instance()->delete_requests_total.increment(22);
         auto metric = metrics->get_metric("engine_requests_total",
                                           MetricLabels().add("type", "delete")
                                           .add("status", "total"));
@@ -228,28 +228,28 @@ TEST_F(DorisMetricsTest, Normal) {
     }
     //  comapction
     {
-        DorisMetrics::base_compaction_deltas_total.increment(30);
+        DorisMetrics::instance()->base_compaction_deltas_total.increment(30);
         auto metric = metrics->get_metric("compaction_deltas_total",
                                           MetricLabels().add("type", "base"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("30", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
-        DorisMetrics::cumulative_compaction_deltas_total.increment(31);
+        DorisMetrics::instance()->cumulative_compaction_deltas_total.increment(31);
         auto metric = metrics->get_metric("compaction_deltas_total",
                                           MetricLabels().add("type", "cumulative"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("31", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
-        DorisMetrics::base_compaction_bytes_total.increment(32);
+        DorisMetrics::instance()->base_compaction_bytes_total.increment(32);
         auto metric = metrics->get_metric("compaction_bytes_total",
                                           MetricLabels().add("type", "base"));
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("32", ((SimpleMetric*)metric)->to_string().c_str());
     }
     {
-        DorisMetrics::cumulative_compaction_bytes_total.increment(33);
+        DorisMetrics::instance()->cumulative_compaction_bytes_total.increment(33);
         auto metric = metrics->get_metric("compaction_bytes_total",
                                           MetricLabels().add("type", "cumulative"));
         ASSERT_TRUE(metric != nullptr);
@@ -257,7 +257,7 @@ TEST_F(DorisMetricsTest, Normal) {
     }
     // Gauge
     {
-        DorisMetrics::memory_pool_bytes_total.increment(40);
+        DorisMetrics::instance()->memory_pool_bytes_total.increment(40);
         auto metric = metrics->get_metric("memory_pool_bytes_total");
         ASSERT_TRUE(metric != nullptr);
         ASSERT_STREQ("40", ((SimpleMetric*)metric)->to_string().c_str());
