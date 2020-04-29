@@ -19,7 +19,6 @@ package org.apache.doris.rewrite;
 
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CaseExpr;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
@@ -50,10 +49,9 @@ public class FoldConstantsRule implements ExprRewriteRule {
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer) throws AnalysisException {
-        // evaluate case when expr
-        if (expr instanceof CaseExpr && expr.getChild(0) instanceof BoolLiteral) {
-            BoolLiteral boolLiteral = (BoolLiteral) expr.getChild(0);
-            return boolLiteral.getValue() ? expr.getChild(1) : expr.getChild(2);
+        // evaluate `case when expr` when possible
+        if (expr instanceof CaseExpr) {
+            return CaseExpr.computeCaseExpr((CaseExpr) expr);
         }
 
         // Avoid calling Expr.isConstant() because that would lead to repeated traversals
