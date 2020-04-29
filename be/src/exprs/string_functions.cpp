@@ -258,11 +258,13 @@ StringVal StringFunctions::rpad(
 }
 
 StringVal StringFunctions::append_trailing_char_if_absent(doris_udf::FunctionContext* context,
-                                                          const doris_udf::StringVal& str, const doris_udf::StringVal& trailing_char) {
+        const doris_udf::StringVal& str, const doris_udf::StringVal& trailing_char) {
     if (str.is_null || trailing_char.is_null) {
         return StringVal::null();
     }
-
+    if (str.len == 0) {
+        return trailing_char;
+    }
     if (str.ptr[str.len-1] == trailing_char.ptr[0]) {
         return str;
     }
@@ -273,7 +275,6 @@ StringVal StringFunctions::append_trailing_char_if_absent(doris_udf::FunctionCon
     }
     memcpy(result.ptr, str.ptr, str.len);
     result.ptr[str.len] = trailing_char.ptr[0];
-
     return result;
 }
 
