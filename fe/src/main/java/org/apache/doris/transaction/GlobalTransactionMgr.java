@@ -17,7 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -65,6 +64,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -789,6 +789,11 @@ public class GlobalTransactionMgr implements Writable {
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 unprotectUpsertTransactionState(transactionState);
                 txnOperated = true;
+                // TODO(cmy): We found a very strange problem. When delete-related transactions are processed here,
+                // subsequent `updateCatalogAfterVisible()` is called, but it does not seem to be executed here
+                // (because the relevant editlog does not see the log of visible transactions).
+                // So I add a log here for observation.
+                LOG.debug("after set transaction {} to visible", transactionState);
             } finally {
                 writeUnlock();
                 transactionState.afterStateTransform(TransactionStatus.VISIBLE, txnOperated);
