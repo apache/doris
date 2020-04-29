@@ -18,7 +18,7 @@ under the License.
 -->
 
 <template>
-  <ParentLayout v-if="show">
+  <ParentLayout :key="renderIndex">
     <Content></Content>
     <footer slot="page-bottom">
       <CustomFooter />
@@ -35,21 +35,21 @@ export default {
     ParentLayout,
     CustomFooter
   },
-  data: () => ({ show: false }), 
+  data: () => ({ renderIndex: 0 }), 
   mounted() {
     // fetching versions from asf-site repo
     axios
-      .get("/versions.json")
+      .get("https://hffariel.github.io/versions.json")
       .then(res => {
         Object.keys(this.$site.themeConfig.locales).forEach(k => {
           this.$site.themeConfig.locales[k].nav = this.$site.themeConfig.locales[k].nav.concat(
             res.data[k.replace(/\//gi, "")] || []
           )
         })
-        this.show = true
+        this.renderIndex = 1
       })
       .catch(err => {
-        this.show = true
+        this.renderIndex = 1
         console.log(err)
       })
   }
