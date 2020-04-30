@@ -231,12 +231,13 @@ Status NodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we could't set a timeout
-    // use log to make it easier
-    LOG(INFO) << name() << "start close_wait";
+    MonotonicStopWatch timer;
+    timer.start();
     while (!_add_batches_finished && !_cancelled) {
         SleepFor(MonoDelta::FromMilliseconds(1));
     }
-    LOG(INFO) << name() << "close_wait done";
+    timer.stop();
+    VLOG(1) << name() << " close_wait cost: " << timer.elapsed_time() / 1000000 << " ms";
 
     {
         std::lock_guard<std::mutex> lg(_pending_batches_lock);
