@@ -605,7 +605,7 @@ public class FunctionCallExpr extends Expr {
             return;
         }
 
-        if (fn.getFunctionName().getFunction().equals("append_trailing_char_if_absent")) {
+        if (fnName.getFunction().equalsIgnoreCase("append_trailing_char_if_absent")) {
             if (children.size() != 2) {
                 throw new AnalysisException("append_trailing_char_if_absent requires two parameters: " + this.toSql());
             }
