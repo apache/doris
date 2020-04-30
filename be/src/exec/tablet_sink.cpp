@@ -84,6 +84,7 @@ Status NodeChannel::init(RuntimeState* state) {
 
     _load_info = "load_id=" + print_id(_parent->_load_id) + ", txn_id" +
                  std::to_string(_parent->_txn_id);
+    _name = "NodeChannel[" + std::to_string(_index_id) + "-" + std::to_string(_node_id) + "]";
     return Status::OK();
 }
 
@@ -661,7 +662,7 @@ Status OlapTableSink::close(RuntimeState* state, Status close_status) {
                     if (!status.ok()) {
                         LOG(WARNING) << "close channel failed, " << ch->print_load_info();
                     }
-                    ch->time_report(node_add_batch_counter_map, &serialize_batch_ns,
+                    ch->time_report(&node_add_batch_counter_map, &serialize_batch_ns,
                                     &mem_exceeded_block_ns, &queue_push_lock_ns,
                                     &actual_consume_ns);
                 });

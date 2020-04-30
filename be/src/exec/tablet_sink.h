@@ -168,10 +168,10 @@ public:
     // only allow 1 rpc in flight
     int try_send_and_fetch_status();
 
-    void time_report(std::unordered_map<int64_t, AddBatchCounter>& add_batch_counter_map,
+    void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
                      int64_t* serialize_batch_ns, int64_t* mem_exceeded_block_ns,
                      int64_t* queue_push_lock_ns, int64_t* actual_consume_ns) {
-        add_batch_counter_map[_node_id] += _add_batch_counter;
+        (*add_batch_counter_map)[_node_id] += _add_batch_counter;
         *serialize_batch_ns += _serialize_batch_ns;
         *mem_exceeded_block_ns += _mem_exceeded_block_ns;
         *queue_push_lock_ns += _queue_push_lock_ns;
@@ -181,9 +181,7 @@ public:
     int64_t node_id() const { return _node_id; }
     const NodeInfo* node_info() const { return _node_info; }
     std::string print_load_info() const { return _load_info; }
-    std::string name() const {
-        return "NodeChannel[" + std::to_string(_index_id) + "-" + std::to_string(_node_id) + "]";
-    }
+    std::string name() const { return _name; }
 
     Status none_of(std::initializer_list<bool> vars);
 
@@ -193,6 +191,7 @@ private:
     int64_t _node_id = -1;
     int32_t _schema_hash = 0;
     std::string _load_info;
+    std::string _name;
 
     TupleDescriptor* _tuple_desc = nullptr;
     const NodeInfo* _node_info = nullptr;
@@ -204,7 +203,10 @@ private:
     // user cancel or get some errors
     std::atomic<bool> _cancelled{false};
 
+    // send finished means the consumer thread which send the rpc can exit
     std::atomic<bool> _send_finished{false};
+
+    // add batches finished means the last rpc has be responsed, used to check whether this channel can be closed
     std::atomic<bool> _add_batches_finished{false};
 
     bool _eos_is_produced{false}; // only for restricting producer behaviors
