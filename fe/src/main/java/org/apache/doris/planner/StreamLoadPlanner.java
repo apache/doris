@@ -173,6 +173,7 @@ public class StreamLoadPlanner {
     }
 
     // get all specified partition ids.
+    // if no partition specified, return all partitions
     private List<Long> getAllPartitionIds() throws DdlException {
         List<Long> partitionIds = Lists.newArrayList();
 
