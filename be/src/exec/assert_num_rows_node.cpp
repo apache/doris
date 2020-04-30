@@ -45,6 +45,8 @@ Status AssertNumRowsNode::prepare(RuntimeState* state) {
 Status AssertNumRowsNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
+    // ISSUE-3435
+    RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
 }
 
