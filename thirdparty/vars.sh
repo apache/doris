@@ -260,10 +260,10 @@ CROARINGBITMAP_NAME=CRoaring-0.2.60.tar.gz
 CROARINGBITMAP_SOURCE=CRoaring-0.2.60
 CROARINGBITMAP_MD5SUM="29602918e6890ffdeed84cb171857046"
 # ORC
-ORC_DOWNLOAD="http://mirror.bit.edu.cn/apache/orc/orc-1.5.8/orc-1.5.8.tar.gz"
+ORC_DOWNLOAD="https://github.com/apache/orc/archive/rel/release-1.5.8.tar.gz"
 ORC_NAME=orc-1.5.8.tar.gz
 ORC_SOURCE=orc-1.5.8
-ORC_MD5SUM="2318b0a8233c8833b3a6cfd771c60883"
+ORC_MD5SUM="49eb9ce94060b26d4bc3595b2f1efb4c"
 
 # jemalloc
 JEMALLOC_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
