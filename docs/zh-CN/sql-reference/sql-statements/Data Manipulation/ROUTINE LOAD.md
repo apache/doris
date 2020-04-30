@@ -41,7 +41,7 @@ under the License.
     1. [db.]job_name
 
         导入作业的名称，在同一个 database 内，相同名称只能有一个 job 在运行。
-     
+
     2. tbl_name
 
         指定需要导入的表的名称。
@@ -85,12 +85,12 @@ under the License.
                 COLUMNS (k2, k1, xxx, v1, v2 = k1 + k2);
 
         3. where_predicates
-        
+
             用于指定过滤条件，以过滤掉不需要的列。过滤列可以是映射列或衍生列。
             例如我们只希望导入 k1 大于 100 并且 k2 等于 1000 的列，则书写如下：
-            
+
             WHERE k1 > 100 and k2 = 1000
-        
+
         4. partitions
 
             指定导入目的表的哪些 partition 中。如果不指定，则会自动导入到对应的 partition 中。
@@ -98,7 +98,7 @@ under the License.
 
             PARTITION(p1, p2, p3)
 
-    4. job_properties    
+    4. job_properties
 
         用于指定例行导入作业的通用参数。
         语法：
@@ -127,7 +127,7 @@ under the License.
 
             这三个参数，用于控制一个子任务的执行时间和处理量。当任意一个达到阈值，则任务结束。
             例：
-    
+
                 "max_batch_interval" = "20",
                 "max_batch_rows" = "300000",
                 "max_batch_size" = "209715200"
@@ -137,14 +137,26 @@ under the License.
             采样窗口内，允许的最大错误行数。必须大于等于0。默认是 0，即不允许有错误行。
             采样窗口为 max_batch_rows * 10。即如果在采样窗口内，错误行数大于 max_error_number，则会导致例行作业被暂停，需要人工介入检查数据质量问题。
             被 where 条件过滤掉的行不算错误行。
-        
+
         4. strict_mode
 
             是否开启严格模式，默认为开启。如果开启后，非空原始数据的列类型变换如果结果为 NULL，则会被过滤。指定方式为 "strict_mode" = "true"
 
         5. timezone
-            
+
             指定导入作业所使用的时区。默认为使用 Session 的 timezone 参数。该参数会影响所有导入涉及的和时区有关的函数结果。
+
+        6. format
+
+            指定导入数据格式，默认是csv，支持json格式。
+
+        7. jsonpaths
+
+            jsonpaths: 导入json方式分为：简单模式和匹配模式。如果设置了jsonpath则为匹配模式导入，否则为简单模式导入，具体可参考示例。
+
+        8. strip_outer_array
+
+            布尔类型，为true表示json数据以数组对象开始且将数组对象中进行展平，默认值是false。
 
     5. data_source
 
@@ -156,7 +168,7 @@ under the License.
 
         指定数据源相关的信息。
         语法：
-        
+
         (
             "key1" = "val1",
             "key2" = "val2"
@@ -168,7 +180,7 @@ under the License.
 
                 Kafka 的 broker 连接信息。格式为 ip:host。多个broker之间以逗号分隔。
                 示例：
-                    
+
                     "kafka_broker_list" = "broker1:9092,broker2:9092"
 
             2. kafka_topic
@@ -190,8 +202,8 @@ under the License.
                 示例：
 
                     "kafka_partitions" = "0,1,2,3",
-                    "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END" 
-                    
+                    "kafka_offsets" = "101,0,OFFSET_BEGINNING,OFFSET_END"
+
             4. property
 
                 指定自定义kafka参数。
@@ -199,7 +211,7 @@ under the License.
                 当参数的 value 为一个文件时，需要在 value 前加上关键词："FILE:"。
                 关于如何创建文件，请参阅 "HELP CREATE FILE;"
                 更多支持的自定义参数，请参阅 librdkafka 的官方 CONFIGURATION 文档中，client 端的配置项。
-                
+
                 示例:
                     "property.client.id" = "12345",
                     "property.ssl.ca.location" = "FILE:ca.pem"
@@ -214,7 +226,7 @@ under the License.
 
                 其中：
                 "property.security.protocol" 和 "property.ssl.ca.location" 为必须，用于指明连接方式为 SSL，以及 CA 证书的位置。
-                
+
                 如果 Kafka server 端开启了 client 认证，则还需设置：
 
                 "property.ssl.certificate.location"
@@ -222,8 +234,8 @@ under the License.
                 "property.ssl.key.password"
 
                 分别用于指定 client 的 public key，private key 以及 private key 的密码。
-                
-                
+
+
                 2.指定kafka partition的默认起始offset
                 如果没有指定kafka_partitions/kafka_offsets,默认消费所有分区,此时可以指定kafka_default_offsets指定起始 offset。默认为 OFFSET_END，即从末尾开始订阅。
                 值为
@@ -309,6 +321,82 @@ under the License.
             "property.ssl.key.password" = "abcdefg",
             "property.client.id" = "my_client_id"
         );
+    4. 简单模式导入json
+        CREATE ROUTINE LOAD example_db.test_json_label_1 ON table1
+        COLUMNS(category,price,author)
+        PROPERTIES
+        (
+        "desired_concurrent_number"="3",
+        "max_batch_interval" = "20",
+        "max_batch_rows" = "300000",
+        "max_batch_size" = "209715200",
+        "strict_mode" = "false",
+        "format" = "json"
+        )
+        FROM KAFKA
+        (
+        "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+        "kafka_topic" = "my_topic",
+        "kafka_partitions" = "0,1,2",
+        "kafka_offsets" = "0,0,0"
+        );
+        支持两种json数据格式：
+      1）{"category":"a9jadhx","author":"test","price":895}
+        2）[
+                {"category":"a9jadhx","author":"test","price":895},
+                {"category":"axdfa1","author":"EvelynWaugh","price":1299}
+            ]
+
+    5. 精准导入json数据格式
+        CREATE TABLE `example_tbl` (
+        `category` varchar(24) NULL COMMENT "",
+        `author` varchar(24) NULL COMMENT "",
+        `timestamp` bigint(20) NULL COMMENT "",
+        `dt` int(11) NULL COMMENT "",
+        `price` double REPLACE
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`category`,`author`,`timestamp`,`dt`)
+        COMMENT "OLAP"
+        PARTITION BY RANGE(`dt`)
+        (PARTITION p0 VALUES [("-2147483648"), ("20200509")),
+        PARTITION p20200509 VALUES [("20200509"), ("20200510")),
+        PARTITION p20200510 VALUES [("20200510"), ("20200511")),
+        PARTITION p20200511 VALUES [("20200511"), ("20200512")))
+        DISTRIBUTED BY HASH(`category`,`author`,`timestamp`) BUCKETS 4
+        PROPERTIES (
+            "storage_type" = "COLUMN",
+             "replication_num" = "1"
+          );
+
+        CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+        COLUMNS(category, author, price, timestamp, dt=from_unixtime(timestamp, '%Y%m%d'))
+        PROPERTIES
+        (
+            "desired_concurrent_number"="3",
+            "max_batch_interval" = "20",
+            "max_batch_rows" = "300000",
+            "max_batch_size" = "209715200",
+            "strict_mode" = "false",
+            "format" = "json",
+            "jsonpaths" = "[\"$.category\",\"$.author\",\"$.price\",\"$.timestamp\"]",
+            "strip_outer_array" = "true"
+        )
+        FROM KAFKA
+        (
+            "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+            "kafka_topic" = "my_topic",
+            "kafka_partitions" = "0,1,2",
+            "kafka_offsets" = "0,0,0"
+        );
+   json数据格式:
+        [
+          {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+          {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+          {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+        ]
+        说明：
+           1）如果json数据是以数组开始，并且数组中每个对象是一条记录，则需要将strip_outer_array设置成true，表示展平数组。
+           2）如果json数据是以数组开始，并且数组中每个对象是一条记录，在设置jsonpath时，我们的ROOT节点实际上是数组中对象。
 
 ## keyword
 

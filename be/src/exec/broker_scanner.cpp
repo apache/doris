@@ -34,6 +34,7 @@
 #include "exec/local_file_reader.h"
 #include "exec/broker_reader.h"
 #include "exec/decompressor.h"
+#include "json_scanner.h"
 #include "util/utf8_check.h"
 
 namespace doris {
@@ -180,6 +181,7 @@ Status BrokerScanner::create_decompressor(TFileFormatType::type type) {
     CompressType compress_type;
     switch (type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_JSON:
         compress_type = CompressType::UNCOMPRESSED;
         break;
     case TFileFormatType::FORMAT_CSV_GZ:

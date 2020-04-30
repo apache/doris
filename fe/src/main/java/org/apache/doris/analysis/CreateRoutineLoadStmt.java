@@ -17,6 +17,10 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
@@ -29,11 +33,6 @@ import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.base.Strings;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -90,6 +89,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_BATCH_ROWS_PROPERTY = "max_batch_rows";
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
 
+    public static final String FORMAT = "format";// the value is csv or json, default is csv
+    public static final String STRIP_OUTER_ARRAY = "strip_outer_array";
+    public static final String JSONPATHS = "jsonpaths";
+
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
     public static final String KAFKA_TOPIC_PROPERTY = "kafka_topic";
@@ -107,6 +110,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
+            .add(FORMAT)
+            .add(JSONPATHS)
+            .add(STRIP_OUTER_ARRAY)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .build();
@@ -137,6 +143,16 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchSizeBytes = -1;
     private boolean strictMode = true;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
+    /**
+     * RoutineLoad support json data.
+     * Require Params:
+     *   1) dataFormat = "json"
+     *   2) jsonPaths = "$.XXX.xxx"
+     */
+    private String format   = ""; //default is csv.
+    private String jsonPaths     = "";
+    private boolean stripOuterArray = false;
+
 
     // kafka related properties
     private String kafkaBrokerList;
@@ -210,6 +226,18 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public String getTimezone() {
         return timezone;
+    }
+
+    public String getFormat() {
+        return format;
+    }
+
+    public boolean isStripOuterArray() {
+        return stripOuterArray;
+    }
+
+    public String getJsonPaths() {
+        return jsonPaths;
     }
 
     public String getKafkaBrokerList() {
@@ -328,6 +356,21 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
+
+        format = jobProperties.get(FORMAT);
+        if (format != null) {
+            if (format.equalsIgnoreCase("csv")) {
+                format = "";// if it's not json, then it's mean csv and set empty
+            } else if (format.equalsIgnoreCase("json")) {
+                format = "json";
+                jsonPaths = jobProperties.get(JSONPATHS);
+                stripOuterArray = Boolean.valueOf(jobProperties.get(STRIP_OUTER_ARRAY));
+            } else {
+                throw new UserException("Format type is invalid. format=`" + format + "`");
+            }
+        } else {
+            format = "csv"; // default csv
+        }
     }
 
     private void checkDataSourceProperties() throws AnalysisException {

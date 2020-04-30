@@ -17,6 +17,14 @@
 
 package org.apache.doris.load.routineload;
 
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
+import com.google.common.collect.EvictingQueue;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.Expr;
@@ -61,16 +69,6 @@ import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
-
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
-import com.google.common.collect.EvictingQueue;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -175,6 +173,16 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
+    /**
+     * RoutineLoad support json data.
+     * Require Params:
+     *   1) format = "json"
+     *   2) jsonPath = "$.XXX.xxx"
+     */
+    private static final String PROPS_FORMAT = "format";
+    private static final String PROPS_STRIP_OUTER_ARRAY = "strip_outer_array";
+    private static final String PROPS_JSONPATHS = "jsonpaths";
+
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
 
@@ -271,7 +279,25 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
         }
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
-        jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
+        if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
+            jobProperties.put(PROPS_FORMAT, "csv");
+            jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
+            jobProperties.put(PROPS_JSONPATHS, "");
+        } else if (stmt.getFormat().equals("json")) {
+            jobProperties.put(PROPS_FORMAT, "json");
+            if (!Strings.isNullOrEmpty(stmt.getJsonPaths())) {
+                jobProperties.put(PROPS_JSONPATHS, stmt.getJsonPaths());
+            } else {
+                jobProperties.put(PROPS_JSONPATHS, "");
+            }
+            if (stmt.isStripOuterArray()) {
+                jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "true");
+            } else {
+                jobProperties.put(PROPS_STRIP_OUTER_ARRAY, "false");
+            }
+        } else {
+            throw new UserException("Invalid format type.");
+        }
     }
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -422,6 +448,26 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public long getMaxBatchSizeBytes() {
         return maxBatchSizeBytes;
+    }
+
+    public String getFormat() {
+        String value = jobProperties.get(PROPS_FORMAT);
+        if (value == null) {
+            return "csv";
+        }
+        return value;
+    }
+
+    public boolean isStripOuterArray() {
+        return Boolean.valueOf(jobProperties.get(PROPS_STRIP_OUTER_ARRAY));
+    }
+
+    public String getJsonPaths() {
+        String value = jobProperties.get(PROPS_JSONPATHS);
+        if (value == null) {
+            return "";
+        }
+        return value;
     }
 
     public int getSizeOfRoutineLoadTaskInfoList() {
@@ -1161,7 +1207,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs));
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
-        jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
+        if (getFormat().equalsIgnoreCase("json")) {
+            jobProperties.put("dataFormat", "json");
+        } else {
+            jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
+        }
         jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
         jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));
         jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));
