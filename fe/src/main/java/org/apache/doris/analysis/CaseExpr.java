@@ -267,7 +267,7 @@ public class CaseExpr extends Expr {
     public static Expr computeCaseExpr(CaseExpr expr) {
         LiteralExpr caseExpr;
         int startIndex = 0;
-        int size = expr.getChildren().size() - 1;
+        int endIndex = expr.getChildren().size();
         if (expr.hasCaseExpr()) {
             // just deal literal here
             // and avoid `float compute` in java,float should be dealt in be
@@ -278,24 +278,35 @@ public class CaseExpr extends Expr {
             }
             caseExpr = (LiteralExpr) expr.getChild(0);
             startIndex++;
-            size--;
         } else {
             caseExpr = new BoolLiteral(true);
         }
 
-        if (expr.hasElseExpr) {
-            size--;
+        if (caseExpr instanceof NullLiteral) {
+            if (expr.hasElseExpr) {
+                return expr.getChild(expr.getChildren().size() - 1);
+            } else {
+                return new NullLiteral();
+            }
         }
 
-        //pre return when the `when expr` can't be converted to constants
+        if (expr.hasElseExpr) {
+            endIndex--;
+        }
+
+        // early return when the `when expr` can't be converted to constants
         Expr startExpr = expr.getChild(startIndex);
         if ((!startExpr.isLiteral() || startExpr instanceof DecimalLiteral || startExpr instanceof FloatLiteral)
-                || !startExpr.getClass().toString().equals(caseExpr.getClass().toString())) {
+                || (!(startExpr instanceof NullLiteral) && !startExpr.getClass().toString().equals(caseExpr.getClass().toString()))) {
             return expr;
         }
 
-        for (int i = startIndex; i < size; i = i + 2) {
+        for (int i = startIndex; i < endIndex; i = i + 2) {
             Expr currentWhenExpr = expr.getChild(i);
+            // skip null literal
+            if (currentWhenExpr instanceof NullLiteral) {
+                continue;
+            }
             // stop convert in three cases
             // 1 not literal
             // 2 float
