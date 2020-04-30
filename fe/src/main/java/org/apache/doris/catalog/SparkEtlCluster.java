@@ -156,13 +156,13 @@ public class SparkEtlCluster extends EtlCluster {
         if (properties.containsKey(HDFS_ETL_PATH)) {
             hdfsEtlPath = properties.get(hdfsEtlPath);
         }
-        if (properties.containsKey(broker)) {
-            broker = properties.get(broker);
+        if (properties.containsKey(BROKER)) {
+            broker = properties.get(BROKER);
         }
 
         // merge spark args
         if (properties.containsKey(SPARK_ARGS)) {
-            Map<String, String> newArgsMap = getConfigsMap(properties, SPARK_ARGS);
+            Map<String, String> newArgsMap = getSparkArgsMap(properties, SPARK_ARGS);
             for (Map.Entry<String, String> entry : newArgsMap.entrySet()) {
                 String argKey = entry.getKey();
                 if (sparkArgsMap.containsKey(argKey)) {
