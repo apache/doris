@@ -143,8 +143,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         auditBuffer.append(event.isQuery ? 1 : 0).append("\t");
         auditBuffer.append(event.feIp).append("\t");
         // trim the query to avoid too long
-        int maxLen = Math.min(2048, event.stmt.length());
-        String stmt = event.stmt.substring(0, maxLen).replace("\t", " ");
+        // use `getBytes().length` to get real byte length
+        int maxLen = Math.min(2000, event.stmt.getBytes().length);
+        String stmt = new String(event.stmt.getBytes(), 0, maxLen).replace("\t", " ");
         LOG.debug("receive audit event with stmt: {}", stmt);
         auditBuffer.append(stmt).append("\n");
     }
