@@ -17,6 +17,8 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
+import com.google.common.base.Preconditions;
+
 import java.io.Serializable;
 import java.util.List;
 import java.util.ArrayList;
@@ -24,34 +26,23 @@ import java.util.Date;
 import java.util.Objects;
 import java.util.Comparator;
 
+// DppColumns is used to store the
 class DppColumns implements Comparable<DppColumns>, Serializable {
-    public List<Object> columns;
-    public List<Class> schema;
+    public List<Object> columns = new ArrayList<Object>();;
 
-    public DppColumns() {
-        columns = null;
-        schema = null;
-    }
-
-    public DppColumns(List<Object> keys, List<Class> schema){
+    public DppColumns(List<Object> keys){
         this.columns = keys;
-        this.schema = schema;
-
     }
 
     public DppColumns(DppColumns key, List<Integer> indexes){
-        columns = new ArrayList<Object>();
-        schema = new ArrayList<Class>();
         for (int i = 0; i < indexes.size(); ++i) {
             columns.add(key.columns.get(indexes.get(i)));
-            schema.add(key.schema.get(indexes.get(i)));
         }
     }
 
     @Override
     public int compareTo(DppColumns other) {
-        assert (columns.size() == other.columns.size());
-        assert (schema.size() == other.schema.size());
+        Preconditions.checkState(columns.size() == other.columns.size());
 
         int cmp = 0;
         for (int i = 0; i < columns.size(); i++) {
@@ -106,7 +97,7 @@ class DppColumns implements Comparable<DppColumns>, Serializable {
     @Override
     public String toString() {
         return "dppColumns{" +
-                "columns=" + columns.toString() +
+                "columns=" + columns +
                 '}';
     }
 }

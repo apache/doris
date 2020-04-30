@@ -22,8 +22,7 @@ import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import java.util.List;
 
 // Base and rollup indexes are managed by as a RollupTree in order to
-// produce the rollup index data from the minimal index to get better performance
-// Base index is the root node of the tree
+// produce the rollup index data from the best-fit index to get better performance.
 // The calculation will be done through preorder traversal
 public class RollupTreeNode {
     public RollupTreeNode parent;

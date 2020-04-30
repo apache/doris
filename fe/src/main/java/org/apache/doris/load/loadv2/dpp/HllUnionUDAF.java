@@ -24,27 +24,27 @@ import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
-import org.roaringbitmap.RoaringBitmap;
 
-import java.io.IOException;
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.DataInputStream;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class BitmapUnion extends UserDefinedAggregateFunction {
+public class HllUnionUDAF extends UserDefinedAggregateFunction {
+
     private StructType inputSchema;
     private StructType bufferSchema;
 
-    public BitmapUnion(DataType dataType) {
+    public HllUnionUDAF(DataType dataType) {
         List<StructField> inputFields = new ArrayList<>();
         inputFields.add(DataTypes.createStructField("str", dataType,true));
         inputSchema = DataTypes.createStructType(inputFields);
 
         List<StructField> bufferFields = new ArrayList<>();
-        bufferFields.add(DataTypes.createStructField("bitmap", DataTypes.BinaryType,true));
+        bufferFields.add(DataTypes.createStructField("hll", DataTypes.BinaryType,true));
         bufferSchema = DataTypes.createStructType(bufferFields);
     }
 
@@ -68,19 +68,11 @@ public class BitmapUnion extends UserDefinedAggregateFunction {
         return true;
     }
 
-    @Override
-    public void initialize(MutableAggregationBuffer buffer) {
-        RoaringBitmap roaringBitmap = new RoaringBitmap();
-//        roaringBitmap.runOptimize();
-        buffer.update(0, serializeBitmap(roaringBitmap));
-    }
-
-    public byte[] serializeBitmap(RoaringBitmap roaringBitmap) {
+    public static byte[] serializeHll(Hll hll) {
         try {
             ByteArrayOutputStream bos = new ByteArrayOutputStream();
             DataOutputStream outputStream = new DataOutputStream(bos);
-            outputStream.writeByte(2);
-            roaringBitmap.serialize(outputStream);
+            hll.serialize(outputStream);
             return bos.toByteArray();
         } catch (IOException ioException) {
             ioException.printStackTrace();
@@ -88,56 +80,59 @@ public class BitmapUnion extends UserDefinedAggregateFunction {
         }
     }
 
-    public RoaringBitmap deserializeBitmap(byte[] byteBitmap) {
+    public static Hll deserializeHll(byte[] hllByte) {
         try {
-            DataInputStream inputStream = new DataInputStream(new ByteArrayInputStream(byteBitmap));
-            int type = inputStream.readByte();
-            assert type == 2;
-            RoaringBitmap bitmap = new RoaringBitmap();
-            bitmap.deserialize(inputStream);
-            return bitmap;
+            DataInputStream inputStream = new DataInputStream(new ByteArrayInputStream(hllByte));
+            Hll hll = new Hll();
+            hll.deserialize(inputStream);
+            return hll;
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
     @Override
+    public void initialize(MutableAggregationBuffer buffer) {
+        Hll hll = new Hll();
+        buffer.update(0, serializeHll(hll));
+    }
+
+    @Override
     public void update(MutableAggregationBuffer buffer, Row input) {
-        // here maybe there is performance problems
-        if (!input.isNullAt(0)) {
-            Object dstBitmapBuffer = buffer.get(0);
-            byte[] dstBitmapByte = (byte[])dstBitmapBuffer;
-            RoaringBitmap dstBitmap = deserializeBitmap(dstBitmapByte);
-            Object srcValue = input.get(0);
-
-            if (srcValue instanceof String) {
-                String valueStr = srcValue.toString();
-                int id = Integer.parseInt(valueStr);
-                dstBitmap.add(id);
-            } else if (srcValue instanceof byte[]) {
-                byte[] srcByte = (byte[])srcValue;
-                dstBitmap.or(deserializeBitmap(srcByte));
-            } else {
-                throw new RuntimeException("unknown column type:" + srcValue.getClass());
-            }
-
-            buffer.update(0, serializeBitmap(dstBitmap));
+        if (input.isNullAt(0)) {
+            throw new RuntimeException("hll doesn't support null");
         }
+        Object dstHllBuffer = buffer.get(0);
+        byte[] dstHllByte = (byte[]) dstHllBuffer;
+        Hll dstHll = deserializeHll(dstHllByte);
+        Object srcValue = input.get(0);
+
+        if (srcValue instanceof String) {
+            dstHll.updateWithHash(srcValue.toString());
+        } else if (srcValue instanceof byte[]) {
+            byte[] srcByte = (byte[]) srcValue;
+            dstHll.merge(deserializeHll(srcByte));
+        } else {
+            throw new RuntimeException("unknown column type:" + srcValue.getClass());
+        }
+        buffer.update(0, serializeHll(dstHll));
     }
 
     @Override
     public void merge(MutableAggregationBuffer buffer1, Row buffer2) {
-        byte[] bitmap2Bytes = (byte[])buffer2.get(0);
-        byte[] bitmap1Bytes = (byte[])buffer1.get(0);
-        RoaringBitmap bitmap1 = deserializeBitmap(bitmap1Bytes);
-        RoaringBitmap bitmap2 = deserializeBitmap(bitmap2Bytes);
-        bitmap1.or(bitmap2);
-        buffer1.update(0, serializeBitmap(bitmap1));
+        byte[] hllBytes1 = (byte[])buffer1.get(0);
+        byte[] hllBytes2 = (byte[])buffer2.get(0);
+        Hll hll1 = deserializeHll(hllBytes1);
+        Hll hll2 = deserializeHll(hllBytes2);
+        hll1.merge(hll2);
+        buffer1.update(0, serializeHll(hll1));
     }
 
     @Override
     public Object evaluate(Row buffer) {
-        byte[] bitmapBytes = (byte[]) buffer.get(0);
-        return bitmapBytes;
+        byte[] testByte = (byte[])buffer.get(0);
+        Hll hll = deserializeHll(testByte);
+        System.out.println("print hll evaluate: " + hll.estimateCardinality());
+        return testByte;
     }
 }

@@ -27,7 +27,7 @@ import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 
 import org.apache.doris.common.jmockit.Deencapsulation;
-import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -38,116 +38,116 @@ import org.junit.Test;
 public class DppUtilsTest {
 
     @Test
-    public void testDataTypeToClass() {
+    public void testGetClassFromDataType() {
         DppUtils dppUtils = new DppUtils();
 
-        Class stringResult = Deencapsulation.invoke(dppUtils, "dataTypeToClass", DataTypes.StringType);
+        Class stringResult = Deencapsulation.invoke(dppUtils, "getClassFromDataType", DataTypes.StringType);
         Assert.assertEquals(String.class, stringResult);
 
-        Class booleanResult = Deencapsulation.invoke(dppUtils, "dataTypeToClass", DataTypes.BooleanType);
+        Class booleanResult = Deencapsulation.invoke(dppUtils, "getClassFromDataType", DataTypes.BooleanType);
         Assert.assertEquals(Boolean.class, booleanResult);
 
-        Class shortResult = Deencapsulation.invoke(dppUtils, "dataTypeToClass", DataTypes.ShortType);
+        Class shortResult = Deencapsulation.invoke(dppUtils, "getClassFromDataType", DataTypes.ShortType);
         Assert.assertEquals(Short.class, shortResult);
 
-        Class integerResult = Deencapsulation.invoke(dppUtils, "dataTypeToClass", DataTypes.IntegerType);
+        Class integerResult = Deencapsulation.invoke(dppUtils, "getClassFromDataType", DataTypes.IntegerType);
         Assert.assertEquals(Integer.class, integerResult);
 
-        Class longResult = Deencapsulation.invoke(dppUtils, "dataTypeToClass", DataTypes.LongType);
+        Class longResult = Deencapsulation.invoke(dppUtils, "getClassFromDataType", DataTypes.LongType);
         Assert.assertEquals(Long.class, longResult);
 
-        Class floatResult = Deencapsulation.invoke(dppUtils, "dataTypeToClass", DataTypes.FloatType);
+        Class floatResult = Deencapsulation.invoke(dppUtils, "getClassFromDataType", DataTypes.FloatType);
         Assert.assertEquals(Float.class, floatResult);
 
-        Class doubleResult = Deencapsulation.invoke(dppUtils, "dataTypeToClass", DataTypes.DoubleType);
+        Class doubleResult = Deencapsulation.invoke(dppUtils, "getClassFromDataType", DataTypes.DoubleType);
         Assert.assertEquals(Double.class, doubleResult);
 
-        Class dateResult = Deencapsulation.invoke(dppUtils, "dataTypeToClass", DataTypes.DateType);
+        Class dateResult = Deencapsulation.invoke(dppUtils, "getClassFromDataType", DataTypes.DateType);
         Assert.assertEquals(Date.class, dateResult);
     }
 
     @Test
-    public void testColumnTypeToClass() {
+    public void testGetClassFromColumn() {
         DppUtils dppUtils = new DppUtils();
 
-        Class charResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "CHAR");
+        Class charResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "CHAR");
         Assert.assertEquals(String.class, charResult);
 
-        Class hllResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "HLL");
+        Class hllResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "HLL");
         Assert.assertEquals(String.class, hllResult);
 
-        Class objectResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "OBJECT");
+        Class objectResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "OBJECT");
         Assert.assertEquals(String.class, objectResult);
 
-        Class booleanResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "BOOL");
+        Class booleanResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "BOOL");
         Assert.assertEquals(Boolean.class, booleanResult);
 
-        Class tinyResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "TINYINT");
+        Class tinyResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "TINYINT");
         Assert.assertEquals(Short.class, tinyResult);
 
-        Class smallResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "SMALLINT");
+        Class smallResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "SMALLINT");
         Assert.assertEquals(Short.class, smallResult);
 
-        Class integerResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "INT");
+        Class integerResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "INT");
         Assert.assertEquals(Integer.class, integerResult);
 
-        Class longResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "BIGINT");
+        Class longResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "BIGINT");
         Assert.assertEquals(Long.class, longResult);
 
-        Class datetimeResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "DATETIME");
+        Class datetimeResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "DATETIME");
         Assert.assertEquals(Long.class, datetimeResult);
 
-        Class floatResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "FLOAT");
+        Class floatResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "FLOAT");
         Assert.assertEquals(Float.class, floatResult);
 
-        Class doubleResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "DOUBLE");
+        Class doubleResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "DOUBLE");
         Assert.assertEquals(Double.class, doubleResult);
 
-        Class dateResult = Deencapsulation.invoke(dppUtils, "columnTypeToClass", "DATE");
+        Class dateResult = Deencapsulation.invoke(dppUtils, "getClassFromColumn", "DATE");
         Assert.assertEquals(Date.class, dateResult);
     }
 
     @Test
-    public void testColumnTypeToDataType() {
+    public void testGetDataTypeFromColumn() {
         DppUtils dppUtils = new DppUtils();
 
-        DataType stringResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "VARCHAR");
+        DataType stringResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "VARCHAR");
         Assert.assertEquals(DataTypes.StringType, stringResult);
 
-        DataType charResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "CHAR");
+        DataType charResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "CHAR");
         Assert.assertEquals(DataTypes.StringType, charResult);
 
-        DataType hllResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "HLL");
+        DataType hllResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "HLL");
         Assert.assertEquals(DataTypes.StringType, hllResult);
 
-        DataType objectResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "OBJECT");
+        DataType objectResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "OBJECT");
         Assert.assertEquals(DataTypes.StringType, objectResult);
 
-        DataType booleanResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "BOOL");
+        DataType booleanResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "BOOL");
         Assert.assertEquals(DataTypes.BooleanType, booleanResult);
 
-        DataType tinyResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "TINYINT");
+        DataType tinyResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "TINYINT");
         Assert.assertEquals(DataTypes.ShortType, tinyResult);
 
-        DataType smallResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "SMALLINT");
+        DataType smallResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "SMALLINT");
         Assert.assertEquals(DataTypes.ShortType, smallResult);
 
-        DataType integerResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "INT");
+        DataType integerResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "INT");
         Assert.assertEquals(DataTypes.IntegerType, integerResult);
 
-        DataType longResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "BIGINT");
+        DataType longResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "BIGINT");
         Assert.assertEquals(DataTypes.LongType, longResult);
 
-        DataType datetimeResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "DATETIME");
+        DataType datetimeResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "DATETIME");
         Assert.assertEquals(DataTypes.LongType, datetimeResult);
 
-        DataType floatResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "FLOAT");
+        DataType floatResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "FLOAT");
         Assert.assertEquals(DataTypes.FloatType, floatResult);
 
-        DataType doubleResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "DOUBLE");
+        DataType doubleResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "DOUBLE");
         Assert.assertEquals(DataTypes.DoubleType, doubleResult);
 
-        DataType dateResult = Deencapsulation.invoke(dppUtils, "columnTypeToDataType", "DATE");
+        DataType dateResult = Deencapsulation.invoke(dppUtils, "getDataTypeFromColumn", "DATE");
         Assert.assertEquals(DataTypes.DateType, dateResult);
     }
 

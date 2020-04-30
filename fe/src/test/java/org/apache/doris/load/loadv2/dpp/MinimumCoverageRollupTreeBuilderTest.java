@@ -19,7 +19,7 @@
 package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.doris.load.loadv2.dpp.MinimalCoverRollupTreeBuilder;
+import org.apache.doris.load.loadv2.dpp.MinimumCoverageRollupTreeBuilder;
 import org.apache.doris.load.loadv2.dpp.RollupTreeNode;
 import org.junit.Assert;
 import org.junit.Test;
@@ -27,7 +27,7 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MinimalCoverRollupTreeBuilderTest {
+public class MinimumCoverageRollupTreeBuilderTest {
 
     @Test
     public void testBuild() {
@@ -83,7 +83,7 @@ public class MinimalCoverRollupTreeBuilderTest {
         indexes.add(roll3Index);
         EtlJobConfig.EtlTable table = new EtlJobConfig.EtlTable(indexes, null);
 
-        MinimalCoverRollupTreeBuilder builder = new MinimalCoverRollupTreeBuilder();
+        MinimumCoverageRollupTreeBuilder builder = new MinimumCoverageRollupTreeBuilder();
         RollupTreeNode resultNode = builder.build(table);
         Assert.assertEquals(resultNode.parent, null);
         Assert.assertEquals(resultNode.indexId, 10000);

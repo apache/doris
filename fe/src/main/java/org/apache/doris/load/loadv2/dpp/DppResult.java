@@ -22,6 +22,18 @@ import com.google.gson.annotations.SerializedName;
 import java.io.Serializable;
 
 public class DppResult implements Serializable {
+    DppResult() {
+        isSuccess = true;
+        failedReason = "";
+        scannedRows = 0;
+        fileNumber = 0;
+        fileSize = 0;
+        normalRows = 0;
+        abnormalRows = 0;
+        unselectRows = 0;
+        partialAbnormalRows = "";
+    }
+
     @SerializedName("is_success")
     public boolean isSuccess;
 
@@ -45,4 +57,8 @@ public class DppResult implements Serializable {
 
     @SerializedName("unselect_rows")
     public long unselectRows;
+
+    // only part of abnormal rows will be returned
+    @SerializedName("partial_abnormal_rows")
+    public String partialAbnormalRows;
 }

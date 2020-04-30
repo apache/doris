@@ -19,7 +19,7 @@ package org.apache.doris.load.loadv2.dpp;
 
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
-// RollupTreeParser is used to get the RollupTree from the TableMeta
+// RollupTreeBuilder is used to get the RollupTree from the TableMeta
 public abstract interface RollupTreeBuilder {
     public RollupTreeNode build(EtlJobConfig.EtlTable tableMeta);
 }

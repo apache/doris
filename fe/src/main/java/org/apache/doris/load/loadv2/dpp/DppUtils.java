@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2.dpp;
 
+import io.fabric8.openshift.api.model.User;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 
@@ -24,10 +25,12 @@ import org.apache.spark.sql.types.DataType;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import org.apache.spark.sql.types.DecimalType;
 import org.apache.spark.sql.Row;
 
 import com.google.common.collect.Lists;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -39,7 +42,7 @@ import java.util.zip.CRC32;
 
 public class DppUtils {
     public static final String BUCKET_ID = "__bucketId__";
-    public static Class dataTypeToClass(DataType dataType) {
+    public static Class getClassFromDataType(DataType dataType) {
         if (dataType == null) {
             return null;
         }
@@ -59,13 +62,18 @@ public class DppUtils {
             return Date.class;
         } else if (dataType.equals(DataTypes.StringType)) {
             return String.class;
+        } else if (dataType instanceof DecimalType) {
+            DecimalType decimalType = (DecimalType)dataType;
+            return BigDecimal.valueOf(decimalType.precision(), decimalType.scale()).getClass();
+        } else if (dataType.equals(DataTypes.TimestampType)) {
+            return Long.class;
         }
         return null;
     }
 
-    public static Class columnTypeToClass(String columnType) {
-        switch (columnType) {
-            case "BOOL":
+    public static Class getClassFromColumn(EtlJobConfig.EtlColumn column) throws UserException {
+        switch (column.columnType) {
+            case "BOOLEAN":
                 return Boolean.class;
             case "TINYINT":
             case "SMALLINT":
@@ -76,7 +84,7 @@ public class DppUtils {
             case "BIGINT":
                 return Long.class;
             case "LARGEINT":
-                return BigInteger.class;
+                throw new UserException("LARGEINT is not supported now");
             case "FLOAT":
                 return Float.class;
             case "DOUBLE":
@@ -89,16 +97,18 @@ public class DppUtils {
             case "BITMAP":
             case "OBJECT":
                 return String.class;
+            case "DECIMALV2":
+                return BigDecimal.valueOf(column.precision, column.scale).getClass();
             default:
                 return String.class;
         }
     }
 
-    public static DataType columnTypeToDataType(String columnType) throws UserException {
+    public static DataType getDataTypeFromColumn(EtlJobConfig.EtlColumn column) throws UserException {
         DataType dataType = DataTypes.StringType;
-        switch (columnType) {
-            case "BOOL":
-                dataType = DataTypes.BooleanType;
+        switch (column.columnType) {
+            case "BOOLEAN":
+                dataType = DataTypes.StringType;
                 break;
             case "TINYINT":
             case "SMALLINT":
@@ -108,10 +118,13 @@ public class DppUtils {
                 dataType = DataTypes.IntegerType;
                 break;
             case "DATETIME":
+                dataType = DataTypes.TimestampType;
+                break;
             case "BIGINT":
-            case "LARGEINT":
-                // todo: special treat LARGEINT because spark do not support int128
                 dataType = DataTypes.LongType;
+                break;
+            case "LARGEINT":
+                dataType = DataTypes.StringType;
                 break;
             case "FLOAT":
                 dataType = DataTypes.FloatType;
@@ -122,15 +135,18 @@ public class DppUtils {
             case "DATE":
                 dataType = DataTypes.DateType;
                 break;
-            case "HLL":
             case "CHAR":
             case "VARCHAR":
+            case "HLL":
             case "BITMAP":
             case "OBJECT":
                 dataType = DataTypes.StringType;
                 break;
+            case "DECIMALV2":
+                dataType = DecimalType.apply(column.precision, column.scale);
+                break;
             default:
-                throw new UserException("Reason: invalid column type:" + columnType);
+                throw new UserException("Reason: invalid column type:" + column);
         }
         return dataType;
     }
@@ -151,6 +167,14 @@ public class DppUtils {
         } else if (type.equals(DataTypes.StringType)) {
             try {
                 String str = (String)o;
+                buffer = ByteBuffer.wrap(str.getBytes("UTF-8"));
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        } else if (type.equals(DataTypes.BooleanType)) {
+            Boolean b = (Boolean)o;
+            String str = b ? "1" : "0";
+            try {
                 buffer = ByteBuffer.wrap(str.getBytes("UTF-8"));
             } catch (Exception e) {
                 throw new RuntimeException(e);
@@ -176,10 +200,8 @@ public class DppUtils {
             fields.add(bucketIdField);
         }
         for (EtlJobConfig.EtlColumn column : columns) {
-            String columnName = column.columnName;
-            String columnType = column.columnType;
-            DataType structColumnType = columnTypeToDataType(columnType);
-            StructField field = DataTypes.createStructField(columnName, structColumnType, column.isAllowNull);
+            DataType structColumnType = getDataTypeFromColumn(column);
+            StructField field = DataTypes.createStructField(column.columnName, structColumnType, column.isAllowNull);
             fields.add(field);
         }
         StructType dstSchema = DataTypes.createStructType(fields);

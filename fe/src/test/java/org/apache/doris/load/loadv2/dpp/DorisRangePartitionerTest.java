@@ -78,7 +78,6 @@ public class DorisRangePartitionerTest {
             partitionRangeKey.endKeys = new DppColumns(partition.endKeys, partitionSchema);
             partitionRangeKeys.add(partitionRangeKey);
         }
-        System.out.println("partitionRangeKeys:" + partitionRangeKeys);
         List<Integer> partitionKeyIndexes = new ArrayList<>();
         partitionKeyIndexes.add(0);
         DorisRangePartitioner rangePartitioner = new DorisRangePartitioner(partitionInfo, partitionKeyIndexes, partitionRangeKeys);
@@ -99,14 +98,8 @@ public class DorisRangePartitionerTest {
         fields2.add(10);
         fields2.add("name");
         DppColumns record2 = new DppColumns(fields2, recordSchema);
-        System.out.println("record2:" + record2);
-        System.out.println("partitionKeyIndexes:" + partitionKeyIndexes);
-        try {
         int id2 = rangePartitioner.getPartition(record2);
         Assert.assertEquals(0, id2);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
 
         List<Object> fields3 = new ArrayList<>();
         fields3.add(110);

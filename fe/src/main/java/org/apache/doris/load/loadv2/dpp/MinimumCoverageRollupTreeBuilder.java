@@ -23,8 +23,27 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-// Build RollupTree by using minimal cover strategy
-public class MinimalCoverRollupTreeBuilder implements RollupTreeBuilder {
+// Build RollupTree by using minimum coverage strategy,
+// which is to find the index with the minimum columns that
+// has all columns of rollup index as parent index node.
+// Eg:
+// There are three indexes:
+//   index1(c1, c2, c3, c4, c5)
+//   index2(c1, c2, c4)
+//   index3(c1, c2)
+//   index4(c3, c4)
+//   index5(c1, c2, c5)
+// then the result tree is:
+//          index1
+//      |     \      \
+//  index2  index4   index5
+//    |
+//  index3
+// Now, if there are more than one indexes meet the column coverage requirement,
+// have the same column size(eg: index2 vs index5), child rollup is preferred
+// builded from the front index(eg: index3 is the child of index2). This can be
+// further optimized based on the row number of the index.
+public class MinimumCoverageRollupTreeBuilder implements RollupTreeBuilder {
     public RollupTreeNode build(EtlJobConfig.EtlTable tableMeta) {
         List<EtlJobConfig.EtlIndex> indexes = tableMeta.indexes;
         List<EtlJobConfig.EtlIndex> indexMetas = new ArrayList<>();
@@ -74,6 +93,7 @@ public class MinimalCoverRollupTreeBuilder implements RollupTreeBuilder {
         return root;
     }
 
+    // DFS traverse to build the rollup tree
     private void insertIndex(RollupTreeNode root, EtlJobConfig.EtlIndex indexMeta,
                              List<String> keyColumns,
                              List<String> valueColumns, int id, boolean[] flags) {
@@ -101,7 +121,6 @@ public class MinimalCoverRollupTreeBuilder implements RollupTreeBuilder {
             newChild.level = root.level + 1;
             root.children.add(newChild);
             flags[id] = true;
-            System.err.println("root index:" + root.indexId + " add new child:" + newChild.indexId);
         }
     }
 }
