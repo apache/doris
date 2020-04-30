@@ -172,7 +172,8 @@ public class StreamLoadPlanner {
         return params;
     }
 
-    // get all specified partition ids. return an empty list if no partition is specified.
+    // get all specified partition ids.
+    // if no partition specified, return all partitions
     private List<Long> getAllPartitionIds() throws DdlException {
         List<Long> partitionIds = Lists.newArrayList();
 
@@ -184,6 +185,10 @@ public class StreamLoadPlanner {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
                 }
                 partitionIds.add(part.getId());
+            }
+        } else {
+            for (Partition partition : destTable.getPartitions()) {
+                partitionIds.add(partition.getId());
             }
         }
         return partitionIds;
