@@ -45,14 +45,28 @@ static void find_addr_in_section(bfd* abfd, asection* sec, void* arg) {
     if (ctx->found) {
         return;
     }
+#ifdef bfd_get_section_flags
     if ((bfd_get_section_flags(abfd, sec) & SEC_ALLOC) == 0) {
         return;
     }
+#else
+    if ((bfd_section_flags(sec) & SEC_ALLOC) == 0) {
+        return;
+    }
+#endif
+#ifdef bfd_get_section_vma
     auto vma = bfd_get_section_vma(abfd, sec);
+#else
+    auto vma = bfd_section_vma(sec);
+#endif
     if (ctx->pc < vma) {
         return;
     }
+#ifdef bfd_get_section_size
     auto size = bfd_get_section_size(sec);
+#else
+    auto size = bfd_section_size(sec);
+#endif
     if (ctx->pc >= vma + size) {
         return;
     }
