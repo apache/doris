@@ -137,6 +137,11 @@ public:
     int64_t max_batch_rows = 100000;
     int64_t max_batch_size = 100 * 1024 * 1024; // 100MB
 
+    // for parse json-data
+    std::string data_format = "";
+    std::string jsonpath_file = "";
+    std::string jsonpath = "";
+
     // only used to check if we receive whole body
     size_t body_bytes = 0;
     size_t receive_bytes = 0;

@@ -175,6 +175,17 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     protected long maxBatchRows = DEFAULT_MAX_BATCH_ROWS;
     protected long maxBatchSizeBytes = DEFAULT_MAX_BATCH_SIZE;
 
+    /**
+     * RoutineLoad support json data.
+     * Require Params:
+     *   1) format = "json"
+     *   2) jsonPathFile = "FILE:jsonpath.json" or jsonPath = "$.XXX.xxx"
+     *      !! jsonPath is high priority !!
+     */
+    private static final String PROPS_FORMAT = "format";
+    private static final String PROPS_JSONPATH_FILE = "jsonpath_file";
+    private static final String PROPS_JSONPATH = "jsonpath";
+
     protected int currentTaskConcurrentNum;
     protected RoutineLoadProgress progress;
 
@@ -271,7 +282,25 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             this.maxBatchSizeBytes = stmt.getMaxBatchSize();
         }
         jobProperties.put(LoadStmt.STRICT_MODE, String.valueOf(stmt.isStrictMode()));
-        jobProperties.put(LoadStmt.TIMEZONE, stmt.getTimezone());
+        if (Strings.isNullOrEmpty(stmt.getFormat()) || stmt.getFormat().equals("csv")) {
+            jobProperties.put(PROPS_FORMAT, "csv");
+            jobProperties.put(PROPS_JSONPATH_FILE, "");
+            jobProperties.put(PROPS_JSONPATH, "");
+        } else if (stmt.getFormat().equals("json")) {
+            jobProperties.put(PROPS_FORMAT, "json");
+            if (!Strings.isNullOrEmpty(stmt.getJsonPath())) {
+                jobProperties.put(PROPS_JSONPATH, stmt.getJsonPath());
+                jobProperties.put(PROPS_JSONPATH_FILE, "");
+            } else if (!Strings.isNullOrEmpty(stmt.getJsonPathFile())) {
+                jobProperties.put(PROPS_JSONPATH_FILE, stmt.getJsonPathFile());
+                jobProperties.put(PROPS_JSONPATH, "");
+            } else {
+                jobProperties.put(PROPS_JSONPATH_FILE, "");
+                jobProperties.put(PROPS_JSONPATH, "");
+            }
+        } else {
+            throw new UserException("Invalid format type.");
+        }
     }
 
     private void setRoutineLoadDesc(RoutineLoadDesc routineLoadDesc) {
@@ -422,6 +451,30 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public long getMaxBatchSizeBytes() {
         return maxBatchSizeBytes;
+    }
+
+    public String getFormat() {
+        String value = jobProperties.get(PROPS_FORMAT);
+        if (value == null) {
+            return "csv";
+        }
+        return value;
+    }
+
+    public String getJsonPathFile() {
+        String value = jobProperties.get(PROPS_JSONPATH_FILE);
+        if (value == null) {
+            return "";
+        }
+        return value;
+    }
+
+    public String getJsonPath() {
+        String value = jobProperties.get(PROPS_JSONPATH);
+        if (value == null) {
+            return "";
+        }
+        return value;
     }
 
     public int getSizeOfRoutineLoadTaskInfoList() {
@@ -1161,7 +1214,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         jobProperties.put("partitions", partitions == null ? STAR_STRING : Joiner.on(",").join(partitions.getPartitionNames()));
         jobProperties.put("columnToColumnExpr", columnDescs == null ? STAR_STRING : Joiner.on(",").join(columnDescs));
         jobProperties.put("whereExpr", whereExpr == null ? STAR_STRING : whereExpr.toSql());
-        jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
+        if (getFormat().equalsIgnoreCase("json")) {
+            jobProperties.put("dataFormat", "json");
+        } else {
+            jobProperties.put("columnSeparator", columnSeparator == null ? "\t" : columnSeparator.toString());
+        }
         jobProperties.put("maxErrorNum", String.valueOf(maxErrorNum));
         jobProperties.put("maxBatchIntervalS", String.valueOf(maxBatchIntervalS));
         jobProperties.put("maxBatchRows", String.valueOf(maxBatchRows));

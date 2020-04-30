@@ -1,0 +1,10 @@
+{
+    "store":{
+        "book":[
+            {"category":"ab19912","author":"test","title":"SayingsoftheCentury","price":895},
+            {"category":"adx9","author":"EvelynWaugh","title":"huhhua","price":1299}
+        ],
+        "bicycle":{"color":"red","price":19.95}
+        },
+    "expensive":10
+}

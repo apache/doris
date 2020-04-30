@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TBrokerScanNode;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
@@ -97,6 +98,13 @@ public class StreamLoadScanNode extends LoadScanNode {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.file_type = streamLoadTask.getFileType();
         rangeDesc.format_type = streamLoadTask.getFormatType();
+        if (rangeDesc.format_type == TFileFormatType.FORMAT_JSON) {
+            if (!streamLoadTask.getJsonPath().isEmpty()) {
+                rangeDesc.jsonpath = streamLoadTask.getJsonPath();
+            } else if (!streamLoadTask.getJsonPathFile().isEmpty()) {
+                rangeDesc.jsonpath_file = streamLoadTask.getJsonPathFile();
+            }
+        }
         rangeDesc.splittable = false;
         switch (streamLoadTask.getFileType()) {
             case FILE_LOCAL:

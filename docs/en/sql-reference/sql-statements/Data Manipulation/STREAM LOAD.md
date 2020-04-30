@@ -187,7 +187,10 @@ Where url is the url given by ErrorURL.
 
     ```Curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
+10. load json-data
+    ```curl --location-trusted -u root  -H "label:123" -H "format: json" -H "jsonpath: {\"jsonpath\":[{\"column\":\"category\",\"value\":\"$.store.book.category\"},{\"column\":\"author\",\"value\":\"$.store.book.author\"}]}" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
+    ```curl --location-trusted -u root  -H "label:123" -H "format: json" -H "jsonpathfile: doris.json" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 ## keyword
 
     STREAM, LOAD

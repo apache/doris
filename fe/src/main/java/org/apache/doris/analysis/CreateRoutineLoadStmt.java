@@ -90,6 +90,10 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final String MAX_BATCH_ROWS_PROPERTY = "max_batch_rows";
     public static final String MAX_BATCH_SIZE_PROPERTY = "max_batch_size";
 
+    public static final String FORMAT = "format";// the value is csv or json, default is csv
+    public static final String JSON_PATH_FILE = "jsonpath_file";
+    public static final String JSON_PATH = "jsonpath";
+
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
     public static final String KAFKA_TOPIC_PROPERTY = "kafka_topic";
@@ -107,6 +111,9 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             .add(MAX_BATCH_INTERVAL_SEC_PROPERTY)
             .add(MAX_BATCH_ROWS_PROPERTY)
             .add(MAX_BATCH_SIZE_PROPERTY)
+            .add(FORMAT)
+            .add(JSON_PATH)
+            .add(JSON_PATH_FILE)
             .add(LoadStmt.STRICT_MODE)
             .add(LoadStmt.TIMEZONE)
             .build();
@@ -137,6 +144,16 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     private long maxBatchSizeBytes = -1;
     private boolean strictMode = true;
     private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
+    /**
+     * RoutineLoad support json data.
+     * Require Params:
+     *   1) dataFormat = "json"
+     *   2) jsonPathFile = "/XXX/xx/jsonpath.json" or jsonPath = "$.XXX.xxx"
+     *      !! jsonPath is high priority !!
+     */
+    private String format   = ""; //default is csv.
+    private String jsonPathFile = "";
+    private String jsonPath     = "";
 
     // kafka related properties
     private String kafkaBrokerList;
@@ -210,6 +227,18 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     public String getTimezone() {
         return timezone;
+    }
+
+    public String getFormat() {
+        return format;
+    }
+
+    public String getJsonPathFile() {
+        return jsonPathFile;
+    }
+
+    public String getJsonPath() {
+        return jsonPath;
     }
 
     public String getKafkaBrokerList() {
@@ -328,6 +357,21 @@ public class CreateRoutineLoadStmt extends DdlStmt {
             timezone = ConnectContext.get().getSessionVariable().getTimeZone();
         }
         timezone = TimeUtils.checkTimeZoneValidAndStandardize(jobProperties.getOrDefault(LoadStmt.TIMEZONE, timezone));
+
+        format = jobProperties.get(FORMAT);
+        if (format != null) {
+            if (format.equalsIgnoreCase("csv")) {
+                format = "";// if it's not json, then it's mean csv and set empty
+            } else if (format.equalsIgnoreCase("json")) {
+                format = "json";
+                jsonPath = jobProperties.get(JSON_PATH);
+                jsonPathFile = jobProperties.get(JSON_PATH_FILE);
+            } else {
+                throw new UserException("Format type is invalid. format=`" + format + "`");
+            }
+        } else {
+            format = "csv"; // default csv
+        }
     }
 
     private void checkDataSourceProperties() throws AnalysisException {

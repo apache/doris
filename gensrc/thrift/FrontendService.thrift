@@ -547,6 +547,8 @@ struct TStreamLoadPutRequest {
     20: optional string timezone
     21: optional i64 execMemLimit
     22: optional bool isTempPartition
+    23: optional string jsonpath
+    24: optional string jsonpath_file
 }
 
 struct TStreamLoadPutResult {

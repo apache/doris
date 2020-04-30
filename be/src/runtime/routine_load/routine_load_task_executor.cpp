@@ -106,7 +106,9 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     put_result.params = std::move(task.params);
     put_result.__isset.params = true;
     ctx->put_result = std::move(put_result);
-
+    if(task.__isset.format) {
+        ctx->format = task.format;
+    }
     // the routine load task'txn has alreay began in FE.
     // so it need to rollback if encounter error.
     ctx->need_rollback = true;

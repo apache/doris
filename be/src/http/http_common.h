@@ -36,6 +36,8 @@ static const std::string HTTP_NEGATIVE = "negative";
 static const std::string HTTP_STRICT_MODE = "strict_mode";
 static const std::string HTTP_TIMEZONE = "timezone";
 static const std::string HTTP_EXEC_MEM_LIMIT = "exec_mem_limit";
+static const std::string HTTP_EXEC_JSONPATH  = "jsonpath";
+static const std::string HTTP_EXEC_JSONPATH_FILE = "jsonpath_file";
 
 static const std::string HTTP_100_CONTINUE = "100-continue";
 

@@ -186,10 +186,36 @@ TEST_F(JsonFunctionTest, special_char)
     ASSERT_EQ(std::string(res3->GetString()), "v1");
 }
 
+TEST_F(JsonFunctionTest, json_path1)
+{
+    std::string json_raw_data("[{\"k1\":\"v1\", \"keyname\":{\"ip\":\"10.10.0.1\", \"value\":20}},{\"k1\":\"v1-1\", \"keyname\":{\"ip\":\"10.20.10.1\", \"value\":20}}]");
+    rapidjson::Document jsonDoc;
+    if (jsonDoc.Parse(json_raw_data.c_str()).HasParseError()) {
+        ASSERT_TRUE(false);
+    }
+    rapidjson::Value* res3;
+    res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].keyname.ip", &jsonDoc);
+    ASSERT_TRUE(res3->IsArray());
+    for (int i = 0; i < res3->Size(); i++) {
+        std::cout<< (*res3)[i].GetString() << std::endl;
+    }
+
+    res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].k1", &jsonDoc);
+    ASSERT_TRUE(res3->IsArray());
+    for (int i = 0; i < res3->Size(); i++) {
+        std::cout<< (*res3)[i].GetString() << std::endl;
+    }
+
+}
+
 }
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    std::string home(getenv("DORIS_HOME"));
+    if (home.empty()) {
+        home = ".";
+    }
+    std::string conffile = home + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;

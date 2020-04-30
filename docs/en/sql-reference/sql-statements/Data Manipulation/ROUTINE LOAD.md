@@ -105,7 +105,7 @@ FROM data_source
         Example:
 
         `PARTITION(p1, p2, p3)`
-        
+
 4. job_properties
 
     A generic parameter that specifies a routine load job.
@@ -163,9 +163,17 @@ FROM data_source
 
         Whether to enable strict mode, the default is on. If turned on, the column type transformation of non-null raw data is filtered if the result is NULL. Specified as "strict_mode" = "true"
             
-    5. timezone
+    5. `timezone`
 
         Specifies the time zone in which the job will be loaded. The default by using session variable's timezone. This parameter affects all function results related to the time zone involved in the load.
+
+    6. `format`
+
+        Specifies the format of the imported data, which is CSV by default and supports json format.
+
+    7. `jsonpath`、`jsonpath_file`
+
+        When the imported data format is json, it can be accurately imported through `jsonpath` or `jsonpath_file`. If the two parameters are not set, it can be simply imported.
 
 5. data_source
 
@@ -366,6 +374,88 @@ FROM data_source
     );
     ```
 
+4. Create a Kafka routine load task named test1 for the example_tbl of example_db. The load data is a simple json.
+    1）Example, `doris_data` is keyword
+
+    {
+        "doris_data":[
+            {"category":"a9jadhx","author":"test","price":895},
+            {"category":"axdfa1","author":"EvelynWaugh","price":1299}
+        ]
+    }
+
+    2) Create routine load，has none `jsonpath` and `jsonpath_file`
+
+    CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+    COLUMNS(category, author, price)
+    PROPERTIES
+    (
+        "desired_concurrent_number"="3",
+        "max_batch_interval" = "20",
+        "max_batch_rows" = "300000",
+        "max_batch_size" = "209715200",
+        "strict_mode" = "false",
+        "format" = "json"
+    )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+        "kafka_topic" = "my_topic",
+        "kafka_partitions" = "0,1,2",
+        "kafka_offsets" = "0,0,0"
+    );
+
+5. Create a Kafka routine load task named test1 for the example_tbl of example_db by `jsonpath`.
+
+    CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+    COLUMNS(category, author, price)
+    PROPERTIES
+    (
+        "desired_concurrent_number"="3",
+        "max_batch_interval" = "20",
+        "max_batch_rows" = "300000",
+        "max_batch_size" = "209715200",
+        "strict_mode" = "false",
+        "format" = "json",
+        "jsonpath" = "{\"jsonpath\":[{\"column\":\"category\",\"value\":\"$.store.book.category\"},{\"column\":\"author\",\"value\":\"$.store.book.author\"},,{\"column\":\"price\",\"value\":\"$.store.book.price\"}]}"
+    )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+        "kafka_topic" = "my_topic",
+        "kafka_partitions" = "0,1,2",
+        "kafka_offsets" = "0,0,0"
+    );
+
+6. Create a Kafka routine load task named test1 for the example_tbl of example_db. The load data is a json.
+    1）Import a jsonpath file into the Doris cluster through create file, then view the file id and md5 through show file.
+    for example:
+    mysql> show file;
+    +-------+--------------------------+---------+-----------------+----------+-----------+----------------------------------+
+    | Id    | DbName                   | Catalog | FileName        | FileSize | IsContent | MD5                              |
+    +-------+--------------------------+---------+-----------------+----------+-----------+----------------------------------+
+    | 43017 | default_cluster:mediavad | kafka   | myjsonpath.json | 215      | true      | 3f3ab257be8a422e0044abe5ed51d410 |
+    +-------+--------------------------+---------+-----------------+----------+-----------+----------------------------------+
+    2）Create routine routine by `jsonpath_file`
+    CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+    COLUMNS(category, author, price)
+    PROPERTIES
+    (
+        "desired_concurrent_number"="3",
+        "max_batch_interval" = "20",
+        "max_batch_rows" = "300000",
+        "max_batch_size" = "209715200",
+        "strict_mode" = "false",
+        "format" = "json",
+        "jsonpath_file" = "FILE:myjsonpath.json"
+    )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+        "kafka_topic" = "my_topic",
+        "kafka_partitions" = "0,1,2",
+        "kafka_offsets" = "0,0,0"
+    );
 ## keyword
 
     CREATE, ROUTINE, LOAD
