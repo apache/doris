@@ -251,9 +251,6 @@ Status MysqlScanNode::close(RuntimeState* state) {
     RETURN_IF_ERROR(exec_debug_action(TExecNodePhase::CLOSE));
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    if (memory_used_counter() != NULL) {
-        COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
-    }
     _tuple_pool.reset();
 
     return ExecNode::close(state);
