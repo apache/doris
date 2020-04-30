@@ -69,13 +69,11 @@ public class DorisRangePartitionerTest {
         EtlJobConfig.EtlPartitionInfo partitionInfo = new EtlJobConfig.EtlPartitionInfo(
                 "RANGE", partitionColumns, bucketColumns, partitions);
         List<DorisRangePartitioner.PartitionRangeKey> partitionRangeKeys = new ArrayList<>();
-        List<Class> partitionSchema = new ArrayList<>();
-        partitionSchema.add(Integer.class);
         for (EtlJobConfig.EtlPartition partition : partitions) {
             DorisRangePartitioner.PartitionRangeKey partitionRangeKey = new DorisRangePartitioner.PartitionRangeKey();
             partitionRangeKey.isMaxPartition = false;
-            partitionRangeKey.startKeys = new DppColumns(partition.startKeys, partitionSchema);
-            partitionRangeKey.endKeys = new DppColumns(partition.endKeys, partitionSchema);
+            partitionRangeKey.startKeys = new DppColumns(partition.startKeys);
+            partitionRangeKey.endKeys = new DppColumns(partition.endKeys);
             partitionRangeKeys.add(partitionRangeKey);
         }
         List<Integer> partitionKeyIndexes = new ArrayList<>();
@@ -84,41 +82,38 @@ public class DorisRangePartitionerTest {
         int num = rangePartitioner.numPartitions();
         Assert.assertEquals(3, num);
 
-        List<Class> recordSchema = new ArrayList<>();
-        recordSchema.add(Integer.class);
-        recordSchema.add(String.class);
         List<Object> fields1 = new ArrayList<>();
         fields1.add(-100);
         fields1.add("name");
-        DppColumns record1 = new DppColumns(fields1, recordSchema);
+        DppColumns record1 = new DppColumns(fields1);
         int id1 = rangePartitioner.getPartition(record1);
         Assert.assertEquals(-1, id1);
 
         List<Object> fields2 = new ArrayList<>();
         fields2.add(10);
         fields2.add("name");
-        DppColumns record2 = new DppColumns(fields2, recordSchema);
+        DppColumns record2 = new DppColumns(fields2);
         int id2 = rangePartitioner.getPartition(record2);
         Assert.assertEquals(0, id2);
 
         List<Object> fields3 = new ArrayList<>();
         fields3.add(110);
         fields3.add("name");
-        DppColumns record3 = new DppColumns(fields3, recordSchema);
+        DppColumns record3 = new DppColumns(fields3);
         int id3 = rangePartitioner.getPartition(record3);
         Assert.assertEquals(1, id3);
 
         List<Object> fields4 = new ArrayList<>();
         fields4.add(210);
         fields4.add("name");
-        DppColumns record4 = new DppColumns(fields4, recordSchema);
+        DppColumns record4 = new DppColumns(fields4);
         int id4 = rangePartitioner.getPartition(record4);
         Assert.assertEquals(2, id4);
 
         List<Object> fields5 = new ArrayList<>();
         fields5.add(310);
         fields5.add("name");
-        DppColumns record5 = new DppColumns(fields5, recordSchema);
+        DppColumns record5 = new DppColumns(fields5);
         int id5 = rangePartitioner.getPartition(record5);
         Assert.assertEquals(-1, id5);
     }
@@ -139,14 +134,10 @@ public class DorisRangePartitionerTest {
         int num = rangePartitioner.numPartitions();
         Assert.assertEquals(1, num);
 
-        List<Class> recordSchema = new ArrayList<>();
-        recordSchema.add(Integer.class);
-        recordSchema.add(String.class);
-
         List<Object> fields = new ArrayList<>();
         fields.add(100);
         fields.add("name");
-        DppColumns record = new DppColumns(fields, recordSchema);
+        DppColumns record = new DppColumns(fields);
         int id = rangePartitioner.getPartition(record);
         Assert.assertEquals(0, id);
     }
