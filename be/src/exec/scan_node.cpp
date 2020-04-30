@@ -28,7 +28,7 @@ const string ScanNode::_s_total_throughput_counter = "TotalReadThroughput";
 const string ScanNode::_s_materialize_tuple_timer = "MaterializeTupleTime(*)";
 const string ScanNode::_s_per_read_thread_throughput_counter =
     "PerReadThreadRawHdfsThroughput";
-const string ScanNode::_s_num_disks_accessed_counter = "NumThread";
+const string ScanNode::_s_num_disks_accessed_counter = "NumDiskAccess";
 const string ScanNode::_s_scan_ranges_complete_counter = "ScanRangesComplete";
 const string ScanNode::_s_scanner_thread_counters_prefix = "ScannerThreads";
 const string ScanNode::_s_scanner_thread_total_wallclock_time =
@@ -43,6 +43,7 @@ Status ScanNode::prepare(RuntimeState* state) {
         ADD_THREAD_COUNTERS(runtime_profile(), _s_scanner_thread_counters_prefix);
     _bytes_read_counter =
         ADD_COUNTER(runtime_profile(), _s_bytes_read_counter, TUnit::BYTES);
+    //TODO: The _rows_read_counter == RowsReturned counter in exec node, there is no need to keep both of them
     _rows_read_counter =
         ADD_COUNTER(runtime_profile(), _s_rows_read_counter, TUnit::UNIT);
     _read_timer = ADD_TIMER(runtime_profile(), _s_total_read_timer);

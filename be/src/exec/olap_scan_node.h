@@ -186,9 +186,6 @@ private:
 
     std::vector<TCondition> _olap_filter;
 
-    // Order Result Flag
-    bool _is_result_order;
-
     // Pool for storing allocated scanner objects.  We don't want to use the
     // runtime pool to ensure that the scanner objects are deleted before this
     // object is.
