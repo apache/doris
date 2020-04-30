@@ -1,4 +1,11 @@
-<!--
+---
+{
+    "title": "append_trailing_char_if_absent",
+    "language": "en"
+}
+---
+
+<!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
 distributed with this work for additional information
@@ -6,7 +13,9 @@ regarding copyright ownership.  The ASF licenses this file
 to you under the Apache License, Version 2.0 (the
 "License"); you may not use this file except in compliance
 with the License.  You may obtain a copy of the License at
+
   http://www.apache.org/licenses/LICENSE-2.0
+
 Unless required by applicable law or agreed to in writing,
 software distributed under the License is distributed on an
 "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -21,7 +30,8 @@ under the License.
 
 `VARCHAR append_trailing_char_if_absent(VARCHAR str, VARCHAR trailing_char)`
 
-如果's'字符串非空并且末尾不包含'c'字符，则将'c'字符附加到末尾
+If the s string is non-empty and does not contain the c character at the end, it appends the c character to the end.
+Trailing_char contains only one character, and it will report an error if contains more than one character
 
 ## example
 
@@ -42,5 +52,7 @@ MySQL [test]> select append_trailing_char_if_absent('ac','c');
 +-------------------------------------------+
 1 row in set (0.00 sec)
 ```
-##keyword
+
+## keyword
+
 APPEND_TRAILING_CHAR_IF_ABSENT
