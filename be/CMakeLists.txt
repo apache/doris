@@ -363,6 +363,7 @@ set(DORIS_LINK_LIBS
     Exec
     Exprs
     Gutil
+    Memory
     Olap
     Rowset
     OlapFs
