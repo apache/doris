@@ -62,6 +62,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
     private volatile boolean isClosed = false;
     private volatile boolean isInit = false;
 
+    // the max stmt length to be loaded in audit table.
+    private static final int MAX_STMT_LENGTH = 2000;
+
     @Override
     public void init(PluginInfo info, PluginContext ctx) throws PluginException {
         super.init(info, ctx);
@@ -143,8 +146,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         auditBuffer.append(event.isQuery ? 1 : 0).append("\t");
         auditBuffer.append(event.feIp).append("\t");
         // trim the query to avoid too long
-        int maxLen = Math.min(2048, event.stmt.length());
-        String stmt = event.stmt.substring(0, maxLen).replace("\t", " ");
+        // use `getBytes().length` to get real byte length
+        int maxLen = Math.min(MAX_STMT_LENGTH, event.stmt.getBytes().length);
+        String stmt = new String(event.stmt.getBytes(), 0, maxLen).replace("\t", " ");
         LOG.debug("receive audit event with stmt: {}", stmt);
         auditBuffer.append(stmt).append("\n");
     }
