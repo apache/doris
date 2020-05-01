@@ -35,6 +35,7 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
+#include "olap/base_tablet.h"
 #include "util/once.h"
 
 namespace doris {
@@ -45,7 +46,7 @@ class TabletMeta;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
-class Tablet : public std::enable_shared_from_this<Tablet> {
+class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                    DataDir* data_dir = nullptr);
@@ -57,44 +58,23 @@ public:
 
     bool is_used();
 
-    inline DataDir* data_dir() const;
     void register_tablet_into_dir();
     void deregister_tablet_from_dir();
 
-    std::string tablet_path() const;
-
-    TabletState tablet_state() const { return _state; }
-    OLAPStatus set_tablet_state(TabletState state);
-
-    // Property encapsulated in TabletMeta
-    inline const TabletMetaSharedPtr tablet_meta();
     void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
     OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
 
-    inline TabletUid tablet_uid() const;
-    inline int64_t table_id() const;
-    // Returns a string can be used to uniquely identify a tablet.
-    // The result string will often be printed to the log.
-    inline const std::string full_name() const;
-    inline int64_t partition_id() const;
-    inline int64_t tablet_id() const;
-    inline int32_t schema_hash() const;
-    inline int16_t shard_id();
-    inline const int64_t creation_time() const;
-    inline void set_creation_time(int64_t creation_time);
     inline const int64_t cumulative_layer_point() const;
     inline void set_cumulative_layer_point(int64_t new_point);
 
-    inline bool equal(int64_t tablet_id, int32_t schema_hash);
     inline size_t tablet_footprint(); // disk space occupied by tablet
     inline size_t num_rows();
     inline int version_count() const;
     inline Version max_version() const;
 
     // propreties encapsulated in TabletSchema
-    inline const TabletSchema& tablet_schema() const;
     inline KeysType keys_type() const;
     inline size_t num_columns() const;
     inline size_t num_null_columns() const;
@@ -261,12 +241,7 @@ private:
 
 private:
     static const int64_t kInvalidCumulativePoint = -1;
-    TabletState _state;
-    TabletMetaSharedPtr _tablet_meta;
-    TabletSchema _schema;
 
-    DataDir* _data_dir;
-    std::string _tablet_path;
     RowsetGraph _rs_graph;
 
     DorisCallOnce<OLAPStatus> _init_once;
@@ -319,10 +294,6 @@ inline bool Tablet::is_used() {
     return !_is_bad && _data_dir->is_used();
 }
 
-inline DataDir* Tablet::data_dir() const {
-    return _data_dir;
-}
-
 inline void Tablet::register_tablet_into_dir() {
     _data_dir->register_tablet(this);
 }
@@ -331,53 +302,6 @@ inline void Tablet::deregister_tablet_from_dir() {
     _data_dir->deregister_tablet(this);
 }
 
-inline string Tablet::tablet_path() const {
-    return _tablet_path;
-}
-
-inline const TabletMetaSharedPtr Tablet::tablet_meta() {
-    return _tablet_meta;
-}
-
-inline TabletUid Tablet::tablet_uid() const {
-    return _tablet_meta->tablet_uid();
-}
-
-inline int64_t Tablet::table_id() const {
-    return _tablet_meta->table_id();
-}
-
-inline const std::string Tablet::full_name() const {
-    std::stringstream ss;
-    ss << _tablet_meta->tablet_id()
-       << "." << _tablet_meta->schema_hash()
-       << "." << _tablet_meta->tablet_uid().to_string();
-    return ss.str();
-}
-
-inline int64_t Tablet::partition_id() const {
-    return _tablet_meta->partition_id();
-}
-
-inline int64_t Tablet::tablet_id() const {
-    return _tablet_meta->tablet_id();
-}
-
-inline int32_t Tablet::schema_hash() const {
-    return _tablet_meta->schema_hash();
-}
-
-inline int16_t Tablet::shard_id() {
-    return _tablet_meta->shard_id();
-}
-
-inline const int64_t Tablet::creation_time() const {
-    return _tablet_meta->creation_time();
-}
-
-inline void Tablet::set_creation_time(int64_t creation_time) {
-    _tablet_meta->set_creation_time(creation_time);
-}
 
 inline const int64_t Tablet::cumulative_layer_point() const {
     return _cumulative_point;
@@ -387,9 +311,6 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_point = new_point;
 }
 
-inline bool Tablet::equal(int64_t id, int32_t hash) {
-    return (tablet_id() == id) && (schema_hash() == hash);
-}
 
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.
@@ -411,10 +332,6 @@ inline int Tablet::version_count() const {
 
 inline Version Tablet::max_version() const {
     return _tablet_meta->max_version();
-}
-
-inline const TabletSchema& Tablet::tablet_schema() const {
-    return _schema;
 }
 
 inline KeysType Tablet::keys_type() const {
