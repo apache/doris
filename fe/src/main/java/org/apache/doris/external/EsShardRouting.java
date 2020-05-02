@@ -51,10 +51,10 @@ public class EsShardRouting {
         // In http transport mode, should ignore thrift_port, set address to null
         TNetworkAddress addr = null;
         if (!StringUtils.isEmpty(thriftPort)) {
-            addr = new TNetworkAddress(transportAddr[0], Integer.valueOf(thriftPort));
+            addr = new TNetworkAddress(transportAddr[0], Integer.parseInt(thriftPort));
         }
         boolean isPrimary = shardInfo.getBoolean("primary");
-        return new EsShardRouting(indexName, Integer.valueOf(shardKey),
+        return new EsShardRouting(indexName, Integer.parseInt(shardKey),
                 isPrimary, addr, nodeId);
     }
     

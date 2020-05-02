@@ -17,10 +17,16 @@
 
 package org.apache.doris.external;
 
+import java.io.IOException;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import okhttp3.Credentials;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
+import org.apache.http.HttpHeaders;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.util.Strings;
@@ -28,12 +34,6 @@ import org.codehaus.jackson.JsonParser;
 import org.codehaus.jackson.map.DeserializationConfig;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializationConfig;
-
-import java.io.IOException;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 public class EsRestClient {
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
@@ -49,26 +49,27 @@ public class EsRestClient {
             .readTimeout(10, TimeUnit.SECONDS)
             .build();
 
-    private String basicAuth;
-
-    private int nextClient = 0;
+    private Request.Builder builder;
     private String[] nodes;
     private String currentNode;
+    private int currentNodeIndex = 0;
 
     public EsRestClient(String[] nodes, String authUser, String authPassword) {
         this.nodes = nodes;
+        builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
-            basicAuth = Credentials.basic(authUser, authPassword);
+            builder.addHeader(HttpHeaders.AUTHORIZATION, Credentials.basic(authUser, authPassword));
         }
-        selectNextNode();
+        currentNode = nodes[currentNodeIndex];
     }
 
-    private boolean selectNextNode() {
-        if (nextClient >= nodes.length) {
-            return false;
+    private void selectNextNode() {
+        currentNodeIndex++;
+        // reroute, because the previously failed node may have already been restored
+        if (currentNodeIndex >= nodes.length) {
+            currentNodeIndex = 0;
         }
-        currentNode = nodes[nextClient++];
-        return true;
+        currentNode = nodes[currentNodeIndex];
     }
 
     public Map<String, EsNodeInfo> getHttpNodes() throws Exception {
@@ -76,21 +77,24 @@ public class EsRestClient {
         if (nodesData == null) {
             return Collections.emptyMap();
         }
-        Map<String, EsNodeInfo> nodes = new HashMap<>();
+        Map<String, EsNodeInfo> nodeMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
             EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue());
             if (node.hasHttp()) {
-                nodes.put(node.getId(), node);
+                nodeMap.put(node.getId(), node);
             }
         }
-        return nodes;
+        return nodeMap;
     }
 
-    public String getIndexMetaData(String indexName) {
-        String path = "_cluster/state?indices=" + indexName
-                + "&metric=routing_table,nodes,metadata&expand_wildcards=open";
+    public String getIndexMapping(String indexName) {
+        String path = indexName + "/_mapping";
         return execute(path);
+    }
 
+    public String getSearchShards(String indexName) {
+        String path = indexName + "/_search_shards";
+        return execute(path);
     }
 
     /**
@@ -113,20 +117,14 @@ public class EsRestClient {
     }
 
     /**
-     * execute request for specific path
+     * execute request for specific path，it will try again nodes.length times if it fails
      *
      * @param path the path must not leading with '/'
-     * @return
+     * @return response
      */
     private String execute(String path) {
-        selectNextNode();
-        boolean nextNode;
-        do {
-            Request.Builder builder = new Request.Builder();
-            if (!Strings.isEmpty(basicAuth)) {
-                builder.addHeader("Authorization", basicAuth);
-            }
-
+        int retrySize = nodes.length;
+        for (int i = 0; i < retrySize; i++) {
             // maybe should add HTTP schema to the address
             // actually, at this time we can only process http protocol
             // NOTE. currentNode may have some spaces.
@@ -137,10 +135,9 @@ public class EsRestClient {
             if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
                 currentNode = "http://" + currentNode;
             }
-
             Request request = builder.get()
-                    .url(currentNode + "/" + path)
-                    .build();
+                .url(currentNode + "/" + path)
+                .build();
             LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
             try {
                 Response response = networkClient.newCall(request).execute();
@@ -150,11 +147,9 @@ public class EsRestClient {
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);
             }
-            nextNode = selectNextNode();
-            if (!nextNode) {
-                LOG.warn("try all nodes [{}],no other nodes left", nodes);
-            }
-        } while (nextNode);
+            selectNextNode();
+        }
+        LOG.warn("try all nodes [{}],no other nodes left", nodes);
         return null;
     }
 
@@ -162,6 +157,7 @@ public class EsRestClient {
         return parseContent(execute(q), key);
     }
 
+    @SuppressWarnings("unchecked")
     private <T> T parseContent(String response, String key) {
         Map<String, Object> map = Collections.emptyMap();
         try {

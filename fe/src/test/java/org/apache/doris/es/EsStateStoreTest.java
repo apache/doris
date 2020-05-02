@@ -18,31 +18,7 @@
 package org.apache.doris.es;
 
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-
-import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.CatalogTestUtil;
-import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.FakeCatalog;
-import org.apache.doris.catalog.FakeEditLog;
-import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.catalog.RangePartitionInfo;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.external.EsIndexState;
-import org.apache.doris.external.EsStateStore;
-import org.apache.doris.external.EsTableState;
-import org.apache.doris.meta.MetaContext;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Range;
-
-import org.junit.Before;
-import org.junit.BeforeClass;
-import org.junit.Test;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -52,18 +28,29 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URISyntaxException;
-import java.util.Map;
+import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.CatalogTestUtil;
+import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.FakeCatalog;
+import org.apache.doris.catalog.FakeEditLog;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.external.EsStateStore;
+import org.apache.doris.external.EsTableState;
+import org.apache.doris.external.ExternalDataSourceException;
+import org.apache.doris.meta.MetaContext;
+import org.junit.Before;
+import org.junit.BeforeClass;
+import org.junit.Test;
 
 public class EsStateStoreTest {
 
     private static FakeEditLog fakeEditLog;
     private static FakeCatalog fakeCatalog;
     private static Catalog masterCatalog;
-    private static String clusterStateStr1 = "";
-    private static String clusterStateStr2 = "";
-    private static String clusterStateStr3 = "";
-    private static String clusterStateStr4 = "";
-    private static String clusterStateStr5 = "";
+    private static String mappingsStr = "";
+    private static String searchShardsStr = "";
     private EsStateStore esStateStore;
     
     @BeforeClass
@@ -78,164 +65,35 @@ public class EsStateStoreTest {
         metaContext.setThreadLocalInfo();
         // masterCatalog.setJournalVersion(FeMetaVersion.VERSION_40);
         FakeCatalog.setCatalog(masterCatalog);
-        clusterStateStr1 = loadJsonFromFile("data/es/clusterstate1.json");
-        clusterStateStr2 = loadJsonFromFile("data/es/clusterstate2.json");
-        clusterStateStr3 = loadJsonFromFile("data/es/clusterstate3.json");
-        clusterStateStr4 = loadJsonFromFile("data/es/clusterstate4.json");
-        clusterStateStr5 = loadJsonFromFile("data/es/clusterstate5.json");
+        mappingsStr = loadJsonFromFile("data/es/mappings.json");
+        searchShardsStr = loadJsonFromFile("data/es/search_shards.json");
     }
     
     @Before
     public void setUp() {
         esStateStore = new EsStateStore();
     }
-    
-    /**
-     * partitioned es table schema: k1(date), k2(int), v(double)
-     * @throws AnalysisException 
-     */
+
     @Test
-    public void testParsePartitionedClusterState() throws AnalysisException {
+    public void testLoadEsIndexMapping() {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
-                                            .getDb(CatalogTestUtil.testDb1)
-                                            .getTable(CatalogTestUtil.testPartitionedEsTable1);
-        boolean hasException = false;
-        EsTableState esTableState = null;
-        try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr1, esTable);
-        } catch (Exception e) {
-            e.printStackTrace();
-            hasException = true;
-        }
-        assertFalse(hasException);
-        assertNotNull(esTableState);
-        assertEquals(2, esTableState.getPartitionedIndexStates().size());
-        RangePartitionInfo definedPartInfo = (RangePartitionInfo) esTable.getPartitionInfo();
-        RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTableState.getPartitionInfo();
-        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange(false);
-        assertEquals(2, rangeMap.size());
-        Range<PartitionKey> part0 = rangeMap.get(new Long(0));
-        EsIndexState esIndexState1 = esTableState.getIndexState(0);
-        assertEquals(5, esIndexState1.getShardRoutings().size());
-        assertEquals("index1", esIndexState1.getIndexName());
-        PartitionKey lowKey = PartitionKey.createInfinityPartitionKey(definedPartInfo.getPartitionColumns(), false);
-        PartitionKey upperKey = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("2018-10-01")),
-                definedPartInfo.getPartitionColumns());
-        Range<PartitionKey> newRange = Range.closedOpen(lowKey, upperKey);
-        assertEquals(newRange, part0);
-        Range<PartitionKey> part1 = rangeMap.get(new Long(1));
-        EsIndexState esIndexState2 = esTableState.getIndexState(1);
-        assertEquals("index2", esIndexState2.getIndexName());
-        lowKey = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("2018-10-01")),
-                definedPartInfo.getPartitionColumns());
-        upperKey = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("2018-10-02")),
-                definedPartInfo.getPartitionColumns());
-        newRange = Range.closedOpen(lowKey, upperKey);
-        assertEquals(newRange, part1);
-        assertEquals(6, esIndexState2.getShardRoutings().size());
-    }
-    
-    /**
-     * partitioned es table schema: k1(date), k2(int), v(double)
-     * scenario desc:
-     * 2 indices, one with partition desc, the other does not contains partition desc
-     * @throws AnalysisException 
-     */
-    @Test
-    public void testParsePartitionedClusterStateTwoIndices() throws AnalysisException {
-        EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
-                                            .getDb(CatalogTestUtil.testDb1)
-                                            .getTable(CatalogTestUtil.testPartitionedEsTable1);
-        boolean hasException = false;
-        EsTableState esTableState = null;
-        try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr3, esTable);
-        } catch (Exception e) {
-            e.printStackTrace();
-            hasException = true;
-        }
-        assertFalse(hasException);
-        assertNotNull(esTableState);
-        
-        // check 
-        assertEquals(1, esTableState.getPartitionedIndexStates().size());
-        assertEquals(1, esTableState.getUnPartitionedIndexStates().size());
-        
-        // check partition info
-        RangePartitionInfo definedPartInfo = (RangePartitionInfo) esTable.getPartitionInfo();
-        RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTableState.getPartitionInfo();
-        Map<Long, Range<PartitionKey>> rangeMap = rangePartitionInfo.getIdToRange(false);
-        assertEquals(1, rangeMap.size());
-        Range<PartitionKey> part0 = rangeMap.get(new Long(0));
-        EsIndexState esIndexState1 = esTableState.getIndexState(0);
-        assertEquals(5, esIndexState1.getShardRoutings().size());
-        assertEquals("index1", esIndexState1.getIndexName());
-        PartitionKey lowKey = PartitionKey.createInfinityPartitionKey(definedPartInfo.getPartitionColumns(), false);
-        PartitionKey upperKey = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("2018-10-01")),
-                definedPartInfo.getPartitionColumns());
-        Range<PartitionKey> newRange = Range.closedOpen(lowKey, upperKey);
-        assertEquals(newRange, part0);
-        
-        // check index with no partition desc
-        EsIndexState esIndexState2 = esTableState.getUnPartitionedIndexStates().get("index2");
-        assertEquals("index2", esIndexState2.getIndexName());
-        assertEquals(6, esIndexState2.getShardRoutings().size());
-    }
-    
-    /**
-     * partitioned es table schema: k1(date), k2(int), v(double)
-     * scenario desc:
-     * 2 indices, both of them does not contains partition desc and es table does not have partition info
-     * but cluster state have partition info
-     * @throws AnalysisException 
-     */
-    @Test
-    public void testParseUnPartitionedClusterStateTwoIndices() throws AnalysisException {
-        EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
-                                            .getDb(CatalogTestUtil.testDb1)
-                                            .getTable(CatalogTestUtil.testUnPartitionedEsTableId1);
-        boolean hasException = false;
-        EsTableState esTableState = null;
-        try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr4, esTable);
-        } catch (Exception e) {
-            e.printStackTrace();
-            hasException = true;
-        }
-        assertFalse(hasException);
-        assertNotNull(esTableState);
-        
-        // check 
-        assertEquals(0, esTableState.getPartitionedIndexStates().size());
-        assertEquals(2, esTableState.getUnPartitionedIndexStates().size());
-        
-        // check index with no partition desc
-        EsIndexState esIndexState1 = esTableState.getUnPartitionedIndexStates().get("index1");
-        assertEquals("index1", esIndexState1.getIndexName());
-        EsIndexState esIndexState2 = esTableState.getUnPartitionedIndexStates().get("index2");
-        assertEquals("index2", esIndexState2.getIndexName());
-        assertEquals(6, esIndexState2.getShardRoutings().size());
+            .getDb(CatalogTestUtil.testDb1)
+            .getTable(CatalogTestUtil.testEsTableId1);
+        esStateStore.loadEsIndexMapping(mappingsStr, esTable);
+        assertEquals("userId.keyword", esTable.fieldsContext().get("userId"));
+        assertEquals("userId.keyword", esTable.docValueContext().get("userId"));
     }
 
-    
-    /**
-     * partitioned es table schema: k1(date), k2(int), v(double)
-     * "upperbound": "2018" is not a valid date value, so parsing procedure will fail
-     */
     @Test
-    public void testParseInvalidUpperbound() {
+    public void testLocalSearchShards() throws ExternalDataSourceException, DdlException {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
-                                            .getDb(CatalogTestUtil.testDb1)
-                                            .getTable(CatalogTestUtil.testPartitionedEsTable1);
-        boolean hasException = false;
-        EsTableState esTableState = null;
-        try {
-            esTableState = esStateStore.parseClusterState55(clusterStateStr2, esTable);
-        } catch (Exception e) {
-            hasException = true;
-        }
-        assertTrue(hasException);
-        assertTrue(esTableState == null);
+            .getDb(CatalogTestUtil.testDb1)
+            .getTable(CatalogTestUtil.testEsTableId1);
+        esStateStore.loadEsIndexMapping(mappingsStr, esTable);
+        EsTableState esTableState = esStateStore.loadEsSearchShards(searchShardsStr, esTable);
+        assertNotNull(esTableState);
+        assertEquals(1, esTableState.getUnPartitionedIndexStates().size());
+        assertEquals(5, esTableState.getIndexState("indexa").getShardRoutings().size());
     }
     
     private static String loadJsonFromFile(String fileName) throws IOException, URISyntaxException {

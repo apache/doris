@@ -17,49 +17,36 @@
 
 package org.apache.doris.external;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.EsTable;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Table.TableType;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.MasterDaemon;
-
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.JSONArray;
 import org.json.JSONObject;
-
-import java.io.IOException;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-
-import okhttp3.Authenticator;
-import okhttp3.Call;
-import okhttp3.Credentials;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.Route;
 
 
 /**
  * it is used to call es api to get shard allocation state
  */
 public class EsStateStore extends MasterDaemon {
+
     private static final Logger LOG = LogManager.getLogger(EsStateStore.class);
 
     private Map<Long, EsTable> esTables;
@@ -81,30 +68,34 @@ public class EsStateStore extends MasterDaemon {
         esTables.remove(tableId);
         LOG.info("deregister table [{}] from sync list", tableId);
     }
-    
+
     @Override
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
                 EsRestClient client = new EsRestClient(esTable.getSeeds(),
-                        esTable.getUserName(), esTable.getPasswd());
-                // if user not specify the es version, try to get the remote cluster versoin
-                // in the future, we maybe need this version
-                String indexMetaData = client.getIndexMetaData(esTable.getIndexName());
-                if (indexMetaData == null) {
+                    esTable.getUserName(), esTable.getPasswd());
+
+                String indexMapping = client.getIndexMapping(esTable.getIndexName());
+                if (indexMapping == null) {
                     continue;
                 }
-                EsTableState esTableState = parseClusterState55(indexMetaData, esTable);
+                loadEsIndexMapping(indexMapping, esTable);
+
+                String shardLocation = client.getSearchShards(esTable.getIndexName());
+                EsTableState esTableState = loadEsSearchShards(shardLocation, esTable);
                 if (esTableState == null) {
                     continue;
                 }
+
                 if (EsTable.TRANSPORT_HTTP.equals(esTable.getTransport())) {
                     Map<String, EsNodeInfo> nodesInfo = client.getHttpNodes();
                     esTableState.addHttpAddress(nodesInfo);
                 }
                 esTable.setEsTableState(esTableState);
             } catch (Throwable e) {
-                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster", esTable.getName(), e);
+                LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster",
+                    esTable.getName(), e);
             }
         }
     }
@@ -130,74 +121,30 @@ public class EsStateStore extends MasterDaemon {
         }
     }
 
-    private EsTableState loadEsIndexMetadataV55(final EsTable esTable) {
-        OkHttpClient.Builder clientBuilder = new OkHttpClient.Builder();
-        clientBuilder.authenticator(new Authenticator() {
-            @Override
-            public Request authenticate(Route route, Response response) throws IOException {
-                String credential = Credentials.basic(esTable.getUserName(), esTable.getPasswd());
-                return response.request().newBuilder().header("Authorization", credential).build();
-            }
-        });
-        String[] seeds = esTable.getSeeds();
-        for (String seed : seeds) {
-            String url = seed + "/_cluster/state?indices="
-                    + esTable.getIndexName()
-                    + "&metric=routing_table,nodes,metadata&expand_wildcards=open";
-            String basicAuth = "";
-            try {
-                Request request = new Request.Builder()
-                        .get()
-                        .url(url)
-                        .addHeader("Authorization", basicAuth)
-                        .build();
-                Call call = clientBuilder.build().newCall(request);
-                Response response = call.execute();
-                String responseStr = response.body().string();
-                if (response.isSuccessful()) {
-                    try {
-                        EsTableState esTableState = parseClusterState55(responseStr, esTable);
-                        if (esTableState != null) {
-                            return esTableState;
-                        }
-                    } catch (Exception e) {
-                        LOG.warn("errors while parse response msg {}", responseStr, e);
-                    }
-                } else {
-                    LOG.info("errors while call es [{}] to get state info {}", url, responseStr);
-                }
-            } catch (Exception e) {
-                LOG.warn("errors while call es [{}]", url, e);
-            }
-        }
-        return null;
-    }
-
-    @VisibleForTesting
-    public EsTableState parseClusterState55(String responseStr, EsTable esTable)
-            throws DdlException, AnalysisException, ExternalDataSourceException {
-        JSONObject jsonObject = new JSONObject(responseStr);
-        String clusterName = jsonObject.getString("cluster_name");
-        JSONObject nodesMap = jsonObject.getJSONObject("nodes");
-        // we build the doc value context for fields maybe used for scanning
-        // "properties": {
-        //      "city": {
-        //        "type": "text", // text field does not have docvalue
-        //        "fields": {
-        //          "raw": {
-        //            "type":  "keyword"
-        //          }
-        //        }
-        //      }
-        //    }
-        // then the docvalue context provided the mapping between the select field and real request field :
-        // {"city": "city.raw"}
-        JSONObject indicesMetaMap = jsonObject.getJSONObject("metadata").getJSONObject("indices");
-        JSONObject indexMetaMap = indicesMetaMap.optJSONObject(esTable.getIndexName());
-        if (indexMetaMap != null && (esTable.isKeywordSniffEnable() || esTable.isDocValueScanEnable())) {
-            JSONObject mappings = indexMetaMap.optJSONObject("mappings");
+    // Configure keyword and doc_values by mapping
+    public void loadEsIndexMapping(String indexMapping, EsTable esTable) {
+        JSONObject jsonObject = new JSONObject(indexMapping);
+        // the indexName use alias takes the first mapping
+        Iterator<String> keys = jsonObject.keys();
+        if ((esTable.isKeywordSniffEnable() || esTable.isDocValueScanEnable()) && keys.hasNext()) {
+            String docKey = keys.next();
+            JSONObject docData = jsonObject.optJSONObject(docKey);
+            JSONObject mappings = docData.optJSONObject("mappings");
             JSONObject rootSchema = mappings.optJSONObject(esTable.getMappingType());
             JSONObject schema = rootSchema.optJSONObject("properties");
+            // we build the doc value context for fields maybe used for scanning
+            // "properties": {
+            //      "city": {
+            //        "type": "text", // text field does not have docvalue
+            //        "fields": {
+            //          "raw": {
+            //            "type":  "keyword"
+            //          }
+            //        }
+            //      }
+            //    }
+            // then the docvalue context provided the mapping between the select field and real request field :
+            // {"city": "city.raw"}
             List<Column> colList = esTable.getFullSchema();
             for (Column col : colList) {
                 String colName = col.getName();
@@ -222,13 +169,15 @@ public class EsStateStore extends MasterDaemon {
                         }
                     }
                 }
+
                 if (esTable.isDocValueScanEnable()) {
                     if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
                         JSONObject fieldsObject = fieldObject.optJSONObject("fields");
                         if (fieldsObject != null) {
                             for (String key : fieldsObject.keySet()) {
                                 JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
-                                if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(innerTypeObject.optString("type"))) {
+                                if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS
+                                    .contains(innerTypeObject.optString("type"))) {
                                     continue;
                                 }
                                 if (innerTypeObject.has("doc_values")) {
@@ -256,13 +205,19 @@ public class EsStateStore extends MasterDaemon {
                 }
             }
         }
+    }
 
-        JSONObject indicesRoutingMap = jsonObject.getJSONObject("routing_table").getJSONObject("indices");
+    public EsTableState loadEsSearchShards(String shardLocation, EsTable esTable)
+        throws ExternalDataSourceException, DdlException {
+        JSONObject jsonObject = new JSONObject(shardLocation);
+        JSONObject indicesRoutingMap = jsonObject.getJSONObject("nodes");
+        JSONArray shards = jsonObject.getJSONArray("shards");
         EsTableState esTableState = new EsTableState();
-        PartitionInfo partitionInfo = null;
+        RangePartitionInfo partitionInfo = null;
         if (esTable.getPartitionInfo() != null) {
             if (esTable.getPartitionInfo() instanceof RangePartitionInfo) {
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTable.getPartitionInfo();
+                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTable
+                    .getPartitionInfo();
                 partitionInfo = new RangePartitionInfo(rangePartitionInfo.getPartitionColumns());
                 esTableState.setPartitionInfo(partitionInfo);
                 if (LOG.isDebugEnabled()) {
@@ -276,48 +231,40 @@ public class EsStateStore extends MasterDaemon {
                         idx++;
                     }
                     sb.append(")");
-                    LOG.debug("begin to parse es table [{}] state from cluster state,"
-                            + " with partition info [{}]", esTable.getName(), sb.toString());
+                    LOG.debug("begin to parse es table [{}] state from search shards,"
+                        + " with partition info [{}]", esTable.getName(), sb.toString());
                 }
             } else if (esTable.getPartitionInfo() instanceof SinglePartitionInfo) {
-                LOG.debug("begin to parse es table [{}] state from cluster state, "
-                        + "with no partition info", esTable.getName());
+                LOG.debug("begin to parse es table [{}] state from search shards, "
+                    + "with no partition info", esTable.getName());
             } else {
                 throw new ExternalDataSourceException("es table only support range partition, "
-                        + "but current partition type is "
-                        + esTable.getPartitionInfo().getType());
+                    + "but current partition type is "
+                    + esTable.getPartitionInfo().getType());
             }
         }
 
-
-        for (String indexName : indicesRoutingMap.keySet()) {
-            EsIndexState indexState = EsIndexState.parseIndexStateV55(indexName,
-                    indicesRoutingMap, nodesMap,
-                    indicesMetaMap, partitionInfo);
-            esTableState.addIndexState(indexName, indexState);
-            LOG.debug("add index {} to es table {}", indexState, esTable.getName());
-        }
-
-        if (partitionInfo instanceof RangePartitionInfo) {
+        EsIndexState indexState = EsIndexState.parseIndexState(esTable.getIndexName(),
+            indicesRoutingMap, shards);
+        esTableState.addIndexState(esTable.getIndexName(), indexState);
+        LOG.debug("add index {} to es table {}", indexState, esTable.getName());
+        if (partitionInfo != null) {
             // sort the index state according to partition key and then add to range map
-            List<EsIndexState> esIndexStates = esTableState.getPartitionedIndexStates().values()
-                    .stream().collect(Collectors.toList());
-            Collections.sort(esIndexStates, new Comparator<EsIndexState>() {
-                @Override
-                public int compare(EsIndexState o1, EsIndexState o2) {
-                    return o1.getPartitionKey().compareTo(o2.getPartitionKey());
-                }
-            });
+            List<EsIndexState> esIndexStates = new ArrayList<>(
+                esTableState.getPartitionedIndexStates().values());
+            esIndexStates.sort(Comparator.comparing(EsIndexState::getPartitionKey));
             long partitionId = 0;
             for (EsIndexState esIndexState : esIndexStates) {
-                Range<PartitionKey> range = ((RangePartitionInfo) partitionInfo).handleNewSinglePartitionDesc(
-                        esIndexState.getPartitionDesc(), partitionId, false);
+                Range<PartitionKey> range = partitionInfo.handleNewSinglePartitionDesc(
+                    esIndexState.getPartitionDesc(), partitionId, false);
                 esTableState.addPartition(esIndexState.getIndexName(), partitionId);
                 esIndexState.setPartitionId(partitionId);
                 ++partitionId;
-                LOG.debug("add parition to es table [{}] with range [{}]", esTable.getName(), range);
+                LOG.debug("add parition to es table [{}] with range [{}]", esTable.getName(),
+                    range);
             }
         }
         return esTableState;
     }
+
 }
