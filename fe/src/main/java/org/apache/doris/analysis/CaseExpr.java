@@ -321,9 +321,10 @@ public class CaseExpr extends Expr {
                 for (int j = i; j < expr.getChildren().size(); j++) {
                     exprLeft.add(expr.getChild(j));
                 }
-                expr.getChildren().clear();
-                expr.addChildren(exprLeft);
-                return expr;
+                Expr retCaseExpr = expr.clone();
+                retCaseExpr.getChildren().clear();
+                retCaseExpr.addChildren(exprLeft);
+                return retCaseExpr;
             } else if (caseExpr.compareLiteral((LiteralExpr) currentWhenExpr) == 0) {
                 return expr.getChild(i + 1);
             }

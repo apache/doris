@@ -506,14 +506,6 @@ public class QueryPlanTest {
                 System.currentTimeMillis());
     }
 
-    private SelectStmt getAnalyzedAndRewritedStmt(String sql) throws Exception {
-        SelectStmt selectStmt =
-                (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
-        selectStmt = (SelectStmt) UtFrameUtils.rewriteStmt(selectStmt, connectContext);
-        selectStmt = (SelectStmt) UtFrameUtils.reAnalyze(selectStmt, connectContext);
-        return selectStmt;
-    }
-
     @Test
     public void testConvertCaseWhenToConstant() throws Exception {
         // basic test
@@ -521,117 +513,97 @@ public class QueryPlanTest {
                 + "case when date_format(now(),'%H%i')  < 123 then 1 else 0 end as col "
                 + "from test.test1 "
                 + "where time = case when date_format(now(),'%H%i')  < 123 then date_format(date_sub(now(),2),'%Y%m%d') else date_format(date_sub(now(),1),'%Y%m%d') end";
-        SelectStmt selectStmt = getAnalyzedAndRewritedStmt(caseWhenSql);
-        Assert.assertTrue(!StringUtils.containsIgnoreCase(selectStmt.toSql(),"CASE WHEN") && !StringUtils.containsIgnoreCase(selectStmt.toSql(), "case when"));
+        Assert.assertTrue(!StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + caseWhenSql), "CASE WHEN"));
 
         // test 1: case when then
         // 1.1 multi when in on `case when` and can be converted to constants
         String sql11 = "select case when false then 2 when true then 3 else 0 end as col11;";
-        SelectStmt sql11Stmt = getAnalyzedAndRewritedStmt(sql11);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql11Stmt.toSql(), "SELECT 3 AS `col11`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql11), "constant exprs: \n         3"));
 
         // 1.2 multi `when expr` in on `case when` ,`when expr` can not be converted to constants
         String sql121 = "select case when false then 2 when substr(k7,2,1) then 3 else 0 end as col121 from test.baseall";
-        SelectStmt sqlStmt121 = getAnalyzedAndRewritedStmt(sql121);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sqlStmt121.toSql(),"SELECT CASE WHEN substr(`k7`, 2, 1) THEN 3 ELSE 0 END AS `col121` FROM `default_cluster:test`.`baseall`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql121),
+                "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 3 ELSE 0 END"));
 
         // 1.2.2 when expr which can not be converted to constants in the first
         String sql122 = "select case when substr(k7,2,1) then 2 when false then 3 else 0 end as col122 from test.baseall";
-        SelectStmt sqlStmt122 = getAnalyzedAndRewritedStmt(sql122);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sqlStmt122.toSql(), "SELECT CASE WHEN substr(`k7`, 2, 1) THEN 2 WHEN FALSE THEN 3 ELSE 0 END AS `col122` FROM `default_cluster:test`.`baseall`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql122),
+                "OUTPUT EXPRS:CASE WHEN substr(`k7`, 2, 1) THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
 
-        // 1.2.3 when expr which can not be converted to constants in the middle
-        String sql123 = "select case when false then 2 when substr(k7,2,1) then 3 else 0 end as col123 from test.baseall";
-        SelectStmt sqlStmt123 = getAnalyzedAndRewritedStmt(sql123);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sqlStmt123.toSql(), "SELECT CASE WHEN substr(`k7`, 2, 1) THEN 3 ELSE 0 END AS `col123` FROM `default_cluster:test`.`baseall`"));
-
-        // 1.2.4 test return `then expr` in the middle
+        // 1.2.3 test return `then expr` in the middle
         String sql124 = "select case when false then 1 when true then 2 when false then 3 else 'other' end as col124";
-        SelectStmt sql124Stmt = getAnalyzedAndRewritedStmt(sql124);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql124Stmt.toSql(), "SELECT '2' AS `col124`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql124), "constant exprs: \n         '2'"));
 
         // 1.3 test return null
         String sql3 = "select case when false then 2 end as col3";
-        SelectStmt sql3Stmt = getAnalyzedAndRewritedStmt(sql3);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql3Stmt.toSql(), "SELECT NULL AS `col3`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql3), "constant exprs: \n         NULL"));
 
         // 1.3.1 test return else expr
         String sql131 = "select case when false then 2 when false then 3 else 4 end as col131";
-        SelectStmt sql131Stmt = getAnalyzedAndRewritedStmt(sql131);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql131Stmt.toSql(), "SELECT 4 AS `col131`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql131), "constant exprs: \n         4"));
 
         // 1.4 nest `case when` and can be converted to constants
         String sql14 = "select case when (case when true then true else false end) then 2 when false then 3 else 0 end as col";
-        SelectStmt sql14Stmt = getAnalyzedAndRewritedStmt(sql14);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql14Stmt.toSql(), "SELECT 2 AS `col`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql14), "constant exprs: \n         2"));
 
         // 1.5 nest `case when` and can not be converted to constants
         String sql15 = "select case when case when substr(k7,2,1) then true else false end then 2 when false then 3 else 0 end as col from test.baseall";
-        SelectStmt sql15Stmt = getAnalyzedAndRewritedStmt(sql15);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql15Stmt.toSql(), "SELECT CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2 WHEN FALSE THEN 3 ELSE 0 END AS `col` FROM `default_cluster:test`.`baseall`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql15),
+                "OUTPUT EXPRS:CASE WHEN CASE WHEN substr(`k7`, 2, 1) THEN TRUE ELSE FALSE END THEN 2 WHEN FALSE THEN 3 ELSE 0 END"));
 
         // 1.6 test when expr is null
         String sql16 = "select case when null then 1 else 2 end as col16;";
-        SelectStmt sql16Stmt = getAnalyzedAndRewritedStmt(sql16);
-        System.out.println(sql16Stmt.toSql());
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql16Stmt.toSql(), "select 2 AS `col16`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql16), "constant exprs: \n         2"));
 
         // test 2: case xxx when then
         // 2.1 test equal
         String sql2 = "select case 1 when 1 then 'a' when 2 then 'b' else 'other' end as col2;";
-        SelectStmt sql2Stmt = getAnalyzedAndRewritedStmt(sql2);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql2Stmt.toSql(), ("SELECT 'a' AS `col2`")));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql2), "constant exprs: \n         'a'"));
 
         // 2.1.2 test not equal
         String sql212 = "select case 'a' when 1 then 'a' when 'a' then 'b' else 'other' end as col212;";
-        SelectStmt sql212Stmt = getAnalyzedAndRewritedStmt(sql212);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql212Stmt.toSql(), "SELECT 'b' AS `col212`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql212), "constant exprs: \n         'b'"));
 
         // 2.2 test return null
         String sql22 = "select case 'a' when 1 then 'a' when 'b' then 'b' end as col22;";
-        SelectStmt sql22Stmt = getAnalyzedAndRewritedStmt(sql22);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql22Stmt.toSql(), "SELECT NULL AS `col22`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql22), "constant exprs: \n         NULL"));
 
         // 2.2.2 test return else
         String sql222 = "select case 1 when 2 then 'a' when 3 then 'b' else 'other' end as col222;";
-        SelectStmt sql222Stmt = getAnalyzedAndRewritedStmt(sql222);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql222Stmt.toSql(), "SELECT 'other' AS `col222`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql222), "constant exprs: \n         'other'"));
 
         // 2.3 test can not convert to constant,middle when expr is not constant
         String sql23 = "select case 'a' when 'b' then 'a' when substr(k7,2,1) then 2 when false then 3 else 0 end as col23 from test.baseall";
-        SelectStmt sql23Stmt = getAnalyzedAndRewritedStmt(sql23);
-        // here 1 is casted to string ,so 1 is evaluated
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql23Stmt.toSql(), "SELECT CASE'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END AS `col23` FROM `default_cluster:test`.`baseall`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql23),
+                "OUTPUT EXPRS:CASE'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.1  first when expr is not constant
         String sql231 = "select case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col231 from test.baseall";
-        SelectStmt sql231Stmt = getAnalyzedAndRewritedStmt(sql231);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql231Stmt.toSql(), "SELECT CASE'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END AS `col231` FROM `default_cluster:test`.`baseall`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql231),
+                "OUTPUT EXPRS:CASE'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.2 case expr is not constant
         String sql232 = "select case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col232 from test.baseall";
-        SelectStmt sql232Stmt = getAnalyzedAndRewritedStmt(sql232);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql232Stmt.toSql(), "SELECT CASE`k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END AS `col232` FROM `default_cluster:test`.`baseall`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql232),
+                "OUTPUT EXPRS:CASE`k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 3.1 test float,float in case expr
         String sql31 = "select case cast(100 as float) when 1 then 'a' when 2 then 'b' else 'other' end as col31;";
-        SelectStmt sql31Stmt = getAnalyzedAndRewritedStmt(sql31);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql31Stmt.toSql(), "SELECT CASE100.0 WHEN 1.0 THEN 'a' WHEN 2.0 THEN 'b' ELSE 'other' END AS `col31`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql31),
+                "constant exprs: \n         CASE100.0 WHEN 1.0 THEN 'a' WHEN 2.0 THEN 'b' ELSE 'other' END"));
 
         // 4.1 test null in case expr return else
         String sql41 = "select case null when 1 then 'a' when 2 then 'b' else 'other' end as col41";
-        SelectStmt sql41Stmt = getAnalyzedAndRewritedStmt(sql41);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql41Stmt.toSql(), "SELECT 'other' AS `col41`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql41), "constant exprs: \n         'other'"));
 
         // 4.1.2 test null in case expr return null
         String sql412 = "select case null when 1 then 'a' when 2 then 'b' end as col41";
-        SelectStmt sql412Stmt = getAnalyzedAndRewritedStmt(sql412);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql412Stmt.toSql(), "SELECT NULL AS `col41`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql412), "constant exprs: \n         NULL"));
 
         // 4.2.1 test null in when expr
         String sql421 = "select case 'a' when null then 'a' else 'other' end as col421";
-        SelectStmt sql421Stmt = getAnalyzedAndRewritedStmt(sql421);
-        Assert.assertTrue(StringUtils.equalsIgnoreCase(sql421Stmt.toSql(), "SELECT 'other' as `col421`"));
+        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql421), "constant exprs: \n         'other'"));
     }
+
 
 }
