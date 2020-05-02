@@ -56,11 +56,11 @@ public class EsRestClient {
 
     public EsRestClient(String[] nodes, String authUser, String authPassword) {
         this.nodes = nodes;
-        builder = new Request.Builder();
+        this.builder = new Request.Builder();
         if (!Strings.isEmpty(authUser) && !Strings.isEmpty(authPassword)) {
-            builder.addHeader(HttpHeaders.AUTHORIZATION, Credentials.basic(authUser, authPassword));
+            this.builder.addHeader(HttpHeaders.AUTHORIZATION, Credentials.basic(authUser, authPassword));
         }
-        currentNode = nodes[currentNodeIndex];
+        this.currentNode = nodes[currentNodeIndex];
     }
 
     private void selectNextNode() {
@@ -77,14 +77,14 @@ public class EsRestClient {
         if (nodesData == null) {
             return Collections.emptyMap();
         }
-        Map<String, EsNodeInfo> nodeMap = new HashMap<>();
+        Map<String, EsNodeInfo> nodesMap = new HashMap<>();
         for (Map.Entry<String, Map<String, Object>> entry : nodesData.entrySet()) {
             EsNodeInfo node = new EsNodeInfo(entry.getKey(), entry.getValue());
             if (node.hasHttp()) {
-                nodeMap.put(node.getId(), node);
+                nodesMap.put(node.getId(), node);
             }
         }
-        return nodeMap;
+        return nodesMap;
     }
 
     public String getIndexMapping(String indexName) {

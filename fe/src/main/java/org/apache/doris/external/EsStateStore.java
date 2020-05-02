@@ -210,7 +210,7 @@ public class EsStateStore extends MasterDaemon {
     public EsTableState loadEsSearchShards(String shardLocation, EsTable esTable)
         throws ExternalDataSourceException, DdlException {
         JSONObject jsonObject = new JSONObject(shardLocation);
-        JSONObject indicesRoutingMap = jsonObject.getJSONObject("nodes");
+        JSONObject nodesMap = jsonObject.getJSONObject("nodes");
         JSONArray shards = jsonObject.getJSONArray("shards");
         EsTableState esTableState = new EsTableState();
         RangePartitionInfo partitionInfo = null;
@@ -245,7 +245,7 @@ public class EsStateStore extends MasterDaemon {
         }
 
         EsIndexState indexState = EsIndexState.parseIndexState(esTable.getIndexName(),
-            indicesRoutingMap, shards);
+            nodesMap, shards);
         esTableState.addIndexState(esTable.getIndexName(), indexState);
         LOG.debug("add index {} to es table {}", indexState, esTable.getName());
         if (partitionInfo != null) {
