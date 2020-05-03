@@ -32,6 +32,7 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -120,10 +121,12 @@ public class PropertyAnalyzerTest {
 
     @Test
     public void testStorageMedium() throws AnalysisException {
+        long tomorrowTs = System.currentTimeMillis() / 1000 + 86400;
+
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, "2020-05-01 00:00:00");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(tomorrowTs * 1000));
         DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals(1588262400, dataProperty.getCooldownTimeMs() / 1000);
+        Assert.assertEquals(tomorrowTs, dataProperty.getCooldownTimeMs() / 1000);
     }
 }
