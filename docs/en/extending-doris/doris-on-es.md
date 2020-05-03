@@ -60,7 +60,7 @@ CREATE EXTERNAL TABLE `es_table` (
 PARTITION BY RANGE(`id`)
 ()
 PROPERTIES (
-"host" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
+"hosts" = "http://192.168.0.1:8200,http://192.168.0.2:8200",
 "user" = "root",
 "password" = "root",
 "index" = "tindex”,
@@ -72,7 +72,7 @@ Description of parameters:
 
 Parameter | description
 ---|---
-Host | ES Cluster Connection Address, which can specify one or more, through which Doris obtains the share distribution information of ES version number and index
+Hosts | ES Cluster Connection Address, which can specify one or more, through which Doris obtains the share distribution information of ES version number and index
 User | Open the user name of the ES cluster authenticated by basic, you need to ensure that the user has access to: / cluster / state / nodes / HTTP and other path permissions and read permissions for index
 Password | corresponding user's password information
 The index name of the ES corresponding to the table in index | Doris can be alias
