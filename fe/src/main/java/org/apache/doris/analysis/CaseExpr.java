@@ -107,10 +107,6 @@ public class CaseExpr extends Expr {
         return hasCaseExpr;
     }
 
-    public boolean hasElseExpr() {
-        return hasCaseExpr;
-    }
-
     @Override
     public String toSqlImpl() {
         StringBuilder output = new StringBuilder("CASE");

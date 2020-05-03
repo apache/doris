@@ -18,25 +18,21 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -98,34 +94,6 @@ public class UtFrameUtils {
         }
         statementBase.analyze(analyzer);
         return statementBase;
-    }
-
-    public static StatementBase rewriteStmt(StatementBase stmt, ConnectContext ctx) throws AnalysisException {
-        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
-        ExprRewriter rewriter = analyzer.getExprRewriter();
-        rewriter.reset();
-        stmt.rewriteExprs(rewriter);
-        return stmt;
-    }
-
-    public static StatementBase reAnalyze(StatementBase stmt, ConnectContext ctx) throws UserException {
-        Analyzer analyzer = new Analyzer(ctx.getCatalog(), ctx);
-        List<Type> origResultTypes = Lists.newArrayList();
-        for (Expr e: stmt.getResultExprs()) {
-            origResultTypes.add(e.getType());
-        }
-        List<String> origColLabels =
-                Lists.newArrayList(stmt.getColLabels());
-
-        // Re-analyze the stmt with a new analyzer.
-        // query re-analyze
-        stmt.reset();
-        stmt.analyze(analyzer);
-
-        // Restore the original result types and column labels.
-        stmt.castResultExprs(origResultTypes);
-        stmt.setColLabels(origColLabels);
-        return stmt;
     }
 
     // for analyzing multi statements
