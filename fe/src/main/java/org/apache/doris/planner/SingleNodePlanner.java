@@ -72,8 +72,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static org.apache.doris.analysis.Predicate.canPushDownPredicate;
-
 /**
  * Constructs a non-executable single-node plan from an analyzed parse tree.
  * The single-node plan does not contain data exchanges or data-reduction optimizations
@@ -1360,7 +1358,7 @@ public class SingleNodePlanner {
                     List<Expr> allConjuncts = analyzer.getConjuncts(analyzer.getAllTupleIds());
                     allConjuncts.removeAll(conjuncts);
                     for (Expr conjunct: allConjuncts) {
-                        if (canPushDownPredicate(conjunct)) {
+                        if (org.apache.doris.analysis.Predicate.canPushDownPredicate(conjunct)) {
                             for (Expr eqJoinPredicate : eqJoinPredicates) {
                                 // we can ensure slot is left node, because NormalizeBinaryPredicatesRule
                                 SlotRef otherSlot = conjunct.getChild(0).unwrapSlotRef();
@@ -1384,7 +1382,7 @@ public class SingleNodePlanner {
                     }
                 }
 
-                LOG.info("pushDownConjuncts: " + pushDownConjuncts);
+                LOG.debug("pushDownConjuncts: {}", pushDownConjuncts);
                 conjuncts.addAll(pushDownConjuncts);
             }
 
@@ -1414,6 +1412,8 @@ public class SingleNodePlanner {
         return scanNode;
     }
 
+    // Rewrite the oldPredicate with new leftChild
+    // For example: oldPredicate is t1.id = 1, leftChild is t2.id, will return t2.id = 1
     private Expr rewritePredicate(Analyzer analyzer, Expr oldPredicate, Expr leftChild) {
         if (oldPredicate instanceof BinaryPredicate) {
             BinaryPredicate oldBP = (BinaryPredicate) oldPredicate;
