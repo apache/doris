@@ -22,5 +22,6 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/olap/memory")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap/memory")
   
 add_library(Memory STATIC
+    hash_index.cpp
     mem_tablet.cpp
 )
