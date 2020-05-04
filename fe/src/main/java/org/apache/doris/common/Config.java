@@ -1072,6 +1072,6 @@ public class Config extends ConfigBase {
      * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean drop_backend_after_decommission = false;
+    public static boolean drop_backend_after_decommission = true;
 }
 
