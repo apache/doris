@@ -33,7 +33,6 @@
 #include "runtime/thread_resource_mgr.h"
 #include "util/brpc_stub_cache.h"
 #include "util/cpu_info.h"
-#include "util/doris_metrics.h"
 
 class mg_connection;
 
@@ -78,7 +77,6 @@ public:
         k_response_str = "";
         config::streaming_load_max_mb = 1;
 
-        DorisMetrics::instance()->initialize("ut");
         _env._thread_mgr = new ThreadResourceMgr();
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();

@@ -31,7 +31,6 @@
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
 #include "util/file_utils.h"
-#include "util/doris_metrics.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -52,7 +51,6 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
-        DorisMetrics::instance()->initialize("ut");
         string test_engine_data_path = "./be/test/olap/test_data/converter_test_data/data";
         _engine_data_path = "./be/test/olap/test_data/converter_test_data/tmp";
         boost::filesystem::remove_all(_engine_data_path);

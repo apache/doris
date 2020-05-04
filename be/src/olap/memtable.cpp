@@ -125,8 +125,8 @@ OLAPStatus MemTable::flush() {
         }
         RETURN_NOT_OK(_rowset_writer->flush());
     }
-    DorisMetrics::memtable_flush_total.increment(1);
-    DorisMetrics::memtable_flush_duration_us.increment(duration_ns / 1000);
+    DorisMetrics::instance()->memtable_flush_total.increment(1);
+    DorisMetrics::instance()->memtable_flush_duration_us.increment(duration_ns / 1000);
     return OLAP_SUCCESS;
 }
 

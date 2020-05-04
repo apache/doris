@@ -58,8 +58,8 @@ OLAPStatus CumulativeCompaction::compact() {
     RETURN_NOT_OK(gc_unused_rowsets());
 
     // 7. add metric to cumulative compaction
-    DorisMetrics::cumulative_compaction_deltas_total.increment(_input_rowsets.size());
-    DorisMetrics::cumulative_compaction_bytes_total.increment(_input_rowsets_size);
+    DorisMetrics::instance()->cumulative_compaction_deltas_total.increment(_input_rowsets.size());
+    DorisMetrics::instance()->cumulative_compaction_bytes_total.increment(_input_rowsets_size);
 
     return OLAP_SUCCESS;
 }
