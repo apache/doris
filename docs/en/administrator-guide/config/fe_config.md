@@ -110,135 +110,135 @@ There are two ways to configure FE configuration items:
 
 ## Configurations
 
-### alter_table_timeout_second
+### `alter_table_timeout_second`
 
-### async_load_task_pool_size
+### `async_load_task_pool_size`
 
-### audit_log_delete_age
+### `audit_log_delete_age`
 
-### audit_log_dir
+### `audit_log_dir`
 
-### audit_log_modules
+### `audit_log_modules`
 
-### audit_log_roll_interval
+### `audit_log_roll_interval`
 
-### audit_log_roll_mode
+### `audit_log_roll_mode`
 
-### audit_log_roll_num
+### `audit_log_roll_num`
 
-### auth_token
+### `auth_token`
 
-### autocommit
+### `autocommit`
 
-### auto_increment_increment
+### `auto_increment_increment`
 
-### backup_job_default_timeout_ms
+### `backup_job_default_timeout_ms`
 
-### backup_plugin_path
+### `backup_plugin_path`
 
-### balance_load_score_threshold
+### `balance_load_score_threshold`
 
-### batch_size
+### `batch_size`
 
-### bdbje_heartbeat_timeout_second
+### `bdbje_heartbeat_timeout_second`
 
-### bdbje_lock_timeout_second
+### `bdbje_lock_timeout_second`
 
-### broker_load_default_timeout_second
+### `broker_load_default_timeout_second`
 
-### brpc_idle_wait_max_time
+### `brpc_idle_wait_max_time`
 
-### brpc_number_of_concurrent_requests_processed
+### `brpc_number_of_concurrent_requests_processed`
 
-### capacity_used_percent_high_water
+### `capacity_used_percent_high_water`
 
-### catalog_trash_expire_second
+### `catalog_trash_expire_second`
 
-### catalog_try_lock_timeout_ms
+### `catalog_try_lock_timeout_ms`
 
-### character_set_client
+### `character_set_client`
 
-### character_set_connection
+### `character_set_connection`
 
-### character_set_results
+### `character_set_results`
 
-### character_set_server
+### `character_set_server`
 
-### check_consistency_default_timeout_second
+### `check_consistency_default_timeout_second`
 
-### check_java_version
+### `check_java_version`
 
-### clone_capacity_balance_threshold
+### `clone_capacity_balance_threshold`
 
-### clone_checker_interval_second
+### `clone_checker_interval_second`
 
-### clone_distribution_balance_threshold
+### `clone_distribution_balance_threshold`
 
-### clone_high_priority_delay_second
+### `clone_high_priority_delay_second`
 
-### clone_job_timeout_second
+### `clone_job_timeout_second`
 
-### clone_low_priority_delay_second
+### `clone_low_priority_delay_second`
 
-### clone_max_job_num
+### `clone_max_job_num`
 
-### clone_normal_priority_delay_second
+### `clone_normal_priority_delay_second`
 
-### cluster_id
+### `cluster_id`
 
-### cluster_name
+### `cluster_name`
 
-### codegen_level
+### `codegen_level`
 
-### collation_connection
+### `collation_connection`
 
-### collation_database
+### `collation_database`
 
-### collation_server
+### `collation_server`
 
-### consistency_check_end_time
+### `consistency_check_end_time`
 
-### consistency_check_start_time
+### `consistency_check_start_time`
 
-### default_rowset_type
+### `default_rowset_type`
 
-### default_storage_medium
+### `default_storage_medium`
 
-### delete_thread_num
+### `delete_thread_num`
 
-### desired_max_waiting_jobs
+### `desired_max_waiting_jobs`
 
-### disable_balance
+### `disable_balance`
 
-### disable_cluster_feature
+### `disable_cluster_feature`
 
-### disable_colocate_balance
+### `disable_colocate_balance`
 
-### disable_colocate_join
+### `disable_colocate_join`
 
-### disable_colocate_join
+### `disable_colocate_join`
 
-### disable_colocate_relocate
+### `disable_colocate_relocate`
 
-### disable_hadoop_load
+### `disable_hadoop_load`
 
-### disable_load_job
+### `disable_load_job`
 
-### disable_streaming_preaggregations
+### `disable_streaming_preaggregations`
 
-### div_precision_increment
+### `div_precision_increment`
 
-### dpp_bytes_per_reduce
+### `dpp_bytes_per_reduce`
 
-### dpp_config_str
+### `dpp_config_str`
 
-### dpp_default_cluster
+### `dpp_default_cluster`
 
-### dpp_default_config_str
+### `dpp_default_config_str`
 
-### dpp_hadoop_client_path
+### `dpp_hadoop_client_path`
 
-### drop_backend_after_decommission
+### `drop_backend_after_decommission`
 
 This configuration is used to control whether the system drops the BE after successfully decommissioning the BE. If true, the BE node will be deleted after the BE is successfully offline. If false, after the BE successfully goes offline, the BE will remain in the DECOMMISSION state, but will not be dropped.
 
@@ -249,151 +249,151 @@ This configuration can play a role in certain scenarios. Assume that the initial
 3. After the decommission operation is completed, the BE will not be dropped. At this time, cancel the decommission status of the BE. Then the data will start to balance from other BE nodes back to this node. At this time, the data will be evenly distributed to all disks of the BE.
 4. Perform steps 2 and 3 for all BE nodes in sequence, and finally achieve the purpose of disk balancing for all nodes.
 
-### dynamic_partition_check_interval_seconds
+### `dynamic_partition_check_interval_seconds`
 
-### dynamic_partition_enable
+### `dynamic_partition_enable`
 
-### edit_log_port
+### `edit_log_port`
 
-### edit_log_roll_num
+### `edit_log_roll_num`
 
-### edit_log_type
+### `edit_log_type`
 
-### enable_auth_check
+### `enable_auth_check`
 
-### enable_deploy_manager
+### `enable_deploy_manager`
 
-### enable_insert_strict
+### `enable_insert_strict`
 
-### enable_local_replica_selection
+### `enable_local_replica_selection`
 
-### enable_materialized_view
+### `enable_materialized_view`
 
-### enable_metric_calculator
+### `enable_metric_calculator`
 
-### enable_spilling
+### `enable_spilling`
 
-### enable_token_check
+### `enable_token_check`
 
-### es_state_sync_interval_second
+### `es_state_sync_interval_second`
 
-### event_scheduler
+### `event_scheduler`
 
-### exec_mem_limit
+### `exec_mem_limit`
 
-### export_checker_interval_second
+### `export_checker_interval_second`
 
-### export_running_job_num_limit
+### `export_running_job_num_limit`
 
-### export_tablet_num_per_task
+### `export_tablet_num_per_task`
 
-### export_task_default_timeout_second
+### `export_task_default_timeout_second`
 
-### expr_children_limit
+### `expr_children_limit`
 
-### expr_depth_limit
+### `expr_depth_limit`
 
-### force_do_metadata_checkpoint
+### `force_do_metadata_checkpoint`
 
-### forward_to_master
+### `forward_to_master`
 
-### frontend_address
+### `frontend_address`
 
-### hadoop_load_default_timeout_second
+### `hadoop_load_default_timeout_second`
 
-### heartbeat_mgr_blocking_queue_size
+### `heartbeat_mgr_blocking_queue_size`
 
-### heartbeat_mgr_threads_num
+### `heartbeat_mgr_threads_num`
 
-### history_job_keep_max_second
+### `history_job_keep_max_second`
 
-### http_backlog_num
+### `http_backlog_num`
 
-### http_port
+### `http_port`
 
-### ignore_meta_check
+### `ignore_meta_check`
 
-### init_connect
+### `init_connect`
 
-### insert_load_default_timeout_second
+### `insert_load_default_timeout_second`
 
-### interactive_timeout
+### `interactive_timeout`
 
-### is_report_success
+### `is_report_success`
 
-### label_clean_interval_second
+### `label_clean_interval_second`
 
-### label_keep_max_second
+### `label_keep_max_second`
 
-### language
+### `language`
 
-### license
+### `license`
 
-### load_checker_interval_second
+### `load_checker_interval_second`
 
-### load_etl_thread_num_high_priority
+### `load_etl_thread_num_high_priority`
 
-### load_etl_thread_num_normal_priority
+### `load_etl_thread_num_normal_priority`
 
-### load_input_size_limit_gb
+### `load_input_size_limit_gb`
 
-### load_mem_limit
+### `load_mem_limit`
 
-### load_pending_thread_num_high_priority
+### `load_pending_thread_num_high_priority`
 
-### load_pending_thread_num_normal_priority
+### `load_pending_thread_num_normal_priority`
 
-### load_running_job_num_limit
+### `load_running_job_num_limit`
 
-### load_straggler_wait_second
+### `load_straggler_wait_second`
 
-### locale
+### `locale`
 
-### log_roll_size_mb
+### `log_roll_size_mb`
 
-### lower_case_table_names
+### `lower_case_table_names`
 
-### master_sync_policy
+### `master_sync_policy`
 
-### max_agent_task_threads_num
+### `max_agent_task_threads_num`
 
-### max_allowed_packet
+### `max_allowed_packet`
 
-### max_backend_down_time_second
+### `max_backend_down_time_second`
 
-### max_balancing_tablets
+### `max_balancing_tablets`
 
-### max_bdbje_clock_delta_ms
+### `max_bdbje_clock_delta_ms`
 
-### max_broker_concurrency
+### `max_broker_concurrency`
 
-### max_bytes_per_broker_scanner
+### `max_bytes_per_broker_scanner`
 
-### max_connection_scheduler_threads_num
+### `max_connection_scheduler_threads_num`
 
-### max_conn_per_user
+### `max_conn_per_user`
 
-### max_create_table_timeout_second
+### `max_create_table_timeout_second`
 
-### max_distribution_pruner_recursion_depth
+### `max_distribution_pruner_recursion_depth`
 
-### max_layout_length_per_row
+### `max_layout_length_per_row`
 
-### max_load_timeout_second
+### `max_load_timeout_second`
 
-### max_mysql_service_task_threads_num
+### `max_mysql_service_task_threads_num`
 
-### max_query_retry_time
+### `max_query_retry_time`
 
-### max_routine_load_job_num
+### `max_routine_load_job_num`
 
-### max_routine_load_task_concurrent_num
+### `max_routine_load_task_concurrent_num`
 
-### max_routine_load_task_num_per_be
+### `max_routine_load_task_num_per_be`
 
-### max_running_rollup_job_num_per_table
+### `max_running_rollup_job_num_per_table`
 
-### max_running_txn_num_per_db
+### `max_running_txn_num_per_db`
 
 This configuration is mainly used to control the number of concurrent load jobs of the same database.
 
@@ -407,171 +407,171 @@ When this error is encountered, it means that the load jobs currently running in
 
 Generally it is not recommended to increase this configuration value. An excessively high number of concurrency may cause excessive system load.
 
-### max_scheduling_tablets
+### `max_scheduling_tablets`
 
-### max_small_file_number
+### `max_small_file_number`
 
-### max_small_file_size_bytes
+### `max_small_file_size_bytes`
 
-### max_tolerable_backend_down_num
+### `max_tolerable_backend_down_num`
 
-### max_unfinished_load_job
+### `max_unfinished_load_job`
 
-### metadata_checkopoint_memory_threshold
+### `metadata_checkopoint_memory_threshold`
 
-### metadata_failure_recovery
+### `metadata_failure_recovery`
 
-### meta_delay_toleration_second
+### `meta_delay_toleration_second`
 
-### meta_dir
+### `meta_dir`
 
-### meta_publish_timeout_ms
+### `meta_publish_timeout_ms`
 
-### min_bytes_per_broker_scanner
+### `min_bytes_per_broker_scanner`
 
-### mini_load_default_timeout_second
+### `mini_load_default_timeout_second`
 
-### min_load_timeout_second
+### `min_load_timeout_second`
 
-### mysql_service_io_threads_num
+### `mysql_service_io_threads_num`
 
-### mysql_service_nio_enabled
+### `mysql_service_nio_enabled`
 
-### net_buffer_length
+### `net_buffer_length`
 
-### net_read_timeout
+### `net_read_timeout`
 
-### net_write_timeout
+### `net_write_timeout`
 
-### parallel_exchange_instance_num
+### `parallel_exchange_instance_num`
 
-### parallel_fragment_exec_instance_num
+### `parallel_fragment_exec_instance_num`
 
-### period_of_auto_resume_min
+### `period_of_auto_resume_min`
 
-### plugin_dir
+### `plugin_dir`
 
-### plugin_enable
+### `plugin_enable`
 
-### priority_networks
+### `priority_networks`
 
-### proxy_auth_enable
+### `proxy_auth_enable`
 
-### proxy_auth_magic_prefix
+### `proxy_auth_magic_prefix`
 
-### publish_version_interval_ms
+### `publish_version_interval_ms`
 
-### publish_version_timeout_second
+### `publish_version_timeout_second`
 
-### qe_max_connection
+### `qe_max_connection`
 
-### qe_slow_log_ms
+### `qe_slow_log_ms`
 
-### query_cache_size
+### `query_cache_size`
 
-### query_cache_type
+### `query_cache_type`
 
-### query_colocate_join_memory_limit_penalty_factor
+### `query_colocate_join_memory_limit_penalty_factor`
 
-### query_port
+### `query_port`
 
-### query_timeout
+### `query_timeout`
 
-### remote_fragment_exec_timeout_ms
+### `remote_fragment_exec_timeout_ms`
 
-### replica_ack_policy
+### `replica_ack_policy`
 
-### replica_delay_recovery_second
+### `replica_delay_recovery_second`
 
-### replica_sync_policy
+### `replica_sync_policy`
 
-### report_queue_size
+### `report_queue_size`
 
-### resource_group
+### `resource_group`
 
-### rewrite_count_distinct_to_bitmap_hll
+### `rewrite_count_distinct_to_bitmap_hll`
 
-### rpc_port
+### `rpc_port`
 
-### schedule_slot_num_per_path
+### `schedule_slot_num_per_path`
 
-### small_file_dir
+### `small_file_dir`
 
-### SQL_AUTO_IS_NULL
+### `SQL_AUTO_IS_NULL`
 
-### sql_mode
+### `sql_mode`
 
-### sql_safe_updates
+### `sql_safe_updates`
 
-### sql_select_limit
+### `sql_select_limit`
 
-### storage_cooldown_second
+### `storage_cooldown_second`
 
-### storage_engine
+### `storage_engine`
 
-### storage_flood_stage_left_capacity_bytes
+### `storage_flood_stage_left_capacity_bytes`
 
-### storage_flood_stage_usage_percent
+### `storage_flood_stage_usage_percent`
 
-### storage_high_watermark_usage_percent
+### `storage_high_watermark_usage_percent`
 
-### storage_min_left_capacity_bytes
+### `storage_min_left_capacity_bytes`
 
-### stream_load_default_timeout_second
+### `stream_load_default_timeout_second`
 
-### sys_log_delete_age
+### `sys_log_delete_age`
 
-### sys_log_dir
+### `sys_log_dir`
 
-### sys_log_level
+### `sys_log_level`
 
-### sys_log_roll_interval
+### `sys_log_roll_interval`
 
-### sys_log_roll_mode
+### `sys_log_roll_mode`
 
-### sys_log_roll_num
+### `sys_log_roll_num`
 
-### sys_log_verbose_modules
+### `sys_log_verbose_modules`
 
-### system_time_zone
+### `system_time_zone`
 
-### tablet_create_timeout_second
+### `tablet_create_timeout_second`
 
-### tablet_delete_timeout_second
+### `tablet_delete_timeout_second`
 
-### tablet_repair_delay_factor_second
+### `tablet_repair_delay_factor_second`
 
-### tablet_stat_update_interval_second
+### `tablet_stat_update_interval_second`
 
-### test_materialized_view
+### `test_materialized_view`
 
-### thrift_backlog_num
+### `thrift_backlog_num`
 
-### thrift_server_max_worker_threads
+### `thrift_server_max_worker_threads`
 
-### time_zone
+### `time_zone`
 
-### tmp_dir
+### `tmp_dir`
 
-### transaction_clean_interval_second
+### `transaction_clean_interval_second`
 
-### tx_isolation
+### `tx_isolation`
 
-### txn_rollback_limit
+### `txn_rollback_limit`
 
-### use_new_tablet_scheduler
+### `use_new_tablet_scheduler`
 
-### use_v2_rollup
+### `use_v2_rollup`
 
-### using_old_load_usage_pattern
+### `using_old_load_usage_pattern`
 
-### Variable Info
+### `Variable Info`
 
-### version
+### `version`
 
-### version_comment
+### `version_comment`
 
-### wait_timeout
+### `wait_timeout`
 
-### with_k8s_certs
+### `with_k8s_certs`
 

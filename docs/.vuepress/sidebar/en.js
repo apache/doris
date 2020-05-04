@@ -99,7 +99,7 @@ module.exports = [
           "fe_config",
           "be_config",
         ],
-        sidebarDepth: 2,
+        sidebarDepth: 1,
       },
       "backup-restore",
       "broker",
