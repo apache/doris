@@ -19,16 +19,16 @@ package org.apache.doris.common;
 
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.doris.thrift.TStorageMedium;
 import org.junit.Assert;
 import org.junit.Test;
 

@@ -234,17 +234,22 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
 
 void Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
                             const vector<RowsetSharedPtr>& to_delete) {
+    // the compaction process allow to compact the single version, eg: version[4-4].
+    // this kind of "single version compaction" has same "input version" and "output version".
+    // which means "to_add->version()" equals to "to_delete->version()".
+    // So we should delete the "to_delete" before adding the "to_add",
+    // otherwise, the "to_add" will be deleted from _rs_version_map, eventually.
+    vector<RowsetMetaSharedPtr> rs_metas_to_delete;
+    for (auto& rs : to_delete) {
+        rs_metas_to_delete.push_back(rs->rowset_meta());
+        _rs_version_map.erase(rs->version());
+    }
+
     vector<RowsetMetaSharedPtr> rs_metas_to_add;
     for (auto& rs : to_add) {
         rs_metas_to_add.push_back(rs->rowset_meta());
         _rs_version_map[rs->version()] = rs;
         ++_newly_created_rowset_num;
-    }
-
-    vector<RowsetMetaSharedPtr> rs_metas_to_delete;
-    for (auto& rs : to_delete) {
-        rs_metas_to_delete.push_back(rs->rowset_meta());
-        _rs_version_map.erase(rs->version());
     }
 
     _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);
