@@ -313,11 +313,6 @@ Status DiskIoMgr::ScanRange::open() {
         return Status::InternalError(ss.str());
     }
     // }
-#if 0
-    if (DorisMetrics::io_mgr_num_open_files() != NULL) {
-        DorisMetrics::io_mgr_num_open_files()->increment(1L);
-    }
-#endif
     return Status::OK();
 }
 
@@ -363,11 +358,6 @@ void DiskIoMgr::ScanRange::close() {
         fclose(_local_file);
         _local_file = NULL;
     }
-#if 0
-    if (DorisMetrics::io_mgr_num_open_files() != NULL) {
-        DorisMetrics::io_mgr_num_open_files()->increment(-1L);
-    }
-#endif
 }
 
 /*

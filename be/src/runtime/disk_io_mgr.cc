@@ -80,7 +80,6 @@ const int DiskIoMgr::DEFAULT_QUEUE_CAPACITY = 2;
 
 // This method is used to clean up resources upon eviction of a cache file handle.
 // void DiskIoMgr::HdfsCachedFileHandle::release(DiskIoMgr::HdfsCachedFileHandle** h) {
-//   DorisMetrics::IO_MGR_NUM_CACHED_FILE_HANDLES->increment(-1L);
 //   VLOG_FILE << "Cached file handle evicted, hdfsCloseFile() fid=" << (*h)->_hdfs_file;
 //   delete (*h);
 // }
@@ -719,24 +718,11 @@ char* DiskIoMgr::get_free_buffer(int64_t* buffer_size) {
     char* buffer = NULL;
     if (_free_buffers[idx].empty()) {
         ++_num_allocated_buffers;
-#if 0
-        if (DorisMetrics::io_mgr_num_buffers() != NULL) {
-            DorisMetrics::io_mgr_num_buffers()->increment(1L);
-        }
-        if (DorisMetrics::io_mgr_total_bytes() != NULL) {
-            DorisMetrics::io_mgr_total_bytes()->increment(*buffer_size);
-        }
-#endif
         // Update the process mem usage.  This is checked the next time we start
         // a read for the next reader (DiskIoMgr::GetNextScanRange)
         _process_mem_tracker->consume(*buffer_size);
         buffer = new char[*buffer_size];
     } else {
-#if 0
-        if (DorisMetrics::io_mgr_num_unused_buffers() != NULL) {
-            DorisMetrics::io_mgr_num_unused_buffers()->increment(-1L);
-        }
-#endif
         buffer = _free_buffers[idx].front();
         _free_buffers[idx].pop_front();
     }
@@ -761,17 +747,6 @@ void DiskIoMgr::gc_io_buffers() {
         }
         _free_buffers[idx].clear();
     }
-#if 0
-    if (DorisMetrics::io_mgr_num_buffers() != NULL) {
-        DorisMetrics::io_mgr_num_buffers()->increment(-buffers_freed);
-    }
-    if (DorisMetrics::io_mgr_total_bytes() != NULL) {
-        DorisMetrics::io_mgr_total_bytes()->increment(-bytes_freed);
-    }
-    if (DorisMetrics::io_mgr_num_unused_buffers() != NULL) {
-        DorisMetrics::io_mgr_num_unused_buffers()->update(0);
-    }
-#endif
 }
 
 void DiskIoMgr::return_free_buffer(BufferDescriptor* desc) {
@@ -789,23 +764,10 @@ void DiskIoMgr::return_free_buffer(char* buffer, int64_t buffer_size) {
     unique_lock<mutex> lock(_free_buffers_lock);
     if (!config::disable_mem_pools && _free_buffers[idx].size() < config::max_free_io_buffers) {
         _free_buffers[idx].push_back(buffer);
-#if 0
-        if (DorisMetrics::io_mgr_num_unused_buffers() != NULL) {
-            DorisMetrics::io_mgr_num_unused_buffers()->increment(1L);
-        }
-#endif
     } else {
         _process_mem_tracker->release(buffer_size);
         --_num_allocated_buffers;
         delete[] buffer;
-#if 0
-        if (DorisMetrics::io_mgr_num_buffers() != NULL) {
-            DorisMetrics::io_mgr_num_buffers()->increment(-1L);
-        }
-        if (DorisMetrics::io_mgr_total_bytes() != NULL) {
-            DorisMetrics::io_mgr_total_bytes()->increment(-buffer_size);
-        }
-#endif
     }
 }
 
@@ -1179,11 +1141,6 @@ Status DiskIoMgr::write_range_helper(FILE* file_handle, WriteRange* write_range)
                 << errno << " description=" << get_str_err_msg();
         return Status::InternalError(error_msg.str());
     }
-#if 0
-    if (DorisMetrics::io_mgr_bytes_written() != NULL) {
-        DorisMetrics::io_mgr_bytes_written()->increment(write_range->_len);
-    }
-#endif
 
     return Status::OK();
 }
@@ -1237,20 +1194,13 @@ Status DiskIoMgr::add_write_range(RequestContext* writer, WriteRange* write_rang
  *   // Check if a cached file handle exists and validate the mtime, if the mtime of the
  *   // cached handle is not matching the mtime of the requested file, reopen.
  *   if (detail::is_file_handle_caching_enabled() && _file_handle_cache.Pop(fname, &fh)) {
- *     DorisMetrics::IO_MGR_NUM_CACHED_FILE_HANDLES->increment(-1L);
  *     if (fh->mtime() == mtime) {
- *       DorisMetrics::IO_MGR_CACHED_FILE_HANDLES_HIT_RATIO->Update(1L);
- *       DorisMetrics::IO_MGR_CACHED_FILE_HANDLES_HIT_COUNT->increment(1L);
- *       DorisMetrics::IO_MGR_NUM_FILE_HANDLES_OUTSTANDING->increment(1L);
  *       return fh;
  *     }
  *     VLOG_FILE << "mtime mismatch, closing cached file handle. Closing file=" << fname;
  *     delete fh;
  *   }
  *
- *   // Update cache hit ratio
- *   DorisMetrics::IO_MGR_CACHED_FILE_HANDLES_HIT_RATIO->Update(0L);
- *   DorisMetrics::IO_MGR_CACHED_FILE_HANDLES_MISS_COUNT->increment(1L);
  *   fh = new HdfsCachedFileHandle(fs, fname, mtime);
  *
  *   // Check if the file handle was opened correctly
@@ -1260,7 +1210,6 @@ Status DiskIoMgr::add_write_range(RequestContext* writer, WriteRange* write_rang
  *     return NULL;
  *   }
  *
- *   DorisMetrics::IO_MGR_NUM_FILE_HANDLES_OUTSTANDING->increment(1L);
  *   return fh;
  * }
  */
@@ -1268,7 +1217,6 @@ Status DiskIoMgr::add_write_range(RequestContext* writer, WriteRange* write_rang
 /*
  * void DiskIoMgr::cache_or_close_file_handle(const char* fname,
  *     DiskIoMgr::HdfsCachedFileHandle* fid, bool close) {
- *   DorisMetrics::IO_MGR_NUM_FILE_HANDLES_OUTSTANDING->increment(-1L);
  *   // Try to unbuffer the handle, on filesystems that do not support this call a non-zero
  *   // return code indicates that the operation was not successful and thus the file is
  *   // closed.
@@ -1277,7 +1225,6 @@ Status DiskIoMgr::add_write_range(RequestContext* writer, WriteRange* write_rang
  *     // Clear read statistics before returning
  *     hdfsFileClearReadStatistics(fid->file());
  *     _file_handle_cache.Put(fname, fid);
- *     DorisMetrics::IO_MGR_NUM_CACHED_FILE_HANDLES->increment(1L);
  *   } else {
  *     if (close) {
  *       VLOG_FILE << "Closing file=" << fname;
