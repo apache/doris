@@ -125,6 +125,10 @@ public class InPredicate extends Predicate {
           !isNotIn);
     }
 
+    public List<Expr> getListChildren() {
+        return  children.subList(1, children.size());
+    }
+
     public boolean isNotIn() {
         return isNotIn;
     }
