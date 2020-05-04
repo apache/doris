@@ -23,7 +23,6 @@
 #include "exec/data_sink.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/row_batch.h"
-#include "util/doris_metrics.h"
 #include "util/monotime.h"
 
 namespace doris {
@@ -62,7 +61,6 @@ protected:
                   << ", pool_size=" << config::fragment_pool_queue_size;
         config::fragment_pool_thread_num = 32;
         config::fragment_pool_queue_size = 1024;
-        DorisMetrics::instance()->initialize("ut");
     }
     virtual void TearDown() {}
 };

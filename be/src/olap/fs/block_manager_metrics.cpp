@@ -24,16 +24,16 @@ namespace fs {
 namespace internal {
 
 BlockManagerMetrics::BlockManagerMetrics() {
-    blocks_open_reading = &DorisMetrics::blocks_open_reading;
-    blocks_open_writing = &DorisMetrics::blocks_open_writing;
+    blocks_open_reading = &DorisMetrics::instance()->blocks_open_reading;
+    blocks_open_writing = &DorisMetrics::instance()->blocks_open_writing;
 
-    total_readable_blocks = &DorisMetrics::readable_blocks_total;
-    total_writable_blocks = &DorisMetrics::writable_blocks_total;
-    total_blocks_created = &DorisMetrics::blocks_created_total;
-    total_blocks_deleted = &DorisMetrics::blocks_deleted_total;
-    total_bytes_read = &DorisMetrics::bytes_read_total;
-    total_bytes_written = &DorisMetrics::bytes_written_total;
-    total_disk_sync = &DorisMetrics::disk_sync_total;
+    total_readable_blocks = &DorisMetrics::instance()->readable_blocks_total;
+    total_writable_blocks = &DorisMetrics::instance()->writable_blocks_total;
+    total_blocks_created = &DorisMetrics::instance()->blocks_created_total;
+    total_blocks_deleted = &DorisMetrics::instance()->blocks_deleted_total;
+    total_bytes_read = &DorisMetrics::instance()->bytes_read_total;
+    total_bytes_written = &DorisMetrics::instance()->bytes_written_total;
+    total_disk_sync = &DorisMetrics::instance()->disk_sync_total;
 }
 
 } // namespace internal

@@ -28,148 +28,8 @@
 
 namespace doris {
 
-const char* DorisMetrics::_s_hook_name = "doris_metrics";
-
-DorisMetrics DorisMetrics::_s_doris_metrics;
-
-// counters
-IntCounter DorisMetrics::fragment_requests_total;
-IntCounter DorisMetrics::fragment_request_duration_us;
-IntCounter DorisMetrics::http_requests_total;
-IntCounter DorisMetrics::http_request_duration_us;
-IntCounter DorisMetrics::http_request_send_bytes;
-IntCounter DorisMetrics::query_scan_bytes;
-IntCounter DorisMetrics::query_scan_rows;
-IntCounter DorisMetrics::ranges_processed_total;
-IntCounter DorisMetrics::push_requests_success_total;
-IntCounter DorisMetrics::push_requests_fail_total;
-IntCounter DorisMetrics::push_request_duration_us;
-IntCounter DorisMetrics::push_request_write_bytes;
-IntCounter DorisMetrics::push_request_write_rows;
-IntCounter DorisMetrics::create_tablet_requests_total;
-IntCounter DorisMetrics::create_tablet_requests_failed;
-IntCounter DorisMetrics::drop_tablet_requests_total;
-
-IntCounter DorisMetrics::report_all_tablets_requests_total;
-IntCounter DorisMetrics::report_all_tablets_requests_failed;
-IntCounter DorisMetrics::report_tablet_requests_total;
-IntCounter DorisMetrics::report_tablet_requests_failed;
-IntCounter DorisMetrics::report_disk_requests_total;
-IntCounter DorisMetrics::report_disk_requests_failed;
-IntCounter DorisMetrics::report_task_requests_total;
-IntCounter DorisMetrics::report_task_requests_failed;
-
-IntCounter DorisMetrics::schema_change_requests_total;
-IntCounter DorisMetrics::schema_change_requests_failed;
-IntCounter DorisMetrics::create_rollup_requests_total;
-IntCounter DorisMetrics::create_rollup_requests_failed;
-IntCounter DorisMetrics::storage_migrate_requests_total;
-IntCounter DorisMetrics::delete_requests_total;
-IntCounter DorisMetrics::delete_requests_failed;
-IntCounter DorisMetrics::clone_requests_total;
-IntCounter DorisMetrics::clone_requests_failed;
-
-IntCounter DorisMetrics::finish_task_requests_total;
-IntCounter DorisMetrics::finish_task_requests_failed;
-
-IntCounter DorisMetrics::base_compaction_deltas_total;
-IntCounter DorisMetrics::base_compaction_bytes_total;
-IntCounter DorisMetrics::base_compaction_request_total;
-IntCounter DorisMetrics::base_compaction_request_failed;
-IntCounter DorisMetrics::cumulative_compaction_deltas_total;
-IntCounter DorisMetrics::cumulative_compaction_bytes_total;
-IntCounter DorisMetrics::cumulative_compaction_request_total;
-IntCounter DorisMetrics::cumulative_compaction_request_failed;
-
-IntCounter DorisMetrics::publish_task_request_total;
-IntCounter DorisMetrics::publish_task_failed_total;
-
-IntCounter DorisMetrics::meta_write_request_total;
-IntCounter DorisMetrics::meta_write_request_duration_us;
-IntCounter DorisMetrics::meta_read_request_total;
-IntCounter DorisMetrics::meta_read_request_duration_us;
-
-IntCounter DorisMetrics::segment_read_total;
-IntCounter DorisMetrics::segment_row_total;
-IntCounter DorisMetrics::segment_rows_by_short_key;
-IntCounter DorisMetrics::segment_rows_read_by_zone_map;
-
-IntCounter DorisMetrics::txn_begin_request_total;
-IntCounter DorisMetrics::txn_commit_request_total;
-IntCounter DorisMetrics::txn_rollback_request_total;
-IntCounter DorisMetrics::txn_exec_plan_total;
-IntCounter DorisMetrics::stream_receive_bytes_total;
-IntCounter DorisMetrics::stream_load_rows_total;
-
-IntCounter DorisMetrics::memtable_flush_total;
-IntCounter DorisMetrics::memtable_flush_duration_us;
-
-// gauges
-IntGauge DorisMetrics::memory_pool_bytes_total;
-IntGauge DorisMetrics::process_thread_num;
-IntGauge DorisMetrics::process_fd_num_used;
-IntGauge DorisMetrics::process_fd_num_limit_soft;
-IntGauge DorisMetrics::process_fd_num_limit_hard;
-IntGaugeMetricsMap DorisMetrics::disks_total_capacity;
-IntGaugeMetricsMap DorisMetrics::disks_avail_capacity;
-IntGaugeMetricsMap DorisMetrics::disks_data_used_capacity;
-IntGaugeMetricsMap DorisMetrics::disks_state;
-
-IntGauge DorisMetrics::tablet_cumulative_max_compaction_score;
-IntGauge DorisMetrics::tablet_base_max_compaction_score;
-
-IntGauge DorisMetrics::push_request_write_bytes_per_second;
-IntGauge DorisMetrics::query_scan_bytes_per_second;
-IntGauge DorisMetrics::max_disk_io_util_percent;
-IntGauge DorisMetrics::max_network_send_bytes_rate;
-IntGauge DorisMetrics::max_network_receive_bytes_rate;
-
-IntCounter DorisMetrics::readable_blocks_total;
-IntCounter DorisMetrics::writable_blocks_total;
-IntCounter DorisMetrics::blocks_created_total;
-IntCounter DorisMetrics::blocks_deleted_total;
-IntCounter DorisMetrics::bytes_read_total;
-IntCounter DorisMetrics::bytes_written_total;
-IntCounter DorisMetrics::disk_sync_total;
-IntGauge DorisMetrics::blocks_open_reading;
-IntGauge DorisMetrics::blocks_open_writing;
-
-IntCounter DorisMetrics::blocks_push_remote_duration_us;
-
-UIntGauge DorisMetrics::rowset_count_generated_and_in_use;
-UIntGauge DorisMetrics::unused_rowsets_count;
-UIntGauge DorisMetrics::broker_count;
-UIntGauge DorisMetrics::data_stream_receiver_count;
-UIntGauge DorisMetrics::fragment_endpoint_count;
-UIntGauge DorisMetrics::active_scan_context_count;
-UIntGauge DorisMetrics::plan_fragment_count;
-UIntGauge DorisMetrics::load_channel_count;
-UIntGauge DorisMetrics::result_buffer_block_count;
-UIntGauge DorisMetrics::result_block_queue_count;
-UIntGauge DorisMetrics::routine_load_task_count;
-UIntGauge DorisMetrics::small_file_cache_count;
-UIntGauge DorisMetrics::stream_load_pipe_count;
-UIntGauge DorisMetrics::brpc_endpoint_stub_count;
-UIntGauge DorisMetrics::tablet_writer_count;
-
-DorisMetrics::~DorisMetrics() {
-    delete _system_metrics;
-    delete _metrics;
-}
-
-void DorisMetrics::initialize(
-        const std::string& name,
-        const std::vector<std::string>& paths,
-        bool init_system_metrics,
-        const std::set<std::string>& disk_devices,
-        const std::vector<std::string>& network_interfaces) {
-    if (_metrics != nullptr) {
-        return;
-    }
-    DCHECK(_metrics == nullptr && _system_metrics == nullptr);
-    _metrics = new MetricRegistry(name);
-#define REGISTER_DORIS_METRIC(name) _metrics->register_metric(#name, &name)
-
+DorisMetrics::DorisMetrics() : _name("doris_be"), _hook_name("doris_metrics"), _metrics(_name) {
+#define REGISTER_DORIS_METRIC(name) _metrics.register_metric(#name, &name)
     // You can put DorisMetrics's metrics initial code here
     REGISTER_DORIS_METRIC(fragment_requests_total);
     REGISTER_DORIS_METRIC(fragment_request_duration_us);
@@ -184,10 +44,10 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(memtable_flush_duration_us);
 
     // push request
-    _metrics->register_metric(
+    _metrics.register_metric(
         "push_requests_total", MetricLabels().add("status", "SUCCESS"),
         &push_requests_success_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "push_requests_total", MetricLabels().add("status", "FAIL"),
         &push_requests_fail_total);
     REGISTER_DORIS_METRIC(push_request_duration_us);
@@ -195,7 +55,7 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(push_request_write_rows);
 
 #define REGISTER_ENGINE_REQUEST_METRIC(type, status, metric) \
-    _metrics->register_metric( \
+    _metrics.register_metric( \
         "engine_requests_total", MetricLabels().add("type", #type).add("status", #status), &metric)
 
     REGISTER_ENGINE_REQUEST_METRIC(create_tablet, total, create_tablet_requests_total);
@@ -232,62 +92,62 @@ void DorisMetrics::initialize(
     REGISTER_ENGINE_REQUEST_METRIC(publish, total, publish_task_request_total);
     REGISTER_ENGINE_REQUEST_METRIC(publish, failed, publish_task_failed_total);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "compaction_deltas_total", MetricLabels().add("type", "base"),
         &base_compaction_deltas_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "compaction_deltas_total", MetricLabels().add("type", "cumulative"),
         &cumulative_compaction_deltas_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "compaction_bytes_total", MetricLabels().add("type", "base"),
         &base_compaction_bytes_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "compaction_bytes_total", MetricLabels().add("type", "cumulative"),
         &cumulative_compaction_bytes_total);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "meta_request_total", MetricLabels().add("type", "write"),
         &meta_write_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "meta_request_total", MetricLabels().add("type", "read"),
         &meta_read_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "meta_request_duration", MetricLabels().add("type", "write"),
         &meta_write_request_duration_us);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "meta_request_duration", MetricLabels().add("type", "read"),
         &meta_read_request_duration_us);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "segment_read", MetricLabels().add("type", "segment_total_read_times"),
         &segment_read_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "segment_read", MetricLabels().add("type", "segment_total_row_num"),
         &segment_row_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "segment_read", MetricLabels().add("type", "segment_rows_by_short_key"),
         &segment_rows_by_short_key);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "segment_read", MetricLabels().add("type", "segment_rows_read_by_zone_map"),
         &segment_rows_read_by_zone_map);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "txn_request", MetricLabels().add("type", "begin"),
         &txn_begin_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "txn_request", MetricLabels().add("type", "commit"),
         &txn_commit_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "txn_request", MetricLabels().add("type", "rollback"),
         &txn_rollback_request_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "txn_request", MetricLabels().add("type", "exec"),
         &txn_exec_plan_total);
 
-    _metrics->register_metric(
+    _metrics.register_metric(
         "stream_load", MetricLabels().add("type", "receive_bytes"),
         &stream_receive_bytes_total);
-    _metrics->register_metric(
+    _metrics.register_metric(
         "stream_load", MetricLabels().add("type", "load_rows"),
         &stream_load_rows_total);
 
@@ -301,25 +161,13 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(tablet_cumulative_max_compaction_score);
     REGISTER_DORIS_METRIC(tablet_base_max_compaction_score);
 
-    // disk usage
-    for (auto& path : paths) {
-        IntGauge* gauge = disks_total_capacity.set_key(path);
-        _metrics->register_metric("disks_total_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_avail_capacity.set_key(path);
-        _metrics->register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_data_used_capacity.set_key(path);
-        _metrics->register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_state.set_key(path);
-        _metrics->register_metric("disks_state", MetricLabels().add("path", path), gauge);
-    }
-
     REGISTER_DORIS_METRIC(push_request_write_bytes_per_second);
     REGISTER_DORIS_METRIC(query_scan_bytes_per_second);
     REGISTER_DORIS_METRIC(max_disk_io_util_percent);
     REGISTER_DORIS_METRIC(max_network_send_bytes_rate);
     REGISTER_DORIS_METRIC(max_network_receive_bytes_rate);
 
-    _metrics->register_hook(_s_hook_name, std::bind(&DorisMetrics::update, this));
+    _metrics.register_hook(_hook_name, std::bind(&DorisMetrics::_update, this));
 
     REGISTER_DORIS_METRIC(readable_blocks_total);
     REGISTER_DORIS_METRIC(writable_blocks_total);
@@ -330,16 +178,32 @@ void DorisMetrics::initialize(
     REGISTER_DORIS_METRIC(disk_sync_total);
     REGISTER_DORIS_METRIC(blocks_open_reading);
     REGISTER_DORIS_METRIC(blocks_open_writing);
-
     REGISTER_DORIS_METRIC(blocks_push_remote_duration_us);
+}
+
+void DorisMetrics::initialize(
+        const std::vector<std::string>& paths,
+        bool init_system_metrics,
+        const std::set<std::string>& disk_devices,
+        const std::vector<std::string>& network_interfaces) {
+    // disk usage
+    for (auto& path : paths) {
+        IntGauge* gauge = disks_total_capacity.set_key(path);
+        _metrics.register_metric("disks_total_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_avail_capacity.set_key(path);
+        _metrics.register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_data_used_capacity.set_key(path);
+        _metrics.register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
+        gauge = disks_state.set_key(path);
+        _metrics.register_metric("disks_state", MetricLabels().add("path", path), gauge);
+    }
 
     if (init_system_metrics) {
-        _system_metrics = new SystemMetrics();
-        _system_metrics->install(_metrics, disk_devices, network_interfaces);
+        _system_metrics.install(&_metrics, disk_devices, network_interfaces);
     }
 }
 
-void DorisMetrics::update() {
+void DorisMetrics::_update() {
     _update_process_thread_num();
     _update_process_fd_num();
 }
