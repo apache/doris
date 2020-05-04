@@ -95,8 +95,11 @@ module.exports = [
       {
         title: "Configuration",
         directoryPath: "config/",
-        children: ["fe_config"],
-        sidebarDepth: 1,
+        children: [
+          "fe_config",
+          "be_config",
+        ],
+        sidebarDepth: 2,
       },
       "backup-restore",
       "broker",
