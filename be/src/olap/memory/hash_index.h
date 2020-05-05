@@ -19,8 +19,11 @@
 #define DORIS_BE_SRC_OLAP_MEMORY_HASH_INDEX_H_
 
 #include <stdint.h>
+
 #include <atomic>
 #include <string>
+#include <vector>
+
 #include "gutil/ref_counted.h"
 
 namespace doris {
@@ -49,7 +52,7 @@ public:
     static const uint64_t npos = (uint64_t)-1;
 
     // Create hash index with capacity
-    HashIndex(size_t capacity);
+    explicit HashIndex(size_t capacity);
     ~HashIndex();
 
     // Return number of elements
@@ -62,7 +65,7 @@ public:
     // Find by key hash, put all candidate values into entries,
     // and return a entry position, so later user can use this position to
     // add a value with the same key hash directly into this hash index.
-    uint64_t find(uint64_t key_hash, std::vector<uint32_t> &entries) const;
+    uint64_t find(uint64_t key_hash, std::vector<uint32_t>* entries) const;
 
     // Set a value with hash key_hash, at a pre-found entry position
     void set(uint64_t entry, uint64_t key_hash, uint32_t value);
@@ -71,9 +74,7 @@ public:
     bool add(uint64_t key_hash, uint32_t value);
 
     // return true if this hash index needs rebuild
-    bool need_rebuild() const {
-        return _size >= _max_size;
-    }
+    bool need_rebuild() const { return _size >= _max_size; }
 
     // dump debug information
     const std::string dump() const;

@@ -15,9 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gtest/gtest.h>
-#include "gutil/hash/builtin_type_hash.h"
 #include "olap/memory/hash_index.h"
+
+#include <gtest/gtest.h>
+
+#include <vector>
+
+#include "gutil/hash/builtin_type_hash.h"
 
 namespace doris {
 
@@ -31,7 +35,7 @@ TEST(HashIndex, findset) {
     std::vector<uint32_t> entries;
     entries.reserve(10);
     // add all
-    for (size_t i=0;i<sz*2;i+=2) {
+    for (size_t i = 0; i < sz * 2; i += 2) {
         uint64_t keyHash = HashCode(i);
         entries.clear();
         uint64_t slot = hi.find(keyHash, entries);
@@ -51,13 +55,12 @@ TEST(HashIndex, findset) {
         hi.set(slot, keyHash, i);
     }
     // search
-    for (size_t i=0;i<sz*2;i+=2) {
+    for (size_t i = 0; i < sz * 2; i += 2) {
         uint64_t keyHash = HashCode(i);
         entries.clear();
         hi.find(keyHash, entries);
         uint64_t fslot = HashIndex::npos;
         for (auto& e : entries) {
-            //printf("check entry: %u %u", e.slot, e.value);
             uint64_t keyHashVerify = HashCode(e);
             if (keyHashVerify != keyHash) {
                 continue;
@@ -86,7 +89,7 @@ TEST(HashIndex, add) {
     entries.reserve(10);
     for (size_t i = 0; i < N; ++i) {
         uint64_t hashcode = HashCode(keys[i]);
-        hi.find(hashcode, entries);
+        hi.find(hashcode, &entries);
         bool found = false;
         for (size_t ei = 0; ei < entries.size(); ++ei) {
             int64_t v = keys[entries[ei]];
@@ -102,7 +105,7 @@ TEST(HashIndex, add) {
 
 } // namespace doris
 
-int main(int argc, char **argv) {
+int main(int argc, char** argv) {
     testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

@@ -15,11 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "olap/memory/hash_index.h"
+
 #include <emmintrin.h>
 #include <stdio.h>
+
 #include <algorithm>
+#include <vector>
+
 #include "gutil/stringprintf.h"
-#include "olap/memory/hash_index.h"
 
 namespace doris {
 
@@ -31,14 +35,12 @@ struct alignas(64) HashChunk {
     std::atomic<uint32_t> size;
     uint32_t values[12];
 
-    TagVector* tagVector() {
-        return (TagVector*)tags;
-    }
+    TagVector* tagVector() { return reinterpret_cast<TagVector*>(tags); }
 
     const std::string dump() const {
         std::string ret;
         StringPrintf("[");
-        for (uint32_t i=0;i<std::min((uint32_t)size, (uint32_t)12);i++) {
+        for (uint32_t i = 0; i < std::min((uint32_t)size, (uint32_t)12); i++) {
             printf("%6u(%02x)", values[i], (uint32_t)tags[i]);
         }
         printf("]\n");
@@ -48,9 +50,8 @@ struct alignas(64) HashChunk {
 
 const uint64_t HashIndex::npos;
 
-HashIndex::HashIndex(size_t capacity) :
-        _size(0), _max_size(0), _num_chunks(0), _chunk_mask(0),
-        _chunks(NULL) {
+HashIndex::HashIndex(size_t capacity)
+        : _size(0), _max_size(0), _num_chunks(0), _chunk_mask(0), _chunks(NULL) {
     size_t min_chunk = (capacity * 14 / 12 + HashChunk::CAPACITY - 1) / HashChunk::CAPACITY;
     if (min_chunk == 0) {
         return;
@@ -59,11 +60,11 @@ HashIndex::HashIndex(size_t capacity) :
     while (nc < min_chunk) {
         nc *= 2;
     }
-    _chunks = (HashChunk*)aligned_malloc(nc*64, 64);
+    _chunks = reinterpret_cast<HashChunk*>(aligned_malloc(nc * 64, 64));
     if (_chunks) {
         _num_chunks = nc;
         _chunk_mask = nc - 1;
-        memset(_chunks, 0, _num_chunks*64);
+        memset(_chunks, 0, _num_chunks * 64);
         _max_size = _num_chunks * HashChunk::CAPACITY * 12 / 14;
     }
 }
@@ -79,7 +80,7 @@ HashIndex::~HashIndex() {
     }
 }
 
-uint64_t HashIndex::find(uint64_t key_hash, std::vector<uint32_t> &entries) const {
+uint64_t HashIndex::find(uint64_t key_hash, std::vector<uint32_t>* entries) const {
     uint64_t tag = key_hash & 0xff;
     if (tag == 0) {
         tag = 1;
@@ -89,17 +90,17 @@ uint64_t HashIndex::find(uint64_t key_hash, std::vector<uint32_t> &entries) cons
     auto tests = _mm_set1_epi8(static_cast<uint8_t>(tag));
     while (true) {
         HashChunk& chunk = _chunks[pos];
-        uint32_t sz = chunk.size.load(std::memory_order_acquire);
+        uint32_t sz = chunk.size;
         auto tags = _mm_load_si128(chunk.tagVector());
         auto eqs = _mm_cmpeq_epi8(tags, tests);
         uint32_t mask = _mm_movemask_epi8(eqs) & 0xfff;
         while (mask != 0) {
             uint32_t i = __builtin_ctz(mask);
-            mask &= (mask -1);
-            entries.emplace_back(chunk.values[i]);
+            mask &= (mask - 1);
+            entries->emplace_back(chunk.values[i]);
         }
         if (sz == HashChunk::CAPACITY) {
-            uint64_t step =  tag*2+1; // 1;
+            uint64_t step = tag * 2 + 1;
             pos = (pos + step) & _chunk_mask;
             if (pos == orig_pos) {
                 return npos;
@@ -121,7 +122,7 @@ void HashIndex::set(uint64_t slot, uint64_t key_hash, uint32_t value) {
     chunk.tags[tpos] = tag;
     chunk.values[tpos] = value;
     if (tpos == chunk.size) {
-        chunk.size.store(tpos+1, std::memory_order_release);
+        chunk.size++;
         _size++;
     }
 }
@@ -136,7 +137,7 @@ bool HashIndex::add(uint64_t key_hash, uint32_t value) {
     while (true) {
         HashChunk& chunk = _chunks[pos];
         if (chunk.size == HashChunk::CAPACITY) {
-            uint64_t step =  tag*2+1; // 1;
+            uint64_t step = tag * 2 + 1;
             pos = (pos + step) & _chunk_mask;
             if (pos == orig_pos) {
                 return false;
@@ -151,11 +152,10 @@ bool HashIndex::add(uint64_t key_hash, uint32_t value) {
     }
 }
 
-
 const std::string HashIndex::dump() const {
-    return StringPrintf("chunk: %zu %.1fM capacity: %zu/%zu slot util: %.3f",
-        _num_chunks, _num_chunks*64.0f/(1024*1024), size(), max_size(),
-        size() / (_num_chunks*12.0f));
+    return StringPrintf("chunk: %zu %.1fM capacity: %zu/%zu slot util: %.3f", _num_chunks,
+                        _num_chunks * 64.0f / (1024 * 1024), size(), max_size(),
+                        size() / (_num_chunks * 12.0f));
 }
 
-} /* namespace doris */
+} // namespace doris
