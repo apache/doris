@@ -294,7 +294,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
 
     if (tablet_info_vec == nullptr) {
         LOG(WARNING) << "invalid output parameter which is nullptr pointer.";
-        DorisMetrics::push_requests_fail_total.increment(1);
+        DorisMetrics::instance()->push_requests_fail_total.increment(1);
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
@@ -303,7 +303,7 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
     if (tablet == nullptr) {
         LOG(WARNING) << "false to find tablet. tablet=" << request.tablet_id
                      << ", schema_hash=" << request.schema_hash;
-        DorisMetrics::push_requests_fail_total.increment(1);
+        DorisMetrics::instance()->push_requests_fail_total.increment(1);
         return OLAP_ERR_TABLE_NOT_FOUND;
     }
 
@@ -331,16 +331,16 @@ OLAPStatus EngineBatchLoadTask::_push(const TPushReq& request,
                      << "transaction_id=" << request.transaction_id
                      << " tablet=" << tablet->full_name()
                      << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
-        DorisMetrics::push_requests_fail_total.increment(1);
+        DorisMetrics::instance()->push_requests_fail_total.increment(1);
     } else {
         LOG(INFO) << "success to push delta, " 
             << "transaction_id=" << request.transaction_id
             << " tablet=" << tablet->full_name()
             << ", cost=" << PrettyPrinter::print(duration_ns, TUnit::TIME_NS);
-        DorisMetrics::push_requests_success_total.increment(1);
-        DorisMetrics::push_request_duration_us.increment(duration_ns / 1000);
-        DorisMetrics::push_request_write_bytes.increment(push_handler.write_bytes());
-        DorisMetrics::push_request_write_rows.increment(push_handler.write_rows());
+        DorisMetrics::instance()->push_requests_success_total.increment(1);
+        DorisMetrics::instance()->push_request_duration_us.increment(duration_ns / 1000);
+        DorisMetrics::instance()->push_request_write_bytes.increment(push_handler.write_bytes());
+        DorisMetrics::instance()->push_request_write_rows.increment(push_handler.write_rows());
     }
     return res;
 }
@@ -349,7 +349,7 @@ OLAPStatus EngineBatchLoadTask::_delete_data(
         const TPushReq& request,
         vector<TTabletInfo>* tablet_info_vec) {
     LOG(INFO) << "begin to process delete data. request=" << ThriftDebugString(request);
-    DorisMetrics::delete_requests_total.increment(1);
+    DorisMetrics::instance()->delete_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
 
@@ -378,7 +378,7 @@ OLAPStatus EngineBatchLoadTask::_delete_data(
         OLAP_LOG_WARNING("fail to push empty version for delete data. "
                          "[res=%d tablet='%s']",
                          res, tablet->full_name().c_str());
-        DorisMetrics::delete_requests_failed.increment(1);
+        DorisMetrics::instance()->delete_requests_failed.increment(1);
         return res;
     }
 

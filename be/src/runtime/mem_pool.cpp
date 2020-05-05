@@ -40,7 +40,7 @@ uint32_t MemPool::k_zero_length_region_ alignas(std::max_align_t) = MEM_POOL_POI
 MemPool::ChunkInfo::ChunkInfo(const Chunk& chunk_)
         : chunk(chunk_),
         allocated_bytes(0) {
-    DorisMetrics::memory_pool_bytes_total.increment(chunk.size);
+    DorisMetrics::instance()->memory_pool_bytes_total.increment(chunk.size);
 }
 
 MemPool::~MemPool() {
@@ -50,7 +50,7 @@ MemPool::~MemPool() {
         ChunkAllocator::instance()->free(chunk.chunk);
     }
     mem_tracker_->release(total_bytes_released);
-    DorisMetrics::memory_pool_bytes_total.increment(-total_bytes_released);
+    DorisMetrics::instance()->memory_pool_bytes_total.increment(-total_bytes_released);
 }
 
 void MemPool::clear() {
@@ -76,7 +76,7 @@ void MemPool::free_all() {
     total_reserved_bytes_ = 0;
 
     mem_tracker_->release(total_bytes_released);
-    DorisMetrics::memory_pool_bytes_total.increment(-total_bytes_released);
+    DorisMetrics::instance()->memory_pool_bytes_total.increment(-total_bytes_released);
 }
 
 bool MemPool::find_chunk(size_t min_size, bool check_limits) {

@@ -392,12 +392,6 @@ BufferPool::Client::Client(BufferPool* pool, //TmpFileMgr::FileGroup* file_group
       ADD_COUNTER(child_profile, "CumulativeAllocations", TUnit::UNIT);
   counters_.cumulative_bytes_alloced =
       ADD_COUNTER(child_profile, "CumulativeAllocationBytes", TUnit::BYTES);
-  counters_.read_wait_time = ADD_TIMER(child_profile, "ReadIoWaitTime");
-  counters_.read_io_ops = ADD_COUNTER(child_profile, "ReadIoOps", TUnit::UNIT);
-  counters_.bytes_read = ADD_COUNTER(child_profile, "ReadIoBytes", TUnit::BYTES);
-  counters_.write_wait_time = ADD_TIMER(child_profile, "WriteIoWaitTime");
-  counters_.write_io_ops = ADD_COUNTER(child_profile, "WriteIoOps", TUnit::UNIT);
-  counters_.bytes_written = ADD_COUNTER(child_profile, "WriteIoBytes", TUnit::BYTES);
   counters_.peak_unpinned_bytes =
       child_profile->AddHighWaterMarkCounter("PeakUnpinnedBytes", TUnit::BYTES);
 }

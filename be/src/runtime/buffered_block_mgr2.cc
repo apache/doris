@@ -795,11 +795,6 @@ Status BufferedBlockMgr2::write_unpinned_block(Block* block) {
     _bytes_written_counter->update(block->_valid_data_len);
     ++_writes_issued;
     if (_writes_issued == 1) {
-#if 0
-        if (DorisMetrics::num_queries_spilled() != NULL) {
-            DorisMetrics::num_queries_spilled()->increment(1);
-        }
-#endif
     }
     return Status::OK();
 }

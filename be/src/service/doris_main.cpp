@@ -173,7 +173,7 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    // options
+    // init and open storage engine
     doris::EngineOptions options;
     options.store_paths = paths;
     options.backend_uid = doris::UniqueId::gen_uid();
@@ -184,15 +184,20 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    // start backend service for the coordinator on be_port
+    // init exec env
     auto exec_env = doris::ExecEnv::GetInstance();
     doris::ExecEnv::init(exec_env, paths);
     exec_env->set_storage_engine(engine);
     engine->set_heartbeat_flags(exec_env->heartbeat_flags());
 
-    doris::ThriftRpcHelper::setup(exec_env);
-    doris::ThriftServer* be_server = nullptr;
+    // start all backgroud threads of storage engine.
+    // SHOULD be called after exec env is initialized.
+    EXIT_IF_ERROR(engine->start_bg_threads());
 
+    // begin to start services
+    doris::ThriftRpcHelper::setup(exec_env);
+    // 1. thrift server with be_port
+    doris::ThriftServer* be_server = nullptr;
     EXIT_IF_ERROR(
             doris::BackendService::create_service(exec_env, doris::config::be_port, &be_server));
     Status status = be_server->start();
@@ -202,6 +207,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    // 2. bprc service
     doris::BRpcService brpc_service(exec_env);
     status = brpc_service.start(doris::config::brpc_port);
     if (!status.ok()) {
@@ -210,6 +216,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    // 3. http service
     doris::HttpService http_service(exec_env, doris::config::webserver_port,
                                     doris::config::webserver_num_workers);
     status = http_service.start();
@@ -219,8 +226,8 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
+    // 4. heart beat server
     doris::TMasterInfo* master_info = exec_env->master_info();
-    // start heart beat server
     doris::ThriftServer* heartbeat_thrift_server;
     doris::AgentStatus heartbeat_status = doris::create_heartbeat_server(
             exec_env, doris::config::heartbeat_service_port, &heartbeat_thrift_server,

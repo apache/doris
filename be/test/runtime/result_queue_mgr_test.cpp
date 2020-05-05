@@ -29,16 +29,6 @@
 namespace doris {
 
 class ResultQueueMgrTest : public testing::Test {
-public:
-    ResultQueueMgrTest() {
-    }
-    virtual ~ResultQueueMgrTest() {
-    }
-
-protected:
-    virtual void SetUp() {
-    }
-
 };
 
 TEST_F(ResultQueueMgrTest, create_normal) {

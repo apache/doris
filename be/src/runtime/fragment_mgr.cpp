@@ -37,6 +37,7 @@
 #include "util/url_coding.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
+#include "gen_cpp/HeartbeatService.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -211,8 +212,8 @@ Status FragmentExecState::execute() {
         _executor.open();
         _executor.close();
     }
-    DorisMetrics::fragment_requests_total.increment(1);
-    DorisMetrics::fragment_request_duration_us.increment(duration_ns / 1000);
+    DorisMetrics::instance()->fragment_requests_total.increment(1);
+    DorisMetrics::instance()->fragment_request_duration_us.increment(duration_ns / 1000);
     return Status::OK();
 }
 
@@ -321,6 +322,10 @@ void FragmentExecState::coordinator_callback(
         params.__isset.error_log = (params.error_log.size() > 0);
     }
 
+    if (_exec_env->master_info()->__isset.backend_id) {
+        params.__set_backend_id(_exec_env->master_info()->backend_id);
+    }
+
     TReportExecStatusResult res;
     Status rpc_status;
 
@@ -365,6 +370,10 @@ FragmentMgr::FragmentMgr(ExecEnv* exec_env) :
         // TODO(zc): we need a better thread-pool
         // now one user can use all the thread pool, others have no resource.
         _thread_pool(config::fragment_pool_thread_num, config::fragment_pool_queue_size) {
+    REGISTER_GAUGE_DORIS_METRIC(plan_fragment_count, [this]() {
+        std::lock_guard<std::mutex> lock(_lock);
+        return _fragment_map.size();
+    });
 }
 
 FragmentMgr::~FragmentMgr() {

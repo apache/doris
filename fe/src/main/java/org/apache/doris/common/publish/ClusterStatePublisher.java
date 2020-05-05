@@ -19,6 +19,7 @@ package org.apache.doris.common.publish;
 
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.BackendService;
@@ -34,14 +35,13 @@ import org.apache.thrift.TException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 // This class intend to publish the state of cluster to backends.
 public class ClusterStatePublisher {
     private static final Logger LOG = LogManager.getLogger(ClusterStatePublisher.class);
     private static ClusterStatePublisher INSTANCE;
 
-    private ExecutorService executor = Executors.newFixedThreadPool(5);
+    private ExecutorService executor = ThreadPoolManager.newDaemonFixedThreadPool(5, 256, "cluster-state-publisher");
 
     private SystemInfoService clusterInfoService;
 

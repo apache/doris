@@ -34,7 +34,7 @@ import org.apache.doris.thrift.THashJoinNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -220,12 +220,12 @@ public class HashJoinNode extends PlanNode {
 
     @Override
     protected String debugString() {
-        return Objects.toStringHelper(this).add("eqJoinConjuncts",
+        return MoreObjects.toStringHelper(this).add("eqJoinConjuncts",
           eqJoinConjunctsDebugString()).addValue(super.debugString()).toString();
     }
 
     private String eqJoinConjunctsDebugString() {
-        Objects.ToStringHelper helper = Objects.toStringHelper(this);
+        MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         for (BinaryPredicate expr : eqJoinConjuncts) {
             helper.add("lhs", expr.getChild(0)).add("rhs", expr.getChild(1));
         }

@@ -123,6 +123,7 @@ public class Coordinator {
     // status or to CANCELLED, if Cancel() is called.
     Status queryStatus = new Status();
 
+    // save of related backends of this query
     Map<TNetworkAddress, Long> addressToBackendID = Maps.newHashMap();
 
     private ImmutableMap<Long, Backend> idToBackend = ImmutableMap.of();
@@ -410,7 +411,9 @@ public class Coordinator {
             this.queryOptions.setIs_report_success(true);
             deltaUrls = Lists.newArrayList();
             loadCounters = Maps.newHashMap();
-            Catalog.getCurrentCatalog().getLoadManager().initJobScannedRows(jobId, queryId, instanceIds);
+            List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
+            Catalog.getCurrentCatalog().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
+                    relatedBackendIds);
         }
 
         // to keep things simple, make async Cancel() calls wait until plan fragment
@@ -470,7 +473,6 @@ public class Coordinator {
 
                     backendId++;
                 }
-
                 for (Pair<BackendExecState, Future<PExecPlanFragmentResult>> pair : futures) {
                     TStatusCode code = TStatusCode.INTERNAL_ERROR;
                     String errMsg = null;
@@ -1094,7 +1096,7 @@ public class Coordinator {
         }
     }
 
-    //To ensure the same bucketSeq tablet to the same execHostPort
+    // To ensure the same bucketSeq tablet to the same execHostPort
     private void computeScanRangeAssignmentByColocate(
             final OlapScanNode scanNode,
             FragmentScanRangeAssignment assignment) throws Exception {
@@ -1226,8 +1228,9 @@ public class Coordinator {
         }
 
         if (params.isSetLoaded_rows()) {
-            Catalog.getCurrentCatalog().getLoadManager().updateJobScannedRows(
-                    jobId, params.query_id, params.fragment_instance_id, params.loaded_rows);
+            Catalog.getCurrentCatalog().getLoadManager().updateJobPrgress(
+                    jobId, params.backend_id, params.query_id, params.fragment_instance_id, params.loaded_rows,
+                    params.done);
         }
 
         return;

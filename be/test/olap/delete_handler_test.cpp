@@ -32,8 +32,8 @@
 #include "olap/push_handler.h"
 #include "olap/utils.h"
 #include "olap/options.h"
-#include "util/logging.h"
 #include "util/file_utils.h"
+#include "util/logging.h"
 
 using namespace std;
 using namespace doris;

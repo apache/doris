@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -95,6 +96,33 @@ public abstract class Predicate extends Expr {
         return (expr instanceof BinaryPredicate)
                 && ((BinaryPredicate) expr).getOp().isEquivalence();
     }
+
+    public static boolean canPushDownPredicate(Expr expr) {
+        if (!(expr instanceof Predicate)) {
+            return false;
+        }
+
+        if (((Predicate) expr).isSingleColumnPredicate(null, null)) {
+            if (expr instanceof BinaryPredicate) {
+                BinaryPredicate binPredicate = (BinaryPredicate) expr;
+                Expr right = binPredicate.getChild(1);
+
+                // because isSingleColumnPredicate
+                Preconditions.checkState(right != null);
+                Preconditions.checkState(right.isConstant());
+
+                return right instanceof LiteralExpr;
+            }
+
+            if (expr instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) expr;
+                return inPredicate.isLiteralChildren();
+            }
+        }
+
+        return false;
+    }
+
 
     /**
      * If predicate is of the form "<slotref> = <slotref>", returns both SlotRefs,

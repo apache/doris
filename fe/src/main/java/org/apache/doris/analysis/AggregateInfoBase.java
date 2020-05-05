@@ -17,18 +17,19 @@
 
 package org.apache.doris.analysis;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.Type;
+
+import com.google.common.base.MoreObjects;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.google.common.base.Objects;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Base class for AggregateInfo and AnalyticInfo containing the intermediate and output
@@ -213,7 +214,7 @@ public abstract class AggregateInfoBase {
 
     public String debugString() {
         StringBuilder out = new StringBuilder();
-        out.append(Objects.toStringHelper(this)
+        out.append(MoreObjects.toStringHelper(this)
                 .add("grouping_exprs", Expr.debugString(groupingExprs_))
                 .add("aggregate_exprs", Expr.debugString(aggregateExprs_))
                 .add("intermediate_tuple", (intermediateTupleDesc_ == null)

@@ -42,7 +42,7 @@ OLAPStatus EngineStorageMigrationTask::_storage_medium_migrate(
     LOG(INFO) << "begin to process storage media migrate. "
               << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash
               << ", dest_storage_medium=" << storage_medium;
-    DorisMetrics::storage_migrate_requests_total.increment(1);
+    DorisMetrics::instance()->storage_migrate_requests_total.increment(1);
 
     OLAPStatus res = OLAP_SUCCESS;
     TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, schema_hash);

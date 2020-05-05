@@ -88,7 +88,8 @@ public class InsertStmt extends DdlStmt {
 
     private final TableName tblName;
     private final PartitionNames targetPartitionNames;
-    // parsed from targetPartitionNames. empty means no partition specified
+    // parsed from targetPartitionNames.
+    // if targetPartitionNames is not set, add all formal partitions' id of the table into it
     private List<Long> targetPartitionIds = Lists.newArrayList();
     private final List<String> targetColumnNames;
     private QueryStmt queryStmt;
@@ -333,6 +334,10 @@ public class InsertStmt extends DdlStmt {
                                 ErrorCode.ERR_UNKNOWN_PARTITION, partName, targetTable.getName());
                     }
                     targetPartitionIds.add(part.getId());
+                }
+            } else {
+                for (Partition partition : olapTable.getPartitions()) {
+                    targetPartitionIds.add(partition.getId());
                 }
             }
             // need a descriptor

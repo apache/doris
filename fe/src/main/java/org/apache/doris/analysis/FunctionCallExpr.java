@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -194,7 +195,7 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     public String debugString() {
-        return Objects.toStringHelper(this)/*.add("op", aggOp)*/.add("name", fnName).add("isStar",
+        return MoreObjects.toStringHelper(this)/*.add("op", aggOp)*/.add("name", fnName).add("isStar",
                 fnParams.isStar()).add("isDistinct", fnParams.isDistinct()).addValue(
                 super.debugString()).toString();
     }

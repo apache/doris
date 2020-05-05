@@ -26,10 +26,6 @@
 
 namespace doris {
 class UniqueRowsetIdGeneratorTest : public testing::Test {
-public:
-    UniqueRowsetIdGeneratorTest() { }
-    virtual ~UniqueRowsetIdGeneratorTest() {
-    }
 };
 
 TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {

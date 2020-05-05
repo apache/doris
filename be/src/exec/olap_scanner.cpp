@@ -477,8 +477,8 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
     COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
 
-    DorisMetrics::query_scan_bytes.increment(_compressed_bytes_read);
-    DorisMetrics::query_scan_rows.increment(_raw_rows_read);
+    DorisMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
+    DorisMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
 
     _has_update_counter = true;
 }

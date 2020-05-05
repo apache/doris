@@ -58,6 +58,7 @@ protected:
         system("mkdir -p ./test_run/output/");
         system("pwd");
         system("cp -r ./be/test/util/test_data/ ./test_run/.");
+
         init();
     }
     virtual void TearDown() {

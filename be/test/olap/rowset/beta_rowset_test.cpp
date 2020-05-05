@@ -34,8 +34,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
-#include "util/slice.h"
 #include "util/file_utils.h"
+#include "util/slice.h"
 
 using std::string;
 

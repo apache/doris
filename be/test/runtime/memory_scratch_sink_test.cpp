@@ -81,6 +81,7 @@ public:
         system("mkdir -p ./test_run/output/");
         system("pwd");
         system("cp -r ./be/test/runtime/test_data/ ./test_run/.");
+
         init();
     }
 

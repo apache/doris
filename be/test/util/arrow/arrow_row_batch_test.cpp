@@ -38,10 +38,6 @@
 namespace doris {
 
 class ArrowRowBatchTest : public testing::Test {
-public:
-    ArrowRowBatchTest() { }
-    virtual ~ArrowRowBatchTest() {
-    }
 };
 
 std::string test_str() {
