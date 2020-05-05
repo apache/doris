@@ -29,17 +29,13 @@
 
 namespace doris {
 
-using TagVector = __m128i;
-
 struct alignas(64) HashChunk {
     static const uint32_t CAPACITY = 12;
     uint8_t tags[12];
     std::atomic<uint32_t> size;
     uint32_t values[12];
 
-    TagVector* tagVector() { return reinterpret_cast<TagVector*>(tags); }
-
-    const std::string dump() const {
+    const std::string debug_string() const {
         std::string ret;
         StringPrintf("[");
         for (uint32_t i = 0; i < std::min((uint32_t)size, (uint32_t)12); i++) {
@@ -94,7 +90,7 @@ uint64_t HashIndex::find(uint64_t key_hash, std::vector<uint32_t>* entries) cons
     while (true) {
         HashChunk& chunk = _chunks[pos];
         uint32_t sz = chunk.size;
-        auto tags = _mm_load_si128(chunk.tagVector());
+        auto tags = _mm_load_si128(reinterpret_cast<__m128i*>(chunk.tags));
         auto eqs = _mm_cmpeq_epi8(tags, tests);
         uint32_t mask = _mm_movemask_epi8(eqs) & 0xfff;
         while (mask != 0) {
