@@ -38,7 +38,7 @@ TEST(HashIndex, findset) {
     for (size_t i = 0; i < sz * 2; i += 2) {
         uint64_t keyHash = HashCode(i);
         entries.clear();
-        uint64_t slot = hi.find(keyHash, entries);
+        uint64_t slot = hi.find(keyHash, &entries);
         bool found = false;
         for (auto& e : entries) {
             uint64_t keyHashVerify = HashCode(e);
@@ -58,7 +58,7 @@ TEST(HashIndex, findset) {
     for (size_t i = 0; i < sz * 2; i += 2) {
         uint64_t keyHash = HashCode(i);
         entries.clear();
-        hi.find(keyHash, entries);
+        hi.find(keyHash, &entries);
         uint64_t fslot = HashIndex::npos;
         for (auto& e : entries) {
             uint64_t keyHashVerify = HashCode(e);

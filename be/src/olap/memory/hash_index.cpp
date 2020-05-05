@@ -17,8 +17,10 @@
 
 #include "olap/memory/hash_index.h"
 
-#include <emmintrin.h>
 #include <stdio.h>
+#ifdef __SSE2__
+#include <emmintrin.h>
+#endif
 
 #include <algorithm>
 #include <vector>
@@ -87,6 +89,7 @@ uint64_t HashIndex::find(uint64_t key_hash, std::vector<uint32_t>* entries) cons
     }
     uint64_t pos = (key_hash >> 8) & _chunk_mask;
     uint64_t orig_pos = pos;
+#ifdef __SSE2__
     auto tests = _mm_set1_epi8(static_cast<uint8_t>(tag));
     while (true) {
         HashChunk& chunk = _chunks[pos];
@@ -99,6 +102,17 @@ uint64_t HashIndex::find(uint64_t key_hash, std::vector<uint32_t>* entries) cons
             mask &= (mask - 1);
             entries->emplace_back(chunk.values[i]);
         }
+#else
+    // TODO: use NEON on arm platform
+    while (true) {
+        HashChunk& chunk = _chunks[pos];
+        uint32_t sz = chunk.size;
+        for (uint32_t i = 0; i < sz; i++) {
+            if (chunk.tags[i] == (uint8_t)tag) {
+                entries->emplace_back(chunk.values[i]);
+            }
+        }
+#endif
         if (sz == HashChunk::CAPACITY) {
             uint64_t step = tag * 2 + 1;
             pos = (pos + step) & _chunk_mask;
