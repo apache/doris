@@ -928,6 +928,14 @@ public class SingleNodePlanner {
                 if (!inPredicate.isLiteralChildren() || inPredicate.isNotIn()) {
                     continue;
                 }
+                if ((inPredicate.getChild(0) instanceof LiteralExpr)
+                        || (inPredicate.getChild(0) instanceof CastExpr
+                                && inPredicate.getChild(0).getChild(0) instanceof LiteralExpr)) {
+                    // If child(0) of the in predicate is a constant expression,
+                    // then other children of in predicate should not be used as a condition for partition prune.
+                    // Such as "where  'Hi' in ('Hi', 'hello') and ... "
+                    continue;
+                }
                 if (null == partitionColumnFilter) {
                     partitionColumnFilter = new PartitionColumnFilter();
                 }
