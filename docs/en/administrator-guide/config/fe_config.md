@@ -1,7 +1,7 @@
 ---
 {
     "title": "FE Configuration",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 

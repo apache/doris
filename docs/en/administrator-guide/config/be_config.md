@@ -1,7 +1,7 @@
 ---
 {
     "title": "BE Configuration",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
