@@ -569,7 +569,7 @@ build_arrow() {
 # s2
 build_s2() {
     check_if_source_exist $S2_SOURCE
-    cd $TP_SOURCE_DIR/s2geometry-0.9.0
+    cd $TP_SOURCE_DIR/$S2_SOURCE
     mkdir build -p && cd build
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3" \
@@ -639,7 +639,7 @@ build_bitshuffle() {
 # croaring bitmap
 build_croaringbitmap() {
     check_if_source_exist $CROARINGBITMAP_SOURCE
-    cd $TP_SOURCE_DIR/CRoaring-0.2.60
+    cd $TP_SOURCE_DIR/$CROARINGBITMAP_SOURCE
     mkdir build -p && cd build
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3" \
@@ -653,7 +653,7 @@ build_croaringbitmap() {
 #orc
 build_orc() {
     check_if_source_exist $ORC_SOURCE
-    cd $TP_SOURCE_DIR/orc-1.5.8
+    cd $TP_SOURCE_DIR/$ORC_SOURCE
     mkdir build -p && cd build
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3 -Wno-array-bounds" \
@@ -674,7 +674,7 @@ build_orc() {
 #cctz
 build_cctz() {
     check_if_source_exist $CCTZ_SOURCE
-    cd $TP_SOURCE_DIR/cctz-2.3
+    cd $TP_SOURCE_DIR/$CCTZ_SOURCE
     export PREFIX=$TP_INSTALL_DIR
     make -j$PARALLEL && make install
 }
