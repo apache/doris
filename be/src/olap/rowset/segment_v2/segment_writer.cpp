@@ -48,8 +48,9 @@ SegmentWriter::SegmentWriter(fs::WritableBlock* wblock,
 
 SegmentWriter::~SegmentWriter() = default;
 
-Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
+Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))) {
     uint32_t column_id = 0;
+    _column_writers.reserve(_tablet_schema->columns().size());
     for (auto& column : _tablet_schema->columns()) {
         std::unique_ptr<Field> field(FieldFactory::create(column));
         DCHECK(field.get() != nullptr);
@@ -66,15 +67,9 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec) {
         opts.meta->set_is_nullable(column.is_nullable());
 
         // now we create zone map for key columns
-        if (column.is_key()) {
-            opts.need_zone_map = true;
-        }
-        if (column.is_bf_column()) {
-            opts.need_bloom_filter = true;
-        }
-        if (column.has_bitmap_index()) {
-            opts.need_bitmap_index = true;
-        }
+        opts.need_zone_map = column.is_key();
+        opts.need_bloom_filter = column.is_bf_column();
+        opts.need_bitmap_index = column.has_bitmap_index();
 
         std::unique_ptr<ColumnWriter> writer(
                 new ColumnWriter(opts, std::move(field), _wblock));
