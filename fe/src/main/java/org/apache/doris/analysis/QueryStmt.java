@@ -478,8 +478,8 @@ public abstract class QueryStmt extends StatementBase {
         return limitElement.getOffset();
     }
 
-    public void setAssertNumRowsElement(int desiredNumOfRows) {
-        this.assertNumRowsElement = new AssertNumRowsElement(desiredNumOfRows, toSql());
+    public void setAssertNumRowsElement(int desiredNumOfRows, AssertNumRowsElement.Assertion assertion) {
+        this.assertNumRowsElement = new AssertNumRowsElement(desiredNumOfRows, toSql(), assertion);
     }
 
     public AssertNumRowsElement getAssertNumRowsElement() {

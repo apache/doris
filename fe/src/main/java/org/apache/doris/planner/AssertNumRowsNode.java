@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AssertNumRowsElement;
 import org.apache.doris.thrift.TAssertNumRowsNode;
+import org.apache.doris.thrift.TAssertion;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -33,11 +34,13 @@ public class AssertNumRowsNode extends PlanNode {
 
     private long desiredNumOfRows;
     private String subqueryString;
+    private AssertNumRowsElement.Assertion assertion;
 
     public AssertNumRowsNode(PlanNodeId id, PlanNode input, AssertNumRowsElement assertNumRowsElement) {
         super(id, "ASSERT NUMBER OF ROWS");
         this.desiredNumOfRows = assertNumRowsElement.getDesiredNumOfRows();
         this.subqueryString = assertNumRowsElement.getSubqueryString();
+        this.assertion = assertNumRowsElement.getAssertion();
         this.children.add(input);
         this.tupleIds = input.getTupleIds();
         this.tblRefIds = input.getTblRefIds();
@@ -47,8 +50,8 @@ public class AssertNumRowsNode extends PlanNode {
     @Override
     protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder()
-                .append(prefix + "assert number of rows: " )
-                .append(desiredNumOfRows + "\n");
+                .append(prefix + "assert number of rows: ").append(desiredNumOfRows).append(" assertion: ")
+                .append(assertion + "\n");
         return output.toString();
     }
 
@@ -58,5 +61,6 @@ public class AssertNumRowsNode extends PlanNode {
         msg.assert_num_rows_node = new TAssertNumRowsNode();
         msg.assert_num_rows_node.setDesired_num_rows(desiredNumOfRows);
         msg.assert_num_rows_node.setSubquery_string(subqueryString);
+        msg.assert_num_rows_node.setAssertion(assertion.toThrift());
     }
 }
