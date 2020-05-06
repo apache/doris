@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -186,7 +185,6 @@ public class GlobalTransactionMgr implements Writable {
 
     // for http cancel stream load api
     public void abortTransaction(Long dbId, String label, String reason) throws UserException {
-        Preconditions.checkNotNull(label);
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
         dbTransactionMgr.abortTransaction(label, reason);
     }
@@ -302,7 +300,6 @@ public class GlobalTransactionMgr implements Writable {
     
     // get show info of a specified txnId
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
-        List<List<String>> infos = new ArrayList<List<String>>();
         DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
         return dbTransactionMgr.getSingleTranInfo(dbId, txnId);
     }

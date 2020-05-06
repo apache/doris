@@ -847,6 +847,7 @@ public class DatabaseTransactionMgr {
     }
 
     public void abortTransaction(String label, String reason) throws UserException {
+        Preconditions.checkNotNull(label);
         long transactionId = -1;
         readLock();
         try {
