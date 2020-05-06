@@ -18,7 +18,7 @@ under the License.
 -->
 
 <template>
-  <ParentLayout>
+  <ParentLayout :key="renderIndex">
     <Content></Content>
     <footer slot="page-bottom">
       <CustomFooter />
@@ -28,11 +28,30 @@ under the License.
 <script>
 import ParentLayout from "@parent-theme/layouts/Layout.vue";
 import CustomFooter from "@theme/components/Footer.vue";
+import axios from "axios"
 
 export default {
   components: {
     ParentLayout,
     CustomFooter
-  } 
+  },
+  data: () => ({ renderIndex: 0 }), 
+  mounted() {
+    // fetching versions from asf-site repo
+    axios
+      .get("/versions.json")
+      .then(res => {
+        Object.keys(this.$site.themeConfig.locales).forEach(k => {
+          this.$site.themeConfig.locales[k].nav = this.$site.themeConfig.locales[k].nav.concat(
+            res.data[k.replace(/\//gi, "")] || []
+          )
+        })
+        this.renderIndex = 1
+      })
+      .catch(err => {
+        this.renderIndex = 1
+        console.log(err)
+      })
+  }
 };
 </script>

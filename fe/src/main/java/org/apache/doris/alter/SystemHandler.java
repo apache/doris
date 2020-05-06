@@ -102,7 +102,7 @@ public class SystemHandler extends AlterHandler {
             }
 
             List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(beId);
-            if (backendTabletIds.isEmpty()) {
+            if (backendTabletIds.isEmpty() && Config.drop_backend_after_decommission) {
                 try {
                     systemInfoService.dropBackend(beId);
                     LOG.info("no tablet on decommission backend {}, drop it", beId);

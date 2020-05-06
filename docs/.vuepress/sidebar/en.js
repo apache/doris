@@ -95,7 +95,10 @@ module.exports = [
       {
         title: "Configuration",
         directoryPath: "config/",
-        children: ["fe_config"],
+        children: [
+          "fe_config",
+          "be_config",
+        ],
         sidebarDepth: 1,
       },
       "backup-restore",
@@ -427,7 +430,7 @@ module.exports = [
     children: ["debug-tool", "format-code"],
   },
   {
-    title: "Apache Commnity",
+    title: "Apache Community",
     directoryPath: "community/",
     children: [
       "gitter",
