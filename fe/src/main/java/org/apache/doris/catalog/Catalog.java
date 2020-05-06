@@ -4203,7 +4203,7 @@ public class Catalog {
         List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMedium(replicationNum,
                 true, true, clusterName, storageMedium);
         if (chosenBackendIds == null) {
-            throw new DdlException("Failed to find enough host in all backends. need: " + replicationNum);
+            throw new DdlException("Failed to find enough host in all backends (storage medium is " + storageMedium + "). need: " + replicationNum);
         }
         return chosenBackendIds;
     }

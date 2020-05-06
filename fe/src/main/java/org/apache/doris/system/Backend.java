@@ -328,7 +328,7 @@ public class Backend implements Writable {
 
     public boolean checkDiskExceedLimitByStorageMedium(TStorageMedium storageMedium) {
         if (getDiskNumByStorageMedium(storageMedium) <= 0) {
-            return false;
+            return true;
         }
         ImmutableMap<String, DiskInfo> disks = disksRef.get();
         boolean exceedLimit = false;
