@@ -28,7 +28,9 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Map;
 
-// show proc "/cluster_balance/cluster_load_stat";
+/**
+  * show proc "/cluster_balance/cluster_load_stat";
+  */
 public class ClusterLoadStatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("BeId").add("Cluster").add("Available").add("UsedCapacity").add("Capacity")
@@ -50,11 +52,9 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
 
         statMap = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap();
 
-        statMap.values().stream().forEach(t -> {
+        statMap.values().forEach(t -> {
             List<List<String>> statistics = t.getClusterStatistic(medium);
-            statistics.stream().forEach(v -> {
-                result.addRow(v);
-            });
+            statistics.forEach(result::addRow);
         });
 
         return result;

@@ -112,7 +112,7 @@ public class BackendsProcDir implements ProcDirInterface {
             }
 
             watch.start();
-            Integer tabletNum = Catalog.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
+            int tabletNum = Catalog.getCurrentInvertedIndex().getTabletNumByBackendId(backendId);
             watch.stop();
             List<Comparable> backendInfo = Lists.newArrayList();
             backendInfo.add(String.valueOf(backendId));
@@ -139,7 +139,7 @@ public class BackendsProcDir implements ProcDirInterface {
                 backendInfo.add("false");
                 backendInfo.add("false");
             }
-            backendInfo.add(tabletNum.toString());
+            backendInfo.add(Integer.toString(tabletNum));
 
             // capacity
             // data used
@@ -156,7 +156,7 @@ public class BackendsProcDir implements ProcDirInterface {
             backendInfo.add(DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalCapacity.first) + " " + totalCapacity.second);
 
             // used percent
-            double used = 0.0;
+            double used;
             if (totalB <= 0) {
                 used = 0.0;
             } else {
@@ -180,7 +180,7 @@ public class BackendsProcDir implements ProcDirInterface {
         comparableBackendInfos.sort(comparator);
 
         for (List<Comparable> backendInfo : comparableBackendInfos) {
-            List<String> oneInfo = new ArrayList<String>(backendInfo.size());
+            List<String> oneInfo = new ArrayList<>(backendInfo.size());
             for (Comparable element : backendInfo) {
                 oneInfo.add(element.toString());
             }

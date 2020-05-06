@@ -2947,11 +2947,11 @@ public class Catalog {
         DistributionDesc distributionDesc = addPartitionClause.getDistributionDesc();
         boolean isTempPartition = addPartitionClause.isTempPartition();
 
-        DistributionInfo distributionInfo = null;
-        OlapTable olapTable = null;
+        DistributionInfo distributionInfo;
+        OlapTable olapTable;
 
         Map<Long, MaterializedIndexMeta> indexIdToMeta;
-        Set<String> bfColumns = null;
+        Set<String> bfColumns;
 
         String partitionName = singlePartitionDesc.getPartitionName();
 
@@ -3056,7 +3056,7 @@ public class Catalog {
         DataProperty dataProperty = singlePartitionDesc.getPartitionDataProperty();
         Preconditions.checkNotNull(dataProperty);
 
-        Set<Long> tabletIdSet = new HashSet<Long>();
+        Set<Long> tabletIdSet = new HashSet<>();
         try {
             long partitionId = getNextId();
             Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
@@ -3393,7 +3393,7 @@ public class Catalog {
         Partition partition = new Partition(partitionId, partitionName, baseIndex, distributionInfo);
 
         // add to index map
-        Map<Long, MaterializedIndex> indexMap = new HashMap<Long, MaterializedIndex>();
+        Map<Long, MaterializedIndex> indexMap = new HashMap<>();
         indexMap.put(baseIndexId, baseIndex);
 
         // create rollup index if has
@@ -3424,15 +3424,15 @@ public class Catalog {
             createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, versionHash,
                     replicationNum, tabletMeta, tabletIdSet);
 
-            boolean ok = false;
-            String errMsg = null;
+            boolean ok;
+            String errMsg;
 
             // add create replica task for olap
             short shortKeyColumnCount = indexMeta.getShortKeyColumnCount();
             TStorageType storageType = indexMeta.getStorageType();
             List<Column> schema = indexMeta.getSchema();
             int totalTaskNum = index.getTablets().size() * replicationNum;
-            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<Long, Long>(totalTaskNum);
+            MarkedCountDownLatch<Long, Long> countDownLatch = new MarkedCountDownLatch<>(totalTaskNum);
             AgentBatchTask batchTask = new AgentBatchTask();
             for (Tablet tablet : index.getTablets()) {
                 long tabletId = tablet.getId();
@@ -3506,7 +3506,7 @@ public class Catalog {
 
         // create partition info
         PartitionDesc partitionDesc = stmt.getPartitionDesc();
-        PartitionInfo partitionInfo = null;
+        PartitionInfo partitionInfo;
         Map<String, Long> partitionNameToId = Maps.newHashMap();
         if (partitionDesc != null) {
             // gen partition id first
@@ -3560,8 +3560,8 @@ public class Catalog {
         Map<String, String> properties = stmt.getProperties();
 
         // analyze bloom filter columns
-        Set<String> bfColumns = null;
-        double bfFpp = 0;
+        Set<String> bfColumns;
+        double bfFpp;
         try {
             bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(properties, baseSchema);
             if (bfColumns != null && bfColumns.isEmpty()) {
@@ -3602,7 +3602,7 @@ public class Catalog {
 
             // use table name as this single partition name
             long partitionId = partitionNameToId.get(tableName);
-            DataProperty dataProperty = null;
+            DataProperty dataProperty;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
                         DataProperty.DEFAULT_DATA_PROPERTY);
@@ -3638,7 +3638,7 @@ public class Catalog {
         }
 
         // get base index storage type. default is COLUMN
-        TStorageType baseIndexStorageType = null;
+        TStorageType baseIndexStorageType;
         try {
             baseIndexStorageType = PropertyAnalyzer.analyzeStorageType(properties);
         } catch (AnalysisException e) {
@@ -3646,7 +3646,7 @@ public class Catalog {
         }
         Preconditions.checkNotNull(baseIndexStorageType);
         // set base index meta
-        int schemaVersion = 0;
+        int schemaVersion;
         try {
             schemaVersion = PropertyAnalyzer.analyzeSchemaVersion(properties);
         } catch (AnalysisException e) {
@@ -3662,7 +3662,7 @@ public class Catalog {
             Long baseRollupIndex = olapTable.getIndexIdByName(tableName);
 
             // get storage type for rollup index
-            TStorageType rollupIndexStorageType = null;
+            TStorageType rollupIndexStorageType;
             try {
                 rollupIndexStorageType = PropertyAnalyzer.analyzeStorageType(addRollupClause.getProperties());
             } catch (AnalysisException e) {
@@ -3680,7 +3680,7 @@ public class Catalog {
         }
 
         // analyze version info
-        Pair<Long, Long> versionInfo = null;
+        Pair<Long, Long> versionInfo;
         try {
             versionInfo = PropertyAnalyzer.analyzeVersionInfo(properties);
         } catch (AnalysisException e) {
@@ -3689,7 +3689,7 @@ public class Catalog {
         Preconditions.checkNotNull(versionInfo);
 
         // get storage format
-        TStorageFormat storageFormat = TStorageFormat.DEFAULT; // default means it's up to BE's config
+        TStorageFormat storageFormat; // default means it's up to BE's config
         try {
             storageFormat = PropertyAnalyzer.analyzeStorageFormat(properties);
         } catch (AnalysisException e) {
@@ -3699,19 +3699,18 @@ public class Catalog {
 
         // a set to record every new tablet created when create table
         // if failed in any step, use this set to do clear things
-        Set<Long> tabletIdSet = new HashSet<Long>();
+        Set<Long> tabletIdSet = new HashSet<>();
 
         // create partition
         try {
             if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
                 // this is a 1-level partitioned table
                 // use table name as partition name
-                String partitionName = tableName;
-                long partitionId = partitionNameToId.get(partitionName);
+                long partitionId = partitionNameToId.get(tableName);
                 // create partition
                 Partition partition = createPartitionWithIndices(db.getClusterName(), db.getId(),
                         olapTable.getId(), olapTable.getBaseIndexId(),
-                        partitionId, partitionName,
+                        partitionId, tableName,
                         olapTable.getIndexIdToMeta(),
                         keysType,
                         distributionInfo,
@@ -3783,7 +3782,6 @@ public class Catalog {
 
             throw e;
         }
-        return;
     }
 
     private void createMysqlTable(Database db, CreateTableStmt stmt) throws DdlException {
@@ -4174,7 +4172,7 @@ public class Catalog {
                 if (chooseBackendsArbitrary) {
                     // This is the first colocate table in the group, or just a normal table,
                     // randomly choose backends
-                    chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName);
+                    chosenBackendIds = chosenBackendIdBySeq(replicationNum, clusterName, tabletMeta.getStorageMedium());
                     backendsPerBucketSeq.add(chosenBackendIds);
                 } else {
                     // get backends from existing backend sequence
@@ -4191,7 +4189,7 @@ public class Catalog {
                 Preconditions.checkState(chosenBackendIds.size() == replicationNum, chosenBackendIds.size() + " vs. "+ replicationNum);
             }
 
-            if (backendsPerBucketSeq != null && groupId != null) {
+            if (groupId != null) {
                 colocateIndex.addBackendsPerBucketSeq(groupId, backendsPerBucketSeq);
             }
 
@@ -4201,8 +4199,9 @@ public class Catalog {
     }
 
     // create replicas for tablet with random chosen backends
-    private List<Long> chosenBackendIdBySeq(int replicationNum, String clusterName) throws DdlException {
-        List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIds(replicationNum, true, true, clusterName);
+    private List<Long> chosenBackendIdBySeq(int replicationNum, String clusterName, TStorageMedium storageMedium) throws DdlException {
+        List<Long> chosenBackendIds = Catalog.getCurrentSystemInfo().seqChooseBackendIdsByStorageMedium(replicationNum,
+                true, true, clusterName, storageMedium);
         if (chosenBackendIds == null) {
             throw new DdlException("Failed to find enough host in all backends. need: " + replicationNum);
         }
@@ -4220,7 +4219,7 @@ public class Catalog {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
 
-        Table table = null;
+        Table table;
         db.writeLock();
         try {
             table = db.getTable(tableName);

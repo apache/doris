@@ -19,6 +19,7 @@ package org.apache.doris.system;
 
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.FeMetaVersion;
@@ -31,6 +32,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -105,9 +107,9 @@ public class Backend implements Writable {
         this.bePort = new AtomicInteger();
         this.httpPort = new AtomicInteger();
         this.beRpcPort = new AtomicInteger();
-        this.disksRef = new AtomicReference<ImmutableMap<String, DiskInfo>>(ImmutableMap.<String, DiskInfo> of());
+        this.disksRef = new AtomicReference<>(ImmutableMap.of());
 
-        this.ownerClusterName = new AtomicReference<String>("");
+        this.ownerClusterName = new AtomicReference<>("");
         this.backendState = new AtomicInteger(BackendState.free.ordinal());
         
         this.decommissionType = new AtomicInteger(DecommissionType.SystemDecommission.ordinal());
@@ -123,7 +125,7 @@ public class Backend implements Writable {
         this.beRpcPort = new AtomicInteger(-1);
         this.lastUpdateMs = new AtomicLong(-1L);
         this.lastStartTime = new AtomicLong(-1L);
-        this.disksRef = new AtomicReference<ImmutableMap<String, DiskInfo>>(ImmutableMap.<String, DiskInfo> of());
+        this.disksRef = new AtomicReference<>(ImmutableMap.of());
 
         this.isAlive = new AtomicBoolean(false);
         this.isDecommissioned = new AtomicBoolean(false);
@@ -295,7 +297,7 @@ public class Backend implements Writable {
     }
 
     public boolean hasPathHash() {
-        return disksRef.get().values().stream().allMatch(v -> v.hasPathHash());
+        return disksRef.get().values().stream().allMatch(DiskInfo::hasPathHash);
     }
 
     public long getTotalCapacityB() {
@@ -319,6 +321,25 @@ public class Backend implements Writable {
             }
         }
         return availableCapacityB;
+    }
+
+    private long getDiskNumByStorageMedium(TStorageMedium storageMedium) {
+        return disksRef.get().values().stream().filter(v -> v.getStorageMedium() == storageMedium).count();
+    }
+
+    public boolean checkDiskExceedLimitByStorageMedium(TStorageMedium storageMedium) {
+        if (getDiskNumByStorageMedium(storageMedium) <= 0) {
+            return false;
+        }
+        ImmutableMap<String, DiskInfo> disks = disksRef.get();
+        boolean exceedLimit = false;
+        for (DiskInfo diskInfo : disks.values()) {
+            if (diskInfo.getState() == DiskState.ONLINE && diskInfo.getStorageMedium() == storageMedium
+                    && diskInfo.exceedLimit(true)) {
+                exceedLimit = true;
+            }
+        }
+        return exceedLimit;
     }
 
     public long getDataUsedCapacityB() {

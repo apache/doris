@@ -100,7 +100,9 @@ public class DiskInfo implements Writable {
         return state;
     }
 
-    // return true if changed
+    /**
+      * return true if changed
+      */
     public boolean setState(DiskState state) {
         if (this.state != state) {
             this.state = state;
@@ -129,7 +131,7 @@ public class DiskInfo implements Writable {
         this.storageMedium = storageMedium;
     }
 
-    /*
+    /**
      * Check if this disk's capacity reach the limit. Return true if yes.
      * if floodStage is true, use floodStage threshold to check.
      *      floodStage threshold means a loosely limit, and we use 'AND' to give a more loosely limit.

@@ -764,7 +764,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int backup_job_default_timeout_ms = 86400 * 1000; // 1 day
     
-    /*
+    /**
      * 'storage_high_watermark_usage_percent' limit the max capacity usage percent of a Backend storage path.
      * 'storage_min_left_capacity_bytes' limit the minimum left capacity of a Backend storage path.
      * If both limitations are reached, this storage path can not be chose as tablet balance destination.
@@ -775,7 +775,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long storage_min_left_capacity_bytes = 2 * 1024 * 1024 * 1024; // 2G
 
-    /*
+    /**
      * If capacity of disk reach the 'storage_flood_stage_usage_percent' and 'storage_flood_stage_left_capacity_bytes',
      * the following operation will be rejected:
      * 1. load job

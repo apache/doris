@@ -53,13 +53,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/*
+/**
  * TabletSchedCtx contains all information which is created during tablet scheduler processing.
  */
 public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private static final Logger LOG = LogManager.getLogger(TabletSchedCtx.class);
     
-    /*
+    /**
      * SCHED_FAILED_COUNTER_THRESHOLD:
      *    threshold of times a tablet failed to be scheduled
      *    

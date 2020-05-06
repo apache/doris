@@ -113,7 +113,7 @@ public class Database extends MetaObject implements Writable {
         }
         this.rwLock = new ReentrantReadWriteLock(true);
         this.idToTable = new ConcurrentHashMap<>();
-        this.nameToTable = new HashMap<String, Table>();
+        this.nameToTable = new HashMap<>();
         this.dataQuotaBytes = FeConstants.default_db_data_quota_bytes;
         this.replicaQuotaSize = FeConstants.default_db_replica_quota_size;
         this.dbState = DbState.NORMAL;

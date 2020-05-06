@@ -55,7 +55,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
-/*
+/**
  * This class group tasks by backend 
  */
 public class AgentBatchTask implements Runnable {
@@ -65,7 +65,7 @@ public class AgentBatchTask implements Runnable {
     private Map<Long, List<AgentTask>> backendIdToTasks;
 
     public AgentBatchTask() {
-        this.backendIdToTasks = new HashMap<Long, List<AgentTask>>();
+        this.backendIdToTasks = new HashMap<>();
     }
 
     public AgentBatchTask(AgentTask singleTask) {
@@ -82,7 +82,7 @@ public class AgentBatchTask implements Runnable {
             List<AgentTask> tasks = backendIdToTasks.get(backendId);
             tasks.add(agentTask);
         } else {
-            List<AgentTask> tasks = new LinkedList<AgentTask>();
+            List<AgentTask> tasks = new LinkedList<>();
             tasks.add(agentTask);
             backendIdToTasks.put(backendId, tasks);
         }

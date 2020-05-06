@@ -825,11 +825,11 @@ public class RestoreJob extends AbstractJob {
 
         // indexes
         Map<String, Long> localIdxNameToId = localTbl.getIndexNameToId();
-        for (String localidxName : localIdxNameToId.keySet()) {
+        for (String localIdxName : localIdxNameToId.keySet()) {
             // set ids of indexes in remote partition to the local index ids
-            long remoteIdxId = remoteTbl.getIndexIdByName(localidxName);
+            long remoteIdxId = remoteTbl.getIndexIdByName(localIdxName);
             MaterializedIndex remoteIdx = remotePart.getIndex(remoteIdxId);
-            long localIdxId = localIdxNameToId.get(localidxName);
+            long localIdxId = localIdxNameToId.get(localIdxName);
             remoteIdx.setIdForRestore(localIdxId);
             if (localIdxId != localTbl.getBaseIndexId()) {
                 // not base table, reset
@@ -845,9 +845,9 @@ public class RestoreJob extends AbstractJob {
         // tablets
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
-            int remotetabletSize = remoteIdx.getTablets().size();
+            int remoteTabletSize = remoteIdx.getTablets().size();
             remoteIdx.clearTabletsForRestore();
-            for (int i = 0; i < remotetabletSize; i++) {
+            for (int i = 0; i < remoteTabletSize; i++) {
                 // generate new tablet id
                 long newTabletId = catalog.getNextId();
                 Tablet newTablet = new Tablet(newTabletId);

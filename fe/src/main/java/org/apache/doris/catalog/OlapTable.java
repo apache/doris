@@ -592,7 +592,7 @@ public class OlapTable extends Table {
         return dropPartition(-1, partitionName, true);
     }
 
-    /*
+    /**
      * A table may contain both formal and temporary partitions.
      * There are several methods to get the partition of a table.
      * Typically divided into two categories:
@@ -643,6 +643,7 @@ public class OlapTable extends Table {
      */
     
     // get partition by name, not including temp partitions
+    @Override
     public Partition getPartition(String partitionName) {
         return getPartition(partitionName, false);
     }
@@ -732,6 +733,7 @@ public class OlapTable extends Table {
         return false;
     }
 
+    @Override
     public TTableDescriptor toThrift() {
         TOlapTable tOlapTable = new TOlapTable(getName());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(id, TTableType.OLAP_TABLE,
@@ -930,6 +932,7 @@ public class OlapTable extends Table {
         tempPartitions.write(out);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -1073,6 +1076,7 @@ public class OlapTable extends Table {
         rebuildFullSchema();
     }
 
+    @Override
     public boolean equals(Table table) {
         if (this == table) {
             return true;
@@ -1130,7 +1134,7 @@ public class OlapTable extends Table {
         return copied;
     }
 
-    /*
+    /**
      * this method is currently used for truncating table(partitions).
      * the new partition has new id, so we need to change all 'id-related' members
      *
@@ -1358,7 +1362,7 @@ public class OlapTable extends Table {
         }
     }
 
-    /*
+    /**
      * replace partitions in 'partitionNames' with partitions in 'tempPartitionNames'.
      * If strictRange is true, the replaced ranges must be exactly same.
      * What is "exactly same"?

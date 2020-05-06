@@ -104,7 +104,7 @@ public class Replica implements Writable {
     // bad means this Replica is unrecoverable and we will delete it
     private boolean bad = false;
 
-    /*
+    /**
      * If set to true, with means this replica need to be repaired. explicitly.
      * This can happen when this replica is created by a balance clone task, and
      * when task finished, the version of this replica is behind the partition's visible version.
@@ -290,7 +290,8 @@ public class Replica implements Writable {
         this.lastSuccessVersionHash = lastSuccessVersionHash;
     }
 
-    /* last failed version:  LFV
+    /**
+     * last failed version:  LFV
      * last success version: LSV
      * version:              V
      * 
@@ -391,7 +392,7 @@ public class Replica implements Writable {
                 this.lastSuccessVersion, this.lastSuccessVersionHash, dataSize, rowCount);
     }
 
-    /*
+    /**
      * Check whether the replica's version catch up with the expected version.
      * If ignoreAlter is true, and state is ALTER, and replica's version is PARTITION_INIT_VERSION, just return true, ignore the version.
      *      This is for the case that when altering table, the newly created replica's version is PARTITION_INIT_VERSION,
@@ -505,6 +506,7 @@ public class Replica implements Writable {
         return replica;
     }
     
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;

@@ -150,7 +150,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setKeys_type(keysType.toThrift());
         tSchema.setStorage_type(storageType);
 
-        List<TColumn> tColumns = new ArrayList<TColumn>();
+        List<TColumn> tColumns = new ArrayList<>();
         for (Column column : columns) {
             TColumn tColumn = column.toThrift();
             // is bloom filter column
