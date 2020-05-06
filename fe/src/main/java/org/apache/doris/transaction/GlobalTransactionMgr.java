@@ -17,6 +17,7 @@
 
 package org.apache.doris.transaction;
 
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
