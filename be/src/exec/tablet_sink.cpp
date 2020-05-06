@@ -438,8 +438,6 @@ Status OlapTableSink::init(const TDataSink& t_sink) {
         _load_channel_timeout_s = config::streaming_load_rpc_max_alive_time_sec;
     }
 
-    _send_interval_ms = config::olap_table_sink_send_interval_ms;
-
     return Status::OK();
 }
 
@@ -931,7 +929,7 @@ void OlapTableSink::_send_batch_process() {
                          "consumer thread exit.";
             return;
         }
-        SleepFor(MonoDelta::FromMilliseconds(_send_interval_ms));
+        SleepFor(MonoDelta::FromMilliseconds(config::olap_table_sink_send_interval_ms));
     }
 }
 
