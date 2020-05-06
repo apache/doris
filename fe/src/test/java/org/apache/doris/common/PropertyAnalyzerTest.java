@@ -122,8 +122,8 @@ public class PropertyAnalyzerTest {
     public void testStorageMedium() throws AnalysisException {
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, "2020-05-01 00:00:00");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, "2030-05-01 00:00:00");
         DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals(1588262400, dataProperty.getCooldownTimeMs() / 1000);
+        Assert.assertEquals(1903795200, dataProperty.getCooldownTimeMs() / 1000);
     }
 }
