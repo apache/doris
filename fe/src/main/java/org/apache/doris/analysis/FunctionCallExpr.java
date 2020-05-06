@@ -616,10 +616,6 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(
                         "append_trailing_char_if_absent requires two parameter to be of type STRING: " + this.toSql());
             }
-            if (((StringLiteral) arg1).getValue().length() != 1) {
-                throw new AnalysisException("Second argument of function append_trailing_char_if_absent must be a " +
-                        "one-character string.");
-            }
         }
 
         if (isAggregateFunction()) {
