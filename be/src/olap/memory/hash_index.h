@@ -45,6 +45,22 @@ struct HashChunk;
 // writer need to do a copy-on-write, and make it's owner to link to the new
 // reference, while readers still reading the old reference.
 //
+// To add rowkeys into hash index, typical usage may look like:
+// vector<uint32_t> entries;
+// uint64_t hashcode = hashcode(rowkey)
+// uint64_t new_entry_pos = hashIndex.find(hashcode, &entries)
+// bool found = false;
+// for (auto rowid : entries) {
+//     if (rowkey == get_row_key(rowid)) {
+//          // found existing rowkey
+//          found = true;
+//          break;
+//     }
+// }
+// if (!found) {
+//     hashIndex.set(new_entry_pos, hashcode, new_row_id);
+// }
+//
 // Note: for more info, please refer to:
 // https://engineering.fb.com/developer-tools/f14/
 class HashIndex : public RefCountedThreadSafe<HashIndex> {
@@ -67,8 +83,8 @@ public:
     // add a value with the same key hash directly into this hash index.
     uint64_t find(uint64_t key_hash, std::vector<uint32_t>* entries) const;
 
-    // Set a value with hash key_hash, at a pre-found entry position
-    void set(uint64_t entry, uint64_t key_hash, uint32_t value);
+    // Set a value with hash key_hash, at a entry position returned by find
+    void set(uint64_t entry_pos, uint64_t key_hash, uint32_t value);
 
     // Add a value with hash key_hash
     bool add(uint64_t key_hash, uint32_t value);

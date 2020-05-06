@@ -79,20 +79,21 @@ HashIndex::~HashIndex() {
 }
 
 uint64_t HashIndex::find(uint64_t key_hash, std::vector<uint32_t>* entries) const {
-    uint64_t tag = key_hash & 0xff;
-    if (tag == 0) {
-        tag = 1;
-    }
+    uint64_t tag = std::max((uint64_t)1, key_hash & 0xff);
     uint64_t pos = (key_hash >> 8) & _chunk_mask;
     uint64_t orig_pos = pos;
 #ifdef __SSE2__
     auto tests = _mm_set1_epi8(static_cast<uint8_t>(tag));
     while (true) {
+        // get corresponding chunk
         HashChunk& chunk = _chunks[pos];
         uint32_t sz = chunk.size;
+        // load tags
         auto tags = _mm_load_si128(reinterpret_cast<__m128i*>(chunk.tags));
         auto eqs = _mm_cmpeq_epi8(tags, tests);
+        // check tag equality and store equal tag positions into masks
         uint32_t mask = _mm_movemask_epi8(eqs) & 0xfff;
+        // iterator over mask and put candidates into entries
         while (mask != 0) {
             uint32_t i = __builtin_ctz(mask);
             mask &= (mask - 1);
@@ -110,25 +111,25 @@ uint64_t HashIndex::find(uint64_t key_hash, std::vector<uint32_t>* entries) cons
         }
 #endif
         if (sz == HashChunk::CAPACITY) {
+            // this chunk is full, so there may be more candidates in other chunks
             uint64_t step = tag * 2 + 1;
             pos = (pos + step) & _chunk_mask;
             if (pos == orig_pos) {
                 return npos;
             }
         } else {
+            // return new entry position, so if key is not found, this entry position
+            //can be used to insert new key directly
             return (pos << 4) | sz;
         }
     }
 }
 
-void HashIndex::set(uint64_t slot, uint64_t key_hash, uint32_t value) {
-    uint64_t pos = slot >> 4;
-    uint64_t tpos = slot & 0xf;
+void HashIndex::set(uint64_t entry_pos, uint64_t key_hash, uint32_t value) {
+    uint64_t pos = entry_pos >> 4;
+    uint64_t tpos = entry_pos & 0xf;
     HashChunk& chunk = _chunks[pos];
-    uint64_t tag = key_hash & 0xff;
-    if (tag == 0) {
-        tag = 1;
-    }
+    uint64_t tag = std::max((uint64_t)1, key_hash & 0xff);
     chunk.tags[tpos] = tag;
     chunk.values[tpos] = value;
     if (tpos == chunk.size) {
@@ -138,10 +139,7 @@ void HashIndex::set(uint64_t slot, uint64_t key_hash, uint32_t value) {
 }
 
 bool HashIndex::add(uint64_t key_hash, uint32_t value) {
-    uint64_t tag = key_hash & 0xff;
-    if (tag == 0) {
-        tag = 1;
-    }
+    uint64_t tag = std::max((uint64_t)1, key_hash & 0xff);
     uint64_t pos = (key_hash >> 8) & _chunk_mask;
     uint64_t orig_pos = pos;
     while (true) {
