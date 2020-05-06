@@ -269,7 +269,7 @@ StringVal StringFunctions::append_trailing_char_if_absent(doris_udf::FunctionCon
         return str;
     }
 
-    StringVal result(context, str.len + trailing_char.len);
+    StringVal result(context, str.len + 1);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
