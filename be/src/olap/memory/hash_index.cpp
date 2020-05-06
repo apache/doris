@@ -119,7 +119,7 @@ uint64_t HashIndex::find(uint64_t key_hash, std::vector<uint32_t>* entries) cons
             }
         } else {
             // return new entry position, so if key is not found, this entry position
-            //can be used to insert new key directly
+            // can be used to insert new key directly
             return (pos << 4) | sz;
         }
     }
