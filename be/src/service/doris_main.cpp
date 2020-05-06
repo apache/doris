@@ -137,26 +137,6 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
-    auto it = paths.begin();
-    for (; it != paths.end();) {
-        if (!doris::FileUtils::check_exist(it->path)) {
-            if (doris::config::ignore_broken_disk) {
-                LOG(WARNING) << "opendir failed, path=" << it->path;
-                it = paths.erase(it);
-            } else {
-                LOG(FATAL) << "opendir failed, path=" << it->path;
-                exit(-1);
-            }
-        } else {
-            ++it;
-        }
-    }
-
-    if (paths.empty()) {
-        LOG(FATAL) << "All disks are broken, exit.";
-        exit(-1);
-    }
-
     // initilize libcurl here to avoid concurrent initialization
     auto curl_ret = curl_global_init(CURL_GLOBAL_ALL);
     if (curl_ret != 0) {
