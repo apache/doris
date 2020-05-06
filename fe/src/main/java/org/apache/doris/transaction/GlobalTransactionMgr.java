@@ -69,16 +69,16 @@ public class GlobalTransactionMgr implements Writable {
         return callbackFactory;
     }
 
-    public DatabaseTransactionMgr getDatabaseTransactioMgr(long dbId) {
+    public DatabaseTransactionMgr getDatabaseTransactioMgr(long dbId) throws AnalysisException {
         DatabaseTransactionMgr dbTransactionMgr = dbIdToDatabaseTransactionMgrs.get(dbId);
         if (dbTransactionMgr == null) {
-            throw new NullPointerException("databaseTransactionMgr[" + dbId + "] does not exist");
+            throw new AnalysisException("databaseTransactionMgr[" + dbId + "] does not exist");
         }
         return dbTransactionMgr;
     }
 
-    public void addDatabaseTransactionMgr(Long dbId, EditLog editLog) {
-        dbIdToDatabaseTransactionMgrs.putIfAbsent(dbId, new DatabaseTransactionMgr(dbId, catalog, idGenerator, editLog));
+    public void addDatabaseTransactionMgr(Long dbId) {
+        dbIdToDatabaseTransactionMgrs.putIfAbsent(dbId, new DatabaseTransactionMgr(dbId, catalog, idGenerator));
     }
 
     public void removeDatabaseTransactionMgr(Long dbId) {
@@ -124,8 +124,14 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public TransactionStatus getLabelState(long dbId, String label) {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
-        return dbTransactionMgr.getLabelState(label);
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
+            return dbTransactionMgr.getLabelState(label);
+        } catch (AnalysisException e) {
+            LOG.warn("Get transaction status by label " + label + " failed", e);
+            return null;
+        }
+
     }
 
     public void commitTransaction(long dbId, long transactionId, List<TabletCommitInfo> tabletCommitInfos)
@@ -217,8 +223,14 @@ public class GlobalTransactionMgr implements Writable {
      * check if there exists a load job before the endTransactionId have all finished
      */
     public boolean isPreviousTransactionsFinished(long endTransactionId, long dbId, List<Long> tableIdList) {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
-        return dbTransactionMgr.isPreviousTransactionsFinished(endTransactionId, tableIdList);
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
+            return dbTransactionMgr.isPreviousTransactionsFinished(endTransactionId, tableIdList);
+        } catch (AnalysisException e) {
+            LOG.warn("Check whether all previous transactions finished failed", e);
+            return false;
+        }
+
     }
 
     /**
@@ -259,13 +271,22 @@ public class GlobalTransactionMgr implements Writable {
     // for replay idToTransactionState
     // check point also run transaction cleaner, the cleaner maybe concurrently modify id to 
     public void replayUpsertTransactionState(TransactionState transactionState) {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(transactionState.getDbId());
-        dbTransactionMgr.replayUpsertTransactionState(transactionState);
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(transactionState.getDbId());
+            dbTransactionMgr.replayUpsertTransactionState(transactionState);
+        } catch (AnalysisException e) {
+            LOG.warn("replay upsert transaction failed", e);
+        }
+
     }
     
     public void replayDeleteTransactionState(TransactionState transactionState) {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(transactionState.getDbId());
-        dbTransactionMgr.deleteTransaction(transactionState);
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(transactionState.getDbId());
+            dbTransactionMgr.deleteTransaction(transactionState);
+        } catch (AnalysisException e) {
+            LOG.warn("replay delete transaction failed", e);
+        }
     }
 
     public List<List<Comparable>> getDbInfo() {
@@ -289,8 +310,13 @@ public class GlobalTransactionMgr implements Writable {
     }
     
     public List<List<String>> getDbTransStateInfo(long dbId) {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
-        return dbTransactionMgr.getDbTransStateInfo();
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
+            return dbTransactionMgr.getDbTransStateInfo();
+        } catch (AnalysisException e) {
+            LOG.warn("Get db transaction state info failed", e);
+            return Lists.newArrayList();
+        }
     }
 
     public List<List<String>> getDbTransInfo(long dbId, boolean running, int limit) throws AnalysisException {
@@ -341,24 +367,39 @@ public class GlobalTransactionMgr implements Writable {
     }
     
     public void readFields(DataInput in) throws IOException {
-        int numTransactions = in.readInt();
-        for (int i = 0; i < numTransactions; ++i) {
-            TransactionState transactionState = new TransactionState();
-            transactionState.readFields(in);
-            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(transactionState.getDbId());
-            dbTransactionMgr.unprotectUpsertTransactionState(transactionState, true);
+        try {
+            int numTransactions = in.readInt();
+            for (int i = 0; i < numTransactions; ++i) {
+                TransactionState transactionState = new TransactionState();
+                transactionState.readFields(in);
+                DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(transactionState.getDbId());
+                dbTransactionMgr.unprotectUpsertTransactionState(transactionState, true);
+            }
+            idGenerator.readFields(in);
+        } catch (AnalysisException e) {
+            throw new IOException("Read transaction states failed", e);
         }
-        idGenerator.readFields(in);
+
     }
 
     public TransactionState getTransactionStateByCallbackIdAndStatus(long dbId, long callbackId, Set<TransactionStatus> status) {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
-        return dbTransactionMgr.getTransactionStateByCallbackIdAndStatus(callbackId, status);
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
+            return dbTransactionMgr.getTransactionStateByCallbackIdAndStatus(callbackId, status);
+        } catch (AnalysisException e) {
+            LOG.warn("Get transaction by callbackId and status failed", e);
+            return null;
+        }
     }
 
     public TransactionState getTransactionStateByCallbackId(long dbId, long callbackId) {
-        DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
-        return dbTransactionMgr.getTransactionStateByCallbackId(callbackId);
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactioMgr(dbId);
+            return dbTransactionMgr.getTransactionStateByCallbackId(callbackId);
+        } catch (AnalysisException e) {
+            LOG.warn("Get transaction by callbackId failed", e);
+            return null;
+        }
     }
 
     public List<Pair<Long, Long>> getTransactionIdByCoordinateBe(String coordinateHost, int limit) {

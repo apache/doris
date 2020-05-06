@@ -221,7 +221,7 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
-    public void testRemoveExpiredTxns() {
+    public void testRemoveExpiredTxns() throws AnalysisException {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
         Config.label_keep_max_second = -1;
         masterDbTransMgr.removeExpiredTxns();
@@ -256,7 +256,7 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
-    public void testDeleteTransaction() {
+    public void testDeleteTransaction() throws AnalysisException {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
         long txnId = lableToTxnId.get(CatalogTestUtil.testTxnLable1);
         TransactionState transactionState = masterDbTransMgr.getTransactionState(txnId);

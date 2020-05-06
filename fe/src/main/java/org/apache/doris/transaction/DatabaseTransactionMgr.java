@@ -145,11 +145,11 @@ public class DatabaseTransactionMgr {
         this.transactionLock.writeLock().unlock();
     }
 
-    public DatabaseTransactionMgr(long dbId, Catalog catalog, TransactionIdGenerator idGenerator, EditLog editLog) {
+    public DatabaseTransactionMgr(long dbId, Catalog catalog, TransactionIdGenerator idGenerator) {
         this.dbId = dbId;
         this.catalog = catalog;
         this.idGenerator = idGenerator;
-        this.editLog = editLog;
+        this.editLog = catalog.getEditLog();
     }
 
     public long getDbId() {
