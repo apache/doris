@@ -37,7 +37,6 @@
 #include "olap/storage_engine.h"
 #include "olap/olap_cond.h"
 #include "runtime/exec_env.h"
-#include "util/doris_metrics.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -154,7 +153,6 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
-        DorisMetrics::instance()->initialize("ut");
         config::path_gc_check = false;
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);

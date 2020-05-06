@@ -46,7 +46,6 @@ static std::mutex s_mutex;
 ChunkAllocator* ChunkAllocator::instance() {
     std::lock_guard<std::mutex> l(s_mutex);
     if (_s_instance == nullptr) {
-        DorisMetrics::instance()->initialize("common_ut");
         CpuInfo::init();
         ChunkAllocator::init_instance(4096);
     }
@@ -104,7 +103,7 @@ void ChunkAllocator::init_instance(size_t reserve_limit) {
     _s_instance = new ChunkAllocator(reserve_limit);
 
 #define REGISTER_METIRC_WITH_NAME(name, metric) \
-    DorisMetrics::metrics()->register_metric(#name, &metric)
+    DorisMetrics::instance()->metrics()->register_metric(#name, &metric)
 
 #define REGISTER_METIRC_WITH_PREFIX(prefix, name) \
     REGISTER_METIRC_WITH_NAME(prefix##name, name)

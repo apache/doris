@@ -1067,5 +1067,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int period_of_auto_resume_min = 5;
 
+    /*
+     * If set to true, the backend will be automatically dropped after finishing decommission.
+     * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean drop_backend_after_decommission = true;
 }
 

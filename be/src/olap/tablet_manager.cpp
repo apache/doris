@@ -207,7 +207,7 @@ bool TabletManager::_check_tablet_id_exist_unlocked(TTabletId tablet_id) {
 
 OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
                                         std::vector<DataDir*> stores) {
-    DorisMetrics::create_tablet_requests_total.increment(1);
+    DorisMetrics::instance()->create_tablet_requests_total.increment(1);
 
     int64_t tablet_id = request.tablet_id;
     int32_t schema_hash = request.tablet_schema.schema_hash;
@@ -231,7 +231,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
         } else {
             LOG(WARNING) << "fail to create tablet. tablet exist but with different schema_hash. "
                     << "tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
-            DorisMetrics::create_tablet_requests_failed.increment(1);
+            DorisMetrics::instance()->create_tablet_requests_failed.increment(1);
             return OLAP_ERR_CE_TABLET_ID_EXIST;
         }
     }
@@ -247,7 +247,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
                          << "new_tablet_id=" << tablet_id << ", new_schema_hash=" << schema_hash
                          << ", base_tablet_id=" << request.base_tablet_id
                          << ", base_schema_hash=" << request.base_schema_hash;
-            DorisMetrics::create_tablet_requests_failed.increment(1);
+            DorisMetrics::instance()->create_tablet_requests_failed.increment(1);
             return OLAP_ERR_TABLE_CREATE_META_ERROR;
         }
         // If we are doing schema-change, we should use the same data dir
@@ -262,7 +262,7 @@ OLAPStatus TabletManager::create_tablet(const TCreateTabletReq& request,
             AlterTabletType::SCHEMA_CHANGE, request, is_schema_change, base_tablet.get(), stores);
     if (tablet == nullptr) {
         LOG(WARNING) << "fail to create tablet. tablet_id=" << request.tablet_id;
-        DorisMetrics::create_tablet_requests_failed.increment(1);
+        DorisMetrics::instance()->create_tablet_requests_failed.increment(1);
         return OLAP_ERR_CE_CMD_PARAMS_ERROR;
     }
 
@@ -459,7 +459,7 @@ OLAPStatus TabletManager::drop_tablet(
 OLAPStatus TabletManager::_drop_tablet_unlocked(
         TTabletId tablet_id, SchemaHash schema_hash, bool keep_files) {
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", schema_hash=" << schema_hash;
-    DorisMetrics::drop_tablet_requests_total.increment(1);
+    DorisMetrics::instance()->drop_tablet_requests_total.increment(1);
 
     // Fetch tablet which need to be droped
     TabletSharedPtr to_drop_tablet = _get_tablet_unlocked(tablet_id, schema_hash);
@@ -680,7 +680,7 @@ void TabletManager::get_tablet_stat(TTabletStatResult* result) {
 TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType compaction_type,
                                                               DataDir* data_dir) {
     int64_t now_ms = UnixMillis();
-    const string& compaction_type_str = CompactionType::BASE_COMPACTION ? "base" : "cumulative";
+    const string& compaction_type_str = compaction_type == CompactionType::BASE_COMPACTION ? "base" : "cumulative";
     uint32_t highest_score = 0;
     TabletSharedPtr best_tablet;
     for (int32 i = 0; i < _tablet_map_lock_shard_size; i++) {
@@ -762,9 +762,9 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
         // TODO(lingbin): Remove 'max' from metric name, it would be misunderstood as the
         // biggest in history(like peak), but it is really just the value at current moment.
         if (compaction_type == CompactionType::BASE_COMPACTION) {
-            DorisMetrics::tablet_base_max_compaction_score.set_value(highest_score);
+            DorisMetrics::instance()->tablet_base_max_compaction_score.set_value(highest_score);
         } else {
-            DorisMetrics::tablet_cumulative_max_compaction_score.set_value(highest_score);
+            DorisMetrics::instance()->tablet_cumulative_max_compaction_score.set_value(highest_score);
         }
     }
     return best_tablet;
@@ -887,7 +887,7 @@ void TabletManager::release_schema_change_lock(TTabletId tablet_id) {
 }
 
 OLAPStatus TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
-    DorisMetrics::report_tablet_requests_total.increment(1);
+    DorisMetrics::instance()->report_tablet_requests_total.increment(1);
     LOG(INFO) << "begin to process report tablet info."
               << "tablet_id=" << tablet_info->tablet_id
               << ", schema_hash=" << tablet_info->schema_hash;
@@ -915,7 +915,7 @@ OLAPStatus TabletManager::report_all_tablets_info(std::map<TTabletId, TTablet>* 
     StorageEngine::instance()->txn_manager()->build_expire_txn_map(&expire_txn_map);
     LOG(INFO) << "find expired transactions for " << expire_txn_map.size() << " tablets";
 
-    DorisMetrics::report_all_tablets_requests_total.increment(1);
+    DorisMetrics::instance()->report_all_tablets_requests_total.increment(1);
 
     for (int32 i = 0; i < _tablet_map_lock_shard_size; i++) {
         ReadLock rlock(&_tablet_map_lock_array[i]);

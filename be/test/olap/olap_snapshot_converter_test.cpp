@@ -34,7 +34,6 @@
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
 #include "olap/txn_manager.h"
-#include "util/doris_metrics.h"
 #include "util/file_utils.h"
 
 #ifndef BE_TEST
@@ -56,7 +55,6 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
-        DorisMetrics::instance()->initialize("ut");
         std::vector<StorePath> paths;
         paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;

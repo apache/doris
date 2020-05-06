@@ -21,7 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.thrift.TPartitionType;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -767,7 +767,7 @@ public final class AggregateInfo extends AggregateInfoBase {
 
     public String debugString() {
         StringBuilder out = new StringBuilder(super.debugString());
-        out.append(Objects.toStringHelper(this)
+        out.append(MoreObjects.toStringHelper(this)
                 .add("phase", aggPhase_)
                 .add("intermediate_smap", intermediateTupleSmap_.debugString())
                 .add("output_smap", outputTupleSmap_.debugString())

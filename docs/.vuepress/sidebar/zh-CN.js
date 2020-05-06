@@ -103,7 +103,10 @@ module.exports = [
       {
         title: "配置文件",
         directoryPath: "config/",
-        children: ["fe_config"],
+        children: [
+          "fe_config",
+          "be_config",
+        ],
         sidebarDepth: 1,
       },
       "backup-restore",

@@ -40,7 +40,6 @@
 #include "util/arrow/row_batch.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
-#include "util/doris_metrics.h"
 #include "util/cpu_info.h"
 #include "util/logging.h"
 
@@ -55,7 +54,6 @@ protected:
     virtual void SetUp() {
         config::periodic_counter_update_period_ms = 500;
         config::storage_root_path = "./data";
-        DorisMetrics::instance()->initialize("ut");
 
         system("mkdir -p ./test_run/output/");
         system("pwd");

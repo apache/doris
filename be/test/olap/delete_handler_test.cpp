@@ -32,7 +32,6 @@
 #include "olap/push_handler.h"
 #include "olap/utils.h"
 #include "olap/options.h"
-#include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
 
@@ -47,7 +46,6 @@ static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* k_engine = nullptr;
 
 void set_up() {
-    DorisMetrics::instance()->initialize("ut");
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";

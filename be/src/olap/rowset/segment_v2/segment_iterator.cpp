@@ -124,7 +124,7 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
 }
 
 Status SegmentIterator::_init() {
-    DorisMetrics::segment_read_total.increment(1);
+    DorisMetrics::instance()->segment_read_total.increment(1);
     // get file handle from file descriptor of segment
     fs::BlockManager* block_mgr = fs::fs_util::block_manager();
     RETURN_IF_ERROR(block_mgr->open_block(_segment->_fname, &_rblock));
@@ -139,7 +139,7 @@ Status SegmentIterator::_init() {
 }
 
 Status SegmentIterator::_get_row_ranges_by_keys() {
-    DorisMetrics::segment_row_total.increment(num_rows());
+    DorisMetrics::instance()->segment_row_total.increment(num_rows());
 
     // fast path for empty segment or empty key ranges
     if (_row_bitmap.isEmpty() || _opts.key_ranges.empty()) {
@@ -167,7 +167,7 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     }
     // pre-condition: _row_ranges == [0, num_rows)
     _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
-    DorisMetrics::segment_rows_by_short_key.increment(_row_bitmap.cardinality());
+    DorisMetrics::instance()->segment_rows_by_short_key.increment(_row_bitmap.cardinality());
 
     return Status::OK();
 }
@@ -239,10 +239,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     for (auto& cid : cids) {
         // get row ranges by bf index of this column,
         RowRanges column_bf_row_ranges = RowRanges::create_single(num_rows());
-        CondColumn* column_cond = nullptr;
-        if (_opts.conditions != nullptr) {
-            column_cond = _opts.conditions->get_column(cid);
-        }
+        CondColumn* column_cond = _opts.conditions->get_column(cid);
         RETURN_IF_ERROR(
             _column_iterators[cid]->get_row_ranges_by_bloom_filter(
                 column_cond,
@@ -278,7 +275,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         // intersection different columns's row ranges to get final row ranges by zone map
         RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges, &zone_map_row_ranges);
     }
-    DorisMetrics::segment_rows_read_by_zone_map.increment(zone_map_row_ranges.count());
+    DorisMetrics::instance()->segment_rows_read_by_zone_map.increment(zone_map_row_ranges.count());
     pre_size = condition_row_ranges->count();
     RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges, condition_row_ranges);
     _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());

@@ -202,8 +202,6 @@ Status AggregationNode::open(RuntimeState* state) {
         RETURN_IF_ERROR(state->check_query_state("Aggregation, after hashing the child 0."));
 
         COUNTER_SET(_hash_table_buckets_counter, _hash_tbl->num_buckets());
-        COUNTER_SET(memory_used_counter(),
-                    _tuple_pool->peak_allocated_bytes() + _hash_tbl->byte_size());
         COUNTER_SET(_hash_table_load_factor_counter, _hash_tbl->load_factor());
         num_agg_rows += (_hash_tbl->size() - agg_rows_before);
         num_input_rows += batch.num_rows();
@@ -276,10 +274,8 @@ Status AggregationNode::get_next(RuntimeState* state, RowBatch* row_batch, bool*
 
     *eos = _output_iterator.at_end() || reached_limit();
     if (*eos) {
-        if (memory_used_counter() != NULL && _hash_tbl.get() != NULL &&
+        if (_hash_tbl.get() != NULL &&
                 _hash_table_buckets_counter != NULL) {
-            COUNTER_SET(memory_used_counter(),
-                    _tuple_pool->peak_allocated_bytes() + _hash_tbl->byte_size());
             COUNTER_SET(_hash_table_buckets_counter, _hash_tbl->num_buckets());
         }
     }

@@ -90,7 +90,7 @@ Status HttpService::start() {
 
     // register metrics
     {
-        auto action = new MetricsAction(DorisMetrics::metrics());
+        auto action = new MetricsAction(DorisMetrics::instance()->metrics());
         _ev_http_server->register_handler(HttpMethod::GET, "/metrics", action);
     }
 

@@ -25,22 +25,10 @@
 #include "gen_cpp/DorisExternalService_types.h"
 #include "runtime/result_queue_mgr.h"
 #include "util/blocking_queue.hpp"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
 class ResultQueueMgrTest : public testing::Test {
-public:
-    ResultQueueMgrTest() {
-    }
-    virtual ~ResultQueueMgrTest() {
-    }
-
-protected:
-    virtual void SetUp() {
-        DorisMetrics::instance()->initialize("ut");
-    }
-
 };
 
 TEST_F(ResultQueueMgrTest, create_normal) {
