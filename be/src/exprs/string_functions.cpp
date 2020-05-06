@@ -265,7 +265,7 @@ StringVal StringFunctions::append_trailing_char_if_absent(doris_udf::FunctionCon
     if (str.len == 0) {
         return trailing_char;
     }
-    if (str.ptr[str.len-1] == trailing_char.ptr[0]) {
+    if (str.ptr[str.len - 1] == trailing_char.ptr[0]) {
         return str;
     }
 
