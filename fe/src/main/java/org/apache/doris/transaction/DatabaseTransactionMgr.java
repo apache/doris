@@ -112,7 +112,7 @@ public class DatabaseTransactionMgr {
     // this member should be consistent with idToTransactionState,
     // which means if a txn exist in idToRunningTransactionState or idToFinalStatusTransactionState
     // it must exists in dbIdToTxnLabels, and vice versa
-    private Map<String, Set<Long>> labelToTxnIds = Maps.newConcurrentMap();
+    private Map<String, Set<Long>> labelToTxnIds = Maps.newHashMap();
 
 
     // count the number of running txns of database, except for the routine load txn
@@ -553,7 +553,7 @@ public class DatabaseTransactionMgr {
             transactionState.getTransactionId() == finalStatusTransactionStateDeque.getFirst().getTransactionId()) {
                 finalStatusTransactionStateDeque.pop();
                 idToFinalStatusTransactionState.remove(transactionState.getTransactionId());
-                Set<Long> txnIds = labelToTxnIds.get(transactionState.getLabel());
+                Set<Long> txnIds = unprotectedGetTxnIdsByLabel(transactionState.getLabel());
                 txnIds.remove(transactionState.getTransactionId());
                 if (txnIds.isEmpty()) {
                     labelToTxnIds.remove(transactionState.getLabel());
@@ -806,14 +806,13 @@ public class DatabaseTransactionMgr {
         // for commit transaction, there is nothing to do
         if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
             idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState);
-            updateTxnLabels(transactionState);
-            updateDbRunningTxnNum(transactionState.getPreStatus(), transactionState);
         } else if (transactionState.getTransactionStatus().isFinalStatus()) {
             idToRunningTransactionState.remove(transactionState.getTransactionId());
             idToFinalStatusTransactionState.put(transactionState.getTransactionId(), transactionState);
             finalStatusTransactionStateDeque.add(transactionState);
-            updateDbRunningTxnNum(transactionState.getPreStatus(), transactionState);
         }
+        updateTxnLabels(transactionState);
+        updateDbRunningTxnNum(transactionState.getPreStatus(), transactionState);
     }
 
     private void updateTxnLabels(TransactionState transactionState) {
@@ -1024,7 +1023,7 @@ public class DatabaseTransactionMgr {
                 TransactionState transactionState = finalStatusTransactionStateDeque.getFirst();
                 if (transactionState.isExpired(currentMillis)) {
                     finalStatusTransactionStateDeque.pop();
-                    Set<Long> txnIds = labelToTxnIds.get(transactionState.getLabel());
+                    Set<Long> txnIds = unprotectedGetTxnIdsByLabel(transactionState.getLabel());
                     txnIds.remove(transactionState.getTransactionId());
                     if (txnIds.isEmpty()) {
                         labelToTxnIds.remove(transactionState.getLabel());
