@@ -353,7 +353,7 @@ module.exports = [
     ],
   },
   {
-    title: "Apache Commnity",
+    title: "Apache Community",
     directoryPath: "community/",
     children: [
       "gitter",
