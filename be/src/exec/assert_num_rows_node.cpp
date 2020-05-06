@@ -97,11 +97,11 @@ Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, 
                 return it->second;
             }
         };
-        LOG(INFO) << "Expected " << to_string_lamba_assertion) << " "
+        LOG(INFO) << "Expected " << to_string_lamba(_assertion) << " "
                   << _desired_num_rows << " to be returned by expression " << _subquery_string;
         return Status::Cancelled(
                 strings::Substitute("Expected $0 $1 to be returned by expression $2",
-                                    to_string_lamba_assertion), _desired_num_rows, _subquery_string));
+                                    to_string_lamba(_assertion), _desired_num_rows, _subquery_string));
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     return Status::OK();
