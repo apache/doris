@@ -87,7 +87,7 @@ Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, 
     }
 
     if (!assert_res) {
-        auto to_string_lamba = [](auto assertion) {
+        auto to_string_lamba = [](TAssertion::type assertion) {
             std::map<int, const char*>::const_iterator it =
                     _TAssertion_VALUES_TO_NAMES.find(assertion);
 

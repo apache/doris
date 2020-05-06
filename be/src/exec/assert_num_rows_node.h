@@ -36,7 +36,7 @@ public:
 private:
     int64_t _desired_num_rows;
     const std::string _subquery_string;
-    TAssertion _assertion;
+    TAssertion::type _assertion;
 };
 
 }
