@@ -242,6 +242,32 @@ public class QueryPlanTest {
                 "PROPERTIES (\n" +
                 " \"replication_num\" = \"1\"\n" +
                 ");");
+        
+        createTable("CREATE TABLE test.`pushdown_test` (\n" +
+                "  `k1` tinyint(4) NULL COMMENT \"\",\n" + 
+                "  `k2` smallint(6) NULL COMMENT \"\",\n" + 
+                "  `k3` int(11) NULL COMMENT \"\",\n" + 
+                "  `k4` bigint(20) NULL COMMENT \"\",\n" + 
+                "  `k5` decimal(9, 3) NULL COMMENT \"\",\n" + 
+                "  `k6` char(5) NULL COMMENT \"\",\n" + 
+                "  `k10` date NULL COMMENT \"\",\n" + 
+                "  `k11` datetime NULL COMMENT \"\",\n" + 
+                "  `k7` varchar(20) NULL COMMENT \"\",\n" + 
+                "  `k8` double MAX NULL COMMENT \"\",\n" + 
+                "  `k9` float SUM NULL COMMENT \"\"\n" + 
+                ") ENGINE=OLAP\n" + 
+                "AGGREGATE KEY(`k1`, `k2`, `k3`, `k4`, `k5`, `k6`, `k10`, `k11`, `k7`)\n" + 
+                "COMMENT \"OLAP\"\n" + 
+                "PARTITION BY RANGE(`k1`)\n" + 
+                "(PARTITION p1 VALUES [(\"-128\"), (\"-64\")),\n" + 
+                "PARTITION p2 VALUES [(\"-64\"), (\"0\")),\n" + 
+                "PARTITION p3 VALUES [(\"0\"), (\"64\")))\n" + 
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 5\n" + 
+                "PROPERTIES (\n" + 
+                "\"replication_num\" = \"1\",\n" + 
+                "\"in_memory\" = \"false\",\n" + 
+                "\"storage_format\" = \"DEFAULT\"\n" + 
+                ");");
     }
 
     @AfterClass
@@ -532,7 +558,7 @@ public class QueryPlanTest {
     }
 
     @Test
-    public void  testJoinPredicateTransitivity() throws Exception {
+    public void testJoinPredicateTransitivity() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 
         // test left join : left table where binary predicate
@@ -624,10 +650,24 @@ public class QueryPlanTest {
         // test inner join: right table join predicate, both push down left table and right table
         sql = "select *\n from join1\n" +
                 "join join2 on join1.id = join2.id\n" +
-                "and join2.id > 1;";
+                "and 1 < join2.id;";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+    }
+    
+    @Test
+    public void testJoinPredicateTransitivityWithSubqueryInWhereClause() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        String sql = "SELECT *\n" + 
+                "FROM test.pushdown_test\n" +
+                "WHERE 0 < (\n" +
+                "    SELECT MAX(k9)\n" + 
+                "    FROM test.pushdown_test);";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("PLAN FRAGMENT"));
+        Assert.assertTrue(explainString.contains("CROSS JOIN"));
+        Assert.assertTrue(!explainString.contains("PREDICATES"));
     }
 }
