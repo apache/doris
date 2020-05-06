@@ -18,11 +18,9 @@
 #ifndef DORIS_BE_RUNTIME_DESCRIPTORS_H
 #define DORIS_BE_RUNTIME_DESCRIPTORS_H
 
-#include <vector>
-#include <tr1/unordered_map>
-#include <vector>
-#include <boost/scoped_ptr.hpp>
 #include <ostream>
+#include <unordered_map>
+#include <vector>
 
 #include <google/protobuf/repeated_field.h>
 #include <google/protobuf/stubs/common.h>
@@ -39,7 +37,6 @@ namespace doris {
 class ObjectPool;
 class TDescriptorTable;
 class TSlotDescriptor;
-class TTable;
 class TTupleDescriptor;
 class Expr;
 class RuntimeState;
@@ -348,9 +345,9 @@ public:
     std::string debug_string() const;
 
 private:
-    typedef std::tr1::unordered_map<TableId, TableDescriptor*> TableDescriptorMap;
-    typedef std::tr1::unordered_map<TupleId, TupleDescriptor*> TupleDescriptorMap;
-    typedef std::tr1::unordered_map<SlotId, SlotDescriptor*> SlotDescriptorMap;
+    typedef std::unordered_map<TableId, TableDescriptor*> TableDescriptorMap;
+    typedef std::unordered_map<TupleId, TupleDescriptor*> TupleDescriptorMap;
+    typedef std::unordered_map<SlotId, SlotDescriptor*> SlotDescriptorMap;
 
     TableDescriptorMap _tbl_desc_map;
     TupleDescriptorMap _tuple_desc_map;
