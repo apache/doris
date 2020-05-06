@@ -357,6 +357,9 @@ TEST_F(StringFunctionsTest, append_trailing_char_if_absent) {
 
     ASSERT_EQ(StringVal::null(), StringFunctions::append_trailing_char_if_absent(ctx,
             StringVal("a"), StringVal::null()));
+
+    ASSERT_EQ(StringVal::null(), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("a"), StringVal("abc")));
 }
 
 }

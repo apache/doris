@@ -270,9 +270,6 @@ StringVal StringFunctions::append_trailing_char_if_absent(doris_udf::FunctionCon
     }
 
     StringVal result(context, str.len + 1);
-    if (UNLIKELY(result.is_null)) {
-        return result;
-    }
     memcpy(result.ptr, str.ptr, str.len);
     result.ptr[str.len] = trailing_char.ptr[0];
     return result;
