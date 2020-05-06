@@ -7,7 +7,7 @@ output
 docs/.temp
 docs/.vuepress/dist
 docs/node_modules
-docs/build/
+docs/build
 gensrc/build
 fe/target
 thirdparty/src
