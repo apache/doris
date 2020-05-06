@@ -94,7 +94,6 @@ public class DeleteHandlerTest {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         try {
             db = CatalogMocker.mockDb();
-            globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
         } catch (AnalysisException e) {
             e.printStackTrace();
             Assert.fail();
@@ -139,8 +138,13 @@ public class DeleteHandlerTest {
                 catalog.getTabletInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
             }
         };
+        globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
 
         new Expectations() {
             {
