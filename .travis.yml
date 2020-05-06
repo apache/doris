@@ -34,6 +34,7 @@ before_script:
   - echo $BRANCH
   - sed -i 's/base:.*,/base:\"\/'$BRANCH'\/\",/g' .vuepress/config.js 
   - sed -i 's/docsBranch:.*,/docsBranch:\"'$BRANCH'\",/g' .vuepress/config.js 
+  - find ./ -name "*.md" -exec sed -i -e 's/!\[\(.*\)\][(]\(.*\)[)]/<img \:src=\"$withBase\('\''\2'\''\)\" alt=\"\1\">/g' {} \;
   - rm -rf site-repo
   
 script:
