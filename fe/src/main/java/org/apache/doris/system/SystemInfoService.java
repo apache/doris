@@ -644,7 +644,7 @@ public class SystemInfoService {
     }
     public synchronized List<Long> seqChooseBackendIdsByStorageMedium(int backendNum, boolean needAlive, boolean isCreate,
                                                                       String clusterName, TStorageMedium storageMedium) {
-        final List<Backend> backends = getClusterBackends(clusterName).stream().filter(v -> v.checkDiskExceedLimitByStorageMedium(storageMedium)).collect(Collectors.toList());
+        final List<Backend> backends = getClusterBackends(clusterName).stream().filter(v -> !v.checkDiskExceedLimitByStorageMedium(storageMedium)).collect(Collectors.toList());
         return seqChooseBackendIds(backendNum, needAlive, isCreate, clusterName, backends);
     }
 

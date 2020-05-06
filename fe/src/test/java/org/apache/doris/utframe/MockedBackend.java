@@ -113,12 +113,12 @@ public class MockedBackend {
     }
 
     private void createHeartbeatService(int heartbeatPort, HeartbeatService.Iface serviceImpl) throws IOException {
-        TProcessor tprocessor = new HeartbeatService.Processor<HeartbeatService.Iface>(serviceImpl);
+        TProcessor tprocessor = new HeartbeatService.Processor<>(serviceImpl);
         heartbeatServer = new ThriftServer(heartbeatPort, tprocessor);
     }
 
     private void createBeThriftService(int beThriftPort, BackendService.Iface serviceImpl) throws IOException {
-        TProcessor tprocessor = new BackendService.Processor<BackendService.Iface>(serviceImpl);
+        TProcessor tprocessor = new BackendService.Processor<>(serviceImpl);
         beThriftServer = new ThriftServer(beThriftPort, tprocessor);
     }
 

@@ -36,6 +36,7 @@ import org.apache.doris.task.AgentBatchTask;
 
 import com.google.common.collect.Lists;
 
+import org.apache.doris.thrift.TStorageMedium;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -139,7 +140,7 @@ public class CreateTableTest {
                 systemInfoService.checkClusterCapacity(anyString);
                 minTimes = 0;
 
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                systemInfoService.seqChooseBackendIdsByStorageMedium(anyInt, true, true, anyString, TStorageMedium.HDD);
                 minTimes = 0;
                 result = beIds;
 
@@ -321,7 +322,7 @@ public class CreateTableTest {
                 systemInfoService.checkClusterCapacity(anyString);
                 minTimes = 0;
 
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                systemInfoService.seqChooseBackendIdsByStorageMedium(anyInt, true, true, anyString, TStorageMedium.HDD);
                 minTimes = 0;
                 result = null;
 
