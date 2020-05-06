@@ -137,8 +137,7 @@ public class EsIndexState {
 
     @Override
     public String toString() {
-        return "EsIndexState [indexName=" + indexName + ", partitionDesc=" + partitionDesc
-            + ", partitionKey="
+        return "EsIndexState [indexName=" + indexName + ", partitionDesc=" + partitionDesc + ", partitionKey="
             + partitionKey + "]";
     }
 }
