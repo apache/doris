@@ -49,8 +49,8 @@ public class AssertNumRowsNode extends PlanNode {
     @Override
     protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
         StringBuilder output = new StringBuilder()
-                .append(prefix + "assert number of rows: ").append(desiredNumOfRows).append(" assertion: ")
-                .append(assertion + "\n");
+                .append(prefix + "assert number of rows: ")
+                .append(assertion).append(" ").append(desiredNumOfRows).append("\n");
         return output.toString();
     }
 
