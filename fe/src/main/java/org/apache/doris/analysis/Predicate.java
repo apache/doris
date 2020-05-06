@@ -17,11 +17,12 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
+
+import com.google.common.base.Preconditions;
 
 public abstract class Predicate extends Expr {
     protected boolean isEqJoinConjunct;
@@ -109,7 +110,23 @@ public abstract class Predicate extends Expr {
 
                 // because isSingleColumnPredicate
                 Preconditions.checkState(right != null);
-                Preconditions.checkState(right.isConstant());
+
+                // ATTN(cmy): Usually, the BinaryPredicate in the query will be rewritten through ExprRewriteRule,
+                // and all SingleColumnPredicate will be rewritten as "column on the left and the constant on the right".
+                // So usually the right child is constant.
+                //
+                // But if there is a subquery in where clause, the planner will rewrite the subquery to join.
+                // During the rewrite, some auxiliary BinaryPredicate will be automatically generated,
+                // and these BinaryPredicates will not go through ExprRewriteRule.
+                // As a result, these BinaryPredicates may be as "column on the right and the constant on the left".
+                // Example can be found in QueryPlanTest.java -> testJoinPredicateTransitivityWithSubqueryInWhereClause().
+                //
+                // Because our current planner implementation is very error-prone, so when this happens,
+                // we simply assume that these kind of BinaryPredicates cannot be pushed down,
+                // to ensure that this change will not affect other query plans.
+                if (!right.isConstant()) {
+                    return false;
+                }
 
                 return right instanceof LiteralExpr;
             }
