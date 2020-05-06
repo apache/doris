@@ -138,18 +138,18 @@ public class DatabaseTransactionMgrTest {
         assertEquals(1, slaveDbTransMgr.getTransactionNum());
         assertEquals(1, slaveDbTransMgr.getFinishedTxnNums());
 
-        assertEquals(1, masterDbTransMgr.getTxnIdsByLabel(CatalogTestUtil.testTxnLable1).size());
-        assertEquals(1, masterDbTransMgr.getTxnIdsByLabel(CatalogTestUtil.testTxnLable2).size());
-        assertEquals(1, masterDbTransMgr.getTxnIdsByLabel(CatalogTestUtil.testTxnLable3).size());
-        assertEquals(1, masterDbTransMgr.getTxnIdsByLabel(CatalogTestUtil.testTxnLable4).size());
+        assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLable1).size());
+        assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLable2).size());
+        assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLable3).size());
+        assertEquals(1, masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLable4).size());
 
-        Long txnId1 = masterDbTransMgr.getTxnIdsByLabel(CatalogTestUtil.testTxnLable1).iterator().next();
+        Long txnId1 = masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLable1).iterator().next();
         assertEquals(txnId1, lableToTxnId.get(CatalogTestUtil.testTxnLable1));
         TransactionState transactionState1 = masterDbTransMgr.getTransactionState(lableToTxnId.get(CatalogTestUtil.testTxnLable1));
         assertEquals(txnId1.longValue(), transactionState1.getTransactionId());
         assertEquals(TransactionStatus.VISIBLE, transactionState1.getTransactionStatus());
 
-        Long txnId2 = masterDbTransMgr.getTxnIdsByLabel(CatalogTestUtil.testTxnLable2).iterator().next();
+        Long txnId2 = masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLable2).iterator().next();
         assertEquals(txnId2, lableToTxnId.get(CatalogTestUtil.testTxnLable2));
         TransactionState transactionState2 = masterDbTransMgr.getTransactionState(txnId2);
         assertEquals(txnId2.longValue(), transactionState2.getTransactionId());
@@ -227,7 +227,7 @@ public class DatabaseTransactionMgrTest {
         masterDbTransMgr.removeExpiredTxns();
         assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         assertEquals(3, masterDbTransMgr.getTransactionNum());
-        assertNull(masterDbTransMgr.getTxnIdsByLabel(CatalogTestUtil.testTxnLable1));
+        assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLable1));
     }
 
     @Test
@@ -265,6 +265,6 @@ public class DatabaseTransactionMgrTest {
         assertEquals(1, masterDbTransMgr.getRunningRoutineLoadTxnNums());
         assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         assertEquals(3, masterDbTransMgr.getTransactionNum());
-        assertNull(masterDbTransMgr.getTxnIdsByLabel(CatalogTestUtil.testTxnLable1));
+        assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLable1));
     }
 }
