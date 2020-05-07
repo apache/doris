@@ -1,3 +1,10 @@
+---
+{
+    "title": "REVERSE",
+    "language": "zh-CN"
+}
+---
+
 <!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -17,31 +24,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# char_length
+# reverse
 ## description
 ### Syntax
 
-`INT char_length(VARCHAR str)`
+`VARCHAR reverse(VARCHAR str)`
 
 
-返回字符串的长度，对于多字节字符，返回字符数, 目前仅支持utf8 编码。
+将字符串反转，返回的字符串的顺序和源字符串的顺序相反。
 
 ## example
 
 ```
-mysql> select char_length("abc");
-+--------------------+
-| char_length('abc') |
-+--------------------+
-|                  3 |
-+--------------------+
+mysql> SELECT REVERSE('hello');
++------------------+
+| REVERSE('hello') |
++------------------+
+| olleh            |
++------------------+
+1 row in set (0.00 sec)
 
-mysql> select char_length("中国");
-+------------------- ---+
-| char_length('中国')   |
-+-----------------------+
-|                     2 |
-+-----------------------+
+mysql> SELECT REVERSE('你好');
++------------------+
+| REVERSE('你好')   |
++------------------+
+| 好你              |
++------------------+
+1 row in set (0.00 sec)
 ```
 ##keyword
-CHAR_LENGTH
+REVERSE

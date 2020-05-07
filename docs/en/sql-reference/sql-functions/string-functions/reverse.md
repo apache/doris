@@ -1,3 +1,10 @@
+---
+{
+    "title": "REVERSE",
+    "language": "en"
+}
+---
+
 <!-- 
 Licensed to the Apache Software Foundation (ASF) under one
 or more contributor license agreements.  See the NOTICE file
@@ -17,32 +24,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# char_length
-## Description
+# reverse
+## description
 ### Syntax
 
-'INT char_length (VARCHAR str)'
+`VARCHAR reverse(VARCHAR str)`
 
 
-Returns the length of the string and the number of characters returned for multi-byte characters. For example, five two-byte width words return a length of 5, only utf8 encodeing is support at current version.
+The REVERSE() function reverses a string and returns the result.
 
 ## example
 
-
 ```
-mysql> select char_length("abc");
-+--------------------+
-| char_length('abc') |
-+--------------------+
-|                  3 |
-+--------------------+
+mysql> SELECT REVERSE('hello');
++------------------+
+| REVERSE('hello') |
++------------------+
+| olleh            |
++------------------+
+1 row in set (0.00 sec)
 
-mysql> select char_length("中国");
-+------------------- ---+
-| char_length('中国')   |
-+-----------------------+
-|                     2 |
-+-----------------------+
+mysql> SELECT REVERSE('你好');
++------------------+
+| REVERSE('你好')   |
++------------------+
+| 好你              |
++------------------+
+1 row in set (0.00 sec)
 ```
 ## keyword
-CHAR_LENGTH
+REVERSE
