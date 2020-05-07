@@ -128,6 +128,9 @@ public class Cluster implements Writable {
             dbNames.add(name);
             dbIds.add(id);
             dbNameToIDs.put(name, id);
+            LOG.info("after cluster {} add db: {}-{}, dbIds: {}, dbNames: {}, dbNameToIDs: {}",
+                this.name, name, id, dbIds, dbNames, dbNameToIDs);
+
         } finally {
             unlock();
         }
@@ -150,6 +153,8 @@ public class Cluster implements Writable {
         try {
             dbNames.remove(name);
             dbIds.remove(id);
+            LOG.info("after cluster {} remove db: {}-{}, dbIds: {}, dbNames: {}, dbNameToIDs: {}",
+                this.name, name, id, dbIds, dbNames, dbNameToIDs);
         } finally {
             unlock();
         }
@@ -204,6 +209,8 @@ public class Cluster implements Writable {
             dbCount--;
         }
 
+        LOG.info("write cluster: {}, dbIds: {}, dbNames: {}, dbNameToIDs: {}",
+                this.name, dbIds, dbNames, dbNameToIDs);
         out.writeInt(dbCount);
         // don't persist InfoSchemaDb meta
         for (String name : dbNames) {
@@ -270,5 +277,7 @@ public class Cluster implements Writable {
             value.readFields(in);
             linkDbIds.put(key, value);
         }
+        LOG.info("read cluster: {}, dbIds: {}, dbNames: {}, dbNameToIDs: {}",
+                this.name, dbIds, dbNames, dbNameToIDs);
     }
 }
