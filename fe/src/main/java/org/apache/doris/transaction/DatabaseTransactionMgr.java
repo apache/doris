@@ -24,8 +24,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.tuple.ImmutablePair;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -45,6 +43,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.UserException;
@@ -1091,7 +1090,7 @@ public class DatabaseTransactionMgr {
                     .filter(t -> (t.getCoordinator().sourceType == TransactionState.TxnSourceType.BE
                             && t.getCoordinator().ip.equals(coordinateHost)))
                     .limit(limit)
-                    .forEach(t -> txnInfos.add(new ImmutablePair<>(t.getDbId(), t.getTransactionId())));
+                    .forEach(t -> txnInfos.add(new Pair<>(t.getDbId(), t.getTransactionId())));
         } finally {
             readUnlock();
         }

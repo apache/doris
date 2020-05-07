@@ -19,7 +19,6 @@ package org.apache.doris.transaction;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang3.tuple.Pair;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.FakeCatalog;
@@ -27,6 +26,7 @@ import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.meta.MetaContext;
@@ -129,12 +129,12 @@ public class DatabaseTransactionMgrTest {
 
     @Test
     public void testNormal() throws UserException {
-        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         assertEquals(4, masterDbTransMgr.getTransactionNum());
         assertEquals(2, masterDbTransMgr.getRunningTxnNums());
         assertEquals(1, masterDbTransMgr.getRunningRoutineLoadTxnNums());
         assertEquals(1, masterDbTransMgr.getFinishedTxnNums());
-        DatabaseTransactionMgr slaveDbTransMgr = slaveTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr slaveDbTransMgr = slaveTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         assertEquals(1, slaveDbTransMgr.getTransactionNum());
         assertEquals(1, slaveDbTransMgr.getFinishedTxnNums());
 
@@ -160,7 +160,7 @@ public class DatabaseTransactionMgrTest {
 
     @Test
     public void testAbortTransaction() throws UserException {
-        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
 
         long txnId2 = lableToTxnId.get(CatalogTestUtil.testTxnLable2);
         masterDbTransMgr.abortTransaction(txnId2, "test abort transaction", null);
@@ -179,7 +179,7 @@ public class DatabaseTransactionMgrTest {
 
     @Test
     public void testAbortTransactionWithNotFoundException() throws UserException {
-        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
 
         long txnId1 = lableToTxnId.get(CatalogTestUtil.testTxnLable1);
         expectedEx.expect(UserException.class);
@@ -190,17 +190,17 @@ public class DatabaseTransactionMgrTest {
 
     @Test
     public void testGetTransactionIdByCoordinateBe() throws UserException {
-        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         List<Pair<Long, Long>> transactionInfoList = masterDbTransMgr.getTransactionIdByCoordinateBe("be1", 10);
         assertEquals(3, transactionInfoList.size());
-        assertEquals(CatalogTestUtil.testDbId1, transactionInfoList.get(0).getKey().longValue());
+        assertEquals(CatalogTestUtil.testDbId1, transactionInfoList.get(0).first.longValue());
         assertEquals(TransactionStatus.PREPARE,
-                masterDbTransMgr.getTransactionState(transactionInfoList.get(0).getValue()).getTransactionStatus());
+                masterDbTransMgr.getTransactionState(transactionInfoList.get(0).second).getTransactionStatus());
     }
 
     @Test
     public void testGetSingleTranInfo() throws AnalysisException {
-        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         long txnId = lableToTxnId.get(CatalogTestUtil.testTxnLable1);
         List<List<String>> singleTranInfos = masterDbTransMgr.getSingleTranInfo(CatalogTestUtil.testDbId1, txnId);
         assertEquals(1, singleTranInfos.size());
@@ -222,7 +222,7 @@ public class DatabaseTransactionMgrTest {
 
     @Test
     public void testRemoveExpiredTxns() throws AnalysisException {
-        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Config.label_keep_max_second = -1;
         masterDbTransMgr.removeExpiredTxns();
         assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
@@ -232,7 +232,7 @@ public class DatabaseTransactionMgrTest {
 
     @Test
     public void testGetTableTransInfo() throws AnalysisException {
-        DatabaseTransactionMgr masterDbTransMgr =  masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr masterDbTransMgr =  masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Long txnId = lableToTxnId.get(CatalogTestUtil.testTxnLable1);
         List<List<Comparable>> tableTransInfos = masterDbTransMgr.getTableTransInfo(txnId);
         assertEquals(1, tableTransInfos.size());
@@ -244,7 +244,7 @@ public class DatabaseTransactionMgrTest {
 
     @Test
     public void testGetPartitionTransInfo() throws AnalysisException {
-        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Long txnId = lableToTxnId.get(CatalogTestUtil.testTxnLable1);
         List<List<Comparable>> partitionTransInfos = masterDbTransMgr.getPartitionTransInfo(txnId, CatalogTestUtil.testTableId1);
         assertEquals(1, partitionTransInfos.size());
@@ -257,7 +257,7 @@ public class DatabaseTransactionMgrTest {
 
     @Test
     public void testDeleteTransaction() throws AnalysisException {
-        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1);
+        DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         long txnId = lableToTxnId.get(CatalogTestUtil.testTxnLable1);
         TransactionState transactionState = masterDbTransMgr.getTransactionState(txnId);
         masterDbTransMgr.deleteTransaction(transactionState);

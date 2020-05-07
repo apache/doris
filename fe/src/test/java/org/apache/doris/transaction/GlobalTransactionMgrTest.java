@@ -349,7 +349,7 @@ public class GlobalTransactionMgrTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
-        Deencapsulation.setField(masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
+        Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
         masterTransMgr.commitTransaction(1L, 1L, transTablets, txnCommitAttachment);
 
         Assert.assertEquals(Long.valueOf(101), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
@@ -415,7 +415,7 @@ public class GlobalTransactionMgrTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         routineLoadManager.addRoutineLoadJob(routineLoadJob, "db");
 
-        Deencapsulation.setField(masterTransMgr.getDatabaseTransactioMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
+        Deencapsulation.setField(masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1), "idToRunningTransactionState", idToTransactionState);
         masterTransMgr.commitTransaction(1L, 1L, transTablets, txnCommitAttachment);
 
         Assert.assertEquals(Long.valueOf(0), Deencapsulation.getField(routineLoadJob, "currentTotalRows"));
