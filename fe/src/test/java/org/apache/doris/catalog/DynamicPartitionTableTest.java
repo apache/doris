@@ -250,97 +250,61 @@ public class DynamicPartitionTableTest {
         createTable(createOlapTblStmt);
     }
 
-//
-//    @Test
-//    public void testNotAllowed(@Injectable SystemInfoService systemInfoService,
-//                               @Injectable PaloAuth paloAuth,
-//                               @Injectable EditLog editLog) throws UserException {
-//        new Expectations(catalog) {
-//            {
-//                catalog.getDb(dbTableName.getDb());
-//                minTimes = 0;
-//                result = db;
-//
-//                Catalog.getCurrentSystemInfo();
-//                minTimes = 0;
-//                result = systemInfoService;
-//
-//                systemInfoService.checkClusterCapacity(anyString);
-//                minTimes = 0;
-//                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-//                minTimes = 0;
-//                result = beIds;
-//
-//                catalog.getAuth();
-//                minTimes = 0;
-//                result = paloAuth;
-//                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-//                minTimes = 0;
-//                result = true;
-//
-//                catalog.getEditLog();
-//                minTimes = 0;
-//                result = editLog;
-//            }
-//        };
-//
-//        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-//                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-//                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-//        stmt.analyze(analyzer);
-//
-//        expectedEx.expect(DdlException.class);
-//        expectedEx.expectMessage("Only support dynamic partition properties on range partition table");
-//
-//        catalog.createTable(stmt);
-//    }
-//
-//    @Test
-//    public void testNotAllowedInMultiPartitions(@Injectable SystemInfoService systemInfoService,
-//                                                @Injectable PaloAuth paloAuth,
-//                                                @Injectable EditLog editLog) throws UserException {
-//        new Expectations(catalog) {
-//            {
-//                catalog.getDb(dbTableName.getDb());
-//                minTimes = 0;
-//                result = db;
-//
-//                Catalog.getCurrentSystemInfo();
-//                minTimes = 0;
-//                result = systemInfoService;
-//
-//                systemInfoService.checkClusterCapacity(anyString);
-//                minTimes = 0;
-//                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-//                minTimes = 0;
-//                result = beIds;
-//
-//                catalog.getAuth();
-//                minTimes = 0;
-//                result = paloAuth;
-//                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-//                minTimes = 0;
-//                result = true;
-//
-//                catalog.getEditLog();
-//                minTimes = 0;
-//                result = editLog;
-//            }
-//        };
-//
-//        List<SingleRangePartitionDesc> rangePartitionDescs = new LinkedList<>();
-//        rangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
-//                new PartitionKeyDesc(Lists.newArrayList(new PartitionValue("-128"), new PartitionValue("100"))), null));
-//
-//        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-//                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-//                new RangePartitionDesc(Lists.newArrayList("key1", "key2"), singleRangePartitionDescs),
-//                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-//        stmt.analyze(analyzer);
-//
-//        expectedEx.expect(DdlException.class);
-//        expectedEx.expectMessage("Dynamic partition only support single-column range partition");
-//
-//        catalog.createTable(stmt);
-//    }
+    @Test
+    public void testNotAllowed() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_buckets` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        expectedException.expect(DdlException.class);
+        expectedException.expectMessage("errCode = 2, detailMessage = Only support dynamic partition properties on range partition table");
+        createTable(createOlapTblStmt);
+    }
+
+    @Test
+    public void testNotAllowedInMultiPartitions() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_normal` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1, k2)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\", \"100\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\", \"200\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\", \"300\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        expectedException.expect(DdlException.class);
+        expectedException.expectMessage("errCode = 2, detailMessage = Dynamic partition only support single-column range partition");
+        createTable(createOlapTblStmt);
+    }
 }
