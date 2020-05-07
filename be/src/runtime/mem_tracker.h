@@ -71,7 +71,7 @@ public:
     /// If 'log_usage_if_zero' is false, this tracker (and its children) will not be included
     /// in LogUsage() output if consumption is 0.
     MemTracker(int64_t byte_limit = -1, const std::string& label = std::string(),
-               MemTracker* parent = NULL, bool log_usage_if_zero = true);
+               MemTracker* parent = NULL, bool auto_unregister = false, bool log_usage_if_zero = true);
 
     /// C'tor for tracker for which consumption counter is created as part of a profile.
     /// The counter is created with name COUNTER_NAME.
@@ -493,7 +493,7 @@ private:
     // process tracker never gets deleted so it is safe to reference it in the dtor.
     // The query tracker has lifetime shared by multiple plan fragments so it's hard
     // to do cleanup another way.
-    bool _auto_unregister;
+    bool _auto_unregister = false;
 };
 
 /// Global registry for query and pool MemTrackers. Owned by ExecEnv.

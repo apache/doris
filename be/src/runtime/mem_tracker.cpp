@@ -50,7 +50,7 @@ const std::string MemTracker::COUNTER_NAME = "PeakMemoryUsage";
 const std::string REQUEST_POOL_MEM_TRACKER_LABEL_FORMAT = "RequestPool=$0";
 
 MemTracker::MemTracker(
-        int64_t byte_limit, const std::string& label, MemTracker* parent, bool log_usage_if_zero)
+        int64_t byte_limit, const std::string& label, MemTracker* parent, bool auto_unregister, bool log_usage_if_zero)
     : _limit(byte_limit),
     _label(label),
     _parent(parent),
@@ -61,7 +61,8 @@ MemTracker::MemTracker(
     _num_gcs_metric(NULL),
     _bytes_freed_by_last_gc_metric(NULL),
     _bytes_over_limit_metric(NULL),
-    _limit_metric(NULL) {
+    _limit_metric(NULL),
+    _auto_unregister(auto_unregister) {
         if (parent != NULL) _parent->add_child_tracker(this);
         Init();
     }
@@ -194,6 +195,10 @@ MemTracker::~MemTracker() {
         }
     }
     delete _reservation_counters.load();
+
+    if (_auto_unregister && parent()) {
+        unregister_from_parent();
+    }
 }
 
 // Calling this on the query tracker results in output like:
