@@ -24,14 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Plugin Development Manual
+# Doris Plugin Framework
 
 ## Introduction
 
-Doris supports dynamic loading of plug-ins. Users can develop their own plug-ins to implement some extended functions. This manual mainly introduces the development, compilation and deployment methods of Frontend-side plug-ins.
+Doris plugin framework supports install/uninstall custom plugins at runtime without restart the Doris service. Users can extend Doris's functionality by developing their own plugins.
 
+For example, the audit plugin worked after a request execution, it can obtain information related to a request (access user, request IP, SQL, etc...) and write the information into the specified table.
 
-`fe_plugins` is the parent module of the fe plugins. It can uniformly manage the third-party library information that the plugin depends on. Adding a plugin can add a submodule implementation under `fe_plugins`.
+Differences from UDF:
+* UDF is a function used for data calculation when SQL is executed. Plugin is additional function that is used to extend Doris with customized function, such as support different storage engines and different import ways, and plugin does't participate in data calculation when executing SQL.
+* The execution cycle of UDF is limited to a SQL execution. The execution cycle of plugin may be the same as the Doris process.
+* The usage scene is different. If you need to support special data algorithms when executing SQL, then UDF is recommended, if you need to run custom functions on Doris, or start a background thread to do tasks, then the use of plugin is recommended.
+
+Currently the plugin framework only supports audit plugins.
+
+> Note:
+> Doris plugin framework is an experimental feature, currently only supports FE plugin, and is closed by default, can be opened by FE configuration `plugin_enable = true`.
 
 ## Plugin
 
@@ -91,6 +100,8 @@ soName = example.so
 ## Write A Plugin
 
 The development environment of the FE plugin depends on the development environment of Doris. So please make sure Doris's compilation and development environment works normally.
+
+`fe_plugins` is the parent module of the fe plugins. It can uniformly manage the third-party library information that the plugin depends on. Adding a plugin can add a submodule implementation under `fe_plugins`.
 
 ### Create module
 
@@ -195,6 +206,7 @@ Then we need to update `pom.xml`, add doris-fe dependency, and modify maven pack
     <packaging>jar</packaging>
 
     <dependencies>
+        <!-- doris-fe dependencies -->
         <dependency>
             <groupId>org.apache</groupId>
             <artifactId>doris-fe</artifactId>
@@ -237,7 +249,7 @@ Then we need to update `pom.xml`, add doris-fe dependency, and modify maven pack
 
 ### Implement plugin
 
-Then we can happily implement Plugin according to the needs. Plugins need to implement the `Plugin` interface. For details, please refer to the `auditdemo` plugin sample code that comes with Doris.
+Then we can implement Plugin according to the needs. Plugins need to implement the `Plugin` interface. For details, please refer to the `auditdemo` plugin sample code that comes with Doris.
 
 ### Compile
 
@@ -266,7 +278,7 @@ Note: Need to ensure that the plugin .zip file is available in the life cycle of
 Install and uninstall the plugin through the install/uninstall statements. More details, see `HELP INSTALL PLUGIN;` `HELP IUNNSTALL PLUGIN;` `HELP SHOW PLUGINS;` 
 
 ```
-mysql> install plugin from "/home/users/seaven/auditdemo.zip";
+mysql> install plugin from "/home/users/doris/auditloader.zip";
 Query OK, 0 rows affected (0.09 sec)
 
 mysql> mysql> show plugins\G
@@ -278,7 +290,7 @@ Description: load audit log to olap load, and user can view the statistic of que
 JavaVersion: 1.8.31
   ClassName: AuditLoaderPlugin
      SoName: NULL
-    Sources: /home/cmy/git/doris/core/fe_plugins/output/auditloader.zip
+    Sources: /home/users/doris/auditloader.zip
      Status: INSTALLED
 *************************** 2. row ***************************
        Name: AuditLogBuilder
