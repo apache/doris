@@ -956,8 +956,9 @@ public class Analyzer {
 
 
     /**
-     * Return all registered conjuncts that are fully bound by
-     * given list of tuple ids, the eqJoinConjuncts and inclOjConjuncts is excluded.
+     * Return all registered conjuncts that are fully bound by given list of tuple ids.
+     * the eqJoinConjuncts and sjClauseByConjunct is excluded.
+     * This method is used get conjuncts which may be able to pushed down to scan node.
      */
     public List<Expr> getConjuncts(List<TupleId> tupleIds) {
         List<Expr> result = Lists.newArrayList();
@@ -968,8 +969,9 @@ public class Analyzer {
         for (Expr e : globalState.conjuncts.values()) {
             if (e.isBoundByTupleIds(tupleIds)
                     && !e.isAuxExpr()
-                    && !eqJoinConjunctIds.contains(e.getId())
+                    && !eqJoinConjunctIds.contains(e.getId())  // to exclude to conjuncts like (A.id = B.id)
                     && !globalState.ojClauseByConjunct.containsKey(e.getId())
+                    && !globalState.sjClauseByConjunct.containsKey(e.getId())
                     && canEvalPredicate(tupleIds, e)) {
                 result.add(e);
             }
