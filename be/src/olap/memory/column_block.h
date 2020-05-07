@@ -15,15 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/mem_tablet.h"
+#pragma once
+
+#include "olap/memory/buffer.h"
+#include "olap/memory/common.h"
 
 namespace doris {
 namespace memory {
 
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {}
+// ColumnBlock stores one block of data for a Column
+class ColumnBlock : public RefCountedThreadSafe<ColumnBlock> {
+    ColumnBlock() = default;
 
-MemTablet::~MemTablet() {}
+    size_t memory() const;
+
+    Buffer& data() { return _data; }
+
+    Buffer& nulls() { return _nulls; }
+
+    Status alloc(size_t size, size_t esize);
+
+    bool is_null(uint32_t idx) const { return _nulls && _nulls.as<bool>()[idx]; }
+
+    Status set_null(uint32_t idx);
+
+    Status set_not_null(uint32_t idx);
+
+private:
+    size_t _size = 0;
+    Buffer _nulls;
+    Buffer _data;
+    DISALLOW_COPY_AND_ASSIGN(ColumnBlock);
+};
 
 } // namespace memory
 } // namespace doris

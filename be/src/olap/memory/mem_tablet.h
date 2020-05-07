@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_MEMORY_MEM_TABLET_H_
-#define DORIS_BE_SRC_MEMORY_MEM_TABLET_H_
+#pragma once
 
 #include "olap/base_tablet.h"
 
 namespace doris {
+namespace memory {
 
 // Tablet class for memory-optimized storage engine.
 //
@@ -29,11 +29,13 @@ namespace doris {
 //
 // TODO: This is just a skeleton, will add implementation in the future.
 class MemTablet : public BaseTablet {
+public:
+    MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
+    virtual ~MemTablet();
 
 private:
     DISALLOW_COPY_AND_ASSIGN(MemTablet);
 };
 
-} /* namespace doris */
-
-#endif /* DORIS_BE_SRC_MEMORY_MEM_TABLET_H_ */
+} // namespace memory
+} // namespace doris

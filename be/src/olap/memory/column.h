@@ -15,15 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/mem_tablet.h"
+#pragma once
+
+#include "olap/memory/common.h"
 
 namespace doris {
 namespace memory {
 
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {}
+// Column store all the data of a column, including base and deltas.
+// It supports single-writer multi-reader concurrency.
+class Column : public RefCountedThreadSafe<Column> {
+public:
+    static const uint32_t BLOCK_SIZE = 1 << 16;
+    static const uint32_t BLOCK_MASK = 0xffff;
 
-MemTablet::~MemTablet() {}
+private:
+    DISALLOW_COPY_AND_ASSIGN(Column);
+};
 
 } // namespace memory
 } // namespace doris

@@ -15,15 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/mem_tablet.h"
+#pragma once
+
+#include "olap/memory/common.h"
 
 namespace doris {
 namespace memory {
 
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {}
+class Buffer {
+public:
+    Buffer() = default;
+    ~Buffer();
 
-MemTablet::~MemTablet() {}
+    Status alloc(size_t size);
+
+    void clear();
+
+    void set_zero();
+
+    operator bool() const { return _data != nullptr; }
+
+    const uint8_t* data() const { return _data; }
+
+    uint8_t* data() { return _data; }
+
+    size_t bsize() const { return _bsize; }
+
+    template <class T>
+    T* as() {
+        return reinterpret_cast<T*>(_data);
+    }
+
+    template <class T>
+    const T* as() const {
+        return reinterpret_cast<const T*>(_data);
+    }
+
+private:
+    size_t _bsize = 0;
+    uint8_t* _data = nullptr;
+    DISALLOW_COPY_AND_ASSIGN(Buffer);
+};
 
 } // namespace memory
 } // namespace doris

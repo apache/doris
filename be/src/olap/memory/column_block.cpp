@@ -15,15 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/mem_tablet.h"
+#include "olap/memory/column_block.h"
 
 namespace doris {
 namespace memory {
 
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {}
+size_t ColumnBlock::memory() const {
+    return _data.bsize() + _nulls.bsize();
+}
 
-MemTablet::~MemTablet() {}
+Status ColumnBlock::alloc(size_t size, size_t esize) {
+    if (_data || _nulls) {
+        LOG(FATAL) << "reinit column page";
+    }
+    RETURN_IF_ERROR(_data.alloc(size * esize));
+    _data.set_zero();
+    _size = size;
+    return Status::OK();
+}
+
+Status ColumnBlock::set_null(uint32_t idx) {
+    if (!_nulls) {
+        RETURN_IF_ERROR(_nulls.alloc(_size));
+        _nulls.set_zero();
+    }
+    _nulls.as<bool>()[idx] = true;
+    return Status::OK();
+}
+
+Status ColumnBlock::set_not_null(uint32_t idx) {
+    if (_nulls) {
+        _nulls.as<bool>()[idx] = false;
+    }
+    return Status::OK();
+}
 
 } // namespace memory
 } // namespace doris

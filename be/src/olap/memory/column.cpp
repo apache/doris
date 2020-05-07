@@ -15,15 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/mem_tablet.h"
+#include "column.h"
 
 namespace doris {
 namespace memory {
-
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {}
-
-MemTablet::~MemTablet() {}
 
 } // namespace memory
 } // namespace doris

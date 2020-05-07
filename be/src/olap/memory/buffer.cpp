@@ -15,15 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/mem_tablet.h"
+#include "olap/memory/buffer.h"
 
 namespace doris {
 namespace memory {
 
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {}
+Status Buffer::alloc(size_t size) {
+    if (size > 0) {
+        uint8_t* data = reinterpret_cast<uint8_t*>(aligned_malloc(size, size >= 4096 ? 4096 : 64));
+        if (!data) {
+            return Status::MemoryAllocFailed(StringPrintf("alloc buffer size=%zu failed", size));
+        }
+        _data = data;
+        _bsize = size;
+    }
+    return Status::OK();
+}
 
-MemTablet::~MemTablet() {}
+void Buffer::clear() {
+    if (_data) {
+        free(_data);
+        _data = nullptr;
+        _bsize = 0;
+    }
+}
+
+void Buffer::set_zero() {
+    if (_data) {
+        memset(_data, 0, _bsize);
+    }
+}
+
+Buffer::~Buffer() {
+    clear();
+}
 
 } // namespace memory
 } // namespace doris
