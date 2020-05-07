@@ -63,7 +63,8 @@ std::string ESScrollQueryBuilder::build_clear_scroll_body(const std::string& scr
 
 std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>& properties,
                 const std::vector<std::string>& fields,
-                std::vector<EsPredicate*>& predicates, const std::map<std::string, std::string>& docvalue_context) {
+                std::vector<EsPredicate*>& predicates, const std::map<std::string, std::string>& docvalue_context,
+                bool* use_doc_value) {
     rapidjson::Document es_query_dsl;
     rapidjson::Document::AllocatorType &allocator = es_query_dsl.GetAllocator();
     es_query_dsl.SetObject();
@@ -86,6 +87,9 @@ std::string ESScrollQueryBuilder::build(const std::map<std::string, std::string>
             }
         }
     }
+
+    *use_doc_value = pure_docvalue;
+
     rapidjson::Value source_node(rapidjson::kArrayType);
     if (pure_docvalue) {
         for (auto& select_field : fields) {

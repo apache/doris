@@ -35,7 +35,10 @@ const std::string REQUEST_SEPARATOR = "/";
 
 const std::string REQUEST_SEARCH_FILTER_PATH = "filter_path=hits.hits._source,hits.total,_id,hits.hits._source.fields,hits.hits.fields";
 
-ESScanReader::ESScanReader(const std::string& target, const std::map<std::string, std::string>& props) : _scroll_keep_alive(config::es_scroll_keepalive), _http_timeout_ms(config::es_http_timeout_ms) {
+ESScanReader::ESScanReader(const std::string& target, const std::map<std::string, std::string>& props, bool use_doc_value) : 
+        _scroll_keep_alive(config::es_scroll_keepalive), 
+        _http_timeout_ms(config::es_http_timeout_ms), 
+        _use_doc_value(use_doc_value) {
     _target = target;
     _index = props.at(KEY_INDEX);
     _type = props.at(KEY_TYPE);
@@ -142,7 +145,7 @@ Status ESScanReader::get_next(bool* scan_eos, std::unique_ptr<ScrollParser>& scr
         }
     }
 
-    scroll_parser.reset(new ScrollParser());
+    scroll_parser.reset(new ScrollParser(_use_doc_value));
     VLOG(1) << "get_next request ES, returned response: " << response;
     Status status = scroll_parser->parse(response, _exactly_once);
     if (!status.ok()){
