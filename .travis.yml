@@ -46,12 +46,12 @@ after_script:
   - git config user.email "${GIT_EMAIL}"
   - git clone https://${SITE_REPO} site-repo
   - cd site-repo
+  - git checkout ${SITE_BRANCH}
   - mkdir -p ${BRANCH} && rm -rf ${BRANCH}/*
   - cp -r ../.vuepress/dist/* ./${BRANCH}/
-  - git checkout ${SITE_BRANCH}
   - git add .
   - git commit -am "Auto Build"
-  - git push --force --quiet "https://${SITE_PUSH_TOKEN}@${SITE_REPO}" ${SITE_BRANCH}:${SITE_BRANCH}
+  - git push --verbose "https://${SITE_PUSH_TOKEN}@${SITE_REPO}" ${SITE_BRANCH}:${SITE_BRANCH}
 
 branches:
   only:
