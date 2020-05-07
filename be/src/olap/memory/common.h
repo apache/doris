@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"

@@ -23,9 +23,11 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap/memory")
   
 add_library(Memory STATIC
 	buffer.cpp
+	column.cpp
 	column_block.cpp
 	column_delta.cpp
 	delta_index.cpp
     hash_index.cpp
     mem_tablet.cpp
+    schema.cpp
 )

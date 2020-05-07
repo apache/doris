@@ -25,6 +25,7 @@ namespace memory {
 
 // ColumnBlock stores one block of data for a Column
 class ColumnBlock : public RefCountedThreadSafe<ColumnBlock> {
+public:
     ColumnBlock() = default;
 
     size_t memory() const;

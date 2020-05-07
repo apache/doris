@@ -24,6 +24,7 @@
 #include "gutil/hash/builtin_type_hash.h"
 
 namespace doris {
+namespace memory {
 
 inline uint64_t HashCode(size_t v) {
     return Hash64NumWithSeed(v, 0);
@@ -103,6 +104,7 @@ TEST(HashIndex, add) {
     LOG(INFO) << hi.dump();
 }
 
+} // namespace memory
 } // namespace doris
 
 int main(int argc, char** argv) {
