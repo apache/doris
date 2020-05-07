@@ -79,15 +79,15 @@ fi
 echo "Build Backend UT"
 
 if [ ${CLEAN} -eq 1 ]; then
-    rm ${DORIS_HOME}/be/build/ -rf
+    rm ${DORIS_HOME}/be/ut_build/ -rf
     rm ${DORIS_HOME}/be/output/ -rf
 fi
 
-if [ ! -d ${DORIS_HOME}/be/build ]; then
-    mkdir -p ${DORIS_HOME}/be/build/
+if [ ! -d ${DORIS_HOME}/be/ut_build ]; then
+    mkdir -p ${DORIS_HOME}/be/ut_build/
 fi
 
-cd ${DORIS_HOME}/be/build/
+cd ${DORIS_HOME}/be/ut_build/
 
 ${CMAKE_CMD} ../ -DWITH_MYSQL=OFF -DMAKE_TEST=ON
 make -j${PARALLEL}
@@ -102,7 +102,7 @@ echo "    Running PaloBe Unittest    "
 echo "******************************"
 
 cd ${DORIS_HOME}
-export DORIS_TEST_BINARY_DIR=${DORIS_HOME}/be/build
+export DORIS_TEST_BINARY_DIR=${DORIS_HOME}/be/ut_build
 export TERM=xterm
 export UDF_RUNTIME_DIR=${DORIS_HOME}/lib/udf-runtime
 export LOG_DIR=${DORIS_HOME}/log
