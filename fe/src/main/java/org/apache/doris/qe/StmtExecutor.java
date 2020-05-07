@@ -335,6 +335,7 @@ public class StmtExecutor {
 
     private void writeProfile(long beginTimeInNanoSecond) {
         initProfile(beginTimeInNanoSecond);
+        profile.computeTimeInChildProfile();
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
         System.out.println(builder.toString());

@@ -1374,6 +1374,7 @@ public class Coordinator {
         }
 
         public synchronized void printProfile(StringBuilder builder) {
+            this.profile.computeTimeInProfile();
             this.profile.prettyPrint(builder, "");
         }
 

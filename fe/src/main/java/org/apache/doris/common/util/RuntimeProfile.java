@@ -316,6 +316,13 @@ public class RuntimeProfile {
         Pair<RuntimeProfile, Boolean> pair = Pair.create(child, true);
         this.childList.add(pair);
     }
+
+    // Because the profile of summary and child fragment is not a real parent-child relationship
+    // Each child profile needs to calculate the time proportion consumed by itself
+    public void computeTimeInChildProfile() {
+        childMap.values().stream().
+                forEach(child -> child.computeTimeInProfile());
+    }
     
     public void computeTimeInProfile() {
         computeTimeInProfile(this.counterTotalTime.getValue());
