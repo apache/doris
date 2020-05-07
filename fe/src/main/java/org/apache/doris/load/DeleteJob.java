@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.task.PushTask;
@@ -190,6 +191,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     }
 
     public long getTimeoutMs() {
+        if (FeConstants.runningUnitTest) {
+            // for making unit test run fast
+            return 1000;
+        }
         // timeout is between 30 seconds to 5 min
         long timeout = Math.max(totalTablets.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
         return Math.min(timeout, Config.load_straggler_wait_second * 1000L);
