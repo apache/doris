@@ -222,6 +222,7 @@ Status NodeChannel::mark_close() {
     }
 
     _eos_is_produced = true;
+    return Status::OK();
 }
 
 Status NodeChannel::close_wait(RuntimeState* state) {
