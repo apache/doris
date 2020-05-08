@@ -151,7 +151,6 @@ public:
         DCHECK(_consumption_metric == NULL) << "Should not be called on root.";
         for (int i = 0; i < _all_trackers.size(); ++i) {
             if (_all_trackers[i] == end_tracker) return;
-            DCHECK(!_all_trackers[i]->has_limit());
             _all_trackers[i]->_consumption->add(bytes);
         }
         DCHECK(false) << "end_tracker is not an ancestor";
@@ -394,7 +393,7 @@ public:
     bool is_consumption_metric_null() {
         return _consumption_metric == nullptr;
     }
-    
+
 private:
     friend class PoolMemTrackerRegistry;
 

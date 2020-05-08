@@ -281,14 +281,11 @@ bool ReservationTracker::TransferReservationTo(ReservationTracker* other, int64_
   // so this is all atomic.
   for (ReservationTracker* tracker : other_path_to_common) {
     tracker->UpdateReservation(bytes);
-    // We don't handle MemTrackers with limit in this function - this should always
-    // succeed.
-    DCHECK(tracker->mem_tracker_ == nullptr || !tracker->mem_tracker_->has_limit());
     bool success = tracker->TryConsumeFromMemTracker(bytes);
     DCHECK(success);
     if (tracker != other_path_to_common[0]) tracker->child_reservations_ += bytes;
   }
-  
+
   for (ReservationTracker* tracker : path_to_common) {
     if (tracker != path_to_common[0]) tracker->child_reservations_ -= bytes;
     tracker->UpdateReservation(-bytes);
@@ -381,7 +378,7 @@ void ReservationTracker::CheckConsistency() const {
 }
 
 void ReservationTracker::UpdateUsedReservation(int64_t delta) {
-  
+
   used_reservation_ += delta;
   COUNTER_SET(counters_.peak_used_reservation, used_reservation_);
   VLOG_QUERY << "peak:" << counters_.peak_reservation->current_value() << " used reservation:" << reservation_;
@@ -390,7 +387,7 @@ void ReservationTracker::UpdateUsedReservation(int64_t delta) {
 
 void ReservationTracker::UpdateReservation(int64_t delta) {
   reservation_ += delta;
-  //LOG(INFO) << "chenhao tracker:" << tracker_name_ << " reservation:" << reservation_ 
+  //LOG(INFO) << "chenhao tracker:" << tracker_name_ << " reservation:" << reservation_
   //          << " delta:" << delta << " limit:" << reservation_limit_;
   COUNTER_SET(counters_.peak_reservation, reservation_);
   counters_.peak_reservation->set(reservation_);
