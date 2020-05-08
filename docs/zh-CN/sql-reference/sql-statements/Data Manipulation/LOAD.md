@@ -45,8 +45,6 @@ under the License.
     Hadoop Load 仅适用于百度内部环境。公有云、私有云以及开源环境无法使用这种导入方式。
     该导入方式必须设置用于 ETL 的 Hadoop 计算队列，设置方式可以通过 help set property 命令查看帮助。
 
-    Stream load 暂时只支持百度内部用户使用。开源社区和公有云用户将在后续版本更新中支持。
-
 语法：
 
     LOAD LABEL load_label
