@@ -50,11 +50,9 @@ public class ClusterLoadStatisticProcDir implements ProcDirInterface {
 
         statMap = Catalog.getCurrentCatalog().getTabletScheduler().getStatisticMap();
 
-        statMap.values().stream().forEach(t -> {
+        statMap.values().forEach(t -> {
             List<List<String>> statistics = t.getClusterStatistic(medium);
-            statistics.stream().forEach(v -> {
-                result.addRow(v);
-            });
+            statistics.forEach(result::addRow);
         });
 
         return result;
