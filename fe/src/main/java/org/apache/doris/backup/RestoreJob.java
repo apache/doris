@@ -505,7 +505,7 @@ public class RestoreJob extends AbstractJob {
                                 Range<PartitionKey> remoteRange = remoteRangePartInfo.getRange(backupPartInfo.id);
                                 if (localRange.equals(remoteRange)) {
                                     // Same partition, same range
-                                    if (replicasNotEqual(localPartInfo, localPartition, localTbl, backupPartInfo)) {
+                                    if (backupReplicasNotEqual(localPartInfo, localPartition, localTbl, backupPartInfo, tblInfo)) {
                                         return;
                                     }
                                 } else {
@@ -517,7 +517,7 @@ public class RestoreJob extends AbstractJob {
                                 }
                             } else {
                                 // If this is a single partitioned table.
-                                if (replicasNotEqual(localPartInfo, localPartition, localTbl, backupPartInfo)) {
+                                if (backupReplicasNotEqual(localPartInfo, localPartition, localTbl, backupPartInfo, tblInfo)) {
                                     return;
                                 }
                             }
@@ -741,7 +741,8 @@ public class RestoreJob extends AbstractJob {
                  batchTask.getTaskNum(), this);
     }
 
-    private boolean replicasNotEqual(PartitionInfo localPartInfo, Partition localPartition, Table localTbl, BackupPartitionInfo backupPartInfo) {
+    private boolean backupReplicasNotEqual(PartitionInfo localPartInfo, Partition localPartition, Table localTbl,
+                                           BackupPartitionInfo backupPartInfo, BackupTableInfo tblInfo) {
         if (localPartInfo.getReplicationNum(localPartition.getId()) != restoreReplicationNum) {
             status = new Status(ErrCode.COMMON_ERROR, "Partition " + backupPartInfo.name
                     + " in table " + localTbl.getName()
