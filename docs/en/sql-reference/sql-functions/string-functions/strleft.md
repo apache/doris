@@ -31,7 +31,7 @@ under the License.
 'VARCHAR STRAIGHT (VARCHAR STR)'
 
 
-It returns the left part of a string of specified length
+It returns the left part of a string of specified length, length is char length not the byte size.
 
 ## example
 

@@ -70,6 +70,8 @@ public:
         const doris_udf::IntVal& len, const doris_udf::StringVal& pad); 
     static doris_udf::IntVal length(
         doris_udf::FunctionContext* context, const doris_udf::StringVal& str);
+    static doris_udf::IntVal char_utf8_length(
+        doris_udf::FunctionContext* context, const doris_udf::StringVal& str);
     static doris_udf::StringVal lower(
         doris_udf::FunctionContext* context, const doris_udf::StringVal& str);
     static doris_udf::StringVal upper(

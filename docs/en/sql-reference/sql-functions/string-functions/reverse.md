@@ -1,7 +1,7 @@
 ---
 {
-    "title": "right",
-    "language": "zh-CN"
+    "title": "REVERSE",
+    "language": "en"
 }
 ---
 
@@ -24,24 +24,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# right
+# reverse
 ## description
 ### Syntax
 
-`VARCHAR right(VARCHAR str)`
+`VARCHAR reverse(VARCHAR str)`
 
 
-它返回具有指定长度的字符串的右边部分, 长度的单位为utf8字符
+The REVERSE() function reverses a string and returns the result.
 
 ## example
 
 ```
-mysql> select right("Hello doris",5);
-+-------------------------+
-| right('Hello doris', 5) |
-+-------------------------+
-| doris                   |
-+-------------------------+
+mysql> SELECT REVERSE('hello');
++------------------+
+| REVERSE('hello') |
++------------------+
+| olleh            |
++------------------+
+1 row in set (0.00 sec)
+
+mysql> SELECT REVERSE('你好');
++------------------+
+| REVERSE('你好')   |
++------------------+
+| 好你              |
++------------------+
+1 row in set (0.00 sec)
 ```
-##keyword
-RIGHT
+## keyword
+REVERSE
