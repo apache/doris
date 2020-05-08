@@ -19,12 +19,12 @@
 
 #include <re2/re2.h>
 
-#include "exprs/expr.h"
 #include "exprs/anyval_util.h"
+#include "exprs/expr.h"
+#include "math_functions.h"
 #include "runtime/string_value.hpp"
 #include "runtime/tuple_row.h"
 #include "util/url_parser.h"
-#include "math_functions.h"
 
 // NOTE: be careful not to use string::append.  It is not performant.
 namespace doris {
@@ -32,24 +32,68 @@ namespace doris {
 void StringFunctions::init() {
 }
 
+size_t get_utf8_byte_length(unsigned char byte) {
+    size_t char_size = 0;
+    if (byte >= 0xFC) {
+        char_size = 6;
+    } else if (byte >= 0xF8) {
+        char_size = 5;
+    } else if (byte >= 0xF0) {
+        char_size = 4;
+    } else if (byte >= 0xE0) {
+        char_size = 3;
+    } else if (byte >= 0xC0) {
+        char_size = 2;
+    } else {
+        char_size = 1;
+    }
+    return char_size;
+}
+
 // This behaves identically to the mysql implementation, namely:
 //  - 1-indexed positions
 //  - supported negative positions (count from the end of the string)
 //  - [optional] len.  No len indicates longest substr possible
 StringVal StringFunctions::substring(
-        FunctionContext* context, const StringVal& str, 
+        FunctionContext* context, const StringVal& str,
         const IntVal& pos, const IntVal& len) {
-    if (str.is_null || pos.is_null || len.is_null) {
+    if (str.is_null || pos.is_null || len.is_null || pos.val > str.len) {
         return StringVal::null();
     }
+    if (len.val <= 0 || str.len == 0) {
+        return StringVal();
+    }
+
+    // create index indicate every char start byte
+    // e.g.  "hello word 你好" => [0,1,2,3,4,5,6,7,8,9,10,11,14] 你 and 好 are 3 bytes
+    // why use a vector as index? It is unnecessary if there is no negative pos val,
+    // but if has pos is negative it is not easy to determin where to start, so need a
+    // index save every character's length
+    size_t byte_pos = 0;
+    std::vector<size_t> index;
+    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        index.push_back(byte_pos);
+        byte_pos += char_size;
+        if (pos.val > 0 && index.size() > pos.val + len.val) {
+            break;
+        }
+    }
+
     int fixed_pos = pos.val;
     if (fixed_pos < 0) {
-        fixed_pos = str.len + fixed_pos + 1;
+        fixed_pos = index.size() + fixed_pos + 1;
     }
-    int max_len = str.len - fixed_pos + 1;
-    int fixed_len = std::min(static_cast<int>(len.val), max_len);
-    if (fixed_pos > 0 && fixed_pos <= str.len && fixed_len > 0) {
-        return StringVal(str.ptr + fixed_pos - 1, fixed_len);
+    if (fixed_pos > index.size()) {
+        return StringVal::null();
+    }
+    byte_pos = index[fixed_pos - 1];
+    int fixed_len = str.len - byte_pos;
+    if (fixed_pos + len.val <= index.size()) {
+        fixed_len = index[fixed_pos + len.val - 1] - byte_pos;
+    }
+    if (byte_pos <= str.len && fixed_len > 0) {
+        return StringVal(str.ptr + byte_pos, fixed_len);
     } else {
         return StringVal();
     }
@@ -118,7 +162,7 @@ StringVal StringFunctions::space(FunctionContext* context, const IntVal& len) {
     int32_t space_size = std::min(len.val, 65535);
     // TODO pengyubing
     // StringVal result = StringVal::create_temp_string_val(context, space_size);
-    StringVal result(context, space_size);  
+    StringVal result(context, space_size);
     memset(result.ptr, ' ', space_size);
     return result;
 }
@@ -147,7 +191,7 @@ StringVal StringFunctions::repeat(
 }
 
 StringVal StringFunctions::lpad(
-        FunctionContext* context, const StringVal& str, 
+        FunctionContext* context, const StringVal& str,
         const IntVal& len, const StringVal& pad) {
     if (str.is_null || len.is_null || pad.is_null || len.val < 0) {
         return StringVal::null();
@@ -223,6 +267,23 @@ IntVal StringFunctions::length(FunctionContext* context, const StringVal& str) {
     return IntVal(str.len);
 }
 
+// Implementation of CHAR_LENGTH
+//   int char_utf8_length(string input)
+// Returns the length of characters of input. If input == NULL, returns
+// NULL per MySQL
+IntVal StringFunctions::char_utf8_length(FunctionContext* context, const StringVal& str) {
+    if (str.is_null) {
+        return IntVal::null();
+    }
+    size_t char_len = 0;
+    std::vector<size_t> index;
+    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        ++char_len;
+    }
+    return IntVal(char_len);
+}
+
 StringVal StringFunctions::lower(FunctionContext* context, const StringVal& str) {
     if (str.is_null) {
         return StringVal::null();
@@ -260,13 +321,16 @@ StringVal StringFunctions::reverse(FunctionContext* context, const StringVal& st
         return StringVal::null();
     }
 
-    // TODO pengyubing
-    // StringVal result = StringVal::create_temp_string_val(context, str.len);
     StringVal result(context, str.len);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
-    std::reverse_copy(str.ptr, str.ptr + str.len, result.ptr);
+
+    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        std::copy(str.ptr + i, str.ptr + i + char_size, result.ptr + result.len - i - char_size);
+    }
+
     return result;
 }
 
@@ -370,7 +434,7 @@ IntVal StringFunctions::locate_pos(
 // This function sets options in the RE2 library before pattern matching.
 bool StringFunctions::set_re2_options(
         const StringVal& match_parameter,
-        std::string* error_str, 
+        std::string* error_str,
         re2::RE2::Options* opts) {
     for (int i = 0; i < match_parameter.len; i++) {
         char match = match_parameter.ptr[i];
@@ -401,7 +465,7 @@ bool StringFunctions::set_re2_options(
 
 // The caller owns the returned regex. Returns NULL if the pattern could not be compiled.
 static re2::RE2* compile_regex(
-        const StringVal& pattern, 
+        const StringVal& pattern,
         std::string* error_str,
         const StringVal& match_parameter) {
     re2::StringPiece pattern_sp(reinterpret_cast<char*>(pattern.ptr), pattern.len);
@@ -418,7 +482,7 @@ static re2::RE2* compile_regex(
     re2::RE2* re = new re2::RE2(pattern_sp, options);
     if (!re->ok()) {
         std::stringstream ss;
-        ss << "Could not compile regexp pattern: " << AnyValUtil::to_string(pattern) 
+        ss << "Could not compile regexp pattern: " << AnyValUtil::to_string(pattern)
             << std::endl << "Error: " << re->error();
         *error_str = ss.str();
         delete re;
@@ -558,7 +622,7 @@ StringVal StringFunctions::concat(
 }
 
 StringVal StringFunctions::concat_ws(
-        FunctionContext* context, const StringVal& sep, 
+        FunctionContext* context, const StringVal& sep,
         int num_children, const StringVal* strs) {
     DCHECK_GE(num_children, 1);
     if (sep.is_null) {
@@ -633,9 +697,9 @@ IntVal StringFunctions::find_in_set(
 }
 
 void StringFunctions::parse_url_prepare(
-        FunctionContext* ctx, 
+        FunctionContext* ctx,
         FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::FRAGMENT_LOCAL) { 
+    if (scope != FunctionContext::FRAGMENT_LOCAL) {
         return;
     }
     if (!ctx->is_arg_constant(1)) {
@@ -818,7 +882,6 @@ static int index_of(const uint8_t* source, int source_offset, int source_count,
     return -1;
 }
 
-
 StringVal StringFunctions::split_part(FunctionContext* context, const StringVal& content,
                                       const StringVal& delimiter, const IntVal& field) {
     if (content.is_null || delimiter.is_null || field.is_null || field.val <= 0) {
@@ -847,5 +910,4 @@ StringVal StringFunctions::split_part(FunctionContext* context, const StringVal&
     int len = (find[field.val - 1] == -1 ? content.len : find[field.val - 1]) - start_pos;
     return StringVal(content.ptr + start_pos, len);
 }
-
 }

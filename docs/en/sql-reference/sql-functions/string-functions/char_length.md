@@ -1,7 +1,7 @@
 ---
 {
-    "title": "right",
-    "language": "zh-CN"
+    "title": "CHAR_LENGTH",
+    "language": "en"
 }
 ---
 
@@ -24,24 +24,32 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# right
-## description
+# char_length
+## Description
 ### Syntax
 
-`VARCHAR right(VARCHAR str)`
+'INT char_length (VARCHAR str)'
 
 
-它返回具有指定长度的字符串的右边部分, 长度的单位为utf8字符
+Returns the length of the string and the number of characters returned for multi-byte characters. For example, five two-byte width words return a length of 5, only utf8 encodeing is support at current version.
 
 ## example
 
+
 ```
-mysql> select right("Hello doris",5);
-+-------------------------+
-| right('Hello doris', 5) |
-+-------------------------+
-| doris                   |
-+-------------------------+
+mysql> select char_length("abc");
++--------------------+
+| char_length('abc') |
++--------------------+
+|                  3 |
++--------------------+
+
+mysql> select char_length("中国");
++------------------- ---+
+| char_length('中国')   |
++-----------------------+
+|                     2 |
++-----------------------+
 ```
-##keyword
-RIGHT
+## keyword
+CHAR_LENGTH

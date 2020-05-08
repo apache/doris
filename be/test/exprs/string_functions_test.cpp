@@ -17,6 +17,7 @@
 
 #include "exprs/string_functions.h"
 #include "util/logging.h"
+#include "testutil/function_utils.h"
 #include "exprs/anyval_util.h"
 #include <iostream>
 #include <string>
@@ -252,9 +253,88 @@ TEST_F(StringFunctionsTest, null_or_empty) {
     delete context;
 }
 
+TEST_F(StringFunctionsTest, substring) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("hello")),
+            StringFunctions::substring(context, StringVal("hello word"), 1, 5));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("word")),
+            StringFunctions::substring(context, StringVal("hello word"), 7, 4));
+
+    ASSERT_EQ(StringVal::null(),
+            StringFunctions::substring(context, StringVal::null(), 1, 0));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
+            StringFunctions::substring(context, StringVal("hello word"), 1, 0));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string(" word")),
+            StringFunctions::substring(context, StringVal("hello word"), -5, 5));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("hello word 你")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), 1, 12));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("好")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), 13, 1));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), 1, 0));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("rd 你好")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), -5, 5));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("h")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), 1, 1));
+}
+
+TEST_F(StringFunctionsTest, reverse) {
+    FunctionUtils fu;
+    doris_udf::FunctionContext* context = fu.get_fn_ctx();
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("olleh")),
+            StringFunctions::reverse(context, StringVal("hello")));
+    ASSERT_EQ(StringVal::null(),
+            StringFunctions::reverse(context, StringVal::null()));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
+            StringFunctions::reverse(context, StringVal("")));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("好你olleh")),
+            StringFunctions::reverse(context, StringVal("hello你好")));
+}
+
+TEST_F(StringFunctionsTest, length) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(IntVal(5),
+            StringFunctions::length(context, StringVal("hello")));
+    ASSERT_EQ(IntVal(5),
+            StringFunctions::char_utf8_length(context, StringVal("hello")));
+    ASSERT_EQ(IntVal::null(),
+            StringFunctions::length(context, StringVal::null()));
+    ASSERT_EQ(IntVal::null(),
+            StringFunctions::char_utf8_length(context, StringVal::null()));
+
+    ASSERT_EQ(IntVal(0),
+            StringFunctions::length(context, StringVal("")));
+    ASSERT_EQ(IntVal(0),
+            StringFunctions::char_utf8_length(context, StringVal("")));
+            
+    ASSERT_EQ(IntVal(11),
+            StringFunctions::length(context, StringVal("hello你好")));
+            
+    ASSERT_EQ(IntVal(7),
+            StringFunctions::char_utf8_length(context, StringVal("hello你好")));
+}
+
 }
 
 int main(int argc, char** argv) {
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!doris::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }
