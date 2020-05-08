@@ -61,7 +61,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
@@ -69,7 +68,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/*
+/**
  * TabletScheduler saved the tablets produced by TabletChecker and try to schedule them.
  * It also try to balance the cluster load.
  * 
