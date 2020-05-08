@@ -825,6 +825,4 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("CROSS JOIN"));
         Assert.assertTrue(!explainString.contains("PREDICATES"));
     }
-
-
 }
