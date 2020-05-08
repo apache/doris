@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "env/env.h"
@@ -134,15 +135,18 @@ OLAPStatus parse_conf_store_paths(const string& config_path, vector<StorePath>* 
     vector<string> path_vec = strings::Split(config_path, ";", strings::SkipWhitespace());
     for (auto& item : path_vec) {
         StorePath path;
-        RETURN_NOT_OK_LOG(parse_root_path(item, &path),
-                strings::Substitute("fail to parse store path. path=$0", item));
-        paths->emplace_back(std::move(path));
+        auto res = parse_root_path(item, &path);
+        if (res == OLAP_SUCCESS) {
+            paths->emplace_back(std::move(path));
+        } else {
+            LOG(WARNING) << "failed to parse store path " << item << ", res=" << res;
+        }
+
     }
-    if (paths->empty()) {
+    if (paths->empty() || (path_vec.size() != paths->size() && !config::ignore_broken_disk)) {
         LOG(WARNING) << "fail to parse storage_root_path config. value=[" << config_path << "]";
         return OLAP_ERR_INPUT_PARAMETER_ERROR;
     }
-
     return OLAP_SUCCESS;
 }
 
