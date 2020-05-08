@@ -166,7 +166,7 @@ public class DppUtils {
             buffer.putLong((Long)o);
         } else if (type.equals(DataTypes.StringType)) {
             try {
-                String str = (String)o;
+                String str = String.valueOf(o);
                 buffer = ByteBuffer.wrap(str.getBytes("UTF-8"));
             } catch (Exception e) {
                 throw new RuntimeException(e);

@@ -47,6 +47,7 @@ import org.apache.spark.sql.types.StructType;
 import org.apache.spark.util.LongAccumulator;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
+import org.apache.spark.TaskContext;
 
 import scala.Tuple2;
 import scala.collection.Seq;
@@ -183,6 +184,7 @@ public final class SparkDpp implements java.io.Serializable {
                 Arrays.asList(outputSchema.fields()).stream()
                         .filter(field -> !field.name().equalsIgnoreCase(DppUtils.BUCKET_ID))
                         .collect(Collectors.toList()));
+        ExpressionEncoder encoder = RowEncoder.apply(dstSchema);
         dataframe.foreachPartition(new ForeachPartitionFunction<Row>() {
             @Override
             public void call(Iterator<Row> t) throws Exception {
@@ -191,6 +193,10 @@ public final class SparkDpp implements java.io.Serializable {
                 FileSystem fs = FileSystem.get(URI.create(etlJobConfig.outputPath), conf);
                 String lastBucketKey = null;
                 ParquetWriter<InternalRow> parquetWriter = null;
+                TaskContext taskContext = TaskContext.get();
+                long taskAttemptId = taskContext.taskAttemptId();
+                String dstPath = "";
+                String tmpPath = "";
                 while (t.hasNext()) {
                     Row row = t.next();
                     if (row.length() <= 1) {
@@ -207,6 +213,13 @@ public final class SparkDpp implements java.io.Serializable {
                     if (lastBucketKey == null || !curBucketKey.equals(lastBucketKey)) {
                         if (parquetWriter != null) {
                             parquetWriter.close();
+                            // rename tmpPath to path
+                            try {
+                                fs.rename(new Path(tmpPath), new Path(dstPath));
+                            } catch (IOException ioe) {
+                                LOG.warn("rename from tmpPath" + tmpPath + " to dstPath:" + dstPath + " failed. exception:" + ioe);
+                                throw ioe;
+                            }
                         }
                         // flush current writer and create a new writer
                         String[] bucketKey = curBucketKey.split("_");
@@ -216,8 +229,9 @@ public final class SparkDpp implements java.io.Serializable {
                         }
                         int partitionId = Integer.parseInt(bucketKey[0]);
                         int bucketId = Integer.parseInt(bucketKey[1]);
-                        String path = String.format(pathPattern, tableId, partitionId, indexMeta.indexId,
+                        dstPath = String.format(pathPattern, tableId, partitionId, indexMeta.indexId,
                                                     bucketId, indexMeta.schemaHash);
+                        tmpPath = dstPath + "." + taskAttemptId;
                         conf.setBoolean("spark.sql.parquet.writeLegacyFormat", false);
                         conf.setBoolean("spark.sql.parquet.int64AsTimestampMillis", false);
                         conf.setBoolean("spark.sql.parquet.int96AsTimestamp", true);
@@ -225,21 +239,26 @@ public final class SparkDpp implements java.io.Serializable {
                         conf.set("spark.sql.parquet.outputTimestampType", "INT96");
                         ParquetWriteSupport.setSchema(dstSchema, conf);
                         ParquetWriteSupport parquetWriteSupport = new ParquetWriteSupport();
-                        parquetWriter = new ParquetWriter<InternalRow>(new Path(path), parquetWriteSupport,
+                        parquetWriter = new ParquetWriter<InternalRow>(new Path(tmpPath), parquetWriteSupport,
                                                                        CompressionCodecName.SNAPPY, 256 * 1024 * 1024, 16 * 1024, 1024 * 1024,
                                                                        true, false,
                                                                        ParquetProperties.WriterVersion.PARQUET_1_0, conf);
                         if (parquetWriter != null) {
-                            LOG.info("[HdfsOperate]>> initialize writer succeed! path:" + path);
+                            LOG.info("[HdfsOperate]>> initialize writer succeed! path:" + tmpPath);
                         }
                         lastBucketKey = curBucketKey;
                     }
-                    ExpressionEncoder encoder = RowEncoder.apply(dstSchema);
                     InternalRow internalRow = encoder.toRow(rowWithoutBucketKey);
                     parquetWriter.write(internalRow);
                 }
                 if (parquetWriter != null) {
                     parquetWriter.close();
+                    try {
+                        fs.rename(new Path(tmpPath), new Path(dstPath));
+                    } catch (IOException ioe) {
+                        LOG.warn("rename from tmpPath" + tmpPath + " to dstPath:" + dstPath + " failed. exception:" + ioe);
+                        throw ioe;
+                    }
                 }
             }
         });
