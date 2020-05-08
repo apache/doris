@@ -263,15 +263,9 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     private boolean canCompareDate(PrimitiveType t1, PrimitiveType t2) {
         if (t1.isDateType()) {
-            if (t2.isDateType() || t2.isStringType()) {
-                return true;
-            }
-            return false;
+            return t2.isDateType() || t2.isStringType();
         } else if (t2.isDateType()) {
-            if (t1.isStringType()) {
-                return true;
-            }
-            return false;
+            return t1.isStringType();
         } else {
             return false;
         }
@@ -304,6 +298,10 @@ public class BinaryPredicate extends Predicate implements Writable {
         if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT)
                 && (t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT)) {
             return Type.LARGEINT;
+        }
+
+        if ((t1.isNumericType() && t2.isStringType()) || (t1.isStringType() && t2.isNumericType())) {
+            return t1.isNumericType() ? Type.fromPrimitiveType(t1) : Type.fromPrimitiveType(t2);
         }
 
         return Type.DOUBLE;
