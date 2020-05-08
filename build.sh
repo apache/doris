@@ -156,8 +156,8 @@ cd ${DORIS_HOME}
 if [ ${BUILD_BE} -eq 1 ] ; then
     echo "Build Backend"
     if [ ${CLEAN} -eq 1 ]; then
-        rm ${DORIS_HOME}/be/build/ -rf
-        rm ${DORIS_HOME}/be/output/ -rf
+        rm -rf ${DORIS_HOME}/be/build/
+        rm -rf ${DORIS_HOME}/be/output/
     fi
     mkdir -p ${DORIS_HOME}/be/build/
     cd ${DORIS_HOME}/be/build/
