@@ -56,11 +56,13 @@ public class MarkedCountDownLatch<K, V> extends CountDownLatch {
     }
 
     public synchronized void countDownToZero(Status status) {
-        while(getCount() > 0) {
-            super.countDown();
-        }
+        // update status first before countDown.
+        // so that the waiting thread will get the correct status.
         if (st.ok()) {
             st = status;
+        }
+        while(getCount() > 0) {
+            super.countDown();
         }
     }
 }
