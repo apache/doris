@@ -2,6 +2,7 @@
 *.pyc
 be/output
 be/build
+be/ut_build
 output
 docs/.temp
 docs/.vuepress/dist
