@@ -226,8 +226,9 @@ TEST_F(MockESServerTest, workflow) {
     props[ESScanReader::KEY_BATCH_SIZE] = "1";
     std::vector<EsPredicate*> predicates;
     std::map<std::string, std::string> docvalue_context;
-    props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates, docvalue_context);
-    ESScanReader reader(target, props);
+    bool use_doc_value = false;
+    props[ESScanReader::KEY_QUERY] = ESScrollQueryBuilder::build(props, fields, predicates, docvalue_context, &use_doc_value);
+    ESScanReader reader(target, props, use_doc_value);
     auto st = reader.open();
     ASSERT_TRUE(st.ok());
     bool eos = false;
