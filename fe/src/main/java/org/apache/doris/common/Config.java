@@ -1053,7 +1053,7 @@ public class Config extends ConfigBase {
      * control materialized view
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_materialized_view = true;
+    public static boolean enable_materialized_view = false;
 
     /**
      * it can't auto-resume routine load job as long as one of the backends is down
