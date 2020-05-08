@@ -17,11 +17,6 @@
 
 package org.apache.doris.load;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -55,16 +50,16 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
@@ -72,9 +67,16 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -255,6 +257,15 @@ public class DeleteHandler implements Writable {
             }
 
             if (!ok) {
+                String errMsg = "";
+                List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                // only show at most 5 results
+                List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
+                if (!subList.isEmpty()) {
+                    errMsg = "unfinished replicas: " + Joiner.on(", ").join(subList);
+                }
+                LOG.warn(errMsg);
+
                 try {
                     deleteJob.checkAndUpdateQuorum();
                 } catch (MetaNotFoundException e) {
@@ -264,14 +275,10 @@ public class DeleteHandler implements Writable {
                 DeleteState state = deleteJob.getState();
                 switch (state) {
                     case UN_QUORUM:
-                        List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-                        // only show at most 5 results
-                        List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
-                        String errMsg = "Unfinished replicas:" + Joiner.on(", ").join(subList);
                         LOG.warn("delete job timeout: transactionId {}, timeout {}, {}", transactionId, timeoutMs, errMsg);
                         cancelJob(deleteJob, CancelType.TIMEOUT, "delete job timeout");
-                        throw new DdlException("failed to delete replicas from job: transactionId " + transactionId +
-                                ", timeout " + timeoutMs + ", " + errMsg);
+                        throw new DdlException("failed to execute delete. transaction id " + transactionId +
+                                ", timeout(ms) " + timeoutMs + ", " + errMsg);
                     case QUORUM_FINISHED:
                     case FINISHED:
                         try {
@@ -282,6 +289,7 @@ public class DeleteHandler implements Writable {
                                 deleteJob.checkAndUpdateQuorum();
                                 Thread.sleep(1000);
                                 nowQuorumTimeMs = System.currentTimeMillis();
+                                LOG.debug("wait for quorum finished delete job: {}, txn id: {}" + deleteJob.getId(), transactionId);
                             }
                         } catch (MetaNotFoundException e) {
                             cancelJob(deleteJob, CancelType.METADATA_MISSING, e.getMessage());
@@ -386,7 +394,9 @@ public class DeleteHandler implements Writable {
                         pushTask.getVersion(), pushTask.getVersionHash(),
                         pushTask.getPushType(), pushTask.getTaskType());
             }
-            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(job.getId());
+
+            // NOT remove callback from GlobalTransactionMgr's callback factory here.
+            // the callback will be removed after transaction is aborted of visible.
         }
     }
 
