@@ -25,7 +25,9 @@ under the License.
 -->
 
 # append_trailing_char_if_absent
+
 ## description
+
 ### Syntax
 
 `VARCHAR append_trailing_char_if_absent(VARCHAR str, VARCHAR trailing_char)`
