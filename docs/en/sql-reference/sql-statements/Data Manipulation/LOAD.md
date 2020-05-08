@@ -45,8 +45,6 @@ This import method may not be supported in a subsequent version. It is recommend
 Hadoop Load is only applicable to Baidu's internal environment. Public, private and open source environments cannot use this import approach.
 The import method must set up a Hadoop computing queue for ETL, which can be viewed through the help set property command.
 
-Stream load only supports Baidu internal users for the time being. Open source communities and public cloud users will be supported in subsequent version updates.
-
 Grammar:
 
 LOAD LABEL load_label
