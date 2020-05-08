@@ -21,7 +21,6 @@
 #include "exprs/anyval_util.h"
 #include <iostream>
 #include <string>
-#include "testutil/function_utils.h"
 
 #include <gtest/gtest.h>
 
