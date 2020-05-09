@@ -24,15 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 插件开发手册
+# Doris 插件框架
 
 ## 介绍
 
-Doris 支持动态加载插件。用户可以通过开发自己的插件来扩展Doris的功能。这个手册主要介绍如何开发、编译和部署 Frontend 端的插件。
+Doris 的插件框架支持在运行时添加/卸载自定义插件，而不需要重启服务，用户可以通过开发自己的插件来扩展Doris的功能。
 
-`fe_plugins` 目录是 FE 插件的根模块。这个根模块统一管理插件所需的依赖。添加一个新的插件，相当于在这个根模块添加一个子模块。
+例如，审计插件作用于 Doris 请求执行后，可以获取到一次请求相关的信息（访问用户，请求IP，SQL等...），并将信息写入到指定的表中。
 
-## 插件组成
+与UDF的区别：
+* UDF是函数，用于在SQL执行时进行数据计算。插件是附加功能，用于为Doris扩展自定义的功能，例如：支持不同的存储引擎，支持不同的导入方式，插件并不会参与执行SQL时的数据计算。
+* UDF的执行周期仅限于一次SQL执行。插件的执行周期可能与Doris进程相同。
+* 使用场景不同。如果您需要执行SQL时支持特殊的数据算法，那么推荐使用UDF，如果您需要在Doris上运行自定义的功能，或者是启动一个后台线程执行任务，那么推荐使用插件。
+
+目前插件框架仅支持审计类插件。
+
+> 注意: 
+> Doris的插件框架是实验性功能, 目前只支持FE插件，且默认是关闭的，可以通过FE配置`plugin_enable=true`打开
+
+## 插件
 
 一个FE的插件可以使一个**zip压缩包**或者是一个**目录**。其内容至少包含两个文件：`plugin.properties` 和 `.jar` 文件。`plugin.properties`用于描述插件信息。
 
@@ -87,11 +97,13 @@ classname = AuditPluginDemo
 soName = example.so
 ```
 
-## 编写一个插件
+## 编写插件
 
-插件的开发环境依赖Doris的开发编译环境。所以请先确保Doris的编译开发环境运行正常。
+插件的开发环境依赖Doris的开发编译环境。所以请先确保Doris的开发编译环境运行正常。
 
-### 创建一个模块
+`fe_plugins` 目录是 FE 插件的根模块。这个根模块统一管理插件所需的依赖。添加一个新的插件，相当于在这个根模块添加一个子模块。
+
+### 创建插件模块
 
 我们可以通过以下命令在 `fe_plugins` 目录创建一个子模块用户实现创建和创建工程。其中 `doris-fe-test` 为插件名称。
 
@@ -193,6 +205,7 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
     <packaging>jar</packaging>
 
     <dependencies>
+        <!-- doris-fe dependencies -->
         <dependency>
             <groupId>org.apache</groupId>
             <artifactId>doris-fe</artifactId>
@@ -235,7 +248,7 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
 
 ### 实现插件
 
-之后我们就可以开始愉快的进行插件功能的开发啦。插件需要实现 `Plugin` 接口。具体可以参阅 Doris 自带的 `auditdemo` 插件示例代码。
+之后我们就可以开始进行插件功能的开发了。插件需要实现 `Plugin` 接口。具体可以参阅 Doris 自带的 `auditdemo` 插件示例代码。
 
 ### 编译
 
@@ -255,7 +268,7 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
 
 * 将 `.zip` 文件放在 Http 或 Https 服务器上。如：`http://xxx.xxxxxx.com/data/plugin.zip`, Doris 会下载这个文件。
 * 本地 `.zip` 文件。 如：`/home/work/data/plugin.zip`。需要在所有 FE 和 BE 节点部署。
-* 本地目录。如：`/home/work/data/plugin/`。这个相当于 `.zip` 文件解压后的目录。需要在所有 FE 和 BE 节点部署。
+* 本地目录。如：`/home/work/data/plugin/`。相当于 `.zip` 文件解压后的目录。需要在所有 FE 和 BE 节点部署。
 
 注意：需保证部署路径在整个插件生命周期内有效。
 
@@ -264,7 +277,7 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
 通过如下命令安装和卸载插件。更多帮助请参阅 `HELP INSTALL PLUGIN;` `HELP IUNNSTALL PLUGIN;` `HELP SHOW PLUGINS;` 
 
 ```
-mysql> install plugin from "/home/users/seaven/auditdemo.zip";
+mysql> install plugin from "/home/users/doris/auditloader.zip";
 Query OK, 0 rows affected (0.09 sec)
 
 mysql> mysql> show plugins\G
@@ -276,7 +289,7 @@ Description: load audit log to olap load, and user can view the statistic of que
 JavaVersion: 1.8.31
   ClassName: AuditLoaderPlugin
      SoName: NULL
-    Sources: /home/cmy/git/doris/core/fe_plugins/output/auditloader.zip
+    Sources: /home/users/doris/auditloader.zip
      Status: INSTALLED
 *************************** 2. row ***************************
        Name: AuditLogBuilder
