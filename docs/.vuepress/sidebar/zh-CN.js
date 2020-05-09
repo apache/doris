@@ -207,6 +207,7 @@ module.exports = [
             title: "字符串函数",
             directoryPath: "string-functions/",
             children: [
+              "append_trailing_char_if_absent",
               "ascii",
               "concat",
               "concat_ws",

@@ -28,8 +28,19 @@ namespace doris {
 
 class StringFunctionsTest : public testing::Test {
 public:
-    StringFunctionsTest() {
+    StringFunctionsTest() = default;
+
+    void SetUp() {
+        utils = new FunctionUtils();
+        ctx = utils->get_fn_ctx();
     }
+    void TearDown() {
+        delete utils;
+    }
+
+private:
+    FunctionUtils* utils;
+    FunctionContext* ctx;
 };
 
 TEST_F(StringFunctionsTest, money_format_bigint) {
@@ -319,12 +330,35 @@ TEST_F(StringFunctionsTest, length) {
             StringFunctions::length(context, StringVal("")));
     ASSERT_EQ(IntVal(0),
             StringFunctions::char_utf8_length(context, StringVal("")));
-            
+
     ASSERT_EQ(IntVal(11),
             StringFunctions::length(context, StringVal("hello你好")));
-            
+
     ASSERT_EQ(IntVal(7),
             StringFunctions::char_utf8_length(context, StringVal("hello你好")));
+}
+
+TEST_F(StringFunctionsTest, append_trailing_char_if_absent) {
+    ASSERT_EQ(StringVal("ac"), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("a"), StringVal("c")));
+
+    ASSERT_EQ(StringVal("c"), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("c"), StringVal("c")));
+
+    ASSERT_EQ(StringVal("123c"), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("123c"), StringVal("c")));
+
+    ASSERT_EQ(StringVal("c"), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal(""), StringVal("c")));
+
+    ASSERT_EQ(StringVal::null(), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal::null(), StringVal("c")));
+
+    ASSERT_EQ(StringVal::null(), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("a"), StringVal::null()));
+
+    ASSERT_EQ(StringVal::null(), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("a"), StringVal("abc")));
 }
 
 }

@@ -256,6 +256,25 @@ StringVal StringFunctions::rpad(
     }
     return result;
 }
+
+StringVal StringFunctions::append_trailing_char_if_absent(doris_udf::FunctionContext* context,
+        const doris_udf::StringVal& str, const doris_udf::StringVal& trailing_char) {
+    if (str.is_null || trailing_char.is_null || trailing_char.len != 1) {
+        return StringVal::null();
+    }
+    if (str.len == 0) {
+        return trailing_char;
+    }
+    if (str.ptr[str.len - 1] == trailing_char.ptr[0]) {
+        return str;
+    }
+
+    StringVal result(context, str.len + 1);
+    memcpy(result.ptr, str.ptr, str.len);
+    result.ptr[str.len] = trailing_char.ptr[0];
+    return result;
+}
+
 // Implementation of LENGTH
 //   int length(string input)
 // Returns the length in bytes of input. If input == NULL, returns
