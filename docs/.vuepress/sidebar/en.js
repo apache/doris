@@ -195,6 +195,7 @@ module.exports = [
             title: "String Functions",
             directoryPath: "string-functions/",
             children: [
+              "append_trailing_char_if_absent",
               "ascii",
               "concat",
               "concat_ws",
