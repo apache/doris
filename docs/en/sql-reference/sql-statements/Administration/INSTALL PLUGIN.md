@@ -43,11 +43,11 @@ under the License.
 
     1. Intall a plugin with a local zip file:
 
-        INSTALL PLUGIN FROM "/home/users/seaven/auditdemo.zip";
+        INSTALL PLUGIN FROM "/home/users/doris/auditdemo.zip";
 
     2. Intall a plugin with a local dir:
 
-        INSTALL PLUGIN FROM "/home/users/seaven/auditdemo/";
+        INSTALL PLUGIN FROM "/home/users/doris/auditdemo/";
 
     2. Download and install a plugin:
 
