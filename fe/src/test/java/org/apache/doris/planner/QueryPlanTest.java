@@ -637,6 +637,7 @@ public class QueryPlanTest {
         FeConstants.runningUnitTest = true;
         String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9 group by kk1)tt where kk1 in ('aa');";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        FeConstants.runningUnitTest = false;
         Assert.assertTrue(explainString.contains("partitions=1/1"));
     }
 }

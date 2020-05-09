@@ -286,9 +286,9 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public boolean hasData() {
-        return !(visibleVersion == PARTITION_INIT_VERSION 
-                && visibleVersionHash == PARTITION_INIT_VERSION_HASH
-                && !FeConstants.runningUnitTest);
+        return ((visibleVersion != PARTITION_INIT_VERSION)
+                || (visibleVersionHash != PARTITION_INIT_VERSION_HASH)
+                || FeConstants.runningUnitTest);
     }
 
     /*
