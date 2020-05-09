@@ -479,9 +479,11 @@ public class DeleteHandler implements Writable {
             }
 
             Column column = nameToColumn.get(columnName);
-            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS) {
+            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS
+                    || column.getDataType().isFloatingPointType()) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column");
+                throw new DdlException("Column[" + columnName + "] is not key column or storage model " +
+                        "is not duplicate or column type is float or double.");
             }
 
             if (condition instanceof BinaryPredicate) {

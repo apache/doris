@@ -108,7 +108,7 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS)
             || column.type() == OLAP_FIELD_TYPE_DOUBLE
             || column.type() == OLAP_FIELD_TYPE_FLOAT) {
-        LOG(WARNING) << "field is not key column, or storage model is not duplicated, or its type is float or double.";
+        LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type is float or double.";
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
 
