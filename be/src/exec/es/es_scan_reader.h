@@ -40,7 +40,7 @@ public:
     static constexpr const char* KEY_QUERY = "query";
     static constexpr const char* KEY_BATCH_SIZE = "batch_size";
     static constexpr const char* KEY_TERMINATE_AFTER = "limit";
-    ESScanReader(const std::string& target, const std::map<std::string, std::string>& props, bool use_doc_value);
+    ESScanReader(const std::string& target, const std::map<std::string, std::string>& props, bool doc_value_mode);
     ~ESScanReader();
 
     // launch the first scroll request, this method will cache the first scroll response, and return the this cached response when invoke get_next
@@ -95,7 +95,7 @@ private:
 
     bool _exactly_once;
     
-    bool _use_doc_value;
+    bool _doc_value_mode;
 };
 }
 

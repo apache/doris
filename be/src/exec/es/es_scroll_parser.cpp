@@ -198,12 +198,12 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
     return Status::OK();
 }
 
-ScrollParser::ScrollParser(bool use_doc_value) :
+ScrollParser::ScrollParser(bool doc_value_mode) :
     _scroll_id(""),
     _total(0),
     _size(0),
     _line_index(0),
-    _use_doc_value(use_doc_value) {
+    _doc_value_mode(doc_value_mode) {
 }
 
 ScrollParser::~ScrollParser() {
@@ -289,7 +289,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
 
     if (_size <= 0 || _line_index >= _size) {
         // _source is fetched from E.S.
-        if (!_use_doc_value) {
+        if (!_doc_value_mode) {
             return Status::OK();
         }
         

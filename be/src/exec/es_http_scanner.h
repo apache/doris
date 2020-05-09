@@ -63,7 +63,7 @@ public:
         const std::map<std::string, std::string>& properties,
         const std::vector<ExprContext*>& conjunct_ctxs,
         EsScanCounter* counter,
-        bool use_doc_value);
+        bool doc_value_mode);
     ~EsHttpScanner();
 
     Status open();
@@ -95,7 +95,7 @@ private:
     std::unique_ptr<ESScanReader> _es_reader;
     std::unique_ptr<ScrollParser> _es_scroll_parser;
 
-    bool _use_doc_value;
+    bool _doc_value_mode;
 
     // Profile
     RuntimeProfile::Counter* _rows_read_counter;

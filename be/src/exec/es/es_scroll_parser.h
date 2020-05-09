@@ -30,7 +30,7 @@ class Status;
 class ScrollParser {
 
 public:
-    ScrollParser(bool use_doc_value);
+    ScrollParser(bool doc_value_mode);
     ~ScrollParser();
 
     Status parse(const std::string& scroll_result, bool exactly_once = false);
@@ -51,6 +51,6 @@ private:
     rapidjson::Document _document_node;
     rapidjson::Value _inner_hits_node;
 
-    bool _use_doc_value;
+    bool _doc_value_mode;
 };
 }
