@@ -387,7 +387,7 @@ public class QueryPlanTest {
 
         testBitmapQueryPlan(
                 "select count(*) from test.bitmap_table where id2 = 1;",
-                "type not match, originType=BITMAP, targetType=DOUBLE"
+                "type not match, originType=BITMAP, targetType=BIGINT"
         );
 
     }
@@ -446,7 +446,7 @@ public class QueryPlanTest {
 
         testHLLQueryPlan(
                 "select count(*) from test.hll_table where id2 = 1",
-                "type not match, originType=HLL, targetType=DOUBLE"
+                "type not match, originType=HLL, targetType=BIGINT"
         );
     }
 
@@ -740,7 +740,7 @@ public class QueryPlanTest {
                 + "case when date_format(now(),'%H%i')  < 123 then 1 else 0 end as col "
                 + "from test.test1 "
                 + "where time = case when date_format(now(),'%H%i')  < 123 then date_format(date_sub(now(),2),'%Y%m%d') else date_format(date_sub(now(),1),'%Y%m%d') end";
-        Assert.assertTrue(!StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + caseWhenSql), "CASE WHEN"));
+        Assert.assertFalse(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + caseWhenSql), "CASE WHEN"));
 
         // test 1: case when then
         // 1.1 multi when in on `case when` and can be converted to constants
