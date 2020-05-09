@@ -520,7 +520,8 @@ public class DeleteHandler implements Writable {
                 }
                 Column column = indexColNameToColumn.get(columnName);
                 if (column == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, indexName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName,
+                            table.getBaseIndexId() == index.getId()? indexName : "index[" + indexName +"]");
                 }
                 MaterializedIndexMeta indexMeta = table.getIndexIdToMeta().get(index.getId());
                 if (indexMeta.getKeysType() != KeysType.DUP_KEYS && !column.isKey()) {
