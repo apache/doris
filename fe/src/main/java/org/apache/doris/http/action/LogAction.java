@@ -115,15 +115,21 @@ public class LogAction extends WebBaseAction {
             return;
         }
 
-        buffer.append("<form class=\"form-search\">"
-                + "<input name=\"" + type + "\" type=\"text\" class=\"input-medium search-query\" "
-                + "  placeholder=\"" + placeHolder + "\">"
-                + "<button type=\"submit\" class=\"btn\">" + buttonName + "</button>"
+        buffer.append("<form>"
+                + "<div class=\"col-lg-3\" style=\"padding-left: 0px;\">"
+                + "    <div class=\"input-group\">"
+                + "        <input name = \"" + type + "\" type=\"text\" class=\"form-control\" placeholder=\""
+                + placeHolder + "\">"
+                + "        <span class=\"input-group-btn\" style=\"padding-left: 0px;\">"
+                + "            <button class=\"btn btn-default\" type=\"submit\">" + buttonName + "</button>"
+                + "        </span>\n"
+                + "    </div>\n"
+                + "</div>"
                 + "</form>");
     }
 
     private void appendLogInfo(StringBuilder buffer) {
-        buffer.append("<h2>Log Contents</h2>");
+        buffer.append("<br/><h2>Log Contents</h2>");
 
         final String logPath = Config.sys_log_dir + "/fe.warn.log";
         buffer.append("Log path is: " + logPath + "<br/>");
