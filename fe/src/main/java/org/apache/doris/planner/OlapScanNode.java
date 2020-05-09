@@ -408,6 +408,10 @@ public class OlapScanNode extends ScanNode {
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         if (partitionInfo.getType() == PartitionType.RANGE) {
             selectedPartitionIds = partitionPrune((RangePartitionInfo) partitionInfo, partitionNames);
+            if (FeConstants.runningUnitTest) {
+                selectedPartitionNum = selectedPartitionIds.size();
+                return;
+            }
         } else {
             selectedPartitionIds = null;
         }

@@ -26,6 +26,7 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
@@ -629,5 +630,13 @@ public class QueryPlanTest {
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("PREDICATES: `join1`.`id` > 1"));
         Assert.assertTrue(explainString.contains("PREDICATES: `join2`.`id` > 1"));
+    }
+
+    @Test
+    public void testConstInParitionPrune() throws Exception {
+        FeConstants.runningUnitTest = true;
+        String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9 group by kk1)tt where kk1 in ('aa');";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("partitions=1/1"));
     }
 }
