@@ -136,8 +136,8 @@ public class ScalarFunction extends Function {
         String beFn = name;
         boolean usesDecimal = false;
         boolean usesDecimalV2 = false;
-        for (int i = 0; i < argTypes.size(); ++i) {
-            switch (argTypes.get(i).getPrimitiveType()) {
+        for (Type argType : argTypes) {
+            switch (argType.getPrimitiveType()) {
                 case BOOLEAN:
                     beFn += "_boolean_val";
                     break;
@@ -182,7 +182,7 @@ public class ScalarFunction extends Function {
                     usesDecimalV2 = true;
                     break;
                 default:
-                    Preconditions.checkState(false, "Argument type not supported: " + argTypes.get(i));
+                    Preconditions.checkState(false, "Argument type not supported: " + argType);
             }
         }
         String beClass = usesDecimal ? "DecimalOperators" : "Operators";
@@ -224,7 +224,7 @@ public class ScalarFunction extends Function {
     public static ScalarFunction createBuiltinSearchDesc(
             String name, Type[] argTypes, boolean hasVarArgs) {
         ArrayList<Type> fnArgs =
-                (argTypes == null) ? new ArrayList<Type>() : Lists.newArrayList(argTypes);
+                (argTypes == null) ? new ArrayList<>() : Lists.newArrayList(argTypes);
         ScalarFunction fn = new ScalarFunction(
                 new FunctionName(name), fnArgs, Type.INVALID, hasVarArgs);
         fn.setBinaryType(TFunctionBinaryType.BUILTIN);
@@ -257,10 +257,10 @@ public class ScalarFunction extends Function {
     public String toSql(boolean ifNotExists) {
         StringBuilder sb = new StringBuilder("CREATE FUNCTION ");
         if (ifNotExists) sb.append("IF NOT EXISTS ");
-        sb.append(dbName() + "." + signatureString() + "\n")
-                .append(" RETURNS " + getReturnType() + "\n")
-                .append(" LOCATION '" + getLocation() + "'\n")
-                .append(" SYMBOL='" + getSymbolName() + "'\n");
+        sb.append(dbName()).append(".").append(signatureString()).append("\n").append(" RETURNS ")
+                .append(getReturnType()).append("\n").append(" LOCATION '")
+                .append(getLocation()).append("'\n").append(" SYMBOL='")
+                .append(getSymbolName()).append("'\n");
         return sb.toString();
     }
 
@@ -290,6 +290,7 @@ public class ScalarFunction extends Function {
         writeOptionString(output, closeFnSymbol);
     }
 
+    @Override
     public void readFields(DataInput input) throws IOException {
         super.readFields(input);
         symbolName = Text.readString(input);

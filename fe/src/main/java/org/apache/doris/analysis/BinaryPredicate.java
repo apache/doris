@@ -136,8 +136,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     private Operator op;
-    // check if left is slot and right isnot slot.
-    private Boolean slotIsleft = null;
+    // check if left is slot and right is not slot.
+    private Boolean slotIsLeft = null;
 
     // for restoring
     public BinaryPredicate() {
@@ -156,7 +156,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     protected BinaryPredicate(BinaryPredicate other) {
         super(other);
         op = other.op;
-        slotIsleft= other.slotIsleft;
+        slotIsLeft = other.slotIsLeft;
         isInferred_ = other.isInferred_;
     }
 
@@ -194,7 +194,7 @@ public class BinaryPredicate extends Predicate implements Writable {
 
     @Override
     public Expr negate() {
-        Operator newOp = null;
+        Operator newOp;
         switch (op) {
             case EQ:
                 newOp = Operator.NE;
@@ -349,7 +349,9 @@ public class BinaryPredicate extends Predicate implements Writable {
                 Function.CompareMode.IS_SUPERTYPE_OF);
         if (fn == null) {
             Preconditions.checkState(false, String.format(
-                    "No match for '%s' with operand types %s and %s", toSql()));
+                    "No match for '%s' with operand types %s and %s", toSql(),
+                    getChild(0).getType().getResultType().getPrimitiveType(),
+                    getChild(1).getType().getResultType().getPrimitiveType()));
         }
 
         // determine selectivity
@@ -368,8 +370,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     /**
-     * If predicate is of the form "<slotref> <op> <expr>", returns expr,
-     * otherwise returns null. Slotref may be wrapped in a CastExpr.
+     * If predicate is of the form "<SlotRef> <op> <expr>", returns expr,
+     * otherwise returns null. SlotRef may be wrapped in a CastExpr.
      */
     public Expr getSlotBinding(SlotId id) {
         SlotRef slotRef = null;
@@ -382,7 +384,7 @@ public class BinaryPredicate extends Predicate implements Writable {
             }
         }
         if (slotRef != null && slotRef.getSlotId() == id) {
-            slotIsleft = true;
+            slotIsLeft = true;
             return getChild(1);
         }
 
@@ -396,7 +398,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
-            slotIsleft = false; 
+            slotIsLeft = false;
             return getChild(0);
         }
 
@@ -423,13 +425,13 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (lhs == null) return null;
         SlotRef rhs = getChild(1).unwrapSlotRef(true);
         if (rhs == null) return null;
-        return new Pair<SlotId, SlotId>(lhs.getSlotId(), rhs.getSlotId());
+        return new Pair<>(lhs.getSlotId(), rhs.getSlotId());
     }
 
 
     public boolean slotIsLeft() {
-        Preconditions.checkState(slotIsleft != null);
-        return slotIsleft;
+        Preconditions.checkState(slotIsLeft != null);
+        return slotIsLeft;
     }
     
     //    public static enum Operator2 {
@@ -466,7 +468,7 @@ public class BinaryPredicate extends Predicate implements Writable {
     //        }
     //    }
 
-    /*
+    /**
      * the follow persistence code is only for TableFamilyDeleteInfo.
      * Maybe useless
      */
@@ -496,6 +498,7 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         int isWritable = in.readInt();
         if (isWritable == 0) {

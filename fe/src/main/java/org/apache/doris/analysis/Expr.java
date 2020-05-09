@@ -343,6 +343,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Perform semantic analysis of node and all of its children.
      * Throws exception if any errors found.
      */
+    @Override
     public final void analyze(Analyzer analyzer) throws AnalysisException {
         if (isAnalyzed()) return;
 
@@ -660,7 +661,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (exprs == null) {
             return null;
         }
-        ArrayList<Expr> result = new ArrayList<Expr>();
+        ArrayList<Expr> result = new ArrayList<>();
         for (Expr e: exprs) {
             result.add(e.trySubstitute(smap, analyzer, preserveRootTypes));
         }
@@ -820,6 +821,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    @Override
     public String toSql() {
         return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
     }

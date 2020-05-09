@@ -269,6 +269,26 @@ public class QueryPlanTest {
                 "\"in_memory\" = \"false\",\n" +
                 "\"storage_format\" = \"DEFAULT\"\n" +
                 ");");
+
+        createTable("CREATE TABLE test.`binary_predicate_test` (\n" +
+                "  `olap_date` int NULL COMMENT \"\",\n" +
+                "  `event_name` varchar(255) NULL COMMENT \"\",\n" +
+                "  `time` bigint(20) NULL COMMENT \"\",\n" +
+                "  `distinct_id` varchar(255) NULL COMMENT \"\",\n" +
+                "  `v2` smallint(6) NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`olap_date`, `event_name`, `time`, `distinct_id`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (olap_date)\n" +
+                "(\n" +
+                "PARTITION p20200216 VALUES [(\"-2147483648\"), (\"20200217\")),\n" +
+                "PARTITION p20200217 VALUES [(\"20200217\"), (\"20200218\")),\n" +
+                "PARTITION p20200218 VALUES [(\"20200218\"), (\"20200219\"))\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`olap_date`) BUCKETS 5\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\"\n" +
+                ");");
     }
 
     @AfterClass
@@ -534,7 +554,7 @@ public class QueryPlanTest {
         SelectStmt selectStmt =
                 (SelectStmt) UtFrameUtils.parseAndAnalyzeStmt(castSql, connectContext);
         Expr rightExpr = selectStmt.getWhereClause().getChildren().get(1);
-        Assert.assertTrue(rightExpr.getType().equals(Type.DATETIME));
+        Assert.assertEquals(rightExpr.getType(), Type.DATETIME);
 
         String castSql2 = "select str_to_date('11/09/2011', '%m/%d/%Y');";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + castSql2);
@@ -823,6 +843,18 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
         Assert.assertTrue(explainString.contains("PLAN FRAGMENT"));
         Assert.assertTrue(explainString.contains("CROSS JOIN"));
-        Assert.assertTrue(!explainString.contains("PREDICATES"));
+        Assert.assertFalse(explainString.contains("PREDICATES"));
+    }
+
+    @Test
+    public void testBinaryPredicate() throws Exception {
+        String queryStr = "explain SELECT count(*) FROM test.binary_predicate_test WHERE olap_date = 20200217";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: `olap_date` = 20200217"));
+
+        String queryStr2 = "explain SELECT count(*) FROM test.binary_predicate_test WHERE olap_date = '20200217'";
+        String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr2);
+        // origin behavior is PREDICATES: `olap_date` = 2.0200217E7
+        Assert.assertTrue(explainString2.contains("PREDICATES: `olap_date` = 20200217"));
     }
 }
