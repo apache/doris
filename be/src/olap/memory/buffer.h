@@ -22,30 +22,43 @@
 namespace doris {
 namespace memory {
 
+// A generic buffer holding column base and delta data
+// It can be considered as an array of any primitive type, but it does not
+// have compile time type information, user can use utility method as<T> to
+// get typed array view.
 class Buffer {
 public:
     Buffer() = default;
     ~Buffer();
 
-    Status alloc(size_t size);
+    // allocate memory for this buffer, with buffer byte size of bsize
+    Status alloc(size_t bsize);
 
+    // clear buffer, free memory
     void clear();
 
+    // set all memory content to zero
     void set_zero();
 
+    // return true if this buffer is not empty
     operator bool() const { return _data != nullptr; }
 
+    // returns a direct pointer to the memory array
     const uint8_t* data() const { return _data; }
 
+    // returns a direct pointer to the memory array
     uint8_t* data() { return _data; }
 
+    // get byte size of the buffer
     size_t bsize() const { return _bsize; }
 
+    // get typed array view
     template <class T>
     T* as() {
         return reinterpret_cast<T*>(_data);
     }
 
+    // get typed array view
     template <class T>
     const T* as() const {
         return reinterpret_cast<const T*>(_data);

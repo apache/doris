@@ -20,14 +20,15 @@
 namespace doris {
 namespace memory {
 
-Status Buffer::alloc(size_t size) {
-    if (size > 0) {
-        uint8_t* data = reinterpret_cast<uint8_t*>(aligned_malloc(size, size >= 4096 ? 4096 : 64));
+Status Buffer::alloc(size_t bsize) {
+    if (bsize > 0) {
+        uint8_t* data =
+                reinterpret_cast<uint8_t*>(aligned_malloc(bsize, bsize >= 4096 ? 4096 : 64));
         if (!data) {
-            return Status::MemoryAllocFailed(StringPrintf("alloc buffer size=%zu failed", size));
+            return Status::MemoryAllocFailed(StringPrintf("alloc buffer size=%zu failed", bsize));
         }
         _data = data;
-        _bsize = size;
+        _bsize = bsize;
     }
     return Status::OK();
 }
