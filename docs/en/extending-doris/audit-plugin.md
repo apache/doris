@@ -32,27 +32,23 @@ This plugin can periodically import the FE audit log into the specified Doris cl
 
 ## Compile, Configure and Deploy
 
+### FE Configuration
+
+FE's plugin framework is an experimental feature, which is closed by default. In the FE configuration file, add `plugin_enable = true` to enable the plugin framework.
+
+### AuditLoader Configuration
+
+The configuration of the auditloader plugin is located in `$ {DORIS}/fe_plugins/auditloader/src/main/assembly/`.
+
+Open `plugin.conf` for configuration. See the comments of the configuration items.
+
 ### Compile
 
 After executing `sh build_plugin.sh` in the Doris code directory, you will get the `auditloader.zip` file in the `fe_plugins/output` directory.
 
-### Configuration
-
-Unzip `auditloader.zip` and you will see three files:
-
-```
-auditloader.jar
-plugin.properties
-plugin.conf
-```
-
-Open `plugin.conf` for configuration. See the comments of the configuration items.
-
-After the configuration is complete, repackage the three files as `auditloader.zip`.
-
 ### Deployment
 
-You can place this file on an http download server or copy it to the specified directory of all FEs. Here we use the latter.
+You can place this file on an http download server or copy(or unzip) it to the specified directory of all FEs. Here we use the latter.
 
 ### Installation
 
