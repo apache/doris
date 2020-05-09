@@ -255,7 +255,7 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
         // put index/_doc/1 {"k2":"123"}
         // put index/_doc/2 {"k3":"123}
         // then we use sql `select k1 from table`
-        // what E.S. return is like this: {hits: {total:2}
+        // what ES return is like this: {hits: {total:2}
         return Status::OK();
     }
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
@@ -288,12 +288,12 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc,
     *line_eof = true;
 
     if (_size <= 0 || _line_index >= _size) {
-        // _source is fetched from E.S.
+        // _source is fetched from ES
         if (!_doc_value_mode) {
             return Status::OK();
         }
         
-        // _fields(doc_value) is fetched from E.S.
+        // _fields(doc_value) is fetched from ES
         if (_total <= 0 || _line_index >= _total) {
             return Status::OK();
         }
