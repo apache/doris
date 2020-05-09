@@ -92,6 +92,7 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
 }
 
 void ExternalScanContextMgr::gc_expired_context() {
+#ifndef BE_TEST
     while (!_is_stop) {
         std::this_thread::sleep_for(std::chrono::seconds(doris::config::scan_context_gc_interval_min * 60));
         time_t current_time = time(NULL);
@@ -125,5 +126,6 @@ void ExternalScanContextMgr::gc_expired_context() {
             _exec_env->result_queue_mgr()->cancel(expired_context->fragment_instance_id);
         }
     }
+#endif
 }
 }
