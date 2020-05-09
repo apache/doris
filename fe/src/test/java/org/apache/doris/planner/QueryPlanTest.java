@@ -387,7 +387,7 @@ public class QueryPlanTest {
 
         testBitmapQueryPlan(
                 "select count(*) from test.bitmap_table where id2 = 1;",
-                "type not match, originType=BITMAP, targeType=DOUBLE"
+                "type not match, originType=BITMAP, targetType=DOUBLE"
         );
 
     }
@@ -446,7 +446,7 @@ public class QueryPlanTest {
 
         testHLLQueryPlan(
                 "select count(*) from test.hll_table where id2 = 1",
-                "type not match, originType=HLL, targeType=DOUBLE"
+                "type not match, originType=HLL, targetType=DOUBLE"
         );
     }
 
