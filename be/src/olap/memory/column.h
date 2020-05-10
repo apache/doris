@@ -84,9 +84,14 @@ private:
     // version vector
     vector<VersionInfo> _versions;
 
+    // get related deltas of a specified version, and it's corresponding real_version
+    // For example:
+    // if we have [1,3,5,7,13,16,20,30] in versions array, and base is at version 13
+    // capture version 24 will get deltas=[13, 16, 20], and real_version 20
     Status capture_version(uint64_t version, vector<ColumnDelta*>* deltas,
                            uint64_t* real_version) const;
 
+    // get latest version's related delta
     void capture_latest(vector<ColumnDelta*>* deltas) const;
 
     DISALLOW_COPY_AND_ASSIGN(Column);

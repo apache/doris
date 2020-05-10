@@ -53,7 +53,7 @@ public:
         }
     }
 
-    // Return true this index has any rowid belonging to this block
+    // Return true if this index has any rowid belonging to this block
     bool contains_block(uint32_t bid) const {
         if (bid < _block_ends.size()) {
             return (bid > 0 ? _block_ends[bid - 1] : 0) < _block_ends[bid];
