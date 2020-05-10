@@ -6385,10 +6385,7 @@ public class Catalog {
 
     public void setConfig(AdminSetConfigStmt stmt) throws DdlException {
         Map<String, String> configs = stmt.getConfigs();
-        // configs can not be null
-        if (configs.size() != 1) {
-            throw new DdlException("config parameter size is not equal to 1");
-        }
+        Preconditions.checkState(configs.size() == 1);
 
         for (Map.Entry<String, String> entry : configs.entrySet()) {
             ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
