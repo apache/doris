@@ -99,7 +99,6 @@ public class HllTest {
         Assert.assertTrue(fullHll.getType() == HLL_DATA_FULL);
         // the result 32748 is consistent with C++ 's implementation
         Assert.assertTrue(fullHll.estimateCardinality() == 32748);
-        // 2% error rate
         Assert.assertTrue(fullHll.estimateCardinality() > Short.MAX_VALUE * (1 - 0.02) &&
                 fullHll.estimateCardinality() < Short.MAX_VALUE * (1 + 0.02));
 
@@ -114,56 +113,156 @@ public class HllTest {
 
     }
 
+    // keep logic same with C++ version
+    // add additional compare logic with C++ version's estimateValue
     @Test
-    public void testMerge() {
-        Hll emptyHll = new Hll();
+    public void testCompareEstimateValueWithBe() throws IOException {
+        //empty
+        {
+            Hll hll = new Hll();
+            long estimateValue = hll.estimateCardinality();
+            byte[] serializedByte = serializeHll(hll);
+            hll = deserializeHll(serializedByte);
 
+            Assert.assertTrue(estimateValue == hll.estimateCardinality());
+        }
+
+        // explicit [0. 100)
         Hll explicitHll = new Hll();
-        for (int i = 0 ;i < 100; i++) {
-            explicitHll.updateWithHash(i);
+        {
+            for (int i = 0; i < 100; i++) {
+                explicitHll.updateWithHash(i);
+            }
+            Assert.assertTrue(explicitHll.estimateCardinality() == 100);
+            // check serialize
+            byte[] serializeHll = serializeHll(explicitHll);
+            explicitHll = deserializeHll(serializeHll);
+            Assert.assertTrue(explicitHll.estimateCardinality() == 100);
+
+            Hll otherHll = new Hll();
+            for (int i = 0; i < 100; i++) {
+                otherHll.updateWithHash(i);
+            }
+            explicitHll.merge(otherHll);
+            // compare with C++ version result
+            Assert.assertTrue(explicitHll.estimateCardinality() == 100);
         }
 
+        // sparse [1024, 2048)
+        Hll sparseHll = new Hll();
+        {
+            for (int i = 0; i < 1024; i++) {
+                sparseHll.updateWithHash(i + 1024);
+            }
+
+            long preValue = sparseHll.estimateCardinality();
+            // check serialize
+            byte[] serializedHll = serializeHll(sparseHll);
+            Assert.assertTrue(serializedHll.length < HLL_REGISTERS_COUNT + 1);
+
+            sparseHll = deserializeHll(serializedHll);
+            Assert.assertTrue(sparseHll.estimateCardinality() == preValue);
+            Assert.assertTrue(sparseHll.getType() == HLL_DATA_SPARSE);
+
+            Hll otherHll = new Hll();
+            for (int i = 0; i < 1024; i++) {
+                otherHll.updateWithHash(i + 1024);
+            }
+            sparseHll.updateWithHash(1024);
+            sparseHll.merge(otherHll);
+            long cardinality = sparseHll.estimateCardinality();
+            Assert.assertTrue(preValue == cardinality);
+            // 2% error rate
+            Assert.assertTrue(cardinality > 1000 && cardinality < 1045);
+            // compare with C++ version result
+            Assert.assertTrue(cardinality == 1023);
+        }
+
+        // full [64 * 1024, 128 * 1024)
         Hll fullHll = new Hll();
-        for (int i = 0; i < Short.MAX_VALUE; i++) {
-            fullHll.updateWithHash(i);
+        {
+            for (int i = 0; i < 64 * 1024; i++) {
+                fullHll.updateWithHash(64 * 1024 + i);
+            }
+
+            long preValue = fullHll.estimateCardinality();
+            // check serialize
+            byte[] serializedHll = serializeHll(fullHll);
+            fullHll = deserializeHll(serializedHll);
+            Assert.assertTrue(fullHll.estimateCardinality() == preValue);
+            Assert.assertTrue(serializedHll.length == HLL_REGISTERS_COUNT + 1);
+
+            // 2% error rate
+            Assert.assertTrue(preValue > 62 * 1024 && preValue < 66 * 1024);
+
+            // compare with C++ version result
+            Assert.assertTrue(preValue == 66112);
         }
 
-        // empty to empty
-        Hll emptyHll1 = new Hll();
-        emptyHll1.merge(emptyHll);
-        Assert.assertTrue(emptyHll1.getType() == HLL_DATA_EMPTY);
-        Assert.assertTrue(emptyHll1.estimateCardinality() == 0);
+        // merge explicit to empty_hll
+        {
+            Hll newExplicit = new Hll();
+            newExplicit.merge(explicitHll);
+            Assert.assertTrue(newExplicit.estimateCardinality() == 100);
 
-        // empty to explicit
-        Hll emptyHll3 = new Hll();
-        emptyHll3.merge(explicitHll);
-        Assert.assertTrue(emptyHll3.getType() == HLL_DATA_EXPLICIT);
-        Assert.assertTrue(emptyHll3.estimateCardinality() == explicitHll.estimateCardinality());
-
-        // empty to full
-        Hll emptyHll2 = new Hll();
-        emptyHll2.merge(fullHll);
-        Assert.assertTrue(emptyHll2.getType() == HLL_DATA_FULL);
-        Assert.assertTrue(emptyHll2.estimateCardinality() == fullHll.estimateCardinality());
-
-        // explicit to full
-        Hll explicitHll2 = new Hll();
-        for (int i = 0 ;i < 100; i++) {
-            explicitHll2.updateWithHash(i + Short.MAX_VALUE);
+            // merge another explicit
+            {
+                Hll otherHll = new Hll();
+                for (int i = 100; i < 200; i++) {
+                    otherHll.updateWithHash(i);
+                }
+                // this is converted to full
+                otherHll.merge(newExplicit);
+                Assert.assertTrue(otherHll.estimateCardinality() > 190);
+                // compare with C++ version result
+                Assert.assertTrue(otherHll.estimateCardinality() == 201);
+            }
+            // merge full
+            {
+                newExplicit.merge(fullHll);
+                Assert.assertTrue(newExplicit.estimateCardinality() > fullHll.estimateCardinality());
+                // compare with C++ version result
+                Assert.assertTrue(newExplicit.estimateCardinality() == 66250);
+            }
         }
-        explicitHll2.merge(fullHll);
-        Assert.assertTrue(explicitHll2.getType() == HLL_DATA_FULL);
-        Assert.assertTrue(explicitHll2.estimateCardinality() > fullHll.estimateCardinality());
 
-        // full to full
-        Hll fullHll2 = new Hll();
-        for (int i = 0; i < Short.MAX_VALUE; i++) {
-            fullHll2.updateWithHash(i + Short.MAX_VALUE);
+        // merge sparse into empty
+        {
+            Hll newSparseHll = new Hll();
+            newSparseHll.merge(sparseHll);
+            Assert.assertTrue(sparseHll.estimateCardinality() == newSparseHll.estimateCardinality());
+            // compare with C++ version result
+            Assert.assertTrue(newSparseHll.estimateCardinality() == 1023);
+
+            // merge explicit
+            newSparseHll.merge(explicitHll);
+            Assert.assertTrue(newSparseHll.estimateCardinality() > sparseHll.estimateCardinality());
+            // compare with C++ version result
+            Assert.assertTrue(newSparseHll.estimateCardinality() == 1123);
+
+            // merge full
+            newSparseHll.merge(fullHll);
+            Assert.assertTrue(newSparseHll.estimateCardinality() > fullHll.estimateCardinality());
+            // compare with C++ version result
+            Assert.assertTrue(newSparseHll.estimateCardinality() == 67316);
         }
-        fullHll2.merge(fullHll);
-        Assert.assertTrue(fullHll2.getType() == HLL_DATA_FULL);
-        Assert.assertTrue(fullHll2.estimateCardinality() > fullHll.estimateCardinality());
+
     }
+
+    private byte[] serializeHll(Hll hll) throws IOException {
+        ByteArrayOutputStream fullHllOutputStream = new ByteArrayOutputStream();
+        DataOutput fullHllOutput = new DataOutputStream(fullHllOutputStream);
+        hll.serialize(fullHllOutput);
+        return fullHllOutputStream.toByteArray();
+    }
+
+    private Hll deserializeHll(byte[] hllBytes) throws IOException {
+        DataInputStream fullHllInputStream = new DataInputStream(new ByteArrayInputStream(hllBytes));
+        Hll hll = new Hll();
+        hll.deserialize(fullHllInputStream);
+        return hll;
+    }
+
 
 
 }
