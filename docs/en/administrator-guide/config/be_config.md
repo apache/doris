@@ -69,6 +69,14 @@ This error indicates that the packet size of brpc exceeds the configured value. 
 
 Since this is a brpc configuration, users can also modify this parameter directly during operation. Modify by visiting `http://be_host:brpc_port/flags`.
 
+### `brpc_socket_max_unwritten_bytes`
+
+This configuration is mainly used to modify the parameter `socket_max_unwritten_bytes` of brpc.
+
+Sometimes the query fails and an error message of `The server is overcrowded` will appear in the BE log. This means there are too many messages to buffer at the sender side, which may happen when the SQL needs to send large bitmap value. You can avoid this error by increasing the configuration.
+
+Since this is a brpc configuration, users can also modify this parameter directly during operation. Modify by visiting `http://be_host:brpc_port/flags`.
+
 ### brpc_port
 
 ### buffer_pool_clean_pages_limit
