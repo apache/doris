@@ -238,31 +238,22 @@ public class GlobalTransactionMgr implements Writable {
      * The txn cleaner will run at a fixed interval and try to delete expired and timeout txns:
      * expired: txn is in VISIBLE or ABORTED, and is expired.
      * timeout: txn is in PREPARE, but timeout
-     * Todo(kks): currently remove transaction performance is bad, if we want to support
-     *  super-high concurrent transaction, we should improve this method
      */
     public void removeExpiredAndTimeoutTxns() {
         long currentMillis = System.currentTimeMillis();
         for (DatabaseTransactionMgr dbTransactionMgr : dbIdToDatabaseTransactionMgrs.values()) {
-            dbTransactionMgr.removeExpiredTxns();
-            List<Long> timeoutTxns = dbTransactionMgr.getTimeoutTxns(currentMillis);
-            // abort timeout txns
-            for (Long txnId : timeoutTxns) {
-                try {
-                    dbTransactionMgr.abortTransaction(txnId, "timeout by txn manager", null);
-                    LOG.info("transaction [" + txnId + "] is timeout, abort it by transaction manager");
-                } catch (UserException e) {
-                    // abort may be failed. it is acceptable. just print a log
-                    LOG.warn("abort timeout txn {} failed. msg: {}", txnId, e.getMessage());
-                }
-            }
-
+            dbTransactionMgr.removeExpiredAndTimeoutTxns(currentMillis);
         }
     }
 
     public TransactionState getTransactionState(long dbId, long transactionId) {
-        DatabaseTransactionMgr dbTransactionMgr = dbIdToDatabaseTransactionMgrs.get(dbId);
-        return dbTransactionMgr.getTransactionState(transactionId);
+        try {
+            DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(dbId);
+            return dbTransactionMgr.getTransactionState(transactionId);
+        } catch (AnalysisException e) {
+            LOG.warn("Get transaction {} in db {} failed. msg: {}", transactionId, dbId, e.getMessage());
+            return null;
+        }
     }
     
     public void setEditLog(EditLog editLog) {

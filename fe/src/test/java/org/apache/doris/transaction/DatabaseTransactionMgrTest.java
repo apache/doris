@@ -224,7 +224,8 @@ public class DatabaseTransactionMgrTest {
     public void testRemoveExpiredTxns() throws AnalysisException {
         DatabaseTransactionMgr masterDbTransMgr = masterTransMgr.getDatabaseTransactionMgr(CatalogTestUtil.testDbId1);
         Config.label_keep_max_second = -1;
-        masterDbTransMgr.removeExpiredTxns();
+        long currentMillis = System.currentTimeMillis();
+        masterDbTransMgr.removeExpiredTxns(currentMillis);
         assertEquals(0, masterDbTransMgr.getFinishedTxnNums());
         assertEquals(3, masterDbTransMgr.getTransactionNum());
         assertNull(masterDbTransMgr.unprotectedGetTxnIdsByLabel(CatalogTestUtil.testTxnLable1));
