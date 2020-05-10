@@ -189,8 +189,8 @@ public abstract class AlterJob implements Writable {
             return false;
         } else if (!backend.isAlive()) {
             long currentTime = System.currentTimeMillis();
-            // this backend is done for a long time and not restart automatically.
-            // we consider it as dead
+            // If this backend is done for a long time and not restart automatically.
+            // we consider it as dead and return false.
             return backend.getLastUpdateMs() <= 0
                     || currentTime - backend.getLastUpdateMs() <= Config.max_backend_down_time_second * 1000;
         } else {
