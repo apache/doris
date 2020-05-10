@@ -67,6 +67,14 @@ under the License.
 
 由于这是一个 brpc 的配置，用户也可以在运行中直接修改该参数。通过访问 `http://be_host:brpc_port/flags` 修改。
 
+### `brpc_socket_max_unwritten_bytes`
+
+这个配置主要用来修改 brpc  的参数 `socket_max_unwritten_bytes`。
+
+有时查询失败，BE 日志中会出现 `The server is overcrowded` 的错误信息，表示连接上有过多的未发送数据。当查询需要发送较大的bitmap字段时，可能会遇到该问题，此时可能通过调大该配置避免该错误。
+
+由于这是一个 brpc 的配置，用户也可以在运行中直接修改该参数。通过访问 `http://be_host:brpc_port/flags` 修改。
+
 ### `brpc_port`
 
 ### `buffer_pool_clean_pages_limit`

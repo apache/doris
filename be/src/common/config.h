@@ -490,8 +490,10 @@ namespace config {
     // Valid configs: ALPHA, BETA
     CONF_String(default_rowset_type, "ALPHA");
 
-    // brpc config, 200M
+    // Maximum size of a single message body in all protocols
     CONF_Int64(brpc_max_body_size, "209715200")
+    // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
+    CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864")
 
     // max number of txns for every txn_partition_map in txn manager
     // this is a self protection to avoid too many txns saving in manager
