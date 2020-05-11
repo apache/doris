@@ -50,6 +50,8 @@ template<> inline void fixed_size_memory_copy<8>(void* dst, const void* src) {
 }
 
 inline void memory_copy(void* dst, const void* src, size_t size) {
+// Function fixed_size_memory_copy will report a stack-use-after-scope error in ASAN mode.
+#if !defined(ADDRESS_SANITIZER)
     static const void* addrs[] = {
         &&B0, &&B1, &&B2, &&B3, &&B4, &&B5, &&B6, 
         &&B7, &&B8, &&B9, &&B10, &&B11, &&B12, &&B13,
@@ -615,6 +617,7 @@ B254:
 B255:
         return fixed_size_memory_copy<255>(dst, src);
     }
+#endif
 
     memcpy(dst, src, size);
     return;

@@ -67,7 +67,6 @@ public:
 
     ~MemoryScratchSinkTest() {
         delete _state;
-        delete _row_desc;
         delete _mem_tracker;
         delete _exec_env->_result_queue_mgr;
         delete _exec_env->_thread_mgr;

@@ -124,6 +124,7 @@ Status EvHttpServer::start() {
 }
 
 void EvHttpServer::stop() {
+    close(_server_fd);
 }
 
 void EvHttpServer::join() {

@@ -318,7 +318,7 @@ public:
     std::vector<StorageByteBuffer*> _second_buffers;
     std::vector<StorageByteBuffer*> _dictionary_buffers;
     std::vector<StorageByteBuffer*> _length_buffers;
-    StorageByteBuffer* _shared_buffer;
+    StorageByteBuffer* _shared_buffer = nullptr;
     std::map<StreamName, ReadOnlyFileStream *> _map_in_streams;
     FileHandler helper;
     OlapReaderStatistics _stats;
