@@ -60,7 +60,7 @@ public class WebBaseAction extends BaseAction {
     protected static final String PAGE_HEADER = "<!DOCTYPE html>"
             + "<html>"
             + "<head>"
-            + "  <title>Apache Doris</title>"
+            + "  <title>Apache Doris(Incubating)</title>"
             + "  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" >"
             + "  <link rel=\"shortcut icon\" href=\"/static/images?res=favicon.ico\">"
             + "  <link href=\"/static/css?res=bootstrap.css\" "
