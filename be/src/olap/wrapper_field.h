@@ -81,7 +81,7 @@ public:
     char* ptr() const { return _field_buf + 1; }
     size_t size() const { return _rep->size(); }
     size_t field_size() const { return _rep->field_size(); }
-    bool is_null() const { return _field_buf == nullptr || *reinterpret_cast<bool*>(_field_buf); }
+    bool is_null() const { return *reinterpret_cast<bool*>(_field_buf); }
     void set_is_null(bool is_null) { *reinterpret_cast<bool*>(_field_buf) = is_null; }
     void set_null() { *reinterpret_cast<bool*>(_field_buf) = true; }
     void set_not_null() { *reinterpret_cast<bool*>(_field_buf) = false; }
