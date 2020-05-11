@@ -70,6 +70,9 @@ public class AdminSetConfigStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws AnalysisException, UserException {
         super.analyze(analyzer);
 
+        if (configs.size() != 1) {
+            throw new AnalysisException("config parameter size is not equal to 1");
+        }
         // check auth
         if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
