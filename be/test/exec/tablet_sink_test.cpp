@@ -443,7 +443,7 @@ TEST_F(OlapTableSinkTest, normal) {
         *reinterpret_cast<int*>(tuple->get_slot(4)) = 14;
         *reinterpret_cast<int64_t*>(tuple->get_slot(8)) = 50;
         StringValue* str_val = reinterpret_cast<StringValue*>(tuple->get_slot(16));
-        str_val->ptr = reinterpret_cast<char*>(batch.tuple_data_pool()->allocate(10));
+        str_val->ptr = reinterpret_cast<char*>(batch.tuple_data_pool()->allocate(16));
         str_val->len = 15;
         memcpy(str_val->ptr, "abcde1234567890", str_val->len);
 
