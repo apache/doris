@@ -1391,9 +1391,8 @@ public class SelectStmt extends QueryStmt {
             CaseExpr caseExpr = (CaseExpr) item.getExpr();
 
             int childIdx = 0;
-            if (caseExpr.hasCaseExpr()
-                    && caseExpr.getChild(childIdx++).contains(Predicates.instanceOf(Subquery.class))) {
-                throw new AnalysisException("Only support subquery in binary predicate in case statement.");
+            if (caseExpr.hasCaseExpr()) {
+                childIdx++;
             }
             while (childIdx + 2 <= caseExpr.getChildren().size()) {
                 Expr child = caseExpr.getChild(childIdx++);
@@ -1454,6 +1453,7 @@ public class SelectStmt extends QueryStmt {
                 throw new AnalysisException("Only support select subquery produce one column in case statement.");
             }
             subquery.reset();
+            subquery.setAssertNumRowsElement(1, AssertNumRowsElement.Assertion.EQ);
             String alias = getTableAliasGenerator().getNextAlias();
             String colAlias = getColumnAliasGenerator().getNextAlias();
             InlineViewRef inlineViewRef = new InlineViewRef(alias, subquery, Arrays.asList(colAlias));

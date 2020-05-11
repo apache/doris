@@ -41,8 +41,8 @@ public class AssertNumRowsNode extends PlanNode {
         this.subqueryString = assertNumRowsElement.getSubqueryString();
         this.assertion = assertNumRowsElement.getAssertion();
         this.children.add(input);
-        this.tupleIds = input.getTupleIds();
-        this.tblRefIds = input.getTblRefIds();
+        this.tupleIds.addAll(getTupleIds());
+        this.tblRefIds.addAll(getTblRefIds());
         this.nullableTupleIds = input.getNullableTupleIds();
     }
 
