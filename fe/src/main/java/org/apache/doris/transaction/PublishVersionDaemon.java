@@ -203,7 +203,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
             
             if (shouldFinishTxn) {
-                globalTransactionMgr.finishTransaction(transactionState.getTransactionId(), publishErrorReplicaIds);
+                globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
                     // to finish after some interval

@@ -138,8 +138,13 @@ public class DeleteHandlerTest {
                 catalog.getTabletInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
             }
         };
+        globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
 
         new Expectations() {
             {
@@ -176,7 +181,7 @@ public class DeleteHandlerTest {
         new Expectations(globalTransactionMgr) {
             {
                 try {
-                    globalTransactionMgr.abortTransaction(anyLong, anyString);
+                    globalTransactionMgr.abortTransaction(db.getId(), anyLong, anyString);
                 } catch (UserException e) {
                 }
                 minTimes = 0;

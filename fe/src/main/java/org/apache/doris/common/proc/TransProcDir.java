@@ -79,6 +79,6 @@ public class TransProcDir implements ProcDirInterface {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid transaction id format: " + tid);
         }
-        return new TransTablesProcDir(tid);
+        return new TransTablesProcDir(dbId, tid);
     }
 }
