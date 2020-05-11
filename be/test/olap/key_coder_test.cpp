@@ -233,7 +233,8 @@ TEST_F(KeyCoderTest, test_char) {
         auto st = key_coder->decode_ascending(&encoded_key, 10, (uint8_t*)&check_slice, &_pool);
         ASSERT_TRUE(st.ok());
 
-        ASSERT_STREQ("1234567890", check_slice.data);
+        ASSERT_EQ(10, check_slice.size);
+        ASSERT_EQ(strncmp("1234567890", check_slice.data, 10), 0);
     }
 
     {
@@ -245,7 +246,8 @@ TEST_F(KeyCoderTest, test_char) {
         auto st = key_coder->decode_ascending(&encoded_key, 5, (uint8_t*)&check_slice, &_pool);
         ASSERT_TRUE(st.ok());
 
-        ASSERT_STREQ("12345", check_slice.data);
+        ASSERT_EQ(5, check_slice.size);
+        ASSERT_EQ(strncmp("12345", check_slice.data, 5), 0);
     }
 }
 
@@ -264,7 +266,8 @@ TEST_F(KeyCoderTest, test_varchar) {
         auto st = key_coder->decode_ascending(&encoded_key, 15, (uint8_t*)&check_slice, &_pool);
         ASSERT_TRUE(st.ok());
 
-        ASSERT_STREQ("1234567890", check_slice.data);
+        ASSERT_EQ(10, check_slice.size);
+        ASSERT_EQ(strncmp("1234567890", check_slice.data, 10), 0);
     }
 
     {
@@ -276,7 +279,8 @@ TEST_F(KeyCoderTest, test_varchar) {
         auto st = key_coder->decode_ascending(&encoded_key, 5, (uint8_t*)&check_slice, &_pool);
         ASSERT_TRUE(st.ok());
 
-        ASSERT_STREQ("12345", check_slice.data);
+        ASSERT_EQ(5, check_slice.size);
+        ASSERT_EQ(strncmp("12345", check_slice.data, 5), 0);
     }
 }
 

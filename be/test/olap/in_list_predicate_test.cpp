@@ -441,8 +441,8 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     StringValue* col_data = reinterpret_cast<StringValue*>(_mem_pool->allocate(size * sizeof(StringValue)));
     col_vector->set_col_data(col_data);
     
-    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(50));
-    memset(string_buffer, 0, 50);
+    char* string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
+    memset(string_buffer, 0, 60);
     for (int i = 0; i < size; ++i) {
         for (int j = 0; j <= 5; ++j) {
             string_buffer[j] = 'a' + i;
@@ -484,8 +484,8 @@ TEST_F(TestInListPredicate, CHAR_COLUMN) {
     bool* is_null = reinterpret_cast<bool*>(_mem_pool->allocate(size));  
     memset(is_null, 0, size);
     col_vector->set_is_null(is_null);
-    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(50));
-    memset(string_buffer, 0, 50);
+    string_buffer = reinterpret_cast<char*>(_mem_pool->allocate(60));
+    memset(string_buffer, 0, 60);
     for (int i = 0; i < size; ++i) {
         if (i % 2 == 0) {
             is_null[i] = true;

@@ -37,12 +37,11 @@ class BinaryPrefixPageTest : public testing::Test {
     void test_encode_and_decode() {
         std::vector<std::string> test_data;
         for (int i = 1000; i < 1038; ++i) {
-            test_data.push_back(std::to_string(i));
+            test_data.emplace_back(std::to_string(i));
         }
         std::vector<Slice> slices;
-        for (int i = 0; i < test_data.size(); ++i) {
-            Slice s(test_data[i]);
-            slices.emplace_back(s);
+        for (const auto& data : test_data) {
+            slices.emplace_back(Slice(data));
         }
         // encode
         PageBuilderOptions options;
@@ -101,22 +100,22 @@ class BinaryPrefixPageTest : public testing::Test {
             ASSERT_EQ(std::to_string(i), values[i - 1015].to_string());
         }
 
-        Slice v1 = Slice(std::to_string(1039));
+        Slice v1 = Slice("1039");
         bool exact_match;
         ret = page_decoder->seek_at_or_after_value(&v1, &exact_match);
         ASSERT_TRUE(ret.is_not_found());
 
-        Slice v2 = Slice(std::to_string(1000));
+        Slice v2 = Slice("1000");
         ret = page_decoder->seek_at_or_after_value(&v2, &exact_match);
         ASSERT_TRUE(ret.ok());
         ASSERT_TRUE(exact_match);
 
-        Slice v3 = Slice(std::to_string(1037));
+        Slice v3 = Slice("1037");
         ret = page_decoder->seek_at_or_after_value(&v3, &exact_match);
         ASSERT_TRUE(ret.ok());
         ASSERT_TRUE(exact_match);
 
-        Slice v4 = Slice(std::to_string(100));
+        Slice v4 = Slice("100");
         ret = page_decoder->seek_at_or_after_value(&v4, &exact_match);
         ASSERT_TRUE(ret.ok());
         ASSERT_TRUE(!exact_match);

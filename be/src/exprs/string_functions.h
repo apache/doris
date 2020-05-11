@@ -67,7 +67,10 @@ public:
         const doris_udf::IntVal& len, const doris_udf::StringVal& pad); 
     static doris_udf::StringVal rpad(
         doris_udf::FunctionContext* context, const doris_udf::StringVal& str,
-        const doris_udf::IntVal& len, const doris_udf::StringVal& pad); 
+        const doris_udf::IntVal& len, const doris_udf::StringVal& pad);
+    static doris_udf::StringVal append_trailing_char_if_absent(
+            doris_udf::FunctionContext* context, const doris_udf::StringVal& str,
+            const doris_udf::StringVal& trailing_char);
     static doris_udf::IntVal length(
         doris_udf::FunctionContext* context, const doris_udf::StringVal& str);
     static doris_udf::IntVal char_utf8_length(

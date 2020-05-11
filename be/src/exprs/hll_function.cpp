@@ -64,6 +64,9 @@ void HllFunctions::hll_update(FunctionContext *, const T &src, StringVal* dst) {
 }
 
 void HllFunctions::hll_merge(FunctionContext*, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
     auto* dst_hll = reinterpret_cast<HyperLogLog*>(dst->ptr);
     // zero size means the src input is a agg object
     if (src.len == 0) {
@@ -81,6 +84,9 @@ BigIntVal HllFunctions::hll_finalize(FunctionContext*, const StringVal &src) {
 }
 
 BigIntVal HllFunctions::hll_get_value(FunctionContext*, const StringVal &src) {
+    if (src.is_null) {
+        return BigIntVal::null();
+    }
     auto* src_hll = reinterpret_cast<HyperLogLog*>(src.ptr);
     BigIntVal result(src_hll->estimate_cardinality());
     return result;

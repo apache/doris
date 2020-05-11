@@ -47,14 +47,16 @@ public:
         utils = new FunctionUtils(state);
         ctx = utils->get_fn_ctx();
     }
+
     void TearDown() {
         delete state;
         delete utils;
     }
+
 private:
-    RuntimeState* state;
-    FunctionUtils* utils;
-    FunctionContext* ctx;
+    RuntimeState* state = nullptr;
+    FunctionUtils* utils = nullptr;
+    FunctionContext* ctx = nullptr;
 };
 
 TEST_F(TimestampFunctionsTest, day_of_week_test) {
