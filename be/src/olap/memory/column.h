@@ -41,6 +41,12 @@ class Column : public RefCountedThreadSafe<Column> {
 public:
     static const uint32_t BLOCK_SIZE = 1 << 16;
     static const uint32_t BLOCK_MASK = 0xffff;
+    // base vector capacity min grow step size
+    static const uint32_t BASE_CAPACITY_MIN_STEP_SIZE = 8;
+    // base vector capacity max grow step size
+    static const uint32_t BASE_CAPACITY_MAX_STEP_SIZE = 8;
+    // version vector capacity grow step size
+    static const uint32_t VERSION_CAPACITY_STEP_SIZE = 8;
 
     // create a Column which provided column schema, underlying storage_type and initial version
     Column(const ColumnSchema& cs, ColumnType storage_type, uint64_t version);
@@ -71,7 +77,7 @@ private:
     // and the storage type may change as the dictionary grows, e.g. from uint8 to uint16
     ColumnType _storage_type;
     // base's position at _versions vector
-    ssize_t _base_idx;
+    size_t _base_idx;
     // base data, a vector of ColumnBlocks
     vector<scoped_refptr<ColumnBlock>> _base;
     struct VersionInfo {

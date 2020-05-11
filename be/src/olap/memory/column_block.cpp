@@ -50,5 +50,22 @@ Status ColumnBlock::set_not_null(uint32_t idx) {
     return Status::OK();
 }
 
+Status ColumnBlock::copy_to(ColumnBlock* dest, size_t size, size_t esize) {
+    if (size > dest->size()) {
+        return Status::InvalidArgument("ColumnBlock copy to a smaller ColumnBlock");
+    }
+    if (dest->nulls()) {
+        if (nulls()) {
+            memcpy(dest->nulls().data(), nulls().data(), size);
+        } else {
+            memset(dest->nulls().data(), 0, size);
+        }
+    } else if (nulls()) {
+        RETURN_IF_ERROR(dest->nulls().alloc(dest->size()));
+        memcpy(dest->nulls().data(), nulls().data(), size);
+    }
+    return Status::OK();
+}
+
 } // namespace memory
 } // namespace doris

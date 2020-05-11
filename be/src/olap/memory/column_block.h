@@ -30,10 +30,14 @@ public:
 
     size_t memory() const;
 
+    size_t size() const { return _size; }
+
     Buffer& data() { return _data; }
 
     Buffer& nulls() { return _nulls; }
 
+    // Allocate memory for this block, with space for size elements and each
+    // element have esize byte size
     Status alloc(size_t size, size_t esize);
 
     bool is_null(uint32_t idx) const { return _nulls && _nulls.as<bool>()[idx]; }
@@ -41,6 +45,10 @@ public:
     Status set_null(uint32_t idx);
 
     Status set_not_null(uint32_t idx);
+
+    // Copy the first size elements to dest ColumnBlock, each element has
+    // esize byte size
+    Status copy_to(ColumnBlock* dest, size_t size, size_t esize);
 
 private:
     size_t _size = 0;

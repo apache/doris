@@ -22,8 +22,8 @@ namespace memory {
 
 Column::Column(const ColumnSchema& cs, ColumnType storage_type, uint64_t version)
         : _cs(cs), _storage_type(storage_type), _base_idx(0) {
-    _base.reserve(64);
-    _versions.reserve(64);
+    _base.reserve(BASE_CAPACITY_MIN_STEP_SIZE);
+    _versions.reserve(VERSION_CAPACITY_STEP_SIZE);
     _versions.emplace_back(version);
 }
 
@@ -73,7 +73,7 @@ Status Column::capture_version(uint64_t version, vector<ColumnDelta*>* deltas,
                     StringPrintf("version %zu(oldest=%zu) deleted", version, oldest));
         }
         DCHECK_GT(_base_idx, 0);
-        for (ssize_t i = _base_idx - 1; i >= 0; i--) {
+        for (ssize_t i = static_cast<ssize_t>(_base_idx) - 1; i >= 0; i--) {
             uint64_t v = _versions[i].version;
             if (v >= version) {
                 DCHECK(_versions[i].delta);
