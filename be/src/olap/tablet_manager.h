@@ -96,15 +96,20 @@ public:
     void get_tablet_stat(TTabletStatResult* result);
 
     // parse tablet header msg to generate tablet object
+    // - restore: whether the request is from restore tablet action,
+    //   where we should change tablet status from shutdown back to running
     OLAPStatus load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
                                      TSchemaHash schema_hash, const std::string& header,
-                                     bool update_meta, bool force = false);
+                                     bool update_meta,
+                                     bool force = false,
+                                     bool restore = false);
 
     OLAPStatus load_tablet_from_dir(DataDir* data_dir,
                                     TTabletId tablet_id,
                                     SchemaHash schema_hash,
                                     const std::string& schema_hash_path,
-                                    bool force = false);
+                                    bool force = false,
+                                    bool restore = false);
 
     void release_schema_change_lock(TTabletId tablet_id);
 

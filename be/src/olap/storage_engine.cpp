@@ -824,7 +824,8 @@ OLAPStatus StorageEngine::obtain_shard_path(
 
 OLAPStatus StorageEngine::load_header(
         const string& shard_path,
-        const TCloneReq& request) {
+        const TCloneReq& request,
+        bool restore) {
     LOG(INFO) << "begin to process load headers."
               << "tablet_id=" << request.tablet_id
               << ", schema_hash=" << request.schema_hash;
@@ -864,7 +865,7 @@ OLAPStatus StorageEngine::load_header(
     res = _tablet_manager->load_tablet_from_dir(
             store,
             request.tablet_id, request.schema_hash,
-            schema_hash_path_stream.str(), false);
+            schema_hash_path_stream.str(), false, restore);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to process load headers. res=" << res;
         return res;
