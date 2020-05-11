@@ -39,7 +39,8 @@ TEST(ZipUtilTest, basic) {
     FileUtils::remove_all(path + "/test_data/target");
 
     ZipFile zf = ZipFile(path + "/test_data/zip_normal.zip");
-    ASSERT_TRUE(zf.extract(path + "/test_data", "target").ok());
+    auto st = zf.extract(path + "/test_data", "target");
+    ASSERT_TRUE(st.ok()) << st.to_string();
     ASSERT_TRUE(FileUtils::check_exist(path + "/test_data/target/zip_normal_data"));
     ASSERT_FALSE(FileUtils::is_dir(path + "/test_data/target/zip_normal_data"));
 

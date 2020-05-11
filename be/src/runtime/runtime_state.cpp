@@ -105,6 +105,7 @@ RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
       _data_stream_recvrs_pool(new ObjectPool()),
       _unreported_error_idx(0),
       _profile(_obj_pool.get(), "<unnamed>"),
+      _is_cancelled(false),
       _per_fragment_instance_idx(0) {
     _query_options.batch_size = DEFAULT_BATCH_SIZE;
     if (query_globals.__isset.time_zone) {
@@ -151,7 +152,7 @@ RuntimeState::~RuntimeState() {
         _buffer_reservation->Close();
     }
 
-    if (_exec_env != nullptr) {
+    if (_exec_env != nullptr && _exec_env->thread_mgr() != nullptr) {
         _exec_env->thread_mgr()->unregister_pool(_resource_pool);
     }
 

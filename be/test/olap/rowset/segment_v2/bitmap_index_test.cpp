@@ -136,7 +136,7 @@ TEST_F(BitmapIndexTest, test_invert) {
         delete reader;
         delete iter;
     }
-    delete val;
+    delete[] val;
 }
 
 TEST_F(BitmapIndexTest, test_invert_2) {
@@ -174,7 +174,7 @@ TEST_F(BitmapIndexTest, test_invert_2) {
         delete reader;
         delete iter;
     }
-    delete val;
+    delete[] val;
 }
 
 TEST_F(BitmapIndexTest, test_multi_pages) {
@@ -206,7 +206,7 @@ TEST_F(BitmapIndexTest, test_multi_pages) {
         delete reader;
         delete iter;
     }
-    delete val;
+    delete[] val;
 }
 
 TEST_F(BitmapIndexTest, test_null) {
@@ -231,7 +231,7 @@ TEST_F(BitmapIndexTest, test_null) {
         delete reader;
         delete iter;
     }
-    delete val;
+    delete[] val;
 }
 
 }
