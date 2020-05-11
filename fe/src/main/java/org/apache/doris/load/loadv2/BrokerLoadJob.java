@@ -392,7 +392,7 @@ public class BrokerLoadJob extends LoadJob {
                 // load id will be added to loadStatistic when executing this task
 
                 // save all related tables and rollups in transaction state
-                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
+                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(dbId, transactionId);
                 if (txnState == null) {
                     throw new UserException("txn does not exist: " + transactionId);
                 }

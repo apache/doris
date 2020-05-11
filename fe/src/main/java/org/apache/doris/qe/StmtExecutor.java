@@ -317,7 +317,8 @@ public class StmtExecutor {
                     try {
                         String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
                         Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                                insertStmt.getTransactionId(), (errMsg == null ? "unknown reason" : errMsg));
+                                insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
+                                (errMsg == null ? "unknown reason" : errMsg));
                     } catch (Exception abortTxnException) {
                         LOG.warn("errors when abort txn", abortTxnException);
                     }
@@ -676,8 +677,8 @@ public class StmtExecutor {
 
             if (loadedRows == 0 && filteredRows == 0) {
                 // if no data, just abort txn and return ok
-                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getTransactionId(),
-                        TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
+                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
+                        insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
                 context.getState().setOk();
                 return;
             }
@@ -696,7 +697,7 @@ public class StmtExecutor {
             LOG.warn("handle insert stmt fail: {}", label, t);
             try {
                 Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                        insertStmt.getTransactionId(),
+                        insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
                         t.getMessage() == null ? "unknown reason" : t.getMessage());
             } catch (Exception abortTxnException) {
                 // just print a log if abort txn failed. This failure do not need to pass to user.

@@ -243,7 +243,7 @@ public class LoadChecker extends MasterDaemon {
         }
         // check if the job is aborted in transaction manager
         TransactionState state = Catalog.getCurrentGlobalTransactionMgr()
-                .getTransactionState(job.getTransactionId());
+                .getTransactionState(job.getDbId(), job.getTransactionId());
         if (state == null) {
             LOG.warn("cancel load job {}  because could not find transaction state", job);
             load.cancelLoadJob(job, CancelType.UNKNOWN, "transaction state lost");
@@ -309,7 +309,7 @@ public class LoadChecker extends MasterDaemon {
         // check transaction state
         Load load = Catalog.getInstance().getLoadInstance();
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
-        TransactionState transactionState = globalTransactionMgr.getTransactionState(job.getTransactionId());
+        TransactionState transactionState = globalTransactionMgr.getTransactionState(job.getDbId(), job.getTransactionId());
         List<TabletCommitInfo> tabletCommitInfos = new ArrayList<TabletCommitInfo>();
         // when be finish load task, fe will update job's finish task info, use lock here to prevent
         // concurrent problems
