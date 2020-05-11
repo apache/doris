@@ -35,6 +35,7 @@ public:
     // @note: predicates should processed before pass it to this method, 
     // tie breaker for predicate wheather can push down es can reference the push-down filters
     static std::string build(const std::map<std::string, std::string>& properties,
-                const std::vector<std::string>& fields, std::vector<EsPredicate*>& predicates, const std::map<std::string, std::string>& docvalue_context);
+                const std::vector<std::string>& fields, std::vector<EsPredicate*>& predicates, const std::map<std::string, std::string>& docvalue_context,
+                bool* doc_value_mode);
 };
 }
