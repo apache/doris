@@ -107,7 +107,7 @@ module.exports = {
       },
       '/zh-CN/': {
         algolia: buildAlgoliaSearchConfig('zh-CN'),
-        selectText: '选择语言',
+        selectText: 'Languages',
         label: '简体中文',
         editLinkText: '在 GitHub 上编辑此页',
         nav: [
