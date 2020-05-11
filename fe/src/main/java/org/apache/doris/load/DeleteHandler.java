@@ -238,7 +238,7 @@ public class DeleteHandler implements Writable {
             } catch (Throwable t) {
                 LOG.warn("error occurred during delete process", t);
                 // if transaction has been begun, need to abort it
-                if (Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId) != null) {
+                if (Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), transactionId) != null) {
                     cancelJob(deleteJob, CancelType.UNKNOWN, t.getMessage());
                 }
                 throw new DdlException(t.getMessage(), t);
@@ -319,7 +319,7 @@ public class DeleteHandler implements Writable {
         try {
             unprotectedCommitJob(job, db, timeoutMs);
             status = Catalog.getCurrentGlobalTransactionMgr().
-                    getTransactionState(job.getTransactionId()).getTransactionStatus();
+                    getTransactionState(db.getId(), job.getTransactionId()).getTransactionStatus();
         } catch (UserException e) {
             if (cancelJob(job, CancelType.COMMIT_FAIL, e.getMessage())) {
                 throw new DdlException(e.getMessage(), e);
@@ -428,10 +428,10 @@ public class DeleteHandler implements Writable {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         try {
             if (job != null) {
-                globalTransactionMgr.abortTransaction(job.getTransactionId(), reason);
+                globalTransactionMgr.abortTransaction(job.getDeleteInfo().getDbId(), job.getTransactionId(), reason);
             }
         } catch (Exception e) {
-            TransactionState state = globalTransactionMgr.getTransactionState(job.getTransactionId());
+            TransactionState state = globalTransactionMgr.getTransactionState(job.getDeleteInfo().getDbId(), job.getTransactionId());
             if (state == null) {
                 LOG.warn("cancel delete job failed because txn not found, transactionId: {}", job.getTransactionId());
             } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED || state.getTransactionStatus() == TransactionStatus.VISIBLE) {
