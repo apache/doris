@@ -554,7 +554,6 @@ public class MaterializedViewHandler extends AlterHandler {
                     } else if ((i + 1) <= FeConstants.shortkey_max_column_count
                             || keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes) {
                         rollupColumn.setIsKey(true);
-                        // why null not AggregateType.NONE
                         rollupColumn.setAggregationType(null, false);
                     } else {
                         rollupColumn.setIsKey(false);
