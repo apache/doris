@@ -233,22 +233,6 @@ message AlterTabletPB {
     optional AlterTabletType alter_type = 4;
 }
 
-enum ColumnType {
-    TINYINT = 0;
-    SMALLINT = 1;
-    INT = 2;
-    BIGINT = 3;
-    LARGEINT = 4;
-    FLOAT = 5;
-    DOUBLE = 6;
-    DECIMAL = 7;
-    CHAR = 8;
-    VARCHAR = 9;
-    HLL = 10;
-    DATE = 11;
-    DATETIME = 12;
-}
-
 message ColumnPB {
     required int32 unique_id = 1; // ColumnMessage.unique_id
     optional string name = 2; // ColumnMessage.name
