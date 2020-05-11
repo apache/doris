@@ -118,10 +118,12 @@ class PluginZip {
         }
 
         // .md5 check
-        String expectedChecksum = "";
+        String expectedChecksum;
         try (InputStream in = openUrlInputStream(source + ".md5")) {
             BufferedReader br = new BufferedReader(new InputStreamReader(in));
             expectedChecksum = br.readLine();
+        } catch (IOException e) {
+            throw new UserException(e.getMessage() + ". you should provide a md5 URI to check plugin file");
         }
 
         DigestUtils.md5Hex(Files.readAllBytes(zip));
