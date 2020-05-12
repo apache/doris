@@ -22,16 +22,18 @@
 #include <utility>
 #include <vector>
 
-#include "kudu/gutil/macros.h"
-#include "kudu/gutil/strings/stringpiece.h"
-#include "kudu/gutil/strings/substitute.h"
-#include "kudu/gutil/ref_counted.h"
-#include "kudu/gutil/threading/thread_collision_warner.h"
-#include "kudu/gutil/walltime.h"
-#include "kudu/util/locks.h"
-#include "kudu/util/trace_metrics.h"
+#include <rapidjson/writer.h>
 
-namespace kudu {
+#include "gutil/macros.h"
+#include "gutil/strings/stringpiece.h"
+#include "gutil/strings/substitute.h"
+#include "gutil/ref_counted.h"
+#include "gutil/threading/thread_collision_warner.h"
+#include "gutil/walltime.h"
+#include "util/spinlock.h"
+#include "util/trace_metrics.h"
+
+namespace doris {
 class Trace;
 }
 
@@ -39,7 +41,7 @@ class Trace;
 // scope. The old current Trace is restored when the scope is exited.
 //
 // 't' should be a Trace* pointer.
-#define ADOPT_TRACE(t) kudu::ScopedAdoptTrace _adopt_trace(t);
+#define ADOPT_TRACE(t) doris::ScopedAdoptTrace _adopt_trace(t);
 
 // Issue a trace message, if tracing is enabled in the current thread.
 // See Trace::SubstituteAndTrace for arguments.
@@ -47,7 +49,7 @@ class Trace;
 //  TRACE("Acquired timestamp $0", timestamp);
 #define TRACE(format, substitutions...) \
   do { \
-    kudu::Trace* _trace = kudu::Trace::CurrentTrace(); \
+    doris::Trace* _trace = doris::Trace::CurrentTrace(); \
     if (_trace) { \
       _trace->SubstituteAndTrace(__FILE__, __LINE__, (format),  \
         ##substitutions); \
@@ -77,7 +79,7 @@ class Trace;
 // parameters.
 #define TRACE_COUNTER_INCREMENT(counter_name, val) \
   do { \
-    kudu::Trace* _trace = kudu::Trace::CurrentTrace(); \
+    doris::Trace* _trace = doris::Trace::CurrentTrace(); \
     if (_trace) { \
       _trace->metrics()->Increment(counter_name, val); \
     } \
@@ -94,7 +96,7 @@ class Trace;
 //  will result in a trace metric indicating the number of microseconds spent
 //  in invocations of DoFoo().
 #define TRACE_COUNTER_SCOPE_LATENCY_US(counter_name) \
-  ::kudu::ScopedTraceLatencyCounter _scoped_latency(counter_name)
+  ::doris::ScopedTraceLatencyCounter _scoped_latency(counter_name)
 
 // Construct a constant C string counter name which acts as a sort of
 // coarse-grained histogram for trace metrics.
@@ -111,10 +113,8 @@ class Trace;
     }                                                   \
   }()
 
-namespace kudu {
+namespace doris {
 
-class JsonWriter;
-class ThreadSafeArena;
 struct TraceEntry;
 
 // A trace for a request or other process. This supports collecting trace entries
@@ -138,25 +138,25 @@ class Trace : public RefCountedThreadSafe<Trace> {
   void SubstituteAndTrace(const char* filepath, int line_number,
                           StringPiece format,
                           const strings::internal::SubstituteArg& arg0 =
-                            strings::internal::SubstituteArg::kNoArg,
+                            strings::internal::SubstituteArg::NoArg,
                           const strings::internal::SubstituteArg& arg1 =
-                            strings::internal::SubstituteArg::kNoArg,
+                            strings::internal::SubstituteArg::NoArg,
                           const strings::internal::SubstituteArg& arg2 =
-                            strings::internal::SubstituteArg::kNoArg,
+                            strings::internal::SubstituteArg::NoArg,
                           const strings::internal::SubstituteArg& arg3 =
-                            strings::internal::SubstituteArg::kNoArg,
+                            strings::internal::SubstituteArg::NoArg,
                           const strings::internal::SubstituteArg& arg4 =
-                            strings::internal::SubstituteArg::kNoArg,
+                            strings::internal::SubstituteArg::NoArg,
                           const strings::internal::SubstituteArg& arg5 =
-                            strings::internal::SubstituteArg::kNoArg,
+                            strings::internal::SubstituteArg::NoArg,
                           const strings::internal::SubstituteArg& arg6 =
-                            strings::internal::SubstituteArg::kNoArg,
+                            strings::internal::SubstituteArg::NoArg,
                           const strings::internal::SubstituteArg& arg7 =
-                            strings::internal::SubstituteArg::kNoArg,
+                            strings::internal::SubstituteArg::NoArg,
                           const strings::internal::SubstituteArg& arg8 =
-                            strings::internal::SubstituteArg::kNoArg,
+                            strings::internal::SubstituteArg::NoArg,
                           const strings::internal::SubstituteArg& arg9 =
-                            strings::internal::SubstituteArg::kNoArg);
+                            strings::internal::SubstituteArg::NoArg);
 
   // Dump the trace buffer to the given output stream.
   //
@@ -194,7 +194,7 @@ class Trace : public RefCountedThreadSafe<Trace> {
 
   // Simple function to dump the current trace to stderr, if one is
   // available. This is meant for usage when debugging in gdb via
-  // 'call kudu::Trace::DumpCurrentTrace();'.
+  // 'call doris::Trace::DumpCurrentTrace();'.
   static void DumpCurrentTrace();
 
   TraceMetrics* metrics() {
@@ -221,12 +221,13 @@ class Trace : public RefCountedThreadSafe<Trace> {
   // Add the entry to the linked list of entries.
   void AddEntry(TraceEntry* entry);
 
-  void MetricsToJSON(JsonWriter* jw) const;
+  void MetricsToJSON(rapidjson::Writer<rapidjson::StringBuffer>* jw) const;
 
-  std::unique_ptr<ThreadSafeArena> arena_;
+  // TODO(yingchun): now we didn't import Arena, instead, we use manual malloc() and free().
+  // std::unique_ptr<ThreadSafeArena> arena_;
 
   // Lock protecting the entries linked list.
-  mutable simple_spinlock lock_;
+  mutable SpinLock lock_;
   // The head of the linked list of entries (allocated inside arena_)
   TraceEntry* entries_head_;
   // The tail of the linked list of entries (allocated inside arena_)
@@ -287,4 +288,4 @@ class ScopedTraceLatencyCounter {
   DISALLOW_COPY_AND_ASSIGN(ScopedTraceLatencyCounter);
 };
 
-} // namespace kudu
+} // namespace doris

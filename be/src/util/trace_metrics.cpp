@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "kudu/util/trace_metrics.h"
+#include "util/trace_metrics.h"
 
 #include <algorithm>
 #include <cctype>
@@ -29,18 +29,18 @@
 #include <glog/logging.h>
 #include <glog/stl_logging.h>
 
-#include "kudu/util/debug/leakcheck_disabler.h"
+#include "util/debug/leakcheck_disabler.h"
 
 using std::string;
 
-namespace kudu {
+namespace doris {
 
 // Make glog's STL-compatible operators visible inside this namespace.
 using ::operator<<;
 
 namespace {
 
-static simple_spinlock g_intern_map_lock;
+static SpinLock g_intern_map_lock;
 typedef std::map<string, const char*> InternMap;
 static InternMap* g_intern_map;
 
@@ -51,7 +51,7 @@ const char* TraceMetrics::InternName(const string& name) {
       << "not printable: " << name;
 
   debug::ScopedLeakCheckDisabler no_leakcheck;
-  std::lock_guard<simple_spinlock> l(g_intern_map_lock);
+  std::lock_guard<SpinLock> l(g_intern_map_lock);
   if (g_intern_map == nullptr) {
     g_intern_map = new InternMap();
   }
@@ -71,4 +71,4 @@ const char* TraceMetrics::InternName(const string& name) {
   return dup;
 }
 
-} // namespace kudu
+} // namespace doris
