@@ -15,34 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_EXEC_LOCAL_FILE_WRITER_H
-#define DORIS_BE_SRC_EXEC_LOCAL_FILE_WRITER_H
+#pragma once
 
-#include <stdio.h>
-
-#include "exec/file_writer.h"
+#include "runtime/result_writer.h"
 
 namespace doris {
 
+class TupleRow;
+class RowBatch;
+class ExprContext;
+class MysqlRowBuffer;
+class BufferControlBlock;
 class RuntimeState;
 
-class LocalFileWriter : public FileWriter {
+// convert the row batch to mysql protol row
+class MysqlResultWriter : public ResultWriter {
 public:
-    LocalFileWriter(const std::string& path, int64_t start_offset);
-    virtual ~LocalFileWriter();
+    MysqlResultWriter(BufferControlBlock* sinker, const std::vector<ExprContext*>& output_expr_ctxs);
+    virtual ~MysqlResultWriter();
 
-    Status open() override;
-
-    virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
+    virtual Status init(RuntimeState* state) override;
+    // convert one row batch to mysql result and
+    // append this batch to the result sink
+    virtual Status append_row_batch(RowBatch* batch) override;
 
     virtual Status close() override;
 
 private:
-    std::string _path;
-    int64_t _start_offset;
-    FILE* _fp;
+    // convert one tuple row
+    Status add_one_row(TupleRow* row);
+
+    // The expressions that are run to create tuples to be written to hbase.
+    BufferControlBlock* _sinker;
+    const std::vector<ExprContext*>& _output_expr_ctxs;
+    MysqlRowBuffer* _row_buffer;
 };
 
-} // end namespace doris
+} // end of namespace
 
-#endif // DORIS_BE_SRC_EXEC_LOCAL_FILE_WRITER_H

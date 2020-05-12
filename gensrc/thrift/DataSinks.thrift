@@ -22,6 +22,7 @@ include "Exprs.thrift"
 include "Types.thrift"
 include "Descriptors.thrift"
 include "Partitions.thrift"
+include "PlanNodes.thrift"
 
 enum TDataSinkType {
     DATA_STREAM_SINK,
@@ -31,6 +32,21 @@ enum TDataSinkType {
     EXPORT_SINK,
     OLAP_TABLE_SINK,
     MEMORY_SCRATCH_SINK
+}
+
+enum TResultSinkType {
+    MYSQL_PROTOCAL,
+    LOCAL_FILE,
+    REMOTE_FILE
+}
+
+struct TResultFileSinkOptions {
+    1: required string file_path
+    2: required PlanNodes.TFileFormatType file_format
+    3: optional string column_separator    // only for csv
+    4: optional string line_delimiter  // only for csv
+    5: optional list<Types.TNetworkAddress> broker_addresses;
+    6: optional map<string, string> broker_properties // only for remote file
 }
 
 struct TMemoryScratchSink {
@@ -54,6 +70,8 @@ struct TDataStreamSink {
 
 // Reserved for 
 struct TResultSink {
+    1: optional TResultSinkType type;
+    2: optional TResultFileSinkOptions file_options;
 }
 
 struct TMysqlTableSink {

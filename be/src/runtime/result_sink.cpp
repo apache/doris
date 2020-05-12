@@ -25,7 +25,8 @@
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/buffer_control_block.h"
-#include "runtime/result_writer.h"
+#include "runtime/file_result_writer.h"
+#include "runtime/mysql_result_writer.h"
 #include "runtime/mem_tracker.h"
 
 namespace doris {
@@ -35,9 +36,23 @@ ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& 
     : _row_desc(row_desc),
       _t_output_expr(t_output_expr),
       _buf_size(buffer_size) {
+
+    if (!sink.__isset.type || sink.type == TResultSinkType::MYSQL_PROTOCAL) {
+        _sink_type = TResultSinkType::MYSQL_PROTOCAL;
+    } else {
+        _sink_type = sink.type;
+    }
+
+    if (_sink_type == TResultSinkType::LOCAL_FILE || _sink_type == TResultSinkType::REMOTE_FILE) {
+        CHECK(sink.__isset.file_options);
+        _file_opts = new ResultFileOptions(sink.file_options, _sink_type == TResultSinkType::LOCAL_FILE);        
+    }
 }
 
 ResultSink::~ResultSink() {
+    if (_file_opts != nullptr) {
+        delete _file_opts;
+    }
 }
 
 Status ResultSink::prepare_exprs(RuntimeState* state) {
@@ -58,11 +73,25 @@ Status ResultSink::prepare(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile(state->obj_pool(), title.str()));
     // prepare output_expr
     RETURN_IF_ERROR(prepare_exprs(state));
-    // create sender
-    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+    
+    // create sender and writer based on sink type
+    switch (_sink_type) {
+        case TResultSinkType::MYSQL_PROTOCAL:
+            // create sender
+            RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
                         state->fragment_instance_id(), _buf_size, &_sender));
-    // create writer
-    _writer.reset(new(std::nothrow) ResultWriter(_sender.get(), _output_expr_ctxs));
+            // create writer
+            _writer.reset(new(std::nothrow) MysqlResultWriter(_sender.get(), _output_expr_ctxs));
+            break;
+        case TResultSinkType::LOCAL_FILE:
+        case TResultSinkType::REMOTE_FILE:
+            CHECK(_file_opts != nullptr);
+            _writer.reset(new(std::nothrow) FileResultWriter(_file_opts, _output_expr_ctxs));
+            break;
+        default:
+            return Status::InternalError("Unknown result sink type");
+    }
+
     RETURN_IF_ERROR(_writer->init(state));
 
     return Status::OK();
