@@ -254,7 +254,6 @@ public final class AggregateInfo extends AggregateInfoBase {
                             + "sum distinct, each can't have multi columns.");   
                 }
                 hasMultiDistinct = true;
-                break;
             }
         }
         return hasMultiDistinct;
