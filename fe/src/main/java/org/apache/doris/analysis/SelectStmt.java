@@ -1448,6 +1448,9 @@ public class SelectStmt extends QueryStmt {
             if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
                 throw new AnalysisException("Only support select subquery in case statement.");
             }
+            if (expr.isCorrelatedPredicate(getTableRefIds())) {
+                throw new AnalysisException("The correlated subquery in case-when clause is not supported");
+            }
             SelectStmt subquery = (SelectStmt) ((Subquery) expr).getStatement();
             if (subquery.resultExprs.size() != 1 || !subquery.returnsSingleRow()) {
                 throw new AnalysisException("Only support select subquery produce one column in case statement.");
