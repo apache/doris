@@ -36,8 +36,7 @@ enum TDataSinkType {
 
 enum TResultSinkType {
     MYSQL_PROTOCAL,
-    LOCAL_FILE,
-    REMOTE_FILE
+    FILE
 }
 
 struct TResultFileSinkOptions {

@@ -612,6 +612,10 @@ public class StmtExecutor {
             insertStmt = (InsertStmt) parsedStmt;
         }
 
+        if (insertStmt.getQueryStmt().hasOutFileClause()) {
+            throw new DdlException("Not support OUTFILE clause in INSERT statement");
+        }
+
         // assign query id before explain query return
         UUID uuid = insertStmt.getUUID();
         context.setQueryId(new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));

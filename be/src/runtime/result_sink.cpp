@@ -43,9 +43,9 @@ ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& 
         _sink_type = sink.type;
     }
 
-    if (_sink_type == TResultSinkType::LOCAL_FILE || _sink_type == TResultSinkType::REMOTE_FILE) {
+    if (_sink_type == TResultSinkType::FILE) {
         CHECK(sink.__isset.file_options);
-        _file_opts = new ResultFileOptions(sink.file_options, _sink_type == TResultSinkType::LOCAL_FILE);        
+        _file_opts = new ResultFileOptions(sink.file_options);
     }
 }
 
@@ -83,8 +83,7 @@ Status ResultSink::prepare(RuntimeState* state) {
             // create writer
             _writer.reset(new(std::nothrow) MysqlResultWriter(_sender.get(), _output_expr_ctxs));
             break;
-        case TResultSinkType::LOCAL_FILE:
-        case TResultSinkType::REMOTE_FILE:
+        case TResultSinkType::FILE:
             CHECK(_file_opts != nullptr);
             _writer.reset(new(std::nothrow) FileResultWriter(_file_opts, _output_expr_ctxs));
             break;

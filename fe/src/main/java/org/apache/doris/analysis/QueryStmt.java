@@ -110,7 +110,8 @@ public abstract class QueryStmt extends StatementBase {
     /////////////////////////////////////////
     // END: Members that need to be reset()
 
-    private OutFileClause outFileClause;
+    // represent the "INTO OUTFILE" clause
+    protected OutFileClause outFileClause;
 
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
@@ -126,6 +127,7 @@ public abstract class QueryStmt extends StatementBase {
         super.analyze(analyzer);
         analyzeLimit(analyzer);
         if (hasWithClause()) withClause_.analyze(analyzer);
+        if (hasOutFileClause()) outFileClause.analyze(analyzer);
     }
 
     private void analyzeLimit(Analyzer analyzer) throws AnalysisException {
@@ -555,12 +557,17 @@ public abstract class QueryStmt extends StatementBase {
         return withClause_ != null ? withClause_.clone() : null;
     }
 
+    public OutFileClause cloneOutfileCluse() {
+        return outFileClause != null ? outFileClause.clone() : null;
+    }
+
     /**
      * C'tor for cloning.
      */
     protected QueryStmt(QueryStmt other) {
         super(other);
         withClause_ = other.cloneWithClause();
+        outFileClause = other.cloneOutfileCluse();
         orderByElements = other.cloneOrderByElements();
         limitElement = other.limitElement.clone();
         resultExprs = Expr.cloneList(other.resultExprs);
@@ -606,5 +613,9 @@ public abstract class QueryStmt extends StatementBase {
 
     public OutFileClause getOutFileClause() {
         return outFileClause;
+    }
+
+    public boolean hasOutFileClause() {
+        return outFileClause != null;
     }
 }

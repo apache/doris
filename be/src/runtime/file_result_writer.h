@@ -38,20 +38,20 @@ struct ResultFileOptions {
     std::vector<TNetworkAddress> broker_addresses;
     std::map<std::string, std::string> broker_properties;
 
-    ResultFileOptions(const TResultFileSinkOptions& t_opt, bool is_local) {
+    ResultFileOptions(const TResultFileSinkOptions& t_opt) {
         file_path = t_opt.file_path;
         file_format = t_opt.file_format;
         column_separator = t_opt.__isset.column_separator ? t_opt.column_separator : "\t";
         line_delimiter = t_opt.__isset.line_delimiter ? t_opt.line_delimiter : "\n";
 
+        is_local_file = true;
         if (t_opt.__isset.broker_addresses) {
             broker_addresses = t_opt.broker_addresses;
+            is_local_file = false;
         }
         if (t_opt.__isset.broker_properties) {
             broker_properties = t_opt.broker_properties;
         }
-
-        is_local_file = is_local;
     }
 };
 
