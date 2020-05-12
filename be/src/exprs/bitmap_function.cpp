@@ -302,6 +302,30 @@ void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, S
     }
 }
 
+void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst) {
+    dst->is_null = true;
+}
+
+void BitmapFunctions::bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst) {
+    if (src.is_null) {
+        return;
+    }
+    // if dst is null, the src input is the first value
+    if (dst->is_null) {
+        dst->is_null = false;
+        dst->len = sizeof(BitmapValue);
+        dst->ptr = (uint8_t*)new BitmapValue((char*) src.ptr);
+        return;
+    }
+    auto dst_bitmap = reinterpret_cast<BitmapValue*>(dst->ptr);
+    // zero size means the src input is a agg object
+    if (src.len == 0) {
+        (*dst_bitmap) &= *reinterpret_cast<BitmapValue*>(src.ptr);
+    } else {
+        (*dst_bitmap) &= BitmapValue((char*) src.ptr);
+    }
+}
+
 BigIntVal BitmapFunctions::bitmap_count(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
         return 0;
@@ -343,14 +367,19 @@ StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx, const do
 }
 
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
-    auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
-    StringVal result = serialize(ctx, src_bitmap);
-    delete src_bitmap;
-    return result;
+    if (src.is_null) {
+        BitmapValue src_bitmap;
+        return serialize(ctx, &src_bitmap);
+    } else {
+        auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+        StringVal result = serialize(ctx, src_bitmap);
+        delete src_bitmap;
+        return result;
+    }
 }
 
 template<typename T, typename ValType>
-void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst) {
+void BitmapFunctions::intersect_count_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
     dst->len = sizeof(BitmapIntersect<T>);
     auto intersect = new BitmapIntersect<T>();
@@ -510,25 +539,25 @@ template void BitmapFunctions::bitmap_update_int<IntVal>(
 template void BitmapFunctions::bitmap_update_int<BigIntVal>(
         FunctionContext* ctx, const BigIntVal& src, StringVal* dst);
 
-template void BitmapFunctions::bitmap_intersect_init<int8_t, TinyIntVal>(
+template void BitmapFunctions::intersect_count_init<int8_t, TinyIntVal>(
     FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<int16_t, SmallIntVal>(
+template void BitmapFunctions::intersect_count_init<int16_t, SmallIntVal>(
     FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<int32_t, IntVal>(
+template void BitmapFunctions::intersect_count_init<int32_t, IntVal>(
     FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<int64_t, BigIntVal>(
+template void BitmapFunctions::intersect_count_init<int64_t, BigIntVal>(
     FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<__int128, LargeIntVal>(
+template void BitmapFunctions::intersect_count_init<__int128, LargeIntVal>(
     FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<float, FloatVal>(
+template void BitmapFunctions::intersect_count_init<float, FloatVal>(
     FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<double, DoubleVal>(
+template void BitmapFunctions::intersect_count_init<double, DoubleVal>(
     FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<DateTimeValue, DateTimeVal>(
+template void BitmapFunctions::intersect_count_init<DateTimeValue, DateTimeVal>(
     FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<DecimalV2Value, DecimalV2Val>(
+template void BitmapFunctions::intersect_count_init<DecimalV2Value, DecimalV2Val>(
     FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<StringValue, StringVal>(
+template void BitmapFunctions::intersect_count_init<StringValue, StringVal>(
     FunctionContext* ctx, StringVal* dst);
 
 

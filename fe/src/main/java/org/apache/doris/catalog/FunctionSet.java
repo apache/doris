@@ -540,6 +540,7 @@ public class FunctionSet {
     public static final String BITMAP_UNION_INT = "bitmap_union_int";
     public static final String BITMAP_COUNT = "bitmap_count";
     public static final String INTERSECT_COUNT = "intersect_count";
+    public static final String BITMAP_INTERSECT = "bitmap_intersect";
 
     private static final Map<Type, String> BITMAP_UNION_INT_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -554,29 +555,29 @@ public class FunctionSet {
     private static final Map<Type, String> BITMAP_INTERSECT_INIT_SYMBOL =
             ImmutableMap.<Type, String>builder()
                     .put(Type.TINYINT,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initIaN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initIaN9doris_udf10TinyIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
                     .put(Type.SMALLINT,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initIsN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initIsN9doris_udf11SmallIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
                     .put(Type.INT,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initIiN9doris_udf6IntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initIiN9doris_udf6IntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
                     .put(Type.BIGINT,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initIlN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initIlN9doris_udf9BigIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
                     .put(Type.LARGEINT,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initInN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initInN9doris_udf11LargeIntValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
                     .put(Type.FLOAT,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initIfN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initIfN9doris_udf8FloatValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
                     .put(Type.DOUBLE,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initIdN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initIdN9doris_udf9DoubleValEEEvPNS2_15FunctionContextEPNS2_9StringValE")
                     .put(Type.DATE,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initINS_13DateTimeValueEN9doris_udf11DateTimeValEEEvPNS3_15FunctionContextEPNS3_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initINS_13DateTimeValueEN9doris_udf11DateTimeValEEEvPNS3_15FunctionContextEPNS3_9StringValE")
                     .put(Type.DATETIME,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initINS_13DateTimeValueEN9doris_udf11DateTimeValEEEvPNS3_15FunctionContextEPNS3_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initINS_13DateTimeValueEN9doris_udf11DateTimeValEEEvPNS3_15FunctionContextEPNS3_9StringValE")
                     .put(Type.DECIMALV2,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initINS_14DecimalV2ValueEN9doris_udf12DecimalV2ValEEEvPNS3_15FunctionContextEPNS3_9StringValE")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initINS_14DecimalV2ValueEN9doris_udf12DecimalV2ValEEEvPNS3_15FunctionContextEPNS3_9StringValE")
                     .put(Type.CHAR,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
                     .put(Type.VARCHAR,
-                            "_ZN5doris15BitmapFunctions21bitmap_intersect_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
+                            "_ZN5doris15BitmapFunctions20intersect_count_initINS_11StringValueEN9doris_udf9StringValEEEvPNS3_15FunctionContextEPS4_")
                     .build();
 
     private static final Map<Type, String> BITMAP_INTERSECT_UPDATE_SYMBOL =
@@ -1144,6 +1145,7 @@ public class FunctionSet {
                     null, false, true, false));
         }
 
+        // bitmap
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION, Lists.newArrayList(Type.BITMAP),
                 Type.BITMAP,
                 Type.VARCHAR,
@@ -1165,6 +1167,15 @@ public class FunctionSet {
                 null,
                 "_ZN5doris15BitmapFunctions15bitmap_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 true, true, true));
+        // TODO(ml): supply function symbol
+        addBuiltin(AggregateFunction.createBuiltin(BITMAP_INTERSECT, Lists.newArrayList(Type.BITMAP),
+                Type.BITMAP, Type.VARCHAR,
+                "_ZN5doris15BitmapFunctions21bitmap_intersect_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16bitmap_intersectEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16bitmap_intersectEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                true, false, true));
 
         //PercentileApprox
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",
