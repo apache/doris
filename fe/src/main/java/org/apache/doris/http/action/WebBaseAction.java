@@ -65,6 +65,8 @@ public class WebBaseAction extends BaseAction {
             + "  <link rel=\"shortcut icon\" href=\"/static/images?res=favicon.ico\">"
             + "  <link href=\"/static/css?res=bootstrap.css\" "
             + "  rel=\"stylesheet\" media=\"screen\"/>"
+            + "  <link href=\"/static/css?res=bootstrap-theme.css\" "
+            + "  rel=\"stylesheet\" media=\"screen\"/>"
             + "  <link href=\"/static/css?res=datatables_bootstrap.css\" "
             + "    rel=\"stylesheet\" media=\"screen\"/>"
 
