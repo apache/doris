@@ -21,11 +21,11 @@
 #include <mutex>
 #include <string>
 
-#include "kudu/gutil/macros.h"
-#include "kudu/gutil/map-util.h"
-#include "kudu/util/locks.h"
+#include "gutil/macros.h"
+#include "gutil/map-util.h"
+#include "util/spinlock.h"
 
-namespace kudu {
+namespace doris {
 
 // A simple map of constant string names to integer counters.
 //
@@ -65,25 +65,25 @@ class TraceMetrics {
   int64_t GetMetric(const char* name) const;
 
  private:
-  mutable simple_spinlock lock_;
+  mutable SpinLock lock_;
   std::map<const char*, int64_t> counters_;
 
   DISALLOW_COPY_AND_ASSIGN(TraceMetrics);
 };
 
 inline void TraceMetrics::Increment(const char* name, int64_t amount) {
-  std::lock_guard<simple_spinlock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   counters_[name] += amount;
 }
 
 inline std::map<const char*, int64_t> TraceMetrics::Get() const {
-  std::unique_lock<simple_spinlock> l(lock_);
+  std::unique_lock<SpinLock> l(lock_);
   return counters_;
 }
 
 inline int64_t TraceMetrics::GetMetric(const char* name) const {
-  std::lock_guard<simple_spinlock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   return FindWithDefault(counters_, name, 0);
 }
 
-} // namespace kudu
+} // namespace doris
