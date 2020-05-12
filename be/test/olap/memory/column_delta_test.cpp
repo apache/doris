@@ -37,8 +37,7 @@ TEST(ColumnDelta, Index) {
         uint32_t idx = rand() % BaseSize;
         updates[idx] = rand();
     }
-    size_t nblock = NBlock(BaseSize, Column::BLOCK_SIZE);
-    DLOG(INFO) << StringPrintf("nblock=%zu", nblock);
+    size_t nblock = num_block(BaseSize, Column::BLOCK_SIZE);
     ASSERT_TRUE(delta->alloc(nblock, updates.size(), sizeof(uint32_t), false).ok());
     DeltaIndex* index = delta->index();
     vector<uint32_t>& block_ends = index->block_ends();
