@@ -49,7 +49,7 @@ private:
 };
 
 // Memory engine's tablet schema, simple wrapper of TabletSchema.
-// Schema have some differences comparing to original TablteSchema:
+// Schema have some differences comparing to original TabletSchema:
 // 1. there is a hidden delete_flag column (with special cid=0) to mark
 //    deleted rows
 // 2. in the future, there may be a special compound primary key column

@@ -31,12 +31,12 @@ namespace doris {
 namespace memory {
 
 template <class T, class ST>
-inline T Padding(T v, ST pad) {
+inline T padding(T v, ST pad) {
     return (v + pad - 1) / pad * pad;
 }
 
 template <class T, class ST>
-inline size_t NBlock(T v, ST bs) {
+inline size_t num_block(T v, ST bs) {
     return (v + bs - 1) / bs;
 }
 
