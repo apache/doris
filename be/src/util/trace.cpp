@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "kudu/util/trace.h"
+#include "util/trace.h"
 
 #include <cstdint>
 #include <cstring>
@@ -28,33 +28,30 @@
 #include <vector>
 
 #include <glog/logging.h>
+#include <rapidjson/rapidjson.h>
 
-#include "kudu/gutil/strings/substitute.h"
-#include "kudu/gutil/walltime.h"
-#include "kudu/util/jsonwriter.h"
-#include "kudu/util/logging.h"
-#include "kudu/util/memory/arena.h"
+#include "gutil/strings/substitute.h"
+#include "gutil/walltime.h"
+#include "util/logging.h"
+//#include "util/memory/arena.h"
 
 using std::pair;
 using std::string;
 using std::vector;
 using strings::internal::SubstituteArg;
 
-namespace kudu {
+namespace doris {
 
 __thread Trace* Trace::threadlocal_trace_;
 
 Trace::Trace()
-    : arena_(new ThreadSafeArena(1024)),
+    : // arena_(new ThreadSafeArena(1024)),
       entries_head_(nullptr),
       entries_tail_(nullptr) {
   // We expect small allocations from our Arena so no need to have
   // a large arena component. Small allocations are more likely to
   // come out of thread cache and be fast.
-  arena_->SetMaxBufferSize(4096);
-}
-
-Trace::~Trace() {
+  // arena_->SetMaxBufferSize(4096);
 }
 
 // Struct which precedes each entry in the trace.
@@ -73,6 +70,14 @@ struct TraceEntry {
     return reinterpret_cast<char*>(this) + sizeof(*this);
   }
 };
+
+Trace::~Trace() {
+  while (entries_head_ != nullptr) {
+    TraceEntry* tmp = entries_head_;
+    entries_head_ = entries_head_->next;
+    free(tmp);
+  }
+}
 
 // Get the part of filepath after the last path separator.
 // (Doesn't modify filepath, contrary to basename() in libgen.h.)
@@ -107,7 +112,8 @@ void Trace::SubstituteAndTrace(const char* file_path,
 
 TraceEntry* Trace::NewEntry(int msg_len, const char* file_path, int line_number) {
   int size = sizeof(TraceEntry) + msg_len;
-  uint8_t* dst = reinterpret_cast<uint8_t*>(arena_->AllocateBytes(size));
+  //uint8_t* dst = reinterpret_cast<uint8_t*>(arena_->AllocateBytes(size));
+  uint8_t* dst = reinterpret_cast<uint8_t*>(malloc(size));
   TraceEntry* entry = reinterpret_cast<TraceEntry*>(dst);
   entry->timestamp_micros = GetCurrentTimeMicros();
   entry->message_len = msg_len;
@@ -117,7 +123,7 @@ TraceEntry* Trace::NewEntry(int msg_len, const char* file_path, int line_number)
 }
 
 void Trace::AddEntry(TraceEntry* entry) {
-  std::lock_guard<simple_spinlock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   entry->next = nullptr;
 
   if (entries_tail_ != nullptr) {
@@ -137,7 +143,7 @@ void Trace::Dump(std::ostream* out, int flags) const {
   vector<TraceEntry*> entries;
   vector<pair<StringPiece, scoped_refptr<Trace>>> child_traces;
   {
-    std::lock_guard<simple_spinlock> l(lock_);
+    std::lock_guard<SpinLock> l(lock_);
     for (TraceEntry* cur = entries_head_;
          cur != nullptr;
          cur = cur->next) {
@@ -194,13 +200,14 @@ string Trace::DumpToString(int flags) const {
 }
 
 string Trace::MetricsAsJSON() const {
-  std::ostringstream s;
-  JsonWriter jw(&s, JsonWriter::COMPACT);
+  // TODO(yingchun): simplily implement here, we could import JsonWriter in the future.
+  rapidjson::StringBuffer buf;
+  rapidjson::Writer<rapidjson::StringBuffer> jw(buf);
   MetricsToJSON(&jw);
-  return s.str();
+  return buf.GetString();
 }
 
-void Trace::MetricsToJSON(JsonWriter* jw) const {
+void Trace::MetricsToJSON(rapidjson::Writer<rapidjson::StringBuffer>* jw) const {
   // Convert into a map with 'std::string' keys instead of 'const char*'
   // keys, so that the results are in a consistent (sorted) order.
   std::map<string, int64_t> counters;
@@ -210,12 +217,12 @@ void Trace::MetricsToJSON(JsonWriter* jw) const {
 
   jw->StartObject();
   for (const auto& e : counters) {
-    jw->String(e.first);
+    jw->String(e.first.c_str());
     jw->Int64(e.second);
   }
   vector<pair<StringPiece, scoped_refptr<Trace>>> child_traces;
   {
-    std::lock_guard<simple_spinlock> l(lock_);
+    std::lock_guard<SpinLock> l(lock_);
     child_traces = child_traces_;
   }
 
@@ -244,16 +251,16 @@ void Trace::DumpCurrentTrace() {
 }
 
 void Trace::AddChildTrace(StringPiece label, Trace* child_trace) {
-  CHECK(arena_->RelocateStringPiece(label, &label));
+  //CHECK(arena_->RelocateStringPiece(label, &label));
 
-  std::lock_guard<simple_spinlock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   scoped_refptr<Trace> ptr(child_trace);
   child_traces_.emplace_back(label, ptr);
 }
 
 std::vector<std::pair<StringPiece, scoped_refptr<Trace>>> Trace::ChildTraces() const {
-  std::lock_guard<simple_spinlock> l(lock_);
+  std::lock_guard<SpinLock> l(lock_);
   return child_traces_;
 }
 
-} // namespace kudu
+} // namespace doris
