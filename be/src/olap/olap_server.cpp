@@ -26,6 +26,7 @@
 
 #include <gperftools/profiler.h>
 
+#include "common/status.h"
 #include "olap/cumulative_compaction.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -51,12 +52,13 @@ namespace doris {
 // number of running SCHEMA-CHANGE threads
 volatile uint32_t g_schema_change_active_threads = 0;
 
-OLAPStatus StorageEngine::_start_bg_worker() {
+Status StorageEngine::start_bg_threads() {
     _unused_rowset_monitor_thread =  std::thread(
         [this] {
             _unused_rowset_monitor_thread_callback(nullptr);
         });
     _unused_rowset_monitor_thread.detach();
+    LOG(INFO) << "unused rowset monitor thread started";
 
     // start thread for monitoring the snapshot and trash folder
     _garbage_sweeper_thread = std::thread(
@@ -64,12 +66,15 @@ OLAPStatus StorageEngine::_start_bg_worker() {
             _garbage_sweeper_thread_callback(nullptr);
         });
     _garbage_sweeper_thread.detach();
+    LOG(INFO) << "garbage sweeper thread started";
+
     // start thread for monitoring the tablet with io error
     _disk_stat_monitor_thread = std::thread(
         [this] {
             _disk_stat_monitor_thread_callback(nullptr);
         });
     _disk_stat_monitor_thread.detach();
+    LOG(INFO) << "disk stat monitor thread started";
 
     // convert store map to vector
     std::vector<DataDir*> data_dirs;
@@ -101,6 +106,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
     for (auto& thread : _base_compaction_threads) {
         thread.detach();
     }
+    LOG(INFO) << "base compaction threads started. number: " << base_compaction_num_threads;
 
     _cumulative_compaction_threads.reserve(cumulative_compaction_num_threads);
     for (uint32_t i = 0; i < cumulative_compaction_num_threads; ++i) {
@@ -112,6 +118,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
     for (auto& thread : _cumulative_compaction_threads) {
         thread.detach();
     }
+    LOG(INFO) << "cumulative compaction threads started. number: " << cumulative_compaction_num_threads;
 
     // tablet checkpoint thread
     for (auto data_dir : data_dirs) {
@@ -123,6 +130,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
     for (auto& thread : _tablet_checkpoint_threads) {
         thread.detach();
     }
+    LOG(INFO) << "tablet checkpint thread started";
 
     // fd cache clean thread
     _fd_cache_clean_thread = std::thread(
@@ -130,6 +138,7 @@ OLAPStatus StorageEngine::_start_bg_worker() {
             _fd_cache_clean_callback(nullptr);
         });
     _fd_cache_clean_thread.detach();
+    LOG(INFO) << "fd cache clean thread started";
 
     // path scan and gc thread
     if (config::path_gc_check) {
@@ -150,23 +159,24 @@ OLAPStatus StorageEngine::_start_bg_worker() {
         for (auto& thread : _path_gc_threads) {
             thread.detach();
         }
+        LOG(INFO) << "path scan/gc threads started. number:" << get_stores().size();
     }
 
-    VLOG(10) << "all bg worker started.";
-    return OLAP_SUCCESS;
+    LOG(INFO) << "all storage engine's backgroud threads are started.";
+    return Status::OK();
 }
 
 void* StorageEngine::_fd_cache_clean_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
-    uint32_t interval = config::file_descriptor_cache_clean_interval;
-    if (interval <= 0) {
-        OLAP_LOG_WARNING("config of file descriptor clean interval is illegal: [%d], "
-                         "force set to 3600", interval);
-        interval = 3600;
-    }
     while (!_stop_bg_worker) {
+        int32_t interval = config::file_descriptor_cache_clean_interval;
+        if (interval <= 0) {
+            OLAP_LOG_WARNING("config of file descriptor clean interval is illegal: [%d], "
+                             "force set to 3600", interval);
+            interval = 3600;
+        }
         SLEEP_IN_BG_WORKER(interval);
 
         _start_clean_fd_cache();
@@ -179,13 +189,6 @@ void* StorageEngine::_base_compaction_thread_callback(void* arg, DataDir* data_d
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
-    uint32_t interval = config::base_compaction_check_interval_seconds;
-    if (interval <= 0) {
-        OLAP_LOG_WARNING("base compaction check interval config is illegal: [%d], "
-                         "force set to 1", interval);
-        interval = 1;
-    }
-
     //string last_base_compaction_fs;
     //TTabletId last_base_compaction_tablet_id = -1;
     while (!_stop_bg_worker) {
@@ -197,6 +200,12 @@ void* StorageEngine::_base_compaction_thread_callback(void* arg, DataDir* data_d
             _perform_base_compaction(data_dir);
         }
 
+        int32_t interval = config::base_compaction_check_interval_seconds;
+        if (interval <= 0) {
+            OLAP_LOG_WARNING("base compaction check interval config is illegal: [%d], "
+                             "force set to 1", interval);
+            interval = 1;
+        }
         SLEEP_IN_BG_WORKER(interval);
     }
 
@@ -253,17 +262,15 @@ void* StorageEngine::_disk_stat_monitor_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
-
-    uint32_t interval = config::disk_stat_monitor_interval;
-
-    if (interval <= 0) {
-        LOG(WARNING) << "disk_stat_monitor_interval config is illegal: " << interval
-                << ", force set to 1";
-        interval = 1;
-    }
-
     while (!_stop_bg_worker) {
         _start_disk_stat_monitor();
+
+        int32_t interval = config::disk_stat_monitor_interval;
+        if (interval <= 0) {
+            LOG(WARNING) << "disk_stat_monitor_interval config is illegal: " << interval
+                         << ", force set to 1";
+            interval = 1;
+        }
         SLEEP_IN_BG_WORKER(interval);
     }
 
@@ -275,12 +282,6 @@ void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* 
     ProfilerRegisterThread();
 #endif
     LOG(INFO) << "try to start cumulative compaction process!";
-    uint32_t interval = config::cumulative_compaction_check_interval_seconds;
-    if (interval <= 0) {
-        LOG(WARNING) << "cumulative compaction check interval config is illegal:" << interval
-            << "will be forced set to one";
-        interval = 1;
-    }
 
     while (!_stop_bg_worker) {
         // must be here, because this thread is start on start and
@@ -289,6 +290,13 @@ void* StorageEngine::_cumulative_compaction_thread_callback(void* arg, DataDir* 
         CgroupsMgr::apply_system_cgroup();
         if (!data_dir->reach_capacity_limit(0)) {
             _perform_cumulative_compaction(data_dir);
+        }
+
+        int32_t interval = config::cumulative_compaction_check_interval_seconds;
+        if (interval <= 0) {
+            LOG(WARNING) << "cumulative compaction check interval config is illegal:" << interval
+                         << "will be forced set to one";
+            interval = 1;
         }
         SLEEP_IN_BG_WORKER(interval);
     }
@@ -300,17 +308,15 @@ void* StorageEngine::_unused_rowset_monitor_thread_callback(void* arg) {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
-
-    uint32_t interval = config::unused_rowset_monitor_interval;
-
-    if (interval <= 0) {
-        LOG(WARNING) << "unused_rowset_monitor_interval config is illegal: " << interval
-                << ", force set to 1";
-        interval = 1;
-    }
-
     while (!_stop_bg_worker) {
         start_delete_unused_rowset();
+
+        int32_t interval = config::unused_rowset_monitor_interval;
+        if (interval <= 0) {
+            LOG(WARNING) << "unused_rowset_monitor_interval config is illegal: " << interval
+                         << ", force set to 1";
+            interval = 1;
+        }
         SLEEP_IN_BG_WORKER(interval);
     }
 
@@ -325,17 +331,18 @@ void* StorageEngine::_path_gc_thread_callback(void* arg) {
 #endif
 
     LOG(INFO) << "try to start path gc thread!";
-    uint32_t interval = config::path_gc_check_interval_second;
-    if (interval <= 0) {
-        LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
-                     << "will be forced set to half hour";
-        interval = 1800; // 0.5 hour
-    }
 
     while (!_stop_bg_worker) {
         LOG(INFO) << "try to perform path gc!";
         // perform path gc by rowset id
         ((DataDir*)arg)->perform_path_gc_by_rowsetid();
+
+        int32_t interval = config::path_gc_check_interval_second;
+        if (interval <= 0) {
+            LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
+                         << "will be forced set to half hour";
+            interval = 1800; // 0.5 hour
+        }
         SLEEP_IN_BG_WORKER(interval);
     }
 
@@ -348,16 +355,17 @@ void* StorageEngine::_path_scan_thread_callback(void* arg) {
 #endif
 
     LOG(INFO) << "try to start path scan thread!";
-    uint32_t interval = config::path_scan_interval_second;
-    if (interval <= 0) {
-        LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
-                     << "will be forced set to one day";
-        interval = 24 * 3600; // one day
-    }
 
     while (!_stop_bg_worker) {
         LOG(INFO) << "try to perform path scan!";
         ((DataDir*)arg)->perform_path_scan();
+
+        int32_t interval = config::path_scan_interval_second;
+        if (interval <= 0) {
+            LOG(WARNING) << "path gc thread check interval config is illegal:" << interval
+                         << "will be forced set to one day";
+            interval = 24 * 3600; // one day
+        }
         SLEEP_IN_BG_WORKER(interval);
     }
 

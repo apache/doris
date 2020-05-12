@@ -94,6 +94,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REWRITE_COUNT_DISTINCT_TO_BITMAP_HLL = "rewrite_count_distinct_to_bitmap_hll";
     public static final String EVENT_SCHEDULER = "event_scheduler";
     public static final String STORAGE_ENGINE = "storage_engine";
+    public static final String DIV_PRECISION_INCREMENT = "div_precision_increment";
 
     // max memory used on every backend.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
@@ -219,7 +220,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOAD_MEM_LIMIT)
     private long loadMemLimit = 0L;
 
-    // the default rowset type flag which will be passed to Backends througth heartbeat
+    // the default rowset type flag which will be passed to Backends through heartbeat
     @VariableMgr.VarAttr(name = DEFAULT_ROWSET_TYPE)
     private String defaultRowsetType = "alpha";
 
@@ -238,6 +239,8 @@ public class SessionVariable implements Serializable, Writable {
     private String eventScheduler = "OFF";
     @VariableMgr.VarAttr(name = STORAGE_ENGINE)
     private String storageEngine = "olap";
+    @VariableMgr.VarAttr(name = DIV_PRECISION_INCREMENT)
+    private int divPrecisionIncrement = 4;
 
     public long getMaxExecMemByte() {
         return maxExecMemByte;
@@ -405,7 +408,12 @@ public class SessionVariable implements Serializable, Writable {
         return forwardToMaster;
     }
 
-    public boolean getUseV2Rollup() { return useV2Rollup; }
+    public boolean isUseV2Rollup() { return useV2Rollup; }
+
+    // for unit test
+    public void setUseV2Rollup(boolean useV2Rollup) {
+        this.useV2Rollup = useV2Rollup;
+    }
 
     public boolean getTestMaterializedView() {
         return this.testMaterializedView;
@@ -437,6 +445,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setStorageEngine(String storageEngine) {
         this.storageEngine = storageEngine;
+    }
+
+    public int getDivPrecisionIncrement() {
+        return divPrecisionIncrement;
+    }
+
+    public String getDefaultRowsetType() {
+        return defaultRowsetType;
     }
 
     // Serialize to thrift object

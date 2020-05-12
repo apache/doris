@@ -190,15 +190,18 @@ public:
         _heartbeat_flags = heartbeat_flags;
     }
 
+    // start all backgroud threads. This should be call after env is ready.
+    Status start_bg_threads();
+
 private:
     // Instance should be inited from `static open()`
     // MUST NOT be called in other circumstances.
     OLAPStatus _open();
 
-    OLAPStatus _start_bg_worker();
-
     // Clear status(tables, ...)
     void _clear();
+
+    OLAPStatus _init_store_map();
 
     void _update_storage_medium_type_count();
 
@@ -296,6 +299,7 @@ private:
     static StorageEngine* _s_instance;
 
     Mutex _gc_mutex;
+    // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
     bool _stop_bg_worker = false;

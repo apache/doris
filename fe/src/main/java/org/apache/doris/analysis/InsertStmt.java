@@ -45,6 +45,8 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -86,10 +88,11 @@ public class InsertStmt extends DdlStmt {
 
     private final TableName tblName;
     private final PartitionNames targetPartitionNames;
-    // parsed from targetPartitionNames. empty means no partition specified
+    // parsed from targetPartitionNames.
+    // if targetPartitionNames is not set, add all formal partitions' id of the table into it
     private List<Long> targetPartitionIds = Lists.newArrayList();
     private final List<String> targetColumnNames;
-    private final QueryStmt queryStmt;
+    private QueryStmt queryStmt;
     private final List<String> planHints;
     private Boolean isRepartition;
     private boolean isStreaming = false;
@@ -204,6 +207,10 @@ public class InsertStmt extends DdlStmt {
         return queryStmt;
     }
 
+    public void setQueryStmt(QueryStmt queryStmt) {
+        this.queryStmt = queryStmt;
+    }
+
 
     @Override
     public void rewriteExprs(ExprRewriter rewriter) throws AnalysisException {
@@ -288,7 +295,9 @@ public class InsertStmt extends DdlStmt {
             if (targetTable instanceof OlapTable) {
                 LoadJobSourceType sourceType = LoadJobSourceType.INSERT_STREAMING;
                 transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
-                        label, "FE: " + FrontendOptions.getLocalHostAddress(), sourceType, timeoutSecond);
+                        Lists.newArrayList(targetTable.getId()), label,
+                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        sourceType, timeoutSecond);
             }
             isTransactionBegin = true;
         }
@@ -326,6 +335,10 @@ public class InsertStmt extends DdlStmt {
                     }
                     targetPartitionIds.add(part.getId());
                 }
+            } else {
+                for (Partition partition : olapTable.getPartitions()) {
+                    targetPartitionIds.add(partition.getId());
+                }
             }
             // need a descriptor
             DescriptorTable descTable = analyzer.getDescTbl();
@@ -335,7 +348,7 @@ public class InsertStmt extends DdlStmt {
                 slotDesc.setIsMaterialized(true);
                 slotDesc.setType(col.getType());
                 slotDesc.setColumn(col);
-                if (true == col.isAllowNull()) {
+                if (col.isAllowNull()) {
                     slotDesc.setIsNullable(true);
                 } else {
                     slotDesc.setIsNullable(false);
@@ -542,16 +555,14 @@ public class InsertStmt extends DdlStmt {
 
         ArrayList<Expr> row = rows.get(rowIdx);
         if (!origColIdxsForShadowCols.isEmpty()) {
-            /*
+            /**
              * we should extends the row for shadow columns.
              * eg:
              *      the origin row has exprs: (expr1, expr2, expr3), and targetColumns is (A, B, C, __doris_shadow_b)
              *      after processing, extentedRow is (expr1, expr2, expr3, expr2)
              */
             ArrayList<Expr> extentedRow = Lists.newArrayList();
-            for (Expr expr : row) {
-                extentedRow.add(expr);
-            }
+            extentedRow.addAll(row);
             
             for (Integer idx : origColIdxsForShadowCols) {
                 extentedRow.add(extentedRow.get(idx));
@@ -707,11 +718,11 @@ public class InsertStmt extends DdlStmt {
         return dataSink;
     }
 
-    public void finalize() throws UserException {
+    public void complete() throws UserException {
         if (!isExplain() && targetTable instanceof OlapTable) {
-            ((OlapTableSink) dataSink).finalize();
+            ((OlapTableSink) dataSink).complete();
             // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), transactionId);
             if (txnState == null) {
                 throw new DdlException("txn does not exist: " + transactionId);
             }
@@ -719,6 +730,7 @@ public class InsertStmt extends DdlStmt {
         }
     }
 
+    @Override
     public ArrayList<Expr> getResultExprs() {
         return resultExprs;
     }

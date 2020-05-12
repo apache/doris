@@ -23,15 +23,20 @@
 
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
+#include "util/doris_metrics.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
-ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _exec_env(exec_env), _is_stop(false), _scan_context_gc_interval_min(doris::config::scan_context_gc_interval_min) {
+ExternalScanContextMgr::ExternalScanContextMgr(ExecEnv* exec_env) : _exec_env(exec_env), _is_stop(false) {
     // start the reaper thread for gc the expired context
     _keep_alive_reaper.reset(
             new std::thread(
                     std::bind<void>(std::mem_fn(&ExternalScanContextMgr::gc_expired_context), this)));
+    REGISTER_GAUGE_DORIS_METRIC(active_scan_context_count, [this]() {
+        std::lock_guard<std::mutex> l(_lock);
+        return _active_contexts.size();
+    });
 }
 
 Status ExternalScanContextMgr::create_scan_context(std::shared_ptr<ScanContext>* p_context) {
@@ -87,8 +92,9 @@ Status ExternalScanContextMgr::clear_scan_context(const std::string& context_id)
 }
 
 void ExternalScanContextMgr::gc_expired_context() {
+#ifndef BE_TEST
     while (!_is_stop) {
-        std::this_thread::sleep_for(std::chrono::seconds(_scan_context_gc_interval_min * 60));
+        std::this_thread::sleep_for(std::chrono::seconds(doris::config::scan_context_gc_interval_min * 60));
         time_t current_time = time(NULL);
         std::vector<std::shared_ptr<ScanContext>> expired_contexts;
         {
@@ -120,5 +126,6 @@ void ExternalScanContextMgr::gc_expired_context() {
             _exec_env->result_queue_mgr()->cancel(expired_context->fragment_instance_id);
         }
     }
+#endif
 }
 }

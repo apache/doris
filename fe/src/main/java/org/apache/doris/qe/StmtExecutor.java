@@ -219,6 +219,7 @@ public class StmtExecutor {
     // Exception:
     //  IOException: talk with client failed.
     public void execute() throws Exception {
+
         long beginTimeInNanoSecond = TimeUtils.getStartTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         try {
@@ -233,6 +234,7 @@ public class StmtExecutor {
             }
 
             if (parsedStmt instanceof QueryStmt) {
+                context.getState().setIsQuery(true);
                 int retryTime = Config.max_query_retry_time;
                 for (int i = 0; i < retryTime; i ++) {
                     try {
@@ -315,13 +317,15 @@ public class StmtExecutor {
                     try {
                         String errMsg = Strings.emptyToNull(context.getState().getErrorMessage());
                         Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                                insertStmt.getTransactionId(), (errMsg == null ? "unknown reason" : errMsg));
+                                insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
+                                (errMsg == null ? "unknown reason" : errMsg));
                     } catch (Exception abortTxnException) {
                         LOG.warn("errors when abort txn", abortTxnException);
                     }
                 }
             }
         }
+
     }
 
     private void forwardToMaster() throws Exception {
@@ -332,6 +336,7 @@ public class StmtExecutor {
 
     private void writeProfile(long beginTimeInNanoSecond) {
         initProfile(beginTimeInNanoSecond);
+        profile.computeTimeInChildProfile();
         StringBuilder builder = new StringBuilder();
         profile.prettyPrint(builder, "");
         System.out.println(builder.toString());
@@ -439,7 +444,7 @@ public class StmtExecutor {
                     parsedStmt.rewriteExprs(rewriter);
                     reAnalyze = rewriter.changed();
                     if (analyzer.containSubquery()) {
-                        StmtRewriter.rewrite(analyzer, parsedStmt);
+                        parsedStmt = StmtRewriter.rewrite(analyzer, parsedStmt);
                         reAnalyze = true;
                     }
                     if (reAnalyze) {
@@ -672,8 +677,8 @@ public class StmtExecutor {
 
             if (loadedRows == 0 && filteredRows == 0) {
                 // if no data, just abort txn and return ok
-                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getTransactionId(),
-                        TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
+                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(insertStmt.getDbObj().getId(),
+                        insertStmt.getTransactionId(), TransactionCommitFailedException.NO_DATA_TO_LOAD_MSG);
                 context.getState().setOk();
                 return;
             }
@@ -692,7 +697,7 @@ public class StmtExecutor {
             LOG.warn("handle insert stmt fail: {}", label, t);
             try {
                 Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
-                        insertStmt.getTransactionId(),
+                        insertStmt.getDbObj().getId(), insertStmt.getTransactionId(),
                         t.getMessage() == null ? "unknown reason" : t.getMessage());
             } catch (Exception abortTxnException) {
                 // just print a log if abort txn failed. This failure do not need to pass to user.
@@ -865,6 +870,8 @@ public class StmtExecutor {
         try {
             DdlExecutor.execute(context.getCatalog(), (DdlStmt) parsedStmt, originStmt);
             context.getState().setOk();
+        } catch (QueryStateException e) {
+            context.setState(e.getQueryState());
         } catch (UserException e) {
             // Return message to info client what happened.
             context.getState().setError(e.getMessage());

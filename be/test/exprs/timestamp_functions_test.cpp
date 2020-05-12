@@ -47,14 +47,16 @@ public:
         utils = new FunctionUtils(state);
         ctx = utils->get_fn_ctx();
     }
+
     void TearDown() {
         delete state;
         delete utils;
     }
+
 private:
-    RuntimeState* state;
-    FunctionUtils* utils;
-    FunctionContext* ctx;
+    RuntimeState* state = nullptr;
+    FunctionUtils* utils = nullptr;
+    FunctionContext* ctx = nullptr;
 };
 
 TEST_F(TimestampFunctionsTest, day_of_week_test) {
@@ -66,6 +68,7 @@ TEST_F(TimestampFunctionsTest, day_of_week_test) {
     tv.type = TIME_DATETIME;
 
     ASSERT_EQ(7, TimestampFunctions::day_of_week(context, tv).val);
+    delete context;
 }
 
 TEST_F(TimestampFunctionsTest, time_diff_test) {
@@ -92,6 +95,10 @@ TEST_F(TimestampFunctionsTest, from_unix) {
     IntVal unixtimestamp(1565080737);
     StringVal sval = TimestampFunctions::from_unix(ctx, unixtimestamp);
     ASSERT_EQ("2019-08-06 01:38:57", std::string((char*) sval.ptr, sval.len));
+
+    IntVal unixtimestamp2(-123);
+    sval = TimestampFunctions::from_unix(ctx, unixtimestamp2);
+    ASSERT_TRUE(sval.is_null);
 }
 
 TEST_F(TimestampFunctionsTest, to_unix) {
@@ -101,6 +108,15 @@ TEST_F(TimestampFunctionsTest, to_unix) {
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx).val);
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, dt_val).val);
     ASSERT_EQ(1565080737, TimestampFunctions::to_unix(ctx, StringVal("2019-08-06 01:38:57"), "%Y-%m-%d %H:%i:%S").val);
+
+    DateTimeValue dt_value;
+    dt_value.from_date_int64(99991230);
+    dt_value.to_datetime_val(&dt_val);
+    ASSERT_EQ(0, TimestampFunctions::to_unix(ctx, dt_val).val);
+
+    dt_value.from_date_int64(10000101);
+    dt_value.to_datetime_val(&dt_val);
+    ASSERT_EQ(0, TimestampFunctions::to_unix(ctx, dt_val).val);
 }
 
 TEST_F(TimestampFunctionsTest, curtime) {
@@ -120,6 +136,7 @@ TEST_F(TimestampFunctionsTest, convert_tz_test) {
     t = TimestampFunctions::convert_tz(context, tv1, StringVal("CST"), StringVal("America/Los_Angeles"));
     DateTimeValue dt3 = DateTimeValue::from_datetime_val(t);
     ASSERT_EQ(20190806013857, dt3.to_int64());
+    delete context;
 }
 
 TEST_F(TimestampFunctionsTest, timestampdiff_test) {
@@ -171,6 +188,7 @@ TEST_F(TimestampFunctionsTest, timestampdiff_test) {
     ASSERT_EQ(8639, TimestampFunctions::minutes_diff(context, tv2, tv1).val);
     //SECOND
     ASSERT_EQ(518399, TimestampFunctions::seconds_diff(context, tv2, tv1).val);
+    delete context;
 }
 
 }

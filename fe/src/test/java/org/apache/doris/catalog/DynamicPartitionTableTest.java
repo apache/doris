@@ -1,10 +1,22 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.catalog;
 
-import com.google.common.collect.Lists;
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -24,6 +36,9 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
+
+import com.google.common.collect.Lists;
+
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -35,6 +50,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+
+import mockit.Expectations;
+import mockit.Injectable;
+import mockit.Mock;
+import mockit.MockUp;
 
 public class DynamicPartitionTableTest {
     private TableName dbTableName;
@@ -80,6 +100,7 @@ public class DynamicPartitionTableTest {
         properties.put(DynamicPartitionProperty.ENABLE, "true");
         properties.put(DynamicPartitionProperty.PREFIX, "p");
         properties.put(DynamicPartitionProperty.TIME_UNIT, "day");
+        properties.put(DynamicPartitionProperty.START, "-3");
         properties.put(DynamicPartitionProperty.END, "3");
         properties.put(DynamicPartitionProperty.BUCKETS, "30");
 
@@ -148,53 +169,6 @@ public class DynamicPartitionTableTest {
                 new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
                 new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
         stmt.analyze(analyzer);
-
-        catalog.createTable(stmt);
-    }
-
-    @Test
-    public void testMissEnable(@Injectable SystemInfoService systemInfoService,
-                               @Injectable PaloAuth paloAuth,
-                               @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        properties.remove(DynamicPartitionProperty.ENABLE);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Must assign dynamic_partition.enable properties");
 
         catalog.createTable(stmt);
     }
@@ -289,6 +263,50 @@ public class DynamicPartitionTableTest {
 
         expectedEx.expect(DdlException.class);
         expectedEx.expectMessage("Must assign dynamic_partition.time_unit properties");
+
+        catalog.createTable(stmt);
+    }
+
+    @Test
+    public void testMissSTART(@Injectable SystemInfoService systemInfoService,
+                              @Injectable PaloAuth paloAuth,
+                              @Injectable EditLog editLog) throws UserException {
+        new Expectations(catalog) {
+            {
+                catalog.getDb(dbTableName.getDb());
+                minTimes = 0;
+                result = db;
+
+                Catalog.getCurrentSystemInfo();
+                minTimes = 0;
+                result = systemInfoService;
+
+                systemInfoService.checkClusterCapacity(anyString);
+                minTimes = 0;
+                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
+                minTimes = 0;
+                result = beIds;
+
+                catalog.getAuth();
+                minTimes = 0;
+                result = paloAuth;
+                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
+                minTimes = 0;
+                result = true;
+
+                catalog.getEditLog();
+                minTimes = 0;
+                result = editLog;
+            }
+        };
+
+        properties.remove(DynamicPartitionProperty.START);
+
+        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
+                new KeysDesc(KeysType.AGG_KEYS, columnNames),
+                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
+                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
+        stmt.analyze(analyzer);
 
         catalog.createTable(stmt);
     }

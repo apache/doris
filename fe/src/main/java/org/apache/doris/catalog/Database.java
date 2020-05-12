@@ -17,9 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
-import org.apache.doris.catalog.MaterializedIndex.IndexState;
-import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
@@ -95,6 +92,8 @@ public class Database extends MetaObject implements Writable {
 
     private long dataQuotaBytes;
 
+    private long replicaQuotaSize;
+
     public enum DbState {
         NORMAL, LINK, MOVE
     }
@@ -116,6 +115,7 @@ public class Database extends MetaObject implements Writable {
         this.idToTable = new ConcurrentHashMap<>();
         this.nameToTable = new HashMap<String, Table>();
         this.dataQuotaBytes = FeConstants.default_db_data_quota_bytes;
+        this.replicaQuotaSize = FeConstants.default_db_replica_quota_size;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
         this.clusterName = "";
@@ -192,8 +192,23 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
+    public void setReplicaQuotaWithLock(long newQuota) {
+        Preconditions.checkArgument(newQuota >= 0L);
+        LOG.info("database[{}] set replica quota from {} to {}", fullQualifiedName, replicaQuotaSize, newQuota);
+        writeLock();
+        try {
+            this.replicaQuotaSize = newQuota;
+        } finally {
+            writeUnlock();
+        }
+    }
+
     public long getDataQuota() {
         return dataQuotaBytes;
+    }
+
+    public long getReplicaQuota() {
+        return replicaQuotaSize;
     }
 
     public long getDataQuotaLeftWithLock() {
@@ -206,24 +221,8 @@ public class Database extends MetaObject implements Writable {
                 }
 
                 OlapTable olapTable = (OlapTable) table;
-                for (Partition partition : olapTable.getAllPartitions()) {
-                    for (MaterializedIndex mIndex : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
-                        // skip ROLLUP index
-                        if (mIndex.getState() == IndexState.ROLLUP) {
-                            continue;
-                        }
-
-                        for (Tablet tablet : mIndex.getTablets()) {
-                            for (Replica replica : tablet.getReplicas()) {
-                                if (replica.getState() == ReplicaState.NORMAL
-                                        || replica.getState() == ReplicaState.SCHEMA_CHANGE) {
-                                    usedDataQuota += replica.getDataSize();
-                                }
-                            } // end for replicas
-                        } // end for tablets
-                    } // end for tables
-                } // end for table families
-            } // end for groups
+                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+            }
 
             long leftDataQuota = dataQuotaBytes - usedDataQuota;
             return Math.max(leftDataQuota, 0L);
@@ -232,7 +231,28 @@ public class Database extends MetaObject implements Writable {
         }
     }
 
-    public void checkQuota() throws DdlException {
+
+    public long getReplicaQuotaLeftWithLock() {
+        long usedReplicaQuota = 0;
+        readLock();
+        try {
+            for (Table table : this.idToTable.values()) {
+                if (table.getType() != TableType.OLAP) {
+                    continue;
+                }
+
+                OlapTable olapTable = (OlapTable) table;
+                usedReplicaQuota = usedReplicaQuota + olapTable.getReplicaCount();
+            }
+
+            long leftReplicaQuota = replicaQuotaSize - usedReplicaQuota;
+            return Math.max(leftReplicaQuota, 0L);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public void checkDataSizeQuota() throws DdlException {
         Pair<Double, String> quotaUnitPair = DebugUtil.getByteUint(dataQuotaBytes);
         String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaUnitPair.first) + " "
                 + quotaUnitPair.second;
@@ -249,6 +269,22 @@ public class Database extends MetaObject implements Writable {
             throw new DdlException("Database[" + fullQualifiedName
                     + "] data size exceeds quota[" + readableQuota + "]");
         }
+    }
+
+    public void checkReplicaQuota() throws DdlException {
+        long leftReplicaQuota = getReplicaQuotaLeftWithLock();
+        LOG.info("database[{}] replica quota: left number: {} / total: {}",
+                fullQualifiedName, leftReplicaQuota, replicaQuotaSize);
+
+        if (leftReplicaQuota <= 0L) {
+            throw new DdlException("Database[" + fullQualifiedName
+                    + "] replica number exceeds quota[" + replicaQuotaSize + "]");
+        }
+    }
+
+    public void checkQuota() throws DdlException {
+        checkDataSizeQuota();
+        checkReplicaQuota();
     }
 
     public boolean createTableWithLock(Table table, boolean isReplay, boolean setIfNotExist) {
@@ -408,6 +444,8 @@ public class Database extends MetaObject implements Writable {
                 function.write(out);
             }
         }
+
+        out.writeLong(replicaQuotaSize);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -449,6 +487,12 @@ public class Database extends MetaObject implements Writable {
 
                 name2Function.put(name, builder.build());
             }
+        }
+
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
+            replicaQuotaSize = in.readLong();
+        } else {
+            replicaQuotaSize = FeConstants.default_db_replica_quota_size;
         }
     }
 

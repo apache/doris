@@ -23,7 +23,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.thrift.TTupleDescriptor;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
@@ -32,6 +32,9 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 public class TupleDescriptor {
     private static final Logger LOG = LogManager.getLogger(TupleDescriptor.class);
@@ -256,6 +259,31 @@ public class TupleDescriptor {
         for (SlotDescriptor slot: slots) slot.setIsMaterialized(true);
     }
 
+    public void getTableNameToColumnNames(Map<String, Set<String>> tupleDescToColumnNames) {
+        for (SlotDescriptor slotDescriptor : slots) {
+            if (!slotDescriptor.isMaterialized()) {
+                continue;
+            }
+            if (slotDescriptor.getColumn() != null) {
+                TupleDescriptor parent = slotDescriptor.getParent();
+                Preconditions.checkState(parent != null);
+                Table table = parent.getTable();
+                Preconditions.checkState(table != null);
+                String tableName = table.getName();
+                Set<String> columnNames = tupleDescToColumnNames.get(tableName);
+                if (columnNames == null) {
+                    columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+                    tupleDescToColumnNames.put(tableName, columnNames);
+                }
+                columnNames.add(slotDescriptor.getColumn().getName());
+            } else {
+                for (Expr expr : slotDescriptor.getSourceExprs()) {
+                    expr.getTableNameToColumnNames(tupleDescToColumnNames);
+                }
+            }
+        }
+    }
+
     @Override
     public String toString() {
         String tblStr = (table == null ? "null" : table.getName());
@@ -263,7 +291,7 @@ public class TupleDescriptor {
         for (SlotDescriptor slot : slots) {
             slotStrings.add(slot.debugString());
         }
-        return Objects.toStringHelper(this).add("id", id.asInt()).add("tbl", tblStr).add("byte_size", byteSize)
+        return MoreObjects.toStringHelper(this).add("id", id.asInt()).add("tbl", tblStr).add("byte_size", byteSize)
                    .add("is_materialized", isMaterialized).add("slots", "[" + Joiner.on(", ").join(slotStrings) + "]")
                    .toString();
     }
@@ -276,7 +304,7 @@ public class TupleDescriptor {
         for (SlotDescriptor slot : slots) {
             slotStrings.add(slot.debugString());
         }
-        return Objects.toStringHelper(this)
+        return MoreObjects.toStringHelper(this)
                 .add("id", id.asInt())
                 .add("name", debugName)
                 .add("tbl", tblStr)

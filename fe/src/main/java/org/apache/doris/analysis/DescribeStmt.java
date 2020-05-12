@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
@@ -52,6 +53,7 @@ public class DescribeStmt extends ShowStmt {
     private static final ShowResultSetMetaData DESC_OLAP_TABLE_ALL_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("IndexKeysType", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Field", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Type", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Null", ScalarType.createVarchar(10)))
@@ -71,7 +73,7 @@ public class DescribeStmt extends ShowStmt {
                     .build();
 
     // empty col num equals to DESC_OLAP_TABLE_ALL_META_DATA.size()
-    private static final List<String> EMPTY_ROW = Arrays.asList("", "", "", "", "", "", "");
+    private static final List<String> EMPTY_ROW = Arrays.asList("", "", "", "", "", "", "", "");
 
     private TableName dbTableName;
     private ProcNodeInterface node;
@@ -149,6 +151,7 @@ public class DescribeStmt extends ShowStmt {
                         long indexId = indices.get(i);
                         List<Column> columns = indexIdToSchema.get(indexId);
                         String indexName = olapTable.getIndexNameById(indexId);
+                        MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
                         for (int j = 0; j < columns.size(); ++j) {
                             Column column = columns.get(j);
 
@@ -163,6 +166,7 @@ public class DescribeStmt extends ShowStmt {
                             String extraStr = StringUtils.join(extras, ",");
 
                             List<String> row = Arrays.asList("",
+                                                             "",
                                                              column.getName(),
                                                              column.getOriginType().toString(),
                                                              column.isAllowNull() ? "Yes" : "No",
@@ -173,6 +177,7 @@ public class DescribeStmt extends ShowStmt {
 
                             if (j == 0) {
                                 row.set(0, indexName);
+                                row.set(1, indexMeta.getKeysType().name());
                             }
 
                             totalRows.add(row);

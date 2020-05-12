@@ -156,8 +156,8 @@ cd ${DORIS_HOME}
 if [ ${BUILD_BE} -eq 1 ] ; then
     echo "Build Backend"
     if [ ${CLEAN} -eq 1 ]; then
-        rm ${DORIS_HOME}/be/build/ -rf
-        rm ${DORIS_HOME}/be/output/ -rf
+        rm -rf ${DORIS_HOME}/be/build/
+        rm -rf ${DORIS_HOME}/be/output/
     fi
     mkdir -p ${DORIS_HOME}/be/build/
     cd ${DORIS_HOME}/be/build/
@@ -170,7 +170,7 @@ fi
 # Build docs, should be built before Frontend
 echo "Build docs"
 cd ${DORIS_HOME}/docs
-make clean && make -j${PARALLEL}
+./build_help_zip.sh
 cd ${DORIS_HOME}
 
 # Clean and build Frontend

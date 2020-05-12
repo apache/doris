@@ -17,6 +17,8 @@
 
 #include "olap/rowset/rowset.h"
 
+#include "util/time.h"
+
 namespace doris {
 
 Rowset::Rowset(const TabletSchema *schema,
@@ -65,6 +67,9 @@ void Rowset::make_visible(Version version, VersionHash version_hash) {
     _rowset_meta->set_version(version);
     _rowset_meta->set_version_hash(version_hash);
     _rowset_meta->set_rowset_state(VISIBLE);
+    // update create time to the visible time,
+    // it's used to skip recently published version during compaction
+    _rowset_meta->set_creation_time(UnixSeconds());
 
     if (_rowset_meta->has_delete_predicate()) {
         _rowset_meta->mutable_delete_predicate()->set_version(version.first);

@@ -123,6 +123,7 @@ public class Coordinator {
     // status or to CANCELLED, if Cancel() is called.
     Status queryStatus = new Status();
 
+    // save of related backends of this query
     Map<TNetworkAddress, Long> addressToBackendID = Maps.newHashMap();
 
     private ImmutableMap<Long, Backend> idToBackend = ImmutableMap.of();
@@ -377,12 +378,12 @@ public class Coordinator {
     // be for a query like 'SELECT 1').
     // A call to Exec() must precede all other member function calls.
     public void exec() throws Exception {
-        if (!scanNodes.isEmpty()) {
+        if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
         }
 
-        if (!fragments.isEmpty()) {
+        if (LOG.isDebugEnabled() && !fragments.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, fragment: {}",
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
@@ -410,7 +411,9 @@ public class Coordinator {
             this.queryOptions.setIs_report_success(true);
             deltaUrls = Lists.newArrayList();
             loadCounters = Maps.newHashMap();
-            Catalog.getCurrentCatalog().getLoadManager().initJobScannedRows(jobId, queryId, instanceIds);
+            List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
+            Catalog.getCurrentCatalog().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
+                    relatedBackendIds);
         }
 
         // to keep things simple, make async Cancel() calls wait until plan fragment
@@ -461,14 +464,15 @@ public class Coordinator {
                     backendExecStates.add(execState);
                     if (needCheckBackendState) {
                         needCheckBackendExecStates.add(execState);
-                        LOG.debug("add need check backend {} for fragment, {} job: {}", execState.backend.getId(),
-                                fragment.getFragmentId().asInt(), jobId);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("add need check backend {} for fragment, {} job: {}", execState.backend.getId(),
+                                    fragment.getFragmentId().asInt(), jobId);
+                        }
                     }
                     futures.add(Pair.create(execState, execState.execRemoteFragmentAsync()));
 
                     backendId++;
                 }
-
                 for (Pair<BackendExecState, Future<PExecPlanFragmentResult>> pair : futures) {
                     TStatusCode code = TStatusCode.INTERNAL_ERROR;
                     String errMsg = null;
@@ -722,7 +726,9 @@ public class Coordinator {
         // assign instance ids
         instanceIds.clear();
         for (FragmentExecParams params : fragmentExecParamsMap.values()) {
-            LOG.debug("fragment {} has instances {}", params.fragment.getFragmentId(), params.instanceExecParams.size());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("fragment {} has instances {}", params.fragment.getFragmentId(), params.instanceExecParams.size());
+            }
             for (int j = 0; j < params.instanceExecParams.size(); ++j) {
                 // we add instance_num to query_id.lo to create a
                 // globally-unique instance id
@@ -1090,7 +1096,7 @@ public class Coordinator {
         }
     }
 
-    //To ensure the same bucketSeq tablet to the same execHostPort
+    // To ensure the same bucketSeq tablet to the same execHostPort
     private void computeScanRangeAssignmentByColocate(
             final OlapScanNode scanNode,
             FragmentScanRangeAssignment assignment) throws Exception {
@@ -1222,8 +1228,9 @@ public class Coordinator {
         }
 
         if (params.isSetLoaded_rows()) {
-            Catalog.getCurrentCatalog().getLoadManager().updateJobScannedRows(
-                    jobId, params.query_id, params.fragment_instance_id, params.loaded_rows);
+            Catalog.getCurrentCatalog().getLoadManager().updateJobPrgress(
+                    jobId, params.backend_id, params.query_id, params.fragment_instance_id, params.loaded_rows,
+                    params.done);
         }
 
         return;
@@ -1367,15 +1374,18 @@ public class Coordinator {
         }
 
         public synchronized void printProfile(StringBuilder builder) {
+            this.profile.computeTimeInProfile();
             this.profile.prettyPrint(builder, "");
         }
 
         // cancel the fragment instance.
         // return true if cancel success. Otherwise, return false
         public synchronized boolean cancelFragmentInstance(PPlanFragmentCancelReason cancelReason) {
-            LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} backend: {}, fragment instance id={}, reason: {}",
-                    this.initiated, this.done, this.hasCanceled, backend.getId(),
-                    DebugUtil.printId(fragmentInstanceId()), cancelReason.name());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} backend: {}, fragment instance id={}, reason: {}",
+                        this.initiated, this.done, this.hasCanceled, backend.getId(),
+                        DebugUtil.printId(fragmentInstanceId()), cancelReason.name());
+            }
             try {
                 if (!this.initiated) {
                     return false;

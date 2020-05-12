@@ -53,6 +53,7 @@ public class ShowDataStmt extends ShowStmt {
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Size", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_INDEX_DATA_META_DATA =
@@ -60,6 +61,7 @@ public class ShowDataStmt extends ShowStmt {
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Size", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .build();
 
     private String dbName;
@@ -94,6 +96,7 @@ public class ShowDataStmt extends ShowStmt {
         try {
             if (tableName == null) {
                 long totalSize = 0;
+                long totalReplicaCount = 0;
 
                 // sort by table name
                 List<Table> tables = db.getTables();
@@ -120,36 +123,42 @@ public class ShowDataStmt extends ShowStmt {
 
                     OlapTable olapTable = (OlapTable) table;
                     long tableSize = olapTable.getDataSize();
+                    long replicaCount = olapTable.getReplicaCount();
+
                     Pair<Double, String> tableSizePair = DebugUtil.getByteUint(tableSize);
                     String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
                             + tableSizePair.second;
 
-                    List<String> row = Arrays.asList(table.getName(), readableSize);
+                    List<String> row = Arrays.asList(table.getName(), readableSize, String.valueOf(replicaCount));
                     totalRows.add(row);
 
                     totalSize += tableSize;
+                    totalReplicaCount += replicaCount;
                 } // end for tables
 
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
                         + totalSizePair.second;
-                List<String> total = Arrays.asList("Total", readableSize);
+                List<String> total = Arrays.asList("Total", readableSize, String.valueOf(totalReplicaCount));
                 totalRows.add(total);
 
                 // quota
                 long quota = db.getDataQuota();
+                long replicaQuota = db.getReplicaQuota();
                 Pair<Double, String> quotaPair = DebugUtil.getByteUint(quota);
                 String readableQuota = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(quotaPair.first) + " "
                         + quotaPair.second;
-                List<String> quotaRow = Arrays.asList("Quota", readableQuota);
+
+                List<String> quotaRow = Arrays.asList("Quota", readableQuota, String.valueOf(replicaQuota));
                 totalRows.add(quotaRow);
 
                 // left
                 long left = Math.max(0, quota - totalSize);
+                long replicaCountLeft = Math.max(0, replicaQuota - totalReplicaCount);
                 Pair<Double, String> leftPair = DebugUtil.getByteUint(left);
                 String readableLeft = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(leftPair.first) + " "
                         + leftPair.second;
-                List<String> leftRow = Arrays.asList("Left", readableLeft);
+                List<String> leftRow = Arrays.asList("Left", readableLeft, String.valueOf(replicaCountLeft));
                 totalRows.add(leftRow);
             } else {
                 if (!Catalog.getCurrentCatalog().getAuth().checkTblPriv(ConnectContext.get(), dbName,
@@ -173,6 +182,7 @@ public class ShowDataStmt extends ShowStmt {
                 OlapTable olapTable = (OlapTable) table;
                 int i = 0;
                 long totalSize = 0;
+                long totalReplicaCount = 0;
 
                 // sort by index name
                 Map<String, Long> indexNames = olapTable.getIndexNameToId();
@@ -183,9 +193,11 @@ public class ShowDataStmt extends ShowStmt {
 
                 for (Long indexId : sortedIndexNames.values()) {
                     long indexSize = 0;
+                    long indexReplicaCount = 0;
                     for (Partition partition : olapTable.getAllPartitions()) {
                         MaterializedIndex mIndex = partition.getIndex(indexId);
                         indexSize += mIndex.getDataSize();
+                        indexReplicaCount += mIndex.getReplicaCount();
                     }
 
                     Pair<Double, String> indexSizePair = DebugUtil.getByteUint(indexSize);
@@ -196,14 +208,15 @@ public class ShowDataStmt extends ShowStmt {
                     if (i == 0) {
                         row = Arrays.asList(tableName,
                                             olapTable.getIndexNameById(indexId),
-                                            readableSize);
+                                            readableSize, String.valueOf(indexReplicaCount));
                     } else {
                         row = Arrays.asList("",
                                             olapTable.getIndexNameById(indexId),
-                                            readableSize);
+                                            readableSize, String.valueOf(indexReplicaCount));
                     }
 
                     totalSize += indexSize;
+                    totalReplicaCount += indexReplicaCount;
                     totalRows.add(row);
 
                     i++;
@@ -212,7 +225,7 @@ public class ShowDataStmt extends ShowStmt {
                 Pair<Double, String> totalSizePair = DebugUtil.getByteUint(totalSize);
                 String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(totalSizePair.first) + " "
                         + totalSizePair.second;
-                List<String> row = Arrays.asList("", "Total", readableSize);
+                List<String> row = Arrays.asList("", "Total", readableSize, String.valueOf(totalReplicaCount));
                 totalRows.add(row);
             }
         } finally {

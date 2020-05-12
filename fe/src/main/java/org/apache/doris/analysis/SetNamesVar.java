@@ -49,6 +49,10 @@ public class SetNamesVar extends SetVar {
         } else {
             charset = charset.toLowerCase();
         }
+        // utf8-superset transform to utf8
+        if (charset.startsWith(DEFAULT_NAMES)) {
+            charset = DEFAULT_NAMES;
+        }
 
         if (!charset.equalsIgnoreCase(DEFAULT_NAMES)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_UNKNOWN_CHARACTER_SET, charset);

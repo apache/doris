@@ -20,6 +20,7 @@
 #include <string>
 
 #include "olap/bloom_filter.hpp"
+#include "common/configbase.h"
 #include "util/logging.h"
 
 using std::string;
@@ -73,6 +74,7 @@ TEST_F(TestBloomFilter, init_bloom_filter) {
         ASSERT_EQ(0, bf.bit_num());
         ASSERT_EQ(0, bf.hash_function_num());
         ASSERT_EQ(NULL, bf.bit_set_data());
+        delete[] data;
     }
 }
 

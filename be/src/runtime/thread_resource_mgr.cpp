@@ -21,6 +21,7 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "util/cpu_info.h"
 
@@ -41,6 +42,15 @@ ThreadResourceMgr::ThreadResourceMgr(int threads_quota) {
 ThreadResourceMgr::ThreadResourceMgr() {
     _system_threads_quota = CpuInfo::num_cores() * config::num_threads_per_core;
     _per_pool_quota = 0;
+}
+
+ThreadResourceMgr::~ThreadResourceMgr() {
+    for (auto pool : _free_pool_objs) {
+        delete pool;
+    }
+    for (auto pool : _pools) {
+        delete pool;
+    }
 }
 
 ThreadResourceMgr::ResourcePool::ResourcePool(ThreadResourceMgr* parent)

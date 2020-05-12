@@ -103,6 +103,15 @@ public class Config extends ConfigBase {
     @ConfField public static String audit_log_roll_mode = "TIME-DAY";
 
     /*
+     * plugin_dir:
+     *      plugin install directory
+     */
+    @ConfField public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean plugin_enable = false;
+
+    /*
      * Labels of finished or cancelled load jobs will be removed after *label_keep_max_second*
      * The removed labels can be reused.
      * Set a short time will lower the FE memory usage.
@@ -128,12 +137,12 @@ public class Config extends ConfigBase {
 
     // Configurations for meta data durability
     /*
-     * Palo meta data will be saved here.
+     * Doris meta data will be saved here.
      * The storage of this dir is highly recommended as to be:
      * 1. High write performance (SSD)
      * 2. Safe (RAID)
      */
-    @ConfField public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/palo-meta";
+    @ConfField public static String meta_dir = PaloFe.DORIS_HOME_DIR + "/doris-meta";
     
     /*
      * temp dir is used to save intermediate results of some process, such as backup and restore process.
@@ -194,6 +203,24 @@ public class Config extends ConfigBase {
      */
     @ConfField
     public static int bdbje_lock_timeout_second = 1;
+
+    /*
+     * num of thread to handle heartbeat events in heartbeat_mgr.
+     */
+    @ConfField(masterOnly = true)
+    public static int heartbeat_mgr_threads_num = 8;
+
+     /*
+     * blocking queue size to store heartbeat task in heartbeat_mgr.
+     */
+    @ConfField(masterOnly = true)
+    public static int heartbeat_mgr_blocking_queue_size = 1024;
+
+    /*
+    * max num of thread to handle agent task in agent task thread-pool.
+    */
+    @ConfField(masterOnly = true)
+    public static int max_agent_task_threads_num = 4096;
 
     /*
      * the max txn number which bdbje can rollback when trying to rejoin the group
@@ -280,6 +307,12 @@ public class Config extends ConfigBase {
      * num of thread to handle io events in mysql.
      */
     @ConfField public static int mysql_service_io_threads_num = 4;
+
+    /*
+     * max num of thread to handle task in mysql.
+     */
+    @ConfField public static int max_mysql_service_task_threads_num = 4096;
+
     /*
      * Cluster name will be shown as the title of web page
      */
@@ -320,6 +353,12 @@ public class Config extends ConfigBase {
      * minimal intervals between two publish version action
      */
     @ConfField public static int publish_version_interval_ms = 10;
+
+
+    /*
+     * The thrift server max worker threads
+     */
+    @ConfField public static int thrift_server_max_worker_threads = 4096;
 
     /*
      * Maximal wait seconds for straggler node in load
@@ -388,6 +427,10 @@ public class Config extends ConfigBase {
      * Do not change this if you know what you are doing.
      */
     @ConfField public static int load_etl_thread_num_normal_priority = 10;
+    /*
+     * Concurrency of delete jobs.
+     */
+    @ConfField public static int delete_thread_num = 10;
     /*
      * Not available.
      */
@@ -546,7 +589,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int max_backend_down_time_second = 3600; // 1h
     /*
-     * When create a table(or partition), you can specify its storage media(HDD or SSD).
+     * When create a table(or partition), you can specify its storage medium(HDD or SSD).
+     * If not set, this specifies the default medium when creat.
+     */
+    @ConfField public static String default_storage_medium = "HDD";
+    /*
+     * When create a table(or partition), you can specify its storage medium(HDD or SSD).
      * If set to SSD, this specifies the default duration that tablets will stay on SSD.
      * After that, tablets will be moved to HDD automatically.
      * You can set storage cooldown time in CREATE TABLE stmt.
@@ -617,6 +665,11 @@ public class Config extends ConfigBase {
      * Maximal number of connections per user, per FE.
      */
     @ConfField public static int max_conn_per_user = 100;
+
+    /*
+     * Maximal number of thread in connection-scheduler-pool.
+     */
+    @ConfField public static int max_connection_scheduler_threads_num = 4096;
 
     /*
     * The memory_limit for colocote join PlanFragment instance =
@@ -1014,5 +1067,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int period_of_auto_resume_min = 5;
 
+    /*
+     * If set to true, the backend will be automatically dropped after finishing decommission.
+     * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean drop_backend_after_decommission = true;
 }
 

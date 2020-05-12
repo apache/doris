@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gen_cpp/FrontendService_types.h"
 

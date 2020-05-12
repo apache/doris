@@ -81,6 +81,10 @@ public:
     int64_t raw_rows_read() const { return _raw_rows_read; }
 
     void update_counter();
+
+    const std::string& scan_disk() const {
+        return _tablet->data_dir()->path();
+    }
 private:
     Status _prepare(
         const TPaloScanRange& scan_range,

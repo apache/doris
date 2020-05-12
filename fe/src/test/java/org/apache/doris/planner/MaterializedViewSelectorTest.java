@@ -108,18 +108,8 @@ public class MaterializedViewSelectorTest {
                 tableBColumn1.getTableName().getTbl();
                 result = "tableB";
 
-                selectStmt.getResultExprs();
-                result = Lists.newArrayList(tableAColumn1, tableAColumn2Sum, tableBColumn1Max);
-                tableAColumn2Desc.isMaterialized();
-                result = true;
-                tableAColumn2Desc.getColumn().getName();
-                result = "c2";
                 tableAColumn2Desc.getParent();
                 result = tableADesc;
-                tableBColumn1Desc.isMaterialized();
-                result = true;
-                tableBColumn1Desc.getColumn().getName();
-                result = "c1";
                 tableBColumn1Desc.getParent();
                 result = tableBDesc;
                 tableBDesc.getTable();
@@ -154,16 +144,6 @@ public class MaterializedViewSelectorTest {
         MaterializedViewSelector.AggregatedColumn aggregatedColumn2 = tableBAgggregatedColumns.iterator().next();
         Assert.assertEquals("c1", Deencapsulation.getField(aggregatedColumn2, "columnName"));
         Assert.assertTrue("MAX".equalsIgnoreCase(Deencapsulation.getField(aggregatedColumn2, "aggFunctionName")));
-        Map<String, Set<String>> columnNamesInQueryOutput =
-                Deencapsulation.getField(materializedViewSelector, "columnNamesInQueryOutput");
-        Assert.assertEquals(2, columnNamesInQueryOutput.size());
-        Set<String> tableAColumnNamesInQueryOutput = columnNamesInQueryOutput.get("tableA");
-        Assert.assertEquals(2, tableAColumnNamesInQueryOutput.size());
-        Assert.assertTrue(tableAColumnNamesInQueryOutput.contains("c1"));
-        Assert.assertTrue(tableAColumnNamesInQueryOutput.contains("c2"));
-        Set<String> tableBColumnNamesInQueryOutput = columnNamesInQueryOutput.get("tableB");
-        Assert.assertEquals(1, tableBColumnNamesInQueryOutput.size());
-        Assert.assertTrue(tableBColumnNamesInQueryOutput.contains("c1"));
     }
 
     @Test
@@ -195,8 +175,6 @@ public class MaterializedViewSelectorTest {
             {
                 selectStmt.getAggInfo();
                 result = null;
-                selectStmt.getResultExprs();
-                result = Lists.newArrayList();
                 indexMeta1.getSchema();
                 result = index1Columns;
                 indexMeta2.getSchema();
@@ -243,8 +221,6 @@ public class MaterializedViewSelectorTest {
             {
                 selectStmt.getAggInfo();
                 result = null;
-                selectStmt.getResultExprs();
-                result = Lists.newArrayList();
                 indexMeta1.getSchema();
                 result = index1Columns;
                 indexMeta1.getKeysType();
@@ -290,8 +266,6 @@ public class MaterializedViewSelectorTest {
             {
                 selectStmt.getAggInfo();
                 result = null;
-                selectStmt.getResultExprs();
-                result = Lists.newArrayList();
                 indexMeta1.getSchema();
                 result = index1Columns;
                 indexMeta2.getSchema();
@@ -340,8 +314,6 @@ public class MaterializedViewSelectorTest {
             {
                 selectStmt.getAggInfo();
                 result = null;
-                selectStmt.getResultExprs();
-                result = Lists.newArrayList();
                 indexMeta1.getSchema();
                 result = index1Columns;
                 indexMeta2.getSchema();
@@ -389,8 +361,6 @@ public class MaterializedViewSelectorTest {
             {
                 selectStmt.getAggInfo();
                 result = null;
-                selectStmt.getResultExprs();
-                result = Lists.newArrayList();
                 table.getBaseIndexId();
                 result = -1L;
                 table.getKeyColumnsByIndexId(-1L);
@@ -443,8 +413,6 @@ public class MaterializedViewSelectorTest {
             {
                 selectStmt.getAggInfo();
                 result = null;
-                selectStmt.getResultExprs();
-                result = Lists.newArrayList();
             }
         };
         Set<String> equivalenceColumns = Sets.newHashSet();

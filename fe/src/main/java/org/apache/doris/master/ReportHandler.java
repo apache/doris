@@ -1002,7 +1002,19 @@ public class ReportHandler extends Daemon {
             if (status.first == TabletStatus.VERSION_INCOMPLETE || status.first == TabletStatus.REPLICA_MISSING) {
                 long lastFailedVersion = -1L;
                 long lastFailedVersionHash = 0L;
-                if (version > partition.getNextVersion() - 1) {
+
+                boolean initPartitionCreateByOldVersionDoris =
+                        partition.getVisibleVersion() == Partition.PARTITION_INIT_VERSION &&
+                        partition.getVisibleVersionHash() == Partition.PARTITION_INIT_VERSION_HASH &&
+                        version == 2 &&
+                        versionHash == 0;
+
+                if (initPartitionCreateByOldVersionDoris) {
+                    // For some partition created by old version's Doris
+                    // The init partition's version in FE is (1-0), the tablet's version in BE is (2-0)
+                    // If the BE report version is (2-0) and partition's version is (1-0),
+                    // we should add the tablet to meta.
+                } else if (version > partition.getNextVersion() - 1) {
                     // this is a fatal error
                     throw new MetaNotFoundException("version is invalid. tablet[" + version + "-" + versionHash + "]"
                             + ", partition's max version [" + (partition.getNextVersion() - 1) + "]");

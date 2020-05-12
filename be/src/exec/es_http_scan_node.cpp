@@ -59,6 +59,10 @@ Status EsHttpScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     if (tnode.es_scan_node.__isset.docvalue_context) {
         _docvalue_context = tnode.es_scan_node.docvalue_context;
     }
+
+    if (tnode.es_scan_node.__isset.fields_context) {
+        _fields_context = tnode.es_scan_node.fields_context;
+    }
     return Status::OK();
 }
 
@@ -92,7 +96,8 @@ Status EsHttpScanNode::build_conjuncts_list() {
     Status status = Status::OK();
     for (int i = 0; i < _conjunct_ctxs.size(); ++i) {
         EsPredicate* predicate = _pool->add(
-                    new EsPredicate(_conjunct_ctxs[i], _tuple_desc));
+                    new EsPredicate(_conjunct_ctxs[i], _tuple_desc, _pool));
+        predicate->set_field_context(_fields_context);
         status = predicate->build_disjuncts_list();
         if (status.ok()) {
             _predicates.push_back(predicate);
@@ -438,14 +443,16 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     if (limit() != -1 && limit() <= _runtime_state->batch_size()) {
         properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(limit());
     }
+
+    bool doc_value_mode = false;
     properties[ESScanReader::KEY_QUERY] 
-        = ESScrollQueryBuilder::build(properties, _column_names, _predicates, _docvalue_context);
+        = ESScrollQueryBuilder::build(properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
 
 
     // start scanner to scan
     std::unique_ptr<EsHttpScanner> scanner(new EsHttpScanner(
                     _runtime_state, runtime_profile(), _tuple_id,
-                    properties, scanner_expr_ctxs, &counter));
+                    properties, scanner_expr_ctxs, &counter, doc_value_mode));
     status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
     if (!status.ok()) {
         LOG(WARNING) << "Scanner[" << start_idx << "] process failed. status="

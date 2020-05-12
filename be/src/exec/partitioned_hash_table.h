@@ -358,6 +358,7 @@ class PartitionedHashTableCtx {
   ExprValuesCache* ALWAYS_INLINE expr_values_cache() { return &expr_values_cache_; }
 
  private:
+  friend class PartitionedAggregationNode;
   friend class PartitionedHashTable;
   friend class HashTableTest_HashEmpty_Test;
 

@@ -28,7 +28,6 @@ import org.apache.doris.thrift.TFetchResourceResult;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -181,22 +180,11 @@ public class UserPropertyMgr implements Writable {
     }
 
     // return a map from domain name -> set of user names
-    public void getDomainMap(Map<String, Set<String>> domainMap) {
+    public void getAllDomains(Set<String> allDomains) {
         LOG.debug("get property map: {}", propertyMap);
         for (Map.Entry<String, UserProperty> entry : propertyMap.entrySet()) {
             Set<String> domains = entry.getValue().getWhiteList().getAllDomains();
-            if (domains.isEmpty()) {
-                continue;
-            }
-
-            for (String domain : domains) {
-                Set<String> usernames = domainMap.get(domain);
-                if (usernames == null) {
-                    usernames = Sets.newHashSet();
-                    domainMap.put(domain, usernames);
-                }
-                usernames.add(entry.getKey());
-            }
+            allDomains.addAll(domains);
         }
     }
 

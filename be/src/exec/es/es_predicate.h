@@ -34,6 +34,7 @@ namespace doris {
 class Status;
 class ExprContext;
 class ExtBinaryPredicate;
+class EsPredicate;
 
 class ExtLiteral {
 public:
@@ -81,8 +82,24 @@ struct ExtColumnDesc {
 struct ExtPredicate {
     ExtPredicate(TExprNodeType::type node_type) : node_type(node_type) {
     }
+    virtual ~ExtPredicate() {}
 
     TExprNodeType::type node_type;
+};
+
+// this used for placeholder for compound_predicate
+// reserved for compound_not
+struct ExtCompPredicates : public ExtPredicate {
+    ExtCompPredicates(
+            TExprOpcode::type expr_op,
+            const std::vector<EsPredicate*>& es_predicates) : 
+            ExtPredicate(TExprNodeType::COMPOUND_PRED),
+            op(expr_op),
+            conjuncts(es_predicates) {
+    }
+
+    TExprOpcode::type op;
+    std::vector<EsPredicate*> conjuncts;
 };
 
 struct ExtBinaryPredicate : public ExtPredicate {
@@ -169,7 +186,7 @@ struct ExtFunction : public ExtPredicate {
 
 class EsPredicate {
 public:
-    EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc);
+    EsPredicate(ExprContext* context, const TupleDescriptor* tuple_desc, ObjectPool* pool);
     ~EsPredicate();
     const std::vector<ExtPredicate*>& get_predicate_list();
     Status build_disjuncts_list();
@@ -182,6 +199,10 @@ public:
         return _es_query_status;
     }
 
+    void set_field_context(const std::map<std::string, std::string>& field_context) {
+        _field_context = field_context;
+    }
+
 private:
     Status build_disjuncts_list(const Expr* conjunct);
     bool is_match_func(const Expr* conjunct);
@@ -192,6 +213,8 @@ private:
     const TupleDescriptor* _tuple_desc;
     std::vector<ExtPredicate*> _disjuncts;
     Status _es_query_status;
+    ObjectPool *_pool;
+    std::map<std::string, std::string> _field_context;
 };
 
 }

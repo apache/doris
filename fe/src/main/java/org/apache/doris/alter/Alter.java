@@ -17,29 +17,18 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.AddColumnClause;
-import org.apache.doris.analysis.AddColumnsClause;
 import org.apache.doris.analysis.AddPartitionClause;
-import org.apache.doris.analysis.AddRollupClause;
 import org.apache.doris.analysis.AlterClause;
 import org.apache.doris.analysis.AlterSystemStmt;
-import org.apache.doris.analysis.AlterTableClause;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
 import org.apache.doris.analysis.ColumnRenameClause;
-import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.DropColumnClause;
-import org.apache.doris.analysis.DropIndexClause;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
-import org.apache.doris.analysis.DropRollupClause;
-import org.apache.doris.analysis.IndexDef;
-import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.PartitionRenameClause;
-import org.apache.doris.analysis.ReorderColumnsClause;
 import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.TableName;
@@ -47,7 +36,6 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Table;
@@ -72,8 +60,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 public class Alter {
     private static final Logger LOG = LogManager.getLogger(Alter.class);
@@ -167,141 +153,19 @@ public class Alter {
             ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
         }
 
-        // check cluster capacity
-        Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
-
-        // schema change ops can appear several in one alter stmt without other alter ops entry
-        boolean hasSchemaChange = false;
-        // materialized view ops (include rollup), if has, should appear one and only one add or drop mv entry
-        boolean hasAddMaterializedView = false;
-        boolean hasDropRollup = false;
-        // partition ops, if has, should appear one and only one entry
-        boolean hasPartition = false;
-        // rename ops, if has, should appear one and only one entry
-        boolean hasRename = false;
-        // modify properties ops, if has, should appear one and only one entry
-        boolean hasModifyProp = false;
-
         // check conflict alter ops first
         List<AlterClause> alterClauses = stmt.getOps();
-        // check conflict alter ops first
+        AlterOperations currentAlterOps = new AlterOperations();
+        currentAlterOps.checkConflict(alterClauses);
 
-        // if all alter clauses are DropPartitionClause or DropRollupClause, no need to check quota.
-        boolean allIsDropOps = true;
-        for (AlterClause alterClause : alterClauses) {
-            if (!(alterClause instanceof DropPartitionClause)
-                    && !(alterClause instanceof DropRollupClause)) {
-                allIsDropOps = false;
-                break;
-            }
-        }
-
-        if (!allIsDropOps) {
-            // check db quota
+        // check cluster capacity and db quota, only need to check once.
+        if (currentAlterOps.needCheckCapacity()) {
+            Catalog.getCurrentSystemInfo().checkClusterCapacity(clusterName);
             db.checkQuota();
         }
 
-        // synchronized operation must handle outside db write lock
-        boolean needSynchronized = false;
-        boolean needTableStable = false;
-        for (AlterClause alterClause : alterClauses) {
-            if (!needTableStable) {
-                needTableStable = ((AlterTableClause) alterClause).isNeedTableStable();
-            }
-            if ((alterClause instanceof AddColumnClause
-                    || alterClause instanceof AddColumnsClause
-                    || alterClause instanceof DropColumnClause
-                    || alterClause instanceof ModifyColumnClause
-                    || alterClause instanceof ReorderColumnsClause
-                    || alterClause instanceof CreateIndexClause
-                    || alterClause instanceof DropIndexClause)
-                    && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename) {
-                hasSchemaChange = true;
-                if (alterClause instanceof CreateIndexClause) {
-                    Table table = db.getTable(dbTableName.getTbl());
-                    if (!(table instanceof OlapTable)) {
-                        throw new AnalysisException("create index only support in olap table at current version.");
-                    }
-                    List<Index> indexes = ((OlapTable) table).getIndexes();
-                    IndexDef indexDef = ((CreateIndexClause) alterClause).getIndexDef();
-                    Set<String> newColset = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-                    newColset.addAll(indexDef.getColumns());
-                    for (Index idx : indexes) {
-                        if (idx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
-                            throw new AnalysisException("index `" + indexDef.getIndexName() + "` already exist.");
-                        }
-                        Set<String> idxSet = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-                        idxSet.addAll(idx.getColumns());
-                        if (newColset.equals(idxSet)) {
-                            throw new AnalysisException("index for columns (" + String
-                                    .join(",", indexDef.getColumns()) + " ) already exist.");
-                        }
-                    }
-                    OlapTable olapTable = (OlapTable) table;
-                    for (String col : indexDef.getColumns()) {
-                        Column column = olapTable.getColumn(col);
-                        if (column != null) {
-                            indexDef.checkColumn(column, olapTable.getKeysType());
-                        } else {
-                            throw new AnalysisException("BITMAP column does not exist in table. invalid column: "
-                                    + col);
-                        }
-                    }
-                } else if (alterClause instanceof DropIndexClause) {
-                    Table table = db.getTable(dbTableName.getTbl());
-                    if (!(table instanceof OlapTable)) {
-                        throw new AnalysisException("drop index only support in olap table at current version.");
-                    }
-                    String indexName = ((DropIndexClause) alterClause).getIndexName();
-                    List<Index> indexes = ((OlapTable) table).getIndexes();
-                    Index found = null;
-                    for (Index idx : indexes) {
-                        if (idx.getIndexName().equalsIgnoreCase(indexName)) {
-                            found = idx;
-                            break;
-                        }
-                    }
-                    if (found == null) {
-                            throw new AnalysisException("index " + indexName + " does not exist");
-                        }
-                }
-            } else if ((alterClause instanceof AddRollupClause)
-                    && !hasSchemaChange && !hasDropRollup
-                    && !hasPartition && !hasRename && !hasModifyProp) {
-                hasAddMaterializedView = true;
-            } else if (alterClause instanceof DropRollupClause && !hasSchemaChange && !hasAddMaterializedView
-                    && !hasPartition && !hasRename && !hasModifyProp) {
-                hasDropRollup = true;
-            } else if (alterClause instanceof AddPartitionClause && !hasSchemaChange && !hasAddMaterializedView
-                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
-                hasPartition = true;
-            } else if (alterClause instanceof DropPartitionClause && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup
-                    && !hasPartition && !hasRename && !hasModifyProp) {
-                hasPartition = true;
-            } else if (alterClause instanceof ModifyPartitionClause && !hasSchemaChange && !hasAddMaterializedView
-                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
-                hasPartition = true;
-            } else if ((alterClause instanceof TableRenameClause || alterClause instanceof RollupRenameClause
-                    || alterClause instanceof PartitionRenameClause || alterClause instanceof ColumnRenameClause)
-                    && !hasSchemaChange && !hasAddMaterializedView && !hasDropRollup && !hasPartition && !hasRename
-                    && !hasModifyProp) {
-                hasRename = true;
-            } else if (alterClause instanceof ReplacePartitionClause && !hasSchemaChange && !hasAddMaterializedView
-                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
-                hasPartition = true;
-            } else if (alterClause instanceof ModifyTablePropertiesClause && !hasSchemaChange && !hasAddMaterializedView
-                    && !hasDropRollup && !hasPartition && !hasRename && !hasModifyProp) {
-                Map<String, String> properties = alterClause.getProperties();
-                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
-                    needSynchronized = true;
-                } else  {
-                    hasModifyProp = true;
-                }
-            } else {
-                throw new DdlException("Conflicting alter clauses. see help for more information");
-            }
-        } // end for alter clauses
-
+        // some operations will take long time to process, need to be done outside the databse lock
+        boolean needProcessOutsideDatabaseLock = false;
         String tableName = dbTableName.getTbl();
         db.writeLock();
         try {
@@ -313,44 +177,25 @@ public class Alter {
             if (table.getType() != TableType.OLAP) {
                 throw new DdlException("Do not support alter non-OLAP table[" + tableName + "]");
             }
-
             OlapTable olapTable = (OlapTable) table;
 
-            if (olapTable.getPartitions().size() == 0 && !hasPartition) {
-                throw new DdlException("table with empty parition cannot do schema change. [" + tableName + "]");
-            }
-
             if (olapTable.getState() != OlapTableState.NORMAL) {
-                throw new DdlException("Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
+                throw new DdlException(
+                        "Table[" + table.getName() + "]'s state is not NORMAL. Do not allow doing ALTER ops");
             }
 
-            // schema change job will wait until table become stable
-            if (needTableStable && !hasSchemaChange && !hasAddMaterializedView) {
-                // check if all tablets are healthy, and no tablet is in tablet scheduler
-                boolean isStable = olapTable.isStable(Catalog.getCurrentSystemInfo(),
-                        Catalog.getCurrentCatalog().getTabletScheduler(),
-                        db.getClusterName());
-                if (!isStable) {
-                    throw new DdlException("table [" + olapTable.getName() + "] is not stable."
-                            + " Some tablets of this table may not be healthy or are being scheduled."
-                            + " You need to repair the table first"
-                            + " or stop cluster balance. See 'help admin;'.");
-                }
-            }
-
-            if (hasSchemaChange || hasModifyProp) {
+            if (currentAlterOps.hasSchemaChangeOp()) {
                 // if modify storage type to v2, do schema change to convert all related tablets to segment v2 format
                 schemaChangeHandler.process(alterClauses, clusterName, db, olapTable);
-            } else if (hasAddMaterializedView || hasDropRollup) {
+            } else if (currentAlterOps.hasRollupOp()) {
                 materializedViewHandler.process(alterClauses, clusterName, db, olapTable);
-            } else if (hasPartition) {
+            } else if (currentAlterOps.hasPartitionOp()) {
                 Preconditions.checkState(alterClauses.size() == 1);
-                // when this is a dynamic partition table, do not allow doing partition operation.
-                // TODO(cmy): although some of operation can be done with dynamic partition,
-                // but currently we check it strictly to avoid some unexpected exception.
-                DynamicPartitionUtil.checkAlterAllowed(olapTable);
                 AlterClause alterClause = alterClauses.get(0);
                 if (alterClause instanceof DropPartitionClause) {
+                    if (!((DropPartitionClause) alterClause).isTempPartition()) {
+                        DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(tableName));
+                    }
                     Catalog.getInstance().dropPartition(db, olapTable, ((DropPartitionClause) alterClause));
                 } else if (alterClause instanceof ReplacePartitionClause) {
                     Catalog.getCurrentCatalog().replaceTempPartition(db, tableName, (ReplacePartitionClause) alterClause);
@@ -358,45 +203,50 @@ public class Alter {
                     ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                     Map<String, String> properties = clause.getProperties();
                     if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
-                        needSynchronized = true;
+                        needProcessOutsideDatabaseLock = true;
                     } else {
                         String partitionName = clause.getPartitionName();
-                        Catalog.getInstance().modifyPartition(db, olapTable, partitionName, properties);
+                        Catalog.getInstance().modifyPartitionProperty(db, olapTable, partitionName, properties);
                     }
+                } else if (alterClause instanceof AddPartitionClause) {
+                    needProcessOutsideDatabaseLock = true;
                 } else {
-                    // add (temp) partition
-                    needSynchronized = true;
+                    throw new DdlException("Invalid alter opertion: " + alterClause.getOpType());
                 }
-            } else if (hasRename) {
+            } else if (currentAlterOps.hasRenameOp()) {
                 processRename(db, olapTable, alterClauses);
+            } else if (currentAlterOps.contains(AlterOpType.MODIFY_TABLE_PROPERTY_SYNC)) {
+                needProcessOutsideDatabaseLock = true;
+            } else {
+                throw new DdlException("Invalid alter operations: " + currentAlterOps);
             }
         } finally {
             db.writeUnlock();
         }
 
         // the following ops should done outside db lock. because it contain synchronized create operation
-        if (needSynchronized) {
+        if (needProcessOutsideDatabaseLock) {
             Preconditions.checkState(alterClauses.size() == 1);
             AlterClause alterClause = alterClauses.get(0);
             if (alterClause instanceof AddPartitionClause) {
-                DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(tableName));
-                Catalog.getInstance().addPartition(db, tableName, (AddPartitionClause) alterClause);
+                if (!((AddPartitionClause) alterClause).isTempPartition()) {
+                    DynamicPartitionUtil.checkAlterAllowed((OlapTable) db.getTable(tableName));
+                }
+                Catalog.getCurrentCatalog().addPartition(db, tableName, (AddPartitionClause) alterClause);
             } else if (alterClause instanceof ModifyPartitionClause) {
                 ModifyPartitionClause clause = ((ModifyPartitionClause) alterClause);
                 Map<String, String> properties = clause.getProperties();
                 String partitionName = clause.getPartitionName();
                 // currently, only in memory property could reach here
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
-                if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
-                    boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
-                    ((SchemaChangeHandler)schemaChangeHandler).updatePartitionInMemoryMeta(
-                            db, tableName, partitionName, isInMemory);
-                }
+                boolean isInMemory = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_INMEMORY));
+                ((SchemaChangeHandler) schemaChangeHandler).updatePartitionInMemoryMeta(
+                        db, tableName, partitionName, isInMemory);
 
                 db.writeLock();
                 try {
-                    OlapTable olapTable = (OlapTable)db.getTable(tableName);
-                    Catalog.getInstance().modifyPartition(db, olapTable, partitionName, properties);
+                    OlapTable olapTable = (OlapTable) db.getTable(tableName);
+                    Catalog.getCurrentCatalog().modifyPartitionProperty(db, olapTable, partitionName, properties);
                 } finally {
                     db.writeUnlock();
                 }
@@ -404,9 +254,9 @@ public class Alter {
                 Map<String, String> properties = alterClause.getProperties();
                 // currently, only in memory property could reach here
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY));
-                ((SchemaChangeHandler)schemaChangeHandler).updateTableInMemoryMeta(db, tableName, properties);
+                ((SchemaChangeHandler) schemaChangeHandler).updateTableInMemoryMeta(db, tableName, properties);
             } else {
-                Preconditions.checkState(false);
+                throw new DdlException("Invalid alter opertion: " + alterClause.getOpType());
             }
         }
     }

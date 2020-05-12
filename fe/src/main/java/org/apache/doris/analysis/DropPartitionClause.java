@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -33,6 +34,7 @@ public class DropPartitionClause extends AlterTableClause {
     private boolean isTempPartition;
 
     public DropPartitionClause(boolean ifExists, String partitionName, boolean isTempPartition) {
+        super(AlterOpType.DROP_PARTITION);
         this.ifExists = ifExists;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;

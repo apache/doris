@@ -157,7 +157,7 @@ public class View extends Table {
             node = (ParseNode) SqlParserUtils.getFirstStmt(parser);
         } catch (Exception e) {
             LOG.info("stmt is {}", inlineViewDef);
-            LOG.info("exception because: {}", e);
+            LOG.info("exception because: ", e);
             LOG.info("msg is {}", inlineViewDef);
             // Do not pass e as the exception cause because it might reveal the existence
             // of tables that the user triggering this load may not have privileges on.

@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
@@ -40,6 +41,7 @@ public class ReorderColumnsClause extends AlterTableClause {
     }
 
     public ReorderColumnsClause(List<String> cols, String rollup, Map<String, String> properties) {
+        super(AlterOpType.SCHEMA_CHANGE);
         this.columnsByPos = cols;
         this.rollupName = rollup;
         this.properties = properties;

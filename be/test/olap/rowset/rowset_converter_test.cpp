@@ -150,6 +150,9 @@ void create_tablet_meta(TabletSchema* tablet_schema, TabletMeta* tablet_meta) {
 class RowsetConverterTest : public testing::Test {
 public:
     virtual void SetUp() {
+        config::tablet_map_shard_size = 1;
+        config::txn_map_shard_size = 1;
+        config::txn_shard_size = 1;
         config::path_gc_check = false;
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
@@ -161,7 +164,9 @@ public:
 
         doris::EngineOptions options;
         options.store_paths = paths;
-        doris::StorageEngine::open(options, &k_engine);
+        if (k_engine == nullptr) {
+            doris::StorageEngine::open(options, &k_engine);
+        }
 
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(k_engine);
@@ -202,18 +207,19 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
+    std::vector<std::string> test_data;
     for (int i = 0; i < 1024; ++i) {
+        test_data.push_back("well" + std::to_string(i));
+
         int32_t field_0 = i;
         row.set_field_content(0, reinterpret_cast<char*>(&field_0), _mem_pool.get());
-        Slice field_1("well" + std::to_string(i));
+        Slice field_1(test_data[i]);
         row.set_field_content(1, reinterpret_cast<char*>(&field_1), _mem_pool.get());
         int32_t field_2 = 10000 + i;
         row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());
         _rowset_writer->add_row(row);
     }
     _rowset_writer->flush();
-    auto cache = new_lru_cache(config::file_descriptor_cache_capacity);
-    FileHandler::set_fd_cache(cache);
     RowsetSharedPtr src_rowset = _rowset_writer->build();
     ASSERT_TRUE(src_rowset != nullptr);
     RowsetId src_rowset_id;

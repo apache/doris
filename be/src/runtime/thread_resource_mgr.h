@@ -195,6 +195,7 @@ public:
     // based on the hardware.
     ThreadResourceMgr(int threads_quota);
     ThreadResourceMgr();
+    ~ThreadResourceMgr();
 
     int system_threads_quota() const {
         return _system_threads_quota;

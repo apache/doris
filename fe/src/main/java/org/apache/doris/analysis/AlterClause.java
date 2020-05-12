@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
+
 import org.apache.commons.lang.NotImplementedException;
 
 import java.util.Map;
@@ -24,7 +26,17 @@ import java.util.Map;
 // Alter clause.
 public abstract class AlterClause implements ParseNode {
 
+    protected AlterOpType opType;
+
+    public AlterClause(AlterOpType opType) {
+        this.opType = opType;
+    }
+
     public Map<String, String> getProperties() {
         throw new NotImplementedException();
+    }
+
+    public AlterOpType getOpType() {
+        return opType;
     }
 }

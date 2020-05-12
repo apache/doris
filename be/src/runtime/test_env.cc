@@ -28,7 +28,6 @@ boost::scoped_ptr<MetricRegistry> TestEnv::_s_static_metrics;
 TestEnv::TestEnv() {
     if (_s_static_metrics == NULL) {
         _s_static_metrics.reset(new MetricRegistry("test_env"));
-        // DorisMetrics::create_metrics(_s_static_metrics.get());
     }
     _exec_env.reset(new ExecEnv());
     // _exec_env->init_for_tests();

@@ -92,7 +92,7 @@ public class HadoopLoadPendingTask extends LoadPendingTask {
             Preconditions.checkNotNull(etlTaskConf);
 
             // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(job.getTransactionId());
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(job.getDbId(), job.getTransactionId());
             if (txnState == null) {
                 throw new LoadException("txn does not exist: " + job.getTransactionId());
             }

@@ -74,6 +74,7 @@ public class OperationType {
     public static final short OP_EXPORT_UPDATE_STATE = 37;
 
     public static final short OP_FINISH_SYNC_DELETE = 40;
+    public static final short OP_FINISH_DELETE = 41;
     public static final short OP_ADD_REPLICA = 42;
     public static final short OP_DELETE_REPLICA = 43;
     public static final short OP_FINISH_ASYNC_DELETE = 44;
@@ -166,4 +167,9 @@ public class OperationType {
     public static final short OP_MODIFY_REPLICATION_NUM = 266;
     // set table in memory
     public static final short OP_MODIFY_IN_MEMORY = 267;
+
+    // plugin 270~275
+    public static final short OP_INSTALL_PLUGIN = 270;
+
+    public static final short OP_UNINSTALL_PLUGIN = 271;
 }

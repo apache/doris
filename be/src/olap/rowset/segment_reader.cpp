@@ -491,10 +491,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
 
     for (auto& i : _conditions->columns()) {
         FieldAggregationMethod aggregation = _get_aggregation_by_index(i.first);
-        bool is_continue = (aggregation == OLAP_FIELD_AGGREGATION_NONE
-                            || ((aggregation == OLAP_FIELD_AGGREGATION_REPLACE ||
-                                 aggregation == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
-                                && _segment_group->version().first == 0));
+        bool is_continue = (aggregation == OLAP_FIELD_AGGREGATION_NONE);
         if (!is_continue) {
             continue;
         }
@@ -533,10 +530,7 @@ OLAPStatus SegmentReader::_pick_row_groups(uint32_t first_block, uint32_t last_b
 
     for (uint32_t i : _load_bf_columns) {
         FieldAggregationMethod aggregation = _get_aggregation_by_index(i);
-        bool is_continue = (aggregation == OLAP_FIELD_AGGREGATION_NONE
-                            || ((aggregation == OLAP_FIELD_AGGREGATION_REPLACE ||
-                                 aggregation == OLAP_FIELD_AGGREGATION_REPLACE_IF_NOT_NULL)
-                                && _segment_group->version().first == 0));
+        bool is_continue = (aggregation == OLAP_FIELD_AGGREGATION_NONE);
         if (!is_continue) {
             continue;
         }

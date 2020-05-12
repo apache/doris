@@ -211,7 +211,7 @@ message OLAPHeaderMessage {
     optional bool in_restore_mode = 19 [default = false];   // TabletMetaPB.is_restore_mode
     optional int64 tablet_id = 20;  // TabletMetaPB.tablet_id
     optional int32 schema_hash = 21;    // TabletMetaPB.schema_hash? int32 vs int64
-    optional uint64 shard = 22; // TabletMetaPB.shard_id? int64 vs int32
+    optional uint64 shard_id = 22; // TabletMetaPB.shard_id? int64 vs int32
 }
 
 enum AlterTabletState {
@@ -231,22 +231,6 @@ message AlterTabletPB {
     required int64 related_tablet_id = 2;
     optional int32 related_schema_hash = 3;
     optional AlterTabletType alter_type = 4;
-}
-
-enum ColumnType {
-    TINYINT = 0;
-    SMALLINT = 1;
-    INT = 2;
-    BIGINT = 3;
-    LARGEINT = 4;
-    FLOAT = 5;
-    DOUBLE = 6;
-    DECIMAL = 7;
-    CHAR = 8;
-    VARCHAR = 9;
-    HLL = 10;
-    DATE = 11;
-    DATETIME = 12;
 }
 
 message ColumnPB {

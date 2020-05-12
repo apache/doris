@@ -72,16 +72,6 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _direct_conjunct_size = _conjunct_ctxs.size();
 
-    if (tnode.olap_scan_node.__isset.sort_column) {
-        _is_result_order = true;
-    } else {
-        _is_result_order = false;
-    }
-
-    // Before, we support scan data ordered, but is not used in production
-    // Now, we drop this functional
-    DCHECK(!_is_result_order) << "ordered result don't support any more";
-
     return Status::OK();
 }
 
@@ -668,6 +658,8 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
     }
 
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
+
+    std::unordered_set<std::string> disk_set;
     for (auto& scan_range : _scan_ranges) {
         std::vector<std::unique_ptr<OlapScanRange>>* ranges = &cond_ranges;
         std::vector<std::unique_ptr<OlapScanRange>> split_ranges;
@@ -702,8 +694,10 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                 state, this, _olap_scan_node.is_preaggregation, _need_agg_finalize, *scan_range, scanner_ranges);
             _scanner_pool->add(scanner);
             _olap_scanners.push_back(scanner);
+	    disk_set.insert(scanner->scan_disk());
         }
     }
+    COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
 
     // init progress
     std::stringstream ss;
@@ -1038,6 +1032,7 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
 
 void OlapScanNode::transfer_thread(RuntimeState* state) {
     // scanner open pushdown to scanThread
+    state->resource_pool()->acquire_thread_token();
     Status status = Status::OK();
     for (auto scanner : _olap_scanners) {
         status = Expr::clone_if_not_exists(_conjunct_ctxs, state, scanner->conjunct_ctxs());
@@ -1171,6 +1166,7 @@ void OlapScanNode::transfer_thread(RuntimeState* state) {
         }
     }
 
+    state->resource_pool()->release_thread_token(true);
     VLOG(1) << "TransferThread finish.";
     boost::unique_lock<boost::mutex> l(_row_batches_lock);
     _transfer_done = true;

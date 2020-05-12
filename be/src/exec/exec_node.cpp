@@ -172,15 +172,13 @@ Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != NULL);
     _rows_returned_counter =
         ADD_COUNTER(_runtime_profile, "RowsReturned", TUnit::UNIT);
-    _memory_used_counter =
-        ADD_COUNTER(_runtime_profile, "MemoryUsed", TUnit::BYTES);
     _rows_returned_rate = runtime_profile()->add_derived_counter(
                               ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
                               boost::bind<int64_t>(&RuntimeProfile::units_per_second,
                                                    _rows_returned_counter,
                                                    runtime_profile()->total_time_counter()),
                               "");
-    _mem_tracker.reset(new MemTracker(-1, _runtime_profile->name(), state->instance_mem_tracker()));
+    _mem_tracker.reset(new MemTracker(_runtime_profile.get(), -1, _runtime_profile->name(), state->instance_mem_tracker()));
     _expr_mem_tracker.reset(new MemTracker(-1, "Exprs", _mem_tracker.get()));
     _expr_mem_pool.reset(new MemPool(_expr_mem_tracker.get()));
     // TODO chenhao
@@ -339,7 +337,7 @@ Status ExecNode::create_tree_helper(
     }
 
     if (!node->_children.empty()) {
-        node->runtime_profile()->add_child(node->_children[0]->runtime_profile(), false, NULL);
+        node->runtime_profile()->add_child(node->_children[0]->runtime_profile(), true, NULL);
     }
 
     return Status::OK();
@@ -596,7 +594,7 @@ Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
     ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
     RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(),
                                                 state->instance_buffer_reservation(),
-                                                mem_tracker(), _resource_profile.max_reservation, 
+                                                mem_tracker(), buffer_pool->GetSystemBytesLimit(), 
                                                 runtime_profile(),
                                                 &_buffer_pool_client));
     

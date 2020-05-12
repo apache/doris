@@ -35,6 +35,7 @@
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
+#include "olap/base_tablet.h"
 #include "util/once.h"
 
 namespace doris {
@@ -45,58 +46,35 @@ class TabletMeta;
 
 using TabletSharedPtr = std::shared_ptr<Tablet>;
 
-class Tablet : public std::enable_shared_from_this<Tablet> {
+class Tablet : public BaseTablet {
 public:
     static TabletSharedPtr create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                    DataDir* data_dir = nullptr);
 
     Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir);
-    ~Tablet();
 
     OLAPStatus init();
     inline bool init_succeeded();
 
     bool is_used();
 
-    inline DataDir* data_dir() const;
-    OLAPStatus register_tablet_into_dir();
-    OLAPStatus deregister_tablet_from_dir();
+    void register_tablet_into_dir();
+    void deregister_tablet_from_dir();
 
-    std::string tablet_path() const;
-
-    TabletState tablet_state() const { return _state; }
-    OLAPStatus set_tablet_state(TabletState state);
-
-    // Property encapsulated in TabletMeta
-    inline const TabletMetaSharedPtr tablet_meta();
-    OLAPStatus save_meta();
+    void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
     OLAPStatus revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                                   const std::vector<Version>& versions_to_delete);
 
-
-    inline TabletUid tablet_uid() const;
-    inline int64_t table_id() const;
-    // Returns a string can be used to uniquely identify a tablet.
-    // The result string will often be printed to the log.
-    inline const std::string full_name() const;
-    inline int64_t partition_id() const;
-    inline int64_t tablet_id() const;
-    inline int32_t schema_hash() const;
-    inline int16_t shard_id();
-    inline const int64_t creation_time() const;
-    inline void set_creation_time(int64_t creation_time);
     inline const int64_t cumulative_layer_point() const;
     inline void set_cumulative_layer_point(int64_t new_point);
 
-    inline bool equal(int64_t tablet_id, int32_t schema_hash);
     inline size_t tablet_footprint(); // disk space occupied by tablet
     inline size_t num_rows();
     inline int version_count() const;
     inline Version max_version() const;
 
     // propreties encapsulated in TabletSchema
-    inline const TabletSchema& tablet_schema() const;
     inline KeysType keys_type() const;
     inline size_t num_columns() const;
     inline size_t num_null_columns() const;
@@ -111,8 +89,8 @@ public:
 
     // operation in rowsets
     OLAPStatus add_rowset(RowsetSharedPtr rowset, bool need_persist = true);
-    OLAPStatus modify_rowsets(const vector<RowsetSharedPtr>& to_add,
-                              const vector<RowsetSharedPtr>& to_delete);
+    void modify_rowsets(const vector<RowsetSharedPtr>& to_add,
+                        const vector<RowsetSharedPtr>& to_delete);
 
     // _rs_version_map and _inc_rs_version_map should be protected by _meta_lock
     // The caller must call hold _meta_lock when call this two function.
@@ -144,7 +122,7 @@ public:
 
     // message for alter task
     AlterTabletTaskSharedPtr alter_task();
-    OLAPStatus add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
+    void add_alter_task(int64_t related_tablet_id, int32_t related_schema_hash,
                         const vector<Version>& versions_to_alter,
                         const AlterTabletType alter_type);
     void delete_alter_task();
@@ -177,8 +155,8 @@ public:
     bool can_do_compaction();
     const uint32_t calc_cumulative_compaction_score() const;
     const uint32_t calc_base_compaction_score() const;
-    void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
-                                           VersionHash* version_hash) const;
+    static void compute_version_hash_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets,
+                                                  VersionHash* version_hash);
 
     // operation for clone
     void calc_missed_versions(int64_t spec_version, vector<Version>* missed_versions);
@@ -187,7 +165,7 @@ public:
 
     // This function to find max continous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.
-    OLAPStatus max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
+    void max_continuous_version_from_begining(Version* version, VersionHash* v_hash);
 
     // operation for query
     OLAPStatus split_range(
@@ -217,17 +195,18 @@ public:
 
     void delete_all_files();
 
-    bool check_path(const std::string& check_path);
+    bool check_path(const std::string& check_path) const;
     bool check_rowset_id(const RowsetId& rowset_id);
 
     OLAPStatus set_partition_id(int64_t partition_id);
 
     TabletInfo get_tablet_info() const;
 
-    void pick_candicate_rowsets_to_cumulative_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
+    void pick_candicate_rowsets_to_cumulative_compaction(int64_t skip_window_sec,
+                                                         std::vector<RowsetSharedPtr>* candidate_rowsets);
     void pick_candicate_rowsets_to_base_compaction(std::vector<RowsetSharedPtr>* candidate_rowsets);
 
-    OLAPStatus calculate_cumulative_point();
+    void calculate_cumulative_point();
     // TODO(ygl):
     inline bool is_primary_replica() { return false; }
 
@@ -236,24 +215,24 @@ public:
     // eco mode also means save money in palo
     inline bool in_eco_mode() { return false; }
 
-    OLAPStatus do_tablet_meta_checkpoint();
+    void do_tablet_meta_checkpoint();
 
     bool rowset_meta_is_useful(RowsetMetaSharedPtr rowset_meta);
 
     void build_tablet_report_info(TTabletInfo* tablet_info);
 
-    void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta);
+    void generate_tablet_meta_copy(TabletMetaSharedPtr new_tablet_meta) const;
 
     // return a json string to show the compaction status of this tablet
-    OLAPStatus get_compaction_status(std::string* json_result);
+    void get_compaction_status(std::string* json_result);
 
 private:
     OLAPStatus _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
     bool _contains_rowset(const RowsetId rowset_id);
     OLAPStatus _contains_version(const Version& version);
-    OLAPStatus _max_continuous_version_from_begining_unlocked(Version* version,
-                                                              VersionHash* v_hash) const ;
+    void _max_continuous_version_from_begining_unlocked(Version* version,
+                                                        VersionHash* v_hash) const ;
     void _gen_tablet_path();
     RowsetSharedPtr _rowset_with_largest_size();
     void _delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);
@@ -261,12 +240,8 @@ private:
                                                     vector<RowsetSharedPtr>* rowsets) const;
 
 private:
-    TabletState _state;
-    TabletMetaSharedPtr _tablet_meta;
-    TabletSchema _schema;
+    static const int64_t kInvalidCumulativePoint = -1;
 
-    DataDir* _data_dir;
-    std::string _tablet_path;
     RowsetGraph _rs_graph;
 
     DorisCallOnce<OLAPStatus> _init_once;
@@ -280,7 +255,7 @@ private:
 
     // TODO(lingbin): There is a _meta_lock TabletMeta too, there should be a comment to
     // explain how these two locks work together.
-    RWMutex _meta_lock;
+    mutable RWMutex _meta_lock;
     // A new load job will produce a new rowset, which will be inserted into both _rs_version_map
     // and _inc_rs_version_map. Only the most recent rowsets are kept in _inc_rs_version_map to
     // reduce the amount of data that needs to be copied during the clone task.
@@ -319,65 +294,14 @@ inline bool Tablet::is_used() {
     return !_is_bad && _data_dir->is_used();
 }
 
-inline DataDir* Tablet::data_dir() const {
-    return _data_dir;
+inline void Tablet::register_tablet_into_dir() {
+    _data_dir->register_tablet(this);
 }
 
-inline OLAPStatus Tablet::register_tablet_into_dir() {
-    return _data_dir->register_tablet(this);
+inline void Tablet::deregister_tablet_from_dir() {
+    _data_dir->deregister_tablet(this);
 }
 
-inline OLAPStatus Tablet::deregister_tablet_from_dir() {
-    return _data_dir->deregister_tablet(this);
-}
-
-inline string Tablet::tablet_path() const {
-    return _tablet_path;
-}
-
-inline const TabletMetaSharedPtr Tablet::tablet_meta() {
-    return _tablet_meta;
-}
-
-inline TabletUid Tablet::tablet_uid() const {
-    return _tablet_meta->tablet_uid();
-}
-
-inline int64_t Tablet::table_id() const {
-    return _tablet_meta->table_id();
-}
-
-inline const std::string Tablet::full_name() const {
-    std::stringstream ss;
-    ss << _tablet_meta->tablet_id()
-       << "." << _tablet_meta->schema_hash()
-       << "." << _tablet_meta->tablet_uid().to_string();
-    return ss.str();
-}
-
-inline int64_t Tablet::partition_id() const {
-    return _tablet_meta->partition_id();
-}
-
-inline int64_t Tablet::tablet_id() const {
-    return _tablet_meta->tablet_id();
-}
-
-inline int32_t Tablet::schema_hash() const {
-    return _tablet_meta->schema_hash();
-}
-
-inline int16_t Tablet::shard_id() {
-    return _tablet_meta->shard_id();
-}
-
-inline const int64_t Tablet::creation_time() const {
-    return _tablet_meta->creation_time();
-}
-
-inline void Tablet::set_creation_time(int64_t creation_time) {
-    _tablet_meta->set_creation_time(creation_time);
-}
 
 inline const int64_t Tablet::cumulative_layer_point() const {
     return _cumulative_point;
@@ -387,9 +311,6 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_point = new_point;
 }
 
-inline bool Tablet::equal(int64_t id, int32_t hash) {
-    return (tablet_id() == id) && (schema_hash() == hash);
-}
 
 // TODO(lingbin): Why other methods that need to get information from _tablet_meta
 // are not locked, here needs a comment to explain.
@@ -411,10 +332,6 @@ inline int Tablet::version_count() const {
 
 inline Version Tablet::max_version() const {
     return _tablet_meta->max_version();
-}
-
-inline const TabletSchema& Tablet::tablet_schema() const {
-    return _schema;
 }
 
 inline KeysType Tablet::keys_type() const {

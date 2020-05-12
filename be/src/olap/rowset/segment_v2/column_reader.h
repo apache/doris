@@ -39,10 +39,13 @@
 namespace doris {
 
 class ColumnBlock;
-class RandomAccessFile;
 class TypeInfo;
 class BlockCompressionCodec;
 class WrapperField;
+
+namespace fs {
+class ReadableBlock;
+}
 
 namespace segment_v2 {
 
@@ -60,13 +63,13 @@ struct ColumnReaderOptions {
 };
 
 struct ColumnIteratorOptions {
-    RandomAccessFile* file = nullptr;
+    fs::ReadableBlock* rblock = nullptr;
     // reader statistics
     OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
 
     void sanity_check() const {
-        CHECK_NOTNULL(file);
+        CHECK_NOTNULL(rblock);
         CHECK_NOTNULL(stats);
     }
 };

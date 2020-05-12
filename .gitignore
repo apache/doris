@@ -2,7 +2,11 @@
 *.pyc
 be/output
 be/build
+be/ut_build
 output
+docs/.temp
+docs/.vuepress/dist
+docs/node_modules
 docs/build
 gensrc/build
 fe/target
@@ -19,6 +23,9 @@ custom_env.sh
 ut_dir
 log
 meta
+fe_plugins/*/target
+fe_plugins/output
+fe/mocked
 
 
 #ignore eclipse project file & idea  project file

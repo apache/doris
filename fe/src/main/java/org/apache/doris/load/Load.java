@@ -99,8 +99,10 @@ import org.apache.doris.thrift.TPriority;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -381,7 +383,7 @@ public class Load {
         // for original job, check quota
         // for delete job, not check
         if (!job.isSyncDeleteJob()) {
-            db.checkQuota();
+            db.checkDataSizeQuota();
         }
 
         // check if table is in restore process
@@ -2685,7 +2687,7 @@ public class Load {
                                 // if this is a sync delete job, then update affected version and version hash
                                 if (job.isSyncDeleteJob()) {
                                     TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr()
-                                            .getTransactionState(job.getTransactionId());
+                                            .getTransactionState(job.getDbId(), job.getTransactionId());
                                     DeleteInfo deleteInfo = job.getDeleteInfo();
                                     TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(deleteInfo.getTableId());
                                     PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(deleteInfo.getPartitionId());
@@ -2826,6 +2828,7 @@ public class Load {
         // then there will be rubbish transactions in transaction manager
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                    job.getDbId(),
                     job.getTransactionId(),
                     job.getFailMsg().toString());
         } catch (Exception e) {
@@ -3095,7 +3098,7 @@ public class Load {
         PartitionState state = partition.getState();
         if (state != PartitionState.NORMAL) {
             // ErrorReport.reportDdlException(ErrorCode.ERR_BAD_PARTITION_STATE, partition.getName(), state.name());
-            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORNAL: " + state.name());
+            throw new DdlException("Partition[" + partition.getName() + "]' state is not NORMAL: " + state.name());
         }
         // do not need check whether partition has loading job
 
@@ -3326,8 +3329,10 @@ public class Load {
             }
             loadDeleteJob.setIdToTabletLoadInfo(idToTabletLoadInfo);
             loadDeleteJob.setState(JobState.LOADING);
-            long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(), jobLabel,
-                    "FE: " + FrontendOptions.getLocalHostAddress(), LoadJobSourceType.FRONTEND,
+            long transactionId = Catalog.getCurrentGlobalTransactionMgr().beginTransaction(db.getId(),
+                    Lists.newArrayList(table.getId()), jobLabel,
+                    new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    LoadJobSourceType.FRONTEND,
                     Config.stream_load_default_timeout_second);
             loadDeleteJob.setTransactionId(transactionId);
             // the delete job will be persist in editLog
@@ -3359,7 +3364,8 @@ public class Load {
                         break;
                     }
                     if (System.currentTimeMillis() - startDeleteTime > timeout) {
-                        TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(loadDeleteJob.getTransactionId());
+                        TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(loadDeleteJob.getDbId(),
+                                loadDeleteJob.getTransactionId());
                         if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
                             boolean isSuccess = cancelLoadJob(loadDeleteJob, CancelType.TIMEOUT, "load delete job timeout");
                             if (isSuccess) {

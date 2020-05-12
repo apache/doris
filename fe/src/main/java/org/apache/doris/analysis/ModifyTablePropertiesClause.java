@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -32,6 +33,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
     private Map<String, String> properties;
 
     public ModifyTablePropertiesClause(Map<String, String> properties) {
+        super(AlterOpType.MODIFY_TABLE_PROPERTY);
         this.properties = properties;
     }
 
@@ -77,16 +79,13 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
             // do nothing, dynamic properties will be analyzed in SchemaChangeHandler.process
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
-            throw new AnalysisException("Please use " + defaultReplicationNumName +
-                    " instead of " + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM + " config to escape misleading, this operation" +
-                    " doesn't support changing the replication_num of the table data");
+            PropertyAnalyzer.analyzeReplicationNum(properties, false);
         } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
-            String defaultReplicationNumName = "default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM;
-            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, properties.get(defaultReplicationNumName));
-            properties.remove(defaultReplicationNumName);
+            short defaultReplicationNum = PropertyAnalyzer.analyzeReplicationNum(properties, true);
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, Short.toString(defaultReplicationNum));
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
             this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

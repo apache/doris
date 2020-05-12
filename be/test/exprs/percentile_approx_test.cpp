@@ -46,6 +46,7 @@ TEST_F(PercentileApproxTest, testSample) {
     AggregateFunctions::percentile_approx_merge(context, s, &stringVal2);
     DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
     ASSERT_EQ(v.val, 2);
+    delete futil;
 }
 
 TEST_F(PercentileApproxTest, testNoMerge) {
@@ -63,6 +64,7 @@ TEST_F(PercentileApproxTest, testNoMerge) {
 
     DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal1);
     ASSERT_EQ(v.val, 2);
+    delete futil;
 }
 
 TEST_F(PercentileApproxTest, testSerialize) {
@@ -85,6 +87,7 @@ TEST_F(PercentileApproxTest, testSerialize) {
     AggregateFunctions::percentile_approx_merge(context, serialized, &stringVal2);
     DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
     ASSERT_DOUBLE_EQ(v.val, 99900.5);
+    delete futil;
 }
 
 TEST_F(PercentileApproxTest, testNullVale) {
@@ -110,6 +113,7 @@ TEST_F(PercentileApproxTest, testNullVale) {
     AggregateFunctions::percentile_approx_merge(context, serialized, &stringVal2);
     DoubleVal v = AggregateFunctions::percentile_approx_finalize(context, stringVal2);
     ASSERT_FLOAT_EQ(v.val, 99900.665999999997);
+    delete futil;
 }
 
 }

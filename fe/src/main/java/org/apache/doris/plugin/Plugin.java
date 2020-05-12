@@ -22,38 +22,37 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 
+/**
+ * Base Plugin
+ *
+ * Note: plugin is thread-unsafe and work in parallel
+ */
 public abstract class Plugin implements Closeable {
     public static final int PLUGIN_DEFAULT_FLAGS = 0;
-    public static final int PLUGIN_NOT_DYNAMIC_INSTALL = 1;
-    public static final int PLUGIN_NOT_DYNAMIC_UNINSTALL = 2;
-    public static final int PLUGIN_INSTALL_EARLY = 4;
-
-    /*
-     * just one constructor
-     *
-     * public Plugin() {}
-     *
-     * public Plugin(Path installPath) {}
-     */
+    public static final int PLUGIN_INSTALL_EARLY = 1;
+    public static final int PLUGIN_NOT_DYNAMIC_UNINSTALL = 1 << 1;
 
     /**
-     * invoke when the plugin install
+     * invoke when the plugin install.
+     * the plugin should only be initialized once.
+     * So this method must be idempotent
      */
-    public void init() { }
+    public void init(PluginInfo info, PluginContext ctx) throws PluginException {
+
+    }
 
     /**
      * invoke when the plugin uninstall
      */
     @Override
-    public void close() throws IOException { }
+    public void close() throws IOException {
+    }
 
     public int flags() {
         return PLUGIN_DEFAULT_FLAGS;
     }
 
-    public void setVariable(String key, String value) {
-
-    }
+    public void setVariable(String key, String value) { }
 
     public Map<String, String> variable() {
         return Collections.EMPTY_MAP;

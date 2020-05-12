@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.UtFrameUtils;
+
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -101,6 +102,14 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select UNIX_TIMESTAMP(\"1970-01-01 08:00:01\");",
                 "1");
+
+        testConstantExpressResult(
+                "select now();",
+                "");
+
+        testConstantExpressResult(
+                "select curdate();",
+                "");
     }
 
     @Test
@@ -149,5 +158,59 @@ public class ConstantExpressTest {
         testConstantExpressResult(
                 "select 1 = 1",
                 "TRUE");
+    }
+
+    @Test
+    public void testConstantInPredicate() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        // for constant NOT IN PREDICATE
+        String sql = "select 1 not in (1, 2);";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("FALSE"));
+
+        sql = "select 1 not in (2, 3);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("TRUE"));
+
+        sql = "select 1 not in (2, null);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+
+        sql = "select 1 not in (1, 2, null);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("FALSE"));
+
+        sql = "select null not in (1, 2);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+
+        sql = "select null not in (null);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+
+        // for constant IN PREDICATE
+        sql = "select 1 in (1, 2);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("TRUE"));
+
+        sql = "select 1 in (2, 3);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("FALSE"));
+
+        sql = "select 1 in (1, 2, NULL);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("TRUE"));
+
+        sql = "select 1 in (2, NULL);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+
+        sql = "select null in (2);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
+
+        sql = "select null in (null);";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql);
+        Assert.assertTrue(explainString.contains("NULL"));
     }
 }

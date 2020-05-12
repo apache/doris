@@ -46,6 +46,7 @@ import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -65,7 +66,6 @@ public class FileSystemManager {
     private static final String HDFS_SCHEME = "hdfs";
     private static final String S3A_SCHEME = "s3a";
 
-    private static final String HDFS_UGI_CONF = "hadoop.job.ugi";
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
     private static final String AUTHENTICATION_SIMPLE = "simple";
@@ -84,11 +84,16 @@ public class FileSystemManager {
     private static final String DEFAULT_DFS_CLIENT_FAILOVER_PROXY_PROVIDER =
             "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider";
     private static final String FS_DEFAULTFS_KEY = "fs.defaultFS";
+    // If this property is not set to "true", FileSystem instance will be returned from cache
+    // which is not thread-safe and may cause 'Filesystem closed' exception when it is closed by other thread.
+    private static final String FS_HDFS_IMPL_DISABLE_CACHE = "fs.hdfs.impl.disable.cache";
 
     // arguments for s3a
     private static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
     private static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
     private static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
+    // This property is used like 'fs.hdfs.impl.disable.cache'
+    private static final String FS_S3A_IMPL_DISABLE_CACHE = "fs.s3a.impl.disable.cache";
 
     private ScheduledExecutorService handleManagementPool = Executors.newScheduledThreadPool(2);
     
@@ -241,9 +246,7 @@ public class FileSystemManager {
                 // TODO get this param from properties
                 // conf.set("dfs.replication", "2");
                 String tmpFilePath = null;
-                if (authentication.equals(AUTHENTICATION_SIMPLE)) {
-                    conf.set(HDFS_UGI_CONF, hdfsUgi);
-                } else if (authentication.equals(AUTHENTICATION_KERBEROS)){
+                if (authentication.equals(AUTHENTICATION_KERBEROS)){
                     conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
                             AUTHENTICATION_KERBEROS);
 
@@ -282,9 +285,6 @@ public class FileSystemManager {
                                     e.getMessage());
                         }
                     }
-                } else {
-                    throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                            "invalid authentication.");
                 }
                 if (!Strings.isNullOrEmpty(dfsNameServices)) {
                     // ha hdfs arguments
@@ -332,7 +332,21 @@ public class FileSystemManager {
                     }
                 }
 
-                FileSystem dfsFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                conf.set(FS_HDFS_IMPL_DISABLE_CACHE, "true");
+                FileSystem dfsFileSystem = null;
+                if (authentication.equals(AUTHENTICATION_SIMPLE) &&
+                    properties.containsKey(USER_NAME_KEY)) {
+                    // Use the specified 'username' as the login name
+                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(username);
+                    dfsFileSystem = ugi.doAs(new PrivilegedExceptionAction<FileSystem>() {
+                        @Override
+                        public FileSystem run() throws Exception {
+                            return FileSystem.get(pathUri.getUri(), conf);
+                        }
+                    });
+                } else {
+                    dfsFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                }
                 fileSystem.setFileSystem(dfsFileSystem);
             }
             return fileSystem;
@@ -383,6 +397,7 @@ public class FileSystemManager {
                 conf.set(FS_S3A_ACCESS_KEY, accessKey);
                 conf.set(FS_S3A_SECRET_KEY, secretKey);
                 conf.set(FS_S3A_ENDPOINT, endpoint);
+                conf.set(FS_S3A_IMPL_DISABLE_CACHE, "true");
                 FileSystem s3AFileSystem = FileSystem.get(pathUri.getUri(), conf);
                 fileSystem.setFileSystem(s3AFileSystem);
             }

@@ -62,6 +62,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
 
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -75,7 +76,7 @@ public class OlapTableSink extends DataSink {
     // input variables
     private OlapTable dstTable;
     private TupleDescriptor tupleDescriptor;
-    // specified partition ids. empty means partition does not specified, so all partitions will be included.
+    // specified partition ids. this list should not be empty and should contains all related partition ids
     private List<Long> partitionIds;
 
     // set after init called
@@ -84,10 +85,8 @@ public class OlapTableSink extends DataSink {
     public OlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds) {
         this.dstTable = dstTable;
         this.tupleDescriptor = tupleDescriptor;
+        Preconditions.checkState(!CollectionUtils.isEmpty(partitionIds));
         this.partitionIds = partitionIds;
-        if (this.partitionIds == null) {
-            this.partitionIds = Lists.newArrayList();
-        }
     }
 
     public void init(TUniqueId loadId, long txnId, long dbId, long loadChannelTimeoutS) throws AnalysisException {
@@ -99,11 +98,6 @@ public class OlapTableSink extends DataSink {
         tDataSink = new TDataSink(TDataSinkType.DATA_SPLIT_SINK);
         tDataSink.setType(TDataSinkType.OLAP_TABLE_SINK);
         tDataSink.setOlap_table_sink(tSink);
-
-        // check partition
-        if (!partitionIds.isEmpty() && dstTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_PARTITION_CLAUSE_NO_ALLOWED);
-        }
 
         for (Long partitionId : partitionIds) {
             Partition part = dstTable.getPartition(partitionId);
@@ -118,7 +112,7 @@ public class OlapTableSink extends DataSink {
     }
 
     // must called after tupleDescriptor is computed
-    public void finalize() throws UserException {
+    public void complete() throws UserException {
         TOlapTableSink tSink = tDataSink.getOlap_table_sink();
 
         tSink.setTable_id(dstTable.getId());
@@ -222,10 +216,9 @@ public class OlapTableSink extends DataSink {
 
                 int partColNum = rangePartitionInfo.getPartitionColumns().size();
                 DistributionInfo selectedDistInfo = null;
-                for (Partition partition : table.getAllPartitions()) {
-                    if (!partitionIds.isEmpty() && !partitionIds.contains(partition.getId())) {
-                        continue;
-                    }
+
+                for (Long partitionId : partitionIds) {
+                    Partition partition = table.getPartition(partitionId);
                     TOlapTablePartition tPartition = new TOlapTablePartition();
                     tPartition.setId(partition.getId());
                     Range<PartitionKey> range = rangePartitionInfo.getRange(partition.getId());
@@ -293,11 +286,8 @@ public class OlapTableSink extends DataSink {
         TOlapTableLocationParam locationParam = new TOlapTableLocationParam();
         // BE id -> path hash
         Multimap<Long, Long> allBePathsMap = HashMultimap.create();
-        for (Partition partition : table.getAllPartitions()) {
-            if (!partitionIds.isEmpty() && !partitionIds.contains(partition.getId())) {
-                continue;
-            }
-
+        for (Long partitionId : partitionIds) {
+            Partition partition = table.getPartition(partitionId);
             int quorum = table.getPartitionInfo().getReplicationNum(partition.getId()) / 2 + 1;            
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 // we should ensure the replica backend is alive

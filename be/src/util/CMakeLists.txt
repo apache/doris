@@ -87,7 +87,6 @@ set(UTIL_FILES
   utf8_check.cpp
   cgroup_util.cpp
   path_util.cpp
-  file_manager.cpp
   file_cache.cpp
   monotime.cpp
   mutex.cpp

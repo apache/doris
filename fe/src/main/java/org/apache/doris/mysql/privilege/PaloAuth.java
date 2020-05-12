@@ -851,10 +851,10 @@ public class PaloAuth implements Writable {
         }
     }
 
-    public void getDomainMap(Map<String, Set<String>> domainMap) {
+    public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {
-            propertyMgr.getDomainMap(domainMap);
+            propertyMgr.getAllDomains(allDomains);
         } finally {
             readUnlock();
         }

@@ -26,7 +26,7 @@ namespace fs_util {
 
 // Each BlockManager type may have different params, so we provide a separate
 // method for each type(instead of a factory method which require same params)
-BlockManager* file_block_mgr(Env* env, BlockManagerOptions opts);
+BlockManager* block_manager();
 
 // For UnitTest.
 BlockManager* block_mgr_for_ut();

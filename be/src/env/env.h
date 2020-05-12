@@ -21,9 +21,9 @@ class RandomAccessFile;
 class RandomRWFile;
 class WritableFile;
 class SequentialFile;
-class WritableFileOptions;
-class RandomAccessFileOptions;
-class RandomRWFileOptions;
+struct WritableFileOptions;
+struct RandomAccessFileOptions;
+struct RandomRWFileOptions;
 
 class Env {
 public:

@@ -104,6 +104,17 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
         } \
     } while (false)
 
+#define RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col, type) \
+    do { \
+        if (!col.IsNumber()) { \
+            std::stringstream ss; \
+            ss << "Expected value of type: " \
+               << type_to_string(type) \
+               << "; but found type: " <<json_type_to_string(col.GetType()) \
+               << "; Document value is: " << json_value_to_string(col); \
+            return Status::RuntimeError(ss.str()); \
+        } \
+     } while (false)
 
 #define RETURN_ERROR_IF_PARSING_FAILED(result, col, type) \
     do { \
@@ -129,14 +140,13 @@ static const string ERROR_COL_DATA_IS_ARRAY = "Data source returned an array for
 
 template <typename T>
 static Status get_int_value(const rapidjson::Value &col, PrimitiveType type, void* slot, bool pure_doc_value) {
-
-
     if (col.IsNumber()) {
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col.GetInt() : col.GetInt64());
         return Status::OK();
     }
 
     if (pure_doc_value && col.IsArray()) {
+        RETURN_ERROR_IF_COL_IS_NOT_NUMBER(col[0], type);
         *reinterpret_cast<T*>(slot) = (T)(sizeof(T) < 8 ? col[0].GetInt() : col[0].GetInt64());
         return Status::OK();
     }
@@ -188,11 +198,12 @@ static Status get_float_value(const rapidjson::Value &col, PrimitiveType type, v
     return Status::OK();
 }
 
-ScrollParser::ScrollParser() :
+ScrollParser::ScrollParser(bool doc_value_mode) :
     _scroll_id(""),
     _total(0),
     _size(0),
-    _line_index(0) {
+    _line_index(0),
+    _doc_value_mode(doc_value_mode) {
 }
 
 ScrollParser::~ScrollParser() {
@@ -237,6 +248,16 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     }
 
     VLOG(1) << "es_scan_reader parse scroll result: " << scroll_result;
+    if (!outer_hits_node.HasMember(FIELD_INNER_HITS)) {
+        // this is caused by query some columns which are not exit, e.g.
+        // A Index has fields: k1,k2,k3. and we put some rows into this Index (some fields dose NOT contain any data)
+        // e.g. 
+        // put index/_doc/1 {"k2":"123"}
+        // put index/_doc/2 {"k3":"123}
+        // then we use sql `select k1 from table`
+        // what ES return is like this: {hits: {total:2}
+        return Status::OK();
+    }
     const rapidjson::Value &inner_hits_node = outer_hits_node[FIELD_INNER_HITS];
     if (!inner_hits_node.IsArray()) {
         LOG(WARNING) << "exception maybe happend on es cluster, reponse:" << scroll_result;
@@ -265,7 +286,32 @@ int ScrollParser::get_total() {
 Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, 
             Tuple* tuple, MemPool* tuple_pool, bool* line_eof, const std::map<std::string, std::string>& docvalue_context) {
     *line_eof = true;
+
     if (_size <= 0 || _line_index >= _size) {
+        // _source is fetched from ES
+        if (!_doc_value_mode) {
+            return Status::OK();
+        }
+        
+        // _fields(doc_value) is fetched from ES
+        if (_total <= 0 || _line_index >= _total) {
+            return Status::OK();
+        }
+       
+       
+        // here is operations for `enable_doc_value_scan`.
+        // This indicates that the fields does not exist(e.g. never assign values to these fields), but other fields have values.
+        // so, number of rows is >= 0, we need fill `NULL` to these fields that does not exist.
+        _line_index++;
+        tuple->init(tuple_desc->byte_size());
+        for (int i = 0; i < tuple_desc->slots().size(); ++i) {
+            const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
+            if (slot_desc->is_materialized()) {
+                tuple->set_null(slot_desc->null_indicator_offset());
+            }
+        }
+
+        *line_eof = false;
         return Status::OK();
     }
 

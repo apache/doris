@@ -22,6 +22,7 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.http.rest.BootstrapFinishAction;
@@ -53,11 +54,10 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicReference;
 
-/*
+/**
  * Heartbeat manager run as a daemon at a fix interval.
  * For now, it will send heartbeat to all Frontends, Backends and Brokers
  */
@@ -68,12 +68,13 @@ public class HeartbeatMgr extends MasterDaemon {
     private SystemInfoService nodeMgr;
     private HeartbeatFlags heartbeatFlags;
 
-    private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<TMasterInfo>();
+    private static volatile AtomicReference<TMasterInfo> masterInfo = new AtomicReference<>();
 
     public HeartbeatMgr(SystemInfoService nodeMgr) {
         super("heartbeat mgr", FeConstants.heartbeat_interval_second * 1000);
         this.nodeMgr = nodeMgr;
-        this.executor = Executors.newCachedThreadPool();
+        this.executor = ThreadPoolManager.newDaemonFixedThreadPool(Config.heartbeat_mgr_threads_num,
+                Config.heartbeat_mgr_blocking_queue_size, "heartbeat-mgr-pool");
         this.heartbeatFlags = new HeartbeatFlags();
     }
 
@@ -87,7 +88,7 @@ public class HeartbeatMgr extends MasterDaemon {
         masterInfo.set(tMasterInfo);
     }
 
-    /*
+    /**
      * At each round:
      * 1. send heartbeat to all nodes
      * 2. collect the heartbeat response from all nodes, and handle them
@@ -176,6 +177,9 @@ public class HeartbeatMgr extends MasterDaemon {
                     if (hbResponse.getStatus() != HbStatus.OK) {
                         // invalid all connections cached in ClientPool
                         ClientPool.backendPool.clearPool(new TNetworkAddress(be.getHost(), be.getBePort()));
+                        if (!isReplay) {
+                            Catalog.getCurrentCatalog().getGlobalTransactionMgr().abortTxnWhenCoordinateBeDown(be.getHost(), 100);
+                        }
                     }
                     return isChanged;
                 }
@@ -222,6 +226,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setBackend_ip(backend.getHost());
                 long flags = heartbeatFlags.getHeartbeatFlags();
                 copiedMasterInfo.setHeartbeat_flags(flags);
+                copiedMasterInfo.setBackend_id(backendId);
                 THeartbeatResult result = client.heartbeat(copiedMasterInfo);
 
                 ok = true;
@@ -293,7 +298,7 @@ public class HeartbeatMgr extends MasterDaemon {
                  */
                 JSONObject root = new JSONObject(result);
                 String status = root.getString("status");
-                if (!status.equals("OK")) {
+                if (!"OK".equals(status)) {
                     return new FrontendHbResponse(fe.getNodeName(), root.getString("msg"));
                 } else {
                     long replayedJournalId = root.getLong(BootstrapFinishAction.REPLAYED_JOURNAL_ID);

@@ -27,6 +27,7 @@ import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.analysis.CreateIndexClause;
 import org.apache.doris.analysis.DropColumnClause;
 import org.apache.doris.analysis.DropIndexClause;
+import org.apache.doris.analysis.IndexDef;
 import org.apache.doris.analysis.ModifyColumnClause;
 import org.apache.doris.analysis.ModifyTablePropertiesClause;
 import org.apache.doris.analysis.ReorderColumnsClause;
@@ -870,6 +871,7 @@ public class SchemaChangeHandler extends AlterHandler {
         
         // property 3: timeout
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
+
         TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
 
         // create job
@@ -943,7 +945,9 @@ public class SchemaChangeHandler extends AlterHandler {
             } else if (hasIndexChange) {
                 needAlter = true;
             } else if (storageFormat == TStorageFormat.V2) {
-                needAlter = true;
+                if (olapTable.getStorageFormat() != TStorageFormat.V2) {
+                    needAlter = true;
+                }
             }
 
             if (!needAlter) {
@@ -1081,6 +1085,7 @@ public class SchemaChangeHandler extends AlterHandler {
             long shadowIndexId = catalog.getNextId();
 
             // create SHADOW index for each partition
+            List<Tablet> addedTablets = Lists.newArrayList();
             for (Partition partition : olapTable.getPartitions()) {
                 long partitionId = partition.getId();
                 TStorageMedium medium = olapTable.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
@@ -1088,24 +1093,54 @@ public class SchemaChangeHandler extends AlterHandler {
                 MaterializedIndex shadowIndex = new MaterializedIndex(shadowIndexId, IndexState.SHADOW);
                 MaterializedIndex originIndex = partition.getIndex(originIndexId);
                 TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId, newSchemaHash, medium);
+                short replicationNum = olapTable.getPartitionInfo().getReplicationNum(partitionId);
                 for (Tablet originTablet : originIndex.getTablets()) {
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = catalog.getNextId();
 
                     Tablet shadowTablet = new Tablet(shadowTabletId);
                     shadowIndex.addTablet(shadowTablet, shadowTabletMeta);
+                    addedTablets.add(shadowTablet);
 
                     schemaChangeJob.addTabletIdMap(partitionId, shadowIndexId, shadowTabletId, originTabletId);
                     List<Replica> originReplicas = originTablet.getReplicas();
 
+                    int healthyReplicaNum = 0;
                     for (Replica originReplica : originReplicas) {
                         long shadowReplicaId = catalog.getNextId();
                         long backendId = originReplica.getBackendId();
-                        Preconditions.checkState(originReplica.getState() == ReplicaState.NORMAL);
+                        
+                        if (originReplica.getState() == Replica.ReplicaState.CLONE
+                                || originReplica.getState() == Replica.ReplicaState.DECOMMISSION
+                                || originReplica.getLastFailedVersion() > 0) {
+                            LOG.info("origin replica {} of tablet {} state is {}, and last failed version is {}, skip creating shadow replica",
+                                    originReplica.getId(), originReplica, originReplica.getState(), originReplica.getLastFailedVersion());
+                            continue;
+                        }
+                        Preconditions.checkState(originReplica.getState() == ReplicaState.NORMAL, originReplica.getState());
+                        // replica's init state is ALTER, so that tablet report process will ignore its report
                         Replica shadowReplica = new Replica(shadowReplicaId, backendId, ReplicaState.ALTER,
                                 Partition.PARTITION_INIT_VERSION, Partition.PARTITION_INIT_VERSION_HASH,
                                 newSchemaHash);
                         shadowTablet.addReplica(shadowReplica);
+                        healthyReplicaNum++;
+                    }
+
+                    if (healthyReplicaNum < replicationNum / 2 + 1) {
+                        /*
+                         * TODO(cmy): This is a bad design.
+                         * Because in the schema change job, we will only send tasks to the shadow replicas that have been created,
+                         * without checking whether the quorum of replica number are satisfied.
+                         * This will cause the job to fail until we find that the quorum of replica number
+                         * is not satisfied until the entire job is done.
+                         * So here we check the replica number strictly and do not allow to submit the job
+                         * if the quorum of replica number is not satisfied.
+                         */
+                        for (Tablet tablet : addedTablets) {
+                            Catalog.getCurrentInvertedIndex().deleteTablet(tablet.getId());
+                        }
+                        throw new DdlException(
+                                "tablet " + originTabletId + " has few healthy replica: " + healthyReplicaNum);
                     }
                 }
                 
@@ -1324,10 +1359,6 @@ public class SchemaChangeHandler extends AlterHandler {
     public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
             throws UserException {
 
-        if (olapTable.existTempPartitions()) {
-            throw new DdlException("Can not alter table when there are temp partitions in table");
-        }
-
         // index id -> index schema
         Map<Long, LinkedList<Column>> indexSchemaMap = new HashMap<>();
         for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema().entrySet()) {
@@ -1363,10 +1394,19 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else if (DynamicPartitionUtil.checkDynamicPartitionPropertiesExist(properties)) {
                     Catalog.getCurrentCatalog().modifyTableDynamicPartition(db, olapTable, properties);
                     return;
+                } else if (properties.containsKey("default." + PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+                    Preconditions.checkNotNull(properties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+                    Catalog.getCurrentCatalog().modifyTableDefaultReplicationNum(db, olapTable, properties);
+                    return;
                 } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
                     Catalog.getCurrentCatalog().modifyTableReplicationNum(db, olapTable, properties);
                     return;
                 }
+            }
+
+            // the following operations can not be done when there are temp partitions exist.
+            if (olapTable.existTempPartitions()) {
+                throw new DdlException("Can not alter table when there are temp partitions in table");
             }
 
             if (alterClause instanceof AddColumnClause) {
@@ -1388,9 +1428,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 // modify table properties
                 // do nothing, properties are already in propertyMap
             } else if (alterClause instanceof CreateIndexClause) {
-                processAddIndex((CreateIndexClause) alterClause, newIndexes);
+                processAddIndex((CreateIndexClause) alterClause, olapTable, newIndexes);
             } else if (alterClause instanceof DropIndexClause) {
-                processDropIndex((DropIndexClause) alterClause, newIndexes);
+                processDropIndex((DropIndexClause) alterClause, olapTable, newIndexes);
             } else {
                 Preconditions.checkState(false);
             }
@@ -1590,13 +1630,54 @@ public class SchemaChangeHandler extends AlterHandler {
         }
     }
 
-    private void processAddIndex(CreateIndexClause alterClause, List<Index> indexes) {
-        if (alterClause.getIndex() != null) {
-            indexes.add(alterClause.getIndex());
+    private void processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
+            throws UserException {
+        if (alterClause.getIndex() == null) {
+            return;
         }
+
+        List<Index> existedIndexes = olapTable.getIndexes();
+        IndexDef indexDef = alterClause.getIndexDef();
+        Set<String> newColset = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        newColset.addAll(indexDef.getColumns());
+        for (Index existedIdx : existedIndexes) {
+            if (existedIdx.getIndexName().equalsIgnoreCase(indexDef.getIndexName())) {
+                throw new DdlException("index `" + indexDef.getIndexName() + "` already exist.");
+            }
+            Set<String> existedIdxColSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            existedIdxColSet.addAll(existedIdx.getColumns());
+            if (newColset.equals(existedIdxColSet)) {
+                throw new DdlException(
+                        "index for columns (" + String.join(",", indexDef.getColumns()) + " ) already exist.");
+            }
+        }
+
+        for (String col : indexDef.getColumns()) {
+            Column column = olapTable.getColumn(col);
+            if (column != null) {
+                indexDef.checkColumn(column, olapTable.getKeysType());
+            } else {
+                throw new DdlException("BITMAP column does not exist in table. invalid column: " + col);
+            }
+        }
+
+        newIndexes.add(alterClause.getIndex());
     }
 
-    private void processDropIndex(DropIndexClause alterClause, List<Index> indexes) {
+    private void processDropIndex(DropIndexClause alterClause, OlapTable olapTable, List<Index> indexes) throws DdlException {
+        String indexName = alterClause.getIndexName();
+        List<Index> existedIndexes = olapTable.getIndexes();
+        Index found = null;
+        for (Index existedIdx : existedIndexes) {
+            if (existedIdx.getIndexName().equalsIgnoreCase(indexName)) {
+                found = existedIdx;
+                break;
+            }
+        }
+        if (found == null) {
+            throw new DdlException("index " + indexName + " does not exist");
+        }
+
         Iterator<Index> itr = indexes.iterator();
         while (itr.hasNext()) {
             Index idx  = itr.next();

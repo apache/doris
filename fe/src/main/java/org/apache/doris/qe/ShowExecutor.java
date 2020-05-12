@@ -47,6 +47,7 @@ import org.apache.doris.analysis.ShowLoadStmt;
 import org.apache.doris.analysis.ShowLoadWarningsStmt;
 import org.apache.doris.analysis.ShowMigrationsStmt;
 import org.apache.doris.analysis.ShowPartitionsStmt;
+import org.apache.doris.analysis.ShowPluginsStmt;
 import org.apache.doris.analysis.ShowProcStmt;
 import org.apache.doris.analysis.ShowProcesslistStmt;
 import org.apache.doris.analysis.ShowRepositoriesStmt;
@@ -107,6 +108,7 @@ import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.OrderByPair;
+import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
@@ -249,6 +251,8 @@ public class ShowExecutor {
             handleShowIndex();
         } else if (stmt instanceof ShowTransactionStmt) {
             handleShowTransaction();
+        } else if (stmt instanceof ShowPluginsStmt) {
+            handleShowPlugins();
         } else {
             handleEmtpy();
         }
@@ -1048,8 +1052,10 @@ public class ShowExecutor {
         }
         long dbId = db.getId();
 
+        DeleteHandler deleteHandler = catalog.getDeleteHandler();
         Load load = catalog.getLoadInstance();
-        List<List<Comparable>> deleteInfos = load.getDeleteInfosByDb(dbId, true);
+        List<List<Comparable>> deleteInfos = deleteHandler.getDeleteInfosByDb(dbId, true);
+        deleteInfos.addAll(load.getDeleteInfosByDb(dbId, true));
         List<List<String>> rows = Lists.newArrayList();
         for (List<Comparable> deleteInfo : deleteInfos) {
             List<String> oneInfo = new ArrayList<String>(deleteInfo.size());
@@ -1486,13 +1492,15 @@ public class ShowExecutor {
                             tableName,
                             String.valueOf(dynamicPartitionProperty.getEnable()),
                             dynamicPartitionProperty.getTimeUnit().toUpperCase(),
+                            String.valueOf(dynamicPartitionProperty.getStart()),
                             String.valueOf(dynamicPartitionProperty.getEnd()),
                             dynamicPartitionProperty.getPrefix(),
                             String.valueOf(dynamicPartitionProperty.getBuckets()),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),
-                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.MSG)));
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.CREATE_PARTITION_MSG),
+                            dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DROP_PARTITION_MSG)));
                 }
             } finally {
                 db.readUnlock();
@@ -1506,12 +1514,18 @@ public class ShowExecutor {
         ShowTransactionStmt showStmt = (ShowTransactionStmt) stmt;
         Database db = ctx.getCatalog().getDb(showStmt.getDbName());
         if (db == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName().toString());
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_DB_ERROR, showStmt.getDbName());
         }
 
         long txnId = showStmt.getTxnId();
         GlobalTransactionMgr transactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         resultSet = new ShowResultSet(showStmt.getMetaData(), transactionMgr.getSingleTranInfo(db.getId(), txnId));
+    }
+
+    private void handleShowPlugins() throws AnalysisException {
+        ShowPluginsStmt pluginsStmt = (ShowPluginsStmt) stmt;
+        List<List<String>> rows = Catalog.getCurrentPluginMgr().getPluginShowInfos();
+        resultSet = new ShowResultSet(pluginsStmt.getMetaData(), rows);
     }
 }
 

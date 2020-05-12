@@ -18,7 +18,6 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 
 #include "common/logging.h"
-#include "env/env.h" // for RandomAccessFile
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo
 #include "olap/rowset/segment_v2/page_handle.h" // for PageHandle
@@ -108,7 +107,7 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
                                PageHandle* handle, Slice* page_body, PageFooterPB* footer) {
     iter_opts.sanity_check();
     PageReadOptions opts;
-    opts.file = iter_opts.file;
+    opts.rblock = iter_opts.rblock;
     opts.page_pointer = pp;
     opts.codec = _compress_codec;
     opts.stats = iter_opts.stats;

@@ -70,6 +70,13 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8.2")
         message(FATAL_ERROR "Need GCC version at least 4.8.2")
     endif()
+
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER "7.3.0")
+        message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
+    else()
+        #   -Werror: compile warnings should be errors when using the toolchain compiler.
+        set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -Werror")
+    endif()
 elseif (NOT APPLE)
     message(FATAL_ERROR "Compiler should be GNU")
 endif()
@@ -231,6 +238,9 @@ set_target_properties(roaring PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib
 add_library(orc STATIC IMPORTED)
 set_target_properties(orc PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/liborc.a)
 
+add_library(cctz STATIC IMPORTED)
+set_target_properties(cctz PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libcctz.a)
+
 find_program(THRIFT_COMPILER thrift ${CMAKE_SOURCE_DIR}/bin)
 
 # Check if functions are supported in this platform. All flags will generated
@@ -278,14 +288,12 @@ endif()
 # For any gcc builds:
 #   -g: Enable symbols for profiler tools
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
-set(CXX_GCC_FLAGS "-g -Wno-unused-local-typedefs")
+set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 
 # For CMAKE_BUILD_TYPE=Debug
 #   -ggdb: Enable gdb debugging
 # Debug information is stored as dwarf2 to be as compatible as possible
-#   -Werror: compile warnings should be errors when using the toolchain compiler.
-# Only enable for debug builds because this is what we test in pre-commit tests.
-set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb -O0 -gdwarf-2")
+set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -ggdb -O0 -gdwarf-2")
 
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
@@ -300,7 +308,7 @@ SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=leak -DLEAK_SANITIZER")
 # Turn on sanitizer and debug symbols to get stack traces:
 SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -fsanitize=undefined")
 # Ignore a number of noisy errors with too many false positives:
-# TODO(zc): 
+# TODO(zc):
 # SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-sanitize=alignment,function,vptr,float-divide-by-zero,float-cast-overflow")
 # Don't enforce wrapped signed integer arithmetic so that the sanitizer actually sees
 # undefined wrapping:
@@ -338,7 +346,7 @@ message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 
 # Set include dirs
-include_directories( 
+include_directories(
     ${SRC_DIR}/
     ${TEST_DIR}/
     ${GENSRC_DIR}/
@@ -360,6 +368,7 @@ set(DORIS_LINK_LIBS
     Exec
     Exprs
     Gutil
+    Memory
     Olap
     Rowset
     OlapFs
@@ -371,6 +380,7 @@ set(DORIS_LINK_LIBS
     Webserver
     TestUtil
     Geo
+    Plugin
     ${WL_END_GROUP}
 )
 
@@ -411,6 +421,7 @@ set(DORIS_DEPENDENCIES
     arrow
     parquet
     orc
+    cctz
     ${WL_END_GROUP}
 )
 
@@ -460,7 +471,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
 )
 
 # Set libraries for test
-set (TEST_LINK_LIBS ${DORIS_LINK_LIBS} 
+set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
     gmock
     gtest
@@ -494,6 +505,7 @@ add_subdirectory(${SRC_DIR}/udf)
 add_subdirectory(${SRC_DIR}/tools)
 add_subdirectory(${SRC_DIR}/udf_samples)
 add_subdirectory(${SRC_DIR}/util)
+add_subdirectory(${SRC_DIR}/plugin)
 
 # Utility CMake function to make specifying tests and benchmarks less verbose
 FUNCTION(ADD_BE_TEST TEST_NAME)
@@ -512,6 +524,24 @@ FUNCTION(ADD_BE_TEST TEST_NAME)
     ADD_TEST(${TEST_FILE_NAME} "${BUILD_OUTPUT_ROOT_DIRECTORY}/${TEST_NAME}")
 ENDFUNCTION()
 
+FUNCTION(ADD_BE_PLUGIN PLUGIN_NAME)
+    set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
+
+    get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+    get_filename_component(PLUGIN_DIR_NAME ${PLUGIN_NAME} PATH)
+    get_filename_component(PLUGIN_FILE_NAME ${PLUGIN_NAME} NAME)
+
+    ADD_LIBRARY(${PLUGIN_FILE_NAME} SHARED ${PLUGIN_NAME}.cpp)
+
+    TARGET_LINK_LIBRARIES(${PLUGIN_FILE_NAME} ${DORIS_LINK_LIBS})
+    SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+    if (NOT "${PLUGIN_DIR_NAME}" STREQUAL "")
+        SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${BUILD_OUTPUT_ROOT_DIRECTORY}/${PLUGIN_DIR_NAME}")
+    endif ()
+
+ENDFUNCTION()
+
 if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/agent)
     add_subdirectory(${TEST_DIR}/common)
@@ -524,6 +554,8 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_subdirectory(${TEST_DIR}/runtime)
     add_subdirectory(${TEST_DIR}/udf)
     add_subdirectory(${TEST_DIR}/util)
+    add_subdirectory(${TEST_DIR}/plugin)
+    add_subdirectory(${TEST_DIR}/plugin/example)
 endif ()
 
 # Install be

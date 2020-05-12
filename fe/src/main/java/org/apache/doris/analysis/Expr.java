@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -1227,7 +1228,6 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Create an expression equivalent to 'this' but returning targetType;
      * possibly by inserting an implicit cast,
      * or by returning an altogether new expression
-     * or by returning 'this' with a modified return type'.
      *
      * @param targetType type to be cast to
      * @return cast expression, or converted literal,
@@ -1302,7 +1302,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     @Override
     public String toString() {
-        return Objects.toStringHelper(this.getClass()).add("id", id).add("type", type).add("sel",
+        return MoreObjects.toStringHelper(this.getClass()).add("id", id).add("type", type).add("sel",
           selectivity).add("#distinct", numDistinctValues).add("scale", outputScale).toString();
     }
 
@@ -1441,7 +1441,7 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Negates a boolean Expr.
      */
     public Expr negate() {
-        Preconditions.checkState(type == Type.BOOLEAN);
+        Preconditions.checkState(type.equals(Type.BOOLEAN));
         return new CompoundPredicate(CompoundPredicate.Operator.NOT, this, null);
     }
 
@@ -1458,8 +1458,21 @@ abstract public class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         List<Subquery> subqueries = Lists.newArrayList();
         collect(Subquery.class, subqueries);
-        Preconditions.checkState(subqueries.size() == 1);
+        Preconditions.checkState(subqueries.size() == 1,
+                "only support one subquery in " + this.toSql());
         return subqueries.get(0);
+    }
+
+    public boolean isCorrelatedPredicate(List<TupleId> tupleIdList) {
+        if (this instanceof SlotRef && !this.isBoundByTupleIds(tupleIdList)) {
+            return true;
+        }
+        for (Expr child : this.getChildren()) {
+            if (child.isCorrelatedPredicate(tupleIdList)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

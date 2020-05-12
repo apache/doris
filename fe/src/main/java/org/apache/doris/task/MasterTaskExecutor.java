@@ -25,24 +25,21 @@ import org.apache.logging.log4j.Logger;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Timer;
-import java.util.TimerTask;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class MasterTaskExecutor {
     private static final Logger LOG = LogManager.getLogger(MasterTaskExecutor.class);
 
-    private ExecutorService executor;
+    private ScheduledExecutorService executor;
     private Map<Long, Future<?>> runningTasks;
-    private Timer checkTimer;
 
     public MasterTaskExecutor(int threadNum) {
-        executor = Executors.newFixedThreadPool(threadNum);
+        executor = Executors.newScheduledThreadPool(threadNum);
         runningTasks = Maps.newHashMap();
-        checkTimer = new Timer("Master Task Check Timer", true);
-        checkTimer.scheduleAtFixedRate(new TaskChecker(), 0L, 1000L);
+        executor.scheduleAtFixedRate(new TaskChecker(), 0L, 1000L, TimeUnit.MILLISECONDS);
     }
     
     /**
@@ -74,7 +71,7 @@ public class MasterTaskExecutor {
         }
     }
     
-    private class TaskChecker extends TimerTask {
+    private class TaskChecker implements Runnable {
         @Override
         public void run() {
             try {

@@ -38,6 +38,9 @@ public:
         _exec_env._result_queue_mgr = result_queue_mgr;
     }
     virtual ~ExternalScanContextMgrTest() {
+        delete _exec_env._fragment_mgr;
+        delete _exec_env._thread_mgr;
+        delete _exec_env._result_queue_mgr;
     }
 
 protected:
@@ -107,8 +110,6 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    doris::config::scan_context_gc_interval_min = 1;
-    // doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();

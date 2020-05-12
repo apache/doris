@@ -17,6 +17,7 @@
 
 #include "exprs/string_functions.h"
 #include "util/logging.h"
+#include "testutil/function_utils.h"
 #include "exprs/anyval_util.h"
 #include <iostream>
 #include <string>
@@ -27,8 +28,19 @@ namespace doris {
 
 class StringFunctionsTest : public testing::Test {
 public:
-    StringFunctionsTest() {
+    StringFunctionsTest() = default;
+
+    void SetUp() {
+        utils = new FunctionUtils();
+        ctx = utils->get_fn_ctx();
     }
+    void TearDown() {
+        delete utils;
+    }
+
+private:
+    FunctionUtils* utils;
+    FunctionContext* ctx;
 };
 
 TEST_F(StringFunctionsTest, money_format_bigint) {
@@ -45,6 +57,7 @@ TEST_F(StringFunctionsTest, money_format_bigint) {
     result = StringFunctions::money_format(context, doris_udf::BigIntVal(9223372036854775807));
     expected = AnyValUtil::from_string_temp(context, std::string("9,223,372,036,854,775,807.00"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, money_format_large_int) {
@@ -61,6 +74,7 @@ TEST_F(StringFunctionsTest, money_format_large_int) {
     StringVal result = StringFunctions::money_format(context, doris_udf::LargeIntVal(value));
     StringVal expected = AnyValUtil::from_string_temp(context, std::string("170,141,183,460,469,231,731,687,303,715,884,105,727.00"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, money_format_double) {
@@ -81,6 +95,7 @@ TEST_F(StringFunctionsTest, money_format_double) {
     result = StringFunctions::money_format(context, doris_udf::DoubleVal(1234.454));
     expected = AnyValUtil::from_string_temp(context, std::string("1,234.45"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, money_format_decimal) {
@@ -101,6 +116,7 @@ TEST_F(StringFunctionsTest, money_format_decimal) {
     result = StringFunctions::money_format(context, value2);
     expected = AnyValUtil::from_string_temp(context, std::string("-7,407,407,406,790,123,456.72"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, money_format_decimal_v2) {
@@ -121,6 +137,7 @@ TEST_F(StringFunctionsTest, money_format_decimal_v2) {
     result = StringFunctions::money_format(context, value2);
     expected = AnyValUtil::from_string_temp(context, std::string("-740,740,740.72"));
     ASSERT_EQ(expected, result);
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, split_part) {
@@ -155,6 +172,7 @@ TEST_F(StringFunctionsTest, split_part) {
 
     ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
             StringFunctions::split_part(context, StringVal("abcdabda"), StringVal("a"), 4));
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, ends_with) {
@@ -188,6 +206,7 @@ TEST_F(StringFunctionsTest, ends_with) {
     ASSERT_EQ(nullRet, StringFunctions::ends_with(context, StringVal::null(), StringVal("hello")));
 
     ASSERT_EQ(nullRet, StringFunctions::ends_with(context, StringVal::null(), StringVal::null()));
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, starts_with) {
@@ -221,6 +240,7 @@ TEST_F(StringFunctionsTest, starts_with) {
     ASSERT_EQ(nullRet, StringFunctions::starts_with(context, StringVal::null(), StringVal("hello world")));
 
     ASSERT_EQ(nullRet, StringFunctions::starts_with(context, StringVal::null(), StringVal::null()));
+    delete context;
 }
 
 TEST_F(StringFunctionsTest, null_or_empty) {
@@ -241,11 +261,114 @@ TEST_F(StringFunctionsTest, null_or_empty) {
     ASSERT_EQ(falseRet, StringFunctions::null_or_empty(context, StringVal(".")));
 
     ASSERT_EQ(trueRet, StringFunctions::null_or_empty(context, StringVal::null()));
+    delete context;
+}
+
+TEST_F(StringFunctionsTest, substring) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("hello")),
+            StringFunctions::substring(context, StringVal("hello word"), 1, 5));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("word")),
+            StringFunctions::substring(context, StringVal("hello word"), 7, 4));
+
+    ASSERT_EQ(StringVal::null(),
+            StringFunctions::substring(context, StringVal::null(), 1, 0));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
+            StringFunctions::substring(context, StringVal("hello word"), 1, 0));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string(" word")),
+            StringFunctions::substring(context, StringVal("hello word"), -5, 5));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("hello word 你")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), 1, 12));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("好")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), 13, 1));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), 1, 0));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("rd 你好")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), -5, 5));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("h")),
+            StringFunctions::substring(context, StringVal("hello word 你好"), 1, 1));
+}
+
+TEST_F(StringFunctionsTest, reverse) {
+    FunctionUtils fu;
+    doris_udf::FunctionContext* context = fu.get_fn_ctx();
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("olleh")),
+            StringFunctions::reverse(context, StringVal("hello")));
+    ASSERT_EQ(StringVal::null(),
+            StringFunctions::reverse(context, StringVal::null()));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("")),
+            StringFunctions::reverse(context, StringVal("")));
+
+    ASSERT_EQ(AnyValUtil::from_string_temp(context,std::string("好你olleh")),
+            StringFunctions::reverse(context, StringVal("hello你好")));
+}
+
+TEST_F(StringFunctionsTest, length) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+
+    ASSERT_EQ(IntVal(5),
+            StringFunctions::length(context, StringVal("hello")));
+    ASSERT_EQ(IntVal(5),
+            StringFunctions::char_utf8_length(context, StringVal("hello")));
+    ASSERT_EQ(IntVal::null(),
+            StringFunctions::length(context, StringVal::null()));
+    ASSERT_EQ(IntVal::null(),
+            StringFunctions::char_utf8_length(context, StringVal::null()));
+
+    ASSERT_EQ(IntVal(0),
+            StringFunctions::length(context, StringVal("")));
+    ASSERT_EQ(IntVal(0),
+            StringFunctions::char_utf8_length(context, StringVal("")));
+
+    ASSERT_EQ(IntVal(11),
+            StringFunctions::length(context, StringVal("hello你好")));
+
+    ASSERT_EQ(IntVal(7),
+            StringFunctions::char_utf8_length(context, StringVal("hello你好")));
+}
+
+TEST_F(StringFunctionsTest, append_trailing_char_if_absent) {
+    ASSERT_EQ(StringVal("ac"), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("a"), StringVal("c")));
+
+    ASSERT_EQ(StringVal("c"), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("c"), StringVal("c")));
+
+    ASSERT_EQ(StringVal("123c"), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("123c"), StringVal("c")));
+
+    ASSERT_EQ(StringVal("c"), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal(""), StringVal("c")));
+
+    ASSERT_EQ(StringVal::null(), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal::null(), StringVal("c")));
+
+    ASSERT_EQ(StringVal::null(), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("a"), StringVal::null()));
+
+    ASSERT_EQ(StringVal::null(), StringFunctions::append_trailing_char_if_absent(ctx,
+            StringVal("a"), StringVal("abc")));
 }
 
 }
 
 int main(int argc, char** argv) {
+    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    if (!doris::config::init(conffile.c_str(), false)) {
+        fprintf(stderr, "error read config file. \n");
+        return -1;
+    }
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();
 }

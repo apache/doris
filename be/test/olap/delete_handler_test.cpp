@@ -32,8 +32,8 @@
 #include "olap/push_handler.h"
 #include "olap/utils.h"
 #include "olap/options.h"
-#include "util/logging.h"
 #include "util/file_utils.h"
+#include "util/logging.h"
 
 using namespace std;
 using namespace doris;
@@ -56,6 +56,8 @@ void set_up() {
     paths.emplace_back(config::storage_root_path, -1);
     config::min_file_descriptor_number = 1000;
     config::tablet_map_shard_size = 1;
+    config::txn_map_shard_size = 1;
+    config::txn_shard_size = 1;
 
     doris::EngineOptions options;
     options.store_paths = paths;

@@ -23,8 +23,8 @@
 #include "common/logging.h"
 #include "env/env.h"
 #include "gutil/strings/substitute.h"
-#include "olap/fs/fs_util.h"
 #include "olap/olap_define.h"
+#include "olap/fs/fs_util.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
@@ -180,8 +180,7 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer() {
                                               _num_segment);
     // TODO(lingbin): should use a more general way to get BlockManager object
     // and tablets with the same type should share one BlockManager object;
-    fs::BlockManager* block_mgr = ExecEnv::GetInstance()->storage_engine()->block_manager();
-
+    fs::BlockManager* block_mgr = fs::fs_util::block_manager();
     std::unique_ptr<fs::WritableBlock> wblock;
     fs::CreateBlockOptions opts({path});
     DCHECK(block_mgr != nullptr);
@@ -193,7 +192,6 @@ OLAPStatus BetaRowsetWriter::_create_segment_writer() {
 
     DCHECK(wblock != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
-    writer_options.whether_to_filter_value = _context.version.first == 0;
     _segment_writer.reset(new segment_v2::SegmentWriter(
             wblock.get(), _num_segment, _context.tablet_schema, writer_options));
     _wblocks.push_back(std::move(wblock));

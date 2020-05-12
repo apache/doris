@@ -70,7 +70,8 @@ public class RowBatch {
         }
     }
 
-    private int offsetInOneBatch = 0;
+    // offset for iterate the rowBatch
+    private int offsetInRowBatch = 0;
     private int rowCountInOneBatch = 0;
     private int readRowCount = 0;
     private List<Row> rowBatch = new ArrayList<>();
@@ -87,49 +88,39 @@ public class RowBatch {
                 new ByteArrayInputStream(nextResult.getRows()),
                 rootAllocator
                 );
+        this.offsetInRowBatch = 0;
         try {
             this.root = arrowStreamReader.getVectorSchemaRoot();
+            while (arrowStreamReader.loadNextBatch()) {
+                fieldVectors = root.getFieldVectors();
+                if (fieldVectors.size() != schema.size()) {
+                    logger.error("Schema size '{}' is not equal to arrow field size '{}'.",
+                            fieldVectors.size(), schema.size());
+                    throw new DorisException("Load Doris data failed, schema size of fetch data is wrong.");
+                }
+                if (fieldVectors.size() == 0 || root.getRowCount() == 0) {
+                    logger.debug("One batch in arrow has no data.");
+                    continue;
+                }
+                rowCountInOneBatch = root.getRowCount();
+                // init the rowBatch
+                for (int i = 0; i < rowCountInOneBatch; ++i) {
+                    rowBatch.add(new Row(fieldVectors.size()));
+                }
+                convertArrowToRowBatch();
+                readRowCount += root.getRowCount();
+            }
         } catch (Exception e) {
             logger.error("Read Doris Data failed because: ", e);
-            close();
             throw new DorisException(e.getMessage());
+        } finally {
+            close();
         }
     }
 
-    public boolean hasNext() throws DorisException {
-        if (offsetInOneBatch < rowCountInOneBatch) {
+    public boolean hasNext() {
+        if (offsetInRowBatch < readRowCount) {
             return true;
-        }
-        try {
-            try {
-                while (arrowStreamReader.loadNextBatch()) {
-                    fieldVectors = root.getFieldVectors();
-                    readRowCount += root.getRowCount();
-                    if (fieldVectors.size() != schema.size()) {
-                        logger.error("Schema size '{}' is not equal to arrow field size '{}'.",
-                                fieldVectors.size(), schema.size());
-                        throw new DorisException("Load Doris data failed, schema size of fetch data is wrong.");
-                    }
-                    if (fieldVectors.size() == 0 || root.getRowCount() == 0) {
-                        logger.debug("One batch in arrow has no data.");
-                        continue;
-                    }
-                    offsetInOneBatch = 0;
-                    rowCountInOneBatch = root.getRowCount();
-                    // init the rowBatch
-                    for (int i = 0; i < rowCountInOneBatch; ++i) {
-                        rowBatch.add(new Row(fieldVectors.size()));
-                    }
-                    convertArrowToRowBatch();
-                    return true;
-                }
-            } catch (IOException e) {
-                logger.error("Load arrow next batch failed.", e);
-                throw new DorisException("Cannot load arrow next batch fetching from Doris.");
-            }
-        } catch (Exception e) {
-            close();
-            throw e;
         }
         return false;
     }
@@ -141,7 +132,7 @@ public class RowBatch {
             logger.error(errMsg);
             throw new NoSuchElementException(errMsg);
         }
-        rowBatch.get(rowIndex).put(obj);
+        rowBatch.get(readRowCount + rowIndex).put(obj);
     }
 
     public void convertArrowToRowBatch() throws DorisException {
@@ -295,11 +286,11 @@ public class RowBatch {
 
     public List<Object> next() throws DorisException {
         if (!hasNext()) {
-            String errMsg = "Get row offset:" + offsetInOneBatch + " larger than row size: " + rowCountInOneBatch;
+            String errMsg = "Get row offset:" + offsetInRowBatch + " larger than row size: " + readRowCount;
             logger.error(errMsg);
             throw new NoSuchElementException(errMsg);
         }
-        return rowBatch.get(offsetInOneBatch++).getCols();
+        return rowBatch.get(offsetInRowBatch++).getCols();
     }
 
     private String typeMismatchMessage(final String sparkType, final Types.MinorType arrowType) {

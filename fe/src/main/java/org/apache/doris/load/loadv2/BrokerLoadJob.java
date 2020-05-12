@@ -54,6 +54,8 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -208,7 +210,8 @@ public class BrokerLoadJob extends LoadJob {
     public void beginTxn()
             throws LabelAlreadyUsedException, BeginTransactionException, AnalysisException, DuplicatedRequestException {
         transactionId = Catalog.getCurrentGlobalTransactionMgr()
-                .beginTransaction(dbId, label, null, "FE: " + FrontendOptions.getLocalHostAddress(),
+                .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
+                                  new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                                   TransactionState.LoadJobSourceType.BATCH_LOAD_JOB, id,
                                   timeoutSecond);
     }
@@ -389,7 +392,7 @@ public class BrokerLoadJob extends LoadJob {
                 // load id will be added to loadStatistic when executing this task
 
                 // save all related tables and rollups in transaction state
-                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId);
+                TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(dbId, transactionId);
                 if (txnState == null) {
                     throw new UserException("txn does not exist: " + transactionId);
                 }

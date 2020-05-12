@@ -26,14 +26,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Table.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.AuditLog;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
@@ -45,7 +46,9 @@ import org.apache.doris.load.MiniEtlTaskInfo;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
-import org.apache.doris.qe.AuditBuilder;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -101,6 +104,8 @@ import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -418,15 +423,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private void logMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
         String stmt = getMiniLoadStmt(request);
-        AuditBuilder auditBuilder = new AuditBuilder();
-        auditBuilder.put("client", request.user_ip + ":0");
-        auditBuilder.put("user", request.user);
-        auditBuilder.put("db", request.db);
-        auditBuilder.put("state", TStatusCode.OK);
-        auditBuilder.put("time", "0");
-        auditBuilder.put("stmt", stmt);
-
-        AuditLog.getQueryAudit().log(auditBuilder.toString());
+        AuditEvent auditEvent = new AuditEventBuilder().setEventType(EventType.AFTER_QUERY)
+                .setClientIp(request.user_ip + ":0")
+                .setUser(request.user)
+                .setDb(request.db)
+                .setState(TStatusCode.OK.name())
+                .setQueryTime(0)
+                .setStmt(stmt).build();
+        
+        Catalog.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent);
     }
 
     private String getMiniLoadStmt(TMiniLoadRequest request) throws UnknownHostException {
@@ -634,7 +639,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setTxnId(loadTxnBeginImpl(request, clientAddr));
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
-            LOG.info("deplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
+            LOG.info("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(), e.getTxnId());
             result.setTxnId(e.getTxnId());
         } catch (LabelAlreadyUsedException e) {
             status.setStatus_code(TStatusCode.LABEL_ALREADY_EXISTS);
@@ -678,10 +683,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
 
+        Table table = null;
+        db.readLock();
+        try {
+            table = db.getTable(request.tbl);
+            if (table == null || table.getType() != TableType.OLAP) {
+                throw new UserException("unknown table, table=" + request.tbl);
+            }
+        } finally {
+            db.readUnlock();
+        }
+
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
-                db.getId(), request.getLabel(), request.getRequest_id(), "BE: " + clientIp,
+                db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequest_id(),
+                new TxnCoordinator(TxnSourceType.BE, clientIp),
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
     }
 
@@ -784,8 +801,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(), request.getUser_ip(), PrivPredicate.LOAD);
         }
-
-        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(request.getTxnId(),
+        Database db = Catalog.getInstance().getDb(request.getDb());
+        if (db == null) {
+            throw new MetaNotFoundException("db " + request.getDb() + " does not exist");
+        }
+        long dbId = db.getId();
+        Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, request.getTxnId(),
                                                                   request.isSetReason() ? request.getReason() : "system cancel",
                                                                   TxnCommitAttachment.fromThrift(request.getTxnCommitAttachment()));
     }
@@ -846,7 +867,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
             // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(request.getTxnId());
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), request.getTxnId());
             if (txnState == null) {
                 throw new UserException("txn does not exist: " + request.getTxnId());
             }

@@ -342,7 +342,12 @@ public:
         }
 
         output->size = zstrm.total_out;
-
+        zres = deflateEnd(&zstrm);
+        if (zres != Z_OK) {
+            return Status::InvalidArgument(
+                    Substitute("Fail to do deflateEnd on ZLib stream, error=$0, res=$1",
+                               zError(zres), zres));
+        }
         return Status::OK();
     }
 

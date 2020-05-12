@@ -269,7 +269,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                             //Date columns record the number of days since the UNIX epoch (1/1/1970 in UTC).
                             int64_t timestamp = ((orc::LongVectorBatch*) cvb)->data[_current_line_of_group] * 24 * 60 * 60;
                             DateTimeValue dtv;
-                            if (!dtv.from_unixtime(timestamp, "00:00")) {
+                            if (!dtv.from_unixtime(timestamp, "UTC")) {
                                 std::stringstream str_error;
                                 str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
                                 LOG(WARNING) << str_error.str();
@@ -288,7 +288,7 @@ Status ORCScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof) {
                             //so the timestamp obtained here is an offset timestamp, so parse timestamp with UTC is actual datetime literal.
                             int64_t timestamp = ((orc::TimestampVectorBatch*) cvb)->data[_current_line_of_group];
                             DateTimeValue dtv;
-                            if (!dtv.from_unixtime(timestamp, "00:00")) {
+                            if (!dtv.from_unixtime(timestamp, "UTC")) {
                                 std::stringstream str_error;
                                 str_error << "Parse timestamp (" + std::to_string(timestamp) + ") error";
                                 LOG(WARNING) << str_error.str();

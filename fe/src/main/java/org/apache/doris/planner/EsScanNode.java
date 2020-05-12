@@ -32,6 +32,7 @@ import org.apache.doris.external.EsTableState;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TEsScanNode;
 import org.apache.doris.thrift.TEsScanRange;
+import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -123,8 +124,10 @@ public class EsScanNode extends ScanNode {
         if (table.isDocValueScanEnable()) {
             esScanNode.setDocvalue_context(table.docValueContext());
         }
+        if (table.isKeywordSniffEnable() && table.fieldsContext().size() > 0) {
+            esScanNode.setFields_context(table.fieldsContext());
+        }
         msg.es_scan_node = esScanNode;
-
     }
 
     // TODO(ygl) assign backend that belong to the same cluster
@@ -241,19 +244,49 @@ public class EsScanNode extends ScanNode {
         }
         PartitionPruner partitionPruner = null;
         switch (partitionInfo.getType()) {
-        case RANGE: {
-            RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
-                Map<Long, Range<PartitionKey>> keyRangeById = rangePartitionInfo.getIdToRange(false);
-            partitionPruner = new RangePartitionPruner(keyRangeById, rangePartitionInfo.getPartitionColumns(),
-                    columnFilters);
-            return partitionPruner.prune();
+            case RANGE: {
+                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) partitionInfo;
+                    Map<Long, Range<PartitionKey>> keyRangeById = rangePartitionInfo.getIdToRange(false);
+                partitionPruner = new RangePartitionPruner(keyRangeById, rangePartitionInfo.getPartitionColumns(),
+                        columnFilters);
+                return partitionPruner.prune();
+            }
+            case UNPARTITIONED: {
+                return null;
+            }
+            default: {
+                return null;
+            }
         }
-        case UNPARTITIONED: {
-            return null;
+    }
+
+    @Override
+    protected String getNodeExplainString(String prefix, TExplainLevel detailLevel) {
+        StringBuilder output = new StringBuilder();
+
+        output.append(prefix).append("TABLE: ").append(table.getName()).append("\n");
+
+        if (null != sortColumn) {
+            output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");
         }
-        default: {
-            return null;
+
+        if (!conjuncts.isEmpty()) {
+            output.append(prefix).append("PREDICATES: ").append(
+                    getExplainString(conjuncts)).append("\n");
+            // reserved for later using: LOCAL_PREDICATES is processed by Doris EsScanNode
+            output.append(prefix).append("LOCAL_PREDICATES: ").append(" ").append("\n");
+            // reserved for later using: REMOTE_PREDICATES is processed by remote ES Cluster
+            output.append(prefix).append("REMOTE_PREDICATES: ").append(" ").append("\n");
+            // reserved for later using: translate predicates to ES queryDSL
+            output.append(prefix).append("ES_QUERY_DSL: ").append(" ").append("\n");
+        } else {
+            output.append(prefix).append("ES_QUERY_DSL: ").append("{\"match_all\": {}}").append("\n");
         }
-        }
+        String indexName = table.getIndexName();
+        String typeName = table.getMappingType();
+        output.append(prefix)
+                .append(String.format("ES index/type: %s/%s", indexName, typeName))
+                .append("\n");
+        return output.toString();
     }
 }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.alter;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
@@ -291,7 +292,7 @@ public abstract class AlterJob implements Writable {
             return true;
         } else {
             isPreviousLoadFinished = Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(
-                    transactionId, dbId);
+                    transactionId, dbId, Lists.newArrayList(tableId));
             return isPreviousLoadFinished;
         }
     }

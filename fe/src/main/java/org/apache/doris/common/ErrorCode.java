@@ -210,7 +210,11 @@ public enum ErrorCode {
             "Table %s is not a colocated table"),
     ERR_INVALID_OPERATION(5065, new byte[] { '4', '2', '0', '0', '0' }, "Operation %s is invalid"),
     ERROR_DYNAMIC_PARTITION_TIME_UNIT(5065, new byte[] {'4', '2', '0', '0', '0'},
-            "Unsupported time unit %s. Expect DAY WEEK MONTH."),
+            "Unsupported time unit %s. Expect DAY/WEEK/MONTH."),
+    ERROR_DYNAMIC_PARTITION_START_ZERO(5066, new byte[] {'4', '2', '0', '0', '0'},
+            "Dynamic partition start must less than 0"),
+    ERROR_DYNAMIC_PARTITION_START_FORMAT(5066, new byte[] {'4', '2', '0', '0', '0'},
+            "Invalid dynamic partition start %s"),
     ERROR_DYNAMIC_PARTITION_END_ZERO(5066, new byte[] {'4', '2', '0', '0', '0'},
             "Dynamic partition end must greater than 0"),
     ERROR_DYNAMIC_PARTITION_END_FORMAT(5066, new byte[] {'4', '2', '0', '0', '0'},
@@ -226,7 +230,9 @@ public enum ErrorCode {
     ERROR_DYNAMIC_PARTITION_ENABLE(5068, new byte[] {'4', '2', '0', '0', '0'},
             "Invalid dynamic partition enable: %s. Expected true or false"),
     ERROR_DYNAMIC_PARTITION_PREFIX(5069, new byte[] {'4', '2', '0', '0', '0'},
-            "Invalid dynamic partition prefix: %s.");
+            "Invalid dynamic partition prefix: %s."),
+    ERR_OPERATION_DISABLED(5070, new byte[] {'4', '2', '0', '0', '0'},
+            "Operation %s is disabled. %s");
 
     ErrorCode(int code, byte[] sqlState, String errorMsg) {
         this.code = code;

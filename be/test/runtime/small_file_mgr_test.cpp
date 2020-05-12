@@ -30,7 +30,6 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "runtime/exec_env.h"
 
-
 int main(int argc, char* argv[]);
 
 namespace doris {

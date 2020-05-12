@@ -16,8 +16,8 @@
 // under the License.
 package org.apache.doris.mysql.nio;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.mysql.MysqlServer;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.logging.log4j.LogManager;
@@ -32,7 +32,6 @@ import org.xnio.channels.AcceptingChannel;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * mysql protocol implementation based on nio.
@@ -47,7 +46,7 @@ public class NMysqlServer extends MysqlServer {
     private AcceptingChannel<StreamConnection> server;
 
     // default task service.
-    private ExecutorService taskService = Executors.newCachedThreadPool((new ThreadFactoryBuilder().setDaemon(false).setNameFormat("doris-mysql-nio TASK").build()));
+    private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_mysql_service_task_threads_num, "doris-mysql-nio-pool");
 
     public NMysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;

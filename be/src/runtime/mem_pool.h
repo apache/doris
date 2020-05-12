@@ -25,6 +25,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "gutil/dynamic_annotations.h"
 #include "util/bit_util.h"

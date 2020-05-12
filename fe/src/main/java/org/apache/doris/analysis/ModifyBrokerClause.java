@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.system.SystemInfoService;
@@ -24,6 +25,7 @@ import org.apache.doris.system.SystemInfoService;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
+
 import org.apache.commons.lang.NotImplementedException;
 
 import java.util.List;
@@ -44,6 +46,7 @@ public class ModifyBrokerClause extends AlterClause {
     protected Set<Pair<String, Integer>> hostPortPairs;
 
     public ModifyBrokerClause(ModifyOp op, String brokerName, List<String> hostPorts) {
+        super(AlterOpType.ALTER_OTHER);
         this.op = op;
         this.brokerName = brokerName;
         this.hostPorts = hostPorts;

@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -137,11 +138,12 @@ public class LoadManager implements Writable{
             cluster = request.getCluster();
         }
         Database database = checkDb(ClusterNamespace.getFullName(cluster, request.getDb()));
+        Table table = database.getTable(request.tbl);
         checkTable(database, request.getTbl());
         LoadJob loadJob = null;
         writeLock();
         try {
-            loadJob = new MiniLoadJob(database.getId(), request);
+            loadJob = new MiniLoadJob(database.getId(), table.getId(), request);
             // call unprotectedExecute before adding load job. so that if job is not started ok, no need to add.
             // NOTICE(cmy): this order is only for Mini Load, because mini load's unprotectedExecute() only do beginTxn().
             // for other kind of load job, execute the job after adding job.
@@ -580,17 +582,19 @@ public class LoadManager implements Writable{
         return false;
     }
 
-    public void initJobScannedRows(Long jobId, TUniqueId loadId, Set<TUniqueId> fragmentIds) {
+    public void initJobProgress(Long jobId, TUniqueId loadId, Set<TUniqueId> fragmentIds,
+            List<Long> relatedBackendIds) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
-            job.initScannedRows(loadId, fragmentIds);
+            job.initLoadProgress(loadId, fragmentIds, relatedBackendIds);
         }
     }
 
-    public void updateJobScannedRows(Long jobId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows) {
+    public void updateJobPrgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId,
+            long scannedRows, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
-            job.updateScannedRows(loadId, fragmentId, scannedRows);
+            job.updateProgess(beId, loadId, fragmentId, scannedRows, isDone);
         }
     }
 
@@ -611,7 +615,7 @@ public class LoadManager implements Writable{
             if (job.getState() == JobState.LOADING) {
                 // unfortunately, transaction id in load job is also not persisted, so we have to traverse
                 // all transactions to find it.
-                TransactionState txn = txnMgr.getTransactionStateByCallbackIdAndStatus(job.getCallbackId(),
+                TransactionState txn = txnMgr.getTransactionStateByCallbackIdAndStatus(job.getDbId(), job.getCallbackId(),
                         Sets.newHashSet(TransactionStatus.COMMITTED));
                 if (txn != null) {
                     job.updateState(JobState.COMMITTED);
@@ -639,7 +643,7 @@ public class LoadManager implements Writable{
              */
             if (job.getState() == JobState.LOADING || job.getState() == JobState.PENDING) {
                 JobState prevState = job.getState();
-                TransactionState txn = txnMgr.getTransactionStateByCallbackId(job.getCallbackId());
+                TransactionState txn = txnMgr.getTransactionStateByCallbackId(job.getDbId(), job.getCallbackId());
                 if (txn != null) {
                     // the txn has already been committed or visible, change job's state to committed or finished
                     if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {

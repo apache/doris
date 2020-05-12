@@ -31,6 +31,7 @@ ColumnWriter* ColumnWriter::create(uint32_t column_id,
     const TabletColumn& column = schema.column(column_id);
 
     switch (column.type()) {
+    case OLAP_FIELD_TYPE_BOOL:
     case OLAP_FIELD_TYPE_TINYINT:
     case OLAP_FIELD_TYPE_UNSIGNED_TINYINT: {
         column_writer = new(std::nothrow) ByteColumnWriter(column_id,
@@ -695,7 +696,7 @@ OLAPStatus VarStringColumnWriter::_finalize_direct_encoding() {
 
 OLAPStatus VarStringColumnWriter::finalize(ColumnDataHeaderMessage* header) {
     OLAPStatus res = OLAP_SUCCESS;
-    uint64_t ratio_threshold = config::column_dictionary_key_ration_threshold;
+    uint64_t ratio_threshold = config::column_dictionary_key_ratio_threshold;
     uint64_t size_threshold = config::column_dictionary_key_size_threshold;
 
     // the dictionary condition:1 key size < size threshold; 2 key ratio < ratio threshold

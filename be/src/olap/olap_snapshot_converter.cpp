@@ -89,7 +89,7 @@ OLAPStatus OlapSnapshotConverter::to_olap_header(const TabletMetaPB& tablet_meta
         olap_header->set_schema_hash(tablet_meta_pb.schema_hash());
     }
     if (tablet_meta_pb.has_shard_id()) {
-        olap_header->set_shard(tablet_meta_pb.shard_id());
+        olap_header->set_shard_id(tablet_meta_pb.shard_id());
     }
     return OLAP_SUCCESS;
 }
@@ -102,8 +102,8 @@ OLAPStatus OlapSnapshotConverter::to_tablet_meta_pb(const OLAPHeaderMessage& ola
     if (olap_header.has_schema_hash()) {
         tablet_meta_pb->set_schema_hash(olap_header.schema_hash());
     }
-    if (olap_header.has_shard()) {
-        tablet_meta_pb->set_shard_id(olap_header.shard());
+    if (olap_header.has_shard_id()) {
+        tablet_meta_pb->set_shard_id(olap_header.shard_id());
     }
     tablet_meta_pb->set_creation_time(olap_header.creation_time());
     tablet_meta_pb->set_cumulative_layer_point(-1);

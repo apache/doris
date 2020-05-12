@@ -222,6 +222,18 @@ struct TEsScanNode {
     // {"city": "city.raw"}
     // use select city from table, if enable the docvalue, we will fetch the `city` field value from `city.raw`
     3: optional map<string, string> docvalue_context
+    // used to indicate which string-type field predicate should used xxx.keyword etc.
+    // "k1": {
+    //    "type": "text",
+    //    "fields": {
+    //        "keyword": {
+    //            "type": "keyword",
+    //            "ignore_above": 256
+    //           }
+    //    }
+    // }
+    // k1 > 'abc' -> k1.keyword > 'abc'
+    4: optional map<string, string> fields_context
 }
 
 struct TMiniLoadEtlFunction {
@@ -608,9 +620,19 @@ struct TBackendResourceProfile {
 4: optional i64 max_row_buffer_size = 4194304  //TODO chenhao
 }
 
+enum TAssertion {
+  EQ, // val1 == val2
+  NE, // val1 != val2
+  LT, // val1 < val2
+  LE, // val1 <= val2
+  GT, // val1 > val2
+  GE // val1 >= val2
+}
+
 struct TAssertNumRowsNode {
     1: optional i64 desired_num_rows;
     2: optional string subquery_string;
+    3: optional TAssertion assertion;
 }
 
 // This is essentially a union of all messages corresponding to subclasses

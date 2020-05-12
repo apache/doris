@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database.DbState;
 import org.apache.doris.common.FeMetaVersion;
@@ -34,6 +35,7 @@ public class DatabaseInfo implements Writable {
     private long quota;
     private String clusterName;
     private DbState dbState;
+    private QuotaType quotaType;
 
     public DatabaseInfo() {
         // for persist
@@ -42,14 +44,16 @@ public class DatabaseInfo implements Writable {
         this.quota = 0;
         this.clusterName = "";
         this.dbState = DbState.NORMAL;
+        this.quotaType = QuotaType.DATA;
     }
 
-    public DatabaseInfo(String dbName, String newDbName, long quota) {
+    public DatabaseInfo(String dbName, String newDbName, long quota, QuotaType quotaType) {
         this.dbName = dbName;
         this.newDbName = newDbName;
         this.quota = quota;
         this.clusterName = "";
         this.dbState = DbState.NORMAL;
+        this.quotaType = quotaType;
     }
 
     public String getDbName() {
@@ -77,6 +81,7 @@ public class DatabaseInfo implements Writable {
         out.writeLong(quota);
         Text.writeString(out, this.clusterName);
         Text.writeString(out, this.dbState.name());
+        Text.writeString(out, this.quotaType.name());
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -88,6 +93,9 @@ public class DatabaseInfo implements Writable {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_30) {
             this.clusterName = Text.readString(in);
             this.dbState = DbState.valueOf(Text.readString(in));
+        }
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_81) {
+            this.quotaType = QuotaType.valueOf(Text.readString(in));
         }
     }
 
@@ -103,8 +111,8 @@ public class DatabaseInfo implements Writable {
         return dbState;
     }
 
-    public void setDbState(DbState dbState) {
-        this.dbState = dbState;
+    public QuotaType getQuotaType() {
+        return quotaType;
     }
 
 }

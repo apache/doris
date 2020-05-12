@@ -24,22 +24,24 @@
 namespace doris {
 
 class UniqueRowsetIdGenerator : public RowsetIdGenerator {
-public:    
+public:
     UniqueRowsetIdGenerator(const UniqueId& backend_uid);
     ~UniqueRowsetIdGenerator() {}
 
     RowsetId next_id() override;
 
-    bool id_in_use(const RowsetId& rowset_id) override;
+    bool id_in_use(const RowsetId& rowset_id) const override;
 
     void release_id(const RowsetId& rowset_id) override;
 
 private:
-    SpinLock _lock;
-    UniqueId _backend_uid;
+    mutable SpinLock _lock;
+    const UniqueId _backend_uid;
     const int64_t _version = 2; // modify it when create new version id generator
-    int64_t _inc_id = 0;
-    std::set<RowsetId> _valid_rowset_ids; 
-}; // FeBasedRowsetIdGenerator
+    std::atomic<int64_t> _inc_id;
+    std::unordered_set<int64_t> _valid_rowset_id_hi;
+
+    DISALLOW_COPY_AND_ASSIGN(UniqueRowsetIdGenerator);
+}; // UniqueRowsetIdGenerator
 
 } // namespace doris

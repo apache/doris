@@ -21,15 +21,12 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.utframe.DorisAssert;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import org.apache.commons.io.FileUtils;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
-import java.io.File;
-import java.io.IOException;
 import java.util.UUID;
 
 public class MaterializedViewFunctionTest {
@@ -45,6 +42,7 @@ public class MaterializedViewFunctionTest {
     private static final String DEPTS_MV_NAME = "depts_mv";
     private static final String QUERY_USE_DEPTS_MV = "rollup: " + DEPTS_MV_NAME;
     private static final String QUERY_USE_DEPTS = "rollup: " + DEPTS_TABLE_NAME;
+    private static final String TEST_TABLE_NAME = "test_tb";
     private static DorisAssert dorisAssert;
 
     @BeforeClass
@@ -583,5 +581,47 @@ public class MaterializedViewFunctionTest {
                 + "properties ('replication_num' = '1');";
         String query = "select k1, k2 from agg_table;";
         dorisAssert.withRollup(createRollupSQL).query(query).explainContains("OFF", "old_key");
+    }
+
+    @Test
+    public void testAggFunctionInHaving() throws Exception {
+        String duplicateTable = "CREATE TABLE " + TEST_TABLE_NAME + " ( k1 int(11) NOT NULL ,  k2  int(11) NOT NULL ,"
+                + "v1  varchar(4096) NOT NULL, v2  float NOT NULL , v3  decimal(20, 7) NOT NULL ) ENGINE=OLAP "
+                + "DUPLICATE KEY( k1 ,  k2 ) DISTRIBUTED BY HASH( k1 ,  k2 ) BUCKETS 3 "
+                + "PROPERTIES ('replication_num' = '1'); ";
+        dorisAssert.withTable(duplicateTable);
+        String createK1K2MV = "create materialized view k1_k2 as select k1,k2 from " + TEST_TABLE_NAME + " group by "
+                + "k1,k2;";
+        String query = "select k1 from " + TEST_TABLE_NAME + " group by k1 having max(v1) > 10;";
+        dorisAssert.withMaterializedView(createK1K2MV).query(query).explainWithout("k1_k2");
+        dorisAssert.dropTable(TEST_TABLE_NAME);
+    }
+
+    @Test
+    public void testAggFunctionInOrder() throws Exception {
+        String duplicateTable = "CREATE TABLE " + TEST_TABLE_NAME + " ( k1 int(11) NOT NULL ,  k2  int(11) NOT NULL ,"
+                + "v1  varchar(4096) NOT NULL, v2  float NOT NULL , v3  decimal(20, 7) NOT NULL ) ENGINE=OLAP "
+                + "DUPLICATE KEY( k1 ,  k2 ) DISTRIBUTED BY HASH( k1 ,  k2 ) BUCKETS 3 "
+                + "PROPERTIES ('replication_num' = '1'); ";
+        dorisAssert.withTable(duplicateTable);
+        String createK1K2MV = "create materialized view k1_k2 as select k1,k2 from " + TEST_TABLE_NAME + " group by "
+                + "k1,k2;";
+        String query = "select k1 from " + TEST_TABLE_NAME + " group by k1 order by max(v1);";
+        dorisAssert.withMaterializedView(createK1K2MV).query(query).explainWithout("k1_k2");
+        dorisAssert.dropTable(TEST_TABLE_NAME);
+    }
+
+    @Test
+    public void testWindowsFunctionInQuery() throws Exception {
+        String duplicateTable = "CREATE TABLE " + TEST_TABLE_NAME + " ( k1 int(11) NOT NULL ,  k2  int(11) NOT NULL ,"
+                + "v1  varchar(4096) NOT NULL, v2  float NOT NULL , v3  decimal(20, 7) NOT NULL ) ENGINE=OLAP "
+                + "DUPLICATE KEY( k1 ,  k2 ) DISTRIBUTED BY HASH( k1 ,  k2 ) BUCKETS 3 "
+                + "PROPERTIES ('replication_num' = '1'); ";
+        dorisAssert.withTable(duplicateTable);
+        String createK1K2MV = "create materialized view k1_k2 as select k1,k2 from " + TEST_TABLE_NAME + " group by "
+                + "k1,k2;";
+        String query = "select k1 , sum(k2) over (partition by v1 ) from " + TEST_TABLE_NAME + ";";
+        dorisAssert.withMaterializedView(createK1K2MV).query(query).explainWithout("k1_k2");
+        dorisAssert.dropTable(TEST_TABLE_NAME);
     }
 }

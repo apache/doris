@@ -28,6 +28,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.RangeUtils;
+import org.apache.doris.persist.ColocatePersistInfo;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -151,6 +152,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 Catalog.getInstance().getSchemaChangeHandler().removeDbAlterJob(db.getId());
                 Catalog.getInstance().getRollupHandler().removeDbAlterJob(db.getId());
 
+                // remove database transaction manager
+                Catalog.getInstance().getGlobalTransactionMgr().removeDatabaseTransactionMgr(db.getId());
+
                 // log
                 Catalog.getInstance().getEditLog().logEraseDb(entry.getKey());
                 LOG.info("erase db[{}]", entry.getKey());
@@ -183,6 +187,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         Catalog.getInstance().getSchemaChangeHandler().removeDbAlterJob(dbId);
         Catalog.getInstance().getRollupHandler().removeDbAlterJob(dbId);
 
+        // remove database transaction manager
+        Catalog.getInstance().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
         LOG.info("replay erase db[{}]", dbId);
     }
 
@@ -243,7 +249,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         AgentTaskExecutor.submit(batchTask);
 
         // colocation
-        Catalog.getCurrentColocateIndex().removeTable(olapTable.getId());
+        if (Catalog.getCurrentColocateIndex().removeTable(olapTable.getId())) {
+            Catalog.getCurrentCatalog().getEditLog().logColocateRemoveTable(
+                    ColocatePersistInfo.createForRemoveTable(olapTable.getId()));
+        }
     }
 
     private synchronized void eraseTableWithSameName(long dbId, String tableName) {

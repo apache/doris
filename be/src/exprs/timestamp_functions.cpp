@@ -523,7 +523,7 @@ DateTimeVal TimestampFunctions::timestamp(
 // FROM_UNIXTIME()
 StringVal TimestampFunctions::from_unix(
         FunctionContext* context, const IntVal& unix_time) {
-    if (unix_time.is_null) {
+    if (unix_time.is_null || unix_time.val < 0 || unix_time.val > INT_MAX) {
         return StringVal::null();
     }
     DateTimeValue dtv;
@@ -538,7 +538,7 @@ StringVal TimestampFunctions::from_unix(
 // FROM_UNIXTIME()
 StringVal TimestampFunctions::from_unix(
             FunctionContext* context, const IntVal& unix_time, const StringVal& fmt) {
-    if (unix_time.is_null || fmt.is_null) {
+    if (unix_time.is_null || fmt.is_null || unix_time.val < 0 || unix_time.val > INT_MAX) {
         return StringVal::null();
     }
     DateTimeValue dtv;
@@ -562,6 +562,20 @@ IntVal TimestampFunctions::to_unix(FunctionContext* context) {
 
 // UNIX_TIMESTAMP()
 IntVal TimestampFunctions::to_unix(
+            FunctionContext* context, const DateTimeValue& ts_value) {
+    int64_t timestamp;
+    if(!ts_value.unix_timestamp(&timestamp, context->impl()->state()->timezone())) {
+        return IntVal::null();
+    } else {
+        //To compatible to mysql, timestamp not between 1970-01-01 00:00:00 ~ 2038-01-01 00:00:00 return 0
+        timestamp = timestamp < 0 ? 0 : timestamp;
+        timestamp = timestamp > INT_MAX ? 0 : timestamp;
+        return IntVal(timestamp);
+    }
+}
+
+// UNIX_TIMESTAMP()
+IntVal TimestampFunctions::to_unix(
             FunctionContext* context, const StringVal& string_val, const StringVal& fmt) {
     if (string_val.is_null || fmt.is_null) {
         return IntVal::null();
@@ -571,28 +585,16 @@ IntVal TimestampFunctions::to_unix(
             (const char *)fmt.ptr, fmt.len, (const char *)string_val.ptr, string_val.len)) {
         return IntVal::null();
     }
-
-    int64_t timestamp;
-    if(!tv.unix_timestamp(&timestamp, context->impl()->state()->timezone())) {
-        return IntVal::null();
-    } else {
-        return IntVal(timestamp);
-    }
+    return to_unix(context, tv);
 }
 
+// UNIX_TIMESTAMP()
 IntVal TimestampFunctions::to_unix(
             FunctionContext* context, const DateTimeVal& ts_val) {
     if (ts_val.is_null) {
         return IntVal::null();
     }
-    const DateTimeValue &tv = DateTimeValue::from_datetime_val(ts_val);
-
-    int64_t timestamp;
-    if(!tv.unix_timestamp(&timestamp, context->impl()->state()->timezone())) {
-        return IntVal::null();
-    } else {
-        return IntVal(timestamp);
-    }
+    return to_unix(context, DateTimeValue::from_datetime_val(ts_val));
 }
 
 DateTimeVal TimestampFunctions::utc_timestamp(FunctionContext* context) {

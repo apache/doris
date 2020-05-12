@@ -33,6 +33,8 @@ import com.google.common.base.Preconditions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joda.time.DateTimeZone;
+import org.joda.time.LocalDateTime;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -208,6 +210,16 @@ public class FEFunctions {
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(), Type.DATETIME);
         return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
+    }
+
+    @FEFunction(name = "now", argTypes = {}, returnType = "DATETIME")
+    public static DateLiteral now() throws AnalysisException {
+        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATETIME);
+    }
+
+    @FEFunction(name = "curdate", argTypes = {}, returnType = "DATE")
+    public static DateLiteral curDate() throws AnalysisException {
+        return  new DateLiteral(LocalDateTime.now(DateTimeZone.forTimeZone(TimeUtils.getTimeZone())), Type.DATE);
     }
 
     /**

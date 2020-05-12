@@ -105,8 +105,8 @@ public class CastExpr extends Expr {
                 }
                 // Disable casting from boolean to decimal or datetime or date
                 if (fromType.isBoolean() &&
-                        (toType == Type.DECIMAL || toType == Type.DECIMALV2 ||
-                                toType == Type.DATETIME || toType == Type.DATE)) {
+                        (toType.equals(Type.DECIMAL) || toType.equals(Type.DECIMALV2) ||
+                                toType.equals(Type.DATETIME) || toType.equals(Type.DATE))) {
                     continue;
                 }
                 // Disable no-op casts

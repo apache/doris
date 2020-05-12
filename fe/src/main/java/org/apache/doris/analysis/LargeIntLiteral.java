@@ -17,15 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import java.io.DataInput;
-import java.io.DataOutput;
-import java.io.IOException;
-import java.math.BigDecimal;
-import java.math.BigInteger;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
-import java.util.Objects;
-
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -34,8 +25,18 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TLargeIntLiteral;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.Objects;
 
 // large int for the num that native types can not
 public class LargeIntLiteral extends LiteralExpr {
@@ -149,7 +150,7 @@ public class LargeIntLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (expr.type == Type.LARGEINT) {
+        if (expr.type.equals(Type.LARGEINT)) {
             return value.compareTo(((LargeIntLiteral) expr).value);
         } else {
             BigInteger intValue = new BigInteger(((IntLiteral) expr).getStringValue());

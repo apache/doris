@@ -33,6 +33,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
@@ -138,30 +139,41 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         // load task id -> fragment id -> rows count
         private Table<TUniqueId, TUniqueId, Long> counterTbl = HashBasedTable.create();
 
+        // load task id -> unfinished backend id list
+        private Map<TUniqueId, List<Long>> unfinishedBackendIds = Maps.newHashMap();
+        // load task id -> all backend id list
+        private Map<TUniqueId, List<Long>> allBackendIds = Maps.newHashMap();
+
         // number of file to be loaded
         public int fileNum = 0;
         public long totalFileSizeB = 0;
 
         // init the statistic of specified load task
-        public synchronized void initLoad(TUniqueId loadId, Set<TUniqueId> fragmentIds) {
+        public synchronized void initLoad(TUniqueId loadId, Set<TUniqueId> fragmentIds, List<Long> relatedBackendIds) {
             counterTbl.rowMap().remove(loadId);
             for (TUniqueId fragId : fragmentIds) {
                 counterTbl.put(loadId, fragId, 0L);
             }
+            allBackendIds.put(loadId, relatedBackendIds);
+            // need to get a copy of relatedBackendIds, so that when we modify the "relatedBackendIds" in
+            // allBackendIds, the list in unfinishedBackendIds will not be changed.
+            unfinishedBackendIds.put(loadId, Lists.newArrayList(relatedBackendIds));
         }
 
         public synchronized void removeLoad(TUniqueId loadId) {
             counterTbl.rowMap().remove(loadId);
+            unfinishedBackendIds.remove(loadId);
+            allBackendIds.remove(loadId);
         }
 
-        public synchronized void updateLoad(TUniqueId loadId, TUniqueId fragmentId, long rows) {
+        public synchronized void updateLoadProgress(long backendId, TUniqueId loadId, TUniqueId fragmentId,
+                long rows, boolean isDone) {
             if (counterTbl.contains(loadId, fragmentId)) {
                 counterTbl.put(loadId, fragmentId, rows);
             }
-        }
-
-        public synchronized void clearAllLoads() {
-            counterTbl.clear();
+            if (isDone && unfinishedBackendIds.containsKey(loadId)) {
+                unfinishedBackendIds.get(loadId).remove(backendId);
+            }
         }
 
         public synchronized String toJson() {
@@ -175,8 +187,19 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             details.put("FileNumber", fileNum);
             details.put("FileSize", totalFileSizeB);
             details.put("TaskNumber", counterTbl.rowMap().size());
+            details.put("TaskNumber", counterTbl.rowMap().size());
+            details.put("Unfinished backends", getPrintableMap(unfinishedBackendIds));
+            details.put("All backends", getPrintableMap(allBackendIds));
             Gson gson = new Gson();
             return gson.toJson(details);
+        }
+
+        private Map<String, List<Long>> getPrintableMap(Map<TUniqueId, List<Long>> map) {
+            Map<String, List<Long>> newMap = Maps.newHashMap();
+            for (Map.Entry<TUniqueId, List<Long>> entry : map.entrySet()) {
+                newMap.put(DebugUtil.printId(entry.getKey()), entry.getValue());
+            }
+            return newMap;
         }
     }
 
@@ -222,7 +245,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
     public long getDbId() {
         return dbId;
     }
-
     public String getLabel() {
         return label;
     }
@@ -255,12 +277,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
         return transactionId;
     }
 
-    public void initScannedRows(TUniqueId loadId, Set<TUniqueId> fragmentIds) {
-        loadStatistic.initLoad(loadId, fragmentIds);
+    public void initLoadProgress(TUniqueId loadId, Set<TUniqueId> fragmentIds, List<Long> relatedBackendIds) {
+        loadStatistic.initLoad(loadId, fragmentIds, relatedBackendIds);
     }
 
-    public void updateScannedRows(TUniqueId loadId, TUniqueId fragmentId, long scannedRows) {
-        loadStatistic.updateLoad(loadId, fragmentId, scannedRows);
+    public void updateProgess(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows, boolean isDone) {
+        loadStatistic.updateLoadProgress(beId, loadId, fragmentId, scannedRows, isDone);
     }
 
     public void setLoadFileInfo(int fileNum, long fileSize) {
@@ -600,7 +622,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
                                   .add("transaction_id", transactionId)
                                   .add("msg", "begin to abort txn")
                                   .build());
-                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(transactionId, failMsg.getMsg());
+                Catalog.getCurrentGlobalTransactionMgr().abortTransaction(dbId, transactionId, failMsg.getMsg());
             } catch (UserException e) {
                 LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
                         .add("transaction_id", transactionId)

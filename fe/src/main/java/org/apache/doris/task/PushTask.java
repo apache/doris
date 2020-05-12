@@ -209,6 +209,10 @@ public class PushTask extends AgentTask {
     public long getAsyncDeleteJobId() {
         return asyncDeleteJobId;
     }
+
+    public long getTransactionId() {
+        return transactionId;
+    }
     
     public void setIsSchemaChanging(boolean isSchemaChanging) {
         this.isSchemaChanging = isSchemaChanging;

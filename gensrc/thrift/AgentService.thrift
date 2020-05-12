@@ -251,6 +251,13 @@ struct TUpdateTabletMetaInfoReq {
     1: optional list<TTabletMetaInfo> tabletMetaInfos
 }
 
+struct TPluginMetaInfo {
+    1: required string name
+    2: required i32 type
+    3: optional string so_name
+    4: optional string source
+}
+
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type

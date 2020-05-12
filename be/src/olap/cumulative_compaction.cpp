@@ -40,7 +40,7 @@ OLAPStatus CumulativeCompaction::compact() {
     }
 
     // 1.calculate cumulative point 
-    RETURN_NOT_OK(_tablet->calculate_cumulative_point());
+    _tablet->calculate_cumulative_point();
 
     // 2. pick rowsets to compact
     RETURN_NOT_OK(pick_rowsets_to_compact());
@@ -58,15 +58,16 @@ OLAPStatus CumulativeCompaction::compact() {
     RETURN_NOT_OK(gc_unused_rowsets());
 
     // 7. add metric to cumulative compaction
-    DorisMetrics::cumulative_compaction_deltas_total.increment(_input_rowsets.size());
-    DorisMetrics::cumulative_compaction_bytes_total.increment(_input_rowsets_size);
+    DorisMetrics::instance()->cumulative_compaction_deltas_total.increment(_input_rowsets.size());
+    DorisMetrics::instance()->cumulative_compaction_bytes_total.increment(_input_rowsets_size);
 
     return OLAP_SUCCESS;
 }
 
 OLAPStatus CumulativeCompaction::pick_rowsets_to_compact() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
-    _tablet->pick_candicate_rowsets_to_cumulative_compaction(&candidate_rowsets);
+    _tablet->pick_candicate_rowsets_to_cumulative_compaction(
+        config::cumulative_compaction_skip_window_seconds, &candidate_rowsets);
 
     if (candidate_rowsets.empty()) {
         return OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS;

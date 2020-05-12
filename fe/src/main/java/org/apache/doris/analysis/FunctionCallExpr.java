@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Joiner;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -194,7 +195,7 @@ public class FunctionCallExpr extends Expr {
 
     @Override
     public String debugString() {
-        return Objects.toStringHelper(this)/*.add("op", aggOp)*/.add("name", fnName).add("isStar",
+        return MoreObjects.toStringHelper(this)/*.add("op", aggOp)*/.add("name", fnName).add("isStar",
                 fnParams.isStar()).add("isDistinct", fnParams.isDistinct()).addValue(
                 super.debugString()).toString();
     }
@@ -558,7 +559,8 @@ public class FunctionCallExpr extends Expr {
             // find user defined functions
             if (fn == null) {
                 if (!analyzer.isUDFAllowed()) {
-                    throw new AnalysisException("Does not support non-builtin functions: " + fnName);
+                    throw new AnalysisException(
+                            "Does not support non-builtin functions, or function does not exist: " + this.toSqlImpl());
                 }
 
                 String dbName = fnName.analyzeDb(analyzer);
@@ -579,7 +581,7 @@ public class FunctionCallExpr extends Expr {
         }
 
         if (fn == null) {
-            LOG.warn("fn {} not exists", fnName.getFunction());
+            LOG.warn("fn {} not exists", this.toSqlImpl());
             throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
         }
 
