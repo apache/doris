@@ -109,8 +109,14 @@ PartitionedAggregationNode::PartitionedAggregationNode(
     process_batch_streaming_fn_(NULL),
     build_timer_(NULL),
     ht_resize_timer_(NULL),
+    ht_resize_counter_(NULL),
     get_results_timer_(NULL),
     num_hash_buckets_(NULL),
+    num_hash_filled_buckets_(NULL),
+    num_hash_probe_(NULL),
+    num_hash_failed_probe_(NULL),
+    num_hash_travel_length_(NULL),
+    num_hash_collisions_(NULL),
     partitions_created_(NULL),
     max_partition_level_(NULL),
     num_row_repartitioned_(NULL),
@@ -190,10 +196,29 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
   get_results_timer_ = ADD_TIMER(runtime_profile(), "GetResultsTime");
   num_hash_buckets_ =
       ADD_COUNTER(runtime_profile(), "HashBuckets", TUnit::UNIT);
+  num_hash_filled_buckets_ =
+      ADD_COUNTER(runtime_profile(), "HashFilledBuckets", TUnit::UNIT);
+  num_hash_probe_ =
+      ADD_COUNTER(runtime_profile(), "HashProbe", TUnit::UNIT);
+  num_hash_failed_probe_ =
+      ADD_COUNTER(runtime_profile(), "HashFailedProbe", TUnit::UNIT);
+  num_hash_travel_length_ =
+      ADD_COUNTER(runtime_profile(), "HashTravelLength", TUnit::UNIT);
+  num_hash_collisions_ =
+      ADD_COUNTER(runtime_profile(), "HashCollisions", TUnit::UNIT);
+  ht_resize_counter_ =
+      ADD_COUNTER(runtime_profile(), "HTResize", TUnit::UNIT);
   partitions_created_ =
       ADD_COUNTER(runtime_profile(), "PartitionsCreated", TUnit::UNIT);
   largest_partition_percent_ =
       runtime_profile()->AddHighWaterMarkCounter("LargestPartitionPercent", TUnit::UNIT);
+
+  if (config::enable_quadratic_probing) {
+      runtime_profile()->add_info_string("Probe Method", "HashTable Quadratic Probing");
+  } else {
+      runtime_profile()->add_info_string("Probe Method", "HashTable Linear Probing");
+  }
+
   if (is_streaming_preagg_) {
     runtime_profile()->append_exec_option("Streaming Preaggregation");
     streaming_timer_ = ADD_TIMER(runtime_profile(), "StreamingTime");
@@ -1223,6 +1248,13 @@ Status PartitionedAggregationNode::NextPartition() {
   output_partition_ = partition;
   output_iterator_ = output_partition_->hash_tbl->Begin(ht_ctx_.get());
   COUNTER_UPDATE(num_hash_buckets_, output_partition_->hash_tbl->num_buckets());
+  COUNTER_UPDATE(ht_resize_counter_, output_partition_->hash_tbl->num_resize());
+  COUNTER_UPDATE(num_hash_filled_buckets_, output_partition_->hash_tbl->num_filled_buckets());
+  COUNTER_UPDATE(num_hash_probe_, output_partition_->hash_tbl->num_probe());
+  COUNTER_UPDATE(num_hash_failed_probe_, output_partition_->hash_tbl->num_failed_probe());
+  COUNTER_UPDATE(num_hash_travel_length_, output_partition_->hash_tbl->travel_length());
+  COUNTER_UPDATE(num_hash_collisions_, output_partition_->hash_tbl->NumHashCollisions());
+
   return Status::OK();
 }
 

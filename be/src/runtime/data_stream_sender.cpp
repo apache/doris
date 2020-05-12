@@ -319,7 +319,6 @@ DataStreamSender::DataStreamSender(
         _current_pb_batch(&_pb_batch1),
         _profile(NULL),
         _serialize_batch_timer(NULL),
-        _thrift_transmit_timer(NULL),
         _bytes_sent_counter(NULL),
         _dest_node_id(sink.dest_node_id) {
     DCHECK_GT(destinations.size(), 0);
@@ -411,11 +410,6 @@ Status DataStreamSender::prepare(RuntimeState* state) {
         ADD_COUNTER(profile(), "IgnoreRows", TUnit::UNIT);
     _serialize_batch_timer =
         ADD_TIMER(profile(), "SerializeBatchTime");
-    _thrift_transmit_timer = ADD_TIMER(profile(), "ThriftTransmitTime(*)");
-    _network_throughput =
-        profile()->add_derived_counter("NetworkThroughput(*)", TUnit::BYTES_PER_SECOND,
-                boost::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
-                _thrift_transmit_timer), "");
     _overall_throughput =
         profile()->add_derived_counter("OverallThroughput", TUnit::BYTES_PER_SECOND,
         boost::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
