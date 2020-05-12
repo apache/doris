@@ -83,10 +83,9 @@ public class WebBaseAction extends BaseAction {
             + "    $(document).ready(function () {"
             + "        var location = window.location.pathname;"
             + "        var id = location.substring(location.lastIndexOf('/') + 1);"
-            + "        if (id == null || $.trim(id) == \"\") {"
-            + "           id = \"Doris\""
+            + "        if (id != null || $.trim(id) != \"\") {"
+            + "           $(\"#nav_\" + id).addClass(\"active\");"
             + "        }"
-            + "        $(\"#nav_\" + id).addClass(\"active\");"
             + "    });"
             + "  </script> "
 
@@ -252,10 +251,6 @@ public class WebBaseAction extends BaseAction {
         sb.append(newPageHeaderString);
         sb.append(NAVIGATION_BAR_PREFIX);
 
-        // TODO(lingbin): maybe should change to register the menu item?
-        sb.append("<li id=\"nav_Doris\"><a href=\"/\">")
-            .append("Doris")
-            .append("</a></li>");
         if (request.isAuthorized()) {
             sb.append("<li id=\"nav_system\"><a href=\"/system\">")
                     .append("system")
