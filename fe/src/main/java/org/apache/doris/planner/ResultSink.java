@@ -23,7 +23,8 @@ import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TResultSink;
 
 /**
- * Data sink that forwards data to an exchange node.
+ * Result sink that forwards data to the FE data receiver,
+ * which result the final query result to user client.
  */
 public class ResultSink extends DataSink {
     private final PlanNodeId exchNodeId;

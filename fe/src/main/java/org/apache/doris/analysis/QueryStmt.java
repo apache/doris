@@ -23,12 +23,12 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -109,6 +109,8 @@ public abstract class QueryStmt extends StatementBase {
 
     /////////////////////////////////////////
     // END: Members that need to be reset()
+
+    private OutFileClause outFileClause;
 
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
@@ -597,4 +599,12 @@ public abstract class QueryStmt extends StatementBase {
 
     public abstract void substituteSelectList(Analyzer analyzer, List<String> newColLabels)
             throws AnalysisException, UserException;
+
+    public void setOutFileClause(OutFileClause outFileClause) {
+        this.outFileClause = outFileClause;
+    }
+
+    public OutFileClause getOutFileClause() {
+        return outFileClause;
+    }
 }
