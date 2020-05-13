@@ -27,6 +27,10 @@ namespace memory {
 
 class ColumnReader;
 class ColumnWriter;
+template <class, bool, class>
+class TypedColumnReader;
+template <class, bool, class, class>
+class TypedColumnWriter;
 
 // Column store all the data of a column, including base and deltas.
 // It supports single-writer multi-reader concurrency.
@@ -35,8 +39,6 @@ class ColumnWriter;
 // in-practice for single-writer/multi-reader access, if there isn't
 // any over-capacity realloc or delta compaction/GC caused data change.
 // When these situations occur, we do a copy-on-write.
-//
-// TODO: add column read&writer
 class Column : public RefCountedThreadSafe<Column> {
 public:
     static const uint32_t BLOCK_SIZE = 1 << 16;
@@ -71,6 +73,11 @@ public:
     Status write(std::unique_ptr<ColumnWriter>* writer);
 
 private:
+    template <class, bool, class>
+    friend class TypedColumnReader;
+    template <class, bool, class, class>
+    friend class TypedColumnWriter;
+
     ColumnSchema _cs;
     // For some types the storage_type may be different from actual type from schema.
     // For example, string stored in dictionary, so column_block store a integer id,
@@ -98,7 +105,7 @@ private:
                            uint64_t* real_version) const;
 
     // get latest version's related delta
-    void capture_latest(vector<ColumnDelta*>* deltas) const;
+    void capture_latest(vector<ColumnDelta*>* deltas, uint64_t* version) const;
 
     DISALLOW_COPY_AND_ASSIGN(Column);
 };
