@@ -45,14 +45,11 @@ ResultSink::ResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>& 
 
     if (_sink_type == TResultSinkType::FILE) {
         CHECK(sink.__isset.file_options);
-        _file_opts = new ResultFileOptions(sink.file_options);
+        _file_opts.reset(new ResultFileOptions(sink.file_options));
     }
 }
 
 ResultSink::~ResultSink() {
-    if (_file_opts != nullptr) {
-        delete _file_opts;
-    }
 }
 
 Status ResultSink::prepare_exprs(RuntimeState* state) {
@@ -81,12 +78,11 @@ Status ResultSink::prepare(RuntimeState* state) {
     // create writer based on sink type
     switch (_sink_type) {
         case TResultSinkType::MYSQL_PROTOCAL:
-            // create writer
             _writer.reset(new(std::nothrow) MysqlResultWriter(_sender.get(), _output_expr_ctxs));
             break;
         case TResultSinkType::FILE:
-            CHECK(_file_opts != nullptr);
-            _writer.reset(new(std::nothrow) FileResultWriter(_file_opts, _output_expr_ctxs));
+            CHECK(_file_opts.get() != nullptr);
+            _writer.reset(new(std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs));
             break;
         default:
             return Status::InternalError("Unknown result sink type");

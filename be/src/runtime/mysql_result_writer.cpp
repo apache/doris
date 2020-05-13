@@ -192,7 +192,7 @@ Status MysqlResultWriter::add_one_row(TupleRow* row) {
     return Status::OK();
 }
 
-Status MysqlResultWriter::append_row_batch(RowBatch* batch) {
+Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     if (NULL == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
@@ -239,4 +239,3 @@ Status MysqlResultWriter::close() {
 
 }
 
-/* vim: set ts=4 sw=4 sts=4 tw=100 expandtab : */

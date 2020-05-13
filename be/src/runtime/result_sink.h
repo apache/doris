@@ -63,7 +63,7 @@ private:
     Status prepare_exprs(RuntimeState* state);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
-    ResultFileOptions* _file_opts = nullptr;
+    std::unique_ptr<ResultFileOptions> _file_opts;
 
     ObjectPool* _obj_pool;
     // Owned by the RuntimeState.

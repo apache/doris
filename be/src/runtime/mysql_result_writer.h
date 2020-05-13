@@ -37,7 +37,7 @@ public:
     virtual Status init(RuntimeState* state) override;
     // convert one row batch to mysql result and
     // append this batch to the result sink
-    virtual Status append_row_batch(RowBatch* batch) override;
+    virtual Status append_row_batch(const RowBatch* batch) override;
 
     virtual Status close() override;
 

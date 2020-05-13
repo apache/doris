@@ -62,7 +62,7 @@ private:
     bool _is_closed = false;
 };
 
-// a wrapper of parquet writable file
+// a wrapper of parquet output stream
 class ParquetWriterWrapper {
 public:
     ParquetWriterWrapper(FileWriter *file_writer, const std::vector<ExprContext*>& output_expr_ctxs);
@@ -73,7 +73,7 @@ public:
     void close();
 
 private:
-    ParquetOutputStream* _writable_file;
+    ParquetOutputStream* _outstream;
     const std::vector<ExprContext*>& _output_expr_ctxs;
 };
 

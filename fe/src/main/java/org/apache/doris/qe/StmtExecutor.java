@@ -581,7 +581,7 @@ public class StmtExecutor {
         // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
         //    We will not send real query result to client. Instead, we only send OK to client with
         //    number of rows selected. For example:
-        //          mysql> select * from tbl1;
+        //          mysql> select * from tbl1 into outfile xxx;
         //          Query OK, 10 rows affected (0.01 sec)
         //
         // 2. If this is a query, send the result expr fields first, and send result data back to client.
@@ -593,6 +593,7 @@ public class StmtExecutor {
         }
         while (true) {
             batch = coord.getNext();
+            // for outfile query, there will be only one empty batch send back with eos flag
             if (batch.getBatch() != null && !isOutfileQuery) {
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);

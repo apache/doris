@@ -212,7 +212,7 @@ public class Planner {
     }
 
     // if query stmt has OUTFILE clause, set info into ResultSink.
-    // this should be done after fragments is generated.
+    // this should be done after fragments are generated.
     private void setOutfileSink(QueryStmt queryStmt) {
         if (!queryStmt.hasOutFileClause()) {
             return;

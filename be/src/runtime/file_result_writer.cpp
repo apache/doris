@@ -69,7 +69,7 @@ Status FileResultWriter::init(RuntimeState* state) {
     return Status::OK();
 }
 
-Status FileResultWriter::append_row_batch(RowBatch* batch) {
+Status FileResultWriter::append_row_batch(const RowBatch* batch) {
     if (NULL == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
@@ -191,9 +191,8 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
                 break;
             }
             default: {
-               std::stringstream err_ss;
-               err_ss << "can't export this type. type = " << _output_expr_ctxs[i]->root()->type();
-               return Status::InternalError(err_ss.str());
+                // not supported type, like BITMAP, HLL, just export null
+                ss << NULL_IN_CSV;
             }
         }
         if (i < num_columns - 1) {
@@ -205,6 +204,7 @@ Status FileResultWriter::_write_one_row_as_csv(TupleRow* row) {
     // write one line to file
     const std::string& buf = ss.str();
     size_t written_len = 0;
+    // TODO(cmy): implement a buffered file writer to avoid writing row by row
     RETURN_IF_ERROR(_file_writer->write(reinterpret_cast<const uint8_t*>(buf.c_str()),
             buf.size(), &written_len));
 
@@ -226,4 +226,3 @@ Status FileResultWriter::close() {
 
 }
 
-/* vim: set ts=4 sw=4 sts=4 tw=100 expandtab : */

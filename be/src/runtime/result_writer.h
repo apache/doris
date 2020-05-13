@@ -34,7 +34,7 @@ public:
 
     virtual Status init(RuntimeState* state) = 0;
     // convert and write one row batch 
-    virtual Status append_row_batch(RowBatch* batch) = 0;
+    virtual Status append_row_batch(const RowBatch* batch) = 0;
 
     virtual Status close() = 0;
 

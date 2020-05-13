@@ -62,24 +62,21 @@ public:
     virtual ~FileResultWriter();
 
     virtual Status init(RuntimeState* state) override;
-    // convert one row batch to mysql result and
-    // append this batch to the result sink
-    virtual Status append_row_batch(RowBatch* batch) override;
-
+    virtual Status append_row_batch(const RowBatch* batch) override;
     virtual Status close() override;
 
 private:
     const ResultFileOptions* _file_opts;
+    const std::vector<ExprContext*>& _output_expr_ctxs;
 
     Status _write_csv_file(const RowBatch& batch);
     Status _write_one_row_as_csv(TupleRow* row);
 
-    // If the result file format is CSV, this writer is owned by this FileResultWriter.
-    // If the result file format is Parquet, this writer is owned by ParquetWriterWrapper.
+    // If the result file format is CSV, this _file_writer is owned by this FileResultWriter.
+    // If the result file format is Parquet, this _file_writer is owned by _parquet_writer.
     FileWriter* _file_writer = nullptr;
     // parquet file writer
     ParquetWriterWrapper* _parquet_writer = nullptr;
-    const std::vector<ExprContext*>& _output_expr_ctxs;
 };
 
 } // end of namespace

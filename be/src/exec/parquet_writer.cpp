@@ -72,7 +72,7 @@ arrow::Status ParquetOutputStream::Close() {
 ParquetWriterWrapper::ParquetWriterWrapper(FileWriter *file_writer, const std::vector<ExprContext*>& output_expr_ctxs) :
         _output_expr_ctxs(output_expr_ctxs) {
     // TODO(cmy): implement
-    _writable_file = new ParquetOutputStream(file_writer);
+    _outstream = new ParquetOutputStream(file_writer);
 }
 
 Status ParquetWriterWrapper::write(const RowBatch& row_batch) {

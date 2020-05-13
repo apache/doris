@@ -44,7 +44,7 @@ struct TResultFileSinkOptions {
     2: required PlanNodes.TFileFormatType file_format
     3: optional string column_separator    // only for csv
     4: optional string line_delimiter  // only for csv
-    5: optional list<Types.TNetworkAddress> broker_addresses;
+    5: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
     6: optional map<string, string> broker_properties // only for remote file
 }
 
@@ -67,7 +67,6 @@ struct TDataStreamSink {
   3: optional bool ignore_not_found
 }
 
-// Reserved for 
 struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options;
