@@ -123,7 +123,7 @@ WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicat
         if (_like_value[i] == '_' || _like_value[i]== '%') {
                 if (i == 0) {
                     _like_value[i] = (_like_value[i] == '_') ? '?' : '*';
-                }else if (_like_value[i-1] != '\\' ) {
+                } else if (_like_value[i-1] != '\\' ) {
                     _like_value[i] = (_like_value[i] == '_') ? '?' : '*';
                 }
         }
