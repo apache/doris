@@ -16,6 +16,11 @@
  * limitations under the License.
  */
 
+// Values would be replaced automatically during the travis' building
+const BUILDING_BRANCH = process.env.BRANCH || ''
+const ALGOLIA_API_KEY = process.env.ALGOLIA_API_KEY || ''
+const ALGOLIA_INDEX_NAME = process.env.ALGOLIA_INDEX_NAME || ''
+
 function convertSidebar(list, path) {
   if (list.length > 0) {
       list.forEach((element, i) => {
@@ -30,8 +35,18 @@ function convertSidebar(list, path) {
   return list
 }
 
+function buildAlgoliaSearchConfig(lang) {
+  return {
+    apiKey: ALGOLIA_API_KEY,
+    indexName: ALGOLIA_INDEX_NAME,
+    algoliaOptions: {
+      facetFilters: ['lang:' + lang, 'version:' + BUILDING_BRANCH]
+    }
+  }
+}
+
 module.exports = {
-  base: '',
+  base: BUILDING_BRANCH.length > 0 ? '/' + BUILDING_BRANCH + '/' : '',
   locales: {
     '/en/': {
       lang: 'en',
@@ -65,14 +80,15 @@ module.exports = {
     lastUpdated: 'Last Updated',
     editLinks: true,
     docsDir: 'docs',
-    docsBranch: '',
+    docsBranch: BUILDING_BRANCH,
+    searchPlaceholder: 'Search',
     locales: {
       '/en/': {
+        algolia: buildAlgoliaSearchConfig('en'),
         selectText: 'Languages',
         label: 'English',
         ariaLabel: 'Languages',
         editLinkText: 'Edit this page on GitHub',
-        algolia: {},
         nav: [
           {
             text: 'Home', link: '/en/'
@@ -90,6 +106,7 @@ module.exports = {
         sidebar: convertSidebar(require('./sidebar/en.js'), '/en/')
       },
       '/zh-CN/': {
+        algolia: buildAlgoliaSearchConfig('zh-CN'),
         selectText: 'Languages',
         label: '简体中文',
         editLinkText: '在 GitHub 上编辑此页',
@@ -107,7 +124,6 @@ module.exports = {
             text: 'Apache', link: 'https://www.apache.org/', target: '_blank'
           }
         ],
-        algolia: {},
         sidebar: {
           '/zh-CN/': convertSidebar(require('./sidebar/zh-CN.js'), '/zh-CN/')
         }
