@@ -156,6 +156,9 @@ public class CaseExpr extends Expr {
             loopStart = 1;
             caseExpr = children.get(0);
             caseExpr.analyze(analyzer);
+            if (caseExpr instanceof Subquery && !caseExpr.getType().isScalarType()) {
+                throw new AnalysisException("Subquery in case-when must return scala type");
+            }
             whenType = caseExpr.getType();
             lastCompatibleWhenExpr = children.get(0);
         } else {
@@ -169,9 +172,6 @@ public class CaseExpr extends Expr {
             if (hasCaseExpr) {
                 // Determine maximum compatible type of the case expr,
                 // and all when exprs seen so far. We will add casts to them at the very end.
-                if (whenExpr instanceof Subquery && !whenExpr.getType().isScalarType()) {
-                    throw new AnalysisException("Subquery in case-when must return scala type");
-                }
                 whenType = analyzer.getCompatibleType(whenType, lastCompatibleWhenExpr, whenExpr);
                 lastCompatibleWhenExpr = whenExpr;
             } else {
@@ -185,6 +185,9 @@ public class CaseExpr extends Expr {
                 if (!whenExpr.getType().isBoolean()) {
                     castChild(Type.BOOLEAN, i);
                 }
+            }
+            if (whenExpr instanceof Subquery && !whenExpr.getType().isScalarType()) {
+                throw new AnalysisException("Subquery in case-when must return scala type");
             }
             // Determine maximum compatible type of the then exprs seen so far.
             // We will add casts to them at the very end.
