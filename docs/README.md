@@ -159,6 +159,14 @@ npm ERR! Failed at the docs@ lint script.
 
 ```
 
+## FullText search
+
+We use [Algolia DocSearch](https://docsearch.algolia.com/) as our fulltext search engine.
+
+One thing we need to do is that [Config.json From DocSearch](https://github.com/algolia/docsearch-configs/blob/master/configs/apache_doris.json) should be updated if a new language or branch is created.
+
+For more detail of the docsearch's configuration, please refer to [Configuration of DocSearch](https://docsearch.algolia.com/docs/config-file)
+
 ## Deployment
 
 Just start a PR, and all things will be done automatically.
