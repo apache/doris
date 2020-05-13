@@ -1,7 +1,7 @@
 ---
 {
-    "title": "查询结果集导出",
-    "language": "zh-CN"
+    "title": "Export Query Result",
+    "language": "en"
 }
 ---
 
@@ -24,13 +24,13 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 查询结果集导出
+# Export Query Result
 
-本文档介绍如何使用 `SELECT INTO OUTFILE` 命令进行查询结果的导出操作。
+This document describes how to use the `SELECT INTO OUTFILE` command to export query results.
 
-## 语法
+## Syntax
 
-`SELECT INTO OUTFILE` 语句可以将查询结果导出到文件中。目前仅支持通过 Broker 进程导出到远端存储，如 HDFS，S3，BOS 上。语法如下
+The `SELECT INTO OUTFILE` statement can export the query results to a file. Currently, it only supports exporting to remote storage such as HDFS, S3, and BOS through the Broker process. The syntax is as follows:
 
 ```
 query_stmt
@@ -47,7 +47,7 @@ WITH BROKER `broker_name`
     FORMAT AS CSV
     ```
     
-    指定导出格式。默认为 CSV。
+    Specify the export format. The default is CSV.
 
 * `[broker_properties]`
 
@@ -55,7 +55,7 @@ WITH BROKER `broker_name`
     ("broker_prop_key" = "broker_prop_val", ...)
     ``` 
 
-    Broker 相关的一些参数，如 HDFS 的 认证信息等。具体参阅[Broker 文档](./broker.html)。
+    Broker related parameters, such as HDFS authentication information. See [Broker](./broker.html)。
 
 * `[other_properties]`
 
@@ -63,14 +63,14 @@ WITH BROKER `broker_name`
     ("key1" = "val1", "key2" = "val2", ...)
     ```
 
-    其他属性，目前支持以下属性：
+    Other properties, currently supports the following properties:
 
-    * `column_separator`：列分隔符，仅对 CSV 格式适用。默认为 `\t`。
-    * `line_delimiter`：行分隔符，仅对 CSV 格式适用。默认为 `\n`。
+    * `column_separator`: Column separator, only applicable to CSV format. The default is `\t`.
+    * `line_delimiter`: Line delimiter, only applicable to CSV format. The default is `\n`.
 
-1. 示例1
+1. Example 1
 
-    将简单查询结果导出到文件 `hdfs:/path/to/result.txt`。指定导出格式为 CSV。使用 `my_broker` 并设置 kerberos 认证信息。指定列分隔符为 `,`，行分隔符为 `\n`。
+    Export simple query results to the file `hdfs:/path/to/result.txt`. Specify the export format as CSV. Use `my_broker` and set kerberos authentication information. Specify the column separator as `,` and the line delimiter as `\n`.
     
     ```
     SELECT * FROM tbl
@@ -89,9 +89,9 @@ WITH BROKER `broker_name`
     );
     ```
 
-2. 示例2
+2. Example 2
 
-    将 CTE 语句的查询结果导出到文件 `hdfs:/path/to/result.txt`。默认导出格式为 CSV。使用 `my_broker` 并设置 hdfs 高可用信息。使用默认的行列分隔符。
+    Export the query result of the CTE statement to the file `hdfs:/path/to/result.txt`. The default export format is CSV. Use `my_broker` and set hdfs high availability information. Use the default column separators and line delimiter.
 
     ```
     WITH
@@ -113,9 +113,9 @@ WITH BROKER `broker_name`
     );
     ```
     
-3. 示例3
+3. Example 3
 
-    将 UNION 语句的查询结果导出到文件 `bos://bucket/result.parquet`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 hdfs 高可用信息。PARQUET 格式无需指定列分割符和行分隔符。
+    Export the query results of the UNION statement to the file `bos://bucket/result.parquet`. Specify the export format as PARQUET. Use `my_broker` and set hdfs high availability information. PARQUET format does not need to specify the column separator and line delimiter.
     
     ```
     SELECT k1 FROM tbl1 UNION SELECT k2 FROM tbl1
@@ -129,28 +129,28 @@ WITH BROKER `broker_name`
     )
     ```
     
-## 返回结果
+## Return result
 
-导出命令为同步命令。命令返回，即表示操作结束。
+The command is a synchronization command. The command returns, which means the operation is over.
 
-如果正常导出并返回，则结果如下：
+If it exports and returns normally, the result is as follows:
 
 ```
 mysql> SELECT * FROM tbl INTO OUTFILE ...                                                                                                                                                                                                                                                                  Query OK, 100000 row affected (5.86 sec)
 ```
 
-其中 `100000 row affected` 表示导出的结果集大小。
+`100000 row affected` Indicates the size of the exported result set.
 
-如果执行错误，则会返回错误信息，如：
+If the execution is incorrect, an error message will be returned, such as:
 
 ```
 mysql> SELECT * FROM tbl INTO OUTFILE ...                                                                                                                                                                                                                                                                  ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 ```
 
-## 注意事项
+## Notice
 
-* CSV 格式不支持输出 binary 类型，如 BITMAP、HLL 类型。这些类型会输出为 `\N`, 即 null。
-* 查询结果是由单个 BE 节点，单线程导出的。因此导出时间和导出结果集大小正相关。
-* 导出命令不会检查文件及文件路径是否存在。是否会自动创建路径、或是否会覆盖已存在文件，完全由远端存储系统的语义决定。
-* 如果在导出过程中出现错误，可能会有导出文件残留在远端存储系统上。Doris 不会清理这些文件。需要用户手动清理。
-* 导出命令的超时时间同查询的超时时间。可以通过 `SET query_timeout=xxx` 进行设置。
+* The CSV format does not support exporting binary types, such as BITMAP and HLL types. These types will be output as `\N`, which is null.
+* The query results are exported from a single BE node and a single thread. Therefore, the export time and the export result set size are positively correlated.
+* The export command does not check whether the file and file path exist. Whether the path will be automatically created or whether the existing file will be overwritten is entirely determined by the semantics of the remote storage system.
+* If an error occurs during the export process, the exported file may remain on the remote storage system. Doris will not clean these files. The user needs to manually clean up.
+* The timeout of the export command is the same as the timeout of the query. It can be set by `SET query_timeout = xxx`.
