@@ -1397,7 +1397,8 @@ public class SelectStmt extends QueryStmt {
             while (childIdx + 2 <= caseExpr.getChildren().size()) {
                 Expr child = caseExpr.getChild(childIdx++);
                 // when
-                if (!(child instanceof BinaryPredicate) && child.contains(Predicates.instanceOf(Subquery.class))) {
+               if (!(child.contains(Predicates.instanceOf(Subquery.class))
+                       && (caseExpr.hasCaseExpr() || child instanceof BinaryPredicate))) {
                     throw new AnalysisException("Only support subquery in binary predicate in case statement.");
                 }
                 // then
@@ -1446,14 +1447,14 @@ public class SelectStmt extends QueryStmt {
             throws AnalysisException {
         if (expr instanceof Subquery) {
             if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
-                throw new AnalysisException("Only support select subquery in case statement.");
+                throw new AnalysisException("Only support select subquery in case-when clause.");
             }
             if (expr.isCorrelatedPredicate(getTableRefIds())) {
                 throw new AnalysisException("The correlated subquery in case-when clause is not supported");
             }
             SelectStmt subquery = (SelectStmt) ((Subquery) expr).getStatement();
             if (subquery.resultExprs.size() != 1 || !subquery.returnsSingleRow()) {
-                throw new AnalysisException("Only support select subquery produce one column in case statement.");
+                throw new AnalysisException("Subquery in case-when must return scala type");
             }
             subquery.reset();
             subquery.setAssertNumRowsElement(1, AssertNumRowsElement.Assertion.EQ);
