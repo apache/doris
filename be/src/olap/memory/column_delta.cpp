@@ -15,15 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/mem_tablet.h"
+#include "olap/memory/column_delta.h"
 
 namespace doris {
 namespace memory {
 
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {}
+size_t ColumnDelta::memory() const {
+    return _index->memory() + _nulls.bsize() + _data.bsize();
+}
 
-MemTablet::~MemTablet() {}
+Status ColumnDelta::alloc(size_t nblock, size_t size, size_t esize, bool has_null) {
+    if (_data || _nulls) {
+        LOG(FATAL) << "reinit column delta";
+    }
+    _index.reset(new DeltaIndex());
+    _index->block_ends().resize(nblock, 0);
+    Status ret = _index->data().alloc(size * sizeof(uint16_t));
+    if (!ret.ok()) {
+        return ret;
+    }
+    ret = _data.alloc(size * esize);
+    if (!ret.ok()) {
+        return ret;
+    }
+    if (has_null) {
+        ret = _nulls.alloc(size);
+        if (!ret.ok()) {
+            _data.clear();
+            return Status::MemoryAllocFailed("init column delta nulls");
+        }
+        _nulls.set_zero();
+    }
+    _data.set_zero();
+    _size = size;
+    return Status::OK();
+}
 
 } // namespace memory
 } // namespace doris

@@ -15,15 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/mem_tablet.h"
+#include "olap/memory/delta_index.h"
 
 namespace doris {
 namespace memory {
 
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {}
+size_t DeltaIndex::memory() const {
+    return _data.bsize() + _block_ends.size() * sizeof(uint32_t);
+}
 
-MemTablet::~MemTablet() {}
+uint32_t DeltaIndex::find_idx(uint32_t rid) {
+    if (!_data) {
+        return npos;
+    }
+    uint32_t bid = rid >> 16;
+    if (bid >= _block_ends.size()) {
+        return npos;
+    }
+    // TODO: use SIMD
+    uint32_t start = bid > 0 ? _block_ends[bid - 1] : 0;
+    uint32_t end = _block_ends[bid];
+    if (start == end) {
+        return npos;
+    }
+    uint16_t* astart = _data.as<uint16_t>() + start;
+    uint16_t* aend = _data.as<uint16_t>() + end;
+    uint32_t bidx = rid & 0xffff;
+    uint16_t* pos = std::lower_bound(astart, aend, bidx);
+    if ((pos != aend) && (*pos == bidx)) {
+        return pos - _data.as<uint16_t>();
+    } else {
+        return npos;
+    }
+}
 
 } // namespace memory
 } // namespace doris
