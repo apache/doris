@@ -92,10 +92,7 @@ Status ResultSink::prepare(RuntimeState* state) {
             return Status::InternalError("Unknown result sink type");
     }
 
-    LOG(WARNING) << "cmy before writer init;";
     RETURN_IF_ERROR(_writer->init(state));
-    LOG(WARNING) << "cmy after writer init;";
-
     return Status::OK();
 }
 
@@ -112,34 +109,22 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
 
-    LOG(WARNING) << 1;
     Status final_status = exec_status;
-    LOG(WARNING) << 2;
     // close the writer
     Status st = _writer->close();
-    LOG(WARNING) << 3;
     if (!st.ok() && exec_status.ok()) {
         // close file writer failed, should return this error to client
-        LOG(WARNING) << 4;
         final_status = st;
-        LOG(WARNING) << 5;
     }
 
     // close sender, this is normal path end
     if (_sender) {
-        if (final_status.ok()) {
-            _sender->update_num_written_rows(_writer->get_written_rows());
-        }
-    LOG(WARNING) << 7;
+        _sender->update_num_written_rows(_writer->get_written_rows());
         _sender->close(final_status);
-    LOG(WARNING) << 8;
     }
-    LOG(WARNING) << 9;
     state->exec_env()->result_mgr()->cancel_at_time(time(NULL) + config::result_buffer_cancelled_interval_time, 
                                                     state->fragment_instance_id());
-    LOG(WARNING) << 10;
     Expr::close(_output_expr_ctxs, state);
-    LOG(WARNING) << 11;
 
     _closed = true;
     return Status::OK();

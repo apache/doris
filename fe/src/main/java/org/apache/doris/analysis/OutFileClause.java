@@ -106,7 +106,7 @@ public class OutFileClause {
             if (!isCsvFormat()) {
                 throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
             }
-            columnSeparator = properties.get(PROP_COLUMN_SEPARATOR);
+            lineDelimiter = properties.get(PROP_LINE_DELIMITER);
         }
     }
 
@@ -151,3 +151,4 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
+

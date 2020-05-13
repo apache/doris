@@ -80,7 +80,7 @@ public class ResultSink extends DataSink {
     }
 
     public boolean needBroker() {
-        return Strings.isNullOrEmpty(brokerName);
+        return !Strings.isNullOrEmpty(brokerName);
     }
 
     public String getBrokerName() {
