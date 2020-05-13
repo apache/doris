@@ -15,15 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/mem_tablet.h"
+#pragma once
+
+#include <memory>
+
+#include "common/logging.h"
+#include "common/status.h"
+#include "gutil/ref_counted.h"
+#include "gutil/stringprintf.h"
+#include "olap/olap_common.h"
+#include "olap/olap_define.h"
+#include "olap/types.h"
 
 namespace doris {
 namespace memory {
 
-MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
-        : BaseTablet(tablet_meta, data_dir) {}
+template <class T, class ST>
+inline T padding(T v, ST pad) {
+    return (v + pad - 1) / pad * pad;
+}
 
-MemTablet::~MemTablet() {}
+template <class T, class ST>
+inline size_t num_block(T v, ST bs) {
+    return (v + bs - 1) / bs;
+}
 
 } // namespace memory
 } // namespace doris

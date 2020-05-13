@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_OLAP_MEMORY_HASH_INDEX_H_
-#define DORIS_BE_SRC_OLAP_MEMORY_HASH_INDEX_H_
+#pragma once
 
 #include <stdint.h>
 
@@ -27,6 +26,7 @@
 #include "gutil/ref_counted.h"
 
 namespace doris {
+namespace memory {
 
 struct HashChunk;
 
@@ -103,6 +103,5 @@ private:
     HashChunk* _chunks;
 };
 
-} /* namespace doris */
-
-#endif /* DORIS_BE_SRC_OLAP_MEMORY_HASH_INDEX_H_ */
+} // namespace memory
+} // namespace doris
