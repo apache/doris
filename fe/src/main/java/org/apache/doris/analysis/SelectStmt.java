@@ -1397,8 +1397,8 @@ public class SelectStmt extends QueryStmt {
             while (childIdx + 2 <= caseExpr.getChildren().size()) {
                 Expr child = caseExpr.getChild(childIdx++);
                 // when
-               if (!(child.contains(Predicates.instanceOf(Subquery.class))
-                       && (caseExpr.hasCaseExpr() || child instanceof BinaryPredicate))) {
+               if (child.contains(Predicates.instanceOf(Subquery.class))
+                       && !((caseExpr.hasCaseExpr() || child instanceof BinaryPredicate))) {
                     throw new AnalysisException("Only support subquery in binary predicate in case statement.");
                 }
                 // then
