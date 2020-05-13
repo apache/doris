@@ -28,6 +28,7 @@
 #include "gutil/stringprintf.h"
 
 namespace doris {
+namespace memory {
 
 struct alignas(64) HashChunk {
     static const uint32_t CAPACITY = 12;
@@ -166,4 +167,5 @@ const std::string HashIndex::dump() const {
                         size() / (_num_chunks * 12.0f));
 }
 
+} // namespace memory
 } // namespace doris
