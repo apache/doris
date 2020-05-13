@@ -80,6 +80,7 @@ Status FileResultWriter::append_row_batch(RowBatch* batch) {
         RETURN_IF_ERROR(_write_csv_file(*batch));
     }
 
+    _written_rows += batch->num_rows();
     return Status::OK();
 }
 
@@ -214,9 +215,11 @@ Status FileResultWriter::close() {
     if (_parquet_writer != nullptr) {
         _parquet_writer->close();
         delete _parquet_writer;
+        _parquet_writer = nullptr;
     } else if (_file_writer != nullptr) {
         _file_writer->close();
         delete _file_writer;
+        _file_writer = nullptr;
     }
     return Status::OK();
 }

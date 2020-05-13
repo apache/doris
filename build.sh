@@ -42,6 +42,7 @@ if [[ ! -f ${DORIS_THIRDPARTY}/installed/lib/libs2.a ]]; then
 fi
 
 PARALLEL=$[$(nproc)/4+1]
+PARALLEL=12
 
 # Check args
 usage() {

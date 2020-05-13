@@ -73,13 +73,14 @@ Status ResultSink::prepare(RuntimeState* state) {
     _profile = state->obj_pool()->add(new RuntimeProfile(state->obj_pool(), title.str()));
     // prepare output_expr
     RETURN_IF_ERROR(prepare_exprs(state));
+
+    // create sender
+    RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
+                state->fragment_instance_id(), _buf_size, &_sender));
     
-    // create sender and writer based on sink type
+    // create writer based on sink type
     switch (_sink_type) {
         case TResultSinkType::MYSQL_PROTOCAL:
-            // create sender
-            RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                        state->fragment_instance_id(), _buf_size, &_sender));
             // create writer
             _writer.reset(new(std::nothrow) MysqlResultWriter(_sender.get(), _output_expr_ctxs));
             break;
@@ -91,7 +92,9 @@ Status ResultSink::prepare(RuntimeState* state) {
             return Status::InternalError("Unknown result sink type");
     }
 
+    LOG(WARNING) << "cmy before writer init;";
     RETURN_IF_ERROR(_writer->init(state));
+    LOG(WARNING) << "cmy after writer init;";
 
     return Status::OK();
 }
@@ -108,13 +111,35 @@ Status ResultSink::close(RuntimeState* state, Status exec_status) {
     if (_closed) {
         return Status::OK();
     }
+
+    LOG(WARNING) << 1;
+    Status final_status = exec_status;
+    LOG(WARNING) << 2;
+    // close the writer
+    Status st = _writer->close();
+    LOG(WARNING) << 3;
+    if (!st.ok() && exec_status.ok()) {
+        // close file writer failed, should return this error to client
+        LOG(WARNING) << 4;
+        final_status = st;
+        LOG(WARNING) << 5;
+    }
+
     // close sender, this is normal path end
     if (_sender) {
-        _sender->close(exec_status);
+        if (final_status.ok()) {
+            _sender->update_num_written_rows(_writer->get_written_rows());
+        }
+    LOG(WARNING) << 7;
+        _sender->close(final_status);
+    LOG(WARNING) << 8;
     }
+    LOG(WARNING) << 9;
     state->exec_env()->result_mgr()->cancel_at_time(time(NULL) + config::result_buffer_cancelled_interval_time, 
                                                     state->fragment_instance_id());
+    LOG(WARNING) << 10;
     Expr::close(_output_expr_ctxs, state);
+    LOG(WARNING) << 11;
 
     _closed = true;
     return Status::OK();

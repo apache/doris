@@ -221,6 +221,7 @@ Status MysqlResultWriter::append_row_batch(RowBatch* batch) {
 
         if (status.ok()) {
             result = NULL;
+            _written_rows += num_rows;
         } else {
             LOG(WARNING) << "append result batch to sink failed.";
         }
