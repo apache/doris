@@ -1382,29 +1382,9 @@ public class SelectStmt extends QueryStmt {
 
     private void rewriteSelectList(ExprRewriter rewriter) throws AnalysisException {
         for (SelectListItem item : selectList.getItems()) {
-            if (!(item.getExpr() instanceof CaseExpr)) {
-                continue;
+            if (item.getExpr() instanceof CaseExpr && item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
+                rewriteSubquery(item.getExpr(), analyzer);
             }
-            if (!item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
-                continue;
-            }
-            CaseExpr caseExpr = (CaseExpr) item.getExpr();
-
-            int childIdx = 0;
-            if (caseExpr.hasCaseExpr()) {
-                childIdx++;
-            }
-            while (childIdx + 2 <= caseExpr.getChildren().size()) {
-                Expr child = caseExpr.getChild(childIdx++);
-                // when
-               if (child.contains(Predicates.instanceOf(Subquery.class))
-                       && !((caseExpr.hasCaseExpr() || child instanceof BinaryPredicate))) {
-                    throw new AnalysisException("Only support subquery in binary predicate in case statement.");
-                }
-                // then
-                childIdx++;
-            }
-            rewriteSubquery(item.getExpr(), analyzer);
         }
         selectList.rewriteExprs(rewriter, analyzer);
     }

@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -188,6 +189,10 @@ public class CaseExpr extends Expr {
             }
             if (whenExpr instanceof Subquery && !whenExpr.getType().isScalarType()) {
                 throw new AnalysisException("Subquery in case-when must return scala type");
+            }
+            if (whenExpr.contains(Predicates.instanceOf(Subquery.class))
+                    && !((hasCaseExpr() || whenExpr instanceof BinaryPredicate))) {
+                throw new AnalysisException("Only support subquery in binary predicate in case statement.");
             }
             // Determine maximum compatible type of the then exprs seen so far.
             // We will add casts to them at the very end.
