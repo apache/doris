@@ -114,6 +114,7 @@ module.exports = [
       "colocation-join",
       "dynamic-partition",
       "export-manual",
+      "outfile",
       "privilege",
       "segment-v2-usage",
       "small-file-mgr",
