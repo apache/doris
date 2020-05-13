@@ -198,7 +198,7 @@ public class CaseExpr extends Expr {
             // We will add casts to them at the very end.
             Expr thenExpr = children.get(i + 1);
             if (thenExpr instanceof Subquery && !thenExpr.getType().isScalarType()) {
-                throw new AnalysisException("subquery in case-when must return scala type");
+                throw new AnalysisException("Subquery in case-when must return scala type");
             }
             returnType = analyzer.getCompatibleType(returnType, lastCompatibleThenExpr, thenExpr);
             lastCompatibleThenExpr = thenExpr;
@@ -206,7 +206,7 @@ public class CaseExpr extends Expr {
         if (hasElseExpr) {
             Expr elseExpr = children.get(children.size() - 1);
             if (elseExpr instanceof Subquery && !elseExpr.getType().isScalarType()) {
-                throw new AnalysisException("subquery in case-when must return scala type");
+                throw new AnalysisException("Subquery in case-when must return scala type");
             }
             returnType = analyzer.getCompatibleType(returnType, lastCompatibleThenExpr, elseExpr);
         }
