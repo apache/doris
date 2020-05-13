@@ -446,6 +446,7 @@ module.exports = [
       "how-to-contribute",
       "members",
       "pull-request",
+      "committer-guide",
       "release-process",
       "subscribe-mail-list",
       "verify-apache-release",
