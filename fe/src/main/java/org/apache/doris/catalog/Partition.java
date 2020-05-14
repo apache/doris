@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -285,7 +286,12 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public boolean hasData() {
-        return !(visibleVersion == PARTITION_INIT_VERSION && visibleVersionHash == PARTITION_INIT_VERSION_HASH);
+        // The fe unit test need to check the selected index id without any data.
+        // So if set FeConstants.runningUnitTest, we can ensure that the number of partitions is not empty,
+        // And the test case can continue to execute the logic of 'select best roll up'
+        return ((visibleVersion != PARTITION_INIT_VERSION)
+                || (visibleVersionHash != PARTITION_INIT_VERSION_HASH)
+                || FeConstants.runningUnitTest);
     }
 
     /*
