@@ -311,6 +311,11 @@ class PartitionedAggregationNode : public ExecNode {
   /// Time spent in streaming preagg algorithm.
   RuntimeProfile::Counter* streaming_timer_;
 
+  /// num_processed_rows == num_hash_probe_ add this counter
+  /// just make the runningprofie more clearly
+  /// The number of rows which proessed by aggregation.
+  RuntimeProfile::Counter* num_processed_rows_;
+
   /// The number of rows passed through without aggregation.
   RuntimeProfile::Counter* num_passthrough_rows_;
 

@@ -124,6 +124,7 @@ PartitionedAggregationNode::PartitionedAggregationNode(
     num_spilled_partitions_(NULL),
     largest_partition_percent_(NULL),
     streaming_timer_(NULL),
+    num_processed_rows_(NULL),
     num_passthrough_rows_(NULL),
     preagg_estimated_reduction_(NULL),
     preagg_streaming_ht_min_reduction_(NULL),
@@ -194,6 +195,8 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
 
   ht_resize_timer_ = ADD_TIMER(runtime_profile(), "HTResizeTime");
   get_results_timer_ = ADD_TIMER(runtime_profile(), "GetResultsTime");
+  num_processed_rows_ =
+      ADD_COUNTER(runtime_profile(), "RowsProcessed", TUnit::UNIT);
   num_hash_buckets_ =
       ADD_COUNTER(runtime_profile(), "HashBuckets", TUnit::UNIT);
   num_hash_filled_buckets_ =
@@ -514,6 +517,7 @@ Status PartitionedAggregationNode::GetRowsFromPartition(RuntimeState* state,
     }
   }
 
+  COUNTER_SET(num_processed_rows_, num_hash_probe_->value());
   COUNTER_SET(_rows_returned_counter, _num_rows_returned);
   partition_eos_ = reached_limit();
   if (output_iterator_.AtEnd()) row_batch->mark_needs_deep_copy();
