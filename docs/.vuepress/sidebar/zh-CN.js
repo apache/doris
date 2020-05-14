@@ -209,6 +209,7 @@ module.exports = [
             children: [
               "append_trailing_char_if_absent",
               "ascii",
+              "char_length",
               "concat",
               "concat_ws",
               "ends_with",
