@@ -33,10 +33,12 @@ namespace doris {
 
 MysqlResultWriter::MysqlResultWriter(
         BufferControlBlock* sinker,
-        const std::vector<ExprContext*>& output_expr_ctxs) :
+        const std::vector<ExprContext*>& output_expr_ctxs,
+        RuntimeProfile* parent_profile) :
             _sinker(sinker),
             _output_expr_ctxs(output_expr_ctxs),
-            _row_buffer(NULL) {
+            _row_buffer(NULL),
+            _parent_profile(parent_profile) {
 }
 
 MysqlResultWriter::~MysqlResultWriter() {
@@ -44,6 +46,7 @@ MysqlResultWriter::~MysqlResultWriter() {
 }
 
 Status MysqlResultWriter::init(RuntimeState* state) {
+    _init_profile();
     if (NULL == _sinker) {
         return Status::InternalError("sinker is NULL pointer.");
     }
@@ -57,7 +60,16 @@ Status MysqlResultWriter::init(RuntimeState* state) {
     return Status::OK();
 }
 
+void MysqlResultWriter::_init_profile() {
+    RuntimeProfile* profile = _parent_profile->create_child("MySQLResultWriter", true, true);
+    _append_row_batch_timer = ADD_TIMER(profile, "AppendBatchTime");
+    _convert_tuple_timer = ADD_CHILD_TIMER(profile, "TupleConvertTime", "AppendBatchTime");
+    _result_send_timer = ADD_CHILD_TIMER(profile, "ResultRendTime", "AppendBatchTime");
+    _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
+}
+
 Status MysqlResultWriter::add_one_row(TupleRow* row) {
+    SCOPED_TIMER(_convert_tuple_timer);
     _row_buffer->reset();
     int num_columns = _output_expr_ctxs.size();
     int buf_ret = 0;
@@ -193,6 +205,7 @@ Status MysqlResultWriter::add_one_row(TupleRow* row) {
 }
 
 Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
+    SCOPED_TIMER(_append_row_batch_timer);
     if (NULL == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
@@ -216,6 +229,7 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     }
 
     if (status.ok()) {
+        SCOPED_TIMER(_sent_rows_counter);
         // push this batch to back
         status = _sinker->add_batch(result);
 
@@ -234,6 +248,7 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
 }
 
 Status MysqlResultWriter::close() {
+    COUNTER_SET(_sent_rows_counter, _written_rows);
     return Status::OK();
 }
 

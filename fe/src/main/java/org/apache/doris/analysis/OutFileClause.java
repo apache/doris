@@ -36,8 +36,8 @@ public class OutFileClause {
     private static final String PROP_MAX_FILE_SIZE_BYTES = "max_file_size_bytes";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
-    private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
-    private static final long MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
+    private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
+    private static final long MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024L; // 2GB
 
     private String filePath;
     private String format;
@@ -121,9 +121,9 @@ public class OutFileClause {
         }
 
         if (properties.containsKey(PROP_MAX_FILE_SIZE_BYTES)) {
-            maxFileSizeBytes = ParseUtil.analyzeDataVolumn(properties.get(PROP_LINE_DELIMITER));
-            if (maxFileSizeBytes > MAX_FILE_SIZE_BYTES || maxFileSizeBytes <= MIN_FILE_SIZE_BYTES) {
-                throw new AnalysisException("max file size should between 5MB and 2GB");
+            maxFileSizeBytes = ParseUtil.analyzeDataVolumn(properties.get(PROP_MAX_FILE_SIZE_BYTES));
+            if (maxFileSizeBytes > MAX_FILE_SIZE_BYTES || maxFileSizeBytes < MIN_FILE_SIZE_BYTES) {
+                throw new AnalysisException("max file size should between 5MB and 2GB. Given: " + maxFileSizeBytes);
             }
         }
     }

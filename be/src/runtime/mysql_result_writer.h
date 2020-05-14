@@ -18,6 +18,7 @@
 #pragma once
 
 #include "runtime/result_writer.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
@@ -26,12 +27,14 @@ class RowBatch;
 class ExprContext;
 class MysqlRowBuffer;
 class BufferControlBlock;
-class RuntimeState;
+class RuntimeProfile;
 
 // convert the row batch to mysql protol row
 class MysqlResultWriter : public ResultWriter {
 public:
-    MysqlResultWriter(BufferControlBlock* sinker, const std::vector<ExprContext*>& output_expr_ctxs);
+    MysqlResultWriter(BufferControlBlock* sinker,
+            const std::vector<ExprContext*>& output_expr_ctxs,
+            RuntimeProfile* parent_profile);
     virtual ~MysqlResultWriter();
 
     virtual Status init(RuntimeState* state) override;
@@ -42,6 +45,9 @@ public:
     virtual Status close() override;
 
 private:
+    void _init_profile();
+
+private:
     // convert one tuple row
     Status add_one_row(TupleRow* row);
 
@@ -49,6 +55,16 @@ private:
     BufferControlBlock* _sinker;
     const std::vector<ExprContext*>& _output_expr_ctxs;
     MysqlRowBuffer* _row_buffer;
+
+    RuntimeProfile* _parent_profile; // parent profile from result sink. not owned
+    // total time cost on append batch opertion
+    RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
+    // tuple convert timer, child timer of _append_row_batch_timer
+    RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
+    // file write timer, child timer of _append_row_batch_timer
+    RuntimeProfile::Counter* _result_send_timer = nullptr;
+    // number of sent rows
+    RuntimeProfile::Counter* _sent_rows_counter = nullptr;
 };
 
 } // end of namespace

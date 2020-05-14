@@ -78,11 +78,11 @@ Status ResultSink::prepare(RuntimeState* state) {
     // create writer based on sink type
     switch (_sink_type) {
         case TResultSinkType::MYSQL_PROTOCAL:
-            _writer.reset(new(std::nothrow) MysqlResultWriter(_sender.get(), _output_expr_ctxs));
+            _writer.reset(new(std::nothrow) MysqlResultWriter(_sender.get(), _output_expr_ctxs, _profile));
             break;
         case TResultSinkType::FILE:
             CHECK(_file_opts.get() != nullptr);
-            _writer.reset(new(std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs));
+            _writer.reset(new(std::nothrow) FileResultWriter(_file_opts.get(), _output_expr_ctxs, _profile));
             break;
         default:
             return Status::InternalError("Unknown result sink type");

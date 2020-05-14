@@ -79,11 +79,12 @@ WITH BROKER `broker_name`
 
     * `column_separator`：列分隔符，仅对 CSV 格式适用。默认为 `\t`。
     * `line_delimiter`：行分隔符，仅对 CSV 格式适用。默认为 `\n`。
-    * `max_file_size_bytes`：单个文件的最大大小。默认为 1GB。
+    * `max_file_size_bytes`：单个文件的最大大小。默认为 1GB。取值范围在 5MB 到 2GB 之间。超过这个大小的文件将会被切分。
 
 1. 示例1
 
     将简单查询结果导出到文件 `hdfs:/path/to/result.txt`。指定导出格式为 CSV。使用 `my_broker` 并设置 kerberos 认证信息。指定列分隔符为 `,`，行分隔符为 `\n`。
+
     ```
     SELECT * FROM tbl
     INTO OUTFILE "hdfs:/path/to/result"
@@ -161,10 +162,10 @@ WITH BROKER `broker_name`
 如果正常导出并返回，则结果如下：
 
 ```
-mysql> SELECT * FROM tbl INTO OUTFILE ...                                                                                                                                                                                                                                                                  Query OK, 100000 row affected (5.86 sec)
+mysql> SELECT * FROM tbl INTO OUTFILE ...                                                                                                                                                                                                                                                                Query OK, 100000 row affected (5.86 sec)
 ```
 
-其中 `100000 row affected` 表示导出的结果集大小。
+其中 `100000 row affected` 表示导出的结果集行数。
 
 如果执行错误，则会返回错误信息，如：
 
@@ -178,3 +179,5 @@ mysql> SELECT * FROM tbl INTO OUTFILE ...                                       
 * 导出命令不会检查文件及文件路径是否存在。是否会自动创建路径、或是否会覆盖已存在文件，完全由远端存储系统的语义决定。
 * 如果在导入过程中出现错误，可能会有导出文件残留在远端存储系统上。Doris 不会清理这些文件。需要用户手动清理。
 * 导出命令的超时时间同查询的超时时间。可以通过 `SET query_timeout=xxx` 进行设置。
+* 对于结果集为空的查询，依然后产生一个大小为0的文件。
+* 文件切分会保证一行数据完整的存储在单一文件中。因此文件的大小并不严格等于 `max_file_size_bytes`。

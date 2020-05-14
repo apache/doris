@@ -79,8 +79,7 @@ WITH BROKER `broker_name`
 
     * `column_separator`: Column separator, only applicable to CSV format. The default is `\t`.
     * `line_delimiter`: Line delimiter, only applicable to CSV format. The default is `\n`.
-    * `max_file_size_bytes`：The max size of a single file. Default is 1GB.
-
+    * `max_file_size_bytes`：The max size of a single file. Default is 1GB. Range from 5MB to 2GB. Files exceeding this size will be splitted.
 
 1. Example 1
 
@@ -181,3 +180,5 @@ mysql> SELECT * FROM tbl INTO OUTFILE ...                                       
 * The export command does not check whether the file and file path exist. Whether the path will be automatically created or whether the existing file will be overwritten is entirely determined by the semantics of the remote storage system.
 * If an error occurs during the export process, the exported file may remain on the remote storage system. Doris will not clean these files. The user needs to manually clean up.
 * The timeout of the export command is the same as the timeout of the query. It can be set by `SET query_timeout = xxx`.
+* For empty result query, there will be an empty file.
+* File spliting will ensure that a row of data is stored in a single file. Therefore, the size of the file is not strictly equal to `max_file_size_bytes`.
