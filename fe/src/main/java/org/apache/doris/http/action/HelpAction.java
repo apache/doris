@@ -80,9 +80,14 @@ public class HelpAction extends WebBaseAction {
     
     private void appendSearchButton(StringBuilder buffer) {
         buffer.append("<form class=\"form-search\">"
-                + "<input name=\"query\" type=\"text\" class=\"input-medium search-query\" "
-                + "  placeholder=\"input here...\">"
-                + "<button type=\"submit\" class=\"btn\">Search</button>"
+                + "<div class=\"col-lg-3\" style=\"padding-left: 0px;\">"
+                + "    <div class=\"input-group\">"
+                + "        <input name = \"query\" type=\"text\" class=\"form-control\" placeholder=\"input here...\">"
+                + "        <span class=\"input-group-btn\">"
+                + "            <button class=\"btn btn-default\" type=\"submit\">Search</button>"
+                + "        </span>"
+                + "    </div>"
+                + "</div>"
                 + "<a href=\"/help\" class=\"btn btn-primary\">Back To Home</a>"
                 + "</form>");
     }
