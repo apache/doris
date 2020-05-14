@@ -120,10 +120,10 @@ WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicat
     //      abc\\%123 ===> abc\\%123
     // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
     for (int i = 0; i< _like_value.size(); i++) {
-        if (_like_value[i] == '_' || _like_value[i]== '%') {
+        if (_like_value[i] == '_' || _like_value[i] == '%') {
                 if (i == 0) {
                     _like_value[i] = (_like_value[i] == '_') ? '?' : '*';
-                } else if (_like_value[i-1] != '\\' ) {
+                } else if (_like_value[i - 1] != '\\' ) {
                     _like_value[i] = (_like_value[i] == '_') ? '?' : '*';
                 }
         }
