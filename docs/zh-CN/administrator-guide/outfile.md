@@ -26,7 +26,7 @@ under the License.
 
 # 查询结果集导出
 
-本文档介绍如何使用 `SELECT INTO OUTFILE` 命令进行查询结果的导出操作。
+本文档介绍如何使用 `SELECT INTO OUTFILE` 命令进行查询结果的导入操作。
 
 ## 语法
 
@@ -40,6 +40,18 @@ WITH BROKER `broker_name`
 [broker_properties]
 [other_properties]
 ```
+
+* `file_path`
+
+    `file_path` 指向文件存储的路径以及文件前缀。如 `hdfs://path/to/my_file`。
+    
+    最终的文件名将由 `my_file`，文件序号以及文件格式后缀组成。其中文件序号由0开始，数量为文件被分割的数量。如：
+    
+    ```
+    my_file_0.csv
+    my_file_1.csv
+    my_file_2.csv
+    ```
 
 * `[format_as]`
 
@@ -67,14 +79,14 @@ WITH BROKER `broker_name`
 
     * `column_separator`：列分隔符，仅对 CSV 格式适用。默认为 `\t`。
     * `line_delimiter`：行分隔符，仅对 CSV 格式适用。默认为 `\n`。
+    * `max_file_size_bytes`：单个文件的最大大小。默认为 1GB。
 
 1. 示例1
 
     将简单查询结果导出到文件 `hdfs:/path/to/result.txt`。指定导出格式为 CSV。使用 `my_broker` 并设置 kerberos 认证信息。指定列分隔符为 `,`，行分隔符为 `\n`。
-    
     ```
     SELECT * FROM tbl
-    INTO OUTFILE "hdfs:/path/to/result.txt"
+    INTO OUTFILE "hdfs:/path/to/result"
     FORMAT AS CSV
     WITH BROKER "my_broker"
     (
@@ -85,9 +97,14 @@ WITH BROKER `broker_name`
     PROPERTIELS
     (
         "column_separator" = ",",
-        "line_delimiter" = "\n"
+        "line_delimiter" = "\n",
+        "max_file_size_bytes" = "100MB"
     );
     ```
+    
+    最终生成文件如如果不大于 100MB，则为：`result_0.csv`。
+    
+    如果大于 100MB，则可能为 `result_0.csv, result_1.csv, ...`。
 
 2. 示例2
 
@@ -113,13 +130,17 @@ WITH BROKER `broker_name`
     );
     ```
     
+    最终生成文件如如果不大于 1GB，则为：`result_0.csv`。
+    
+    如果大于 1GB，则可能为 `result_0.csv, result_1.csv, ...`。
+    
 3. 示例3
 
-    将 UNION 语句的查询结果导出到文件 `bos://bucket/result.parquet`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 hdfs 高可用信息。PARQUET 格式无需指定列分割符和行分隔符。
+    将 UNION 语句的查询结果导出到文件 `bos://bucket/result.txt`。指定导出格式为 PARQUET。使用 `my_broker` 并设置 hdfs 高可用信息。PARQUET 格式无需指定列分割符。
     
     ```
     SELECT k1 FROM tbl1 UNION SELECT k2 FROM tbl1
-    INTO OUTFILE "bos://bucket/result.parquet"
+    INTO OUTFILE "bos://bucket/result.txt"
     FORMAT AS PARQUET
     WITH BROKER "my_broker"
     (
@@ -128,6 +149,10 @@ WITH BROKER `broker_name`
         "bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
     )
     ```
+    
+    最终生成文件如如果不大于 1GB，则为：`result_0.parquet`。
+    
+    如果大于 1GB，则可能为 `result_0.parquet, result_1.parquet, ...`。
     
 ## 返回结果
 
@@ -149,8 +174,7 @@ mysql> SELECT * FROM tbl INTO OUTFILE ...                                       
 
 ## 注意事项
 
-* CSV 格式不支持输出 binary 类型，如 BITMAP、HLL 类型。这些类型会输出为 `\N`, 即 null。
 * 查询结果是由单个 BE 节点，单线程导出的。因此导出时间和导出结果集大小正相关。
 * 导出命令不会检查文件及文件路径是否存在。是否会自动创建路径、或是否会覆盖已存在文件，完全由远端存储系统的语义决定。
-* 如果在导出过程中出现错误，可能会有导出文件残留在远端存储系统上。Doris 不会清理这些文件。需要用户手动清理。
+* 如果在导入过程中出现错误，可能会有导出文件残留在远端存储系统上。Doris 不会清理这些文件。需要用户手动清理。
 * 导出命令的超时时间同查询的超时时间。可以通过 `SET query_timeout=xxx` 进行设置。

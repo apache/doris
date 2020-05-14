@@ -44,8 +44,9 @@ struct TResultFileSinkOptions {
     2: required PlanNodes.TFileFormatType file_format
     3: optional string column_separator    // only for csv
     4: optional string line_delimiter  // only for csv
-    5: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
-    6: optional map<string, string> broker_properties // only for remote file
+    5: optional i64 max_file_size_bytes
+    6: optional list<Types.TNetworkAddress> broker_addresses; // only for remote file
+    7: optional map<string, string> broker_properties // only for remote file
 }
 
 struct TMemoryScratchSink {

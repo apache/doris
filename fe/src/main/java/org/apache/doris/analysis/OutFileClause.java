@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TResultFileSinkOptions;
@@ -32,6 +33,11 @@ public class OutFileClause {
 
     private static final String PROP_COLUMN_SEPARATOR = "column_separator";
     private static final String PROP_LINE_DELIMITER = "line_delimiter";
+    private static final String PROP_MAX_FILE_SIZE_BYTES = "max_file_size_bytes";
+
+    private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
+    private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+    private static final long MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
 
     private String filePath;
     private String format;
@@ -42,6 +48,7 @@ public class OutFileClause {
     private String columnSeparator = "\t";
     private String lineDelimiter = "\n";
     private TFileFormatType fileFormatType;
+    private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
 
     public OutFileClause(String filePath, String format, BrokerDesc brokerDesc, Map<String, String> properties) {
         this.filePath = filePath;
@@ -67,6 +74,10 @@ public class OutFileClause {
 
     public TFileFormatType getFileFormatType() {
         return fileFormatType;
+    }
+
+    public long getMaxFileSizeBytes() {
+        return maxFileSizeBytes;
     }
 
     public BrokerDesc getBrokerDesc() {
@@ -108,6 +119,13 @@ public class OutFileClause {
             }
             lineDelimiter = properties.get(PROP_LINE_DELIMITER);
         }
+
+        if (properties.containsKey(PROP_MAX_FILE_SIZE_BYTES)) {
+            maxFileSizeBytes = ParseUtil.analyzeDataVolumn(properties.get(PROP_LINE_DELIMITER));
+            if (maxFileSizeBytes > MAX_FILE_SIZE_BYTES || maxFileSizeBytes <= MIN_FILE_SIZE_BYTES) {
+                throw new AnalysisException("max file size should between 5MB and 2GB");
+            }
+        }
     }
 
     private boolean isCsvFormat() {
@@ -143,6 +161,7 @@ public class OutFileClause {
             sinkOptions.setColumn_separator(columnSeparator);
             sinkOptions.setLine_delimiter(lineDelimiter);
         }
+        sinkOptions.setMax_file_size_bytes(maxFileSizeBytes);
         if (brokerDesc != null) {
             sinkOptions.setBroker_properties(brokerDesc.getProperties());
             // broker_addresses of sinkOptions will be set in Coordinator.

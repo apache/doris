@@ -41,6 +41,18 @@ WITH BROKER `broker_name`
 [other_properties]
 ```
 
+* `file_path`
+
+    `file_path` specify the file path and file name prefix. Like: `hdfs://path/to/my_file`.
+    
+    The final file name will be assembled as `my_file`, file seq no and the format suffix. File seq no starts from 0, determined by the number of split.
+    
+    ```
+    my_file_0.csv
+    my_file_1.csv
+    my_file_2.csv
+    ```
+
 * `[format_as]`
 
     ```
@@ -67,6 +79,8 @@ WITH BROKER `broker_name`
 
     * `column_separator`: Column separator, only applicable to CSV format. The default is `\t`.
     * `line_delimiter`: Line delimiter, only applicable to CSV format. The default is `\n`.
+    * `max_file_size_bytes`：The max size of a single file. Default is 1GB.
+
 
 1. Example 1
 
@@ -85,9 +99,14 @@ WITH BROKER `broker_name`
     PROPERTIELS
     (
         "column_separator" = ",",
-        "line_delimiter" = "\n"
+        "line_delimiter" = "\n",
+        "max_file_size_bytes" = "100MB"
     );
     ```
+    
+    If the result is less than 100MB, file will be: `result_0.csv`.
+    
+    If larger than 100MB, may be: `result_0.csv, result_1.csv, ...`.
 
 2. Example 2
 
@@ -113,6 +132,10 @@ WITH BROKER `broker_name`
     );
     ```
     
+    If the result is less than 1GB, file will be: `result_0.csv`.
+    
+    If larger than 1GB, may be: `result_0.csv, result_1.csv, ...`.
+    
 3. Example 3
 
     Export the query results of the UNION statement to the file `bos://bucket/result.parquet`. Specify the export format as PARQUET. Use `my_broker` and set hdfs high availability information. PARQUET format does not need to specify the column separator and line delimiter.
@@ -128,6 +151,10 @@ WITH BROKER `broker_name`
         "bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
     )
     ```
+    
+    If the result is less than 1GB, file will be: `result_0.parquet`.
+    
+    If larger than 1GB, may be: `result_0.parquet, result_1.parquet, ...`.
     
 ## Return result
 
