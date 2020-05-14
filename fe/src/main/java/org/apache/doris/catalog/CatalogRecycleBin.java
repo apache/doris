@@ -36,6 +36,7 @@ import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
@@ -886,5 +887,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 isInMemory = in.readBoolean();
             }
         }
+    }
+    
+    // currently only used when loading image. So no synchronized protected.
+    public List<Long> getAllDbIds() {
+        return Lists.newArrayList(idToDatabase.keySet());
     }
 }
