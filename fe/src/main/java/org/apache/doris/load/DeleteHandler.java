@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
@@ -478,9 +479,14 @@ public class DeleteHandler implements Writable {
             }
 
             Column column = nameToColumn.get(columnName);
-            if (!column.isKey()) {
+            // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
+            // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
+            // floating-point numbers, floating-point number not allowed in where clause
+            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS
+                    || column.getDataType().isFloatingPointType()) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column");
+                throw new DdlException("Column[" + columnName + "] is not key column or storage model " +
+                        "is not duplicate or column type is float or double.");
             }
 
             if (condition instanceof BinaryPredicate) {
@@ -517,10 +523,11 @@ public class DeleteHandler implements Writable {
                 }
                 Column column = indexColNameToColumn.get(columnName);
                 if (column == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, indexName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName,
+                            table.getBaseIndexId() == index.getId()? indexName : "index[" + indexName +"]");
                 }
-
-                if (table.getKeysType() == KeysType.DUP_KEYS && !column.isKey()) {
+                MaterializedIndexMeta indexMeta = table.getIndexIdToMeta().get(index.getId());
+                if (indexMeta.getKeysType() != KeysType.DUP_KEYS && !column.isKey()) {
                     throw new DdlException("Column[" + columnName + "] is not key column in index[" + indexName + "]");
                 }
             }
