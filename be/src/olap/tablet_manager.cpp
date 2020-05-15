@@ -771,7 +771,7 @@ TabletSharedPtr TabletManager::find_best_tablet_to_compaction(CompactionType com
 }
 
 OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_id,
-        TSchemaHash schema_hash, const string& meta_binary, bool update_meta, bool force) {
+        TSchemaHash schema_hash, const string& meta_binary, bool update_meta, bool force, bool restore) {
     RWMutex& tablet_map_lock = _get_tablet_map_lock(tablet_id);
     WriteLock wlock(&tablet_map_lock);
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
@@ -795,6 +795,11 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
         LOG(WARNING) << "fail to load tablet because its uid == 0. "
                      << "tablet=" << tablet_meta->full_name();
         return OLAP_ERR_HEADER_PB_PARSE_FAILED;
+    }
+
+    if (restore) {
+        // we're restoring tablet from trash, tablet state should be changed from shutdown back to running
+        tablet_meta->set_tablet_state(TABLET_RUNNING);
     }
 
     TabletSharedPtr tablet = Tablet::create_tablet_from_meta(tablet_meta, data_dir);
@@ -833,11 +838,14 @@ OLAPStatus TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tab
 OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                                                SchemaHash schema_hash,
                                                const string& schema_hash_path,
-                                               bool force) {
+                                               bool force,
+                                               bool restore) {
     LOG(INFO) << "begin to load tablet from dir. "
               << " tablet_id=" << tablet_id
               << " schema_hash=" << schema_hash
-              << " path = " << schema_hash_path;
+              << " path = " << schema_hash_path
+              << " force = " << force
+              << " restore = " << restore;
     // not add lock here, because load_tablet_from_meta already add lock
     string header_path = TabletMeta::construct_header_file_path(schema_hash_path, tablet_id);
     // should change shard id before load tablet
@@ -865,7 +873,7 @@ OLAPStatus TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_
     string meta_binary;
     tablet_meta->serialize(&meta_binary);
     RETURN_NOT_OK_LOG(load_tablet_from_meta(store, tablet_id, schema_hash,
-                                            meta_binary, true, force),
+                                            meta_binary, true, force, restore),
             Substitute("fail to load tablet. header_path=$0", header_path));
 
     return OLAP_SUCCESS;
