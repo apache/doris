@@ -1382,29 +1382,9 @@ public class SelectStmt extends QueryStmt {
 
     private void rewriteSelectList(ExprRewriter rewriter) throws AnalysisException {
         for (SelectListItem item : selectList.getItems()) {
-            if (!(item.getExpr() instanceof CaseExpr)) {
-                continue;
+            if (item.getExpr() instanceof CaseExpr && item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
+                rewriteSubquery(item.getExpr(), analyzer);
             }
-            if (!item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
-                continue;
-            }
-            CaseExpr caseExpr = (CaseExpr) item.getExpr();
-
-            int childIdx = 0;
-            if (caseExpr.hasCaseExpr()
-                    && caseExpr.getChild(childIdx++).contains(Predicates.instanceOf(Subquery.class))) {
-                throw new AnalysisException("Only support subquery in binary predicate in case statement.");
-            }
-            while (childIdx + 2 <= caseExpr.getChildren().size()) {
-                Expr child = caseExpr.getChild(childIdx++);
-                // when
-                if (!(child instanceof BinaryPredicate) && child.contains(Predicates.instanceOf(Subquery.class))) {
-                    throw new AnalysisException("Only support subquery in binary predicate in case statement.");
-                }
-                // then
-                childIdx++;
-            }
-            rewriteSubquery(item.getExpr(), analyzer);
         }
         selectList.rewriteExprs(rewriter, analyzer);
     }
@@ -1447,13 +1427,17 @@ public class SelectStmt extends QueryStmt {
             throws AnalysisException {
         if (expr instanceof Subquery) {
             if (!(((Subquery) expr).getStatement() instanceof SelectStmt)) {
-                throw new AnalysisException("Only support select subquery in case statement.");
+                throw new AnalysisException("Only support select subquery in case-when clause.");
+            }
+            if (expr.isCorrelatedPredicate(getTableRefIds())) {
+                throw new AnalysisException("The correlated subquery in case-when clause is not supported");
             }
             SelectStmt subquery = (SelectStmt) ((Subquery) expr).getStatement();
             if (subquery.resultExprs.size() != 1 || !subquery.returnsSingleRow()) {
-                throw new AnalysisException("Only support select subquery produce one column in case statement.");
+                throw new AnalysisException("Subquery in case-when must return scala type");
             }
             subquery.reset();
+            subquery.setAssertNumRowsElement(1, AssertNumRowsElement.Assertion.EQ);
             String alias = getTableAliasGenerator().getNextAlias();
             String colAlias = getColumnAliasGenerator().getNextAlias();
             InlineViewRef inlineViewRef = new InlineViewRef(alias, subquery, Arrays.asList(colAlias));
