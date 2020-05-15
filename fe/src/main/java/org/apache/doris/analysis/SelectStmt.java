@@ -639,13 +639,15 @@ public class SelectStmt extends QueryStmt {
         if (isReturnCommonFactorExpr) {
             result = temp.get(0);
         } else {
-            // rebuild CompoundPredicate if found duplicate predicate will build （predcate) and (.. or ..)  predicate in
+            // rebuild CompoundPredicate if found duplicate predicate will build （predicate) and (.. or ..)  predicate in
             // step 1: will build (.. or ..)
             result = CollectionUtils.isNotEmpty(cloneExprs) ? new CompoundPredicate(CompoundPredicate.Operator.AND,
                     temp.get(0), makeCompound(temp.subList(1, temp.size()), CompoundPredicate.Operator.OR))
                     : makeCompound(temp, CompoundPredicate.Operator.OR);
         }
-        LOG.debug("rewrite ors: " + result.toSql());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("rewrite ors: " + result.toSql());
+        }
         return result;
     }
 
