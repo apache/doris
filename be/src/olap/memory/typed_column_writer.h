@@ -33,7 +33,7 @@ public:
 
 private:
     bool _isnull;
-    T _value = 0;
+    T _value;
 };
 
 // Used to hold temporary update cells in ColumnWriter
@@ -44,7 +44,7 @@ public:
     T& value() { return _value; }
 
 private:
-    T _value = 0;
+    T _value;
 };
 
 // ColumnWriter typed implementations

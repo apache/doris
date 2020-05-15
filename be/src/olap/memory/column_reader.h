@@ -30,8 +30,10 @@ namespace memory {
 // If the underlying column data doesn't need merge-on-read, we can use the
 // underlying base's ColumnBlock directly, and _own_cb equals false.
 //
-// If there are some deltas need to be merged, a new ColumnBlock will be
+// If there is any deltas need to be merged, a new ColumnBlock will be
 // created, and _own_cb equals true.
+//
+// Note: this class is only intended for single-thread single reader usage.
 class ColumnBlockHolder {
 public:
     ColumnBlockHolder(ColumnBlock* cb, bool own) : _cb(cb), _own_cb(own) {}

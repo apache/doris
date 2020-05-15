@@ -158,6 +158,7 @@ Status Column::read(uint64_t version, std::unique_ptr<ColumnReader>* reader) {
     default:
         return Status::NotSupported("create column reader: type not supported");
     }
+#undef CREATE_READER;
     return Status::OK();
 }
 
@@ -203,6 +204,7 @@ Status Column::write(std::unique_ptr<ColumnWriter>* writer) {
     default:
         return Status::NotSupported("create column writer: type not supported");
     }
+#undef CREATE_WRITER
     return Status::OK();
 }
 
