@@ -105,10 +105,10 @@ OLAPStatus DeleteConditionHandler::check_condition_valid(
     // 检查指定的列是不是key，是不是float或doulbe类型
     const TabletColumn& column = schema.column(field_index);
 
-    if (!column.is_key()
+    if ((!column.is_key() && schema.keys_type() != KeysType::DUP_KEYS)
             || column.type() == OLAP_FIELD_TYPE_DOUBLE
             || column.type() == OLAP_FIELD_TYPE_FLOAT) {
-        LOG(WARNING) << "field is not key column, or its type is float or double.";
+        LOG(WARNING) << "field is not key column, or storage model is not duplicate, or data type is float or double.";
         return OLAP_ERR_DELETE_INVALID_CONDITION;
     }
 
@@ -352,4 +352,3 @@ void DeleteHandler::get_delete_conditions_after_version(int32_t version,
 }
 
 }  // namespace doris
-
