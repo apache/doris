@@ -40,7 +40,7 @@ ColumnDataWriter::ColumnDataWriter(SegmentGroup* segment_group,
       _is_push_write(is_push_write),
       _compress_kind(compress_kind),
       _bloom_filter_fpp(bloom_filter_fpp),
-      _zone_maps(segment_group->get_num_key_columns(), KeyRange(NULL, NULL)),
+      _zone_maps(segment_group->get_num_zone_map_columns(), KeyRange(NULL, NULL)),
       _row_index(0),
       _row_block(NULL),
       _segment_writer(NULL),
@@ -140,7 +140,7 @@ OLAPStatus ColumnDataWriter::write(const RowType& row) {
 
 template<typename RowType>
 void ColumnDataWriter::next(const RowType& row) {
-    for (size_t cid = 0; cid < _segment_group->get_num_key_columns(); ++cid) {
+    for (size_t cid = 0; cid < _segment_group->get_num_zone_map_columns(); ++cid) {
         auto field = row.schema()->column(cid);
         auto cell = row.cell(cid);
 

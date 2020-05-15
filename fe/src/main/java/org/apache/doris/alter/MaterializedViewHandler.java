@@ -231,7 +231,6 @@ public class MaterializedViewHandler extends AlterHandler {
 
                 // step 1 check whether current alter is change storage format
                 String rollupIndexName = addRollupClause.getRollupName();
-                String newStorageFormatIndexName = "__v2_" + olapTable.getName();
                 boolean changeStorageFormat = false;
                 if (rollupIndexName.equalsIgnoreCase(olapTable.getName())) {
                     // for upgrade test to create segment v2 rollup index by using the sql:
@@ -242,7 +241,7 @@ public class MaterializedViewHandler extends AlterHandler {
                         throw new DdlException("Table[" + olapTable.getName() + "] can not " +
                                 "add segment v2 rollup index without setting storage format to v2.");
                     }
-                    rollupIndexName = newStorageFormatIndexName;
+                    rollupIndexName = NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX + olapTable.getName();
                     changeStorageFormat = true;
                 }
 
@@ -549,7 +548,10 @@ public class MaterializedViewHandler extends AlterHandler {
                     }
                     keyStorageLayoutBytes += baseColumn.getType().getStorageLayoutBytes();
                     Column rollupColumn = new Column(baseColumn);
-                    if ((i + 1) <= FeConstants.shortkey_max_column_count
+                    if(changeStorageFormat) {
+                        rollupColumn.setIsKey(baseColumn.isKey());
+                        rollupColumn.setAggregationType(baseColumn.getAggregationType(), true);
+                    } else if ((i + 1) <= FeConstants.shortkey_max_column_count
                             || keyStorageLayoutBytes < FeConstants.shortkey_maxsize_bytes) {
                         rollupColumn.setIsKey(true);
                         rollupColumn.setAggregationType(null, false);

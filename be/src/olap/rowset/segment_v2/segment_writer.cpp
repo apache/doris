@@ -67,7 +67,7 @@ Status SegmentWriter::init(uint32_t write_mbytes_per_sec __attribute__((unused))
         opts.meta->set_is_nullable(column.is_nullable());
 
         // now we create zone map for key columns
-        opts.need_zone_map = column.is_key();
+        opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() == KeysType::DUP_KEYS;
         opts.need_bloom_filter = column.is_bf_column();
         opts.need_bitmap_index = column.has_bitmap_index();
 
