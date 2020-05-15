@@ -173,6 +173,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 iterator.remove();
                 idToRecycleTime.remove(entry.getKey());
 
+                // remove database transaction manager
+                Catalog.getInstance().getGlobalTransactionMgr().removeDatabaseTransactionMgr(db.getId());
+
                 LOG.info("erase database[{}] name: {}", db.getId(), dbName);
             }
         }
