@@ -1,4 +1,4 @@
----                                                                                 
+---
 {
     "title": "Spark Load",
     "language": "zh-CN"
@@ -104,64 +104,113 @@ Spark load 任务的执行主要分为以下5个阶段。
 
 ### 配置 ETL 集群
 
+Spark作为一种外部计算资源在Doris中用来完成ETL工作，未来可能还有其他的外部资源会加入到Doris中使用，如Spark/GPU用于查询，HDFS/S3用于外部存储，MapReduce用于ETL等，因此我们引入resource management来管理Doris使用的这些外部资源。
+
 提交 Spark 导入任务之前，需要配置执行 ETL 任务的 Spark 集群。
 
 语法：
 
 ```sql
--- 添加 ETL 集群
-ALTER SYSTEM ADD LOAD CLUSTER cluster_name
-PROPERTIES("key1" = "value1", ...)
+-- create spark resource
+CREATE EXTERNAL RESOURCE resource_name
+PROPERTIES 
+(                 
+  type = spark,
+  spark_conf_key = spark_conf_value,
+  working_dir = path,
+  broker = broker_name,
+  broker.property_key = property_value
+)
 
--- 删除 ETL 集群
-ALTER SYSTEM DROP LOAD CLUSTER cluster_name
+-- drop spark resource
+DROP RESOURCE resource_name
 
--- 查看 ETL 集群
-SHOW LOAD CLUSTERS
-SHOW PROC "/load_etl_clusters"
+-- show resources
+SHOW RESOURCES
+SHOW PROC "/resources"
+
+-- privileges
+GRANT USAGE_PRIV ON RESOURCE resource_name TO user_identity
+GRANT USAGE_PRIV ON RESOURCE resource_name TO ROLE role_name
+
+REVOKE USAGE_PRIV ON RESOURCE resource_name FROM user_identity
+REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 ```
 
-`cluster_name` 为 Doris 中配置的 Spark 集群的名字。
+#### 创建资源
 
-PROPERTIES 是 ETL 集群相关参数，如下：
+`resource_name` 为 Doris 中配置的 Spark 资源的名字。
 
-- `type`：集群类型，必填，目前仅支持 spark。
+`PROPERTIES` 是 Spark 资源相关参数，如下：
 
-- Spark ETL 集群相关参数如下：
-  - `master`：必填，目前支持yarn，spark://host:port。
-  - `deploy_mode`： 可选，默认为 cluster。支持 cluster，client 两种。
-  - `hdfs_etl_path`：ETL 使用的 HDFS 目录。必填。例如：hdfs://host:port/tmp/doris。
-  - `broker`：broker 名字。必填。需要使用`ALTER SYSTEM ADD BROKER` 命令提前完成配置。
-  - `yarn_configs`： HDFS YARN 参数，master 为 yarn 时必填。需要指定 yarn.resourcemanager.address 和 fs.defaultFS。不同 configs 之间使用`;`拼接。
-  - `spark_args`： Spark 任务提交时指定的参数，可选。具体可参考 spark-submit 命令，每个 arg  必须以`--`开头，不同 args 之间使用`;`拼接。例如--files=/file1,/file2;--jars=/a.jar,/b.jar。
-  - `spark_configs`： Spark 参数，可选。具体参数可参考http://spark.apache.org/docs/latest/configuration.html。不同 configs 之间使用`;`拼接。
+- `type`：资源类型，必填，目前仅支持 spark。
+
+- Spark 相关参数如下：
+  - `spark.master`: 必填，目前支持yarn，spark://host:port。
+  - `spark.submit.deployMode`:  Spark 程序的部署模式，必填，支持 cluster，client 两种。
+  - `spark.hadoop.yarn.resourcemanager.address`: master为yarn时必填。
+  - `spark.hadoop.fs.defaultFS`: master为yarn时必填。
+  - 其他参数为可选，参考http://spark.apache.org/docs/latest/configuration.html 
+- `working_dir`: ETL 使用的目录。spark作为ETL资源使用时必填。例如：hdfs://host:port/tmp/doris。
+- `broker`: broker 名字。spark作为ETL资源使用时必填。需要使用`ALTER SYSTEM ADD BROKER` 命令提前完成配置。
+  - `broker.property_key`: broker读取ETL生成的中间文件时需要指定的认证信息等。
 
 示例：
 
 ```sql
 -- yarn cluster 模式 
-ALTER SYSTEM ADD LOAD CLUSTER "cluster0"
+CREATE EXTERNAL RESOURCE "spark0"
 PROPERTIES
 (
-"type" = "spark", 
-"master" = "yarn",
-"hdfs_etl_path" = "hdfs://1.1.1.1:801/tmp/doris",
-"broker" = "broker0",
-"yarn_configs" = "yarn.resourcemanager.address=1.1.1.1:800;fs.defaultFS=hdfs://1.1.1.1:801",
-"spark_args" = "--files=/file1,/file2;--jars=/a.jar,/b.jar",
-"spark_configs" = "spark.driver.memory=1g;spark.executor.memory=1g"
+	"type" = "spark",
+	"spark.master" = "yarn",
+	"spark.submit.deployMode" = "cluster",
+	"spark.jars" = "xxx.jar,yyy.jar",
+	"spark.files" = "/tmp/aaa,/tmp/bbb",
+	"spark.executor.memory" = "1g",
+	"spark.yarn.queue" = "queue0",
+	"spark.hadoop.yarn.resourcemanager.address" = "127.0.0.1:9999",
+	"spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
+	"working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
+	"broker" = "broker0",
+	"broker.username" = "user0",
+	"broker.password" = "password0"
 );
 
 -- spark standalone client 模式
-ALTER SYSTEM ADD LOAD CLUSTER "cluster1"
+CREATE EXTERNAL RESOURCE "spark1"
 PROPERTIES
 (
  "type" = "spark", 
- "master" = "spark://1.1.1.1:802",
- "deploy_mode" = "client",
- "hdfs_etl_path" = "hdfs://1.1.1.1:801/tmp/doris",
+ "spark.master" = "spark://127.0.0.1:7777",
+ "spark.submit.deployMode" = "client",
+ "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
  "broker" = "broker1"
 );
+```
+
+#### 查看资源
+
+普通账户只能看到自己有USAGE_PRIV使用权限的资源。
+
+root和admin账户可以看到所有的资源。
+
+#### 资源权限
+
+资源权限通过GRANT REVOKE来管理，目前仅支持USAGE_PRIV使用权限。
+
+可以将USAGE_PRIV权限赋予某个用户或者某个角色，角色的使用与之前一致。
+```sql
+-- 授予spark0资源的使用权限给用户user0
+GRANT USAGE_PRIV ON RESOURCE "spark0" TO "user0"@"%";
+-- 授予spark0资源的使用权限给角色role0
+GRANT USAGE_PRIV ON RESOURCE "spark0" TO ROLE "role0";
+-- 授予所有资源的使用权限给用户user0
+GRANT USAGE_PRIV ON RESOURCE * TO "user0"@"%";
+-- 授予所有资源的使用权限给角色role0
+GRANT USAGE_PRIV ON RESOURCE * TO ROLE "role0";
+-- 撤销用户user0的spark0资源使用权限
+REVOKE USAGE_PRIV ON RESOURCE "spark0" FROM "user0"@"%";
 ```
 
 
@@ -173,7 +222,7 @@ PROPERTIES
 ```sql
 LOAD LABEL load_label 
     (data_desc, ...)
-    WITH CLUSTER cluster_name cluster_properties
+    WITH RESOURCE resource_name resource_properties
     [PROPERTIES (key1=value1, ... )]
 
 * load_label:
@@ -189,7 +238,7 @@ LOAD LABEL load_label
     [SET (k1=f1(xx), k2=f2(xx))]
     [WHERE predicate]
 
-* cluster_properties: 
+* resource_properties: 
     (key2=value2, ...)
 ```
 示例：
@@ -212,10 +261,10 @@ LOAD LABEL db1.label1
     (col1, col2)
     where col1 > 1
 )
-WITH CLUSTER 'cluster0'
+WITH RESOURCE 'spark0'
 (
-    "broker.username"="user",
-    "broker.password"="pass"
+    "spark.executor.memory" = "2g",
+    "spark.shuffle.compress" = "true"
 )
 PROPERTIES
 (
@@ -238,20 +287,17 @@ PROPERTIES
 
 导入作业参数主要指的是 Spark load 创建导入语句中的属于 ```opt_properties```部分的参数。导入作业参数是作用于整个导入作业的。规则与 `Broker Load` 一致。
 
-#### Cluster 参数
+#### Spark资源参数
 
-ETL cluster需要提前配置到 Doris系统中才能使用 Spark load。
+Spark资源需要提前配置到 Doris系统中并且赋予用户USAGE_PRIV权限后才能使用 Spark load。
 
 当用户有临时性的需求，比如增加任务使用的资源而修改 Spark configs，可以在这里设置，设置仅对本次任务生效，并不影响 Doris 集群中已有的配置。
 
-另外如果需要指定额外的 Broker 参数，则需要指定"broker.key" = "value"。具体参数请参阅 [Broker文档](../broker.md)。例如需要指定用户名密码，如下：
-
 ```sql
-WITH CLUSTER 'cluster0'
+WITH RESOURCE 'spark0'
 (
-    "spark_configs" = "spark.driver.memory=1g;spark.executor.memory=1g",
-    "broker.username" = "user1",
-    "broker.password" = "password1"
+  "spark.driver.memory" = "1g",
+  "spark.executor.memory" = "3g"
 )
 ```
 
@@ -345,7 +391,7 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ## 常见问题
 
-* 待补充
+* 使用Spark load时需要在FE机器设置SPARK_HOME及HADOOP_CONF_DIR环境变量。
 
 
 

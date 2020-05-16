@@ -17,7 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.ModifyEtlClusterClause;
+import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -31,13 +31,13 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
 
-public abstract class EtlCluster implements Writable {
-    public enum EtlClusterType {
+public abstract class Resource implements Writable {
+    public enum ResourceType {
         SPARK;
 
-        public static EtlClusterType fromString(String clusterType) {
-            for (EtlClusterType type : EtlClusterType.values()) {
-                if (type.name().equalsIgnoreCase(clusterType)) {
+        public static ResourceType fromString(String resourceType) {
+            for (ResourceType type : ResourceType.values()) {
+                if (type.name().equalsIgnoreCase(resourceType)) {
                     return type;
                 }
             }
@@ -48,33 +48,33 @@ public abstract class EtlCluster implements Writable {
     @SerializedName(value = "name")
     protected String name;
     @SerializedName(value = "type")
-    protected EtlClusterType type;
+    protected ResourceType type;
 
-    public EtlCluster(String name, EtlClusterType type) {
+    public Resource(String name, ResourceType type) {
         this.name = name;
         this.type = type;
     }
 
-    public static EtlCluster fromClause(ModifyEtlClusterClause clause) throws DdlException {
-        EtlCluster etlCluster = null;
-        EtlClusterType clusterType = clause.getClusterType();
-        switch (clusterType) {
+    public static Resource fromStmt(CreateResourceStmt stmt) throws DdlException {
+        Resource resource = null;
+        ResourceType type = stmt.getResourceType();
+        switch (type) {
             case SPARK:
-                etlCluster = new SparkEtlCluster(clause.getClusterName());
+                resource = new SparkResource(stmt.getResourceName());
                 break;
             default:
-                throw new DdlException("Only support Spark cluster.");
+                throw new DdlException("Only support Spark resource.");
         }
 
-        etlCluster.setProperties(clause.getProperties());
-        return etlCluster;
+        resource.setProperties(stmt.getProperties());
+        return resource;
     }
 
     public String getName() {
         return name;
     }
 
-    public EtlClusterType getType() {
+    public ResourceType getType() {
         return type;
     }
 
@@ -92,9 +92,9 @@ public abstract class EtlCluster implements Writable {
         Text.writeString(out, json);
     }
 
-    public static EtlCluster read(DataInput in) throws IOException {
+    public static Resource read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, EtlCluster.class);
+        return GsonUtils.GSON.fromJson(json, Resource.class);
     }
 }
 

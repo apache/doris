@@ -29,7 +29,7 @@ import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
-import org.apache.doris.catalog.EtlCluster;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
@@ -684,16 +684,16 @@ public class EditLog {
                     catalog.getLoadManager().replayEndLoadJob(operation);
                     break;
                 }
-                case OperationType.OP_ADD_ETL_CLUSTER: {
-                    final EtlCluster etlCluster = (EtlCluster) journal.getData();
-                    catalog.getEtlClusterMgr().replayAddEtlCluster(etlCluster);
+                case OperationType.OP_CREATE_RESOURCE: {
+                    final Resource resource = (Resource) journal.getData();
+                    catalog.getResourceMgr().replayCreateResource(resource);
                     break;
                 }
-                case OperationType.OP_DROP_ETL_CLUSTER: {
-                    final String clusterName = journal.getData().toString();
-                    catalog.getEtlClusterMgr().replayDropEtlCluster(clusterName);
+                case OperationType.OP_DROP_RESOURCE: {
+                    final String resourceName = journal.getData().toString();
+                    catalog.getResourceMgr().replayDropResource(resourceName);
                     break;
-                } 
+                }
                 case OperationType.OP_CREATE_SMALL_FILE: {
                     SmallFile smallFile = (SmallFile) journal.getData();
                     catalog.getSmallFileMgr().replayCreateFile(smallFile);
@@ -1265,12 +1265,12 @@ public class EditLog {
         logEdit(OperationType.OP_END_LOAD_JOB, loadJobFinalOperation);
     }
 
-    public void logAddEtlCluster(EtlCluster etlCluster) {
-        logEdit(OperationType.OP_ADD_ETL_CLUSTER, etlCluster);
+    public void logCreateResource(Resource resource) {
+        logEdit(OperationType.OP_CREATE_RESOURCE, resource);
     }
 
-    public void logDropEtlCluster(String clusterName) {
-        logEdit(OperationType.OP_DROP_ETL_CLUSTER, new Text(clusterName));
+    public void logDropResource(String resourceName) {
+        logEdit(OperationType.OP_DROP_RESOURCE, new Text(resourceName));
     }
 
     public void logCreateSmallFile(SmallFile info) {

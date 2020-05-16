@@ -359,7 +359,7 @@ public class Catalog {
 
     private PullLoadJobMgr pullLoadJobMgr;
     private BrokerMgr brokerMgr;
-    private EtlClusterMgr etlClusterMgr;
+    private ResourceMgr resourceMgr;
 
     private GlobalTransactionMgr globalTransactionMgr;
 
@@ -497,7 +497,7 @@ public class Catalog {
 
         this.pullLoadJobMgr = new PullLoadJobMgr();
         this.brokerMgr = new BrokerMgr();
-        this.etlClusterMgr = new EtlClusterMgr();
+        this.resourceMgr = new ResourceMgr();
 
         this.globalTransactionMgr = new GlobalTransactionMgr(this);
         this.tabletStatMgr = new TabletStatMgr();
@@ -569,8 +569,8 @@ public class Catalog {
         return brokerMgr;
     }
 
-    public EtlClusterMgr getEtlClusterMgr() {
-        return etlClusterMgr;
+    public ResourceMgr getResourceMgr() {
+        return resourceMgr;
     }
 
     public static GlobalTransactionMgr getCurrentGlobalTransactionMgr() {
@@ -1443,7 +1443,7 @@ public class Catalog {
             checksum = loadColocateTableIndex(dis, checksum);
             checksum = loadRoutineLoadJobs(dis, checksum);
             checksum = loadLoadJobsV2(dis, checksum);
-            checksum = loadEtlClusters(dis, checksum);
+            checksum = loadResources(dis, checksum);
             checksum = loadSmallFiles(dis, checksum);
             checksum = loadPlugins(dis, checksum);
             checksum = loadDeleteHandler(dis, checksum);
@@ -1845,13 +1845,13 @@ public class Catalog {
         return checksum;
     }
 
-    public long loadEtlClusters(DataInputStream dis, long checksum) throws IOException {
+    public long loadResources(DataInputStream dis, long checksum) throws IOException {
         if (MetaContext.get().getMetaVersion() >= FeMetaVersion.VERSION_85) {
             int count = dis.readInt();
             checksum ^= count;
             for (long i = 0; i < count; ++i) {
-                EtlCluster etlCluster = EtlCluster.read(dis);
-                etlClusterMgr.replayAddEtlCluster(etlCluster);
+                Resource resource = Resource.read(dis);
+                resourceMgr.replayCreateResource(resource);
             }
             LOG.info("finished replay etlClusterMgr from image");
         }
@@ -1910,7 +1910,7 @@ public class Catalog {
             checksum = saveColocateTableIndex(dos, checksum);
             checksum = saveRoutineLoadJobs(dos, checksum);
             checksum = saveLoadJobsV2(dos, checksum);
-            checksum = saveEtlClusters(dos, checksum);
+            checksum = saveResources(dos, checksum);
             checksum = saveSmallFiles(dos, checksum);
             checksum = savePlugins(dos, checksum);
             checksum = saveDeleteHandler(dos, checksum);
@@ -2182,14 +2182,14 @@ public class Catalog {
         return checksum;
     }
 
-    public long saveEtlClusters(DataOutputStream dos, long checksum) throws IOException {
-        Collection<EtlCluster> etlClusters = etlClusterMgr.getEtlClusters();
-        int size = etlClusters.size();
+    public long saveResources(DataOutputStream dos, long checksum) throws IOException {
+        Collection<Resource> resources = resourceMgr.getResources();
+        int size = resources.size();
         checksum ^= size;
         dos.writeInt(size);
 
-        for (EtlCluster etlCluster : etlClusters) {
-            etlCluster.write(dos);
+        for (Resource resource : resources) {
+            resource.write(dos);
         }
         return checksum;
     }

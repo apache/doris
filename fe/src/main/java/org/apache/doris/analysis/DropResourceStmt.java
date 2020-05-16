@@ -20,54 +20,40 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.base.Preconditions;
+// DROP RESOURCE resource_name
+public class DropResourceStmt extends DdlStmt {
+    private String resourceName;
 
-public class AlterSystemStmt extends DdlStmt {
-
-    private AlterClause alterClause;
-
-    public AlterSystemStmt(AlterClause alterClause) {
-        this.alterClause = alterClause;
+    public DropResourceStmt(String resourceName) {
+        this.resourceName = resourceName;
     }
 
-    public AlterClause getAlterClause() {
-        return alterClause;
+    public String getResourceName() {
+        return resourceName;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
 
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                                                "NODE");
+        // check auth
+        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
 
-        Preconditions.checkState((alterClause instanceof AddBackendClause)
-                || (alterClause instanceof DropBackendClause)
-                || (alterClause instanceof DecommissionBackendClause)
-                || (alterClause instanceof AddObserverClause)
-                || (alterClause instanceof DropObserverClause)
-                || (alterClause instanceof AddFollowerClause)
-                || (alterClause instanceof DropFollowerClause)
-                || (alterClause instanceof ModifyBrokerClause)
-                || (alterClause instanceof AlterLoadErrorUrlClause));
-
-        alterClause.analyze(analyzer);
+        FeNameFormat.checkResourceName(resourceName);
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER SYSTEM ").append(alterClause.toSql());
+        sb.append("DROP ");
+        sb.append("RESOURCE `").append(resourceName).append("`");
         return sb.toString();
-    }
-
-    @Override
-    public String toString() {
-        return toSql();
     }
 }

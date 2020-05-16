@@ -17,34 +17,20 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.EtlClusterMgr;
+import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
-public class ShowEtlClusterStmt extends ShowStmt {
-    public ShowEtlClusterStmt() {
-    }
-
-    @Override
-    public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
-                && !Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(),
-                                                                          PrivPredicate.OPERATOR)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
-        }
+public class ShowResourcesStmt extends ShowStmt {
+    public ShowResourcesStmt() {
     }
 
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : EtlClusterMgr.ETL_CLUSTER_PROC_NODE_TITLE_NAMES) {
+        for (String title : ResourceMgr.RESOURCE_PROC_NODE_TITLE_NAMES) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();
