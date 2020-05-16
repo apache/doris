@@ -77,7 +77,6 @@ public class StreamLoadPlanner {
         this.db = db;
         this.destTable = destTable;
         this.streamLoadTask = streamLoadTask;
-        resetAnalyzer();
     }
 
     private void resetAnalyzer() {
@@ -88,6 +87,7 @@ public class StreamLoadPlanner {
         descTable = analyzer.getDescTbl();
     }
 
+    // can only be called after "plan()", or it will return null
     public OlapTable getDestTable() {
         return destTable;
     }
