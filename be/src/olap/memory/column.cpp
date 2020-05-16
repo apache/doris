@@ -116,7 +116,7 @@ void Column::capture_latest(vector<ColumnDelta*>* deltas, uint64_t* version) con
     *version = _versions.back().version;
 }
 
-Status Column::read(uint64_t version, std::unique_ptr<ColumnReader>* reader) {
+Status Column::create_reader(uint64_t version, std::unique_ptr<ColumnReader>* reader) {
     ColumnType type = schema().type();
     bool nullable = schema().is_nullable();
     vector<ColumnDelta*> deltas;
@@ -162,7 +162,7 @@ Status Column::read(uint64_t version, std::unique_ptr<ColumnReader>* reader) {
     return Status::OK();
 }
 
-Status Column::write(std::unique_ptr<ColumnWriter>* writer) {
+Status Column::create_writer(std::unique_ptr<ColumnWriter>* writer) {
     ColumnType type = schema().type();
     bool nullable = schema().is_nullable();
     vector<ColumnDelta*> deltas;

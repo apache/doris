@@ -23,11 +23,13 @@
 namespace doris {
 namespace memory {
 
-// This method needs to be shared by reader/writer, so extract it as template function
-template <class Reader, class T, bool Nullable, class ST>
-inline const void* TypedColumnGet(const Reader& reader, const uint32_t rid) {
-    for (ssize_t i = reader._deltas.size() - 1; i >= 0; i--) {
-        ColumnDelta* pdelta = reader._deltas[i];
+// Those methods need to be shared by reader/writer, so extract them as template functions
+
+// Get Column's storage cell address by rowid.
+template <class RW, class T, bool Nullable, class ST>
+inline const void* TypedColumnGet(const RW& rw, const uint32_t rid) {
+    for (ssize_t i = rw._deltas.size() - 1; i >= 0; i--) {
+        ColumnDelta* pdelta = rw._deltas[i];
         uint32_t pos = pdelta->find_idx(rid);
         if (pos != DeltaIndex::npos) {
             if (Nullable) {
@@ -43,21 +45,22 @@ inline const void* TypedColumnGet(const Reader& reader, const uint32_t rid) {
         }
     }
     uint32_t bid = rid >> 16;
-    DCHECK(bid < reader._base->size());
+    DCHECK(bid < rw._base->size());
     uint32_t idx = rid & 0xffff;
-    DCHECK(idx * sizeof(ST) < (*reader._base)[bid]->data().bsize());
+    DCHECK(idx * sizeof(ST) < (*rw._base)[bid]->data().bsize());
     if (Nullable) {
-        bool isnull = (*reader._base)[bid]->is_null(idx);
+        bool isnull = (*rw._base)[bid]->is_null(idx);
         if (isnull) {
             return nullptr;
         } else {
-            return &((*reader._base)[bid]->data().template as<ST>()[idx]);
+            return &((*rw._base)[bid]->data().template as<ST>()[idx]);
         }
     } else {
-        return &((*reader._base)[bid]->data().template as<ST>()[idx]);
+        return &((*rw._base)[bid]->data().template as<ST>()[idx]);
     }
 }
 
+// Get a cell's hashcode of a typed array
 template <class T, class ST>
 inline uint64_t TypedColumnHashcode(const void* rhs, size_t rhs_idx) {
     if (std::is_same<T, ST>::value) {
@@ -69,11 +72,12 @@ inline uint64_t TypedColumnHashcode(const void* rhs, size_t rhs_idx) {
     }
 }
 
-template <class Reader, class T, bool Nullable, class ST>
-bool TypedColumnEquals(const Reader& reader, const uint32_t rid, const void* rhs, size_t rhs_idx) {
+// Compare equality of a typed array's cell with this column's cell
+template <class RW, class T, bool Nullable, class ST>
+bool TypedColumnEquals(const RW& rw, const uint32_t rid, const void* rhs, size_t rhs_idx) {
     const T& rhs_value = ((const T*)rhs)[rhs_idx];
-    for (ssize_t i = reader._deltas.size() - 1; i >= 0; i--) {
-        ColumnDelta* pdelta = reader._deltas[i];
+    for (ssize_t i = rw._deltas.size() - 1; i >= 0; i--) {
+        ColumnDelta* pdelta = rw._deltas[i];
         uint32_t pos = pdelta->find_idx(rid);
         if (pos != DeltaIndex::npos) {
             if (Nullable) {
@@ -85,20 +89,29 @@ bool TypedColumnEquals(const Reader& reader, const uint32_t rid, const void* rhs
         }
     }
     uint32_t bid = rid >> 16;
-    DCHECK(bid < reader._base->size());
+    DCHECK(bid < rw._base->size());
     uint32_t idx = rid & 0xffff;
-    DCHECK(idx * sizeof(ST) < (*reader._base)[bid]->data().bsize());
+    DCHECK(idx * sizeof(ST) < (*rw._base)[bid]->data().bsize());
     if (Nullable) {
         CHECK(false) << "only used for key column";
         return false;
     } else {
         DCHECK(rhs);
-        return ((*reader._base)[bid]->data().template as<T>()[idx]) == rhs_value;
+        return ((*rw._base)[bid]->data().template as<T>()[idx]) == rhs_value;
     }
 }
 
 // ColumnReader typed implementations
 // currently only works for int8/int16/int32/int64/int128/float/double
+//
+// Template type meanings:
+// T: column type used for interface
+// Nullable: whether column type is nullable
+// ST: column type used for internal storage
+//
+// For fixed size scalar types(int/float), T should be the same as ST
+// For var size typse(string), when using dict encoding, ST may be integer
+//
 // TODO: add string and other varlen type support
 template <class T, bool Nullable = false, class ST = T>
 class TypedColumnReader : public ColumnReader {
@@ -115,17 +128,17 @@ public:
         return TypedColumnGet<TypedColumnReader<T, Nullable, ST>, T, Nullable, ST>(*this, rid);
     }
 
-    Status get_block(size_t nrows, size_t block, ColumnBlockHolder* cbh) const {
+    Status get_block(size_t nrows, size_t bid, ColumnBlockHolder* cbh) const {
         bool base_only = true;
         for (size_t i = 0; i < _deltas.size(); ++i) {
-            if (_deltas[i]->contains_block(block)) {
+            if (_deltas[i]->contains_block(bid)) {
                 base_only = false;
                 break;
             }
         }
-        auto& page = (*_base)[block];
+        auto& block = (*_base)[bid];
         if (base_only) {
-            cbh->init(page.get(), false);
+            cbh->init(block.get(), false);
             return Status::OK();
         }
         if (!cbh->own() || cbh->get()->size() < nrows) {
@@ -135,10 +148,10 @@ public:
             cbh->get()->alloc(nrows, sizeof(T));
         }
         ColumnBlock& cb = *cbh->get();
-        RETURN_IF_ERROR(page->copy_to(&cb, nrows, sizeof(ST)));
+        RETURN_IF_ERROR(block->copy_to(&cb, nrows, sizeof(ST)));
         for (auto delta : _deltas) {
             uint32_t start, end;
-            delta->index()->block_range(block, &start, &end);
+            delta->index()->block_range(bid, &start, &end);
             if (end == start) {
                 continue;
             }
@@ -189,7 +202,7 @@ public:
 
 private:
     template <class Reader, class T2, bool Nullable2, class ST2>
-    friend const void* TypedColumnGet(const Reader& reader, const uint32_t rid);
+    friend const void* TypedColumnGet(const Reader& rw, const uint32_t rid);
 
     template <class T2, class ST2>
     friend bool TypedColumnHashcode(const void*, size_t);

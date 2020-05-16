@@ -31,8 +31,8 @@ class Column;
 //   std::unique_ptr<ColumnWriter> writer;
 //   // create writer
 //   RETURN_IF_ERROR(column->write(&writer).ok());
-//   writer->insert(new_rowid, &value, 0);
-//   writer->update(rowid, &value, 0);
+//   writer->insert(new_rowid, &value);
+//   writer->update(rowid, &value);
 //   writer->finalize(new_version);
 //   // get new column refptr
 //   // if a COW has been done, column will point to new column object

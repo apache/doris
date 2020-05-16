@@ -84,27 +84,27 @@ public:
         uint32_t bid = rid >> 16;
         if (bid >= _base->size()) {
             RETURN_IF_ERROR(add_block());
-            // add one page should be enough
+            // add one block should be enough
             CHECK(bid < _base->size());
         }
-        auto& page = (*_base)[bid];
+        auto& block = (*_base)[bid];
         uint32_t idx = rid & 0xffff;
-        DCHECK(idx * sizeof(T) < page->data().bsize());
+        DCHECK(idx * sizeof(T) < block->data().bsize());
         if (Nullable) {
             if (value) {
                 if (std::is_same<T, ST>::value) {
-                    page->set_not_null(idx);
-                    page->data().as<ST>()[idx] = *static_cast<const ST*>(value);
+                    block->set_not_null(idx);
+                    block->data().as<ST>()[idx] = *static_cast<const ST*>(value);
                 } else {
                     // TODO: string support
                 }
             } else {
-                page->set_null(idx);
+                block->set_null(idx);
             }
         } else {
             DCHECK(value);
             if (std::is_same<T, ST>::value) {
-                page->data().as<ST>()[idx] = *static_cast<const ST*>(value);
+                block->data().as<ST>()[idx] = *static_cast<const ST*>(value);
             } else {
                 // TODO: string support
             }
