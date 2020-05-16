@@ -376,16 +376,6 @@ int PartitionedHashTableCtx::ExprValuesCache::MemUsage(int capacity,
       Bitmap::MemUsage(capacity);               // null_bitmap_
 }
 
-uint8_t* PartitionedHashTableCtx::ExprValuesCache::ExprValuePtr(
-    uint8_t* expr_values, int expr_idx) const {
-  return expr_values + expr_values_offsets_[expr_idx];
-}
-
-const uint8_t* PartitionedHashTableCtx::ExprValuesCache::ExprValuePtr(
-    const uint8_t* expr_values, int expr_idx) const {
-  return expr_values + expr_values_offsets_[expr_idx];
-}
-
 void PartitionedHashTableCtx::ExprValuesCache::ResetIterators() {
   cur_expr_values_ = expr_values_array_.get();
   cur_expr_values_null_ = expr_values_null_array_.get();

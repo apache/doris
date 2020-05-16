@@ -268,8 +268,10 @@ class PartitionedHashTableCtx {
     }
 
     /// Returns a pointer to the expression value at 'expr_idx' in 'expr_values'.
-    uint8_t* ExprValuePtr(uint8_t* expr_values, int expr_idx) const;
-    const uint8_t* ExprValuePtr(const uint8_t* expr_values, int expr_idx) const;
+    template <typename T>
+    T ExprValuePtr(T expr_values, int expr_idx) const {
+        return expr_values + expr_values_offsets_[expr_idx];
+    };
 
     /// Returns the current row's expression buffer. The expression values in the buffer
     /// are accessed using ExprValuePtr().
@@ -621,6 +623,27 @@ class PartitionedHashTable {
 
   /// Returns the number of buckets
   int64_t num_buckets() const { return num_buckets_; }
+
+  /// Returns the number of filled buckets
+  int64_t num_filled_buckets() const { return num_filled_buckets_; }
+
+  /// Returns the time of hash table resize
+  int64_t num_resize() const { return num_resizes_; }
+
+  /// Returns the number of bucket_with_duplicates
+  int64_t num_buckets_with_duplicates() const { return num_buckets_with_duplicates_; }
+
+  /// Returns the number of bucket_with_duplicates
+  int64_t num_duplicates_nodes() const { return num_duplicate_nodes_; }
+
+  /// Returns the number of probe opertions
+  int64_t num_probe() const { return num_probes_; }
+
+  /// Returns the number of failed probe opertions
+  int64_t num_failed_probe() const { return num_failed_probes_; }
+
+  /// Returns the number of travel_length of probe opertions
+  int64_t travel_length() const { return travel_length_; }
 
   /// Returns the load factor (the number of non-empty buckets)
   double load_factor() const {
