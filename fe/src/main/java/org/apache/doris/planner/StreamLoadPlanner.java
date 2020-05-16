@@ -77,7 +77,11 @@ public class StreamLoadPlanner {
         this.db = db;
         this.destTable = destTable;
         this.streamLoadTask = streamLoadTask;
-        analyzer = new Analyzer(Catalog.getInstance(), null);
+        resetAnalyzer();
+    }
+
+    private void resetAnalyzer() {
+        analyzer = new Analyzer(Catalog.getCurrentCatalog(), null);
         // TODO(cmy): currently we do not support UDF in stream load command.
         // Because there is no way to check the privilege of accessing UDF..
         analyzer.setUDFAllowed(false);
@@ -90,6 +94,7 @@ public class StreamLoadPlanner {
 
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
+        resetAnalyzer();
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         boolean negative = streamLoadTask.getNegative();
