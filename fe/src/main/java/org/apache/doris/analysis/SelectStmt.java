@@ -618,17 +618,36 @@ public class SelectStmt extends QueryStmt {
             temp.add(makeCompound(cloneExprs, CompoundPredicate.Operator.AND));
         }
 
+        Expr result;
+        boolean isReturnCommonFactorExpr = false;
         for (List<Expr> exprList : clearExprs) {
             exprList.removeAll(cloneExprs);
+            if (exprList.size() == 0) {
+                // For example, the sql is "where (a = 1) or (a = 1 and B = 2)"
+                // if "(a = 1)" is extracted as a common factor expression, then the first expression "(a = 1)" has no expression
+                // other than a common factor expression, and the second expression "(a = 1 and B = 2)" has an expression of "(B = 2)"
+                //
+                // In this case, the common factor expression ("a = 1") can be directly used to replace the whole CompoundOrPredicate.
+                // In Fact, the common factor expression is actually the parent set of expression "(a = 1)" and expression "(a = 1 and B = 2)"
+                //
+                // exprList.size() == 0 means one child of CompoundOrPredicate has no expression other than a common factor expression.
+                isReturnCommonFactorExpr = true;
+                break;
+            }
             temp.add(makeCompound(exprList, CompoundPredicate.Operator.AND));
         }
-
-        // rebuild CompoundPredicate if found duplicate predicate will build （predcate) and (.. or ..)  predicate in
-        // step 1: will build (.. or ..)
-        Expr result = CollectionUtils.isNotEmpty(cloneExprs) ? new CompoundPredicate(CompoundPredicate.Operator.AND,
-                temp.get(0), makeCompound(temp.subList(1, temp.size()), CompoundPredicate.Operator.OR))
-                : makeCompound(temp, CompoundPredicate.Operator.OR);
-        LOG.debug("rewrite ors: " + result.toSql());
+        if (isReturnCommonFactorExpr) {
+            result = temp.get(0);
+        } else {
+            // rebuild CompoundPredicate if found duplicate predicate will build （predicate) and (.. or ..)  predicate in
+            // step 1: will build (.. or ..)
+            result = CollectionUtils.isNotEmpty(cloneExprs) ? new CompoundPredicate(CompoundPredicate.Operator.AND,
+                    temp.get(0), makeCompound(temp.subList(1, temp.size()), CompoundPredicate.Operator.OR))
+                    : makeCompound(temp, CompoundPredicate.Operator.OR);
+        }
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("rewrite ors: " + result.toSql());
+        }
         return result;
     }
 
