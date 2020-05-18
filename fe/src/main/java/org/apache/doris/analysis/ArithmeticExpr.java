@@ -300,7 +300,7 @@ public class ArithmeticExpr extends Expr {
                  *     subquery stmt: select k1 from t2 (assert row count: return error if row count > 1 )
                  */
                 if (!subquery.getType().isScalarType()) {
-                    subquery.getStatement().setAssertNumRowsElement(1);
+                    subquery.getStatement().setAssertNumRowsElement(1, AssertNumRowsElement.Assertion.LE);
                 }
             }
         }

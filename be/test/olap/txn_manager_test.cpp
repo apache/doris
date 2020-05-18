@@ -30,7 +30,6 @@
 #include "olap/txn_manager.h"
 #include "boost/filesystem.hpp"
 #include "json2pb/json_to_pb.h"
-#include "util/doris_metrics.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -99,7 +98,6 @@ public:
         config::txn_shard_size = 1;
         config::max_runnings_transactions_per_txn_map = 500;
         _txn_mgr.reset(new TxnManager(64, 1024));
-        DorisMetrics::instance()->initialize("ut");
         std::vector<StorePath> paths;
         paths.emplace_back("_engine_data_path", -1);
         EngineOptions options;

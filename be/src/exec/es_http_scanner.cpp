@@ -36,7 +36,8 @@ EsHttpScanner::EsHttpScanner(
             TupleId tuple_id,
             const std::map<std::string, std::string>& properties,
             const std::vector<ExprContext*>& conjunct_ctxs,
-            EsScanCounter* counter) :
+            EsScanCounter* counter,
+            bool doc_value_mode) :
         _state(state),
         _profile(profile),
         _tuple_id(tuple_id),
@@ -56,6 +57,7 @@ EsHttpScanner::EsHttpScanner(
         _counter(counter),
         _es_reader(nullptr),
         _es_scroll_parser(nullptr),
+        _doc_value_mode(doc_value_mode),
         _rows_read_counter(nullptr),
         _read_timer(nullptr),
         _materialize_timer(nullptr) {
@@ -74,7 +76,7 @@ Status EsHttpScanner::open() {
     }
 
     const std::string& host = _properties.at(ESScanReader::KEY_HOST_PORT);
-    _es_reader.reset(new ESScanReader(host, _properties));
+    _es_reader.reset(new ESScanReader(host, _properties, _doc_value_mode));
     if (_es_reader == nullptr) {
         return Status::InternalError("Es reader construct failed.");
     }

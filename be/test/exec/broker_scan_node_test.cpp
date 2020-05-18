@@ -314,7 +314,7 @@ void BrokerScanNodeTest::init_desc_table() {
         // TTupleDescriptor source
         TTupleDescriptor t_tuple_desc;
         t_tuple_desc.id = 1;
-        t_tuple_desc.byteSize = 60;
+        t_tuple_desc.byteSize = 64;
         t_tuple_desc.numNullBytes = 0;
         t_tuple_desc.tableId = 0;
         t_tuple_desc.__isset.tableId = true;

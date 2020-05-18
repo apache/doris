@@ -267,14 +267,14 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
     uint32_t try_time = 0;
 
     while (try_time < TASK_FINISH_MAX_RETRY) {
-        DorisMetrics::finish_task_requests_total.increment(1);
+        DorisMetrics::instance()->finish_task_requests_total.increment(1);
         AgentStatus client_status = _master_client->finish_task(finish_task_request, &result);
 
         if (client_status == DORIS_SUCCESS) {
             LOG(INFO) << "finish task success.";
             break;
         } else {
-            DorisMetrics::finish_task_requests_failed.increment(1);
+            DorisMetrics::instance()->finish_task_requests_failed.increment(1);
             LOG(WARNING) << "finish task failed. status_code=" << result.status.status_code;
             try_time += 1;
         }
@@ -694,7 +694,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
             worker_pool_this->_tasks.pop_front();
         }
 
-        DorisMetrics::publish_task_request_total.increment(1);
+        DorisMetrics::instance()->publish_task_request_total.increment(1);
         LOG(INFO) << "get publish version task, signature:" << agent_task_req.signature;
 
         Status st;
@@ -718,7 +718,7 @@ void* TaskWorkerPool::_publish_version_worker_thread_callback(void* arg_this) {
 
         TFinishTaskRequest finish_task_request;
         if (res != OLAP_SUCCESS) {
-            DorisMetrics::publish_task_failed_total.increment(1);
+            DorisMetrics::instance()->publish_task_failed_total.increment(1);
             // if publish failed, return failed, FE will ignore this error and
             // check error tablet ids and FE will also republish this task
             LOG(WARNING) << "publish version failed. signature:" << agent_task_req.signature
@@ -891,7 +891,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
             worker_pool_this->_tasks.pop_front();
         }
 
-        DorisMetrics::clone_requests_total.increment(1);
+        DorisMetrics::instance()->clone_requests_total.increment(1);
         LOG(INFO) << "get clone task. signature:" << agent_task_req.signature;
 
         vector<string> error_msgs;
@@ -908,7 +908,7 @@ void* TaskWorkerPool::_clone_worker_thread_callback(void* arg_this) {
 
         TStatusCode::type status_code = TStatusCode::OK;
         if (status != DORIS_SUCCESS && status != DORIS_CREATE_TABLE_EXIST) {
-            DorisMetrics::clone_requests_failed.increment(1);
+            DorisMetrics::instance()->clone_requests_failed.increment(1);
             status_code = TStatusCode::RUNTIME_ERROR;
             LOG(WARNING) << "clone failed. signature: " << agent_task_req.signature;
             error_msgs.push_back("clone failed.");
@@ -1052,12 +1052,12 @@ void* TaskWorkerPool::_report_task_worker_thread_callback(void* arg_this) {
             request.__set_tasks(_s_task_signatures);
         }
 
-        DorisMetrics::report_task_requests_total.increment(1);
+        DorisMetrics::instance()->report_task_requests_total.increment(1);
         TMasterResult result;
         AgentStatus status = worker_pool_this->_master_client->report(request, &result);
 
         if (status != DORIS_SUCCESS) {
-            DorisMetrics::report_task_requests_failed.increment(1);
+            DorisMetrics::instance()->report_task_requests_failed.increment(1);
             LOG(WARNING) << "finish report task failed. status:" << status << ", master host:"
                          << worker_pool_this->_master_info.network_address.hostname
                          << "port:" << worker_pool_this->_master_info.network_address.port;
@@ -1104,23 +1104,23 @@ void* TaskWorkerPool::_report_disk_state_worker_thread_callback(void* arg_this) 
             disk.__set_used(root_path_info.is_used);
             disks[root_path_info.path] = disk;
 
-            DorisMetrics::disks_total_capacity.set_metric(root_path_info.path,
-                                                          root_path_info.disk_capacity);
-            DorisMetrics::disks_avail_capacity.set_metric(root_path_info.path,
-                                                          root_path_info.available);
-            DorisMetrics::disks_data_used_capacity.set_metric(root_path_info.path,
-                                                              root_path_info.data_used_capacity);
-            DorisMetrics::disks_state.set_metric(root_path_info.path,
-                                                 root_path_info.is_used ? 1L : 0L);
+            DorisMetrics::instance()->disks_total_capacity.set_metric(
+                root_path_info.path, root_path_info.disk_capacity);
+            DorisMetrics::instance()->disks_avail_capacity.set_metric(
+                root_path_info.path, root_path_info.available);
+            DorisMetrics::instance()->disks_data_used_capacity.set_metric(
+                root_path_info.path, root_path_info.data_used_capacity);
+            DorisMetrics::instance()->disks_state.set_metric(
+                root_path_info.path, root_path_info.is_used ? 1L : 0L);
         }
         request.__set_disks(disks);
 
-        DorisMetrics::report_disk_requests_total.increment(1);
+        DorisMetrics::instance()->report_disk_requests_total.increment(1);
         TMasterResult result;
         AgentStatus status = worker_pool_this->_master_client->report(request, &result);
 
         if (status != DORIS_SUCCESS) {
-            DorisMetrics::report_disk_requests_failed.increment(1);
+            DorisMetrics::instance()->report_disk_requests_failed.increment(1);
             LOG(WARNING) << "finish report disk state failed. status:" << status << ", master host:"
                          << worker_pool_this->_master_info.network_address.hostname
                          << ", port:" << worker_pool_this->_master_info.network_address.port;
@@ -1174,15 +1174,15 @@ void* TaskWorkerPool::_report_tablet_worker_thread_callback(void* arg_this) {
 #endif
         }
         int64_t max_compaction_score =
-                std::max(DorisMetrics::tablet_cumulative_max_compaction_score.value(),
-                         DorisMetrics::tablet_base_max_compaction_score.value());
+                std::max(DorisMetrics::instance()->tablet_cumulative_max_compaction_score.value(),
+                         DorisMetrics::instance()->tablet_base_max_compaction_score.value());
         request.__set_tablet_max_compaction_score(max_compaction_score);
 
         TMasterResult result;
         status = worker_pool_this->_master_client->report(request, &result);
 
         if (status != DORIS_SUCCESS) {
-            DorisMetrics::report_all_tablets_requests_failed.increment(1);
+            DorisMetrics::instance()->report_all_tablets_requests_failed.increment(1);
             LOG(WARNING) << "finish report olap table state failed. status:" << status
                          << ", master host:"
                          << worker_pool_this->_master_info.network_address.hostname

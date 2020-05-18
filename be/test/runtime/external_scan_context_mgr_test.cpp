@@ -24,14 +24,12 @@
 #include "runtime/fragment_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/thread_resource_mgr.h"
-#include "util/doris_metrics.h"
 
 namespace doris {
 
 class ExternalScanContextMgrTest : public testing::Test {
 public:
     ExternalScanContextMgrTest() {
-        DorisMetrics::instance()->initialize("ut");
         FragmentMgr* fragment_mgr = new FragmentMgr(&_exec_env);
         ThreadResourceMgr* thread_mgr = new ThreadResourceMgr();
         ResultQueueMgr* result_queue_mgr = new  ResultQueueMgr();
@@ -112,8 +110,6 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    doris::config::scan_context_gc_interval_min = 1;
-    // doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();

@@ -20,21 +20,12 @@
 #include <gtest/gtest.h>
 #include <iostream>
 
-#include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
 #include "util/pretty_printer.h"
 
 namespace doris {
 class UniqueRowsetIdGeneratorTest : public testing::Test {
-public:
-    UniqueRowsetIdGeneratorTest() { }
-    virtual ~UniqueRowsetIdGeneratorTest() {
-    }
-
-    virtual void SetUp() {
-        DorisMetrics::instance()->initialize("ut");
-    }
 };
 
 TEST_F(UniqueRowsetIdGeneratorTest, RowsetIdFormatTest) {

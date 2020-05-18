@@ -29,7 +29,6 @@
 #include "http/http_request.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "runtime/exec_env.h"
-#include "util/doris_metrics.h"
 
 int main(int argc, char* argv[]);
 
@@ -87,7 +86,6 @@ public:
 
     static void SetUpTestCase() {
         s_server = new EvHttpServer(0);
-        DorisMetrics::instance()->initialize("ut");
         s_server->register_handler(GET, "/api/get_small_file", &s_test_handler);
         s_server->start();
         real_port = s_server->get_real_port();

@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -66,13 +67,13 @@ public class Partition extends MetaObject implements Writable {
     private PartitionState state;
     @SerializedName(value = "baseIndex")
     private MaterializedIndex baseIndex;
-    /*
+    /**
      * Visible rollup indexes are indexes which are visible to user.
      * User can do query on them, show them in related 'show' stmt.
      */
     @SerializedName(value = "idToVisibleRollupIndex")
     private Map<Long, MaterializedIndex> idToVisibleRollupIndex = Maps.newHashMap();
-    /*
+    /**
      * Shadow indexes are indexes which are not visible to user.
      * Query will not run on these shadow indexes, and user can not see them neither.
      * But load process will load data into these shadow indexes.
@@ -80,7 +81,7 @@ public class Partition extends MetaObject implements Writable {
     @SerializedName(value = "idToShadowIndex")
     private Map<Long, MaterializedIndex> idToShadowIndex = Maps.newHashMap();
 
-    /*
+    /**
      * committed version(hash): after txn is committed, set committed version(hash)
      * visible version(hash): after txn is published, set visible version
      * next version(hash): next version is set after finished committing, it should equals to committed version + 1
@@ -285,7 +286,12 @@ public class Partition extends MetaObject implements Writable {
     }
 
     public boolean hasData() {
-        return !(visibleVersion == PARTITION_INIT_VERSION && visibleVersionHash == PARTITION_INIT_VERSION_HASH);
+        // The fe unit test need to check the selected index id without any data.
+        // So if set FeConstants.runningUnitTest, we can ensure that the number of partitions is not empty,
+        // And the test case can continue to execute the logic of 'select best roll up'
+        return ((visibleVersion != PARTITION_INIT_VERSION)
+                || (visibleVersionHash != PARTITION_INIT_VERSION_HASH)
+                || FeConstants.runningUnitTest);
     }
 
     /*
@@ -348,6 +354,7 @@ public class Partition extends MetaObject implements Writable {
         distributionInfo.write(out);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 

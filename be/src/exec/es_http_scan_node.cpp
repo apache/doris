@@ -443,14 +443,16 @@ void EsHttpScanNode::scanner_worker(int start_idx, int length, std::promise<Stat
     if (limit() != -1 && limit() <= _runtime_state->batch_size()) {
         properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(limit());
     }
+
+    bool doc_value_mode = false;
     properties[ESScanReader::KEY_QUERY] 
-        = ESScrollQueryBuilder::build(properties, _column_names, _predicates, _docvalue_context);
+        = ESScrollQueryBuilder::build(properties, _column_names, _predicates, _docvalue_context, &doc_value_mode);
 
 
     // start scanner to scan
     std::unique_ptr<EsHttpScanner> scanner(new EsHttpScanner(
                     _runtime_state, runtime_profile(), _tuple_id,
-                    properties, scanner_expr_ctxs, &counter));
+                    properties, scanner_expr_ctxs, &counter, doc_value_mode));
     status = scanner_scan(std::move(scanner), scanner_expr_ctxs, &counter);
     if (!status.ok()) {
         LOG(WARNING) << "Scanner[" << start_idx << "] process failed. status="

@@ -134,48 +134,48 @@ void* calculate_metrics(void* dummy) {
     std::map<std::string, int64_t> lst_net_receive_bytes;
 
     while (true) {
-        DorisMetrics::metrics()->trigger_hook();
+        DorisMetrics::instance()->metrics()->trigger_hook();
 
         if (last_ts == -1L) {
             last_ts = GetCurrentTimeMicros() / 1000;
-            lst_push_bytes = DorisMetrics::push_request_write_bytes.value();
-            lst_query_bytes = DorisMetrics::query_scan_bytes.value();
-            DorisMetrics::system_metrics()->get_disks_io_time(&lst_disks_io_time);
-            DorisMetrics::system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
+            lst_push_bytes = DorisMetrics::instance()->push_request_write_bytes.value();
+            lst_query_bytes = DorisMetrics::instance()->query_scan_bytes.value();
+            DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
+            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
         } else {
             int64_t current_ts = GetCurrentTimeMicros() / 1000;
             long interval = (current_ts - last_ts) / 1000;
             last_ts = current_ts;
 
             // 1. push bytes per second
-            int64_t current_push_bytes = DorisMetrics::push_request_write_bytes.value();
+            int64_t current_push_bytes = DorisMetrics::instance()->push_request_write_bytes.value();
             int64_t pps = (current_push_bytes - lst_push_bytes) / (interval + 1);
-            DorisMetrics::push_request_write_bytes_per_second.set_value(
+            DorisMetrics::instance()->push_request_write_bytes_per_second.set_value(
                 pps < 0 ? 0 : pps);
             lst_push_bytes = current_push_bytes;
 
             // 2. query bytes per second
-            int64_t current_query_bytes = DorisMetrics::query_scan_bytes.value();
+            int64_t current_query_bytes = DorisMetrics::instance()->query_scan_bytes.value();
             int64_t qps = (current_query_bytes - lst_query_bytes) / (interval + 1);
-            DorisMetrics::query_scan_bytes_per_second.set_value(
+            DorisMetrics::instance()->query_scan_bytes_per_second.set_value(
                 qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
 
             // 3. max disk io util
-            DorisMetrics::max_disk_io_util_percent.set_value(
-                DorisMetrics::system_metrics()->get_max_io_util(lst_disks_io_time, 15));
+            DorisMetrics::instance()->max_disk_io_util_percent.set_value(
+                DorisMetrics::instance()->system_metrics()->get_max_io_util(lst_disks_io_time, 15));
             // update lst map
-            DorisMetrics::system_metrics()->get_disks_io_time(&lst_disks_io_time);
+            DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
 
             // 4. max network traffic
             int64_t max_send = 0;
             int64_t max_receive = 0;
-            DorisMetrics::system_metrics()->get_max_net_traffic(
+            DorisMetrics::instance()->system_metrics()->get_max_net_traffic(
                 lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
-            DorisMetrics::max_network_send_bytes_rate.set_value(max_send);
-            DorisMetrics::max_network_receive_bytes_rate.set_value(max_receive);
+            DorisMetrics::instance()->max_network_send_bytes_rate.set_value(max_send);
+            DorisMetrics::instance()->max_network_receive_bytes_rate.set_value(max_receive);
             // update lst map
-            DorisMetrics::system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
+            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes, &lst_net_receive_bytes);
         }
 
         sleep(15); // 15 seconds
@@ -205,7 +205,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
         }
     }
     DorisMetrics::instance()->initialize(
-        "doris_be", paths, init_system_metrics, disk_devices, network_interfaces);
+        paths, init_system_metrics, disk_devices, network_interfaces);
 
     if (config::enable_metric_calculator) {
         pthread_t calculator_pid;

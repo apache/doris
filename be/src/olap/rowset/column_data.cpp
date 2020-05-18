@@ -36,6 +36,7 @@ ColumnData::ColumnData(SegmentGroup* segment_group)
         _col_predicates(nullptr),
         _delete_status(DEL_NOT_SATISFIED),
         _runtime_state(nullptr),
+        _schema(segment_group->get_tablet_schema()),
         _is_using_cache(false),
         _segment_reader(nullptr),
         _lru_cache(nullptr) {
@@ -509,7 +510,10 @@ int ColumnData::delete_pruning_filter() {
         return DEL_NOT_SATISFIED;
     }
 
-    if (!_segment_group->has_zone_maps()) {
+    int num_zone_maps = _schema.keys_type() == KeysType::DUP_KEYS ? _schema.num_columns() : _schema.num_key_columns();
+    // _segment_group->get_zone_maps().size() < num_zone_maps for a table is schema changed from older version that not support
+    // generate zone map for duplicated mode value column, using DEL_PARTIAL_SATISFIED
+    if (!_segment_group->has_zone_maps() || _segment_group->get_zone_maps().size() < num_zone_maps)  {
         /*
          * if segment_group has no column statistics, we cannot judge whether the data can be filtered or not
          */

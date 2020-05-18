@@ -2687,7 +2687,7 @@ public class Load {
                                 // if this is a sync delete job, then update affected version and version hash
                                 if (job.isSyncDeleteJob()) {
                                     TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr()
-                                            .getTransactionState(job.getTransactionId());
+                                            .getTransactionState(job.getDbId(), job.getTransactionId());
                                     DeleteInfo deleteInfo = job.getDeleteInfo();
                                     TableCommitInfo tableCommitInfo = transactionState.getTableCommitInfo(deleteInfo.getTableId());
                                     PartitionCommitInfo partitionCommitInfo = tableCommitInfo.getPartitionCommitInfo(deleteInfo.getPartitionId());
@@ -2828,6 +2828,7 @@ public class Load {
         // then there will be rubbish transactions in transaction manager
         try {
             Catalog.getCurrentGlobalTransactionMgr().abortTransaction(
+                    job.getDbId(),
                     job.getTransactionId(),
                     job.getFailMsg().toString());
         } catch (Exception e) {
@@ -3363,7 +3364,8 @@ public class Load {
                         break;
                     }
                     if (System.currentTimeMillis() - startDeleteTime > timeout) {
-                        TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(loadDeleteJob.getTransactionId());
+                        TransactionState transactionState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(loadDeleteJob.getDbId(),
+                                loadDeleteJob.getTransactionId());
                         if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
                             boolean isSuccess = cancelLoadJob(loadDeleteJob, CancelType.TIMEOUT, "load delete job timeout");
                             if (isSuccess) {

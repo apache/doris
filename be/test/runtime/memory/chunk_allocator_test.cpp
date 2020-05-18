@@ -40,7 +40,6 @@ TEST(ChunkAllocatorTest, Normal) {
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
-    doris::DorisMetrics::instance()->initialize("chunk_allocator_ut");
     doris::CpuInfo::init();
     doris::ChunkAllocator::init_instance(1024 * 1024);
     return RUN_ALL_TESTS();

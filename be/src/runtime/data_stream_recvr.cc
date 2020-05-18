@@ -384,6 +384,7 @@ DataStreamRecvr::DataStreamRecvr(
     _buffer_full_wall_timer = ADD_TIMER(_profile, "SendersBlockedTimer");
     _buffer_full_total_timer = ADD_TIMER(_profile, "SendersBlockedTotalTimer(*)");
     // _data_arrival_timer = _profile->inactive_timer();
+    // TODO: Now we don't use this counter. Delete or Fixed ?
     _first_batch_wait_total_timer = ADD_TIMER(_profile, "FirstBatchArrivalWaitTime");
 }
 

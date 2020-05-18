@@ -18,5 +18,12 @@
 #include "olap/memory/mem_tablet.h"
 
 namespace doris {
+namespace memory {
 
-} /* namespace doris */
+MemTablet::MemTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir)
+        : BaseTablet(tablet_meta, data_dir) {}
+
+MemTablet::~MemTablet() {}
+
+} // namespace memory
+} // namespace doris

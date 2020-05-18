@@ -70,14 +70,17 @@ vector<string> split_path(const string& path) {
     return segments;
 }
 
+// strdup use malloc to obtain memory for the new string, it should be freed with free.
+// but unique_ptr use delete to free memory by default, so it should specify free memory using free
+
 string dir_name(const string& path) {
-    std::unique_ptr<char[]> path_copy(strdup(path.c_str()));
-    return dirname(path_copy.get());
+    std::vector<char> path_copy(path.c_str(), path.c_str() + path.size() + 1);
+    return dirname(&path_copy[0]);
 }
 
 string base_name(const string& path) {
-    std::unique_ptr<char[]> path_copy(strdup(path.c_str()));
-    return basename(path_copy.get());
+    std::vector<char> path_copy(path.c_str(), path.c_str() + path.size() + 1);
+    return basename(&path_copy[0]);
 }
 
 string file_extension(const string& path) {

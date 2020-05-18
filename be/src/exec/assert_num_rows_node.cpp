@@ -17,19 +17,24 @@
 
 #include "exec/assert_num_rows_node.h"
 
+#include "gen_cpp/PlanNodes_types.h"
+#include "gutil/strings/substitute.h"
 #include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "gen_cpp/PlanNodes_types.h"
-#include "gutil/strings/substitute.h"
 
 namespace doris {
 
-AssertNumRowsNode::AssertNumRowsNode(
-    ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs) :
-        ExecNode(pool, tnode, descs),
-        _desired_num_rows(tnode.assert_num_rows_node.desired_num_rows),
-        _subquery_string(tnode.assert_num_rows_node.subquery_string) {
+AssertNumRowsNode::AssertNumRowsNode(ObjectPool* pool, const TPlanNode& tnode,
+                                     const DescriptorTbl& descs)
+        : ExecNode(pool, tnode, descs),
+          _desired_num_rows(tnode.assert_num_rows_node.desired_num_rows),
+          _subquery_string(tnode.assert_num_rows_node.subquery_string) {
+    if (tnode.assert_num_rows_node.__isset.assertion) {
+        _assertion = tnode.assert_num_rows_node.assertion;
+    } else {
+        _assertion = TAssertion::LE; // just comptiable for the previous code
+    }
 }
 
 Status AssertNumRowsNode::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -56,12 +61,46 @@ Status AssertNumRowsNode::get_next(RuntimeState* state, RowBatch* output_batch, 
     output_batch->reset();
     child(0)->get_next(state, output_batch, eos);
     _num_rows_returned += output_batch->num_rows();
-    if (_num_rows_returned > _desired_num_rows) {
-        LOG(INFO) << "Expected no more than " << _desired_num_rows << " to be returned by expression "
-                  << _subquery_string;
+    bool assert_res = false;
+    switch (_assertion) {
+    case TAssertion::EQ:
+        assert_res = _num_rows_returned == _desired_num_rows;
+        break;
+    case TAssertion::NE:
+        assert_res = _num_rows_returned != _desired_num_rows;
+        break;
+    case TAssertion::LT:
+        assert_res = _num_rows_returned < _desired_num_rows;
+        break;
+    case TAssertion::LE:
+        assert_res = _num_rows_returned <= _desired_num_rows;
+        break;
+    case TAssertion::GT:
+        assert_res = _num_rows_returned > _desired_num_rows;
+        break;
+    case TAssertion::GE:
+        assert_res = _num_rows_returned >= _desired_num_rows;
+        break;
+    default:
+        break;
+    }
+
+    if (!assert_res) {
+        auto to_string_lamba = [](TAssertion::type assertion) {
+            std::map<int, const char*>::const_iterator it =
+                    _TAssertion_VALUES_TO_NAMES.find(assertion);
+
+            if (it == _TAggregationOp_VALUES_TO_NAMES.end()) {
+                return "NULL";
+            } else {
+                return it->second;
+            }
+        };
+        LOG(INFO) << "Expected " << to_string_lamba(_assertion) << " " << _desired_num_rows
+                  << " to be returned by expression " << _subquery_string;
         return Status::Cancelled(strings::Substitute(
-                                "Expected no more than $0 to be returned by expression $1",
-                                _desired_num_rows, _subquery_string));
+                "Expected $0 $1 to be returned by expression $2", to_string_lamba(_assertion),
+                _desired_num_rows, _subquery_string));
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     return Status::OK();
@@ -74,4 +113,4 @@ Status AssertNumRowsNode::close(RuntimeState* state) {
     return ExecNode::close(state);
 }
 
-}
+} // namespace doris

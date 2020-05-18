@@ -643,6 +643,7 @@ public class OlapTable extends Table {
      */
     
     // get partition by name, not including temp partitions
+    @Override
     public Partition getPartition(String partitionName) {
         return getPartition(partitionName, false);
     }
@@ -732,6 +733,7 @@ public class OlapTable extends Table {
         return false;
     }
 
+    @Override
     public TTableDescriptor toThrift() {
         TOlapTable tOlapTable = new TOlapTable(getName());
         TTableDescriptor tTableDescriptor = new TTableDescriptor(id, TTableType.OLAP_TABLE,
@@ -930,6 +932,7 @@ public class OlapTable extends Table {
         tempPartitions.write(out);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -947,7 +950,7 @@ public class OlapTable extends Table {
             if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_75) {
                 // schema
                 int colCount = in.readInt();
-                List<Column> schema = new LinkedList<Column>();
+                List<Column> schema = new LinkedList<>();
                 for (int j = 0; j < colCount; j++) {
                     Column column = Column.read(in);
                     schema.add(column);
@@ -1073,6 +1076,7 @@ public class OlapTable extends Table {
         rebuildFullSchema();
     }
 
+    @Override
     public boolean equals(Table table) {
         if (this == table) {
             return true;

@@ -95,7 +95,10 @@ module.exports = [
       {
         title: "Configuration",
         directoryPath: "config/",
-        children: ["fe_config"],
+        children: [
+          "fe_config",
+          "be_config",
+        ],
         sidebarDepth: 1,
       },
       "backup-restore",
@@ -192,7 +195,9 @@ module.exports = [
             title: "String Functions",
             directoryPath: "string-functions/",
             children: [
+              "append_trailing_char_if_absent",
               "ascii",
+              "char_length",
               "concat",
               "concat_ws",
               "ends_with",
@@ -427,13 +432,14 @@ module.exports = [
     children: ["debug-tool", "format-code"],
   },
   {
-    title: "Apache Commnity",
+    title: "Apache Community",
     directoryPath: "community/",
     children: [
       "gitter",
       "how-to-contribute",
       "members",
       "pull-request",
+      "committer-guide",
       "release-process",
       "subscribe-mail-list",
       "verify-apache-release",

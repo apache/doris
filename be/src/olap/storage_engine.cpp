@@ -512,14 +512,14 @@ void StorageEngine::_perform_cumulative_compaction(DataDir* data_dir) {
         return;
     }
 
-    DorisMetrics::cumulative_compaction_request_total.increment(1);
+    DorisMetrics::instance()->cumulative_compaction_request_total.increment(1);
     CumulativeCompaction cumulative_compaction(best_tablet);
 
     OLAPStatus res = cumulative_compaction.compact();
     if (res != OLAP_SUCCESS) {
         best_tablet->set_last_cumu_compaction_failure_time(UnixMillis());
         if (res != OLAP_ERR_CUMULATIVE_NO_SUITABLE_VERSIONS) {
-            DorisMetrics::cumulative_compaction_request_failed.increment(1);
+            DorisMetrics::instance()->cumulative_compaction_request_failed.increment(1);
             LOG(WARNING) << "failed to do cumulative compaction. res=" << res
                         << ", table=" << best_tablet->full_name();
         }
@@ -535,13 +535,13 @@ void StorageEngine::_perform_base_compaction(DataDir* data_dir) {
         return;
     }
 
-    DorisMetrics::base_compaction_request_total.increment(1);
+    DorisMetrics::instance()->base_compaction_request_total.increment(1);
     BaseCompaction base_compaction(best_tablet);
     OLAPStatus res = base_compaction.compact();
     if (res != OLAP_SUCCESS) {
         best_tablet->set_last_base_compaction_failure_time(UnixMillis());
         if (res != OLAP_ERR_BE_NO_SUITABLE_VERSION) {
-            DorisMetrics::base_compaction_request_failed.increment(1);
+            DorisMetrics::instance()->base_compaction_request_failed.increment(1);
             LOG(WARNING) << "failed to init base compaction. res=" << res
                         << ", table=" << best_tablet->full_name();
         }
@@ -824,7 +824,8 @@ OLAPStatus StorageEngine::obtain_shard_path(
 
 OLAPStatus StorageEngine::load_header(
         const string& shard_path,
-        const TCloneReq& request) {
+        const TCloneReq& request,
+        bool restore) {
     LOG(INFO) << "begin to process load headers."
               << "tablet_id=" << request.tablet_id
               << ", schema_hash=" << request.schema_hash;
@@ -864,7 +865,7 @@ OLAPStatus StorageEngine::load_header(
     res = _tablet_manager->load_tablet_from_dir(
             store,
             request.tablet_id, request.schema_hash,
-            schema_hash_path_stream.str(), false);
+            schema_hash_path_stream.str(), false, restore);
     if (res != OLAP_SUCCESS) {
         LOG(WARNING) << "fail to process load headers. res=" << res;
         return res;

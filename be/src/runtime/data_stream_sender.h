@@ -147,15 +147,11 @@ private:
 
     RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
-    RuntimeProfile::Counter* _thrift_transmit_timer;
     RuntimeProfile::Counter* _bytes_sent_counter;
     RuntimeProfile::Counter* _uncompressed_bytes_counter;
     RuntimeProfile::Counter* _ignore_rows;
 
     std::unique_ptr<MemTracker> _mem_tracker;
-
-    // Throughput per time spent in TransmitData
-    RuntimeProfile::Counter* _network_throughput;
 
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput;

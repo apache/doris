@@ -296,6 +296,8 @@ namespace config {
     // you may need to increase this timeout if using larger 'streaming_load_max_mb',
     // or encounter 'tablet writer write failed' error when loading.
     // CONF_Int32(tablet_writer_rpc_timeout_sec, "600");
+    // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
+    CONF_mInt32(olap_table_sink_send_interval_ms, "10");
 
     // Fragment thread pool
     CONF_Int32(fragment_pool_thread_num, "64");
@@ -488,8 +490,10 @@ namespace config {
     // Valid configs: ALPHA, BETA
     CONF_String(default_rowset_type, "ALPHA");
 
-    // brpc config, 200M
+    // Maximum size of a single message body in all protocols
     CONF_Int64(brpc_max_body_size, "209715200")
+    // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
+    CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864")
 
     // max number of txns for every txn_partition_map in txn manager
     // this is a self protection to avoid too many txns saving in manager

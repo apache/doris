@@ -41,21 +41,21 @@ To verify the release, following checklist can used to reference:
 
 Download all artifacts, take a.b.c-incubating as an example:
 
-```
-wget https://dist.apache.org/repos/dist/dev/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz
+``` shell
+wget https://www.apache.org/dyn/mirrors/mirrors.cgi?action=download&filename=/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz
 
-wget https://dist.apache.org/repos/dist/dev/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz.sha512
+wget https://www.apache.org/dist/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz.sha512
 
-wget https://dist.apache.org/repos/dist/dev/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz.asc
+wget https://www.apache.org/dist/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz.asc
 
-wget https://dist.apache.org/repos/dist/dev/incubator/doris/KEYS
+wget https://www.apache.org/dist/incubator/doris/KEYS
 ```
 
 ## 2. Verify signature and hash
 
 GnuPG is recommended, which can install by yum install gnupg or apt-get install gnupg.
 
-```
+``` shell
 gpg --import KEYS
 gpg --verify apache-doris-a.b.c-incubating-src.tar.gz.asc apache-doris-a.b.c-incubating-src.tar.gz
 sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
@@ -65,18 +65,18 @@ sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 
 Apache RAT is recommended to verify license headder, which can dowload as following command.
 
-```
-wget http://mirrors.tuna.tsinghua.edu.cn/apache//creadur/apache-rat-0.12/apache-rat-0.12-bin.tar.gz
-tar zxvf apache -rat -0.12 -bin.tar.gz
+``` shell
+wget http://mirrors.tuna.tsinghua.edu.cn/apache/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz
+tar zxvf apache -rat -0.13 -bin.tar.gz
 ```
 
 Given your source dir is apache-doris-a.b.c-incubating-src, you can check with following command.
 It will output a file list which don't include ASF license header, and these files used other licenses.
 
-```
-/usr/java/jdk/bin/java  -jar apache-rat-0.12/apache-rat-0.12.jar -a -d apache-doris-a.b.c-incubating-src -E apache-doris-a.b.c-incubating-src/.rat-excudes 
+``` shell
+/usr/java/jdk/bin/java  -jar apache-rat-0.13/apache-rat-0.13.jar -a -d apache-doris-a.b.c-incubating-src -E apache-doris-a.b.c-incubating-src/.rat-excudes 
 ```
 
 ## 4. Verify building
 
-To compile the Doris, please read [Compilation](../installing/compilation_EN.html)
+To compile the Doris, please read [Compilation](../installing/compilation.html)

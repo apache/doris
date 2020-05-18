@@ -54,6 +54,8 @@ public class InPredicate extends Predicate {
     private static final String IN = "in";
     private static final String NOT_IN = "not_in";
 
+    private static final NullLiteral NULL_LITERAL = new NullLiteral();
+
     public static void initBuiltins(FunctionSet functionSet) {
         for (Type t: Type.getSupportedTypes()) {
             if (t.isNull()) continue;
@@ -123,6 +125,10 @@ public class InPredicate extends Predicate {
     public Expr negate() {
       return new InPredicate(getChild(0), children.subList(1, children.size()),
           !isNotIn);
+    }
+
+    public List<Expr> getListChildren() {
+        return  children.subList(1, children.size());
     }
 
     public boolean isNotIn() {
@@ -258,15 +264,17 @@ public class InPredicate extends Predicate {
         }
 
         List<Expr> inListChildren = children.subList(1, children.size());
-        if (inListChildren.contains(leftChildValue)) {
-            return new BoolLiteral(true);
-        } else {
-            final NullLiteral nullLiteral = new NullLiteral();
-            if (inListChildren.contains(nullLiteral)) {
-                return nullLiteral;
-            }
-            return new BoolLiteral(false);
+        boolean containsLeftChild = inListChildren.contains(leftChildValue);
+
+        // See QueryPlanTest.java testConstantInPredicate() for examples.
+        // This logic should be same as logic in in_predicate.cpp: get_boolean_val()
+        if (containsLeftChild) {
+            return new BoolLiteral(!isNotIn);
         }
+        if (inListChildren.contains(NULL_LITERAL)) {
+            return new NullLiteral();
+        }
+        return new BoolLiteral(isNotIn);
     }
 
     @Override

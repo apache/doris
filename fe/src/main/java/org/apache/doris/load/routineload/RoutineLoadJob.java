@@ -619,7 +619,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         try {
             TExecPlanFragmentParams planParams = planner.plan(loadId);
             // add table indexes to transaction state
-            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(txnId);
+            TransactionState txnState = Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId);
             if (txnState == null) {
                 throw new MetaNotFoundException("txn does not exist: " + txnId);
             }

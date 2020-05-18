@@ -265,11 +265,29 @@ class PartitionedAggregationNode : public ExecNode {
   /// Total time spent resizing hash tables.
   RuntimeProfile::Counter* ht_resize_timer_;
 
+  /// Total time of resizing hash tables.
+  RuntimeProfile::Counter* ht_resize_counter_;
+
   /// Time spent returning the aggregated rows
   RuntimeProfile::Counter* get_results_timer_;
 
   /// Total number of hash buckets across all partitions.
   RuntimeProfile::Counter* num_hash_buckets_;
+
+  /// Total number of hash filled buckets across all partitions.
+  RuntimeProfile::Counter* num_hash_filled_buckets_;
+
+  /// Total time of probe operation across all partitions.
+  RuntimeProfile::Counter* num_hash_probe_;
+
+  /// Total time of failed probe operation across all partitions.
+  RuntimeProfile::Counter* num_hash_failed_probe_;
+
+  /// Total time of travel_length of probe operation across all partitions.
+  RuntimeProfile::Counter* num_hash_travel_length_;
+
+  /// Total time of hash_collisions across all partitions.
+  RuntimeProfile::Counter* num_hash_collisions_;
 
   /// Total number of partitions created.
   RuntimeProfile::Counter* partitions_created_;
@@ -292,6 +310,11 @@ class PartitionedAggregationNode : public ExecNode {
 
   /// Time spent in streaming preagg algorithm.
   RuntimeProfile::Counter* streaming_timer_;
+
+  /// num_processed_rows == num_hash_probe_ add this counter
+  /// just make the runningprofie more clearly
+  /// The number of rows which proessed by aggregation.
+  RuntimeProfile::Counter* num_processed_rows_;
 
   /// The number of rows passed through without aggregation.
   RuntimeProfile::Counter* num_passthrough_rows_;

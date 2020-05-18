@@ -300,7 +300,7 @@ OLAPStatus AlphaRowset::init() {
 
         if (segment_group_meta.zone_maps_size() != 0) {
             size_t zone_maps_size = segment_group_meta.zone_maps_size();
-            size_t num_key_columns = _schema->num_key_columns();
+            size_t num_key_columns = _schema->keys_type() == KeysType::DUP_KEYS ? _schema->num_columns() : _schema->num_key_columns();
             if (num_key_columns != zone_maps_size) {
                 LOG(ERROR) << "column pruning size is error."
                         << "zone_maps_size=" << zone_maps_size << ", "

@@ -70,6 +70,13 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.8.2")
         message(FATAL_ERROR "Need GCC version at least 4.8.2")
     endif()
+
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER "7.3.0")
+        message(STATUS "GCC version is greater than 7.3.0, disable -Werror. Be careful with compile warnings.")
+    else()
+        #   -Werror: compile warnings should be errors when using the toolchain compiler.
+        set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -Werror")
+    endif()
 elseif (NOT APPLE)
     message(FATAL_ERROR "Compiler should be GNU")
 endif()
@@ -281,7 +288,7 @@ endif()
 # For any gcc builds:
 #   -g: Enable symbols for profiler tools
 #   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
-set(CXX_GCC_FLAGS "-g -Wno-unused-local-typedefs")
+set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 
 # For CMAKE_BUILD_TYPE=Debug
 #   -ggdb: Enable gdb debugging
@@ -296,24 +303,20 @@ set(CXX_FLAGS_DEBUG "${CXX_GCC_FLAGS} -Werror -ggdb -O0 -gdwarf-2")
 #   -gdwarf-2: Debug information is stored as dwarf2 to be as compatible as possible
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -gdwarf-2 -DNDEBUG")
 
-SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O1 -fsanitize=address -DADDRESS_SANITIZER")
-SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O1 -fsanitize=leak -DLEAK_SANITIZER")
+SET(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=address -DADDRESS_SANITIZER")
+SET(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fsanitize=leak -DLEAK_SANITIZER")
 
 # Set the flags to the undefined behavior sanitizer, also known as "ubsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -fsanitize=undefined")
+SET(CXX_FLAGS_UBSAN "${CXX_GCC_FLAGS} -ggdb3 -O0 -gdwarf-2 -fno-wrapv -fsanitize=undefined")
 # Ignore a number of noisy errors with too many false positives:
-# TODO(zc): 
+# TODO(zc):
 # SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-sanitize=alignment,function,vptr,float-divide-by-zero,float-cast-overflow")
 # Don't enforce wrapped signed integer arithmetic so that the sanitizer actually sees
-# undefined wrapping:
-SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -fno-wrapv")
-# To ease debugging, turn off all optimizations:
-SET(CXX_FLAGS_UBSAN "${CXX_FLAGS_UBSAN} -O0")
 
 # Set the flags to the thread sanitizer, also known as "tsan"
 # Turn on sanitizer and debug symbols to get stack traces:
-SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O1 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER")
+SET(CXX_FLAGS_TSAN "${CXX_GCC_FLAGS} -O0 -ggdb3 -fsanitize=thread -DTHREAD_SANITIZER")
 
 # Set compile flags based on the build type.
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
@@ -341,7 +344,7 @@ message(STATUS "Compiler Flags: ${CMAKE_CXX_FLAGS}")
 add_definitions(-DHAVE_INTTYPES_H -DHAVE_NETINET_IN_H)
 
 # Set include dirs
-include_directories( 
+include_directories(
     ${SRC_DIR}/
     ${TEST_DIR}/
     ${GENSRC_DIR}/
@@ -375,7 +378,7 @@ set(DORIS_LINK_LIBS
     Webserver
     TestUtil
     Geo
-    Plugin        
+    Plugin
     ${WL_END_GROUP}
 )
 
@@ -466,7 +469,7 @@ set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS}
 )
 
 # Set libraries for test
-set (TEST_LINK_LIBS ${DORIS_LINK_LIBS} 
+set (TEST_LINK_LIBS ${DORIS_LINK_LIBS}
     ${WL_START_GROUP}
     gmock
     gtest
@@ -521,13 +524,13 @@ ENDFUNCTION()
 
 FUNCTION(ADD_BE_PLUGIN PLUGIN_NAME)
     set(BUILD_OUTPUT_ROOT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/")
-    
+
     get_filename_component(DIR_NAME ${CMAKE_CURRENT_SOURCE_DIR} NAME)
     get_filename_component(PLUGIN_DIR_NAME ${PLUGIN_NAME} PATH)
     get_filename_component(PLUGIN_FILE_NAME ${PLUGIN_NAME} NAME)
-    
+
     ADD_LIBRARY(${PLUGIN_FILE_NAME} SHARED ${PLUGIN_NAME}.cpp)
-    
+
     TARGET_LINK_LIBRARIES(${PLUGIN_FILE_NAME} ${DORIS_LINK_LIBS})
     SET_TARGET_PROPERTIES(${PLUGIN_FILE_NAME} PROPERTIES COMPILE_FLAGS "-fno-access-control")
 

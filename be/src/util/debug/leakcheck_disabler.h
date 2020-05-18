@@ -31,7 +31,7 @@ class ScopedLeakCheckDisabler {
 
  private:
 
-#ifdef LEAK_SANITIZER
+#if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER)
   ScopedLSANDisabler lsan_disabler;
 #endif
 

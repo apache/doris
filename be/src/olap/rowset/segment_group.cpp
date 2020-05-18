@@ -249,13 +249,13 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
         return OLAP_SUCCESS;
     }
 
-    // 1. rollup tablet num_key_columns() will less than base tablet zone_map_fields.size().
+    // 1. rollup tablet get_num_zone_map_columns() will less than base tablet zone_map_fields.size().
     //    For LinkedSchemaChange, the rollup tablet keys order is the same as base tablet
-    // 2. adding column to existed table, num_key_columns() will larger than
+    // 2. adding column to existed table, get_num_zone_map_columns() will larger than
     //    zone_map_fields.size()
 
     int num_new_keys = 0;
-    for (size_t i = 0; i < _schema->num_key_columns(); ++i) {
+    for (size_t i = 0; i < get_num_zone_map_columns(); ++i) {
         const TabletColumn& column = _schema->column(i);
 
         WrapperField* first = WrapperField::create(column);
@@ -283,7 +283,7 @@ OLAPStatus SegmentGroup::add_zone_maps_for_linked_schema_change(
 
 OLAPStatus SegmentGroup::add_zone_maps(
         const std::vector<std::pair<WrapperField*, WrapperField*>>& zone_map_fields) {
-    DCHECK(_empty || zone_map_fields.size() == _schema->num_key_columns());
+    DCHECK(_empty || zone_map_fields.size() == get_num_zone_map_columns());
     for (size_t i = 0; i < zone_map_fields.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
@@ -302,7 +302,7 @@ OLAPStatus SegmentGroup::add_zone_maps(
 OLAPStatus SegmentGroup::add_zone_maps(
         std::vector<std::pair<std::string, std::string> > &zone_map_strings,
         std::vector<bool> &null_vec) {
-    DCHECK(_empty || zone_map_strings.size() == _schema->num_key_columns());
+    DCHECK(_empty || zone_map_strings.size() <= get_num_zone_map_columns());
     for (size_t i = 0; i < zone_map_strings.size(); ++i) {
         const TabletColumn& column = _schema->column(i);
         WrapperField* first = WrapperField::create(column);
@@ -695,6 +695,13 @@ size_t SegmentGroup::current_num_rows_per_row_block() const {
 
 const TabletSchema& SegmentGroup::get_tablet_schema() {
     return *_schema;
+}
+
+int SegmentGroup::get_num_zone_map_columns() {
+    if (_schema->keys_type() == KeysType::DUP_KEYS) {
+        return _schema->num_columns();
+    }
+    return _schema->num_key_columns();
 }
 
 int SegmentGroup::get_num_key_columns() {

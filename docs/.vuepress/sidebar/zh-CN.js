@@ -103,7 +103,10 @@ module.exports = [
       {
         title: "配置文件",
         directoryPath: "config/",
-        children: ["fe_config"],
+        children: [
+          "fe_config",
+          "be_config",
+        ],
         sidebarDepth: 1,
       },
       "backup-restore",
@@ -204,7 +207,9 @@ module.exports = [
             title: "字符串函数",
             directoryPath: "string-functions/",
             children: [
+              "append_trailing_char_if_absent",
               "ascii",
+              "char_length",
               "concat",
               "concat_ws",
               "ends_with",
@@ -442,6 +447,7 @@ module.exports = [
       "how-to-contribute",
       "members",
       "pull-request",
+      "committer-guide",
       "release-process",
       "subscribe-mail-list",
       "verify-apache-release",
