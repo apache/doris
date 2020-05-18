@@ -4521,7 +4521,7 @@ public class Catalog {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long partitionId = partition.getId();
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
-                        Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:" + partitionId + ", db: " + dbId + ", tbl: " + tableId);
+                        Preconditions.checkNotNull(dataProperty);
                         if (dataProperty.getStorageMedium() == TStorageMedium.SSD
                                 && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.
