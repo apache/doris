@@ -300,16 +300,23 @@ OLAPStatus AlphaRowset::init() {
 
         if (segment_group_meta.zone_maps_size() != 0) {
             size_t zone_maps_size = segment_group_meta.zone_maps_size();
-            size_t num_key_columns = _schema->keys_type() == KeysType::DUP_KEYS ? _schema->num_columns() : _schema->num_key_columns();
-            if (num_key_columns != zone_maps_size) {
+            size_t expect_zone_maps_num = _schema->keys_type() == KeysType::DUP_KEYS ? _schema->num_columns() : _schema->num_key_columns();
+            if ((_schema->keys_type() != KeysType::DUP_KEYS && expect_zone_maps_num != zone_maps_size) 
+            || (_schema->keys_type() == KeysType::DUP_KEYS && expect_zone_maps_num < zone_maps_size)) {
                 LOG(ERROR) << "column pruning size is error."
+                        << "KeysType=" << KeysType_Name(_schema->keys_type()) << ", "
                         << "zone_maps_size=" << zone_maps_size << ", "
-                        << "num_key_columns=" << _schema->num_key_columns();
+                        << "num_key_columns=" << _schema->num_key_columns() << ", "
+                        << "num_columns=" << _schema->num_columns();
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
-            std::vector<std::pair<std::string, std::string>> zone_map_strings(num_key_columns);
-            std::vector<bool> null_vec(num_key_columns);
-            for (size_t j = 0; j < num_key_columns; ++j) {
+            if (expect_zone_maps_num > zone_maps_size) {
+                LOG(WARNING) << "expect zone map size is " << expect_zone_maps_num << ", actrual num is " << zone_maps_size
+                << ". If this is not the first start after upgrade, please pay attention!";
+            }
+            std::vector<std::pair<std::string, std::string>> zone_map_strings(expect_zone_maps_num);
+            std::vector<bool> null_vec(expect_zone_maps_num);
+            for (size_t j = 0; j < expect_zone_maps_num && j < zone_maps_size; ++j) {
                 const ZoneMap& zone_map = segment_group_meta.zone_maps(j);
                 zone_map_strings[j].first = zone_map.min();
                 zone_map_strings[j].second = zone_map.max();
