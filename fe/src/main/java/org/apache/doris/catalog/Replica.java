@@ -505,6 +505,7 @@ public class Replica implements Writable {
         return replica;
     }
     
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
