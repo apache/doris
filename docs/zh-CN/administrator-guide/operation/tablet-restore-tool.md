@@ -34,13 +34,13 @@ under the License.
 /root_path/trash/time_label/tablet_id/schema_hash/
 ```
 
-* root path：对应BE节点的某个数据根目录。
-* trash：回收站的目录。
-* time_label：时间标签，为了回收站中数据目录的唯一性，同时记录数据时间，使用时间标签作为子目录。
+* `root_path`：对应BE节点的某个数据根目录。
+* `trash`：回收站的目录。
+* `time_label`：时间标签，为了回收站中数据目录的唯一性，同时记录数据时间，使用时间标签作为子目录。
 
 当用户发现线上的数据被误删除，需要从回收站中恢复被删除的tablet，需要用到这个tablet数据恢复功能。
 
-BE提供http接口和restore_tablet_tool.sh脚本实现这个功能，支持单tablet操作（single mode）和批量操作模式（batch mode）。
+BE提供http接口和 `restore_tablet_tool.sh` 脚本实现这个功能，支持单tablet操作（single mode）和批量操作模式（batch mode）。
 
 * 在single mode下，支持单个tablet的数据恢复。
 * 在batch mode下，支持批量tablet的数据恢复。
@@ -71,7 +71,7 @@ curl -X POST "http://be_host:be_webserver_port/api/restore_tablet?tablet_id=1111
 
 #### 脚本方式
 
-`restore_tablet_tool.sh`可用来实现单tablet数据恢复的功能。
+`restore_tablet_tool.sh` 可用来实现单tablet数据恢复的功能。
 
 ```
 sh tools/restore_tablet_tool.sh -b "http://127.0.0.1:8040" -t 12345 -s 11111
