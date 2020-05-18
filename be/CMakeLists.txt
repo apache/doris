@@ -29,9 +29,6 @@ endif()
 project(doris CXX C)
 
 # set CMAKE_BUILD_TYPE
-if (DEFINED ENV{BUILD_TYPE})
-    set(CMAKE_BUILD_TYPE $ENV{BUILD_TYPE})
-endif()
 if (NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RELEASE)
 endif()
