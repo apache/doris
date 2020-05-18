@@ -835,4 +835,19 @@ public class QueryPlanTest {
         FeConstants.runningUnitTest = false;
         Assert.assertTrue(explainString.contains("partitions=1/1"));
     }
+
+    @Test
+    public void testOrCompoundPredicateFold() throws Exception {
+        String queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1 and k2 < 1)";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
+
+        queryStr = "explain select * from  baseall where (k1 > 1 and k2 < 1) or  (k1 > 1)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: `k1` > 1\n"));
+
+        queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
+    }
 }
