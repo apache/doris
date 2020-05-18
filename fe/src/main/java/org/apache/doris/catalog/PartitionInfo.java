@@ -51,15 +51,15 @@ public class PartitionInfo implements Writable {
     protected Map<Long, Boolean> idToInMemory;
 
     public PartitionInfo() {
-        this.idToDataProperty = new HashMap<>();
-        this.idToReplicationNum = new HashMap<>();
+        this.idToDataProperty = new HashMap<Long, DataProperty>();
+        this.idToReplicationNum = new HashMap<Long, Short>();
         this.idToInMemory = new HashMap<>();
     }
 
     public PartitionInfo(PartitionType type) {
         this.type = type;
-        this.idToDataProperty = new HashMap<>();
-        this.idToReplicationNum = new HashMap<>();
+        this.idToDataProperty = new HashMap<Long, DataProperty>();
+        this.idToReplicationNum = new HashMap<Long, Short>();
         this.idToInMemory = new HashMap<>();
     }
 
