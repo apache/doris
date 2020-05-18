@@ -26,6 +26,12 @@ namespace memory {
 // Those methods need to be shared by reader/writer, so extract them as template functions
 
 // Get Column's storage cell address by rowid.
+//
+// Template type meanings:
+// RW: Reader or Writer object type
+// T: column type used for interface
+// Nullable: whether column type is nullable
+// ST: column type used for internal storage
 template <class RW, class T, bool Nullable, class ST>
 inline const void* TypedColumnGet(const RW& rw, const uint32_t rid) {
     for (ssize_t i = rw._deltas.size() - 1; i >= 0; i--) {
@@ -44,9 +50,9 @@ inline const void* TypedColumnGet(const RW& rw, const uint32_t rid) {
             }
         }
     }
-    uint32_t bid = rid >> 16;
+    uint32_t bid = Column::block_id(rid);
     DCHECK(bid < rw._base->size());
-    uint32_t idx = rid & 0xffff;
+    uint32_t idx = Column::index_in_block(rid);
     DCHECK(idx * sizeof(ST) < (*rw._base)[bid]->data().bsize());
     if (Nullable) {
         bool isnull = (*rw._base)[bid]->is_null(idx);
@@ -61,6 +67,10 @@ inline const void* TypedColumnGet(const RW& rw, const uint32_t rid) {
 }
 
 // Get a cell's hashcode of a typed array
+//
+// Template type meanings:
+// T: column type used for interface
+// ST: column type used for internal storage
 template <class T, class ST>
 inline uint64_t TypedColumnHashcode(const void* rhs, size_t rhs_idx) {
     if (std::is_same<T, ST>::value) {
@@ -73,6 +83,12 @@ inline uint64_t TypedColumnHashcode(const void* rhs, size_t rhs_idx) {
 }
 
 // Compare equality of a typed array's cell with this column's cell
+//
+// Template type meanings:
+// RW: Reader/Writer object type
+// T: column type used for interface
+// Nullable: whether column type is nullable
+// ST: column type used for internal storage
 template <class RW, class T, bool Nullable, class ST>
 bool TypedColumnEquals(const RW& rw, const uint32_t rid, const void* rhs, size_t rhs_idx) {
     const T& rhs_value = ((const T*)rhs)[rhs_idx];
@@ -88,9 +104,9 @@ bool TypedColumnEquals(const RW& rw, const uint32_t rid, const void* rhs, size_t
             }
         }
     }
-    uint32_t bid = rid >> 16;
+    uint32_t bid = Column::block_id(rid);
     DCHECK(bid < rw._base->size());
-    uint32_t idx = rid & 0xffff;
+    uint32_t idx = Column::index_in_block(rid);
     DCHECK(idx * sizeof(ST) < (*rw._base)[bid]->data().bsize());
     if (Nullable) {
         CHECK(false) << "only used for key column";
@@ -128,7 +144,14 @@ public:
         return TypedColumnGet<TypedColumnReader<T, Nullable, ST>, T, Nullable, ST>(*this, rid);
     }
 
+    // Get a whole block's content specified by blockid(bid), and return to cbh.
+    //
+    // Caller needs to specify number of rows by parameter nrows, nrows should be equal to 64K
+    // if the block is not the last block, nrows should be less or equal to 64K if the block
+    // is the last block, and since Column object doesn't store information about number of
+    // rows(it is stored in MemSubTablet), so it needs to be provided by caller.
     Status get_block(size_t nrows, size_t bid, ColumnBlockHolder* cbh) const {
+        // Check if this block has any updates in delta
         bool base_only = true;
         for (size_t i = 0; i < _deltas.size(); ++i) {
             if (_deltas[i]->contains_block(bid)) {
@@ -138,17 +161,21 @@ public:
         }
         auto& block = (*_base)[bid];
         if (base_only) {
+            // If no updates, just reference the base block, no need to copy data
             cbh->init(block.get(), false);
             return Status::OK();
         }
+        // Have updates, need a new block buffer, copy base data and apply updates
         if (!cbh->own() || cbh->get()->size() < nrows) {
             // need to create new column block
             cbh->release();
             cbh->init(new ColumnBlock(), true);
             cbh->get()->alloc(nrows, sizeof(T));
         }
+        // Copy base to block buffer
         ColumnBlock& cb = *cbh->get();
         RETURN_IF_ERROR(block->copy_to(&cb, nrows, sizeof(ST)));
+        // Apply updates
         for (auto delta : _deltas) {
             uint32_t start, end;
             delta->index()->block_range(bid, &start, &end);

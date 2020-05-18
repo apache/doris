@@ -44,11 +44,19 @@ public:
 
     // Get cell by rid, caller needs to make sure rid is in valid range
     //
+    // In some cases, user may need a read-write style operation, so writer also need
+    // get operation. For example:
+    // 1. check the update value is the same as original value, so the update can be ignored
+    // 2. support counter(v=v+1) style update
+    //
     // Note: this is the same method as ColumnReader::get
     virtual const void* get(const uint32_t rid) const = 0;
 
     // Borrow a vtable slot to do typed hashcode calculation, mainly used to find
     // row by rowkey using hash index.
+    //
+    // When perform an update/insert, user needs to firstly query hashindex to find rowid by
+    // rowkey. This requires ColumnWriter providing hashcode and equals methods.
     //
     // It's designed to support array operator, so there are two parameters for user
     // to pass array start and array index.

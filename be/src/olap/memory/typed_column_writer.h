@@ -48,7 +48,14 @@ private:
 };
 
 // ColumnWriter typed implementations
-// currently only works for int8/int16/int32/int64/int128/float/double
+//
+// Template type meanings:
+// T: column type used for interface
+// Nullable: whether column type is nullable
+// ST: column type used for internal storage
+// UT: type used in map to temporarily store update values
+//
+// Note: currently only works for int8/int16/int32/int64/int128/float/double
 // TODO: add string and other varlen type support
 template <class T, bool Nullable = false, class ST = T, class UT = T>
 class TypedColumnWriter : public ColumnWriter {
@@ -81,14 +88,14 @@ public:
     }
 
     Status insert(uint32_t rid, const void* value) {
-        uint32_t bid = rid >> 16;
+        uint32_t bid = Column::block_id(rid);
         if (bid >= _base->size()) {
             RETURN_IF_ERROR(add_block());
             // add one block should be enough
             CHECK(bid < _base->size());
         }
         auto& block = (*_base)[bid];
-        uint32_t idx = rid & 0xffff;
+        uint32_t idx = Column::index_in_block(rid);
         DCHECK(idx * sizeof(T) < block->data().bsize());
         if (Nullable) {
             if (value) {
@@ -97,6 +104,7 @@ public:
                     block->data().as<ST>()[idx] = *static_cast<const ST*>(value);
                 } else {
                     // TODO: string support
+                    LOG(FATAL) << "varlen column type not supported";
                 }
             } else {
                 block->set_null(idx);
@@ -107,6 +115,7 @@ public:
                 block->data().as<ST>()[idx] = *static_cast<const ST*>(value);
             } else {
                 // TODO: string support
+                LOG(FATAL) << "varlen column type not supported";
             }
         }
         _num_insert++;
@@ -164,12 +173,12 @@ public:
         uint32_t curbid = 0;
         for (auto& e : _updates) {
             uint32_t rid = e.first;
-            uint32_t bid = rid >> 16;
+            uint32_t bid = Column::block_id(rid);
             while (curbid < bid) {
                 block_ends[curbid] = cidx;
                 curbid++;
             }
-            idxdata.as<uint16_t>()[cidx] = rid & 0xffff;
+            idxdata.as<uint16_t>()[cidx] = Column::index_in_block(rid);
             if (Nullable) {
                 bool isnull = e.second.isnull();
                 if (isnull) {

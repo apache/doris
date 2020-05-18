@@ -52,6 +52,12 @@ public:
     // Version vector capacity grow step size
     static const uint32_t VERSION_CAPACITY_STEP_SIZE = 8;
 
+    // Get block id by rowid
+    static uint32_t block_id(uint32_t rid) { return rid >> 16; }
+
+    // Get index in block by rowid
+    static uint32_t index_in_block(uint32_t rid) { return rid & BLOCK_MASK; }
+
     // Create a Column which provided column schema, underlying storage_type and initial version
     Column(const ColumnSchema& cs, ColumnType storage_type, uint64_t version);
 
