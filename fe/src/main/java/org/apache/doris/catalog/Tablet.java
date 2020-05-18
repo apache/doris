@@ -39,7 +39,6 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
@@ -80,18 +79,18 @@ public class Tablet extends MetaObject implements Writable {
     private long lastStatusCheckTime = -1;
     
     public Tablet() {
-        this(0L, new ArrayList<Replica>());
+        this(0L, new ArrayList<>());
     }
     
     public Tablet(long tabletId) {
-        this(tabletId, new ArrayList<Replica>());
+        this(tabletId, new ArrayList<>());
     }
     
     public Tablet(long tabletId, List<Replica> replicas) {
         this.id = tabletId;
         this.replicas = replicas;
         if (this.replicas == null) {
-            this.replicas = new ArrayList<Replica>();
+            this.replicas = new ArrayList<>();
         }
         
         checkedVersion = -1L;
@@ -300,13 +299,15 @@ public class Tablet extends MetaObject implements Writable {
 
     public static void sortReplicaByVersionDesc(List<Replica> replicas) {
         // sort replicas by version. higher version in the tops
-        Collections.sort(replicas, Replica.VERSION_DESC_COMPARATOR);
+        replicas.sort(Replica.VERSION_DESC_COMPARATOR);
     }
  
+    @Override
     public String toString() {
         return "tabletId=" + this.id;
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
 
@@ -321,6 +322,7 @@ public class Tablet extends MetaObject implements Writable {
         out.writeLong(checkedVersionHash);
         out.writeBoolean(isConsistent);
     }
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
@@ -346,6 +348,7 @@ public class Tablet extends MetaObject implements Writable {
         return tablet;
     }
     
+    @Override
     public boolean equals(Object obj) {
         if (this == obj) {
             return true;
@@ -392,7 +395,7 @@ public class Tablet extends MetaObject implements Writable {
         return dataSize;
     }
 
-    /*
+    /**
      * A replica is healthy only if
      * 1. the backend is available
      * 2. replica version is caught up, and last failed version is -1
@@ -502,7 +505,7 @@ public class Tablet extends MetaObject implements Writable {
         return Pair.create(TabletStatus.HEALTHY, TabletSchedCtx.Priority.NORMAL);
     }
 
-    /*
+    /**
      * Check colocate table's tablet health
      * 1. Mismatch:
      *      backends set:       1,2,3
@@ -551,7 +554,7 @@ public class Tablet extends MetaObject implements Writable {
         return TabletStatus.HEALTHY;
     }
 
-    /*
+    /**
      * check if this tablet is ready to be repaired, based on priority.
      * VERY_HIGH: repair immediately
      * HIGH:    delay Config.tablet_repair_delay_factor_second * 1;

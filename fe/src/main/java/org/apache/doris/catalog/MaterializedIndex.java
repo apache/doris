@@ -76,8 +76,8 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
 
     public MaterializedIndex() {
         this.state = IndexState.NORMAL;
-        this.idToTablets = new HashMap<Long, Tablet>();
-        this.tablets = new ArrayList<Tablet>();
+        this.idToTablets = new HashMap<>();
+        this.tablets = new ArrayList<>();
     }
 
     public MaterializedIndex(long id, IndexState state) {
@@ -88,8 +88,8 @@ public class MaterializedIndex extends MetaObject implements Writable, GsonPostP
             this.state = IndexState.NORMAL;
         }
 
-        this.idToTablets = new HashMap<Long, Tablet>();
-        this.tablets = new ArrayList<Tablet>();
+        this.idToTablets = new HashMap<>();
+        this.tablets = new ArrayList<>();
 
         this.rowCount = 0;
 
