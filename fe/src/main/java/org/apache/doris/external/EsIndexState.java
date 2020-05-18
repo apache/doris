@@ -17,7 +17,6 @@
 
 package org.apache.doris.external;
 
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
@@ -27,8 +26,6 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 public class EsIndexState {
 
@@ -67,36 +64,6 @@ public class EsIndexState {
         int seed = new Random().nextInt() % nodesInfo.size();
         EsNodeInfo[] nodeInfos = (EsNodeInfo[]) nodesInfo.values().toArray();
         return nodeInfos[seed].getPublishAddress();
-    }
-
-    public static EsIndexState parseIndexState(String indexName, JSONObject nodesMap,
-        JSONArray shards) {
-        EsIndexState indexState = new EsIndexState(indexName);
-        int length = shards.length();
-        for (int i = 0; i < length; i++) {
-            List<EsShardRouting> singleShardRouting = Lists.newArrayList();
-            JSONArray shardsArray = shards.getJSONArray(i);
-            int arrayLength = shardsArray.length();
-            for (int j = 0; j < arrayLength; j++) {
-                JSONObject shard = shardsArray.getJSONObject(j);
-                String shardState = shard.getString("state");
-                if ("STARTED".equalsIgnoreCase(shardState)) {
-                    try {
-                        singleShardRouting.add(EsShardRouting.parseShardRoutingV55(shardState,
-                            String.valueOf(i), shard, nodesMap));
-                    } catch (Exception e) {
-                        LOG.info(
-                            "errors while parse shard routing from json [{}], ignore this shard",
-                            shard, e);
-                    }
-                }
-            }
-            if (singleShardRouting.isEmpty()) {
-                LOG.warn("could not find a healthy allocation for [{}][{}]", indexName, i);
-            }
-            indexState.addShardRouting(i, singleShardRouting);
-        }
-        return indexState;
     }
 
     public void addShardRouting(int shardId, List<EsShardRouting> singleShardRouting) {

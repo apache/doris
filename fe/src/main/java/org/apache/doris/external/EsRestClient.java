@@ -17,9 +17,12 @@
 
 package org.apache.doris.external;
 
+import com.google.common.collect.Lists;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import okhttp3.Credentials;
@@ -34,6 +37,8 @@ import org.codehaus.jackson.JsonParser;
 import org.codehaus.jackson.map.DeserializationConfig;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializationConfig;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class EsRestClient {
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
@@ -87,14 +92,65 @@ public class EsRestClient {
         return nodesMap;
     }
 
-    public String getIndexMapping(String indexName) {
+    public JSONObject getIndexProperties(String indexName, String mappingType) {
         String path = indexName + "/_mapping";
-        return execute(path);
+        String indexMapping = execute(path);
+        if (indexMapping == null) {
+            return null;
+        }
+        return parseProperties(indexMapping, mappingType);
     }
 
-    public String getSearchShards(String indexName) {
+    public JSONObject parseProperties(String indexMapping, String mappingType) {
+        JSONObject jsonObject = new JSONObject(indexMapping);
+        // the indexName use alias takes the first mapping
+        Iterator<String> keys = jsonObject.keys();
+        String docKey = keys.next();
+        JSONObject docData = jsonObject.optJSONObject(docKey);
+        JSONObject mappings = docData.optJSONObject("mappings");
+        JSONObject rootSchema = mappings.optJSONObject(mappingType);
+        return rootSchema.optJSONObject("properties");
+    }
+
+    public EsIndexState getIndexState(String indexName) {
         String path = indexName + "/_search_shards";
-        return execute(path);
+        String shardLocation = execute(path);
+        if (shardLocation == null) {
+            return null;
+        }
+        return parseIndexState(indexName, shardLocation);
+    }
+
+    public EsIndexState parseIndexState(String indexName, String shardLocation) {
+        EsIndexState indexState = new EsIndexState(indexName);
+        JSONObject jsonObject = new JSONObject(shardLocation);
+        JSONObject nodesMap = jsonObject.getJSONObject("nodes");
+        JSONArray shards = jsonObject.getJSONArray("shards");
+        int length = shards.length();
+        for (int i = 0; i < length; i++) {
+            List<EsShardRouting> singleShardRouting = Lists.newArrayList();
+            JSONArray shardsArray = shards.getJSONArray(i);
+            int arrayLength = shardsArray.length();
+            for (int j = 0; j < arrayLength; j++) {
+                JSONObject shard = shardsArray.getJSONObject(j);
+                String shardState = shard.getString("state");
+                if ("STARTED".equalsIgnoreCase(shardState) || "RELOCATING".equalsIgnoreCase(shardState)) {
+                    try {
+                        singleShardRouting.add(EsShardRouting.parseShardRoutingV55(shardState,
+                            String.valueOf(i), shard, nodesMap));
+                    } catch (Exception e) {
+                        LOG.info(
+                            "errors while parse shard routing from json [{}], ignore this shard",
+                            shard, e);
+                    }
+                }
+            }
+            if (singleShardRouting.isEmpty()) {
+                LOG.warn("could not find a healthy allocation for [{}][{}]", indexName, i);
+            }
+            indexState.addShardRouting(i, singleShardRouting);
+        }
+        return indexState;
     }
 
     /**
@@ -138,7 +194,9 @@ public class EsRestClient {
             Request request = builder.get()
                 .url(currentNode + "/" + path)
                 .build();
-            LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
+            if (LOG.isTraceEnabled()) {
+                LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
+            }
             try {
                 Response response = networkClient.newCall(request).execute();
                 if (response.isSuccessful()) {

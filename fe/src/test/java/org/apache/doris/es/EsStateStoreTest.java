@@ -28,6 +28,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URISyntaxException;
+import java.util.Iterator;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.EsTable;
@@ -36,10 +37,13 @@ import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.external.EsIndexState;
+import org.apache.doris.external.EsRestClient;
 import org.apache.doris.external.EsStateStore;
 import org.apache.doris.external.EsTableState;
 import org.apache.doris.external.ExternalDataSourceException;
 import org.apache.doris.meta.MetaContext;
+import org.json.JSONObject;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -52,6 +56,7 @@ public class EsStateStoreTest {
     private static String mappingsStr = "";
     private static String searchShardsStr = "";
     private EsStateStore esStateStore;
+    private EsRestClient fakeClient;
     
     @BeforeClass
     public static void init() throws IOException, InstantiationException, IllegalAccessException, 
@@ -72,25 +77,28 @@ public class EsStateStoreTest {
     @Before
     public void setUp() {
         esStateStore = new EsStateStore();
+        fakeClient = new EsRestClient(new String[]{"localhost:9200"}, null, null);
     }
 
     @Test
-    public void testLoadEsIndexMapping() {
+    public void testSetEsTableContext() {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
             .getDb(CatalogTestUtil.testDb1)
             .getTable(CatalogTestUtil.testEsTableId1);
-        esStateStore.loadEsIndexMapping(mappingsStr, esTable);
+        JSONObject properties = fakeClient.parseProperties(mappingsStr, esTable.getMappingType());
+        esStateStore.setEsTableContext(properties, esTable);
         assertEquals("userId.keyword", esTable.fieldsContext().get("userId"));
         assertEquals("userId.keyword", esTable.docValueContext().get("userId"));
     }
 
     @Test
-    public void testLocalSearchShards() throws ExternalDataSourceException, DdlException {
+    public void testSetTableState() throws ExternalDataSourceException, DdlException {
         EsTable esTable = (EsTable) Catalog.getCurrentCatalog()
             .getDb(CatalogTestUtil.testDb1)
             .getTable(CatalogTestUtil.testEsTableId1);
-        esStateStore.loadEsIndexMapping(mappingsStr, esTable);
-        EsTableState esTableState = esStateStore.loadEsSearchShards(searchShardsStr, esTable);
+        EsIndexState esIndexState = fakeClient
+            .parseIndexState(esTable.getIndexName(), searchShardsStr);
+        EsTableState esTableState = esStateStore.setTableStatePartitionInfo(esTable, esIndexState);
         assertNotNull(esTableState);
         assertEquals(1, esTableState.getUnPartitionedIndexStates().size());
         assertEquals(5, esTableState.getIndexState("indexa").getShardRoutings().size());
