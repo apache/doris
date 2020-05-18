@@ -81,7 +81,6 @@ public class BrokerHbResponse extends HeartbeatResponse implements Writable {
         out.writeInt(port);
     }
 
-    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         name = Text.readString(in);
