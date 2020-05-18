@@ -39,7 +39,7 @@ Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据�
 | 1.0.0     | 2.x   | 0.12+  | 8    | 2.11  |
 
 
-## 编译
+## 编译与安装
 
 在 `extension/spark-doris-connector/` 源码目录下执行：
 
