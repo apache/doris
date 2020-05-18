@@ -20,6 +20,7 @@
 
 #include <string>
 #include "common/logging.h"
+#include "gutil/walltime.h"
 
 namespace doris {
 
@@ -30,6 +31,9 @@ bool init_glog(const char* basename, bool install_signal_handler = false);
 // Shuts down the google logging library. Call before exit to ensure that log files are
 // flushed. May only be called once.
 void shutdown_logging();
+
+// Format a timestamp in the same format as used by GLog.
+std::string FormatTimestampForLog(MicrosecondsInt64 micros_since_epoch);
 
 }
 
