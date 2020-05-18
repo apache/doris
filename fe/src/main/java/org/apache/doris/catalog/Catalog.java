@@ -1803,10 +1803,15 @@ public class Catalog {
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_10) {
-            Catalog.getCurrentRecycleBin().readFields(dis);
+            recycleBin.readFields(dis);
             if (!isCheckpointThread()) {
                 // add tablet in Recycle bin to TabletInvertedIndex
-                Catalog.getCurrentRecycleBin().addTabletToInvertedIndex();
+                recycleBin.addTabletToInvertedIndex();
+            }
+            // create DatabaseTransactionMgr for db in recycle bin.
+            // these dbs do not exist in `idToDb` of the catalog.
+            for (Long dbId : recycleBin.getAllDbIds()) {
+                globalTransactionMgr.addDatabaseTransactionMgr(dbId);
             }
         }
         return checksum;
