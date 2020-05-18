@@ -17,12 +17,12 @@
 
 package org.apache.doris.cluster;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.LinkDbInfo;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
