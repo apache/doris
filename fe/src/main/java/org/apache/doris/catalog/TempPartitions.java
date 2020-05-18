@@ -26,7 +26,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -34,7 +33,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 // This class saved all temp partitions of a table.
 // temp partition is used to implement the overwrite load.
@@ -110,8 +108,7 @@ public class TempPartitions implements Writable, GsonPostProcessable {
 
     // drop all temp partitions
     public void dropAll() {
-        Set<String> partNames = Sets.newHashSet(nameToPartition.keySet());
-        for (String partName : partNames) {
+        for (String partName : nameToPartition.keySet()) {
             dropPartition(partName, true);
         }
     }
