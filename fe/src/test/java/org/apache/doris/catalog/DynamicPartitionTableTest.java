@@ -17,484 +17,294 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableStmt;
-import org.apache.doris.analysis.HashDistributionDesc;
-import org.apache.doris.analysis.KeysDesc;
-import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.analysis.RangePartitionDesc;
-import org.apache.doris.analysis.SingleRangePartitionDesc;
-import org.apache.doris.analysis.TableName;
-import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.persist.EditLog;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentBatchTask;
 
-import com.google.common.collect.Lists;
-
-import org.junit.Before;
+import org.apache.doris.utframe.UtFrameUtils;
+import org.junit.AfterClass;
+import org.junit.BeforeClass;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
-import java.util.HashMap;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
-import mockit.Expectations;
-import mockit.Injectable;
-import mockit.Mock;
-import mockit.MockUp;
+import java.util.UUID;
 
 public class DynamicPartitionTableTest {
-    private TableName dbTableName;
-    private String dbName = "testDb";
-    private String tableName = "testTable";
-    private String clusterName = "default";
-    private List<Long> beIds = Lists.newArrayList();
-    private List<String> columnNames = Lists.newArrayList();
-    private List<ColumnDef> columnDefs = Lists.newArrayList();
+    private static String runningDir = "fe/mocked/DynamicPartitionTableTest/" + UUID.randomUUID().toString() + "/";
 
-    private Catalog catalog = Catalog.getInstance();
-    private Database db = new Database();
-    private Analyzer analyzer;
-
-    private Map<String, String> properties;
-    private List<SingleRangePartitionDesc> singleRangePartitionDescs;
-
-    @Injectable
-    ConnectContext connectContext;
+    private static ConnectContext connectContext;
 
     @Rule
-    public ExpectedException expectedEx = ExpectedException.none();
+    public ExpectedException expectedException = ExpectedException.none();
 
-    @Before
-    public void setUp() throws Exception {
-        dbTableName = new TableName(dbName, tableName);
+    @BeforeClass
+    public static void beforeClass() throws Exception {
+        FeConstants.default_scheduler_interval_millisecond = 1000;
+        FeConstants.runningUnitTest = true;
 
-        beIds.add(1L);
-        beIds.add(2L);
-        beIds.add(3L);
+        UtFrameUtils.createMinDorisCluster(runningDir);
 
-        columnNames.add("key1");
-        columnNames.add("key2");
-        columnNames.add("key3");
+        // create connect context
+        connectContext = UtFrameUtils.createDefaultCtx();
+        // create database
+        String createDbStmtStr = "create database test;";
+        CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
+        Catalog.getCurrentCatalog().createDb(createDbStmt);
+    }
 
-        columnDefs.add(new ColumnDef("key1", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
-        columnDefs.add(new ColumnDef("key2", new TypeDef(ScalarType.createType(PrimitiveType.INT))));
-        columnDefs.add(new ColumnDef("key3", new TypeDef(ScalarType.createVarchar(10))));
+    @AfterClass
+    public static void TearDown() {
+        UtFrameUtils.cleanDorisFeDir(runningDir);
+    }
 
-        analyzer = new Analyzer(catalog, connectContext);
-
-        properties = new HashMap<>();
-        properties.put(DynamicPartitionProperty.ENABLE, "true");
-        properties.put(DynamicPartitionProperty.PREFIX, "p");
-        properties.put(DynamicPartitionProperty.TIME_UNIT, "day");
-        properties.put(DynamicPartitionProperty.START, "-3");
-        properties.put(DynamicPartitionProperty.END, "3");
-        properties.put(DynamicPartitionProperty.BUCKETS, "30");
-
-        singleRangePartitionDescs = new LinkedList<>();
-        singleRangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
-                new PartitionKeyDesc(Lists.newArrayList(new PartitionValue("-128"))), null));
-
-        new MockUp<AgentBatchTask>() {
-            @Mock
-            void run() {
-                return;
-            }
-        };
-
-        new MockUp<CountDownLatch>() {
-            @Mock
-            boolean await(long timeout, TimeUnit unit) {
-                return true;
-            }
-        };
-
-        new Expectations(analyzer, catalog) {{
-            analyzer.getClusterName();
-            minTimes = 0;
-            result = clusterName;
-        }};
-
-        dbTableName.analyze(analyzer);
+    private static void createTable(String sql) throws Exception {
+        CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
+        Catalog.getCurrentCatalog().createTable(createTableStmt);
     }
 
     @Test
-    public void testNormal(@Injectable SystemInfoService systemInfoService,
-                           @Injectable PaloAuth paloAuth,
-                           @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        catalog.createTable(stmt);
+    public void testNormal() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_normal` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
     }
 
     @Test
-    public void testMissPrefix(@Injectable SystemInfoService systemInfoService,
-                               @Injectable PaloAuth paloAuth,
-                               @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        properties.remove(DynamicPartitionProperty.PREFIX);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Must assign dynamic_partition.prefix properties");
-
-        catalog.createTable(stmt);
+    public void testMissPrefix() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_prefix` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        expectedException.expect(DdlException.class);
+        expectedException.expectMessage("errCode = 2, detailMessage = Must assign dynamic_partition.prefix properties");
+        createTable(createOlapTblStmt);
     }
 
     @Test
-    public void testMissTimeUnit(@Injectable SystemInfoService systemInfoService,
-                                 @Injectable PaloAuth paloAuth,
-                                 @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        properties.remove(DynamicPartitionProperty.TIME_UNIT);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Must assign dynamic_partition.time_unit properties");
-
-        catalog.createTable(stmt);
+    public void testMissTimeUnit() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_time_unit` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        expectedException.expect(DdlException.class);
+        expectedException.expectMessage("errCode = 2, detailMessage = Must assign dynamic_partition.time_unit properties");
+        createTable(createOlapTblStmt);
     }
 
     @Test
-    public void testMissSTART(@Injectable SystemInfoService systemInfoService,
-                              @Injectable PaloAuth paloAuth,
-                              @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
+    public void testMissStart() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_start` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        createTable(createOlapTblStmt);
+    }
 
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
 
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
+    @Test
+    public void testMissEnd() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_end` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        expectedException.expect(DdlException.class);
+        expectedException.expectMessage("errCode = 2, detailMessage = Must assign dynamic_partition.end properties");
+        createTable(createOlapTblStmt);
+    }
 
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
 
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        properties.remove(DynamicPartitionProperty.START);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        catalog.createTable(stmt);
+    @Test
+    public void testMissBuckets() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_buckets` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\"\n" +
+                ");";
+        expectedException.expect(DdlException.class);
+        expectedException.expectMessage("errCode = 2, detailMessage = Must assign dynamic_partition.buckets properties");
+        createTable(createOlapTblStmt);
     }
 
     @Test
-    public void testMissEnd(@Injectable SystemInfoService systemInfoService,
-                            @Injectable PaloAuth paloAuth,
-                            @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        properties.remove(DynamicPartitionProperty.END);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Must assign dynamic_partition.end properties");
-
-        catalog.createTable(stmt);
+    public void testNotAllowed() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_buckets` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        expectedException.expect(DdlException.class);
+        expectedException.expectMessage("errCode = 2, detailMessage = Only support dynamic partition properties on range partition table");
+        createTable(createOlapTblStmt);
     }
 
     @Test
-    public void testMissBuckets(@Injectable SystemInfoService systemInfoService,
-                                @Injectable PaloAuth paloAuth,
-                                @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        properties.remove(DynamicPartitionProperty.BUCKETS);
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-                new RangePartitionDesc(Lists.newArrayList("key1"), singleRangePartitionDescs),
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Must assign dynamic_partition.buckets properties");
-
-        catalog.createTable(stmt);
-    }
-
-    @Test
-    public void testNotAllowed(@Injectable SystemInfoService systemInfoService,
-                               @Injectable PaloAuth paloAuth,
-                               @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames), null,
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Only support dynamic partition properties on range partition table");
-
-        catalog.createTable(stmt);
-    }
-
-    @Test
-    public void testNotAllowedInMultiPartitions(@Injectable SystemInfoService systemInfoService,
-                                                @Injectable PaloAuth paloAuth,
-                                                @Injectable EditLog editLog) throws UserException {
-        new Expectations(catalog) {
-            {
-                catalog.getDb(dbTableName.getDb());
-                minTimes = 0;
-                result = db;
-
-                Catalog.getCurrentSystemInfo();
-                minTimes = 0;
-                result = systemInfoService;
-
-                systemInfoService.checkClusterCapacity(anyString);
-                minTimes = 0;
-                systemInfoService.seqChooseBackendIds(anyInt, true, true, anyString);
-                minTimes = 0;
-                result = beIds;
-
-                catalog.getAuth();
-                minTimes = 0;
-                result = paloAuth;
-                paloAuth.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.CREATE);
-                minTimes = 0;
-                result = true;
-
-                catalog.getEditLog();
-                minTimes = 0;
-                result = editLog;
-            }
-        };
-
-        List<SingleRangePartitionDesc> rangePartitionDescs = new LinkedList<>();
-        rangePartitionDescs.add(new SingleRangePartitionDesc(false, "p1",
-                new PartitionKeyDesc(Lists.newArrayList(new PartitionValue("-128"), new PartitionValue("100"))), null));
-
-        CreateTableStmt stmt = new CreateTableStmt(false, false, dbTableName, columnDefs, "olap",
-                new KeysDesc(KeysType.AGG_KEYS, columnNames),
-                new RangePartitionDesc(Lists.newArrayList("key1", "key2"), singleRangePartitionDescs),
-                new HashDistributionDesc(1, Lists.newArrayList("key1")), properties, null, "");
-        stmt.analyze(analyzer);
-
-        expectedEx.expect(DdlException.class);
-        expectedEx.expectMessage("Dynamic partition only support single-column range partition");
-
-        catalog.createTable(stmt);
+    public void testNotAllowedInMultiPartitions() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`dynamic_partition_normal` (\n" +
+                "  `k1` date NULL COMMENT \"\",\n" +
+                "  `k2` int NULL COMMENT \"\",\n" +
+                "  `k3` smallint NULL COMMENT \"\",\n" +
+                "  `v1` varchar(2048) NULL COMMENT \"\",\n" +
+                "  `v2` datetime NULL COMMENT \"\"\n" +
+                ") ENGINE=OLAP\n" +
+                "DUPLICATE KEY(`k1`, `k2`, `k3`)\n" +
+                "COMMENT \"OLAP\"\n" +
+                "PARTITION BY RANGE (k1, k2)\n" +
+                "(\n" +
+                "PARTITION p1 VALUES LESS THAN (\"2014-01-01\", \"100\"),\n" +
+                "PARTITION p2 VALUES LESS THAN (\"2014-06-01\", \"200\"),\n" +
+                "PARTITION p3 VALUES LESS THAN (\"2014-12-01\", \"300\")\n" +
+                ")\n" +
+                "DISTRIBUTED BY HASH(`k1`) BUCKETS 32\n" +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"dynamic_partition.enable\" = \"true\",\n" +
+                "\"dynamic_partition.start\" = \"-3\",\n" +
+                "\"dynamic_partition.end\" = \"3\",\n" +
+                "\"dynamic_partition.time_unit\" = \"day\",\n" +
+                "\"dynamic_partition.prefix\" = \"p\",\n" +
+                "\"dynamic_partition.buckets\" = \"1\"\n" +
+                ");";
+        expectedException.expect(DdlException.class);
+        expectedException.expectMessage("errCode = 2, detailMessage = Dynamic partition only support single-column range partition");
+        createTable(createOlapTblStmt);
     }
 }
