@@ -79,15 +79,11 @@ public class GlobalTransactionMgr implements Writable {
     }
 
     public void addDatabaseTransactionMgr(Long dbId) {
-        if (dbIdToDatabaseTransactionMgrs.putIfAbsent(dbId, new DatabaseTransactionMgr(dbId, catalog, idGenerator)) == null) {
-            LOG.debug("add database transaction manager for db {}", dbId);
-        }
+        dbIdToDatabaseTransactionMgrs.putIfAbsent(dbId, new DatabaseTransactionMgr(dbId, catalog, idGenerator));
     }
 
     public void removeDatabaseTransactionMgr(Long dbId) {
-        if (dbIdToDatabaseTransactionMgrs.remove(dbId) != null) {
-            LOG.debug("remove database transaction manager for db {}", dbId);
-        }
+        dbIdToDatabaseTransactionMgrs.remove(dbId);
     }
 
     public long beginTransaction(long dbId, List<Long> tableIdList, String label, TxnCoordinator coordinator, LoadJobSourceType sourceType,
@@ -359,19 +355,19 @@ public class GlobalTransactionMgr implements Writable {
     }
     
     public void readFields(DataInput in) throws IOException {
-        int numTransactions = in.readInt();
-        for (int i = 0; i < numTransactions; ++i) {
-            TransactionState transactionState = new TransactionState();
-            transactionState.readFields(in);
-            try {
+        try {
+            int numTransactions = in.readInt();
+            for (int i = 0; i < numTransactions; ++i) {
+                TransactionState transactionState = new TransactionState();
+                transactionState.readFields(in);
                 DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(transactionState.getDbId());
                 dbTransactionMgr.unprotectUpsertTransactionState(transactionState, true);
-            } catch (AnalysisException e) {
-                LOG.warn("failed to get db transaction manager for txn: {}", transactionState);
-                throw new IOException("Read transaction states failed", e);
             }
+            idGenerator.readFields(in);
+        } catch (AnalysisException e) {
+            throw new IOException("Read transaction states failed", e);
         }
-        idGenerator.readFields(in);
+
     }
 
     public TransactionState getTransactionStateByCallbackIdAndStatus(long dbId, long callbackId, Set<TransactionStatus> status) {
