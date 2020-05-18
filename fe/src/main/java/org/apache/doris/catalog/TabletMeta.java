@@ -137,12 +137,12 @@ public class TabletMeta {
         lock.readLock().lock();
         try {
             StringBuilder sb = new StringBuilder();
-            sb.append("dbId=" + dbId);
-            sb.append(" tableId=" + tableId);
-            sb.append(" partitionId=" + partitionId);
-            sb.append(" indexId=" + indexId);
-            sb.append(" oldSchemaHash=" + oldSchemaHash);
-            sb.append(" newSchemaHash=" + newSchemaHash);
+            sb.append("dbId=").append(dbId);
+            sb.append(" tableId=").append(tableId);
+            sb.append(" partitionId=").append(partitionId);
+            sb.append(" indexId=").append(indexId);
+            sb.append(" oldSchemaHash=").append(oldSchemaHash);
+            sb.append(" newSchemaHash=").append(newSchemaHash);
 
             return sb.toString();
         } finally {
