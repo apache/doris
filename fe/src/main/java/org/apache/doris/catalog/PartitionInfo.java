@@ -76,6 +76,9 @@ public class PartitionInfo implements Writable {
     }
 
     public short getReplicationNum(long partitionId) {
+        if (!idToReplicationNum.containsKey(partitionId)) {
+            LOG.debug("failed to get replica num for partition: {}", partitionId);
+        }
         return idToReplicationNum.get(partitionId);
     }
 
