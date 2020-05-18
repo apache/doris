@@ -311,12 +311,13 @@ OLAPStatus AlphaRowset::init() {
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
             if (expect_zone_maps_num > zone_maps_size) {
-                LOG(WARNING) << "expect zone map size is " << expect_zone_maps_num << ", actrual num is " << zone_maps_size
+                LOG(WARNING) << "expect zone map size is " << expect_zone_maps_num << ", actual num is " << zone_maps_size
                 << ". If this is not the first start after upgrade, please pay attention!";
             }
-            std::vector<std::pair<std::string, std::string>> zone_map_strings(expect_zone_maps_num);
-            std::vector<bool> null_vec(expect_zone_maps_num);
-            for (size_t j = 0; j < expect_zone_maps_num && j < zone_maps_size; ++j) {
+            zone_maps_size = std::min(zone_maps_size, expect_zone_maps_num);
+            std::vector<std::pair<std::string, std::string>> zone_map_strings(zone_maps_size);
+            std::vector<bool> null_vec(zone_maps_size);
+            for (size_t j = 0; j < zone_maps_size; ++j) {
                 const ZoneMap& zone_map = segment_group_meta.zone_maps(j);
                 zone_map_strings[j].first = zone_map.min();
                 zone_map_strings[j].second = zone_map.max();
