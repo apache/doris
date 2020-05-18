@@ -55,7 +55,13 @@ public class BackendLoadStatistic {
         public int compare(BackendLoadStatistic o1, BackendLoadStatistic o2) {
             double score1 = o1.getLoadScore(medium);
             double score2 = o2.getLoadScore(medium);
-            return Double.compare(score1, score2);
+            if (score1 > score2) {
+                return 1;
+            } else if (score1 == score2) {
+                return 0;
+            } else {
+                return -1;
+            }
         }
     }
 
@@ -64,7 +70,14 @@ public class BackendLoadStatistic {
         public int compare(BackendLoadStatistic o1, BackendLoadStatistic o2) {
             Double score1 = o1.getMixLoadScore();
             Double score2 = o2.getMixLoadScore();
-            return score1.compareTo(score2);
+
+            if (score1 > score2) {
+                return 1;
+            } else if (score1 == score2) {
+                return 0;
+            } else {
+                return -1;
+            }
         }
     }
 
@@ -167,7 +180,11 @@ public class BackendLoadStatistic {
             throw new LoadBalanceException("backend " + beId + " does not exist");
         }
 
-        isAvailable = be.isAvailable();
+        if (!be.isAvailable()) {
+            isAvailable = false;
+        } else {
+            isAvailable = true;
+        }
 
         ImmutableMap<String, DiskInfo> disks = be.getDisks();
         for (DiskInfo diskInfo : disks.values()) {
@@ -316,7 +333,7 @@ public class BackendLoadStatistic {
         return false;
     }
 
-    /**
+    /*
      * Classify the paths into 'low', 'mid' and 'high',
      * and skip offline path, and path with different storage medium 
      */
