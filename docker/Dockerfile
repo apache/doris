@@ -21,15 +21,32 @@ LABEL maintainer=tangxiaoqing214445
 
 ENV DEFAULT_DIR /var/local
 
+ARG AUTOMAKE_URL=http://ftp.gnu.org/gnu/automake/automake-1.15.1.tar.gz
+RUN yum install -y bzip2 wget gettext-devel git gcc-c++ libstdc++-static byacc libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip libcurl-devel \
+    && updatedb \
+    && yum -y clean all \
+    && rm -rf /var/cache/yum \
+    && curl -fsSL -o /tmp/automake-1.15.1.tar.gz http://ftp.gnu.org/gnu/automake/automake-1.15.1.tar.gz \
+    && tar -xzf /tmp/automake-1.15.1.tar.gz -C /tmp \
+    && cd /tmp/automake-1.15.1 \
+    && ./configure \
+    && make -j$[$(nproc)/4+1] && make install \
+    && rm -rf /tmp/automake-1.15.1*
+
+ARG FLEX_URL=https://jaist.dl.sourceforge.net/project/flex/flex-2.6.0.tar.gz
+RUN curl -s -o /tmp/flex-2.6.0.tar.gz ${FLEX_URL} \
+    && tar -xzf /tmp/flex-2.6.0.tar.gz -C /tmp \
+    && cd /tmp/flex-2.6.0 \
+    && sh autogen.sh \
+    && ./configure \
+    && make -j$[$(nproc)/4+1] && make install \
+    && rm -rf /tmp/flex-2.6.0*
+
 ARG GCC_VERSION=7.3.0
 ARG GCC_URL=https://mirrors.ustc.edu.cn/gnu/gcc/gcc-${GCC_VERSION}
 
 # install dependencies and build gcc
-RUN yum install -y bzip2 wget git gcc-c++ libstdc++-static byacc flex automake libtool binutils-devel bison ncurses-devel make mlocate unzip patch which vim-common redhat-lsb-core zip libcurl-devel \
-  && updatedb \
-  && yum -y clean all \
-  && rm -rf /var/cache/yum \
-  && mkdir -p  /var/local/gcc \
+RUN  mkdir -p  /var/local/gcc \
   && curl -fsSL -o /tmp/gcc.tar.gz  ${GCC_URL}/gcc-${GCC_VERSION}.tar.gz \
   && tar -xzf /tmp/gcc.tar.gz -C /var/local/gcc --strip-components=1 \
   && cd /var/local/gcc \

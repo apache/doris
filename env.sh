@@ -55,9 +55,16 @@ if [[ -z ${DORIS_GCC_HOME} ]]; then
 fi
 
 gcc_ver=`${DORIS_GCC_HOME}/bin/gcc -dumpfullversion -dumpversion`
-required_ver="5.3.1"
+required_ver="7.1.0"
 if [[ ! "$(printf '%s\n' "$required_ver" "$gcc_ver" | sort -V | head -n1)" = "$required_ver" ]]; then 
     echo "Error: GCC version (${gcc_ver}) must be greater than or equal to ${required_ver}"
+    exit 1
+fi
+
+flex_ver=`flex --version | awk '{print $2}'`
+required_ver="2.6.0"
+if [[ ! "$(printf '%s\n' "$required_ver" "$flex_ver" | sort -V | head -n1)" = "$required_ver" ]]; then 
+    echo "Error: flex version (${flex_ver}) must be greater than or equal to ${required_ver}"
     exit 1
 fi
 

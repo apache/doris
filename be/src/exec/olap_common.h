@@ -362,16 +362,21 @@ void ColumnValueRange<T>::convert_to_fixed_value() {
         return;
     }
 
+    // Incrementing boolean is denied in C++17, So we use int as bool type
+    using type = std::conditional_t<std::is_same<bool, T>::value, int, T>;
+    type low_value = _low_value;
+    type high_value = _high_value;
+
     if (_low_op == FILTER_LARGER) {
-        ++_low_value;
+        ++low_value;
     }
 
     if (_high_op == FILTER_LESS) {
-        for (T v = _low_value; v < _high_value; ++v) {
+        for (auto v = low_value; v < high_value; ++v) {
             _fixed_values.insert(v);
         }
     } else {
-        for (T v = _low_value; v <= _high_value; ++v) {
+        for (auto v = low_value; v <= high_value; ++v) {
             _fixed_values.insert(v);
         }
     }
