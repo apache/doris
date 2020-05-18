@@ -17,13 +17,10 @@
 # under the License.
 
 ##############################################################
-# This script is used to compile Apache Doris(incubating)
+# This script is used to compile Spark-Doris-Connector
 # Usage:
-#    sh build.sh        build both Backend and Frontend.
-#    sh build.sh -clean clean previous output and build.
+#    sh build.sh
 #
-# You need to make sure all thirdparty libraries have been
-# compiled and installed correctly.
 ##############################################################
 
 set -eo pipefail
@@ -33,7 +30,21 @@ ROOT=`cd "$ROOT"; pwd`
 
 export DORIS_HOME=${ROOT}/../../
 
-. ${DORIS_HOME}/env.sh
+# include custom environment variables
+if [[ -f ${DORIS_HOME}/custom_env.sh ]]; then
+    . ${DORIS_HOME}/custom_env.sh
+fi
+
+# check maven
+MVN_CMD=mvn
+if [[ ! -z ${CUSTOM_MVN} ]]; then
+    MVN_CMD=${CUSTOM_MVN}
+fi
+if ! ${MVN_CMD} --version; then
+    echo "Error: mvn is not found"
+    exit 1
+fi
+export MVN_CMD
 
 ${MVN_CMD} clean package
 
