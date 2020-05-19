@@ -300,6 +300,7 @@ OLAPStatus AlphaRowset::init() {
 
         if (segment_group_meta.zone_maps_size() != 0) {
             size_t zone_maps_size = segment_group_meta.zone_maps_size();
+            // after 0.12.10 the value column in duplicate table also has zone map.
             size_t expect_zone_maps_num = _schema->keys_type() == KeysType::DUP_KEYS ? _schema->num_columns() : _schema->num_key_columns();
             if ((_schema->keys_type() != KeysType::DUP_KEYS && expect_zone_maps_num != zone_maps_size) 
             || (_schema->keys_type() == KeysType::DUP_KEYS && expect_zone_maps_num < zone_maps_size)) {
@@ -310,8 +311,12 @@ OLAPStatus AlphaRowset::init() {
                         << "num_columns=" << _schema->num_columns();
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
+            // Before 0.12.10, the zone map columns number in duplicate table is the same with the key column numbers,
+            // but after 0.12.10 we build zone map for the value column, so when first start the two number is not the same,
+            // it cuases start failed. When `expect_zone_maps_num > zone_maps_size` it may be the first start afer upgrade
             if (expect_zone_maps_num > zone_maps_size) {
-                LOG(WARNING) << "expect zone map size is " << expect_zone_maps_num << ", actual num is " << zone_maps_size
+                LOG(WARNING) << "tablet: " << _rowset_meta->tablet_id() 
+                << " expect zone map size is " << expect_zone_maps_num << ", actual num is " << zone_maps_size
                 << ". If this is not the first start after upgrade, please pay attention!";
             }
             zone_maps_size = std::min(zone_maps_size, expect_zone_maps_num);
