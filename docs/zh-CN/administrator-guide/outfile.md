@@ -1,6 +1,6 @@
 ---
 {
-    "title": "查询结果集导出",
+    "title": "导出查询结果集",
     "language": "zh-CN"
 }
 ---
@@ -24,7 +24,7 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 查询结果集导出
+# 导出查询结果集
 
 本文档介绍如何使用 `SELECT INTO OUTFILE` 命令进行查询结果的导入操作。
 

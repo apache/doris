@@ -113,7 +113,7 @@ std::string FileResultWriter::_file_format_to_name() {
 }
 
 Status FileResultWriter::append_row_batch(const RowBatch* batch) {
-    if (NULL == batch || 0 == batch->num_rows()) {
+    if (nullptr == batch || 0 == batch->num_rows()) {
         return Status::OK();
     }
 
@@ -294,7 +294,7 @@ Status FileResultWriter::_close_file_writer(bool done) {
         delete _parquet_writer;
         _parquet_writer = nullptr;
         if (!done) {
-
+            //TODO(cmy): implement parquet writer later
         }
     } else if (_file_writer != nullptr) {
         _file_writer->close();

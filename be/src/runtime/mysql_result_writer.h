@@ -46,11 +46,10 @@ public:
 
 private:
     void _init_profile();
+    // convert one tuple row
+    Status _add_one_row(TupleRow* row);
 
 private:
-    // convert one tuple row
-    Status add_one_row(TupleRow* row);
-
     // The expressions that are run to create tuples to be written to hbase.
     BufferControlBlock* _sinker;
     const std::vector<ExprContext*>& _output_expr_ctxs;

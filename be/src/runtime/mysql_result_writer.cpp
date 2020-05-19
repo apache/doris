@@ -68,7 +68,7 @@ void MysqlResultWriter::_init_profile() {
     _sent_rows_counter = ADD_COUNTER(profile, "NumSentRows", TUnit::UNIT);
 }
 
-Status MysqlResultWriter::add_one_row(TupleRow* row) {
+Status MysqlResultWriter::_add_one_row(TupleRow* row) {
     SCOPED_TIMER(_convert_tuple_timer);
     _row_buffer->reset();
     int num_columns = _output_expr_ctxs.size();
@@ -218,7 +218,7 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
 
     for (int i = 0; status.ok() && i < num_rows; ++i) {
         TupleRow* row = batch->get_row(i);
-        status = add_one_row(row);
+        status = _add_one_row(row);
 
         if (status.ok()) {
             result->result_batch.rows[i].assign(_row_buffer->buf(), _row_buffer->length());
