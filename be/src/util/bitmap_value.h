@@ -1235,7 +1235,7 @@ private:
     enum BitmapDataType {
         EMPTY = 0,
         SINGLE = 1, // single element
-        BITMAP = 2// more than one elements
+        BITMAP = 2 // more than one elements
     };
     uint64_t _sv = 0; // store the single value when _type == SINGLE
     detail::Roaring64Map _bitmap; // used when _type == BITMAP
