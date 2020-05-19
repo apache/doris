@@ -36,6 +36,50 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
+    <profiles>
+        <!-- for custom internal repository -->
+        <profile>
+            <id>custom-env</id>
+            <activation>
+                <property>
+                    <name>env.CUSTOM_MAVEN_REPO</name>
+                </property>
+            </activation>
+
+            <repositories>
+                <repository>
+                    <id>custom-nexus</id>
+                    <url>${env.CUSTOM_MAVEN_REPO}</url>
+                </repository>
+            </repositories>
+
+            <pluginRepositories>
+                <pluginRepository>
+                    <id>custom-nexus</id>
+                    <url>${env.CUSTOM_MAVEN_REPO}</url>
+                </pluginRepository>
+            </pluginRepositories>
+        </profile>
+
+        <!-- for general repository -->
+        <profile>
+            <id>general-env</id>
+            <activation>
+                <property>
+                    <name>!env.CUSTOM_MAVEN_REPO</name>
+                </property>
+            </activation>
+
+            <repositories>
+                <repository>
+                    <id>central</id>
+                    <name>central maven repo https</name>
+                    <url>https://repo.maven.apache.org/maven2</url>
+                </repository>
+            </repositories>
+        </profile>
+    </profiles>
+
     <dependencies>
         <dependency>
             <groupId>org.apache.spark</groupId>
@@ -53,7 +97,6 @@
             <groupId>org.apache.thrift</groupId>
             <artifactId>libthrift</artifactId>
             <version>${libthrift.version}</version>
-            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.arrow</groupId>
@@ -150,23 +193,27 @@
                     <relocations>
                         <relocation>
                             <pattern>org.apache.arrow</pattern>
-                            <shadedPattern>org.apache.doris.arrow</shadedPattern>
+                            <shadedPattern>org.apache.doris.shaded.org.apache.arrow</shadedPattern>
                         </relocation>
                         <relocation>
                             <pattern>io.netty</pattern>
-                            <shadedPattern>org.apache.doris.netty</shadedPattern>
+                            <shadedPattern>org.apache.doris.shaded.io.netty</shadedPattern>
                         </relocation>
                         <relocation>
                             <pattern>com.fasterxml.jackson</pattern>
-                            <shadedPattern>org.apache.doris.jackson</shadedPattern>
+                            <shadedPattern>org.apache.doris.shaded.com.fasterxml.jackson</shadedPattern>
                         </relocation>
                         <relocation>
                             <pattern>org.apache.commons.codec</pattern>
-                            <shadedPattern>org.apache.doris.commons.codec</shadedPattern>
+                            <shadedPattern>org.apache.doris.shaded.org.apache.commons.codec</shadedPattern>
                         </relocation>
                         <relocation>
                             <pattern>com.google.flatbuffers</pattern>
-                            <shadedPattern>org.apache.doris.flatbuffers</shadedPattern>
+                            <shadedPattern>org.apache.doris.shaded.com.google.flatbuffers</shadedPattern>
+                        </relocation>
+                        <relocation>
+                            <pattern>org.apache.thrift</pattern>
+                            <shadedPattern>org.apache.doris.shaded.org.apache.thrift</shadedPattern>
                         </relocation>
                     </relocations>
                 </configuration>

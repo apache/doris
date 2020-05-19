@@ -122,6 +122,7 @@ module.exports = [
       "doris-on-es",
       "plugin-development-manual",
       "user-defined-function",
+      "spark-doris-connector",
     ],
   },
   {
