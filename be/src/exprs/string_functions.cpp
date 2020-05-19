@@ -196,28 +196,56 @@ StringVal StringFunctions::lpad(
     if (str.is_null || len.is_null || pad.is_null || len.val < 0) {
         return StringVal::null();
     }
+
+    size_t str_char_size = 0;
+    size_t pad_char_size = 0;
+    size_t byte_pos = 0;
+    std::vector<size_t> str_index;
+    std::vector<size_t> pad_index;
+    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        str_index.push_back(byte_pos);
+        byte_pos += char_size;
+        ++str_char_size;
+    }
+    byte_pos = 0;
+    for (size_t i = 0, char_size = 0; i < pad.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(pad.ptr)[i]);
+        pad_index.push_back(byte_pos);
+        byte_pos += char_size;
+        ++pad_char_size;
+    }
+    
     // Corner cases: Shrink the original string, or leave it alone.
     // TODO: Hive seems to go into an infinite loop if pad.len == 0,
     // so we should pay attention to Hive's future solution to be compatible.
-    if (len.val <= str.len || pad.len == 0) {
-        return StringVal(str.ptr, len.val);
+    if (len.val <= str_char_size || pad.len == 0) {
+        if (len.val >= str_index.size()) {
+            return StringVal::null();
+        }
+        return StringVal(str.ptr, str_index.at(len.val));
     }
 
     // TODO pengyubing
     // StringVal result = StringVal::create_temp_string_val(context, len.val);
-    StringVal result(context, len.val);
+    int32_t pad_byte_len = 0;
+    int32_t pad_times = (len.val - str_char_size) / pad_char_size;
+    int32_t pad_remainder = (len.val - str_char_size) % pad_char_size;
+    pad_byte_len = pad_times * pad.len;
+    pad_byte_len += pad_index.at(pad_remainder);
+    int32_t byte_len = str.len + pad_byte_len;
+    StringVal result(context, byte_len);
     if (result.is_null) {
         return result;
     }
-    int padded_prefix_len = len.val - str.len;
-    int pad_index = 0;
+    int pad_idx = 0;
     int result_index = 0;
     uint8_t* ptr = result.ptr;
 
     // Prepend chars of pad.
-    while (result_index < padded_prefix_len) {
-        ptr[result_index++] = pad.ptr[pad_index++];
-        pad_index = pad_index % pad.len;
+    while (result_index < pad_byte_len) {
+        ptr[result_index++] = pad.ptr[pad_idx++];
+        pad_idx = pad_idx % pad.len;
     }
 
     // Append given string.
@@ -231,16 +259,45 @@ StringVal StringFunctions::rpad(
     if (str.is_null || len.is_null || pad.is_null || len.val < 0) {
         return StringVal::null();
     }
+
+    size_t str_char_size = 0;
+    size_t pad_char_size = 0;
+    size_t byte_pos = 0;
+    std::vector<size_t> str_index;
+    std::vector<size_t> pad_index;
+    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        str_index.push_back(byte_pos);
+        byte_pos += char_size;
+        ++str_char_size;
+    }
+    byte_pos = 0;
+    for (size_t i = 0, char_size = 0; i < pad.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(pad.ptr)[i]);
+        pad_index.push_back(byte_pos);
+        byte_pos += char_size;
+        ++pad_char_size;
+    }
+
     // Corner cases: Shrink the original string, or leave it alone.
     // TODO: Hive seems to go into an infinite loop if pad->len == 0,
     // so we should pay attention to Hive's future solution to be compatible.
-    if (len.val <= str.len || pad.len == 0) {
-        return StringVal(str.ptr, len.val);
+    if (len.val <= str_char_size || pad.len == 0) {
+        if (len.val >= str_index.size()) {
+            return StringVal::null();
+        }
+        return StringVal(str.ptr, str_index.at(len.val));
     }
 
     // TODO pengyubing
     // StringVal result = StringVal::create_temp_string_val(context, len.val);
-    StringVal result(context, len.val);
+    int32_t pad_byte_len = 0;
+    int32_t pad_times = (len.val - str_char_size) / pad_char_size;
+    int32_t pad_remainder = (len.val - str_char_size) % pad_char_size;
+    pad_byte_len = pad_times * pad.len;
+    pad_byte_len += pad_index.at(pad_remainder);
+    int32_t byte_len = str.len + pad_byte_len;
+    StringVal result(context, byte_len);
     if (UNLIKELY(result.is_null)) {
         return result;
     }
@@ -248,11 +305,11 @@ StringVal StringFunctions::rpad(
 
     // Append chars of pad until desired length
     uint8_t* ptr = result.ptr;
-    int pad_index = 0;
+    int pad_idx = 0;
     int result_len = str.len;
-    while (result_len < len.val) {
-        ptr[result_len++] = pad.ptr[pad_index++];
-        pad_index = pad_index % pad.len;
+    while (result_len < byte_len) {
+        ptr[result_len++] = pad.ptr[pad_idx++];
+        pad_idx = pad_idx % pad.len;
     }
     return result;
 }
@@ -295,7 +352,6 @@ IntVal StringFunctions::char_utf8_length(FunctionContext* context, const StringV
         return IntVal::null();
     }
     size_t char_len = 0;
-    std::vector<size_t> index;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
         char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
         ++char_len;
@@ -412,11 +468,24 @@ IntVal StringFunctions::instr(
     if (str.is_null || substr.is_null) {
         return IntVal::null();
     }
+    if (substr.len == 0) {
+        return IntVal(1);
+    }
     StringValue str_sv = StringValue::from_string_val(str);
     StringValue substr_sv = StringValue::from_string_val(substr);
     StringSearch search(&substr_sv);
     // Hive returns positions starting from 1.
-    return IntVal(search.search(&str_sv) + 1);
+    int loc = search.search(&str_sv);
+    if (loc > 0) {
+        size_t char_len = 0;
+        for (size_t i = 0, char_size = 0; i < loc; i += char_size) {
+            char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+            ++char_len;
+        }
+        loc = char_len;
+    }
+
+    return IntVal(loc + 1);
 }
 
 IntVal StringFunctions::locate(
@@ -430,20 +499,41 @@ IntVal StringFunctions::locate_pos(
     if (str.is_null || substr.is_null || start_pos.is_null) {
         return IntVal::null();
     }
+    if (substr.len == 0) {
+        if (str.len == 0 && start_pos.val > 1) {
+            return IntVal(0);
+        }
+        return IntVal(start_pos.val);
+    }
     // Hive returns 0 for *start_pos <= 0,
     // but throws an exception for *start_pos > str->len.
     // Since returning 0 seems to be Hive's error condition, return 0.
-    if (start_pos.val <= 0 || start_pos.val > str.len) {
+    size_t byte_pos = 0;
+    size_t char_len = 0;
+    std::vector<size_t> index;
+    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        index.push_back(byte_pos);
+        byte_pos += char_size;
+        ++char_len;
+    }
+    if (start_pos.val <= 0 || start_pos.val > str.len || start_pos.val > char_len) {
         return IntVal(0);
     }
     StringValue substr_sv = StringValue::from_string_val(substr);
     StringSearch search(&substr_sv);
     // Input start_pos.val starts from 1.
     StringValue adjusted_str(
-        reinterpret_cast<char*>(str.ptr) + start_pos.val - 1, str.len - start_pos.val + 1);
+        reinterpret_cast<char*>(str.ptr) + index.at(start_pos.val - 1), str.len - index.at(start_pos.val - 1));
     int32_t match_pos = search.search(&adjusted_str);
     if (match_pos >= 0) {
         // Hive returns the position in the original string starting from 1.
+        size_t char_len = 0;
+        for (size_t i = 0, char_size = 0; i < match_pos; i += char_size) {
+            char_size = get_utf8_byte_length((unsigned)(adjusted_str.ptr)[i]);
+            ++char_len;
+        }
+        match_pos = char_len;
         return IntVal(start_pos.val + match_pos);
     } else {
         return IntVal(0);
