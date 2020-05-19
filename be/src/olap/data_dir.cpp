@@ -710,7 +710,7 @@ OLAPStatus DataDir::load() {
     };
     OLAPStatus load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
     if (failed_tablet_ids.size() != 0 && !config::ignore_load_tablet_failure) {
-        LOG(FATAL) << "load tablets from header failed, failed tablets size: " << failed_tablet_ids.size(;
+        LOG(FATAL) << "load tablets from header failed, failed tablets size: " << failed_tablet_ids.size();
     }
     if (load_tablet_status != OLAP_SUCCESS) {
         LOG(WARNING) << "there is failure when loading tablet headers, path:" << _path;
