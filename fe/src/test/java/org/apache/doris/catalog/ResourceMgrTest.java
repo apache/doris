@@ -17,11 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AccessTestUtil;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -40,6 +45,7 @@ public class ResourceMgrTest {
     private String workingDir;
     private String broker;
     private Map<String, String> properties;
+    private Analyzer analyzer;
 
     @Before
     public void setUp() {
@@ -54,11 +60,12 @@ public class ResourceMgrTest {
         properties.put("spark.submit.deployMode", "cluster");
         properties.put("working_dir", workingDir);
         properties.put("broker", broker);
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test
-    public void testAddDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog, @Mocked Catalog catalog)
-            throws UserException {
+    public void testAddDropResource(@Injectable BrokerMgr brokerMgr, @Injectable EditLog editLog,
+                                    @Mocked Catalog catalog, @Injectable PaloAuth auth) throws UserException {
         new Expectations() {
             {
                 catalog.getBrokerMgr();
@@ -67,12 +74,17 @@ public class ResourceMgrTest {
                 result = true;
                 catalog.getEditLog();
                 result = editLog;
+                catalog.getAuth();
+                result = auth;
+                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                result = true;
             }
         };
 
         // add
         ResourceMgr mgr = new ResourceMgr();
         CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResources().size());
         mgr.createResource(stmt);
         Assert.assertEquals(1, mgr.getResources().size());
@@ -88,7 +100,7 @@ public class ResourceMgrTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testAddEtlResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog)
+    public void testAddResourceExist(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
             throws UserException {
         new Expectations() {
             {
@@ -96,12 +108,17 @@ public class ResourceMgrTest {
                 result = brokerMgr;
                 brokerMgr.contaisnBroker(broker);
                 result = true;
+                catalog.getAuth();
+                result = auth;
+                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                result = true;
             }
         };
 
         // add
         ResourceMgr mgr = new ResourceMgr();
         CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        stmt.analyze(analyzer);
         Assert.assertEquals(0, mgr.getResources().size());
         mgr.createResource(stmt);
         Assert.assertEquals(1, mgr.getResources().size());
@@ -111,11 +128,11 @@ public class ResourceMgrTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testDropEtlResourceNotExist() throws UserException {
+    public void testDropResourceNotExist() throws UserException {
         // drop
         ResourceMgr mgr = new ResourceMgr();
         Assert.assertEquals(0, mgr.getResources().size());
-        CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
-        mgr.createResource(stmt);
+        DropResourceStmt stmt = new DropResourceStmt(name);
+        mgr.dropResource(stmt);
     }
 }

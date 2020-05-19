@@ -17,11 +17,16 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.AccessTestUtil;
+import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.CreateResourceStmt;
 //import org.apache.doris.analysis.ResourceDesc;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
 import mockit.Expectations;
@@ -40,6 +45,7 @@ public class SparkResourceTest {
     private String workingDir;
     private String broker;
     private Map<String, String> properties;
+    private Analyzer analyzer;
 
     @Before
     public void setUp() {
@@ -54,10 +60,11 @@ public class SparkResourceTest {
         properties.put("spark.submit.deployMode", "cluster");
         properties.put("working_dir", workingDir);
         properties.put("broker", broker);
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test
-    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog)
+    public void testFromStmt(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
             throws UserException {
         new Expectations() {
             {
@@ -65,11 +72,16 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.contaisnBroker(broker);
                 result = true;
+                catalog.getAuth();
+                result = auth;
+                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                result = true;
             }
         };
 
         // master: spark, deploy_mode: cluster
         CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        stmt.analyze(analyzer);
         SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
         Assert.assertEquals(name, resource.getName());
         Assert.assertEquals(type, resource.getType().name().toLowerCase());
@@ -83,6 +95,7 @@ public class SparkResourceTest {
         // master: spark, deploy_mode: client
         properties.put("spark.submit.deployMode", "client");
         stmt = new CreateResourceStmt(true, name, properties);
+        stmt.analyze(analyzer);
         resource = (SparkResource) Resource.fromStmt(stmt);
         Assert.assertEquals("client", resource.getDeployMode().name().toLowerCase());
 
@@ -95,6 +108,7 @@ public class SparkResourceTest {
         properties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
         properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
         stmt = new CreateResourceStmt(true, name, properties);
+        stmt.analyze(analyzer);
         resource = (SparkResource) Resource.fromStmt(stmt);
         Assert.assertTrue(resource.isYarnMaster());
         Map<String, String> map = resource.getSparkConfigs();
@@ -107,13 +121,17 @@ public class SparkResourceTest {
 
     /*
     @Test
-    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog)
+    public void testUpdate(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
             throws UserException {
         new Expectations() {
             {
                 catalog.getBrokerMgr();
                 result = brokerMgr;
                 brokerMgr.contaisnBroker(broker);
+                result = true;
+                catalog.getAuth();
+                result = auth;
+                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -124,6 +142,7 @@ public class SparkResourceTest {
         properties.put("spark.hadoop.yarn.resourcemanager.address", "127.0.0.1:9999");
         properties.put("spark.hadoop.fs.defaultFS", "hdfs://127.0.0.1:10000");
         CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        stmt.analyze(analyzer);
         SparkResource resource = (SparkResource) Resource.fromStmt(stmt);
         SparkResource copiedResource = resource.getCopiedResource();
         Map<String, String> newProperties = Maps.newHashMap();
@@ -140,7 +159,7 @@ public class SparkResourceTest {
     */
 
     @Test(expected = DdlException.class)
-    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog)
+    public void testNoBroker(@Injectable BrokerMgr brokerMgr, @Mocked Catalog catalog, @Injectable PaloAuth auth)
             throws UserException {
         new Expectations() {
             {
@@ -148,10 +167,15 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.contaisnBroker(broker);
                 result = false;
+                catalog.getAuth();
+                result = auth;
+                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                result = true;
             }
         };
 
         CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
+        stmt.analyze(analyzer);
         Resource.fromStmt(stmt);
     }
 }
