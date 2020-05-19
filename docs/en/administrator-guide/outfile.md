@@ -34,7 +34,7 @@ The `SELECT INTO OUTFILE` statement can export the query results to a file. Curr
 
 ```
 query_stmt
-INTO OUFILE "file_path"
+INTO OUTFILE "file_path"
 [format_as]
 WITH BROKER `broker_name`
 [broker_properties]

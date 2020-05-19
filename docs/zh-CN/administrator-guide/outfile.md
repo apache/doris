@@ -34,7 +34,7 @@ under the License.
 
 ```
 query_stmt
-INTO OUFILE "file_path"
+INTO OUTFILE "file_path"
 [format_as]
 WITH BROKER `broker_name`
 [broker_properties]
