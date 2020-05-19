@@ -21,8 +21,8 @@ import java.util.concurrent.atomic.AtomicLong;
 
 public class LongCounterMetric extends CounterMetric<Long> {
 
-    public LongCounterMetric(String name, String description) {
-        super(name, description);
+    public LongCounterMetric(String name, MetricUnit unit, String description) {
+        super(name, unit, description);
     }
 
     private AtomicLong value = new AtomicLong(0L);

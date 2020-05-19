@@ -42,24 +42,43 @@ enum class MetricType {
     UNTYPED
 };
 
+enum class MetricUnit {
+    NANOSECONDS,
+    MICROSECONDS,
+    MILLISECONDS,
+    SECONDS,
+    BYTES,
+    ROWS,
+    NUMBER,
+    PERCENT,
+    NOUNIT
+};
+
 std::ostream& operator<<(std::ostream& os, MetricType type);
+std::ostream& operator<<(std::ostream& os, MetricUnit unit);
 
 class Metric {
 public:
-    Metric(MetricType type) :_type(type), _registry(nullptr) { }
+    Metric(MetricType type, MetricUnit unit)
+      : _type(type),
+        _unit(unit),
+        _registry(nullptr) {}
     virtual ~Metric() { hide(); }
     MetricType type() const { return _type; }
+    MetricUnit unit() const { return _unit; }
     void hide();
 private:
     friend class MetricRegistry;
 
-    MetricType _type;
+    MetricType _type = MetricType::UNTYPED;
+    MetricUnit _unit = MetricUnit::NOUNIT;
     MetricRegistry* _registry;
 };
 
 class SimpleMetric : public Metric {
 public:
-    SimpleMetric(MetricType type) :Metric(type) { }
+    SimpleMetric(MetricType type, MetricUnit unit)
+      : Metric(type, unit) {}
     virtual ~SimpleMetric() { }
     virtual std::string to_string() const = 0;
 };
@@ -68,7 +87,9 @@ public:
 template<typename T>
 class LockSimpleMetric : public SimpleMetric {
 public:
-    LockSimpleMetric(MetricType type) :SimpleMetric(type), _value(T()) { }
+    LockSimpleMetric(MetricType type, MetricUnit unit)
+      : SimpleMetric(type, unit),
+        _value(T()) {}
     virtual ~LockSimpleMetric() { }
 
     std::string to_string() const override {
@@ -105,7 +126,10 @@ protected:
 template<typename T>
 class CoreLocalCounter : public SimpleMetric {
 public:
-    CoreLocalCounter() :SimpleMetric(MetricType::COUNTER), _value() { }
+    CoreLocalCounter(MetricUnit unit)
+      : SimpleMetric(MetricType::COUNTER, unit), 
+        _value() {}
+
     virtual ~CoreLocalCounter() { }
 
     std::string to_string() const override {
@@ -132,7 +156,8 @@ protected:
 template<typename T>
 class LockCounter : public LockSimpleMetric<T> {
 public:
-    LockCounter() :LockSimpleMetric<T>(MetricType::COUNTER) { }
+    LockCounter(MetricUnit unit)
+      : LockSimpleMetric<T>(MetricType::COUNTER, unit) {}
     virtual ~LockCounter() { }
 };
 
@@ -140,7 +165,8 @@ public:
 template<typename T>
 class LockGauge : public LockSimpleMetric<T> {
 public:
-    LockGauge() :LockSimpleMetric<T>(MetricType::GAUGE) { }
+    LockGauge(MetricUnit unit)
+      : LockSimpleMetric<T>(MetricType::GAUGE, unit) {}
     virtual ~LockGauge() { }
 };
 
@@ -274,8 +300,10 @@ public:
         return _metrics;
     }
     MetricType type() const { return _type; }
+    MetricUnit unit() const { return _unit; }
 private:
     MetricType _type = MetricType::UNTYPED;
+    MetricUnit _unit = MetricUnit::NOUNIT;
     std::map<MetricLabels, Metric*> _metrics;
 };
 
@@ -343,4 +371,26 @@ using IntGauge = LockGauge<int64_t>;
 using UIntGauge = LockGauge<uint64_t>;
 using DoubleGauge = LockGauge<double>;
 
-}
+} // namespace doris
+
+// Convenience macros to metric
+#define METRIC_DEFINE_INT_COUNTER(metric_name, unit)        \
+    doris::IntCounter metric_name{unit}
+
+#define METRIC_DEFINE_INT_LOCK_COUNTER(metric_name, unit)   \
+    doris::IntLockCounter metric_name{unit}
+
+#define METRIC_DEFINE_UINT_COUNTER(metric_name, unit)       \
+    doris::UIntCounter metric_name{unit}
+
+#define METRIC_DEFINE_DOUBLE_COUNTER(metric_name, unit)     \
+    doris::DoubleCounter metric_name{unit}
+
+#define METRIC_DEFINE_INT_GAUGE(metric_name, unit)          \
+    doris::IntGauge metric_name{unit}
+
+#define METRIC_DEFINE_UINT_GAUGE(metric_name, unit)         \
+    doris::UIntGauge metric_name{unit}
+
+#define METRIC_DEFINE_DOUBLE_GAUGE(metric_name, unit)       \
+    doris::DoubleGauge metric_name{unit}

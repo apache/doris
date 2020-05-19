@@ -52,8 +52,16 @@ public class PrometheusMetricVisitor extends MetricVisitor {
     private static final String HELP = "# HELP ";
     private static final String TYPE = "# TYPE ";
 
+    private int ordinal = 0;
+    private int metric_number = 0;
+
     public PrometheusMetricVisitor(String prefix) {
         super(prefix);
+    }
+
+    @Override
+    public void setMetricNumber(int metric_number) {
+        this.metric_number = metric_number;
     }
 
     @Override

@@ -143,15 +143,74 @@ void SimpleCoreMetricsVisitor::visit(const std::string& prefix,
     }
 }
 
+class JsonMetricsVisitor : public MetricsVisitor {
+public:
+    JsonMetricsVisitor() {
+        _ss << "[\n";
+    }
+    virtual ~JsonMetricsVisitor() {}
+    void visit(const std::string& prefix, const std::string& name,
+               MetricCollector* collector) override;
+    std::string to_string() { 
+        std::string json = _ss.str();
+        json = json.substr(0, json.length() - 2);
+        json += "\n]\n";
+        return json;
+    }
+
+private:
+    std::stringstream _ss;
+};
+
+void JsonMetricsVisitor::visit(const std::string& prefix,
+                               const std::string& name,
+                               MetricCollector* collector) {
+    if (collector->empty() || name.empty()) {
+        return;
+    }
+    switch (collector->type()) {
+    case MetricType::COUNTER:
+    case MetricType::GAUGE:
+        for (auto& it : collector->metrics()) {
+            const MetricLabels& labels = it.first;
+            SimpleMetric* metric = reinterpret_cast<SimpleMetric*>(it.second);
+            _ss << "{\n\t\"tags\":\n\t{\n";
+            _ss << "\t\t\"metric\":\"" << name << "\"";
+            // labels
+            if (!labels.empty()) {
+                _ss << ",\n";
+                int i = 0;
+                for (auto& label : labels.labels) {
+                    if (i++ > 0) {
+                        _ss << ",\n";
+                    }
+                    _ss << "\t\t\"" << label.name << "\":\"" << label.value << "\"";
+                }
+            }
+            _ss << "\n\t},\n";
+            _ss << "\t\"unit\":\"" << metric->unit() << "\",\n";
+            _ss << "\t\"value\":" << metric->to_string() << "\n";
+            _ss << "},\n";
+        }
+        break;
+    default:
+        break;
+    }
+}
+
 void MetricsAction::handle(HttpRequest* req) {
     const std::string& type = req->param("type");
     std::string str;
-    if (type != "core") {
-        PrometheusMetricsVisitor visitor;
+    if (type == "core") {
+        SimpleCoreMetricsVisitor visitor;
+        _metrics->collect(&visitor);
+        str.assign(visitor.to_string());
+    } else if (type == "agent") {
+        JsonMetricsVisitor visitor;
         _metrics->collect(&visitor);
         str.assign(visitor.to_string());
     } else {
-        SimpleCoreMetricsVisitor visitor;
+        PrometheusMetricsVisitor visitor;
         _metrics->collect(&visitor);
         str.assign(visitor.to_string());
     }
@@ -160,4 +219,4 @@ void MetricsAction::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, str);
 }
 
-}
+} // namespace doris

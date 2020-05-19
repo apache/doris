@@ -45,6 +45,39 @@ std::ostream& operator<<(std::ostream& os, MetricType type) {
     return os;
 }
 
+std::ostream& operator<<(std::ostream& os, MetricUnit unit) {
+    switch (unit) {
+    case MetricUnit::NANOSECONDS:
+        os << "nanoseconds";
+        break;
+    case MetricUnit::MICROSECONDS:
+        os << "microseconds";
+        break;
+    case MetricUnit::MILLISECONDS:
+        os << "milliseconds";
+        break;
+    case MetricUnit::SECONDS:
+        os << "seconds";
+        break;
+    case MetricUnit::BYTES:
+        os << "bytes";
+        break;
+    case MetricUnit::ROWS:
+        os << "rows";
+        break;
+    case MetricUnit::NUMBER:
+        os << "number";
+        break;
+    case MetricUnit::PERCENT:
+        os << "percent";
+        break;
+    default:
+        os << "nounit";
+        break;
+    }
+    return os;
+}
+
 void Metric::hide() {
     if (_registry == nullptr) {
         return;
@@ -56,8 +89,9 @@ void Metric::hide() {
 bool MetricCollector::add_metic(const MetricLabels& labels, Metric* metric) {
     if (empty()) {
         _type = metric->type();
+        _unit = metric->unit();
     } else {
-        if (metric->type() != _type) {
+        if (metric->type() != _type || metric->unit() != _unit) {
             return false;
         }
     }
