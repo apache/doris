@@ -172,9 +172,10 @@ TEST_F(BitmapFunctionsTest, bitmap_union) {
     ASSERT_EQ(expected, result);
 }
 
+// test bitmap_intersect
 TEST_F(BitmapFunctionsTest, bitmap_intersect) {
     StringVal dst;
-    BitmapFunctions::bitmap_intersect_init(ctx, &dst);
+    BitmapFunctions::bitmap_intersect_init_real(ctx, &dst);
 
     BitmapValue bitmap1(1);
     bitmap1.add(2);
@@ -193,9 +194,10 @@ TEST_F(BitmapFunctionsTest, bitmap_intersect) {
     ASSERT_EQ(expected, result);    
 }
 
+// test bitmap_intersect with null dst
 TEST_F(BitmapFunctionsTest, bitmap_intersect_empty) {
     StringVal dst;
-    BitmapFunctions::bitmap_intersect_init(ctx, &dst);
+    BitmapFunctions::bitmap_intersect_init_real(ctx, &dst);
 
     StringVal serialized = BitmapFunctions::bitmap_serialize(ctx, dst);
     BigIntVal result = BitmapFunctions::bitmap_count(ctx, serialized);
@@ -217,6 +219,7 @@ TEST_F(BitmapFunctionsTest, bitmap_count) {
     ASSERT_EQ(BigIntVal(0), null_bitmap);
 }
 
+// test intersect_count
 template<typename ValType, typename ValueType>
 void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
     StringVal bitmap_column("placeholder");
@@ -229,7 +232,7 @@ void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
     ctx->impl()->set_constant_args(const_vals);
 
     StringVal dst;
-    BitmapFunctions::intersect_count_init<ValueType, ValType>(ctx, &dst);
+    BitmapFunctions::bitmap_intersect_init<ValueType, ValType>(ctx, &dst);
 
     BitmapValue bitmap1({1024, 1025, 1026});
     StringVal src1 = convert_bitmap_to_string(ctx, bitmap1);
@@ -257,7 +260,7 @@ void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
     ASSERT_EQ(1, intersect2_serde.intersect_count());
 
     StringVal dst2;
-    BitmapFunctions::intersect_count_init<ValueType, ValType>(ctx, &dst2);
+    BitmapFunctions::bitmap_intersect_init<ValueType, ValType>(ctx, &dst2);
     BitmapFunctions::bitmap_intersect_merge<ValueType>(ctx, intersect1, &dst2);
     BigIntVal result = BitmapFunctions::bitmap_intersect_finalize<ValueType>(ctx, dst2);
     BigIntVal expected_count(1);
