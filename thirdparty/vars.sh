@@ -262,7 +262,7 @@ CROARINGBITMAP_MD5SUM="29602918e6890ffdeed84cb171857046"
 # ORC
 ORC_DOWNLOAD="https://github.com/apache/orc/archive/rel/release-1.5.8.tar.gz"
 ORC_NAME=orc-1.5.8.tar.gz
-ORC_SOURCE=orc-1.5.8
+ORC_SOURCE=orc-rel-release-1.5.8
 ORC_MD5SUM="49eb9ce94060b26d4bc3595b2f1efb4c"
 
 # jemalloc
