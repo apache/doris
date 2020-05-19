@@ -38,11 +38,13 @@ public class CreateResourceStmt extends DdlStmt {
     private final boolean isExternal;
     private final String resourceName;
     private final Map<String, String> properties;
+    private ResourceType resourceType;
 
     public CreateResourceStmt(boolean isExternal, String resourceName, Map<String, String> properties) {
         this.isExternal = isExternal;
         this.resourceName = resourceName;
         this.properties = properties;
+        this.resourceType = ResourceType.UNKNOWN;
     }
 
     public String getResourceName() {
@@ -54,7 +56,7 @@ public class CreateResourceStmt extends DdlStmt {
     }
 
     public ResourceType getResourceType() {
-        return ResourceType.fromString(properties.get(TYPE));
+        return resourceType;
     }
 
     @Override
@@ -77,8 +79,8 @@ public class CreateResourceStmt extends DdlStmt {
         if (type == null) {
             throw new AnalysisException("Resource type can't be null");
         }
-        ResourceType resourceType = ResourceType.fromString(type);
-        if (resourceType == null) {
+        resourceType = ResourceType.fromString(type);
+        if (resourceType == ResourceType.UNKNOWN) {
             throw new AnalysisException("Unsupported resource type: " + type);
         }
         if (resourceType == ResourceType.SPARK && !isExternal) {
@@ -98,3 +100,4 @@ public class CreateResourceStmt extends DdlStmt {
         return sb.toString();
     }
 }
+

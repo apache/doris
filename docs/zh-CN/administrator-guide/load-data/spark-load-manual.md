@@ -162,30 +162,30 @@ REVOKE USAGE_PRIV ON RESOURCE resource_name FROM ROLE role_name
 CREATE EXTERNAL RESOURCE "spark0"
 PROPERTIES
 (
-	"type" = "spark",
-	"spark.master" = "yarn",
-	"spark.submit.deployMode" = "cluster",
-	"spark.jars" = "xxx.jar,yyy.jar",
-	"spark.files" = "/tmp/aaa,/tmp/bbb",
-	"spark.executor.memory" = "1g",
-	"spark.yarn.queue" = "queue0",
-	"spark.hadoop.yarn.resourcemanager.address" = "127.0.0.1:9999",
-	"spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
-	"working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
-	"broker" = "broker0",
-	"broker.username" = "user0",
-	"broker.password" = "password0"
+  "type" = "spark",
+  "spark.master" = "yarn",
+  "spark.submit.deployMode" = "cluster",
+  "spark.jars" = "xxx.jar,yyy.jar",
+  "spark.files" = "/tmp/aaa,/tmp/bbb",
+  "spark.executor.memory" = "1g",
+  "spark.yarn.queue" = "queue0",
+  "spark.hadoop.yarn.resourcemanager.address" = "127.0.0.1:9999",
+  "spark.hadoop.fs.defaultFS" = "hdfs://127.0.0.1:10000",
+  "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
+  "broker" = "broker0",
+  "broker.username" = "user0",
+  "broker.password" = "password0"
 );
 
 -- spark standalone client 模式
 CREATE EXTERNAL RESOURCE "spark1"
 PROPERTIES
 (
- "type" = "spark", 
- "spark.master" = "spark://127.0.0.1:7777",
- "spark.submit.deployMode" = "client",
- "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
- "broker" = "broker1"
+  "type" = "spark", 
+  "spark.master" = "spark://127.0.0.1:7777",
+  "spark.submit.deployMode" = "client",
+  "working_dir" = "hdfs://127.0.0.1:10000/tmp/doris",
+  "broker" = "broker1"
 );
 ```
 

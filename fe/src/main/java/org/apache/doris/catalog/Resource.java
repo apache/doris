@@ -33,6 +33,7 @@ import java.util.Map;
 
 public abstract class Resource implements Writable {
     public enum ResourceType {
+        UNKNOWN,
         SPARK;
 
         public static ResourceType fromString(String resourceType) {
@@ -41,7 +42,7 @@ public abstract class Resource implements Writable {
                     return type;
                 }
             }
-            return null;
+            return UNKNOWN;
         }
     }
 
@@ -78,7 +79,16 @@ public abstract class Resource implements Writable {
         return type;
     }
 
+    /**
+     * Set and check the properties in child resources
+     */
     protected abstract void setProperties(Map<String, String> properties) throws DdlException;
+
+    /**
+     * Fill BaseProcResult with different properties in child resources
+     * ResourceMgr.RESOURCE_PROC_NODE_TITLE_NAMES format:
+     * | Name | ResourceType | Key | Value |
+     */
     protected abstract void getProcNodeData(BaseProcResult result);
 
     @Override
