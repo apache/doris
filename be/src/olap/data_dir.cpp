@@ -709,8 +709,12 @@ OLAPStatus DataDir::load() {
         return true;
     };
     OLAPStatus load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
-    if (failed_tablet_ids.size() != 0 && !config::ignore_load_tablet_failure) {
-        LOG(FATAL) << "load tablets from header failed, failed tablets size: " << failed_tablet_ids.size();
+    if (failed_tablet_ids.size() != 0) {
+        if (!config::ignore_load_tablet_failure) {
+            LOG(FATAL) << "load tablets from header failed, failed tablets size: " << failed_tablet_ids.size() << ", path: " << _path;
+        } else {
+            LOG(WARNING) << "load tablets from header failed, failed tablets size: " << failed_tablet_ids.size() << ", path: " << _path;
+        }
     }
     if (load_tablet_status != OLAP_SUCCESS) {
         LOG(WARNING) << "there is failure when loading tablet headers, path:" << _path;

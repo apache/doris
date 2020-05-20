@@ -93,13 +93,38 @@ Order:
 
 ### Delete header
 
-In order to realize the function of deleting a tablet from a disk of a be.
+In order to realize the function of deleting a tablet from a disk of a BE. Support single delete and batch delete.
 
-Order:
+Single delete:
 
 ```
 ./lib/meta_tool --operation=delete_meta --root_path=/path/to/root_path --tablet_id=xxx --schema_hash=xxx`
 ```
+
+Batch delete:
+
+```
+./lib/meta_tool --operation=batch_delete_meta --tablet_file=/path/to/tablet_file.txt
+```
+
+Each line in `tablet_file.txt` represents the information of a tablet. The format is:
+
+`root_path tablet_id schema_hash`
+
+Each column are separated by space.
+
+`tablet_file` example:
+
+```
+/output/be/data/ 14217 352781111
+/output/be/data/ 14219 352781111
+/output/be/data/ 14223 352781111
+/output/be/data/ 14227 352781111
+/output/be/data/ 14233 352781111
+/output/be/data/ 14239 352781111
+```
+
+Batch delete will skip the line with incorrect tablet information format in `tablet_file`. And after the execution is completed, the number of successful deletions and the number of errors are displayed.
 
 ### TabletMeta in Pb format
 
