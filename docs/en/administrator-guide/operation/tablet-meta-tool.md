@@ -109,19 +109,19 @@ Batch delete:
 
 Each line in `tablet_file.txt` represents the information of a tablet. The format is:
 
-`root_path tablet_id schema_hash`
+`root_path,tablet_id,schema_hash`
 
-Each column are separated by space.
+Each column are separated by comma.
 
 `tablet_file` example:
 
 ```
-/output/be/data/ 14217 352781111
-/output/be/data/ 14219 352781111
-/output/be/data/ 14223 352781111
-/output/be/data/ 14227 352781111
-/output/be/data/ 14233 352781111
-/output/be/data/ 14239 352781111
+/output/be/data/,14217,352781111
+/output/be/data/,14219,352781111
+/output/be/data/,14223,352781111
+/output/be/data/,14227,352781111
+/output/be/data/,14233,352781111
+/output/be/data/,14239,352781111
 ```
 
 Batch delete will skip the line with incorrect tablet information format in `tablet_file`. And after the execution is completed, the number of successful deletions and the number of errors are displayed.

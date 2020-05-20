@@ -109,19 +109,19 @@ api：
 
 其中 `tablet_file.txt` 中的每一行表示一个 tablet 的信息。格式为：
 
-`root_path tablet_id schema_hash`
+`root_path,tablet_id,schema_hash`
 
-每一行各个列用空格分隔。
+每一行各个列用逗号分隔。
 
 `tablet_file` 文件示例：
 
 ```
-/output/be/data/ 14217 352781111
-/output/be/data/ 14219 352781111
-/output/be/data/ 14223 352781111
-/output/be/data/ 14227 352781111
-/output/be/data/ 14233 352781111
-/output/be/data/ 14239 352781111
+/output/be/data/,14217,352781111
+/output/be/data/,14219,352781111
+/output/be/data/,14223,352781111
+/output/be/data/,14227,352781111
+/output/be/data/,14233,352781111
+/output/be/data/,14239,352781111
 ```
 
 批量删除会跳过 `tablet_file` 中 tablet 信息格式不正确的行。并在执行完成后，显示成功删除的数量和错误数量。

@@ -157,10 +157,10 @@ Status init_data_dir(const std::string dir, DataDir** ret) {
 
 void batch_delete_meta(const std::string tablet_file) {
     // each line in tablet file indicate a tablet to delete, format is:
-    //      data_dir tablet_id schema_hash
+    //      data_dir,tablet_id,schema_hash
     // eg:
-    //      /data1/palo.HDD 100010 11212389324
-    //      /data2/palo.HDD 100010 23049230234
+    //      /data1/palo.HDD,100010,11212389324
+    //      /data2/palo.HDD,100010,23049230234
     std::ifstream infile(tablet_file);
     std::string line;
     int err_num = 0;
@@ -169,7 +169,7 @@ void batch_delete_meta(const std::string tablet_file) {
     std::unordered_map<std::string, std::unique_ptr<DataDir>> dir_map;
     while (std::getline(infile, line)) {
         total_num++;
-        vector<string> v = strings::Split(line, " ");
+        vector<string> v = strings::Split(line, ",");
         if (v.size() != 3) {
             std::cout << "invalid line in tablet_file: " << line << std::endl;
             err_num++;
