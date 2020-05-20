@@ -300,16 +300,29 @@ OLAPStatus AlphaRowset::init() {
 
         if (segment_group_meta.zone_maps_size() != 0) {
             size_t zone_maps_size = segment_group_meta.zone_maps_size();
-            size_t num_key_columns = _schema->keys_type() == KeysType::DUP_KEYS ? _schema->num_columns() : _schema->num_key_columns();
-            if (num_key_columns != zone_maps_size) {
+            // after 0.12.10 the value column in duplicate table also has zone map.
+            size_t expect_zone_maps_num = _schema->keys_type() == KeysType::DUP_KEYS ? _schema->num_columns() : _schema->num_key_columns();
+            if ((_schema->keys_type() != KeysType::DUP_KEYS && expect_zone_maps_num != zone_maps_size) 
+            || (_schema->keys_type() == KeysType::DUP_KEYS && expect_zone_maps_num < zone_maps_size)) {
                 LOG(ERROR) << "column pruning size is error."
+                        << "KeysType=" << KeysType_Name(_schema->keys_type()) << ", "
                         << "zone_maps_size=" << zone_maps_size << ", "
-                        << "num_key_columns=" << _schema->num_key_columns();
+                        << "num_key_columns=" << _schema->num_key_columns() << ", "
+                        << "num_columns=" << _schema->num_columns();
                 return OLAP_ERR_TABLE_INDEX_VALIDATE_ERROR;
             }
-            std::vector<std::pair<std::string, std::string>> zone_map_strings(num_key_columns);
-            std::vector<bool> null_vec(num_key_columns);
-            for (size_t j = 0; j < num_key_columns; ++j) {
+            // Before 0.12.10, the zone map columns number in duplicate table is the same with the key column numbers,
+            // but after 0.12.10 we build zone map for the value column, so when first start the two number is not the same,
+            // it cuases start failed. When `expect_zone_maps_num > zone_maps_size` it may be the first start afer upgrade
+            if (expect_zone_maps_num > zone_maps_size) {
+                LOG(WARNING) << "tablet: " << _rowset_meta->tablet_id() 
+                << " expect zone map size is " << expect_zone_maps_num << ", actual num is " << zone_maps_size
+                << ". If this is not the first start after upgrade, please pay attention!";
+            }
+            zone_maps_size = std::min(zone_maps_size, expect_zone_maps_num);
+            std::vector<std::pair<std::string, std::string>> zone_map_strings(zone_maps_size);
+            std::vector<bool> null_vec(zone_maps_size);
+            for (size_t j = 0; j < zone_maps_size; ++j) {
                 const ZoneMap& zone_map = segment_group_meta.zone_maps(j);
                 zone_map_strings[j].first = zone_map.min();
                 zone_map_strings[j].second = zone_map.max();
