@@ -396,3 +396,8 @@ under the License.
 ### `webserver_port`
 
 ### `write_buffer_size`
+
+### ignore_load_tablet_failure
+* 类型：布尔
+* 描述：用来决定在有tablet 加在失败的情况下是否忽略错误，继续启动be
+* 默认值： false

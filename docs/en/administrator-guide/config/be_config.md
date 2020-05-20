@@ -398,3 +398,8 @@ Since this is a brpc configuration, users can also modify this parameter directl
 ### webserver_port
 
 ### write_buffer_size
+
+### ignore_load_tablet_failure
+* Type: boolean
+* Description: Whether to continue to start be when load tablet from header failed.
+* Default: false
