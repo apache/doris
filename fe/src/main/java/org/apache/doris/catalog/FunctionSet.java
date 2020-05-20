@@ -540,6 +540,7 @@ public class FunctionSet {
     public static final String BITMAP_UNION_INT = "bitmap_union_int";
     public static final String BITMAP_COUNT = "bitmap_count";
     public static final String INTERSECT_COUNT = "intersect_count";
+    public static final String BITMAP_INTERSECT = "bitmap_intersect";
 
     private static final Map<Type, String> BITMAP_UNION_INT_SYMBOL =
             ImmutableMap.<Type, String>builder()
@@ -1144,6 +1145,7 @@ public class FunctionSet {
                     null, false, true, false));
         }
 
+        // bitmap
         addBuiltin(AggregateFunction.createBuiltin(BITMAP_UNION, Lists.newArrayList(Type.BITMAP),
                 Type.BITMAP,
                 Type.VARCHAR,
@@ -1165,6 +1167,15 @@ public class FunctionSet {
                 null,
                 "_ZN5doris15BitmapFunctions15bitmap_finalizeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
                 true, true, true));
+        // TODO(ml): supply function symbol
+        addBuiltin(AggregateFunction.createBuiltin(BITMAP_INTERSECT, Lists.newArrayList(Type.BITMAP),
+                Type.BITMAP, Type.VARCHAR,
+                "_ZN5doris15BitmapFunctions20nullable_bitmap_initEPN9doris_udf15FunctionContextEPNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16bitmap_intersectEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16bitmap_intersectEPN9doris_udf15FunctionContextERKNS1_9StringValEPS4_",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                "_ZN5doris15BitmapFunctions16bitmap_serializeEPN9doris_udf15FunctionContextERKNS1_9StringValE",
+                true, false, true));
 
         //PercentileApprox
         addBuiltin(AggregateFunction.createBuiltin("percentile_approx",

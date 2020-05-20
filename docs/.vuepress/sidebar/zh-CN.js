@@ -271,6 +271,8 @@ module.exports = [
               "bitmap_or",
               "bitmap_to_string",
               "to_bitmap",
+              "bitmap_intersect",
+              "bitmap_union",
             ],
           },
           {
