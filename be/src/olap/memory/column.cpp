@@ -17,6 +17,9 @@
 
 #include "olap/memory/column.h"
 
+#include "olap/memory/typed_column_reader.h"
+#include "olap/memory/typed_column_writer.h"
+
 namespace doris {
 namespace memory {
 
@@ -105,19 +108,104 @@ Status Column::capture_version(uint64_t version, vector<ColumnDelta*>* deltas,
     return Status::OK();
 }
 
-void Column::capture_latest(vector<ColumnDelta*>* deltas) const {
+void Column::capture_latest(vector<ColumnDelta*>* deltas, uint64_t* version) const {
     deltas->reserve(_versions.size() - _base_idx - 1);
     for (size_t i = _base_idx + 1; i < _versions.size(); i++) {
         deltas->emplace_back(_versions[i].delta.get());
     }
+    *version = _versions.back().version;
 }
 
-Status Column::read(uint64_t version, std::unique_ptr<ColumnReader>* reader) {
-    return Status::NotSupported("not supported");
+Status Column::create_reader(uint64_t version, std::unique_ptr<ColumnReader>* reader) {
+    ColumnType type = schema().type();
+    bool nullable = schema().is_nullable();
+    vector<ColumnDelta*> deltas;
+    uint64_t real_version;
+    RETURN_IF_ERROR(capture_version(version, &deltas, &real_version));
+
+#define CREATE_READER(T)                                                                          \
+    if (nullable) {                                                                               \
+        (*reader).reset(                                                                          \
+                new TypedColumnReader<T, true>(this, version, real_version, std::move(deltas)));  \
+    } else {                                                                                      \
+        (*reader).reset(                                                                          \
+                new TypedColumnReader<T, false>(this, version, real_version, std::move(deltas))); \
+    }
+
+    switch (type) {
+    case OLAP_FIELD_TYPE_BOOL:
+    case OLAP_FIELD_TYPE_TINYINT:
+        CREATE_READER(int8_t)
+        break;
+    case OLAP_FIELD_TYPE_SMALLINT:
+        CREATE_READER(int16_t)
+        break;
+    case OLAP_FIELD_TYPE_INT:
+        CREATE_READER(int32_t)
+        break;
+    case OLAP_FIELD_TYPE_BIGINT:
+        CREATE_READER(int64_t)
+        break;
+    case OLAP_FIELD_TYPE_LARGEINT:
+        CREATE_READER(int128_t)
+        break;
+    case OLAP_FIELD_TYPE_FLOAT:
+        CREATE_READER(float)
+        break;
+    case OLAP_FIELD_TYPE_DOUBLE:
+        CREATE_READER(double)
+        break;
+    default:
+        return Status::NotSupported("create column reader: type not supported");
+    }
+#undef CREATE_READER
+    return Status::OK();
 }
 
-Status Column::write(std::unique_ptr<ColumnWriter>* writer) {
-    return Status::NotSupported("not supported");
+Status Column::create_writer(std::unique_ptr<ColumnWriter>* writer) {
+    ColumnType type = schema().type();
+    bool nullable = schema().is_nullable();
+    vector<ColumnDelta*> deltas;
+    uint64_t real_version;
+    capture_latest(&deltas, &real_version);
+
+#define CREATE_WRITER(T)                                                                  \
+    if (nullable) {                                                                       \
+        (*writer).reset(new TypedColumnWriter<T, true>(this, real_version, real_version,  \
+                                                       std::move(deltas)));               \
+    } else {                                                                              \
+        (*writer).reset(new TypedColumnWriter<T, false>(this, real_version, real_version, \
+                                                        std::move(deltas)));              \
+    }
+
+    switch (type) {
+    case OLAP_FIELD_TYPE_BOOL:
+    case OLAP_FIELD_TYPE_TINYINT:
+        CREATE_WRITER(int8_t)
+        break;
+    case OLAP_FIELD_TYPE_SMALLINT:
+        CREATE_WRITER(int16_t)
+        break;
+    case OLAP_FIELD_TYPE_INT:
+        CREATE_WRITER(int32_t)
+        break;
+    case OLAP_FIELD_TYPE_BIGINT:
+        CREATE_WRITER(int64_t)
+        break;
+    case OLAP_FIELD_TYPE_LARGEINT:
+        CREATE_WRITER(int128_t)
+        break;
+    case OLAP_FIELD_TYPE_FLOAT:
+        CREATE_WRITER(float)
+        break;
+    case OLAP_FIELD_TYPE_DOUBLE:
+        CREATE_WRITER(double)
+        break;
+    default:
+        return Status::NotSupported("create column writer: type not supported");
+    }
+#undef CREATE_WRITER
+    return Status::OK();
 }
 
 } // namespace memory

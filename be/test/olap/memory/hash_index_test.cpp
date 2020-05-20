@@ -21,13 +21,13 @@
 
 #include <vector>
 
-#include "gutil/hash/builtin_type_hash.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 namespace memory {
 
-inline uint64_t HashCode(size_t v) {
-    return Hash64NumWithSeed(v, 0);
+inline uint64_t HashCode(uint64_t v) {
+    return HashUtil::fnv_hash64(&v, 8, 0);
 }
 
 TEST(HashIndex, findset) {
