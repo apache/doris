@@ -302,8 +302,8 @@ void BitmapFunctions::bitmap_union(FunctionContext* ctx, const StringVal& src, S
     }
 }
 
-// this is the read init function for bitmap_intersect
-void BitmapFunctions::bitmap_intersect_init_real(FunctionContext* ctx, StringVal* dst) {
+// the dst value could be null
+void BitmapFunctions::nullable_bitmap_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = true;
 }
 
@@ -369,14 +369,13 @@ StringVal BitmapFunctions::bitmap_hash(doris_udf::FunctionContext* ctx, const do
 
 StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVal& src) {
     if (src.is_null) {
-        BitmapValue src_bitmap;
-        return serialize(ctx, &src_bitmap);
-    } else {
-        auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
-        StringVal result = serialize(ctx, src_bitmap);
-        delete src_bitmap;
-        return result;
+        return src;
     }
+
+    auto src_bitmap = reinterpret_cast<BitmapValue*>(src.ptr);
+    StringVal result = serialize(ctx, src_bitmap);
+    delete src_bitmap;
+    return result;
 }
 
 // This is a init function for intersect_count not for bitmap_intersect.

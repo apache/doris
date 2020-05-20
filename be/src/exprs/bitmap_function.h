@@ -51,8 +51,8 @@ public:
     static BigIntVal bitmap_get_value(FunctionContext* ctx, const StringVal& src);
 
     static void bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst);
-    // this is init function for bitmap_intersect
-    static void bitmap_intersect_init_real(FunctionContext* ctx, StringVal* dst);
+    // the dst value could be null
+    static void nullable_bitmap_init(FunctionContext* ctx, StringVal* dst);
     static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
 

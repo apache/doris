@@ -37,16 +37,24 @@ under the License.
 
 ## example
 
+表结构
+
 ```
-求每个 tag 的 用户交集
-mysql> select tag, bitmap_intersect(user_id) from table group by tag;
+KeysType: AGG_KEY
+Columns: tag varchar, date datetime, user_id bitmap bitmap_union
+
+```
+
+```
+求今天和昨天不同 tag 下的用户留存
+mysql> select tag, bitmap_intersect(user_id) from (select tag, date, bitmap_union(user_id) user_id from table where date in ('2020-05-18', '2020-05-19') group by tag, date) a group by tag;
 ```
 
 和 bitmap_to_string 函数组合使用可以获取交集的具体数据
 
 ```
-求每个 tag 的 交集用户是哪些
-mysql> select tag, bitmap_to_string(bitmap_intersect(user_id)) from table group by tag;
+求今天和昨天不同 tag 下留存的用户都是哪些
+mysql> select tag, bitmap_to_string(bitmap_intersect(user_id)) from (select tag, date, bitmap_union(user_id) user_id from table where date in ('2020-05-18', '2020-05-19') group by tag, date) a group by tag;
 ```
 
 ## keyword
