@@ -59,6 +59,10 @@ inline int64_t MonotonicSeconds() {
   return GetMonoTimeMicros() / MICROS_PER_SEC;
 }
 
+inline double GetMonoTimeSecondsAsDouble() {
+    return GetMonoTimeMicros() / static_cast<double>(MICROS_PER_SEC);
+}
+
 // Returns the time since the Epoch measured in microseconds.
 inline int64_t GetCurrentTimeMicros() {
   timespec ts;
