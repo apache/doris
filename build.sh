@@ -154,14 +154,16 @@ cd ${DORIS_HOME}
 
 # Clean and build Backend
 if [ ${BUILD_BE} -eq 1 ] ; then
-    echo "Build Backend"
+    CMAKE_BUILD_TYPE=${BUILD_TYPE:-Release}
+    echo "Build Backend: ${CMAKE_BUILD_TYPE}"
+    CMAKE_BUILD_DIR=${DORIS_HOME}/be/build_${CMAKE_BUILD_TYPE}
     if [ ${CLEAN} -eq 1 ]; then
-        rm -rf ${DORIS_HOME}/be/build/
+        rm -rf $CMAKE_BUILD_DIR
         rm -rf ${DORIS_HOME}/be/output/
     fi
-    mkdir -p ${DORIS_HOME}/be/build/
-    cd ${DORIS_HOME}/be/build/
-    ${CMAKE_CMD} -DMAKE_TEST=OFF -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
+    mkdir -p ${CMAKE_BUILD_DIR}
+    cd ${CMAKE_BUILD_DIR}
+    ${CMAKE_CMD} -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE} -DMAKE_TEST=OFF -DWITH_MYSQL=${WITH_MYSQL} -DWITH_LZO=${WITH_LZO} ../
     make -j${PARALLEL}
     make install
     cd ${DORIS_HOME}
