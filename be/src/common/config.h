@@ -34,7 +34,7 @@ namespace config {
     // Note that there should at most one ip match this list.
     // this is a list in semicolon-delimited format, in CIDR notation, e.g. 10.10.10.0/24
     // If no ip match this rule, will choose one randomly.
-    CONF_String(priority_networks, "")
+    CONF_String(priority_networks, "");
 
     ////
     //// tcmalloc gc parameter
@@ -221,7 +221,7 @@ namespace config {
     // 仅仅是建议值，当磁盘空间不足时，trash下的文件保存期可不遵守这个参数
     CONF_mInt32(trash_file_expire_time_sec, "259200");
     // check row nums for BE/CE and schema change. true is open, false is closed.
-    CONF_mBool(row_nums_check, "true")
+    CONF_mBool(row_nums_check, "true");
     //file descriptors cache, by default, cache 32768 descriptors
     CONF_Int32(file_descriptor_cache_capacity, "32768");
     // minimum file descriptor number
@@ -259,7 +259,7 @@ namespace config {
 
     // if compaction of a tablet failed, this tablet should not be chosen to
     // compaction until this interval passes.
-    CONF_mInt64(min_compaction_failure_interval_sec, "600") // 10 min
+    CONF_mInt64(min_compaction_failure_interval_sec, "600"); // 10 min
     // Too many compaction tasks may run out of memory.
     // This config is to limit the max concurrency of running compaction tasks.
     // -1 means no limit, and the max concurrency will be:
@@ -345,11 +345,11 @@ namespace config {
     CONF_Bool(enable_quadratic_probing, "false");
 
     // for pprof
-    CONF_String(pprof_profile_dir, "${DORIS_HOME}/log")
+    CONF_String(pprof_profile_dir, "${DORIS_HOME}/log");
 
     // for partition
     // CONF_Bool(enable_partitioned_hash_join, "false")
-    CONF_Bool(enable_partitioned_aggregation, "true")
+    CONF_Bool(enable_partitioned_aggregation, "true");
 
     // to forward compatibility, will be removed later
     CONF_mBool(enable_token_check, "true");
@@ -478,7 +478,7 @@ namespace config {
     // The percent of max used capacity of a data dir
     CONF_mInt32(storage_flood_stage_usage_percent, "95");    // 95%
     // The min bytes that should be left of a data dir
-    CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824")   // 1GB
+    CONF_mInt64(storage_flood_stage_left_capacity_bytes, "1073741824");   // 1GB
     // number of thread for flushing memtable per store
     CONF_Int32(flush_thread_num_per_store, "2");
 
@@ -491,9 +491,9 @@ namespace config {
     CONF_String(default_rowset_type, "ALPHA");
 
     // Maximum size of a single message body in all protocols
-    CONF_Int64(brpc_max_body_size, "209715200")
+    CONF_Int64(brpc_max_body_size, "209715200");
     // Max unwritten bytes in each socket, if the limit is reached, Socket.Write fails with EOVERCROWDED
-    CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864")
+    CONF_Int64(brpc_socket_max_unwritten_bytes, "67108864");
 
     // max number of txns for every txn_partition_map in txn manager
     // this is a self protection to avoid too many txns saving in manager
@@ -503,7 +503,7 @@ namespace config {
     // this is a an enhancement for better performance to manage tablet
     CONF_Int32(tablet_map_shard_size, "1");
 
-    CONF_String(plugin_path, "${DORIS_HOME}/plugin")
+    CONF_String(plugin_path, "${DORIS_HOME}/plugin");
 
     // txn_map_lock shard size, the value is 2^n, n=0,1,2,3,4
     // this is a an enhancement for better performance to manage txn
@@ -511,7 +511,10 @@ namespace config {
 
     // txn_lock shard size, the value is 2^n, n=0,1,2,3,4
     // this is a an enhancement for better performance to commit and publish txn
-    CONF_Int32(txn_shard_size, "1024")
+    CONF_Int32(txn_shard_size, "1024");
+
+    // Whether to continue to start be when load tablet from header failed.
+    CONF_Bool(ignore_load_tablet_failure, "false");
 
 } // namespace config
 

@@ -694,19 +694,24 @@ OLAPStatus DataDir::load() {
     // create tablet from tablet meta and add it to tablet mgr
     LOG(INFO) << "begin loading tablet from meta";
     std::set<int64_t> tablet_ids;
-    auto load_tablet_func = [this, &tablet_ids](int64_t tablet_id, int32_t schema_hash,
+    std::set<int64_t> failed_tablet_ids;
+    auto load_tablet_func = [this, &tablet_ids, &failed_tablet_ids](int64_t tablet_id, int32_t schema_hash,
                                                 const std::string& value) -> bool {
         OLAPStatus status = _tablet_manager->load_tablet_from_meta(this, tablet_id, schema_hash,
                                                                    value, false, false);
         if (status != OLAP_SUCCESS) {
             LOG(WARNING) << "load tablet from header failed. status:" << status
                          << ", tablet=" << tablet_id << "." << schema_hash;
+            failed_tablet_ids.insert(tablet_id);
         } else {
             tablet_ids.insert(tablet_id);
         }
         return true;
     };
     OLAPStatus load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
+    if (failed_tablet_ids.size() != 0 && !config::ignore_load_tablet_failure) {
+        LOG(FATAL) << "load tablets from header failed, failed tablets size: " << failed_tablet_ids.size();
+    }
     if (load_tablet_status != OLAP_SUCCESS) {
         LOG(WARNING) << "there is failure when loading tablet headers, path:" << _path;
     } else {
