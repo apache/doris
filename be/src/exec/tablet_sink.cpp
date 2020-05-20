@@ -179,7 +179,7 @@ Status NodeChannel::add_row(Tuple* input_tuple, int64_t tablet_id) {
     // We use OlapTableSink mem_tracker which has the same ancestor of _plan node,
     // so in the ideal case, mem limit is a matter for _plan node.
     // But there is still some unfinished things, we do mem limit here temporarily.
-    while (_parent->_mem_tracker->any_limit_exceeded()) {
+    while (_parent->_mem_tracker->any_limit_exceeded() && _pending_batches_num > 0) {
         SCOPED_RAW_TIMER(&_mem_exceeded_block_ns);
         SleepFor(MonoDelta::FromMilliseconds(10));
     }
