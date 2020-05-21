@@ -233,6 +233,7 @@ public class DatabaseTransactionMgr {
         info.add(txnState.getSourceType().name());
         info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
         info.add(TimeUtils.longToTimeString(txnState.getCommitTime()));
+        info.add(TimeUtils.longToTimeString(txnState.getPublishVersionTime()));
         info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
         info.add(txnState.getReason());
         info.add(String.valueOf(txnState.getErrorReplicas().size()));

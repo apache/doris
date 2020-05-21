@@ -35,6 +35,7 @@ public class TransProcDir implements ProcDirInterface {
             .add("LoadJobSourceType")
             .add("PrepareTime")
             .add("CommitTime")
+            .add("PublishTime")
             .add("FinishTime")
             .add("Reason")
             .add("ErrorReplicasCount")

@@ -187,7 +187,7 @@ public class TransactionState implements Writable {
     // this state need not to be serialized
     private Map<Long, PublishVersionTask> publishVersionTasks;
     private boolean hasSendTask;
-    private long publishVersionTime;
+    private long publishVersionTime = -1;
     private TransactionStatus preStatus = null;
     
     private long callbackId = -1;
