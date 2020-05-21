@@ -51,11 +51,9 @@ size_t get_utf8_byte_length(unsigned char byte) {
 }
 size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
-    size_t byte_pos = 0;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
         char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-        str_index->push_back(byte_pos);
-        byte_pos += char_size;
+        str_index->push_back(i);
         ++char_len;
     }
     return char_len;
@@ -84,8 +82,7 @@ StringVal StringFunctions::substring(
     std::vector<size_t> index;
     for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
         char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-        index.push_back(byte_pos);
-        byte_pos += char_size;
+        index.push_back(i);
         if (pos.val > 0 && index.size() > pos.val + len.val) {
             break;
         }
