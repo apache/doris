@@ -21,35 +21,17 @@ import org.apache.doris.monitor.jvm.JvmStats;
 import com.codahale.metrics.Histogram;
 import java.util.List;
 
-/*
- * Like this:
- * # HELP doris_fe_job_load_broker_cost_ms doris_fe_job_load_broker_cost_ms 
- * # TYPE doris_fe_job_load_broker_cost_ms gauge 
- * doris_fe_job{job="load", type="mini", state="pending"} 0
- */
 public class JsonMetricVisitor extends MetricVisitor {
-    // jvm
-    private static final String JVM_HEAP_SIZE_BYTES = "jvm_heap_size_bytes";
-    private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
-    private static final String JVM_YOUNG_SIZE_BYTES = "jvm_young_size_bytes";
-    private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
-    private static final String JVM_DIRECT_BUFFER_POOL_SIZE_BYTES = "jvm_direct_buffer_pool_size_bytes";
-    private static final String JVM_YOUNG_GC = "jvm_young_gc";
-    private static final String JVM_OLD_GC = "jvm_old_gc";
-    private static final String JVM_THREAD = "jvm_thread";
-
-    private static final String HELP = "# HELP ";
-    private static final String TYPE = "# TYPE ";
     private int ordinal = 0;
-    private int metric_number = 0;
+    private int metricNumber = 0;
 
     public JsonMetricVisitor(String prefix) {
         super(prefix);
     }
 
     @Override
-    public void setMetricNumber(int metric_number) {
-        this.metric_number = metric_number;
+    public void setMetricNumber(int metricNumber) {
+        this.metricNumber = metricNumber;
     }
 
     @Override
@@ -83,7 +65,7 @@ public class JsonMetricVisitor extends MetricVisitor {
 
         // value
         sb.append("\t\"value\":").append(metric.getValue().toString()).append("\n}");
-        if (ordinal < metric_number) {
+        if (ordinal < metricNumber) {
             sb.append(",\n");
         } else {
             sb.append("\n]");

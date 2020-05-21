@@ -57,7 +57,7 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     public static final String MAX_TABLET_COMPACTION_SCORE = "max_tablet_compaction_score";
 
     private int ordinal = 0;
-    private int metric_number = 0;
+    private int metricNumber = 0;
 
     private static final Map<String, String> CORE_METRICS = Maps.newHashMap();
     static {
@@ -75,8 +75,8 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
     }
 
     @Override
-    public void setMetricNumber(int metric_number) {
-        this.metric_number = metric_number;
+    public void setMetricNumber(int metricNumber) {
+        this.metricNumber = metricNumber;
     }
 
     @Override

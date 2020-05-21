@@ -759,11 +759,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
 
-        MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
-        return Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                db, request.getTxnId(),
-                TabletCommitInfo.fromThrift(request.getCommitInfos()),
-                5000, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+        boolean ret = Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                        db, request.getTxnId(),
+                        TabletCommitInfo.fromThrift(request.getCommitInfos()),
+                        5000, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+        if (ret) {
+            // if commit and publish is success, load can be regarded as success
+            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
+        }
+        return ret;
     }
 
     @Override

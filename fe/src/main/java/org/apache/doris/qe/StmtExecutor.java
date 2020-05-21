@@ -703,12 +703,12 @@ public class StmtExecutor {
                 return;
             }
 
-            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             if (Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                     insertStmt.getDbObj(), insertStmt.getTransactionId(),
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                     10000)) {
                 txnStatus = TransactionStatus.VISIBLE;
+                MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             } else {
                 txnStatus = TransactionStatus.COMMITTED;
             }
