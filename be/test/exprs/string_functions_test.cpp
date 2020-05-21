@@ -417,6 +417,7 @@ TEST_F(StringFunctionsTest, locate_pos) {
 
 TEST_F(StringFunctionsTest, lpad) {
     ASSERT_EQ(StringVal("???hi"), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(5), StringVal("?")));
+    ASSERT_EQ(StringVal("g8%7IgY%AHx7luNtf8Kh"), StringFunctions::lpad(ctx, StringVal("g8%7IgY%AHx7luNtf8Kh"), IntVal(20), StringVal("")));
     ASSERT_EQ(StringVal("h"), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal("你"), StringFunctions::lpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal(""), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));
@@ -431,6 +432,7 @@ TEST_F(StringFunctionsTest, lpad) {
 
 TEST_F(StringFunctionsTest, rpad) {
     ASSERT_EQ(StringVal("hi???"), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(5), StringVal("?")));
+    ASSERT_EQ(StringVal("g8%7IgY%AHx7luNtf8Kh"), StringFunctions::rpad(ctx, StringVal("g8%7IgY%AHx7luNtf8Kh"), IntVal(20), StringVal(""))); 
     ASSERT_EQ(StringVal("h"), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal("你"), StringFunctions::rpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
     ASSERT_EQ(StringVal(""), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));

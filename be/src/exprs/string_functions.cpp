@@ -49,6 +49,17 @@ size_t get_utf8_byte_length(unsigned char byte) {
     }
     return char_size;
 }
+size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index) {
+    size_t char_len = 0;
+    size_t byte_pos = 0;
+    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
+        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
+        str_index->push_back(byte_pos);
+        byte_pos += char_size;
+        ++char_len;
+    }
+    return char_len;
+}
 
 // This behaves identically to the mysql implementation, namely:
 //  - 1-indexed positions
@@ -197,31 +208,20 @@ StringVal StringFunctions::lpad(
         return StringVal::null();
     }
 
-    size_t str_char_size = 0;
-    size_t pad_char_size = 0;
-    size_t byte_pos = 0;
     std::vector<size_t> str_index;
+    size_t str_char_size = get_char_len(str, &str_index);
     std::vector<size_t> pad_index;
-    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-        str_index.push_back(byte_pos);
-        byte_pos += char_size;
-        ++str_char_size;
-    }
-    byte_pos = 0;
-    for (size_t i = 0, char_size = 0; i < pad.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(pad.ptr)[i]);
-        pad_index.push_back(byte_pos);
-        byte_pos += char_size;
-        ++pad_char_size;
-    }
+    size_t pad_char_size = get_char_len(pad, &pad_index);
     
     // Corner cases: Shrink the original string, or leave it alone.
     // TODO: Hive seems to go into an infinite loop if pad.len == 0,
     // so we should pay attention to Hive's future solution to be compatible.
     if (len.val <= str_char_size || pad.len == 0) {
-        if (len.val >= str_index.size()) {
+        if (len.val > str_index.size()) {
             return StringVal::null();
+        }
+        if (len.val == str_index.size()) {
+            return StringVal(str.ptr, len.val);
         }
         return StringVal(str.ptr, str_index.at(len.val));
     }
@@ -260,31 +260,20 @@ StringVal StringFunctions::rpad(
         return StringVal::null();
     }
 
-    size_t str_char_size = 0;
-    size_t pad_char_size = 0;
-    size_t byte_pos = 0;
     std::vector<size_t> str_index;
+    size_t str_char_size = get_char_len(str, &str_index);
     std::vector<size_t> pad_index;
-    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-        str_index.push_back(byte_pos);
-        byte_pos += char_size;
-        ++str_char_size;
-    }
-    byte_pos = 0;
-    for (size_t i = 0, char_size = 0; i < pad.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(pad.ptr)[i]);
-        pad_index.push_back(byte_pos);
-        byte_pos += char_size;
-        ++pad_char_size;
-    }
+    size_t pad_char_size = get_char_len(pad, &pad_index);
 
     // Corner cases: Shrink the original string, or leave it alone.
     // TODO: Hive seems to go into an infinite loop if pad->len == 0,
     // so we should pay attention to Hive's future solution to be compatible.
     if (len.val <= str_char_size || pad.len == 0) {
-        if (len.val >= str_index.size()) {
+        if (len.val > str_index.size()) {
             return StringVal::null();
+        }
+        if (len.val == str_index.size()) {
+            return StringVal(str.ptr, len.val);
         }
         return StringVal(str.ptr, str_index.at(len.val));
     }
@@ -508,15 +497,8 @@ IntVal StringFunctions::locate_pos(
     // Hive returns 0 for *start_pos <= 0,
     // but throws an exception for *start_pos > str->len.
     // Since returning 0 seems to be Hive's error condition, return 0.
-    size_t byte_pos = 0;
-    size_t char_len = 0;
     std::vector<size_t> index;
-    for (size_t i = 0, char_size = 0; i < str.len; i += char_size) {
-        char_size = get_utf8_byte_length((unsigned)(str.ptr)[i]);
-        index.push_back(byte_pos);
-        byte_pos += char_size;
-        ++char_len;
-    }
+    size_t char_len = get_char_len(str, &index);
     if (start_pos.val <= 0 || start_pos.val > str.len || start_pos.val > char_len) {
         return IntVal(0);
     }
