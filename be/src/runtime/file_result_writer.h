@@ -60,7 +60,7 @@ struct ResultFileOptions {
 };
 
 // write result to file
-class FileResultWriter : public ResultWriter {
+class FileResultWriter final : public ResultWriter {
 public:
     FileResultWriter(const ResultFileOptions* file_option,
             const std::vector<ExprContext*>& output_expr_ctxs,

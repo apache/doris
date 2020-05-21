@@ -30,7 +30,7 @@ class BufferControlBlock;
 class RuntimeProfile;
 
 // convert the row batch to mysql protol row
-class MysqlResultWriter : public ResultWriter {
+class MysqlResultWriter final : public ResultWriter {
 public:
     MysqlResultWriter(BufferControlBlock* sinker,
             const std::vector<ExprContext*>& output_expr_ctxs,
@@ -50,7 +50,6 @@ private:
     Status _add_one_row(TupleRow* row);
 
 private:
-    // The expressions that are run to create tuples to be written to hbase.
     BufferControlBlock* _sinker;
     const std::vector<ExprContext*>& _output_expr_ctxs;
     MysqlRowBuffer* _row_buffer;
