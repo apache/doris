@@ -398,6 +398,18 @@ under the License.
 ### `write_buffer_size`
 
 ### ignore_load_tablet_failure
+
 * 类型：布尔
-* 描述：用来决定在有tablet 加在失败的情况下是否忽略错误，继续启动be
+* 描述：用来决定在有tablet 加载失败的情况下是否忽略错误，继续启动be
 * 默认值： false
+
+BE启动时，会对每个数据目录单独启动一个线程进行 tablet header 元信息的加载。默认配置下，如果某个数据目录有 tablet 加载失败，则启动进程会终止。同时会在 `be.INFO` 日志中看到如下错误信息：
+
+```
+load tablets from header failed, failed tablets size: xxx, path=xxx
+```
+
+表示该数据目录共有多少 tablet 加载失败。同时，日志中也会有加载失败的 tablet 的具体信息。此时需要人工介入来对错误原因进行排查。排查后，通常有两种方式进行恢复：
+
+1. tablet 信息不可修复，在确保其他副本正常的情况下，可以通过 `meta_tool` 工具将错误的tablet删除。
+2. 将 `ignore_load_tablet_failure` 设置为 true，则 BE 会忽略这些错误的 tablet，正常启动。

@@ -699,7 +699,14 @@ OLAPStatus DataDir::load() {
                                                 const std::string& value) -> bool {
         OLAPStatus status = _tablet_manager->load_tablet_from_meta(this, tablet_id, schema_hash,
                                                                    value, false, false);
-        if (status != OLAP_SUCCESS) {
+        if (status != OLAP_SUCCESS && status != OLAP_ERR_TABLE_ALREADY_DELETED_ERROR) {
+            // load_tablet_from_meta() may return OLAP_ERR_TABLE_ALREADY_DELETED_ERROR
+            // which means the tablet status is DELETED
+            // This may happen when the tablet was just deleted before the BE restarted,
+            // but it has not been cleared from rocksdb. At this time, restarting the BE
+            // will read the tablet in the DELETE state from rocksdb. These tablets have been
+            // added to the garbage collection queue and will be automatically deleted afterwards.
+            // Therefore, we believe that this situation is not a failure.
             LOG(WARNING) << "load tablet from header failed. status:" << status
                          << ", tablet=" << tablet_id << "." << schema_hash;
             failed_tablet_ids.insert(tablet_id);
@@ -709,13 +716,25 @@ OLAPStatus DataDir::load() {
         return true;
     };
     OLAPStatus load_tablet_status = TabletMetaManager::traverse_headers(_meta, load_tablet_func);
-    if (failed_tablet_ids.size() != 0 && !config::ignore_load_tablet_failure) {
-        LOG(FATAL) << "load tablets from header failed, failed tablets size: " << failed_tablet_ids.size();
+    if (failed_tablet_ids.size() != 0) {
+        LOG(WARNING) << "load tablets from header failed"
+            << ", loaded tablet: " << tablet_ids.size()
+            << ", error tablet: " << failed_tablet_ids.size()
+            << ", path: " << _path;
+        if (!config::ignore_load_tablet_failure) {
+            LOG(FATAL) << "load tablets encounter failure. stop BE process. path: " << _path;
+        }
     }
     if (load_tablet_status != OLAP_SUCCESS) {
-        LOG(WARNING) << "there is failure when loading tablet headers, path:" << _path;
+        LOG(WARNING) << "there is failure when loading tablet headers"
+                << ", loaded tablet: " << tablet_ids.size()
+                << ", error tablet: " << failed_tablet_ids.size()
+                << ", path: " << _path;
     } else {
-        LOG(INFO) << "load rowset from meta finished, data dir: " << _path;
+        LOG(INFO) << "load tablet from meta finished"
+                << ", loaded tablet: " << tablet_ids.size()
+                << ", error tablet: " << failed_tablet_ids.size()
+                << ", path: " << _path;
     }
 
     // traverse rowset
