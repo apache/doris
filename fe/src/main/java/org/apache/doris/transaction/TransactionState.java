@@ -206,6 +206,11 @@ public class TransactionState implements Writable {
 
     private String errorLogUrl = null;
 
+    // record some error msgs during the transaction operation.
+    // this msg will be shown in show proc "/transactions/dbId/";
+    // no need to persist.
+    private String errMsg = "";
+
     public TransactionState() {
         this.dbId = -1;
         this.tableIdList = Lists.newArrayList();
@@ -645,5 +650,13 @@ public class TransactionState implements Writable {
                 tableIdList.add(in.readLong());
             }
         }
+    }
+
+    public void setErrorMsg(String errMsg) {
+        this.errMsg = errMsg;
+    }
+
+    public void clearErrorMsg() {
+        this.errMsg = "";
     }
 }
