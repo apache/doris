@@ -257,7 +257,9 @@ Status OlapScanner::get_batch(
             // Read one row from reader
             auto res = _reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(), batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {
-                return Status::InternalError("Internal Error: read storage fail.");
+                std::stringstream ss;
+                ss << "Internal Error: read storage fail. res=" << res;
+                return Status::InternalError(ss.str());
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {
