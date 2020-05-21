@@ -52,6 +52,25 @@ bool LocalFileReader::closed() {
     return _fp == nullptr;
 }
 
+// Read all bytes
+Status LocalFileReader::read_one_message(uint8_t** buf, size_t* length) {
+    bool eof;
+    int64_t file_size = size() - _current_offset;
+    if (file_size <= 0) {
+        *buf = nullptr;
+        *length = 0;
+        return Status::OK();
+    }
+    *length = file_size;
+    *buf = new uint8_t[file_size];
+    read(*buf, length, &eof);
+    if (*length == 0) {
+        delete *buf;
+        *buf = nullptr;
+    }
+    return Status::OK();
+}
+
 Status LocalFileReader::read(uint8_t* buf, size_t* buf_len, bool* eof) {
     readat(_current_offset, (int64_t)*buf_len, (int64_t*)buf_len, buf);
     if (*buf_len == 0) {
@@ -113,6 +132,5 @@ Status LocalFileReader::tell(int64_t* position) {
     *position = _current_offset;
     return Status::OK();
 }
-
 
 }

@@ -45,6 +45,13 @@ public:
         return Status::OK();
     }
 
+    Status append_and_flush(const char* data, size_t size) {
+        ByteBufferPtr buf = ByteBuffer::allocate(BitUtil::RoundUpToPowerOfTwo(size+1));
+        buf->put_bytes(data, size);
+        buf->flip();
+        return _append(buf);
+    }
+
     Status append(const char* data, size_t size) override {
         size_t pos = 0;
         if (_write_buf != nullptr) {
@@ -60,7 +67,7 @@ public:
                 _write_buf.reset();
             }
         }
-        // need to allocate a new chunk
+        // need to allocate a new chunk, min chunk is 64k
         size_t chunk_size = std::max(_min_chunk_size, size - pos);
         chunk_size = BitUtil::RoundUpToPowerOfTwo(chunk_size);
         _write_buf = ByteBuffer::allocate(chunk_size);
@@ -75,6 +82,33 @@ public:
             _write_buf.reset();
         }
         return _append(buf);
+    }
+
+    Status read_one_message(uint8_t** data, size_t* length) override {
+        std::unique_lock<std::mutex> l(_lock);
+        while (!_cancelled && !_finished && _buf_queue.empty()) {
+            _get_cond.wait(l);
+        }
+        // cancelled
+        if (_cancelled) {
+            return Status::InternalError("cancelled");
+        }
+        // finished
+        if (_buf_queue.empty()) {
+            DCHECK(_finished);
+            *data = nullptr;
+            *length = 0;
+            return Status::OK();
+        }
+        auto buf = _buf_queue.front();
+        *length = buf->remaining();
+        *data = new uint8_t[*length];
+        buf->get_bytes((char*)(*data) , *length);
+
+        _buf_queue.pop_front();
+        _buffered_bytes -= buf->limit;
+        _put_cond.notify_one();
+        return Status::OK();
     }
 
     Status read(uint8_t* data, size_t* data_size, bool* eof) override {
@@ -180,6 +214,7 @@ private:
         _get_cond.notify_one();
         return Status::OK();
     }
+
 
     // Blocking queue
     std::mutex _lock;
