@@ -44,7 +44,7 @@ The meta tool tool is stored in the Lib / directory of BE.
 
 Viewing Tablet Meta information can be divided into online and offline methods
 
-#### On-line
+#### Online
 
 Access BE's HTTP interface to obtain the corresponding Tablet Meta information:
 
@@ -93,7 +93,7 @@ Order:
 
 ### Delete header
 
-In order to realize the function of deleting a tablet from a disk of a BE. Support single delete and batch delete.
+In order to realize the function of deleting a tablet meta from a disk of a BE. Support single delete and batch delete.
 
 Single delete:
 

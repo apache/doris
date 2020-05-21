@@ -93,15 +93,15 @@ api：
 
 ### 删除 header
 
-为了实现从某个 be 的某个盘中删除某个 tablet 的功能。可以单独删除一个 tablet，或者批量删除一组 tablet。
+为了实现从某个 be 的某个盘中删除某个 tablet 元数据的功能。可以单独删除一个 tablet 的元数据，或者批量删除一组 tablet 的元数据。
 
-删除单个tablet：
+删除单个tablet元数据：
 
 ```
 ./lib/meta_tool --operation=delete_meta --root_path=/path/to/root_path --tablet_id=xxx --schema_hash=xxx
 ```
 
-删除一组tablet：
+删除一组tablet元数据：
 
 ```
 ./lib/meta_tool --operation=batch_delete_meta --tablet_file=/path/to/tablet_file.txt

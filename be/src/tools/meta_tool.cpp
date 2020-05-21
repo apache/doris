@@ -126,7 +126,7 @@ void delete_meta(DataDir* data_dir) {
     std::cout << "delete meta successfully" << std::endl;
 }
 
-Status init_data_dir(const std::string dir, DataDir** ret) {
+Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
     std::string root_path;
     Status st = FileUtils::canonicalize(dir, &root_path);
     if (!st.ok()) {
@@ -141,28 +141,29 @@ Status init_data_dir(const std::string dir, DataDir** ret) {
         return Status::InternalError("parse root path failed");
     }
 
-    *ret = new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium);
-    if (*ret == nullptr) {
+    std::unique_ptr<DataDir> p(new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
+    if (p == nullptr) {
         std::cout << "new data dir failed" << std::endl;
         return Status::InternalError("new data dir failed");
     }
-    st = (*ret)->init();
+    st = p->init();
     if (!st.ok()) {
         std::cout << "data_dir load failed" << std::endl;
         return Status::InternalError("data_dir load failed");
     }
 
+    p.swap(*ret);
     return Status::OK();
 }
 
-void batch_delete_meta(const std::string tablet_file) {
+void batch_delete_meta(const std::string& tablet_file) {
     // each line in tablet file indicate a tablet to delete, format is:
     //      data_dir,tablet_id,schema_hash
     // eg:
     //      /data1/palo.HDD,100010,11212389324
     //      /data2/palo.HDD,100010,23049230234
     std::ifstream infile(tablet_file);
-    std::string line;
+    std::string line = "";
     int err_num = 0;
     int delete_num = 0;
     int total_num = 0;
@@ -186,7 +187,7 @@ void batch_delete_meta(const std::string tablet_file) {
 
         if (dir_map.find(dir) == dir_map.end()) {
             // new data dir, init it
-            DataDir* data_dir_p = nullptr;
+            std::unique_ptr<DataDir> data_dir_p;
             Status st = init_data_dir(dir, &data_dir_p);
             if (!st.ok()) {
                 std::cout << "invalid root path:" << FLAGS_root_path
@@ -194,7 +195,7 @@ void batch_delete_meta(const std::string tablet_file) {
                 err_num++;
                 continue;
             }
-            dir_map[dir] = std::unique_ptr<DataDir>(data_dir_p);
+            dir_map[dir] = std::move(data_dir_p);
             std::cout << "get a new data dir: " << dir << std::endl;
         }
         DataDir* data_dir = dir_map[dir].get();
@@ -221,7 +222,7 @@ void batch_delete_meta(const std::string tablet_file) {
         OLAPStatus s = TabletMetaManager::remove(data_dir, tablet_id, schema_hash);
         if (s != OLAP_SUCCESS) {
             std::cout << "delete tablet meta failed for tablet_id:"
-                << FLAGS_tablet_id << ", schema_hash:" << FLAGS_schema_hash
+                << tablet_id << ", schema_hash:" << schema_hash
                 << ", status:" << s << std::endl;
             err_num++;
             continue;
@@ -260,14 +261,13 @@ int main(int argc, char** argv) {
             return -1;
         }
 
-        DataDir* data_dir_p = nullptr;
-        Status st = init_data_dir(FLAGS_root_path, &data_dir_p);
+        std::unique_ptr<DataDir> data_dir;
+        Status st = init_data_dir(FLAGS_root_path, &data_dir);
         if (!st.ok()) {
             std::cout << "invalid root path:" << FLAGS_root_path
                       << ", error: " << st.to_string() << std::endl;
             return -1;
         }
-        std::unique_ptr<DataDir> data_dir(data_dir_p);
 
         if (FLAGS_operation == "get_meta") {
             get_meta(data_dir.get());

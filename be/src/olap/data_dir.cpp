@@ -731,7 +731,7 @@ OLAPStatus DataDir::load() {
                 << ", error tablet: " << failed_tablet_ids.size()
                 << ", path: " << _path;
     } else {
-        LOG(INFO) << "load rowset from meta finished"
+        LOG(INFO) << "load tablet from meta finished"
                 << ", loaded tablet: " << tablet_ids.size()
                 << ", error tablet: " << failed_tablet_ids.size()
                 << ", path: " << _path;
