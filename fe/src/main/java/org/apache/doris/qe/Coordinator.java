@@ -912,10 +912,8 @@ public class Coordinator {
             if (!(leftMostNode instanceof ScanNode)) {
                 // (Case B)
                 // there is no leftmost scan; we assign the same hosts as those of our
-                // leftmost input fragment (so that a partitioned aggregation
-                // fragment runs on the hosts that provide the input data)
+                //  input fragment which has a higher instance_number
 
-                // find a input fragment which has a higher parallelism
                 int inputFragmentIndex = 0;
                 int maxParallelism = 0;
                 for (int j = 0; j < fragment.getChildren().size(); j++) {
