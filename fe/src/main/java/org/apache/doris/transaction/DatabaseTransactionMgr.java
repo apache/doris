@@ -238,6 +238,7 @@ public class DatabaseTransactionMgr {
         info.add(String.valueOf(txnState.getErrorReplicas().size()));
         info.add(String.valueOf(txnState.getCallbackId()));
         info.add(String.valueOf(txnState.getTimeoutMs()));
+        info.add(txnState.getErrMsg());
     }
 
     public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,

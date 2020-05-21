@@ -659,4 +659,8 @@ public class TransactionState implements Writable {
     public void clearErrorMsg() {
         this.errMsg = "";
     }
+
+    public String getErrMsg() {
+        return this.errMsg;
+    }
 }
