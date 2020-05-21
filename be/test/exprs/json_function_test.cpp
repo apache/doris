@@ -137,7 +137,7 @@ TEST_F(JsonFunctionTest, int)
     rapidjson::Document document3_1;
     rapidjson::Value* res3_1 = JsonFunctions::get_json_object(nullptr, json_string3, path_string3_1,
                          JSON_FUN_INT, &document3_1);
-    ASSERT_TRUE(res3_1->IsNull());
+    ASSERT_TRUE(res3_1 == nullptr);
 
     std::string path_string3_2("$.couponFee");
     rapidjson::Document document3_2;
@@ -186,10 +186,101 @@ TEST_F(JsonFunctionTest, special_char)
     ASSERT_EQ(std::string(res3->GetString()), "v1");
 }
 
+TEST_F(JsonFunctionTest, json_path1)
+{
+    std::string json_raw_data("[{\"k1\":\"v1\", \"keyname\":{\"ip\":\"10.10.0.1\", \"value\":20}},{\"k1\":\"v1-1\", \"keyname\":{\"ip\":\"10.20.10.1\", \"value\":20}}]");
+    rapidjson::Document jsonDoc;
+    if (jsonDoc.Parse(json_raw_data.c_str()).HasParseError()) {
+        ASSERT_TRUE(false);
+    }
+    rapidjson::Value* res3;
+    res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].keyname.ip", &jsonDoc, jsonDoc.GetAllocator());
+    ASSERT_TRUE(res3->IsArray());
+    for (int i = 0; i < res3->Size(); i++) {
+        std::cout<< (*res3)[i].GetString() << std::endl;
+    }
+
+    res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].k1", &jsonDoc, jsonDoc.GetAllocator());
+    ASSERT_TRUE(res3->IsArray());
+    for (int i = 0; i < res3->Size(); i++) {
+        std::cout<< (*res3)[i].GetString() << std::endl;
+    }
+
+}
+
+TEST_F(JsonFunctionTest, json_path_get_nullobject)
+{
+    std::string json_raw_data("[{\"a\":\"a1\", \"b\":\"b1\", \"c\":\"c1\"},{\"a\":\"a2\", \"c\":\"c2\"},{\"a\":\"a3\", \"b\":\"b3\", \"c\":\"c3\"}]");
+    rapidjson::Document jsonDoc;
+    if (jsonDoc.Parse(json_raw_data.c_str()).HasParseError()) {
+        ASSERT_TRUE(false);
+    }
+
+    rapidjson::Value* res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].b", &jsonDoc, jsonDoc.GetAllocator());
+    ASSERT_TRUE(res3->IsArray());
+    ASSERT_EQ(res3->Size(), 3);
+    for (int i = 0; i < res3->Size(); i++) {
+        if ((*res3)[i].GetType() == rapidjson::Type::kNullType) {
+            std::cout<< "null " ;
+        } else {
+            std::cout<< (*res3)[i].GetString() << " ";
+        }
+    }
+    std::cout<< " " << std::endl;
+}
+
+
+TEST_F(JsonFunctionTest, json_path_test)
+{
+    {
+        std::string json_raw_data("[{\"a\":\"a1\", \"b\":\"b1\"}, {\"a\":\"a2\", \"b\":\"b2\"}]");
+        rapidjson::Document jsonDoc;
+        if (jsonDoc.Parse(json_raw_data.c_str()).HasParseError()) {
+            ASSERT_TRUE(false);
+        }
+
+        rapidjson::Value* res3 = JsonFunctions::get_json_object_from_parsed_json("$.[*].a", &jsonDoc, jsonDoc.GetAllocator());
+        ASSERT_TRUE(res3->IsArray());
+        ASSERT_EQ(res3->Size(), 2);
+        for (int i = 0; i < res3->Size(); i++) {
+            if ((*res3)[i].GetType() == rapidjson::Type::kNullType) {
+                std::cout<< "null " ;
+            } else {
+                std::cout<< (*res3)[i].GetString() << " ";
+            }
+        }
+        std::cout<< " " << std::endl;
+    }
+    {
+        std::string json_raw_data("{\"a\":[\"a1\",\"a2\"], \"b\":[\"b1\",\"b2\"]}");
+        rapidjson::Document jsonDoc;
+        if (jsonDoc.Parse(json_raw_data.c_str()).HasParseError()) {
+            ASSERT_TRUE(false);
+        }
+
+        rapidjson::Value* res3 = JsonFunctions::get_json_object_from_parsed_json("$.a", &jsonDoc, jsonDoc.GetAllocator());
+        ASSERT_TRUE(res3->IsArray());
+        ASSERT_EQ(res3->Size(), 2);
+        for (int i = 0; i < res3->Size(); i++) {
+            if ((*res3)[i].GetType() == rapidjson::Type::kNullType) {
+                std::cout<< "null " ;
+            } else {
+                std::cout<< (*res3)[i].GetString() << " ";
+            }
+        }
+        std::cout<< " " << std::endl;
+    }
+}
+
+
 }
 
 int main(int argc, char** argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+    std::string home(getenv("DORIS_HOME"));
+    if (home.empty()) {
+        home = ".";
+    }
+    std::string conffile = home + "/conf/be.conf";
     if (!doris::config::init(conffile.c_str(), false)) {
         fprintf(stderr, "error read config file. \n");
         return -1;

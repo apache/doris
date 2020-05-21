@@ -93,6 +93,7 @@ set(EXEC_FILES
     parquet_scanner.cpp
     parquet_reader.cpp
     orc_scanner.cpp
+    json_scanner.cpp
     assert_num_rows_node.cpp
 )
 
