@@ -97,6 +97,9 @@ public class RevokeStmt extends DdlStmt {
         if (tblPattern != null) {
             tblPattern.analyze(analyzer.getClusterName());
         } else {
+            if (GrantStmt.disableGrantResource) {
+                throw new AnalysisException("REVOKE ON RESOURCE is comming soon");
+            }
             resourcePattern.analyze();
         }
 

@@ -35,7 +35,6 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
@@ -1312,7 +1311,7 @@ public class PaloAuth implements Writable {
         userPrivTable.write(out);
         dbPrivTable.write(out);
         tablePrivTable.write(out);
-        resourcePrivTable.write(out);
+        //resourcePrivTable.write(out);
         propertyMgr.write(out);
     }
 
@@ -1321,9 +1320,11 @@ public class PaloAuth implements Writable {
         userPrivTable = (UserPrivTable) PrivTable.read(in);
         dbPrivTable = (DbPrivTable) PrivTable.read(in);
         tablePrivTable = (TablePrivTable) PrivTable.read(in);
-        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_85) {
+        /*
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.new_version_by_wyb) {
             resourcePrivTable = (ResourcePrivTable) PrivTable.read(in);
         }
+         */
         propertyMgr = UserPropertyMgr.read(in);
 
         if (userPrivTable.isEmpty()) {

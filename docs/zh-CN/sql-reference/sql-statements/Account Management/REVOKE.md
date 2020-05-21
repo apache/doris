@@ -31,7 +31,7 @@ under the License.
     Syntax：
         REVOKE privilege_list ON db_name[.tbl_name] FROM user_identity [ROLE role_name]
 
-        REVOKE privilege_list ON resource_name FROM user_identity [ROLE role_name]
+        REVOKE privilege_list ON RESOURCE resource_name FROM user_identity [ROLE role_name]
         
     user_identity：
 
@@ -47,7 +47,7 @@ under the License.
 
     1. 撤销用户 jack 资源 spark_resource 的使用权限
 
-        REVOKE USAGE_RPIV ON 'spark_resource' FROM 'jack'@'192.%';
+        REVOKE USAGE_PRIV ON RESOURCE 'spark_resource' FROM 'jack'@'192.%';
 
 ## keyword
 

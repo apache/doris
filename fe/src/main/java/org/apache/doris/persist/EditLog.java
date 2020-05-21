@@ -1266,11 +1266,11 @@ public class EditLog {
     }
 
     public void logCreateResource(Resource resource) {
-        logEdit(OperationType.OP_CREATE_RESOURCE, resource);
+        //logEdit(OperationType.OP_CREATE_RESOURCE, resource);
     }
 
     public void logDropResource(String resourceName) {
-        logEdit(OperationType.OP_DROP_RESOURCE, new Text(resourceName));
+        //logEdit(OperationType.OP_DROP_RESOURCE, new Text(resourceName));
     }
 
     public void logCreateSmallFile(SmallFile info) {

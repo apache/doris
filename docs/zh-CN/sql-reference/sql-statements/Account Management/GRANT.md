@@ -33,7 +33,7 @@ Syntax:
 
     GRANT privilege_list ON db_name[.tbl_name] TO user_identity [ROLE role_name]
 
-    GRANT privilege_list ON resource_name TO user_identity [ROLE role_name]
+    GRANT privilege_list ON RESOURCE resource_name TO user_identity [ROLE role_name]
 
 
 privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris 支持如下权限：
@@ -94,15 +94,15 @@ user_identity：
 
     4. 授予所有资源的使用权限给用户
 
-        GRANT USAGE_PRIV ON * TO 'jack'@'%';
+        GRANT USAGE_PRIV ON RESOURCE * TO 'jack'@'%';
 
     5. 授予指定资源的使用权限给用户
 
-        GRANT USAGE_PRIV ON 'spark_resource' TO 'jack'@'%';
+        GRANT USAGE_PRIV ON RESOURCE 'spark_resource' TO 'jack'@'%';
 
     6. 授予指定资源的使用权限给角色
 
-        GRANT USAGE_PRIV ON 'spark_resource' TO ROLE 'my_role';
+        GRANT USAGE_PRIV ON RESOURCE 'spark_resource' TO ROLE 'my_role';
 
 ## keyword
 

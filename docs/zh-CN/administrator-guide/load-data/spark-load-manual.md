@@ -395,7 +395,8 @@ LoadFinishTime: 2019-07-27 11:50:16
 
 ## 常见问题
 
-* 使用Spark load时需要在FE机器设置SPARK_HOME及HADOOP_CONF_DIR环境变量。
+* 使用Spark load时需要在FE机器设置SPARK_HOME环境变量。
 
+提交Spark job时用到spark-submit命令，如果SPARK_HOME环境变量没有设置，会报 `Spark home not found; set it explicitly or use the SPARK_HOME environment variable` 错误。
 
 

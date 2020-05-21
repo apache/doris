@@ -21,18 +21,21 @@ import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
-import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Collection;
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
@@ -42,7 +45,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * For example, Spark/MapReduce used for ETL, Spark/GPU used for queries, HDFS/S3 used for external storage.
  * Now only support Spark.
  */
-public class ResourceMgr {
+public class ResourceMgr implements Writable {
     private static final Logger LOG = LogManager.getLogger(ResourceMgr.class);
 
     public static final ImmutableList<String> RESOURCE_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -52,7 +55,7 @@ public class ResourceMgr {
     // { resourceName -> Resource}
     private final Map<String, Resource> nameToResource = Maps.newHashMap();
     private final ReentrantLock lock = new ReentrantLock();
-    private ResourceProcNode procNode = null;
+    private final ResourceProcNode procNode = new ResourceProcNode();
 
     public ResourceMgr() {
     }
@@ -132,32 +135,31 @@ public class ResourceMgr {
         }
     }
 
-    // for catalog save image
-    public Collection<Resource> getResources() {
-        return nameToResource.values();
+    public int getResourceNum() {
+        return nameToResource.size();
     }
 
     public List<List<String>> getResourcesInfo() {
-        lock.lock();
-        try {
-            if (procNode == null) {
-                procNode = new ResourceProcNode();
-            }
-            return procNode.fetchResult().getRows();
-        } finally {
-            lock.unlock();
-        }
+        return procNode.fetchResult().getRows();
     }
 
     public ResourceProcNode getProcNode() {
-        lock.lock();
-        try {
-            if (procNode == null) {
-                procNode = new ResourceProcNode();
-            }
-            return procNode;
-        } finally {
-            lock.unlock();
+        return procNode;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(nameToResource.size());
+        for (Resource resource : nameToResource.values()) {
+            resource.write(out);
+        }
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        int count = in.readInt();
+        for (long i = 0; i < count; ++i) {
+            Resource resource = Resource.read(in);
+            replayCreateResource(resource);
         }
     }
 
@@ -185,4 +187,3 @@ public class ResourceMgr {
         }
     }
 }
-

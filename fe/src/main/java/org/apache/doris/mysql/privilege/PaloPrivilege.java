@@ -26,7 +26,7 @@ public enum PaloPrivilege {
     ALTER_PRIV("Alter_priv", 5, "Privilege for alter database or table"),
     CREATE_PRIV("Create_priv", 6, "Privilege for createing database or table"),
     DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table"),
-    USAGE_PRIV("Usage_priv", 8, "Privilege for use resource");
+    USAGE_PRIV("Usage_priv", 8, "Privilege for using resource");
 
     public static PaloPrivilege[] privileges = {
             NODE_PRIV,

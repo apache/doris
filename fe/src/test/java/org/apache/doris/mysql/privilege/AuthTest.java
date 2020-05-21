@@ -1060,6 +1060,7 @@ public class AuthTest {
         ResourcePattern anyResourcePattern = new ResourcePattern(anyResource);
         List<AccessPrivilege> usagePrivileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
         UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
+        GrantStmt.disableGrantResource = false;
 
         // ------ grant|revoke resource to|from user ------
         // 1. create user with no role

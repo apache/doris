@@ -85,9 +85,9 @@ public class ResourceMgrTest {
         ResourceMgr mgr = new ResourceMgr();
         CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
         stmt.analyze(analyzer);
-        Assert.assertEquals(0, mgr.getResources().size());
+        Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
-        Assert.assertEquals(1, mgr.getResources().size());
+        Assert.assertEquals(1, mgr.getResourceNum());
         Assert.assertTrue(mgr.containsResource(name));
         SparkResource resource = (SparkResource) mgr.getResource(name);
         Assert.assertNotNull(resource);
@@ -96,7 +96,7 @@ public class ResourceMgrTest {
         // drop
         DropResourceStmt dropStmt = new DropResourceStmt(name);
         mgr.dropResource(dropStmt);
-        Assert.assertEquals(0, mgr.getResources().size());
+        Assert.assertEquals(0, mgr.getResourceNum());
     }
 
     @Test(expected = DdlException.class)
@@ -119,9 +119,9 @@ public class ResourceMgrTest {
         ResourceMgr mgr = new ResourceMgr();
         CreateResourceStmt stmt = new CreateResourceStmt(true, name, properties);
         stmt.analyze(analyzer);
-        Assert.assertEquals(0, mgr.getResources().size());
+        Assert.assertEquals(0, mgr.getResourceNum());
         mgr.createResource(stmt);
-        Assert.assertEquals(1, mgr.getResources().size());
+        Assert.assertEquals(1, mgr.getResourceNum());
 
         // add again
         mgr.createResource(stmt);
@@ -131,7 +131,7 @@ public class ResourceMgrTest {
     public void testDropResourceNotExist() throws UserException {
         // drop
         ResourceMgr mgr = new ResourceMgr();
-        Assert.assertEquals(0, mgr.getResources().size());
+        Assert.assertEquals(0, mgr.getResourceNum());
         DropResourceStmt stmt = new DropResourceStmt(name);
         mgr.dropResource(stmt);
     }

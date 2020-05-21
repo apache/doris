@@ -1502,6 +1502,10 @@ resource_pattern ::=
     {:
         RESULT = new ResourcePattern(resourceName);
     :}
+    | STRING_LITERAL:resourceName
+    {:
+        RESULT = new ResourcePattern(resourceName);
+    :}
     ;
 
 ident_or_star ::=

@@ -179,8 +179,6 @@ public final class FeMetaVersion {
     public static final int VERSION_83 = 83;
     // add storage format in schema change job
     public static final int VERSION_84 = 84;
-    // spark resource and resource privileges
-    public static final int VERSION_85 = 85;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_85;
+    public static final int VERSION_CURRENT = VERSION_84;
 }

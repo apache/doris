@@ -46,6 +46,8 @@ public class GrantStmt extends DdlStmt {
     private ResourcePattern resourcePattern;
     private List<PaloPrivilege> privileges;
 
+    public static boolean disableGrantResource = true;
+
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
         this.role = role;
@@ -107,6 +109,9 @@ public class GrantStmt extends DdlStmt {
         if (tblPattern != null) {
             tblPattern.analyze(analyzer.getClusterName());
         } else {
+            if (disableGrantResource) {
+                throw new AnalysisException("GRANT ON RESOURCE is comming soon");
+            }
             resourcePattern.analyze();
         }
 

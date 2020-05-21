@@ -96,6 +96,8 @@ public class GrantStmtTest {
 
     @Test
     public void testResourceNormal() throws UserException {
+        GrantStmt.disableGrantResource = false;
+
         String resourceName = "spark0";
         List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
         GrantStmt stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new ResourcePattern(resourceName), privileges);
