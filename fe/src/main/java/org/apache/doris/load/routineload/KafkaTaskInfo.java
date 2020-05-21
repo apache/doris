@@ -24,6 +24,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TKafkaLoadInfo;
 import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TPlanFragment;
@@ -95,6 +96,11 @@ public class KafkaTaskInfo extends RoutineLoadTaskInfo {
         tRoutineLoadTask.setMax_interval_s(routineLoadJob.getMaxBatchIntervalS());
         tRoutineLoadTask.setMax_batch_rows(routineLoadJob.getMaxBatchRows());
         tRoutineLoadTask.setMax_batch_size(routineLoadJob.getMaxBatchSizeBytes());
+        if (!routineLoadJob.getFormat().isEmpty() && routineLoadJob.getFormat().equalsIgnoreCase("json")) {
+            tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_JSON);
+        } else {
+            tRoutineLoadTask.setFormat(TFileFormatType.FORMAT_CSV_PLAIN);
+        }
         return tRoutineLoadTask;
     }
 

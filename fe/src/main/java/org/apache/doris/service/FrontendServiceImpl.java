@@ -17,8 +17,6 @@
 
 package org.apache.doris.service;
 
-import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
-
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Catalog;
@@ -103,9 +101,9 @@ import org.apache.doris.thrift.TUpdateExportTaskStatusRequest;
 import org.apache.doris.thrift.TUpdateMiniEtlTaskStatusRequest;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TxnCommitAttachment;
-import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -121,6 +119,8 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
+
+import static org.apache.doris.thrift.TStatusCode.NOT_IMPLEMENTED_ERROR;
 
 // Frontend service used to serve all request for this frontend through
 // thrift protocol
@@ -863,7 +863,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!(table instanceof OlapTable)) {
                 throw new UserException("load table type is not OlapTable, type=" + table.getClass());
             }
-            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+            StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request, db);
             StreamLoadPlanner planner = new StreamLoadPlanner(db, (OlapTable) table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId());
             // add table indexes to transaction state

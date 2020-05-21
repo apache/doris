@@ -37,7 +37,6 @@ public:
     KafkaConsumerPipe(size_t max_buffered_bytes = 1024 * 1024,
                       size_t min_chunk_size = 64 * 1024)
             : StreamLoadPipe(max_buffered_bytes, min_chunk_size) {
-
     }
 
     virtual ~KafkaConsumerPipe() {}
@@ -51,6 +50,10 @@ public:
         // append the line delimiter
         st = append("\n", 1);
         return st;
+    }
+
+    Status append_json(const char* data, size_t size) {
+        return append_and_flush(data, size);
     }
 };
 

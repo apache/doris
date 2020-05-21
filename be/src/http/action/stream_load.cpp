@@ -71,6 +71,8 @@ TStreamLoadPutResult k_stream_load_put_result;
 static TFileFormatType::type parse_format(const std::string& format_str) {
     if (boost::iequals(format_str, "CSV")) {
         return TFileFormatType::FORMAT_CSV_PLAIN;
+    } else if (boost::iequals(format_str, "JSON")) {
+        return TFileFormatType::FORMAT_JSON;
     }
     return TFileFormatType::FORMAT_UNKNOWN;
 }
@@ -78,6 +80,7 @@ static TFileFormatType::type parse_format(const std::string& format_str) {
 static bool is_format_support_streaming(TFileFormatType::type format) {
     switch (format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_JSON:
         return true;
     default:
         return false;
@@ -362,7 +365,18 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
             return Status::InvalidArgument("Invalid mem limit format");
         }
     }
-
+    if (!http_req->header(HTTP_EXEC_JSONPATHS).empty()) {
+        request.__set_jsonpaths(http_req->header(HTTP_EXEC_JSONPATHS));
+    }
+    if (!http_req->header(HTTP_EXEC_STRIP_OUTER_ARRAY).empty()) {
+        if (boost::iequals(http_req->header(HTTP_EXEC_STRIP_OUTER_ARRAY), "true")) {
+            request.__set_strip_outer_array(true);
+        } else {
+            request.__set_strip_outer_array(false);
+        }
+    } else {
+        request.__set_strip_outer_array(false);
+    }
     if (ctx->timeout_second != -1) {
         request.__set_timeout(ctx->timeout_second);
     }

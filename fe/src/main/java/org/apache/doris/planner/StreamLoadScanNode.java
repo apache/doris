@@ -17,6 +17,8 @@
 
 package org.apache.doris.planner;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
@@ -41,15 +43,12 @@ import org.apache.doris.thrift.TBrokerScanNode;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TBrokerScanRangeParams;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -97,6 +96,12 @@ public class StreamLoadScanNode extends LoadScanNode {
         TBrokerRangeDesc rangeDesc = new TBrokerRangeDesc();
         rangeDesc.file_type = streamLoadTask.getFileType();
         rangeDesc.format_type = streamLoadTask.getFormatType();
+        if (rangeDesc.format_type == TFileFormatType.FORMAT_JSON) {
+            if (!streamLoadTask.getJsonPaths().isEmpty()) {
+                rangeDesc.setJsonpaths(streamLoadTask.getJsonPaths());
+            }
+            rangeDesc.setStrip_outer_array(streamLoadTask.isStripOuterArray());
+        }
         rangeDesc.splittable = false;
         switch (streamLoadTask.getFileType()) {
             case FILE_LOCAL:
