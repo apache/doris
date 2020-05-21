@@ -47,6 +47,7 @@ import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.Maps;
 
+import org.apache.doris.thrift.TTabletType;
 import org.junit.Assert;
 
 import java.lang.reflect.Method;
@@ -111,6 +112,7 @@ public class UnitTestUtil {
         partitionInfo.setDataProperty(partitionId, DataProperty.DEFAULT_DATA_PROPERTY);
         partitionInfo.setReplicationNum(partitionId, (short) 3);
         partitionInfo.setIsInMemory(partitionId, false);
+        partitionInfo.setTabletType(partitionId, TTabletType.TABLET_TYPE_DISK);
         OlapTable table = new OlapTable(tableId, TABLE_NAME, columns,
                                         KeysType.AGG_KEYS, partitionInfo, distributionInfo);
         Deencapsulation.setField(table, "baseIndexId", indexId);

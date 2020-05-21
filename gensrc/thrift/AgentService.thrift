@@ -55,6 +55,11 @@ enum TStorageFormat {
     V2
 }
 
+enum TTabletType {
+    TABLET_TYPE_DISK = 0,
+    TABLET_TYPE_MEMORY = 1
+}
+
 struct TCreateTabletReq {
     1: required Types.TTabletId tablet_id
     2: required TTabletSchema tablet_schema
@@ -74,6 +79,7 @@ struct TCreateTabletReq {
     // indicate whether this tablet is a compute storage split mode, we call it "eco mode"
     12: optional bool is_eco_mode
     13: optional TStorageFormat storage_format
+    14: optional TTabletType tablet_type
 }
 
 struct TDropTabletReq {

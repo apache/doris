@@ -781,7 +781,8 @@ public class RestoreJob extends AbstractJob {
                             TStorageMedium.HDD /* all restored replicas will be saved to HDD */,
                             indexMeta.getSchema(), bfColumns, bfFpp, null,
                             localTbl.getCopiedIndexes(),
-                            localTbl.isInMemory());
+                            localTbl.isInMemory(),
+                            localTbl.getPartitionInfo().getTabletType(restorePart.getId()));
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
                 }
