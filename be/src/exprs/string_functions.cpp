@@ -223,7 +223,7 @@ StringVal StringFunctions::lpad(
         if (len.val == str_index.size()) {
             return StringVal(str.ptr, len.val);
         }
-        return StringVal(str.ptr, str_index.at(len.val));
+        return StringVal(str.ptr, str_index[len.val]);
     }
 
     // TODO pengyubing
@@ -232,7 +232,7 @@ StringVal StringFunctions::lpad(
     int32_t pad_times = (len.val - str_char_size) / pad_char_size;
     int32_t pad_remainder = (len.val - str_char_size) % pad_char_size;
     pad_byte_len = pad_times * pad.len;
-    pad_byte_len += pad_index.at(pad_remainder);
+    pad_byte_len += pad_index[pad_remainder];
     int32_t byte_len = str.len + pad_byte_len;
     StringVal result(context, byte_len);
     if (result.is_null) {
@@ -275,7 +275,7 @@ StringVal StringFunctions::rpad(
         if (len.val == str_index.size()) {
             return StringVal(str.ptr, len.val);
         }
-        return StringVal(str.ptr, str_index.at(len.val));
+        return StringVal(str.ptr, str_index[len.val]);
     }
 
     // TODO pengyubing
@@ -284,7 +284,7 @@ StringVal StringFunctions::rpad(
     int32_t pad_times = (len.val - str_char_size) / pad_char_size;
     int32_t pad_remainder = (len.val - str_char_size) % pad_char_size;
     pad_byte_len = pad_times * pad.len;
-    pad_byte_len += pad_index.at(pad_remainder);
+    pad_byte_len += pad_index[pad_remainder];
     int32_t byte_len = str.len + pad_byte_len;
     StringVal result(context, byte_len);
     if (UNLIKELY(result.is_null)) {
@@ -506,7 +506,7 @@ IntVal StringFunctions::locate_pos(
     StringSearch search(&substr_sv);
     // Input start_pos.val starts from 1.
     StringValue adjusted_str(
-        reinterpret_cast<char*>(str.ptr) + index.at(start_pos.val - 1), str.len - index.at(start_pos.val - 1));
+        reinterpret_cast<char*>(str.ptr) + index[start_pos.val - 1], str.len - index[start_pos.val - 1]);
     int32_t match_pos = search.search(&adjusted_str);
     if (match_pos >= 0) {
         // Hive returns the position in the original string starting from 1.

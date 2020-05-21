@@ -233,6 +233,7 @@ module.exports = [
               "regexp_replace",
               "repeat",
               "right",
+              "rpad",
               "split_part",
               "starts_with",
               "strleft",
