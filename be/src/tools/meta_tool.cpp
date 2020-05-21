@@ -32,6 +32,8 @@
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
 #include "json2pb/pb_to_json.h"
+#include "gutil/strings/split.h"
+#include "gutil/strings/numbers.h"
 
 using boost::filesystem::path;
 using doris::DataDir;
@@ -53,6 +55,7 @@ DEFINE_int64(tablet_id, 0, "tablet_id for tablet meta");
 DEFINE_int32(schema_hash, 0, "schema_hash for tablet meta");
 DEFINE_string(json_meta_path, "", "absolute json meta file path");
 DEFINE_string(pb_meta_path, "", "pb meta file path");
+DEFINE_string(tablet_file, "", "file to save a set of tablets");
 
 std::string get_usage(const std::string& progname) {
     std::stringstream ss;
@@ -66,6 +69,7 @@ std::string get_usage(const std::string& progname) {
     ss << "./meta_tool --operation=delete_meta "
           "--root_path=/path/to/storage/path --tablet_id=tabletid "
           "--schema_hash=schemahash\n";
+    ss << "./meta_tool --operation=delete_meta --tablet_file=file_path\n";
     ss << "./meta_tool --operation=show_meta --pb_meta_path=path\n";
     return ss.str();
 }
@@ -122,6 +126,115 @@ void delete_meta(DataDir* data_dir) {
     std::cout << "delete meta successfully" << std::endl;
 }
 
+Status init_data_dir(const std::string& dir, std::unique_ptr<DataDir>* ret) {
+    std::string root_path;
+    Status st = FileUtils::canonicalize(dir, &root_path);
+    if (!st.ok()) {
+        std::cout << "invalid root path:" << FLAGS_root_path
+            << ", error: " << st.to_string() << std::endl;
+        return Status::InternalError("invalid root path");
+    }
+    doris::StorePath path;
+    auto res = parse_root_path(root_path, &path);
+    if (res != OLAP_SUCCESS) {
+        std::cout << "parse root path failed:" << root_path << std::endl;
+        return Status::InternalError("parse root path failed");
+    }
+
+    std::unique_ptr<DataDir> p(new (std::nothrow) DataDir(path.path, path.capacity_bytes, path.storage_medium));
+    if (p == nullptr) {
+        std::cout << "new data dir failed" << std::endl;
+        return Status::InternalError("new data dir failed");
+    }
+    st = p->init();
+    if (!st.ok()) {
+        std::cout << "data_dir load failed" << std::endl;
+        return Status::InternalError("data_dir load failed");
+    }
+
+    p.swap(*ret);
+    return Status::OK();
+}
+
+void batch_delete_meta(const std::string& tablet_file) {
+    // each line in tablet file indicate a tablet to delete, format is:
+    //      data_dir,tablet_id,schema_hash
+    // eg:
+    //      /data1/palo.HDD,100010,11212389324
+    //      /data2/palo.HDD,100010,23049230234
+    std::ifstream infile(tablet_file);
+    std::string line = "";
+    int err_num = 0;
+    int delete_num = 0;
+    int total_num = 0;
+    std::unordered_map<std::string, std::unique_ptr<DataDir>> dir_map;
+    while (std::getline(infile, line)) {
+        total_num++;
+        vector<string> v = strings::Split(line, ",");
+        if (v.size() != 3) {
+            std::cout << "invalid line in tablet_file: " << line << std::endl;
+            err_num++;
+            continue;
+        }
+        // 1. get dir
+        std::string dir;
+        Status st = FileUtils::canonicalize(v[0], &dir);
+        if (!st.ok()) {
+            std::cout << "invalid root dir in tablet_file: " << line << std::endl;
+            err_num++;
+            continue;
+        }
+
+        if (dir_map.find(dir) == dir_map.end()) {
+            // new data dir, init it
+            std::unique_ptr<DataDir> data_dir_p;
+            Status st = init_data_dir(dir, &data_dir_p);
+            if (!st.ok()) {
+                std::cout << "invalid root path:" << FLAGS_root_path
+                    << ", error: " << st.to_string() << std::endl;
+                err_num++;
+                continue;
+            }
+            dir_map[dir] = std::move(data_dir_p);
+            std::cout << "get a new data dir: " << dir << std::endl;
+        }
+        DataDir* data_dir = dir_map[dir].get();
+        if (data_dir == nullptr) {
+            std::cout << "failed to get data dir: " << line << std::endl;
+            err_num++;
+            continue;
+        }
+
+        // 2. get tablet id/schema_hash
+        int64_t tablet_id;
+        if (!safe_strto64(v[1].c_str(), &tablet_id)) {
+            std::cout << "invalid tablet id: " << line << std::endl;
+            err_num++;
+            continue;
+        }
+        int64_t schema_hash;
+        if (!safe_strto64(v[2].c_str(), &schema_hash)) {
+            std::cout << "invalid schema hash: " << line << std::endl;
+            err_num++;
+            continue;
+        }
+
+        OLAPStatus s = TabletMetaManager::remove(data_dir, tablet_id, schema_hash);
+        if (s != OLAP_SUCCESS) {
+            std::cout << "delete tablet meta failed for tablet_id:"
+                << tablet_id << ", schema_hash:" << schema_hash
+                << ", status:" << s << std::endl;
+            err_num++;
+            continue;
+        }
+        
+        delete_num++;
+    }
+
+    std::cout << "total: " << total_num << ", delete: " << delete_num << ", error: " << err_num << std::endl;
+    return;
+}
+
 int main(int argc, char** argv) {
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
@@ -129,6 +242,16 @@ int main(int argc, char** argv) {
 
     if (FLAGS_operation == "show_meta") {
         show_meta();
+    } else if (FLAGS_operation == "batch_delete_meta") {
+        std::string tablet_file;
+        Status st = FileUtils::canonicalize(FLAGS_tablet_file, &tablet_file);
+        if (!st.ok()) {
+            std::cout << "invalid tablet file: " << FLAGS_tablet_file
+                    << ", error: " << st.to_string() << std::endl;
+            return -1;
+        }
+
+        batch_delete_meta(tablet_file);
     } else {
         // operations that need root path should be written here
         std::set<std::string> valid_operations = {"get_meta", "load_meta",
@@ -138,29 +261,11 @@ int main(int argc, char** argv) {
             return -1;
         }
 
-        std::string root_path;
-        Status st = FileUtils::canonicalize(FLAGS_root_path, &root_path);
+        std::unique_ptr<DataDir> data_dir;
+        Status st = init_data_dir(FLAGS_root_path, &data_dir);
         if (!st.ok()) {
             std::cout << "invalid root path:" << FLAGS_root_path
                       << ", error: " << st.to_string() << std::endl;
-            return -1;
-        }
-        doris::StorePath path;
-        auto res = parse_root_path(root_path, &path);
-        if (res != OLAP_SUCCESS) {
-            std::cout << "parse root path failed:" << root_path << std::endl;
-            return -1;
-        }
-
-        std::unique_ptr<DataDir> data_dir(new (std::nothrow) DataDir(
-            path.path, path.capacity_bytes, path.storage_medium));
-        if (data_dir == nullptr) {
-            std::cout << "new data dir failed" << std::endl;
-            return -1;
-        }
-        st = data_dir->init();
-        if (!st.ok()) {
-            std::cout << "data_dir load failed" << std::endl;
             return -1;
         }
 
