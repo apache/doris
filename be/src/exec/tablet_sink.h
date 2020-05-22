@@ -166,6 +166,7 @@ public:
     // 0: stopped, send finished(eos request has been sent), or any internal error;
     // 1: running, haven't reach eos.
     // only allow 1 rpc in flight
+    // plz make sure, this func should be called after open_wait().
     int try_send_and_fetch_status();
 
     void time_report(std::unordered_map<int64_t, AddBatchCounter>* add_batch_counter_map,
