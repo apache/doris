@@ -191,7 +191,7 @@ public class CaseExpr extends Expr {
                 throw new AnalysisException("Subquery in case-when must return scala type");
             }
             if (whenExpr.contains(Predicates.instanceOf(Subquery.class))
-                    && !((hasCaseExpr() && whenExpr instanceof Subquery || whenExpr instanceof BinaryPredicate))) {
+                    && !((hasCaseExpr() && whenExpr instanceof Subquery || !checkSubquery(whenExpr)))) {
                 throw new AnalysisException("Only support subquery in binary predicate in case statement.");
             }
             // Determine maximum compatible type of the then exprs seen so far.
@@ -348,6 +348,19 @@ public class CaseExpr extends Expr {
         } else {
             return new NullLiteral();
         }
+    }
+
+    // check if subquery in `in` or `exists` Predicate
+    private boolean checkSubquery(Expr expr) {
+        for (Expr child : expr.getChildren()) {
+            if (child instanceof Subquery && (expr instanceof ExistsPredicate || expr instanceof InPredicate)) {
+                return true;
+            }
+            if (checkSubquery(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
 }
