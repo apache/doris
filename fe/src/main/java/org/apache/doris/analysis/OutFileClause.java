@@ -25,12 +25,19 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 // For syntax select * from tbl INTO OUTFILE xxxx
 public class OutFileClause {
+    private static final Logger LOG = LogManager.getLogger(OutFileClause.class);
 
     private static final String BROKER_PROP_PREFIX = "broker.";
     private static final String PROP_BROKER_NAME = "broker.name";
@@ -107,7 +114,8 @@ public class OutFileClause {
             return;
         }
 
-        getBrokerProperties();
+        Set<String> processedPropKeys = Sets.newHashSet();
+        getBrokerProperties(processedPropKeys);
         if (brokerDesc == null) {
             return;
         }
@@ -117,7 +125,7 @@ public class OutFileClause {
                 throw new AnalysisException(PROP_COLUMN_SEPARATOR + " is only for CSV format");
             }
             columnSeparator = properties.get(PROP_COLUMN_SEPARATOR);
-            properties.remove(PROP_COLUMN_SEPARATOR);
+            processedPropKeys.add(PROP_COLUMN_SEPARATOR);
         }
         
         if (properties.containsKey(PROP_LINE_DELIMITER)) {
@@ -125,7 +133,7 @@ public class OutFileClause {
                 throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
             }
             lineDelimiter = properties.get(PROP_LINE_DELIMITER);
-            properties.remove(PROP_LINE_DELIMITER);
+            processedPropKeys.add(PROP_LINE_DELIMITER);
         }
 
         if (properties.containsKey(PROP_MAX_FILE_SIZE)) {
@@ -133,28 +141,30 @@ public class OutFileClause {
             if (maxFileSizeBytes > MAX_FILE_SIZE_BYTES || maxFileSizeBytes < MIN_FILE_SIZE_BYTES) {
                 throw new AnalysisException("max file size should between 5MB and 2GB. Given: " + maxFileSizeBytes);
             }
-            properties.remove(PROP_MAX_FILE_SIZE);
+            processedPropKeys.add(PROP_MAX_FILE_SIZE);
         }
 
-        if (!properties.isEmpty()) {
-            throw new AnalysisException("Unknown properties: " + properties);
+        if (processedPropKeys.size() != properties.size()) {
+            LOG.debug("{} vs {}", processedPropKeys, properties);
+            throw new AnalysisException("Unknown properties: " + properties.keySet().stream()
+                    .filter(k -> !processedPropKeys.contains(k)).collect(Collectors.toList()));
         }
     }
 
-    private void getBrokerProperties() {
+    private void getBrokerProperties(Set<String> processedPropKeys) {
         if (!properties.containsKey(PROP_BROKER_NAME)) {
             return;
         }
         String brokerName = properties.get(PROP_BROKER_NAME);
-        properties.remove(PROP_BROKER_NAME);
+        processedPropKeys.add(PROP_BROKER_NAME);
         
         Map<String, String> brokerProps = Maps.newHashMap();
         Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
         while (iter.hasNext()) {
             Map.Entry<String, String> entry = iter.next();
-            if (entry.getKey().startsWith(BROKER_PROP_PREFIX)) {
-                brokerProps.put(entry.getKey(), entry.getValue());
-                iter.remove();
+            if (entry.getKey().startsWith(BROKER_PROP_PREFIX) && !entry.getKey().equals(PROP_BROKER_NAME)) {
+                brokerProps.put(entry.getKey().substring(BROKER_PROP_PREFIX.length()), entry.getValue());
+                processedPropKeys.add(entry.getKey());
             }
         }
 
@@ -179,7 +189,6 @@ public class OutFileClause {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append(" INTO OUTFILE '").append(filePath).append(" FORMAT AS ").append(format);
-        sb.append(brokerDesc.toSql());
         if (properties != null && !properties.isEmpty()) {
             sb.append(" PROPERTIES(");
             sb.append(new PrintableMap<>(properties, " = ", true, false));
@@ -203,4 +212,5 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
+
 

@@ -45,7 +45,7 @@ FileResultWriter::FileResultWriter(
 }
 
 FileResultWriter::~FileResultWriter() {
-    close();
+    _close_file_writer(true);
 }
 
 Status FileResultWriter::init(RuntimeState* state) {
@@ -282,13 +282,15 @@ Status FileResultWriter::_create_new_file_if_exceed_size() {
     }
     // current file size exceed the max file size. close this file
     // and create new one
-    RETURN_IF_ERROR(_close_file_writer(false));
+    {
+        SCOPED_TIMER(_writer_close_timer);
+        RETURN_IF_ERROR(_close_file_writer(false));
+    }
     _current_written_bytes = 0;
     return Status::OK();
 }
 
 Status FileResultWriter::_close_file_writer(bool done) {
-    SCOPED_TIMER(_writer_close_timer);
     if (_parquet_writer != nullptr) {
         _parquet_writer->close();
         delete _parquet_writer;
@@ -310,7 +312,13 @@ Status FileResultWriter::_close_file_writer(bool done) {
 }
 
 Status FileResultWriter::close() {
+    // the following 2 profile "_written_rows_counter" and "_writer_close_timer"
+    // must be outside the `_close_file_writer()`.
+    // because `_close_file_writer()` may be called in deconstructor,
+    // at that time, the RuntimeState may already been deconstructed,
+    // so does the profile in RuntimeState.
     COUNTER_SET(_written_rows_counter, _written_rows);
+    SCOPED_TIMER(_writer_close_timer);
     RETURN_IF_ERROR(_close_file_writer(true));
     return Status::OK();
 }
