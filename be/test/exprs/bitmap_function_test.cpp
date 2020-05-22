@@ -175,7 +175,7 @@ TEST_F(BitmapFunctionsTest, bitmap_union) {
 // test bitmap_intersect
 TEST_F(BitmapFunctionsTest, bitmap_intersect) {
     StringVal dst;
-    BitmapFunctions::bitmap_intersect_init_real(ctx, &dst);
+    BitmapFunctions::nullable_bitmap_init(ctx, &dst);
 
     BitmapValue bitmap1(1);
     bitmap1.add(2);
@@ -197,7 +197,7 @@ TEST_F(BitmapFunctionsTest, bitmap_intersect) {
 // test bitmap_intersect with null dst
 TEST_F(BitmapFunctionsTest, bitmap_intersect_empty) {
     StringVal dst;
-    BitmapFunctions::bitmap_intersect_init_real(ctx, &dst);
+    BitmapFunctions::nullable_bitmap_init(ctx, &dst);
 
     StringVal serialized = BitmapFunctions::bitmap_serialize(ctx, dst);
     BigIntVal result = BitmapFunctions::bitmap_count(ctx, serialized);
