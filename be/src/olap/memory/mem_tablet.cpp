@@ -18,7 +18,7 @@
 #include "olap/memory/mem_tablet.h"
 
 #include "olap/memory/mem_sub_tablet.h"
-#include "olap/memory/write_tx.h"
+#include "olap/memory/write_txn.h"
 
 namespace doris {
 namespace memory {
@@ -43,21 +43,17 @@ Status MemTablet::scan(std::unique_ptr<ScanSpec>&& spec, std::unique_ptr<MemTabl
     return Status::NotSupported("scan not supported");
 }
 
-Status MemTablet::create_writetx(std::unique_ptr<WriteTx>* wtx) {
-    wtx->reset(new WriteTx(&_mem_schema));
+Status MemTablet::create_write_txn(std::unique_ptr<WriteTxn>* wtx) {
+    wtx->reset(new WriteTxn(&_mem_schema));
     return Status::OK();
 }
 
-Status MemTablet::commit_writetx(WriteTx* wtx, uint64_t version) {
+Status MemTablet::commit_write_txn(WriteTxn* wtx, uint64_t version) {
     std::lock_guard<std::mutex> lg(_write_lock);
     RETURN_IF_ERROR(_sub_tablet->begin_write(&_mem_schema));
     for (size_t i = 0; i < wtx->batch_size(); i++) {
         auto batch = wtx->get_batch(i);
-        PartialRowReader reader(*batch);
-        for (size_t j = 0; j < reader.size(); j++) {
-            RETURN_IF_ERROR(reader.read(j));
-            RETURN_IF_ERROR(_sub_tablet->apply_partial_row(reader));
-        }
+        RETURN_IF_ERROR(_sub_tablet->apply_partial_row_batch(batch));
     }
     return _sub_tablet->commit_write(version);
 }

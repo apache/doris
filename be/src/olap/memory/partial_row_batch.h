@@ -24,6 +24,7 @@ namespace doris {
 namespace memory {
 
 // A chunk of memory that stores a batch of serialized partial rows
+// User can iterate through all the partial rows, get each partial row's cells.
 //
 // Serialization format for a batch:
 // 4 byte len | serialized partial row
@@ -38,6 +39,21 @@ namespace memory {
 // 8bit padding
 // serialized not null cells
 //
+// Example usage:
+// PartialRowBatch rb(&schema);
+// rb.load(buffer);
+// while (true) {
+//     bool has;
+//     rb.next(&has);
+//     if (!has) break;
+//     for (size_t j=0; j < reader.cell_size(); j++) {
+//         const ColumnSchema* cs = nullptr;
+//         const void* data = nullptr;
+//         // get column cell type and data
+//         rb.get_cell(j, &cs, &data);
+//     }
+// }
+//
 // Note: currently only fixed length column types are supported. All length and scalar types store
 // in native byte order(little endian in x86-64).
 //
@@ -46,87 +62,30 @@ namespace memory {
 // as the project evolves.
 class PartialRowBatch {
 public:
-    static const size_t DEFAULT_BYTE_CAPACITY = 1 << 20;
-    static const size_t DEFAULT_ROW_CAPACIT = 1 << 16;
-
-    PartialRowBatch(scoped_refptr<Schema>* schema, size_t byte_capacity = DEFAULT_BYTE_CAPACITY,
-                    size_t row_capacity = DEFAULT_ROW_CAPACIT);
+    explicit PartialRowBatch(scoped_refptr<Schema>* schema);
     ~PartialRowBatch();
 
     const Schema& schema() const { return *_schema.get(); }
 
-    size_t row_size() const { return _row_offsets.size(); }
-    size_t row_capacity() const { return _row_capacity; }
-    size_t byte_size() const { return _bsize; }
-    size_t byte_capacity() const { return _byte_capacity; }
+    // Load from a serialized buffer
+    Status load(std::vector<uint8_t>&& buffer);
 
-    const uint8_t* get_row(size_t idx) const;
+    // Return row count in this batch
+    size_t row_size() const { return _row_size; }
 
-private:
-    friend class PartialRowWriter;
-    friend class PartialRowReader;
-    scoped_refptr<Schema> _schema;
-    vector<uint32_t> _row_offsets;
-    uint8_t* _data;
-    size_t _bsize;
-    size_t _byte_capacity;
-    size_t _row_capacity;
-};
+    // Iterate to next row, mark has_row to false if there is no more rows
+    Status next_row(bool* has_row);
 
-// Writer for PartialRowBatch
-class PartialRowWriter {
-public:
-    explicit PartialRowWriter(const Schema& schema);
-    ~PartialRowWriter();
-
-    void start_row();
-    Status write_row_to_batch(PartialRowBatch* batch);
-
-    // set cell value by column name
-    // param data's memory must remain valid before calling build
-    Status set(const string& col, const void* data);
-
-    // set cell value by column id
-    // param data's memory must remain valid before calling build
-    Status set(uint32_t cid, const void* data);
-
-    // set this row is delete operation
-    Status set_delete();
-
-private:
-    size_t byte_size() const;
-    Status write(uint8_t** ppos);
-
-    const Schema& _schema;
-    struct CellInfo {
-        CellInfo() = default;
-        uint32_t isset = 0;
-        uint32_t isnullable = 0;
-        const uint8_t* data = nullptr;
-    };
-    vector<CellInfo> _temp_cells;
-    size_t _bit_set_size;
-    size_t _bit_null_size;
-};
-
-// Reader for PartialRowBatch
-class PartialRowReader {
-public:
-    explicit PartialRowReader(const PartialRowBatch& batch);
-    // Return number of row operations
-    size_t size() const { return _batch.row_size(); }
-    // Read row with index idx
-    Status read(size_t idx);
     // Get row operation cell count
-    size_t cell_size() const { return _cells.size(); }
+    size_t cur_row_cell_size() const { return _cells.size(); }
     // Get row operation cell by index idx, return ColumnSchema and data pointer
-    Status get_cell(size_t idx, const ColumnSchema** cs, const void** data) const;
+    Status cur_row_get_cell(size_t idx, const ColumnSchema** cs, const void** data) const;
 
 private:
-    const PartialRowBatch& _batch;
-    const Schema& _schema;
+    scoped_refptr<Schema> _schema;
+
     bool _delete = false;
-    size_t _bit_set_size;
+    size_t _bit_set_size = 0;
     struct CellInfo {
         CellInfo(uint32_t cid, const void* data)
                 : cid(cid), data(reinterpret_cast<const uint8_t*>(data)) {}
@@ -134,7 +93,80 @@ private:
         const uint8_t* data = nullptr;
     };
     vector<CellInfo> _cells;
+
+    size_t _next_row = 0;
+    size_t _row_size = 0;
+    const uint8_t* _pos = nullptr;
+    std::vector<uint8_t> _buffer;
 };
+
+// Writer for PartialRowBatch
 //
+// Example usage:
+// scoped_refptr<Schema> sc;
+// Schema::create("id int,uv int,pv int,city tinyint null", &sc);
+// PartialRowWriter writer(*sc.get());
+// writer.start_batch();
+// for (auto& row : rows) {
+//     writer.start_row();
+//     writer.set("column_name", value);
+//     ...
+//     writer.set(column_id, value);
+//     writer.end_row();
+// }
+// vector<uint8_t> buffer;
+// writer.end_batch(&buffer);
+class PartialRowWriter {
+public:
+    static const size_t DEFAULT_BYTE_CAPACITY = 1 << 20;
+    static const size_t DEFAULT_ROW_CAPACIT = 1 << 16;
+
+    explicit PartialRowWriter(scoped_refptr<Schema>* schema);
+    ~PartialRowWriter();
+
+    Status start_batch(size_t row_capacity = DEFAULT_ROW_CAPACIT,
+                       size_t byte_capacity = DEFAULT_BYTE_CAPACITY);
+
+    // Start writing a new row
+    Status start_row();
+
+    // Set cell value by column name
+    // param data's memory must remain valid before calling build
+    Status set(const string& col, const void* data);
+
+    // Set cell value by column id
+    // param data's memory must remain valid before calling build
+    Status set(uint32_t cid, const void* data);
+
+    // set this row is delete operation
+    Status set_delete();
+
+    // Finish writing a row
+    Status end_row();
+
+    // Finish writing the whole ParitialRowBatch, return a serialized buffer
+    Status finish_batch(vector<uint8_t>* buffer);
+
+private:
+    Status set(const ColumnSchema* cs, uint32_t cid, const void* data);
+    size_t byte_size() const;
+    Status write(uint8_t** ppos);
+
+    scoped_refptr<Schema> _schema;
+    struct CellInfo {
+        CellInfo() = default;
+        uint32_t isset = 0;
+        uint32_t isnullable = 0;
+        const uint8_t* data = nullptr;
+    };
+    vector<CellInfo> _temp_cells;
+    size_t _bit_set_size = 0;
+    size_t _bit_null_size = 0;
+    size_t _row_size = 0;
+    size_t _row_capacity = 0;
+
+    std::vector<uint8_t> _buffer;
+};
+
 } // namespace memory
 } // namespace doris

@@ -32,5 +32,5 @@ add_library(Memory STATIC
     mem_sub_tablet.cpp
     partial_row_batch.cpp
     schema.cpp
-    write_tx.cpp
+    write_txn.cpp
 )

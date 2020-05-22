@@ -15,21 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/memory/write_tx.h"
+#include "olap/memory/write_txn.h"
 
 namespace doris {
 namespace memory {
 
-WriteTx::WriteTx(scoped_refptr<Schema>* schema) : _schema(schema->get()) {}
+WriteTxn::WriteTxn(scoped_refptr<Schema>* schema) : _schema(schema->get()) {}
 
-WriteTx::~WriteTx() {}
+WriteTxn::~WriteTxn() {}
 
-PartialRowBatch* WriteTx::new_batch() {
+PartialRowBatch* WriteTxn::new_batch() {
     _batches.emplace_back(new PartialRowBatch(&_schema));
     return _batches.back().get();
 }
 
-const PartialRowBatch* WriteTx::get_batch(size_t idx) const {
+PartialRowBatch* WriteTxn::get_batch(size_t idx) const {
     return _batches[idx].get();
 }
 

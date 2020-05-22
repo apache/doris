@@ -25,13 +25,32 @@ namespace memory {
 
 class HashIndex;
 class ColumnReader;
-class PartialRowReader;
+class PartialRowBatch;
 class Column;
 class ColumnWriter;
 
 // A MemTablet can contain multiple MemSubTablets (currently only one).
 // MemSubTablet hold a HashIndex and a collection of columns.
 // It supports single-writer multi-reader concurrently.
+//
+// Example read usage:
+// std::unique_ptr<ColumnReader> reader;
+// sub_tablet->read_column(version, cid, &reader);
+// // read(scan/get) cells using reader
+//
+// Example write usage:
+// WrintTxn* wtx;
+// MemSubTablet* sub_tablet;
+// sub_tablet->begin_write(current_schema);
+// for (size_t i = 0; i < wtx->batch_size(); i++) {
+//     auto batch = wtx->get_batch(i);
+//     PartialRowReader reader(*batch);
+//     for (size_t j = 0; j < reader.size(); j++) {
+//         RETURN_IF_ERROR(reader.read(j));
+//         RETURN_IF_ERROR(_sub_tablet->apply_partial_row(reader));
+//     }
+// }
+// sub_tablet->commit_write(version);
 class MemSubTablet {
 public:
     // Create a new empty MemSubTablet, with specified schema and initial version
@@ -58,7 +77,7 @@ public:
     Status begin_write(scoped_refptr<Schema>* schema);
 
     // Apply a partial row to this MemSubTablet
-    Status apply_partial_row(const PartialRowReader& row);
+    Status apply_partial_row_batch(PartialRowBatch* batch);
 
     // Finalize the whole write batch, with specified version
     Status commit_write(uint64_t version);
@@ -66,6 +85,7 @@ public:
 private:
     MemSubTablet();
     scoped_refptr<HashIndex> rebuild_hash_index(size_t new_capacity);
+    Status apply_partial_row(const PartialRowBatch& row);
 
     mutable std::mutex _lock;
     scoped_refptr<HashIndex> _index;

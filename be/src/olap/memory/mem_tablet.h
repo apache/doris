@@ -26,7 +26,7 @@ namespace memory {
 class MemSubTablet;
 class ScanSpec;
 class MemTabletScan;
-class WriteTx;
+class WriteTxn;
 
 // Tablet class for memory-optimized storage engine.
 //
@@ -62,12 +62,12 @@ public:
     // Create a write transaction
     //
     // Note: Thread-safe, can have multiple writetx at the same time.
-    Status create_writetx(std::unique_ptr<WriteTx>* wtx);
+    Status create_write_txn(std::unique_ptr<WriteTxn>* wtx);
 
     // Apply a write transaction and commit as the specified version
     //
     // Note: commit is done sequentially, protected by internal write lock
-    Status commit_writetx(WriteTx* wtx, uint64_t version);
+    Status commit_write_txn(WriteTxn* wtx, uint64_t version);
 
 private:
     // memory::Schema is used internally rather than TabletSchema, so we need an extra

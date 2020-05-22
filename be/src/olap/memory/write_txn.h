@@ -33,10 +33,10 @@ class PartialRowBatch;
 // change as the project evolves.
 //
 // TODO: add write to/load from WritexTx files in future.
-class WriteTx {
+class WriteTxn {
 public:
-    explicit WriteTx(scoped_refptr<Schema>* schema);
-    ~WriteTx();
+    explicit WriteTxn(scoped_refptr<Schema>* schema);
+    ~WriteTxn();
 
     const Schema& schema() const { return *_schema.get(); }
 
@@ -44,7 +44,7 @@ public:
     size_t batch_size() const { return _batches.size(); }
 
     // Get batch by index
-    const PartialRowBatch* get_batch(size_t idx) const;
+    PartialRowBatch* get_batch(size_t idx) const;
 
     // Add a new batch to this WriteTx
     PartialRowBatch* new_batch();

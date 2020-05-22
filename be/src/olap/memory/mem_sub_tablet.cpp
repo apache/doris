@@ -112,13 +112,25 @@ Status MemSubTablet::begin_write(scoped_refptr<Schema>* schema) {
     return Status::OK();
 }
 
-Status MemSubTablet::apply_partial_row(const PartialRowReader& row) {
-    DCHECK_GE(row.cell_size(), 1);
+Status MemSubTablet::apply_partial_row_batch(PartialRowBatch* batch) {
+    while (true) {
+        bool has_row = false;
+        RETURN_IF_ERROR(batch->next_row(&has_row));
+        if (!has_row) {
+            break;
+        }
+        RETURN_IF_ERROR(apply_partial_row(*batch));
+    }
+    return Status::OK();
+}
+
+Status MemSubTablet::apply_partial_row(const PartialRowBatch& row) {
+    DCHECK_GE(row.cur_row_cell_size(), 1);
     const ColumnSchema* dsc;
     const void* key;
     // get key column and find in hash index
     // TODO: support multi-column row key
-    row.get_cell(0, &dsc, &key);
+    row.cur_row_get_cell(0, &dsc, &key);
     ColumnWriter* keyw = _writers[1].get();
     // find candidate rowids, and check equality
     uint64_t hashcode = keyw->hashcode(key, 0);
@@ -138,9 +150,9 @@ Status MemSubTablet::apply_partial_row(const PartialRowReader& row) {
         rid = _row_size;
         // add all columns
         //DLOG(INFO) << StringPrintf"insert rid=%u", rid);
-        for (size_t i = 0; i < row.cell_size(); i++) {
+        for (size_t i = 0; i < row.cur_row_cell_size(); i++) {
             const void* data;
-            RETURN_IF_ERROR(row.get_cell(i, &dsc, &data));
+            RETURN_IF_ERROR(row.cur_row_get_cell(i, &dsc, &data));
             uint32_t cid = dsc->cid();
             if (!_writers[cid]) {
                 RETURN_IF_ERROR(_columns[cid]->create_writer(&_writers[cid]));
@@ -166,11 +178,11 @@ Status MemSubTablet::apply_partial_row(const PartialRowReader& row) {
     } else {
         // rowkey found, do update
         _num_update++;
-        _num_update_cell += row.cell_size() - 1;
+        _num_update_cell += row.cur_row_cell_size() - 1;
         // add non-key columns
-        for (size_t i = 1; i < row.cell_size(); i++) {
+        for (size_t i = 1; i < row.cur_row_cell_size(); i++) {
             const void* data;
-            RETURN_IF_ERROR(row.get_cell(i, &dsc, &data));
+            RETURN_IF_ERROR(row.cur_row_get_cell(i, &dsc, &data));
             uint32_t cid = dsc->cid();
             if (cid > _schema->num_key_columns()) {
                 if (!_writers[cid]) {
@@ -205,7 +217,7 @@ Status MemSubTablet::commit_write(uint64_t version) {
     }
     _write_index.reset();
     _writers.clear();
-    LOG(INFO) << StringPrintf("commit writex(insert=%zu update=%zu update_cell=%zu) %.3lfs",
+    LOG(INFO) << StringPrintf("commit writetxn(insert=%zu update=%zu update_cell=%zu) %.3lfs",
                               _num_insert, _num_update, _num_update_cell,
                               GetMonoTimeSecondsAsDouble() - _write_start);
     return Status::OK();
