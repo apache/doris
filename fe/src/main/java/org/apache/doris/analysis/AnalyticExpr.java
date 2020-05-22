@@ -567,20 +567,19 @@ public class AnalyticExpr extends Expr {
                 Preconditions.checkState(getFnCall().getChildren().size() == 3);
             }
 
-            Type type = getFnCall().getChildren().get(2).getType();
+            Expr defaultExpr = getFnCall().getChildren().get(2);
+            Type SlotType = getFnCall().getChildren().get(0).getType();
 
-            try {
-                getFnCall().uncheckedCastChild(getFnCall().getChildren().get(0).getType(), 2);
-            }  catch (Exception e) {
-                LOG.warn("" , e);
-                throw new AnalysisException("Convert type error in offset fn(defalut value); old_type="
-                                            + getFnCall().getChildren().get(2).getType() + " new_type="
-                                            + getFnCall().getChildren().get(0).getType()) ;
-            }
-
-            if (getFnCall().getChildren().get(2) instanceof CastExpr) {
-                throw new AnalysisException("Type = " + type + " can't not convert to "
-                                            + getFnCall().getChildren().get(0).getType());
+            if (! ((defaultExpr instanceof LiteralExpr)
+                    && (defaultExpr.getType().matchesType(SlotType))) ) {
+                try {
+                    getFnCall().uncheckedCastChild(getFnCall().getChildren().get(0).getType(), 2);
+                } catch (Exception e) {
+                    LOG.warn("", e);
+                    throw new AnalysisException("Convert type error in offset fn(defalut value); old_type="
+                            + getFnCall().getChildren().get(2).getType() + " new_type="
+                            + getFnCall().getChildren().get(0).getType());
+                }
             }
 
             // check the value whether out of range

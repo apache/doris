@@ -111,6 +111,7 @@ public abstract class Type {
         supportedTypes.add(LARGEINT);
         supportedTypes.add(FLOAT);
         supportedTypes.add(DOUBLE);
+        supportedTypes.add(DECIMALV2);
         supportedTypes.add(VARCHAR);
         supportedTypes.add(HLL);
         supportedTypes.add(BITMAP);
@@ -118,7 +119,6 @@ public abstract class Type {
         supportedTypes.add(DATE);
         supportedTypes.add(DATETIME);
         supportedTypes.add(DECIMAL);
-        supportedTypes.add(DECIMALV2);
         supportedTypes.add(TIME);
     }
 
