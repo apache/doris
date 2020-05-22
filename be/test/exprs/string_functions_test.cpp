@@ -68,9 +68,6 @@ TEST_F(StringFunctionsTest, money_format_large_int) {
     ss << str;
     __int128 value;
     ss >> value;
-
-    std::cout << "value: " << value << std::endl;
-
     StringVal result = StringFunctions::money_format(context, doris_udf::LargeIntVal(value));
     StringVal expected = AnyValUtil::from_string_temp(context, std::string("170,141,183,460,469,231,731,687,303,715,884,105,727.00"));
     ASSERT_EQ(expected, result);
@@ -361,6 +358,92 @@ TEST_F(StringFunctionsTest, append_trailing_char_if_absent) {
             StringVal("a"), StringVal("abc")));
 }
 
+TEST_F(StringFunctionsTest, instr) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    ASSERT_EQ(IntVal(4), StringFunctions::instr(context, StringVal("foobarbar"), StringVal("bar")));
+    ASSERT_EQ(IntVal(0), StringFunctions::instr(context, StringVal("foobar"), StringVal("xbar")));
+    ASSERT_EQ(IntVal(2), StringFunctions::instr(context, StringVal("123456234"), StringVal("234")));
+    ASSERT_EQ(IntVal(0), StringFunctions::instr(context, StringVal("123456"), StringVal("567")));
+    ASSERT_EQ(IntVal(2), StringFunctions::instr(context, StringVal("1.234"), StringVal(".234")));
+    ASSERT_EQ(IntVal(1), StringFunctions::instr(context, StringVal("1.234"), StringVal("")));
+    ASSERT_EQ(IntVal(0), StringFunctions::instr(context, StringVal(""), StringVal("123")));
+    ASSERT_EQ(IntVal(1), StringFunctions::instr(context, StringVal(""), StringVal("")));
+    ASSERT_EQ(IntVal(3), StringFunctions::instr(context, StringVal("你好世界"), StringVal("世界")));
+    ASSERT_EQ(IntVal(0), StringFunctions::instr(context, StringVal("你好世界"), StringVal("您好")));
+    ASSERT_EQ(IntVal(3), StringFunctions::instr(context, StringVal("你好abc"), StringVal("a")));
+    ASSERT_EQ(IntVal(3), StringFunctions::instr(context, StringVal("你好abc"), StringVal("abc")));
+    ASSERT_EQ(IntVal::null(), StringFunctions::instr(context, StringVal::null(), StringVal("2")));
+    ASSERT_EQ(IntVal::null(), StringFunctions::instr(context, StringVal(""), StringVal::null()));
+    ASSERT_EQ(IntVal::null(), StringFunctions::instr(context, StringVal::null(), StringVal::null()));
+}
+
+TEST_F(StringFunctionsTest, locate) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    ASSERT_EQ(IntVal(4), StringFunctions::locate(context, StringVal("bar"), StringVal("foobarbar")));
+    ASSERT_EQ(IntVal(0), StringFunctions::locate(context, StringVal("xbar"), StringVal("foobar")));
+    ASSERT_EQ(IntVal(2), StringFunctions::locate(context, StringVal("234"), StringVal("123456234")));
+    ASSERT_EQ(IntVal(0), StringFunctions::locate(context, StringVal("567"), StringVal("123456")));
+    ASSERT_EQ(IntVal(2), StringFunctions::locate(context, StringVal(".234"), StringVal("1.234")));
+    ASSERT_EQ(IntVal(1), StringFunctions::locate(context, StringVal(""), StringVal("1.234")));
+    ASSERT_EQ(IntVal(0), StringFunctions::locate(context, StringVal("123"), StringVal("")));
+    ASSERT_EQ(IntVal(1), StringFunctions::locate(context, StringVal(""), StringVal("")));
+    ASSERT_EQ(IntVal(3), StringFunctions::locate(context, StringVal("世界"), StringVal("你好世界")));
+    ASSERT_EQ(IntVal(0), StringFunctions::locate(context, StringVal("您好"), StringVal("你好世界")));
+    ASSERT_EQ(IntVal(3), StringFunctions::locate(context, StringVal("a"), StringVal("你好abc")));
+    ASSERT_EQ(IntVal(3), StringFunctions::locate(context, StringVal("abc"), StringVal("你好abc")));
+    ASSERT_EQ(IntVal::null(), StringFunctions::locate(context, StringVal::null(), StringVal("2")));
+    ASSERT_EQ(IntVal::null(), StringFunctions::locate(context, StringVal(""), StringVal::null()));
+    ASSERT_EQ(IntVal::null(), StringFunctions::locate(context, StringVal::null(), StringVal::null()));
+}
+
+TEST_F(StringFunctionsTest, locate_pos) {
+    doris_udf::FunctionContext* context = new doris_udf::FunctionContext();
+    ASSERT_EQ(IntVal(7), StringFunctions::locate_pos(context, StringVal("bar"), StringVal("foobarbar"), IntVal(5)));
+    ASSERT_EQ(IntVal(0), StringFunctions::locate_pos(context, StringVal("xbar"), StringVal("foobar"), IntVal(1)));
+    ASSERT_EQ(IntVal(2), StringFunctions::locate_pos(context, StringVal(""), StringVal("foobar"), IntVal(2)));
+    ASSERT_EQ(IntVal(0), StringFunctions::locate_pos(context, StringVal("foobar"), StringVal(""), IntVal(1)));
+    ASSERT_EQ(IntVal(0), StringFunctions::locate_pos(context, StringVal(""), StringVal(""), IntVal(2)));
+    ASSERT_EQ(IntVal(0), StringFunctions::locate_pos(context, StringVal("A"), StringVal("AAAAAA"), IntVal(0)));
+    ASSERT_EQ(IntVal(0), StringFunctions::locate_pos(context, StringVal("A"), StringVal("大A写的A"), IntVal(0)));
+    ASSERT_EQ(IntVal(2), StringFunctions::locate_pos(context, StringVal("A"), StringVal("大A写的A"), IntVal(1)));
+    ASSERT_EQ(IntVal(2), StringFunctions::locate_pos(context, StringVal("A"), StringVal("大A写的A"), IntVal(2)));
+    ASSERT_EQ(IntVal(5), StringFunctions::locate_pos(context, StringVal("A"), StringVal("大A写的A"), IntVal(3)));
+    ASSERT_EQ(IntVal(7), StringFunctions::locate_pos(context, StringVal("BaR"), StringVal("foobarBaR"), IntVal(5)));
+    ASSERT_EQ(IntVal::null(), StringFunctions::locate_pos(context, StringVal::null(), StringVal("2"), IntVal(1)));
+    ASSERT_EQ(IntVal::null(), StringFunctions::locate_pos(context, StringVal(""), StringVal::null(), IntVal(4)));
+    ASSERT_EQ(IntVal::null(), StringFunctions::locate_pos(context, StringVal::null(), StringVal::null(), IntVal(4)));
+    ASSERT_EQ(IntVal::null(), StringFunctions::locate_pos(context, StringVal::null(), StringVal::null(), IntVal(-1)));
+}
+
+TEST_F(StringFunctionsTest, lpad) {
+    ASSERT_EQ(StringVal("???hi"), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(5), StringVal("?")));
+    ASSERT_EQ(StringVal("g8%7IgY%AHx7luNtf8Kh"), StringFunctions::lpad(ctx, StringVal("g8%7IgY%AHx7luNtf8Kh"), IntVal(20), StringVal("")));
+    ASSERT_EQ(StringVal("h"), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal("你"), StringFunctions::lpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal(""), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));
+    ASSERT_EQ(StringVal::null(), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(-1), StringVal("?")));
+    ASSERT_EQ(StringVal("h"), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(1), StringVal("")));
+    ASSERT_EQ(StringVal::null(), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(5), StringVal("")));
+    ASSERT_EQ(StringVal("abahi"), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(5), StringVal("ab")));
+    ASSERT_EQ(StringVal("ababhi"), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(6), StringVal("ab")));
+    ASSERT_EQ(StringVal("呵呵呵hi"), StringFunctions::lpad(ctx, StringVal("hi"), IntVal(5), StringVal("呵呵")));
+    ASSERT_EQ(StringVal("hih呵呵"), StringFunctions::lpad(ctx, StringVal("呵呵"), IntVal(5), StringVal("hi")));
+}
+
+TEST_F(StringFunctionsTest, rpad) {
+    ASSERT_EQ(StringVal("hi???"), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(5), StringVal("?")));
+    ASSERT_EQ(StringVal("g8%7IgY%AHx7luNtf8Kh"), StringFunctions::rpad(ctx, StringVal("g8%7IgY%AHx7luNtf8Kh"), IntVal(20), StringVal(""))); 
+    ASSERT_EQ(StringVal("h"), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal("你"), StringFunctions::rpad(ctx, StringVal("你好"), IntVal(1), StringVal("?")));
+    ASSERT_EQ(StringVal(""), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(0), StringVal("?")));
+    ASSERT_EQ(StringVal::null(), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(-1), StringVal("?")));
+    ASSERT_EQ(StringVal("h"), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(1), StringVal("")));
+    ASSERT_EQ(StringVal::null(), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(5), StringVal("")));
+    ASSERT_EQ(StringVal("hiaba"), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(5), StringVal("ab")));
+    ASSERT_EQ(StringVal("hiabab"), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(6), StringVal("ab")));
+    ASSERT_EQ(StringVal("hi呵呵呵"), StringFunctions::rpad(ctx, StringVal("hi"), IntVal(5), StringVal("呵呵")));
+    ASSERT_EQ(StringVal("呵呵hih"), StringFunctions::rpad(ctx, StringVal("呵呵"), IntVal(5), StringVal("hi")));
+}
 }
 
 int main(int argc, char** argv) {
