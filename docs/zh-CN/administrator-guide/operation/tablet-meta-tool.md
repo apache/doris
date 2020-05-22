@@ -93,13 +93,38 @@ api：
 
 ### 删除 header
 
-为了实现从某个 be 的某个盘中删除某个 tablet 的功能。
+为了实现从某个 be 的某个盘中删除某个 tablet 元数据的功能。可以单独删除一个 tablet 的元数据，或者批量删除一组 tablet 的元数据。
 
-命令:
+删除单个tablet元数据：
 
 ```
 ./lib/meta_tool --operation=delete_meta --root_path=/path/to/root_path --tablet_id=xxx --schema_hash=xxx
 ```
+
+删除一组tablet元数据：
+
+```
+./lib/meta_tool --operation=batch_delete_meta --tablet_file=/path/to/tablet_file.txt
+```
+
+其中 `tablet_file.txt` 中的每一行表示一个 tablet 的信息。格式为：
+
+`root_path,tablet_id,schema_hash`
+
+每一行各个列用逗号分隔。
+
+`tablet_file` 文件示例：
+
+```
+/output/be/data/,14217,352781111
+/output/be/data/,14219,352781111
+/output/be/data/,14223,352781111
+/output/be/data/,14227,352781111
+/output/be/data/,14233,352781111
+/output/be/data/,14239,352781111
+```
+
+批量删除会跳过 `tablet_file` 中 tablet 信息格式不正确的行。并在执行完成后，显示成功删除的数量和错误数量。
 
 ### 展示 pb 格式的 TabletMeta
 
