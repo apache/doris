@@ -97,7 +97,7 @@ Status FileResultWriter::_create_file_writer() {
 // file name format as: my_prefix_0.csv
 std::string FileResultWriter::_get_next_file_name() {
     std::stringstream ss;
-    ss << _file_opts->file_path << "_" << (_file_idx++) << "." << _file_format_to_name();
+    ss << _file_opts->file_path << (_file_idx++) << "." << _file_format_to_name();
     return ss.str();
 }
 

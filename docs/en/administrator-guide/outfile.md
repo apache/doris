@@ -43,9 +43,9 @@ WITH BROKER `broker_name`
 
 * `file_path`
 
-    `file_path` specify the file path and file name prefix. Like: `hdfs://path/to/my_file`.
+    `file_path` specify the file path and file name prefix. Like: `hdfs://path/to/my_file_`.
     
-    The final file name will be assembled as `my_file`, file seq no and the format suffix. File seq no starts from 0, determined by the number of split.
+    The final file name will be assembled as `my_file_`, file seq no and the format suffix. File seq no starts from 0, determined by the number of split.
     
     ```
     my_file_0.csv
@@ -61,25 +61,27 @@ WITH BROKER `broker_name`
     
     Specify the export format. The default is CSV.
 
-* `[broker_properties]`
+* `[properties]`
+
+    Specify the relevant attributes. Currently only export through Broker process is supported. Broker related attributes need to be prefixed with `broker.`. For details, please refer to [Broker](./broker.html).
 
     ```
-    ("broker_prop_key" = "broker_prop_val", ...)
-    ``` 
+    PROPERTIES
+    ("broker.prop_key" = "broker.prop_val", ...)
+    ```
 
-    Broker related parameters, such as HDFS authentication information. See [Broker](./broker.html)。
-
-* `[other_properties]`
+    Other properties
 
     ```
+    PROPERTIELS
     ("key1" = "val1", "key2" = "val2", ...)
     ```
 
-    Other properties, currently supports the following properties:
+    currently supports the following properties:
 
     * `column_separator`: Column separator, only applicable to CSV format. The default is `\t`.
     * `line_delimiter`: Line delimiter, only applicable to CSV format. The default is `\n`.
-    * `max_file_size_bytes`：The max size of a single file. Default is 1GB. Range from 5MB to 2GB. Files exceeding this size will be splitted.
+    * `max_file_size`：The max size of a single file. Default is 1GB. Range from 5MB to 2GB. Files exceeding this size will be splitted.
 
 1. Example 1
 
@@ -87,19 +89,17 @@ WITH BROKER `broker_name`
     
     ```
     SELECT * FROM tbl
-    INTO OUTFILE "hdfs:/path/to/result.txt"
+    INTO OUTFILE "hdfs:/path/to/result_"
     FORMAT AS CSV
-    WITH BROKER "my_broker"
-    (
-        "hadoop.security.authentication" = "kerberos",
-        "kerberos_principal" = "doris@YOUR.COM",
-        "kerberos_keytab" = "/home/doris/my.keytab"
-    )
     PROPERTIELS
     (
+        "broker.name" = "my_broker",
+        "broker.hadoop.security.authentication" = "kerberos",
+        "broker.kerberos_principal" = "doris@YOUR.COM",
+        "broker.kerberos_keytab" = "/home/doris/my.keytab"
         "column_separator" = ",",
         "line_delimiter" = "\n",
-        "max_file_size_bytes" = "100MB"
+        "max_file_size" = "100MB"
     );
     ```
     
@@ -118,16 +118,17 @@ WITH BROKER `broker_name`
     x2 AS
     (SELECT k3 FROM tbl2)
     SELEC k1 FROM x1 UNION SELECT k3 FROM x2
-    INTO OUTFILE "hdfs:/path/to/result.txt"
-    WITH BROKER "my_broker"
+    INTO OUTFILE "hdfs:/path/to/result_"
+    PROPERTIELS
     (
-        "username"="user",
-        "password"="passwd",
-        "dfs.nameservices" = "my_ha",
-        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
-        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_port",
-        "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+        "broker.name" = "my_broker",
+        "broker.username"="user",
+        "broker.password"="passwd",
+        "broker.dfs.nameservices" = "my_ha",
+        "broker.dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
+        "broker.dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
+        "broker.dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_port",
+        "broker.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
     );
     ```
     
@@ -141,14 +142,15 @@ WITH BROKER `broker_name`
     
     ```
     SELECT k1 FROM tbl1 UNION SELECT k2 FROM tbl1
-    INTO OUTFILE "bos://bucket/result.parquet"
+    INTO OUTFILE "bos://bucket/result_"
     FORMAT AS PARQUET
-    WITH BROKER "my_broker"
+    PROPERTIELS
     (
-        "bos_endpoint" = "http://bj.bcebos.com",
-        "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
-    )
+        "broker.name" = "my_broker",
+        "broker.bos_endpoint" = "http://bj.bcebos.com",
+        "broker.bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
+    );
     ```
     
     If the result is less than 1GB, file will be: `result_0.parquet`.
@@ -181,4 +183,4 @@ mysql> SELECT * FROM tbl INTO OUTFILE ...                                       
 * If an error occurs during the export process, the exported file may remain on the remote storage system. Doris will not clean these files. The user needs to manually clean up.
 * The timeout of the export command is the same as the timeout of the query. It can be set by `SET query_timeout = xxx`.
 * For empty result query, there will be an empty file.
-* File spliting will ensure that a row of data is stored in a single file. Therefore, the size of the file is not strictly equal to `max_file_size_bytes`.
+* File spliting will ensure that a row of data is stored in a single file. Therefore, the size of the file is not strictly equal to `max_file_size`.

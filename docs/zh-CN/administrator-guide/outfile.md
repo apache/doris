@@ -36,16 +36,14 @@ under the License.
 query_stmt
 INTO OUTFILE "file_path"
 [format_as]
-WITH BROKER `broker_name`
-[broker_properties]
-[other_properties]
+[properties]
 ```
 
 * `file_path`
 
-    `file_path` 指向文件存储的路径以及文件前缀。如 `hdfs://path/to/my_file`。
+    `file_path` 指向文件存储的路径以及文件前缀。如 `hdfs://path/to/my_file_`。
     
-    最终的文件名将由 `my_file`，文件序号以及文件格式后缀组成。其中文件序号由0开始，数量为文件被分割的数量。如：
+    最终的文件名将由 `my_file_`，文件序号以及文件格式后缀组成。其中文件序号由0开始，数量为文件被分割的数量。如：
     
     ```
     my_file_0.csv
@@ -61,25 +59,26 @@ WITH BROKER `broker_name`
     
     指定导出格式。默认为 CSV。
 
-* `[broker_properties]`
+
+* `[properties]`
+
+    指定相关属性。目前仅支持通过 Broker 进程进行导出。Broker 相关属性需加前缀 `broker.`。具体参阅[Broker 文档](./broker.html)。
 
     ```
-    ("broker_prop_key" = "broker_prop_val", ...)
+    ("broker.prop_key" = "broker.prop_val", ...)
     ``` 
 
-    Broker 相关的一些参数，如 HDFS 的 认证信息等。具体参阅[Broker 文档](./broker.html)。
-
-* `[other_properties]`
+    其他属性：
 
     ```
     ("key1" = "val1", "key2" = "val2", ...)
     ```
 
-    其他属性，目前支持以下属性：
+    目前支持以下属性：
 
     * `column_separator`：列分隔符，仅对 CSV 格式适用。默认为 `\t`。
     * `line_delimiter`：行分隔符，仅对 CSV 格式适用。默认为 `\n`。
-    * `max_file_size_bytes`：单个文件的最大大小。默认为 1GB。取值范围在 5MB 到 2GB 之间。超过这个大小的文件将会被切分。
+    * `max_file_size`：单个文件的最大大小。默认为 1GB。取值范围在 5MB 到 2GB 之间。超过这个大小的文件将会被切分。
 
 1. 示例1
 
@@ -87,19 +86,17 @@ WITH BROKER `broker_name`
 
     ```
     SELECT * FROM tbl
-    INTO OUTFILE "hdfs:/path/to/result"
+    INTO OUTFILE "hdfs:/path/to/result_"
     FORMAT AS CSV
-    WITH BROKER "my_broker"
-    (
-        "hadoop.security.authentication" = "kerberos",
-        "kerberos_principal" = "doris@YOUR.COM",
-        "kerberos_keytab" = "/home/doris/my.keytab"
-    )
     PROPERTIELS
     (
+        "broker.name" = "my_broker",
+        "broker.hadoop.security.authentication" = "kerberos",
+        "broker.kerberos_principal" = "doris@YOUR.COM",
+        "broker.kerberos_keytab" = "/home/doris/my.keytab"
         "column_separator" = ",",
         "line_delimiter" = "\n",
-        "max_file_size_bytes" = "100MB"
+        "max_file_size" = "100MB"
     );
     ```
     
@@ -118,16 +115,17 @@ WITH BROKER `broker_name`
     x2 AS
     (SELECT k3 FROM tbl2)
     SELEC k1 FROM x1 UNION SELECT k3 FROM x2
-    INTO OUTFILE "hdfs:/path/to/result.txt"
-    WITH BROKER "my_broker"
+    INTO OUTFILE "hdfs:/path/to/result_"
+    PROPERTIELS
     (
-        "username"="user",
-        "password"="passwd",
-        "dfs.nameservices" = "my_ha",
-        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
-        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
-        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_port",
-        "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+        "broker.name" = "my_broker",
+        "broker.username"="user",
+        "broker.password"="passwd",
+        "broker.dfs.nameservices" = "my_ha",
+        "broker.dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
+        "broker.dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
+        "broker.dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_port",
+        "broker.dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
     );
     ```
     
@@ -141,14 +139,15 @@ WITH BROKER `broker_name`
     
     ```
     SELECT k1 FROM tbl1 UNION SELECT k2 FROM tbl1
-    INTO OUTFILE "bos://bucket/result.txt"
+    INTO OUTFILE "bos://bucket/result_"
     FORMAT AS PARQUET
-    WITH BROKER "my_broker"
+    PROPERTIELS
     (
-        "bos_endpoint" = "http://bj.bcebos.com",
-        "bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
-        "bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
-    )
+        "broker.name" = "my_broker",
+        "broker.bos_endpoint" = "http://bj.bcebos.com",
+        "broker.bos_accesskey" = "xxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "broker.bos_secret_accesskey" = "yyyyyyyyyyyyyyyyyyyyyyyyyy"
+    );
     ```
     
     最终生成文件如如果不大于 1GB，则为：`result_0.parquet`。
@@ -180,4 +179,4 @@ mysql> SELECT * FROM tbl INTO OUTFILE ...                                       
 * 如果在导出过程中出现错误，可能会有导出文件残留在远端存储系统上。Doris 不会清理这些文件。需要用户手动清理。
 * 导出命令的超时时间同查询的超时时间。可以通过 `SET query_timeout=xxx` 进行设置。
 * 对于结果集为空的查询，依然会产生一个大小为0的文件。
-* 文件切分会保证一行数据完整的存储在单一文件中。因此文件的大小并不严格等于 `max_file_size_bytes`。
+* 文件切分会保证一行数据完整的存储在单一文件中。因此文件的大小并不严格等于 `max_file_size`。

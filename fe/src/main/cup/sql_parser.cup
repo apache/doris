@@ -2491,9 +2491,9 @@ opt_outfile ::=
     {:
         RESULT = null;
     :}
-    | KW_INTO KW_OUTFILE STRING_LITERAL:file opt_file_format:fileFormat opt_broker:broker opt_properties:properties
+    | KW_INTO KW_OUTFILE STRING_LITERAL:file opt_file_format:fileFormat opt_properties:properties
     {:
-        RESULT = new OutFileClause(file, fileFormat, broker, properties);
+        RESULT = new OutFileClause(file, fileFormat, properties);
     :}
     ;
 
