@@ -187,7 +187,7 @@ public class TransactionState implements Writable {
     // this state need not to be serialized
     private Map<Long, PublishVersionTask> publishVersionTasks;
     private boolean hasSendTask;
-    private long publishVersionTime;
+    private long publishVersionTime = -1;
     private TransactionStatus preStatus = null;
     
     private long callbackId = -1;
@@ -205,6 +205,11 @@ public class TransactionState implements Writable {
     private Map<Long, Set<Long>> loadedTblIndexes = Maps.newHashMap();
 
     private String errorLogUrl = null;
+
+    // record some error msgs during the transaction operation.
+    // this msg will be shown in show proc "/transactions/dbId/";
+    // no need to persist.
+    private String errMsg = "";
 
     public TransactionState() {
         this.dbId = -1;
@@ -645,5 +650,17 @@ public class TransactionState implements Writable {
                 tableIdList.add(in.readLong());
             }
         }
+    }
+
+    public void setErrorMsg(String errMsg) {
+        this.errMsg = errMsg;
+    }
+
+    public void clearErrorMsg() {
+        this.errMsg = "";
+    }
+
+    public String getErrMsg() {
+        return this.errMsg;
     }
 }

@@ -17,13 +17,6 @@
 
 package org.apache.doris.transaction;
 
-import com.google.common.annotations.VisibleForTesting;
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -44,9 +37,9 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -59,6 +52,15 @@ import org.apache.doris.task.ClearTransactionTask;
 import org.apache.doris.task.PublishVersionTask;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TUniqueId;
+
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -231,11 +233,13 @@ public class DatabaseTransactionMgr {
         info.add(txnState.getSourceType().name());
         info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
         info.add(TimeUtils.longToTimeString(txnState.getCommitTime()));
+        info.add(TimeUtils.longToTimeString(txnState.getPublishVersionTime()));
         info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
         info.add(txnState.getReason());
         info.add(String.valueOf(txnState.getErrorReplicas().size()));
         info.add(String.valueOf(txnState.getCallbackId()));
         info.add(String.valueOf(txnState.getTimeoutMs()));
+        info.add(txnState.getErrMsg());
     }
 
     public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,
@@ -579,8 +583,8 @@ public class DatabaseTransactionMgr {
     }
 
     public List<TransactionState> getCommittedTxnList() {
+        readLock();
         try {
-            readLock();
             // only send task to committed transaction
             return idToRunningTransactionState.values().stream()
                     .filter(transactionState -> (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED))
@@ -653,6 +657,9 @@ public class DatabaseTransactionMgr {
                                 transactionId,
                                 partitionCommitInfo.getVersion(),
                                 partition.getVisibleVersion());
+                        String errMsg = String.format("wait for publishing partition %d version %d. self version: %d. table %d",
+                                partitionId, partition.getVisibleVersion() + 1, partitionCommitInfo.getVersion(), tableId);
+                        transactionState.setErrorMsg(errMsg);
                         return;
                     }
                     int quorumReplicaNum = partitionInfo.getReplicationNum(partitionId) / 2 + 1;
@@ -721,8 +728,12 @@ public class DatabaseTransactionMgr {
                             }
 
                             if (healthReplicaNum < quorumReplicaNum) {
-                                LOG.info("publish version failed for transaction {} on tablet {},  with only {} replicas less than quorum {}",
+                                LOG.info("publish version failed for transaction {} on tablet {}, with only {} replicas less than quorum {}",
                                         transactionState, tablet, healthReplicaNum, quorumReplicaNum);
+                                String errMsg = String.format("publish on tablet %d failed. succeed replica num %d less than quorum %d."
+                                        + " table: %d, partition: %d, publish version: %d",
+                                        tablet.getId(), healthReplicaNum, quorumReplicaNum, tableId, partitionId, partition.getVisibleVersion() + 1);
+                                transactionState.setErrorMsg(errMsg);
                                 hasError = true;
                             }
                         }
@@ -737,6 +748,7 @@ public class DatabaseTransactionMgr {
             try {
                 transactionState.setErrorReplicas(errorReplicaIds);
                 transactionState.setFinishTime(System.currentTimeMillis());
+                transactionState.clearErrorMsg();
                 transactionState.setTransactionStatus(TransactionStatus.VISIBLE);
                 unprotectUpsertTransactionState(transactionState, false);
                 txnOperated = true;

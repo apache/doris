@@ -35,11 +35,13 @@ public class TransProcDir implements ProcDirInterface {
             .add("LoadJobSourceType")
             .add("PrepareTime")
             .add("CommitTime")
+            .add("PublishTime")
             .add("FinishTime")
             .add("Reason")
             .add("ErrorReplicasCount")
             .add("ListenerId")
             .add("TimeoutMs")
+            .add("ErrMsg")
             .build();
 
     public static final int MAX_SHOW_ENTRIES = 2000;
