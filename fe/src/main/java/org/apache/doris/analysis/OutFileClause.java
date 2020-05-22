@@ -26,14 +26,17 @@ import org.apache.doris.thrift.TResultFileSinkOptions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
+import java.util.Iterator;
 import java.util.Map;
 
 // For syntax select * from tbl INTO OUTFILE xxxx
 public class OutFileClause {
 
+    private static final String BROKER_PROP_PREFIX = "broker.";
+    private static final String PROP_BROKER_NAME = "broker.name";
     private static final String PROP_COLUMN_SEPARATOR = "column_separator";
     private static final String PROP_LINE_DELIMITER = "line_delimiter";
-    private static final String PROP_MAX_FILE_SIZE_BYTES = "max_file_size_bytes";
+    private static final String PROP_MAX_FILE_SIZE = "max_file_size";
 
     private static final long DEFAULT_MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1GB
     private static final long MIN_FILE_SIZE_BYTES = 5 * 1024 * 1024L; // 5MB
@@ -41,7 +44,6 @@ public class OutFileClause {
 
     private String filePath;
     private String format;
-    private BrokerDesc brokerDesc;
     private Map<String, String> properties;
 
     // set following members after analyzing
@@ -49,18 +51,17 @@ public class OutFileClause {
     private String lineDelimiter = "\n";
     private TFileFormatType fileFormatType;
     private long maxFileSizeBytes = DEFAULT_MAX_FILE_SIZE_BYTES;
+    private BrokerDesc brokerDesc = null;
 
-    public OutFileClause(String filePath, String format, BrokerDesc brokerDesc, Map<String, String> properties) {
+    public OutFileClause(String filePath, String format, Map<String, String> properties) {
         this.filePath = filePath;
         this.format = Strings.isNullOrEmpty(format) ? "csv" : format.toLowerCase();
-        this.brokerDesc = brokerDesc;
         this.properties = properties;
     }
 
     public OutFileClause(OutFileClause other) {
         this.filePath = other.filePath;
         this.format = other.format;
-        this.brokerDesc = new BrokerDesc(other.getBrokerDesc().getName(), other.getBrokerDesc().getProperties());
         this.properties = other.properties == null ? null : Maps.newHashMap(other.properties);
     }
 
@@ -94,23 +95,29 @@ public class OutFileClause {
         }
         fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
 
-        if (brokerDesc == null) {
-            throw new AnalysisException("Must specify BROKER in OUTFILE clause");
-        }
-
         analyzeProperties();
+
+        if (brokerDesc == null) {
+            throw new AnalysisException("Must specify BROKER properties in OUTFILE clause");
+        }
     }
 
     private void analyzeProperties() throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return;
         }
-        
+
+        getBrokerProperties();
+        if (brokerDesc == null) {
+            return;
+        }
+
         if (properties.containsKey(PROP_COLUMN_SEPARATOR)) {
             if (!isCsvFormat()) {
                 throw new AnalysisException(PROP_COLUMN_SEPARATOR + " is only for CSV format");
             }
             columnSeparator = properties.get(PROP_COLUMN_SEPARATOR);
+            properties.remove(PROP_COLUMN_SEPARATOR);
         }
         
         if (properties.containsKey(PROP_LINE_DELIMITER)) {
@@ -118,14 +125,40 @@ public class OutFileClause {
                 throw new AnalysisException(PROP_LINE_DELIMITER + " is only for CSV format");
             }
             lineDelimiter = properties.get(PROP_LINE_DELIMITER);
+            properties.remove(PROP_LINE_DELIMITER);
         }
 
-        if (properties.containsKey(PROP_MAX_FILE_SIZE_BYTES)) {
-            maxFileSizeBytes = ParseUtil.analyzeDataVolumn(properties.get(PROP_MAX_FILE_SIZE_BYTES));
+        if (properties.containsKey(PROP_MAX_FILE_SIZE)) {
+            maxFileSizeBytes = ParseUtil.analyzeDataVolumn(properties.get(PROP_MAX_FILE_SIZE));
             if (maxFileSizeBytes > MAX_FILE_SIZE_BYTES || maxFileSizeBytes < MIN_FILE_SIZE_BYTES) {
                 throw new AnalysisException("max file size should between 5MB and 2GB. Given: " + maxFileSizeBytes);
             }
+            properties.remove(PROP_MAX_FILE_SIZE);
         }
+
+        if (!properties.isEmpty()) {
+            throw new AnalysisException("Unknown properties: " + properties);
+        }
+    }
+
+    private void getBrokerProperties() {
+        if (!properties.containsKey(PROP_BROKER_NAME)) {
+            return;
+        }
+        String brokerName = properties.get(PROP_BROKER_NAME);
+        properties.remove(PROP_BROKER_NAME);
+        
+        Map<String, String> brokerProps = Maps.newHashMap();
+        Iterator<Map.Entry<String, String>> iter = properties.entrySet().iterator();
+        while (iter.hasNext()) {
+            Map.Entry<String, String> entry = iter.next();
+            if (entry.getKey().startsWith(BROKER_PROP_PREFIX)) {
+                brokerProps.put(entry.getKey(), entry.getValue());
+                iter.remove();
+            }
+        }
+
+        brokerDesc = new BrokerDesc(brokerName, brokerProps);
     }
 
     private boolean isCsvFormat() {
