@@ -186,7 +186,7 @@ The following configuration belongs to the system configuration of FE, which can
 
 + max\_running\_txn\_num\_per\_db
 
-	The implication of this configuration is that the maximum number of imports running in each database (no distinction between import types, uniform counting). When the current database is running more than the maximum number of imports, subsequent imports will not be executed. If the job is imported synchronously, the import will be rejected. If it is an asynchronous import job. The job will wait in the queue.
+	The implication of this configuration is that the maximum number of running load jobs in each database (no distinction between import types, uniform counting). The default value is 100. When the current database is running more than the maximum number of imports, subsequent imports will not be executed. If the job is imported synchronously, the import will be rejected. If it is an asynchronous import job. The job will wait in the queue.
 
 ### BE configuration
 
