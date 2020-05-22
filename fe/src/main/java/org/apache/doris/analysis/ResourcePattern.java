@@ -23,8 +23,9 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.gson.annotations.SerializedName;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -34,8 +35,8 @@ import java.io.IOException;
 // *
 // resource
 public class ResourcePattern implements Writable {
+    @SerializedName(value = "resourceName")
     private String resourceName;
-    boolean isAnalyzed = false;
 
     public static ResourcePattern ALL;
     static {
@@ -55,12 +56,10 @@ public class ResourcePattern implements Writable {
     }
 
     public String getResourceName() {
-        Preconditions.checkState(isAnalyzed);
         return resourceName;
     }
 
     public PrivLevel getPrivLevel() {
-        Preconditions.checkState(isAnalyzed);
         if (resourceName.equals("*")) {
             return PrivLevel.GLOBAL;
         } else {
@@ -69,19 +68,9 @@ public class ResourcePattern implements Writable {
     }
 
     public void analyze() throws AnalysisException {
-        if (isAnalyzed) {
-            return;
-        }
         if (!resourceName.equals("*")) {
             FeNameFormat.checkResourceName(resourceName);
         }
-        isAnalyzed = true;
-    }
-
-    public static ResourcePattern read(DataInput in) throws IOException {
-        ResourcePattern resourcePattern = new ResourcePattern();
-        resourcePattern.readFields(in);
-        return resourcePattern;
     }
 
     @Override
@@ -107,12 +96,13 @@ public class ResourcePattern implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Preconditions.checkState(isAnalyzed);
-        Text.writeString(out, resourceName);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
-        resourceName = Text.readString(in);
-        isAnalyzed = true;
+    public static ResourcePattern read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ResourcePattern.class);
     }
 }
+

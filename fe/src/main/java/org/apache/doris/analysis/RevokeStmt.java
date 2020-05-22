@@ -97,6 +97,7 @@ public class RevokeStmt extends DdlStmt {
         if (tblPattern != null) {
             tblPattern.analyze(analyzer.getClusterName());
         } else {
+            // TODO(wyb): spark-load
             if (GrantStmt.disableGrantResource) {
                 throw new AnalysisException("REVOKE ON RESOURCE is comming soon");
             }

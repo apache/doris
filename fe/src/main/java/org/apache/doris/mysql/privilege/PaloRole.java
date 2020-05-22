@@ -142,6 +142,7 @@ public class PaloRole implements Writable {
             entry.getKey().write(out);
             entry.getValue().write(out);
         }
+        // TODO(wyb): spark-load
         /*
         out.writeInt(resourcePatternToPrivs.size());
         for (Map.Entry<ResourcePattern, PrivBitSet> entry : resourcePatternToPrivs.entrySet()) {
@@ -163,6 +164,7 @@ public class PaloRole implements Writable {
             PrivBitSet privs = PrivBitSet.read(in);
             tblPatternToPrivs.put(tblPattern, privs);
         }
+        // TODO(wyb): spark-load
         /*
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.new_version_by_wyb) {
             size = in.readInt();

@@ -21,15 +21,18 @@ import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcNodeInterface;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -38,7 +41,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Resource manager is responsible for managing external resources used by Doris.
@@ -53,86 +55,53 @@ public class ResourceMgr implements Writable {
             .build();
 
     // { resourceName -> Resource}
-    private final Map<String, Resource> nameToResource = Maps.newHashMap();
-    private final ReentrantLock lock = new ReentrantLock();
+    @SerializedName(value = "nameToResource")
+    private final Map<String, Resource> nameToResource = Maps.newConcurrentMap();
     private final ResourceProcNode procNode = new ResourceProcNode();
 
     public ResourceMgr() {
     }
 
     public void createResource(CreateResourceStmt stmt) throws DdlException {
-        lock.lock();
-        try {
-            if (stmt.getResourceType() != ResourceType.SPARK) {
-                throw new DdlException("Only support Spark resource.");
-            }
-
-            String resourceName = stmt.getResourceName();
-            if (nameToResource.containsKey(resourceName)) {
-                throw new DdlException("Resource(" + resourceName + ") already exist");
-            }
-
-            Resource resource = Resource.fromStmt(stmt);
-            nameToResource.put(resourceName, resource);
-            // log add
-            Catalog.getInstance().getEditLog().logCreateResource(resource);
-            LOG.info("create resource success. resource: {}", resource);
-        } finally {
-            lock.unlock();
+        if (stmt.getResourceType() != ResourceType.SPARK) {
+            throw new DdlException("Only support Spark resource.");
         }
+
+        String resourceName = stmt.getResourceName();
+        Resource resource = Resource.fromStmt(stmt);
+        if (nameToResource.putIfAbsent(resourceName, resource) != null) {
+            throw new DdlException("Resource(" + resourceName + ") already exist");
+        }
+        // log add
+        Catalog.getInstance().getEditLog().logCreateResource(resource);
+        LOG.info("create resource success. resource: {}", resource);
     }
 
     public void replayCreateResource(Resource resource) {
-        lock.lock();
-        try {
-            nameToResource.put(resource.getName(), resource);
-        } finally {
-            lock.unlock();
-        }
+        nameToResource.put(resource.getName(), resource);
     }
 
     public void dropResource(DropResourceStmt stmt) throws DdlException {
-        lock.lock();
-        try {
-            String name = stmt.getResourceName();
-            if (!nameToResource.containsKey(name)) {
-                throw new DdlException("Resource(" + name + ") does not exist");
-            }
-
-            nameToResource.remove(name);
-            // log drop
-            Catalog.getInstance().getEditLog().logDropResource(name);
-            LOG.info("drop resource success. resource name: {}", name);
-        } finally {
-            lock.unlock();
+        String name = stmt.getResourceName();
+        if (nameToResource.remove(name) == null) {
+            throw new DdlException("Resource(" + name + ") does not exist");
         }
+
+        // log drop
+        Catalog.getInstance().getEditLog().logDropResource(name);
+        LOG.info("drop resource success. resource name: {}", name);
     }
 
     public void replayDropResource(String name) {
-        lock.lock();
-        try {
-            nameToResource.remove(name);
-        } finally {
-            lock.unlock();
-        }
+        nameToResource.remove(name);
     }
 
     public boolean containsResource(String name) {
-        lock.lock();
-        try {
-            return nameToResource.containsKey(name);
-        } finally {
-            lock.unlock();
-        }
+        return nameToResource.containsKey(name);
     }
 
     public Resource getResource(String name) {
-        lock.lock();
-        try {
-            return nameToResource.get(name);
-        } finally {
-            lock.unlock();
-        }
+        return nameToResource.get(name);
     }
 
     public int getResourceNum() {
@@ -149,18 +118,13 @@ public class ResourceMgr implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(nameToResource.size());
-        for (Resource resource : nameToResource.values()) {
-            resource.write(out);
-        }
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
-        int count = in.readInt();
-        for (long i = 0; i < count; ++i) {
-            Resource resource = Resource.read(in);
-            replayCreateResource(resource);
-        }
+    public static ResourceMgr read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, ResourceMgr.class);
     }
 
     public class ResourceProcNode implements ProcNodeInterface {
@@ -169,19 +133,14 @@ public class ResourceMgr implements Writable {
             BaseProcResult result = new BaseProcResult();
             result.setNames(RESOURCE_PROC_NODE_TITLE_NAMES);
 
-            lock.lock();
-            try {
-                for (Map.Entry<String, Resource> entry : nameToResource.entrySet()) {
-                    Resource resource = entry.getValue();
-                    // check resource privs
-                    if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(), resource.getName(),
-                                                                                 PrivPredicate.SHOW)) {
-                        continue;
-                    }
-                    resource.getProcNodeData(result);
+            for (Map.Entry<String, Resource> entry : nameToResource.entrySet()) {
+                Resource resource = entry.getValue();
+                // check resource privs
+                if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(), resource.getName(),
+                                                                             PrivPredicate.SHOW)) {
+                    continue;
                 }
-            } finally {
-                lock.unlock();
+                resource.getProcNodeData(result);
             }
             return result;
         }

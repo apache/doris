@@ -1311,6 +1311,7 @@ public class PaloAuth implements Writable {
         userPrivTable.write(out);
         dbPrivTable.write(out);
         tablePrivTable.write(out);
+        // TODO(wyb): spark-load
         //resourcePrivTable.write(out);
         propertyMgr.write(out);
     }
@@ -1320,6 +1321,7 @@ public class PaloAuth implements Writable {
         userPrivTable = (UserPrivTable) PrivTable.read(in);
         dbPrivTable = (DbPrivTable) PrivTable.read(in);
         tablePrivTable = (TablePrivTable) PrivTable.read(in);
+        // TODO(wyb): spark-load
         /*
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.new_version_by_wyb) {
             resourcePrivTable = (ResourcePrivTable) PrivTable.read(in);

@@ -46,6 +46,7 @@ public class GrantStmt extends DdlStmt {
     private ResourcePattern resourcePattern;
     private List<PaloPrivilege> privileges;
 
+    // TODO(wyb): spark-load
     public static boolean disableGrantResource = true;
 
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
@@ -109,6 +110,7 @@ public class GrantStmt extends DdlStmt {
         if (tblPattern != null) {
             tblPattern.analyze(analyzer.getClusterName());
         } else {
+            // TODO(wyb): spark-load
             if (disableGrantResource) {
                 throw new AnalysisException("GRANT ON RESOURCE is comming soon");
             }

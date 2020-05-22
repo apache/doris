@@ -96,6 +96,7 @@ public class GrantStmtTest {
 
     @Test
     public void testResourceNormal() throws UserException {
+        // TODO(wyb): spark-load
         GrantStmt.disableGrantResource = false;
 
         String resourceName = "spark0";

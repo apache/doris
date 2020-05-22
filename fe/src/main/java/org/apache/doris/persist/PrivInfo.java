@@ -117,6 +117,7 @@ public class PrivInfo implements Writable {
             out.writeBoolean(false);
         }
 
+        // TODO(wyb): spark-load
         /*
         if (resourcePattern != null) {
             out.writeBoolean(true);
@@ -158,6 +159,7 @@ public class PrivInfo implements Writable {
             tblPattern = TablePattern.read(in);
         }
 
+        // TODO(wyb): spark-load
         /*
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.new_version_by_wyb) {
             if (in.readBoolean()) {

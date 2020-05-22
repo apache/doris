@@ -1266,10 +1266,12 @@ public class EditLog {
     }
 
     public void logCreateResource(Resource resource) {
+        // TODO(wyb): spark-load
         //logEdit(OperationType.OP_CREATE_RESOURCE, resource);
     }
 
     public void logDropResource(String resourceName) {
+        // TODO(wyb): spark-load
         //logEdit(OperationType.OP_DROP_RESOURCE, new Text(resourceName));
     }
 
