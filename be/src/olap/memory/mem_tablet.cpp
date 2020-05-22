@@ -43,16 +43,16 @@ Status MemTablet::scan(std::unique_ptr<ScanSpec>&& spec, std::unique_ptr<MemTabl
     return Status::NotSupported("scan not supported");
 }
 
-Status MemTablet::create_write_txn(std::unique_ptr<WriteTxn>* wtx) {
-    wtx->reset(new WriteTxn(&_mem_schema));
+Status MemTablet::create_write_txn(std::unique_ptr<WriteTxn>* wtxn) {
+    wtxn->reset(new WriteTxn(&_mem_schema));
     return Status::OK();
 }
 
-Status MemTablet::commit_write_txn(WriteTxn* wtx, uint64_t version) {
+Status MemTablet::commit_write_txn(WriteTxn* wtxn, uint64_t version) {
     std::lock_guard<std::mutex> lg(_write_lock);
     RETURN_IF_ERROR(_sub_tablet->begin_write(&_mem_schema));
-    for (size_t i = 0; i < wtx->batch_size(); i++) {
-        auto batch = wtx->get_batch(i);
+    for (size_t i = 0; i < wtxn->batch_size(); i++) {
+        auto batch = wtxn->get_batch(i);
         RETURN_IF_ERROR(_sub_tablet->apply_partial_row_batch(batch));
     }
     return _sub_tablet->commit_write(version);

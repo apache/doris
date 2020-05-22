@@ -39,11 +39,11 @@ class ColumnWriter;
 // // read(scan/get) cells using reader
 //
 // Example write usage:
-// WrintTxn* wtx;
+// WrintTxn* wtxn;
 // MemSubTablet* sub_tablet;
 // sub_tablet->begin_write(current_schema);
-// for (size_t i = 0; i < wtx->batch_size(); i++) {
-//     auto batch = wtx->get_batch(i);
+// for (size_t i = 0; i < wtxn->batch_size(); i++) {
+//     auto batch = wtxn->get_batch(i);
 //     PartialRowReader reader(*batch);
 //     for (size_t j = 0; j < reader.size(); j++) {
 //         RETURN_IF_ERROR(reader.read(j));

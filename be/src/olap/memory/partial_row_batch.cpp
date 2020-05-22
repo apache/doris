@@ -112,7 +112,7 @@ Status PartialRowBatch::cur_row_get_cell(size_t idx, const ColumnSchema** cs,
 // Methods for PartialRowWriter
 
 PartialRowWriter::PartialRowWriter(scoped_refptr<Schema>* schema)
-        : _schema(*schema), _bit_set_size(_schema->cid_size()), _bit_null_size(0) {
+        : _schema(*schema), _bit_set_size(_schema->cid_size()), _bit_nullable_size(0) {
     _temp_cells.resize(_schema->cid_size());
 }
 
@@ -131,7 +131,7 @@ Status PartialRowWriter::start_row() {
     if (_row_size >= _row_capacity) {
         return Status::InvalidArgument("over capacity");
     }
-    _bit_null_size = 0;
+    _bit_nullable_size = 0;
     memset(&(_temp_cells[0]), 0, sizeof(CellInfo) * _temp_cells.size());
     return Status::OK();
 }
@@ -163,7 +163,7 @@ Status PartialRowWriter::end_row() {
 Status PartialRowWriter::set(const ColumnSchema* cs, uint32_t cid, const void* data) {
     if (cs->is_nullable() || data) {
         if (cs->is_nullable() && !_temp_cells[cid].isnullable) {
-            _bit_null_size++;
+            _bit_nullable_size++;
         }
         _temp_cells[cid].isnullable = cs->is_nullable();
         _temp_cells[cid].isset = 1;
@@ -198,7 +198,7 @@ Status PartialRowWriter::set_delete() {
 
 size_t PartialRowWriter::byte_size() const {
     // TODO: support delete
-    size_t bit_all_size = num_block(_bit_set_size + _bit_null_size, 8);
+    size_t bit_all_size = num_block(_bit_set_size + _bit_nullable_size, 8);
     size_t data_size = 2 + bit_all_size;
     for (size_t i = 1; i < _temp_cells.size(); i++) {
         if (_temp_cells[i].data != nullptr) {
@@ -215,7 +215,7 @@ size_t PartialRowWriter::byte_size() const {
 }
 
 Status PartialRowWriter::write(uint8_t** ppos) {
-    size_t bit_all_size = num_block(_bit_set_size + _bit_null_size, 8);
+    size_t bit_all_size = num_block(_bit_set_size + _bit_nullable_size, 8);
     if (bit_all_size >= 65536) {
         return Status::NotSupported("too many columns");
     }

@@ -146,7 +146,6 @@ Status MemSubTablet::apply_partial_row(const PartialRowBatch& row) {
     }
     // if rowkey not found, do insertion/append
     if (rid == -1) {
-        _num_insert++;
         rid = _row_size;
         // add all columns
         //DLOG(INFO) << StringPrintf"insert rid=%u", rid);
@@ -175,10 +174,9 @@ Status MemSubTablet::apply_partial_row(const PartialRowBatch& row) {
             }
             _write_index = new_index;
         }
+        _num_insert++;
     } else {
         // rowkey found, do update
-        _num_update++;
-        _num_update_cell += row.cur_row_cell_size() - 1;
         // add non-key columns
         for (size_t i = 1; i < row.cur_row_cell_size(); i++) {
             const void* data;
@@ -191,6 +189,8 @@ Status MemSubTablet::apply_partial_row(const PartialRowBatch& row) {
                 RETURN_IF_ERROR(_writers[cid]->update(rid, data));
             }
         }
+        _num_update++;
+        _num_update_cell += row.cur_row_cell_size() - 1;
     }
     return Status::OK();
 }

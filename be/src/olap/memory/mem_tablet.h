@@ -61,13 +61,13 @@ public:
 
     // Create a write transaction
     //
-    // Note: Thread-safe, can have multiple writetx at the same time.
-    Status create_write_txn(std::unique_ptr<WriteTxn>* wtx);
+    // Note: Thread-safe, can have multiple writetxn at the same time.
+    Status create_write_txn(std::unique_ptr<WriteTxn>* wtxn);
 
     // Apply a write transaction and commit as the specified version
     //
     // Note: commit is done sequentially, protected by internal write lock
-    Status commit_write_txn(WriteTxn* wtx, uint64_t version);
+    Status commit_write_txn(WriteTxn* wtxn, uint64_t version);
 
 private:
     // memory::Schema is used internally rather than TabletSchema, so we need an extra

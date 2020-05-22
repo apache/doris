@@ -115,7 +115,7 @@ private:
 //     writer.end_row();
 // }
 // vector<uint8_t> buffer;
-// writer.end_batch(&buffer);
+// writer.finish_batch(&buffer);
 class PartialRowWriter {
 public:
     static const size_t DEFAULT_BYTE_CAPACITY = 1 << 20;
@@ -161,7 +161,7 @@ private:
     };
     vector<CellInfo> _temp_cells;
     size_t _bit_set_size = 0;
-    size_t _bit_null_size = 0;
+    size_t _bit_nullable_size = 0;
     size_t _row_size = 0;
     size_t _row_capacity = 0;
 
