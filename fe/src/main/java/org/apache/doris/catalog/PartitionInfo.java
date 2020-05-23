@@ -51,15 +51,15 @@ public class PartitionInfo implements Writable {
     protected Map<Long, Boolean> idToInMemory;
 
     public PartitionInfo() {
-        this.idToDataProperty = new HashMap<Long, DataProperty>();
-        this.idToReplicationNum = new HashMap<Long, Short>();
+        this.idToDataProperty = new HashMap<>();
+        this.idToReplicationNum = new HashMap<>();
         this.idToInMemory = new HashMap<>();
     }
 
     public PartitionInfo(PartitionType type) {
         this.type = type;
-        this.idToDataProperty = new HashMap<Long, DataProperty>();
-        this.idToReplicationNum = new HashMap<Long, Short>();
+        this.idToDataProperty = new HashMap<>();
+        this.idToReplicationNum = new HashMap<>();
         this.idToInMemory = new HashMap<>();
     }
 
@@ -76,6 +76,9 @@ public class PartitionInfo implements Writable {
     }
 
     public short getReplicationNum(long partitionId) {
+        if (!idToReplicationNum.containsKey(partitionId)) {
+            LOG.debug("failed to get replica num for partition: {}", partitionId);
+        }
         return idToReplicationNum.get(partitionId);
     }
 

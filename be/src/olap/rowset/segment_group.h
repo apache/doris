@@ -239,6 +239,10 @@ public:
 
     int get_num_key_columns();
 
+    // for agg, uniq and replace model  get_num_zone_map_columns() = get_num_key_columns(),
+    // for duplicate mode get_num_zone_map_columns() == num_columns
+    int get_num_zone_map_columns();
+
     int get_num_short_key_columns();
 
     size_t get_num_rows_per_row_block();

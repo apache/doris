@@ -17,6 +17,7 @@
 
 package org.apache.doris.task;
 
+import com.google.common.collect.Lists;
 import org.apache.doris.analysis.ColumnSeparator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
@@ -25,6 +26,7 @@ import org.apache.doris.analysis.ImportWhereStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -35,9 +37,6 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TUniqueId;
-
-import com.google.common.collect.Lists;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -52,6 +51,8 @@ public class StreamLoadTask {
     private long txnId;
     private TFileType fileType;
     private TFileFormatType formatType;
+    private boolean stripOuterArray;
+    private String jsonPaths;
 
     // optional
     private List<ImportColumnDesc> columnExprDescs = Lists.newArrayList();
@@ -70,6 +71,8 @@ public class StreamLoadTask {
         this.txnId = txnId;
         this.fileType = fileType;
         this.formatType = formatType;
+        this.jsonPaths = "";
+        this.stripOuterArray = false;
     }
 
     public TUniqueId getId() {
@@ -124,14 +127,30 @@ public class StreamLoadTask {
         return timeout;
     }
 
-    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
+    public boolean isStripOuterArray() {
+        return stripOuterArray;
+    }
+
+    public void setStripOuterArray(boolean stripOuterArray) {
+        this.stripOuterArray = stripOuterArray;
+    }
+
+    public String getJsonPaths() {
+        return jsonPaths;
+    }
+
+    public void setJsonPath(String jsonPaths) {
+        this.jsonPaths = jsonPaths;
+    }
+
+    public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                                                            request.getFileType(), request.getFormatType());
-        streamLoadTask.setOptionalFromTSLPutRequest(request);
+        streamLoadTask.setOptionalFromTSLPutRequest(request, db);
         return streamLoadTask;
     }
 
-    private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request) throws UserException {
+    private void setOptionalFromTSLPutRequest(TStreamLoadPutRequest request, Database db) throws UserException {
         if (request.isSetColumns()) {
             setColumnToColumnExpr(request.getColumns());
         }
@@ -171,12 +190,22 @@ public class StreamLoadTask {
         if (request.isSetExecMemLimit()) {
             execMemLimit = request.getExecMemLimit();
         }
+        if (request.getFormatType() == TFileFormatType.FORMAT_JSON) {
+            if (request.getJsonpaths() != null) {
+                jsonPaths = request.getJsonpaths();
+            }
+            stripOuterArray = request.isStrip_outer_array();
+        }
     }
 
     public static StreamLoadTask fromRoutineLoadJob(RoutineLoadJob routineLoadJob) {
         TUniqueId dummyId = new TUniqueId();
+        TFileFormatType fileFormatType = TFileFormatType.FORMAT_CSV_PLAIN;
+        if (routineLoadJob.getFormat().equals("json")) {
+            fileFormatType = TFileFormatType.FORMAT_JSON;
+        }
         StreamLoadTask streamLoadTask = new StreamLoadTask(dummyId, -1L /* dummy txn id*/,
-                TFileType.FILE_STREAM, TFileFormatType.FORMAT_CSV_PLAIN);
+                TFileType.FILE_STREAM, fileFormatType);
         streamLoadTask.setOptionalFromRoutineLoadJob(routineLoadJob);
         return streamLoadTask;
     }
@@ -193,6 +222,10 @@ public class StreamLoadTask {
         strictMode = routineLoadJob.isStrictMode();
         timezone = routineLoadJob.getTimezone();
         timeout = (int) routineLoadJob.getMaxBatchIntervalS() * 2;
+        if (!routineLoadJob.getJsonPaths().isEmpty()) {
+            jsonPaths = routineLoadJob.getJsonPaths();
+        }
+        stripOuterArray = routineLoadJob.isStripOuterArray();
     }
 
     // used for stream load

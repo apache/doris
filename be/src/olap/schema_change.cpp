@@ -265,12 +265,11 @@ bool RowBlockChanger::change_row_block(
     for (size_t i = 0, len = mutable_block->tablet_schema().num_columns(); !filter_all && i < len; ++i) {
         int32_t ref_column = _schema_mapping[i].ref_column;
 
-        FieldType reftype = ref_block->tablet_schema().column(ref_column).type();
-        FieldType newtype = mutable_block->tablet_schema().column(i).type();
-
         if (_schema_mapping[i].ref_column >= 0) {
             // new column will be assigned as referenced column
             // check if the type of new column is equal to the older's.
+            FieldType reftype = ref_block->tablet_schema().column(ref_column).type();
+            FieldType newtype = mutable_block->tablet_schema().column(i).type();
             if (newtype == reftype) {
                 // 效率低下，也可以直接计算变长域拷贝，但仍然会破坏封装
                 for (size_t row_index = 0, new_row_index = 0;

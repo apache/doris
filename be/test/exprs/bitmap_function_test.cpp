@@ -172,6 +172,39 @@ TEST_F(BitmapFunctionsTest, bitmap_union) {
     ASSERT_EQ(expected, result);
 }
 
+// test bitmap_intersect
+TEST_F(BitmapFunctionsTest, bitmap_intersect) {
+    StringVal dst;
+    BitmapFunctions::nullable_bitmap_init(ctx, &dst);
+
+    BitmapValue bitmap1(1);
+    bitmap1.add(2);
+    bitmap1.add(3);
+    StringVal src1 = convert_bitmap_to_string(ctx, bitmap1);
+    BitmapFunctions::bitmap_intersect(ctx, src1, &dst);
+
+    BitmapValue bitmap2(1);
+    bitmap2.add(2);
+    StringVal src2 = convert_bitmap_to_string(ctx, bitmap2);
+    BitmapFunctions::bitmap_intersect(ctx, src2, &dst);
+
+    StringVal serialized = BitmapFunctions::bitmap_serialize(ctx, dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, serialized);
+    BigIntVal expected(2);
+    ASSERT_EQ(expected, result);    
+}
+
+// test bitmap_intersect with null dst
+TEST_F(BitmapFunctionsTest, bitmap_intersect_empty) {
+    StringVal dst;
+    BitmapFunctions::nullable_bitmap_init(ctx, &dst);
+
+    StringVal serialized = BitmapFunctions::bitmap_serialize(ctx, dst);
+    BigIntVal result = BitmapFunctions::bitmap_count(ctx, serialized);
+    BigIntVal expected(0);
+    ASSERT_EQ(expected, result);    
+}
+
 TEST_F(BitmapFunctionsTest, bitmap_count) {
     BitmapValue bitmap(1024);
     bitmap.add(1);
@@ -186,6 +219,7 @@ TEST_F(BitmapFunctionsTest, bitmap_count) {
     ASSERT_EQ(BigIntVal(0), null_bitmap);
 }
 
+// test intersect_count
 template<typename ValType, typename ValueType>
 void test_bitmap_intersect(FunctionContext* ctx, ValType key1, ValType key2) {
     StringVal bitmap_column("placeholder");

@@ -109,8 +109,14 @@ PartitionedAggregationNode::PartitionedAggregationNode(
     process_batch_streaming_fn_(NULL),
     build_timer_(NULL),
     ht_resize_timer_(NULL),
+    ht_resize_counter_(NULL),
     get_results_timer_(NULL),
     num_hash_buckets_(NULL),
+    num_hash_filled_buckets_(NULL),
+    num_hash_probe_(NULL),
+    num_hash_failed_probe_(NULL),
+    num_hash_travel_length_(NULL),
+    num_hash_collisions_(NULL),
     partitions_created_(NULL),
     max_partition_level_(NULL),
     num_row_repartitioned_(NULL),
@@ -118,6 +124,7 @@ PartitionedAggregationNode::PartitionedAggregationNode(
     num_spilled_partitions_(NULL),
     largest_partition_percent_(NULL),
     streaming_timer_(NULL),
+    num_processed_rows_(NULL),
     num_passthrough_rows_(NULL),
     preagg_estimated_reduction_(NULL),
     preagg_streaming_ht_min_reduction_(NULL),
@@ -188,12 +195,33 @@ Status PartitionedAggregationNode::prepare(RuntimeState* state) {
 
   ht_resize_timer_ = ADD_TIMER(runtime_profile(), "HTResizeTime");
   get_results_timer_ = ADD_TIMER(runtime_profile(), "GetResultsTime");
+  num_processed_rows_ =
+      ADD_COUNTER(runtime_profile(), "RowsProcessed", TUnit::UNIT);
   num_hash_buckets_ =
       ADD_COUNTER(runtime_profile(), "HashBuckets", TUnit::UNIT);
+  num_hash_filled_buckets_ =
+      ADD_COUNTER(runtime_profile(), "HashFilledBuckets", TUnit::UNIT);
+  num_hash_probe_ =
+      ADD_COUNTER(runtime_profile(), "HashProbe", TUnit::UNIT);
+  num_hash_failed_probe_ =
+      ADD_COUNTER(runtime_profile(), "HashFailedProbe", TUnit::UNIT);
+  num_hash_travel_length_ =
+      ADD_COUNTER(runtime_profile(), "HashTravelLength", TUnit::UNIT);
+  num_hash_collisions_ =
+      ADD_COUNTER(runtime_profile(), "HashCollisions", TUnit::UNIT);
+  ht_resize_counter_ =
+      ADD_COUNTER(runtime_profile(), "HTResize", TUnit::UNIT);
   partitions_created_ =
       ADD_COUNTER(runtime_profile(), "PartitionsCreated", TUnit::UNIT);
   largest_partition_percent_ =
       runtime_profile()->AddHighWaterMarkCounter("LargestPartitionPercent", TUnit::UNIT);
+
+  if (config::enable_quadratic_probing) {
+      runtime_profile()->add_info_string("Probe Method", "HashTable Quadratic Probing");
+  } else {
+      runtime_profile()->add_info_string("Probe Method", "HashTable Linear Probing");
+  }
+
   if (is_streaming_preagg_) {
     runtime_profile()->append_exec_option("Streaming Preaggregation");
     streaming_timer_ = ADD_TIMER(runtime_profile(), "StreamingTime");
@@ -489,6 +517,7 @@ Status PartitionedAggregationNode::GetRowsFromPartition(RuntimeState* state,
     }
   }
 
+  COUNTER_SET(num_processed_rows_, num_hash_probe_->value());
   COUNTER_SET(_rows_returned_counter, _num_rows_returned);
   partition_eos_ = reached_limit();
   if (output_iterator_.AtEnd()) row_batch->mark_needs_deep_copy();
@@ -1223,6 +1252,13 @@ Status PartitionedAggregationNode::NextPartition() {
   output_partition_ = partition;
   output_iterator_ = output_partition_->hash_tbl->Begin(ht_ctx_.get());
   COUNTER_UPDATE(num_hash_buckets_, output_partition_->hash_tbl->num_buckets());
+  COUNTER_UPDATE(ht_resize_counter_, output_partition_->hash_tbl->num_resize());
+  COUNTER_UPDATE(num_hash_filled_buckets_, output_partition_->hash_tbl->num_filled_buckets());
+  COUNTER_UPDATE(num_hash_probe_, output_partition_->hash_tbl->num_probe());
+  COUNTER_UPDATE(num_hash_failed_probe_, output_partition_->hash_tbl->num_failed_probe());
+  COUNTER_UPDATE(num_hash_travel_length_, output_partition_->hash_tbl->travel_length());
+  COUNTER_UPDATE(num_hash_collisions_, output_partition_->hash_tbl->NumHashCollisions());
+
   return Status::OK();
 }
 

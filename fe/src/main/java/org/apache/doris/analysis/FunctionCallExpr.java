@@ -407,7 +407,8 @@ public class FunctionCallExpr extends Expr {
 
         if (fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_COUNT)
                 || fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION)
-                || fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)) {
+                || fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)
+                || fnName.getFunction().equalsIgnoreCase(FunctionSet.BITMAP_INTERSECT)) {
             if (children.size() != 1) {
                 throw new AnalysisException(fnName + " function could only have one child");
             }

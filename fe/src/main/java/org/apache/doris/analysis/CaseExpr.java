@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -156,6 +157,9 @@ public class CaseExpr extends Expr {
             loopStart = 1;
             caseExpr = children.get(0);
             caseExpr.analyze(analyzer);
+            if (caseExpr instanceof Subquery && !caseExpr.getType().isScalarType()) {
+                throw new AnalysisException("Subquery in case-when must return scala type");
+            }
             whenType = caseExpr.getType();
             lastCompatibleWhenExpr = children.get(0);
         } else {
@@ -183,14 +187,27 @@ public class CaseExpr extends Expr {
                     castChild(Type.BOOLEAN, i);
                 }
             }
+            if (whenExpr instanceof Subquery && !whenExpr.getType().isScalarType()) {
+                throw new AnalysisException("Subquery in case-when must return scala type");
+            }
+            if (whenExpr.contains(Predicates.instanceOf(Subquery.class))
+                    && !((hasCaseExpr() && whenExpr instanceof Subquery || !checkSubquery(whenExpr)))) {
+                throw new AnalysisException("Only support subquery in binary predicate in case statement.");
+            }
             // Determine maximum compatible type of the then exprs seen so far.
             // We will add casts to them at the very end.
             Expr thenExpr = children.get(i + 1);
+            if (thenExpr instanceof Subquery && !thenExpr.getType().isScalarType()) {
+                throw new AnalysisException("Subquery in case-when must return scala type");
+            }
             returnType = analyzer.getCompatibleType(returnType, lastCompatibleThenExpr, thenExpr);
             lastCompatibleThenExpr = thenExpr;
         }
         if (hasElseExpr) {
             Expr elseExpr = children.get(children.size() - 1);
+            if (elseExpr instanceof Subquery && !elseExpr.getType().isScalarType()) {
+                throw new AnalysisException("Subquery in case-when must return scala type");
+            }
             returnType = analyzer.getCompatibleType(returnType, lastCompatibleThenExpr, elseExpr);
         }
 
@@ -331,6 +348,19 @@ public class CaseExpr extends Expr {
         } else {
             return new NullLiteral();
         }
+    }
+
+    // check if subquery in `in` or `exists` Predicate
+    private boolean checkSubquery(Expr expr) {
+        for (Expr child : expr.getChildren()) {
+            if (child instanceof Subquery && (expr instanceof ExistsPredicate || expr instanceof InPredicate)) {
+                return true;
+            }
+            if (checkSubquery(child)) {
+                return true;
+            }
+        }
+        return false;
     }
 
 }

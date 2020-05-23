@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.analysis.ShowCreateDbStmt;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.qe.ConnectContext;
@@ -824,5 +825,29 @@ public class QueryPlanTest {
         Assert.assertTrue(explainString.contains("PLAN FRAGMENT"));
         Assert.assertTrue(explainString.contains("CROSS JOIN"));
         Assert.assertTrue(!explainString.contains("PREDICATES"));
+    }
+
+    @Test
+    public void testConstInParitionPrune() throws Exception {
+        FeConstants.runningUnitTest = true;
+        String queryStr = "explain select * from (select 'aa' as kk1, sum(id) from test.join1 where dt = 9 group by kk1)tt where kk1 in ('aa');";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        FeConstants.runningUnitTest = false;
+        Assert.assertTrue(explainString.contains("partitions=1/1"));
+    }
+
+    @Test
+    public void testOrCompoundPredicateFold() throws Exception {
+        String queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1 and k2 < 1)";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
+
+        queryStr = "explain select * from  baseall where (k1 > 1 and k2 < 1) or  (k1 > 1)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: `k1` > 1\n"));
+
+        queryStr = "explain select * from  baseall where (k1 > 1) or (k1 > 1)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("PREDICATES: (`k1` > 1)\n"));
     }
 }

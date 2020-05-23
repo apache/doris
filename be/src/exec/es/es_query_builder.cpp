@@ -113,12 +113,17 @@ WildCardQueryBuilder::WildCardQueryBuilder(const ExtLikePredicate& like_predicat
     // example of translation :
     //      abc_123  ===> abc?123
     //      abc%ykz  ===> abc*123
+    //      %abc123  ===> *abc123
+    //      _abc123  ===> ?abc123
+    //      \\_abc1  ===> \\_abc1
     //      abc\\_123 ===> abc\\_123
     //      abc\\%123 ===> abc\\%123
     // NOTE. user must input sql like 'abc\\_123' or 'abc\\%ykz'
     for (int i = 0; i< _like_value.size(); i++) {
-        if ((_like_value[i] == '_' || _like_value[i]== '%') && i > 0) {
-                if (_like_value[i-1] != '\\' ) {
+        if (_like_value[i] == '_' || _like_value[i] == '%') {
+                if (i == 0) {
+                    _like_value[i] = (_like_value[i] == '_') ? '?' : '*';
+                } else if (_like_value[i - 1] != '\\' ) {
                     _like_value[i] = (_like_value[i] == '_') ? '?' : '*';
                 }
         }

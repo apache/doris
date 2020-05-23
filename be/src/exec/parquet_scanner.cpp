@@ -34,6 +34,7 @@
 
 namespace doris {
 
+
 ParquetScanner::ParquetScanner(RuntimeState* state,
                              RuntimeProfile* profile,
                              const TBrokerScanRangeParams& params,

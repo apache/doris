@@ -358,6 +358,7 @@ public class PaloAuth implements Writable {
                 if (userPrivTable.hasPriv(host, user, priv)) {
                     return true;
                 }
+                break;
             case DATABASE:
                 if (dbPrivTable.hasPriv(host, user, priv)) {
                     return true;

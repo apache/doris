@@ -111,6 +111,15 @@ Specifies the time zone used for this load. The default is East Eight District. 
 
 Memory limit. Default is 2GB. Unit is Bytes.
 
+`format`
+Specifies the format of the imported data. Support csv and json, the default is csv.
+
+`jsonpaths`
+There are two ways to import json: simple mode and matched mode. If jsonpath is set, it will be the matched mode import, otherwise it will be the simple mode import, please refer to the example for details.
+
+`strip_outer_array`
+Boolean type, true to indicate that json data starts with an array object and flattens objects in the array object, default value is false.
+
 RETURN VALUES
 
 After the load is completed, the related content of this load will be returned in Json format. Current field included
@@ -187,6 +196,34 @@ Where url is the url given by ErrorURL.
 
     ```Curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load```
 
+10. a simple load json
+       table schema： 
+           `category` varchar(512) NULL COMMENT "",
+           `author` varchar(512) NULL COMMENT "",
+           `title` varchar(512) NULL COMMENT "",
+           `price` double NULL COMMENT ""
+       json data：
+           {"category":"C++","author":"avc","title":"C++ primer","price":895}
+       load command by curl：
+           curl --location-trusted -u root  -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
+         you can load multiple records, for example:
+               [
+               {"category":"C++","author":"avc","title":"C++ primer","price":89.5},
+               {"category":"Java","author":"avc","title":"Effective Java","price":95},
+               {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
+              ]
+11. Matched load json by jsonpaths
+       json data：
+           [
+           {"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},
+           {"category":"xuxb222","author":"2avc","title":"SayingsoftheCentury","price":895},
+           {"category":"xuxb333","author":"3avc","title":"SayingsoftheCentury","price":895}
+           ] 
+       Matched imports are made by specifying jsonpath parameter, such as `category`, `author`, and `price`, for example:
+         curl --location-trusted -u root  -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\"$.price\",\"$.author\"]" -H "strip_outer_array: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
+       Tips：
+        1）If the json data starts as an array and each object in the array is a record, you need to set the strip_outer_array to true to represent the flat array.
+        2）If the json data starts with an array, and each object in the array is a record, our ROOT node is actually an object in the array when we set jsonpath.
 
 ## keyword
 

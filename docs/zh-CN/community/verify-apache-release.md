@@ -41,26 +41,26 @@ under the License.
 
 下载所有相关文件, 以 a.b.c-incubating 为示例:
 
-```
-wget https://dist.apache.org/repos/dist/dev/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz
+``` shell
+wget https://www.apache.org/dyn/mirrors/mirrors.cgi?action=download&filename=/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz
 
-wget https://dist.apache.org/repos/dist/dev/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz.sha512
+wget https://www.apache.org/dist/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz.sha512
 
-wget https://dist.apache.org/repos/dist/dev/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz.asc
+wget https://www.apache.org/dist/incubator/doris/a.b.c-incubating/apache-doris-a.b.c-incubating-src.tar.gz.asc
 
-wget https://dist.apache.org/repos/dist/dev/incubator/doris/KEYS
+wget https://www.apache.org/dist/incubator/doris/KEYS
 ```
 
 ## 2. 检查签名和校验值
 
 推荐使用 GunPG，可以通过以下命令安装：
 
-```
+``` shell
 CentOS: yum install gnupg
 Ubuntu: apt-get install gnupg
 ```
 
-```
+``` shell
 gpg --import KEYS
 gpg --verify apache-doris-a.b.c-incubating-src.tar.gz.asc apache-doris-a.b.c-incubating-src.tar.gz
 sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
@@ -68,21 +68,20 @@ sha512sum --check apache-doris-a.b.c-incubating-src.tar.gz.sha512
 
 ## 3. 验证源码协议头
 
-推荐使用 Apache RAT 验证源码协议，可以从一下连接下载：
+推荐使用 Apache RAT 验证源码协议，可以从以下链接下载：
 
-```
-wget http://mirrors.tuna.tsinghua.edu.cn/apache//creadur/apache-rat-0.12/apache-rat-0.12-bin.tar.gz
-tar zxvf apache-rat-0.12-bin.tar.gz
+``` shell
+wget http://mirrors.tuna.tsinghua.edu.cn/apache/creadur/apache-rat-0.13/apache-rat-0.13-bin.tar.gz
+tar zxvf apache -rat -0.13 -bin.tar.gz
 ```
 
 假设源码目录名称为 apache-doris-a.b.c-incubating-src，可以使用以下命令进行验证。
 这个命令会产生一个文件，其中列举了所有非 ASF 协议的文件。
 
-```
-/usr/java/jdk/bin/java  -jar apache-rat-0.12/apache-rat-0.12.jar -a -d apache-doris-a.b.c-incubating-src -E apache-doris-a.b.c-incubating-src/.rat-excudes 
+``` shell
+/usr/java/jdk/bin/java  -jar apache-rat-0.13/apache-rat-0.13.jar -a -d apache-doris-a.b.c-incubating-src -E apache-doris-a.b.c-incubating-src/.rat-excudes 
 ```
 
 ## 4. 验证编译
 
 详细的编译步骤，请参阅 [编译文档](../installing/compilation.html)
-

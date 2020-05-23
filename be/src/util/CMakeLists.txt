@@ -93,6 +93,8 @@ set(UTIL_FILES
   condition_variable.cpp
   thread.cpp
   threadpool.cpp
+  trace.cpp
+  trace_metrics.cpp
 )
 
 if (WITH_MYSQL)

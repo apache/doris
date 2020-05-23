@@ -51,6 +51,9 @@ public:
     static BigIntVal bitmap_get_value(FunctionContext* ctx, const StringVal& src);
 
     static void bitmap_union(FunctionContext* ctx, const StringVal& src, StringVal* dst);
+    // the dst value could be null
+    static void nullable_bitmap_init(FunctionContext* ctx, StringVal* dst);
+    static void bitmap_intersect(FunctionContext* ctx, const StringVal& src, StringVal* dst);
     static BigIntVal bitmap_count(FunctionContext* ctx, const StringVal& src);
 
     static StringVal bitmap_serialize(FunctionContext* ctx, const StringVal& src);
@@ -68,8 +71,9 @@ public:
     static BooleanVal bitmap_contains(FunctionContext* ctx, const StringVal& src, const BigIntVal& input);
     static BooleanVal bitmap_has_any(FunctionContext* ctx, const StringVal& lhs, const StringVal& rhs);
 
-    // bitmap_intersect
+    // intersect count
     template<typename T, typename ValType>
+    // this is init function for intersect_count not for bitmap_intersect
     static void bitmap_intersect_init(FunctionContext* ctx, StringVal* dst);
     template<typename T, typename ValType>
     static void bitmap_intersect_update(FunctionContext* ctx, const StringVal& src, const ValType& key,

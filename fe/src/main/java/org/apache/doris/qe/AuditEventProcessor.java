@@ -56,6 +56,7 @@ public class AuditEventProcessor {
 
     public void start() {
         workerThread = new Thread(new Worker(), "AuditEventProcessor");
+        workerThread.setDaemon(true);
         workerThread.start();
     }
 

@@ -189,18 +189,14 @@ public abstract class AlterJob implements Writable {
             return false;
         } else if (!backend.isAlive()) {
             long currentTime = System.currentTimeMillis();
-            if (backend.getLastUpdateMs() > 0
-                    && currentTime - backend.getLastUpdateMs() > Config.max_backend_down_time_second * 1000) {
-                // this backend is done for a long time and not restart automatically.
-                // we consider it as dead
-                return false;
-            }
-            return true;
-        } else if (backend.isDecommissioned()) {
-            return false;
+            // If this backend is done for a long time and not restart automatically.
+            // we consider it as dead and return false.
+            return backend.getLastUpdateMs() <= 0
+                    || currentTime - backend.getLastUpdateMs() <= Config.max_backend_down_time_second * 1000;
+        } else {
+            return !backend.isDecommissioned();
         }
-        
-        return true;
+
     }
 
     public static AlterJob read(DataInput in) throws IOException {

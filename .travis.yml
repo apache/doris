@@ -16,7 +16,7 @@
 language: node_js
 # nodejs版本
 node_js: 
-    - '8'
+    - '14'
 
 # Travis-CI Caching
 cache:
@@ -31,9 +31,6 @@ install:
 before_script:
   - export PR=https://api.github.com/repos/$TRAVIS_REPO_SLUG/pulls/$TRAVIS_PULL_REQUEST
   - export BRANCH=$(if [ "$TRAVIS_PULL_REQUEST" == "false" ]; then echo $TRAVIS_BRANCH; else echo `curl -s $PR | jq -r .head.ref`; fi)
-  - echo $BRANCH
-  - sed -i 's/base:.*,/base:\"\/'$BRANCH'\/\",/g' .vuepress/config.js 
-  - sed -i 's/docsBranch:.*,/docsBranch:\"'$BRANCH'\",/g' .vuepress/config.js 
   - find ./ -name "*.md" -exec sed -i -e 's/!\[\(.*\)\][(]\(.*\)[)]/<img \:src=\"$withBase\('\''\2'\''\)\" alt=\"\1\">/g' {} \;
   - rm -rf site-repo
   
