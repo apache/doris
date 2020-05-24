@@ -128,6 +128,10 @@ public class TimeUtils {
         return TimeZone.getTimeZone(ZoneId.of(timezone, timeZoneAliasMap));
     }
 
+    public static TimeZone getDefaultTimeZone() {
+        return TimeZone.getTimeZone(ZoneId.of(DEFAULT_TIME_ZONE, timeZoneAliasMap));
+    }
+
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {
         if (timeStamp <= 0L) {
             return "N/A";
@@ -267,5 +271,12 @@ public class TimeUtils {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TIME_ZONE, value);
         }
         throw new DdlException("Parse time zone " + value + " error");
+    }
+
+    // return the number of days of give year.month
+    public static int getNumberDaysOfMonth(int year, int month) {
+        Calendar calendar = Calendar.getInstance();
+        calendar.set(year, month + 1, 0);
+        return calendar.get(Calendar.DAY_OF_MONTH);
     }
 }
