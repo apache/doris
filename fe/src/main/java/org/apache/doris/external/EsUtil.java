@@ -126,6 +126,7 @@ public class EsUtil {
                     }
                 }
             }
+            return docValueField;
         }
         // set doc_value = false manually
         if (fieldObject.has("doc_values")) {
