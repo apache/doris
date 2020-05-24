@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -49,9 +50,12 @@ public class EsStateStore extends MasterDaemon {
 
     private Map<Long, EsTable> esTables;
 
+    private Map<Long, EsRestClient> esClients;
+
     public EsStateStore() {
         super("es state store", Config.es_state_sync_interval_second * 1000);
         esTables = Maps.newConcurrentMap();
+        esClients = Maps.newConcurrentMap();
     }
 
     public void registerTable(EsTable esTable) {
@@ -59,11 +63,14 @@ public class EsStateStore extends MasterDaemon {
             return;
         }
         esTables.put(esTable.getId(), esTable);
+        esClients.put(esTable.getId(),
+            new EsRestClient(esTable.getSeeds(), esTable.getUserName(), esTable.getPasswd()));
         LOG.info("register a new table [{}] to sync list", esTable);
     }
 
     public void deRegisterTable(long tableId) {
         esTables.remove(tableId);
+        esClients.remove(tableId);
         LOG.info("deregister table [{}] from sync list", tableId);
     }
 
@@ -71,18 +78,16 @@ public class EsStateStore extends MasterDaemon {
     protected void runAfterCatalogReady() {
         for (EsTable esTable : esTables.values()) {
             try {
-                EsRestClient client = new EsRestClient(esTable.getSeeds(), esTable.getUserName(),
-                    esTable.getPasswd());
+                EsRestClient client = esClients.get(esTable.getId());
 
                 if (esTable.isKeywordSniffEnable() || esTable.isDocValueScanEnable()) {
-                    JSONObject properties = client
-                        .getIndexProperties(esTable.getIndexName(), esTable.getMappingType());
+                    JSONObject properties = client.getIndexProperties(esTable.getIndexName(), esTable.getMappingType());
                     if (properties == null) {
                         continue;
                     }
                     setEsTableContext(properties, esTable);
                 }
-                
+
                 EsIndexState esIndexState = client.getIndexState(esTable.getIndexName());
                 if (esIndexState == null) {
                     continue;
@@ -148,56 +153,19 @@ public class EsStateStore extends MasterDaemon {
                 continue;
             }
             JSONObject fieldObject = properties.optJSONObject(colName);
-            String fieldType = fieldObject.optString("type");
             // string-type field used keyword type to generate predicate
             if (esTable.isKeywordSniffEnable()) {
-                // if text field type seen, we should use the `field` keyword type?
-                if ("text".equals(fieldType)) {
-                    JSONObject fieldsObject = fieldObject.optJSONObject("fields");
-                    if (fieldsObject != null) {
-                        for (String key : fieldsObject.keySet()) {
-                            JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
-                            // just for text type
-                            if ("keyword".equals(innerTypeObject.optString("type"))) {
-                                esTable.addFetchField(colName, colName + "." + key);
-                            }
-                        }
-                    }
+                String fetchField = EsUtil.getFetchField(fieldObject, colName);
+                if (StringUtils.isNotEmpty(fetchField)) {
+                    esTable.addFetchField(colName, fetchField);
                 }
             }
 
             if (esTable.isDocValueScanEnable()) {
-                if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS.contains(fieldType)) {
-                    JSONObject fieldsObject = fieldObject.optJSONObject("fields");
-                    if (fieldsObject != null) {
-                        for (String key : fieldsObject.keySet()) {
-                            JSONObject innerTypeObject = fieldsObject.optJSONObject(key);
-                            if (EsTable.DEFAULT_DOCVALUE_DISABLED_FIELDS
-                                .contains(innerTypeObject.optString("type"))) {
-                                continue;
-                            }
-                            if (innerTypeObject.has("doc_values")) {
-                                boolean docValue = innerTypeObject.getBoolean("doc_values");
-                                if (docValue) {
-                                    esTable.addDocValueField(colName, colName);
-                                }
-                            } else {
-                                // a : {c : {}} -> a -> a.c
-                                esTable.addDocValueField(colName, colName + "." + key);
-                            }
-                        }
-                    }
-                    // skip this field
-                    continue;
+                String docValueField = EsUtil.getDocValueField(fieldObject, colName);
+                if (StringUtils.isNotEmpty(docValueField)) {
+                    esTable.addDocValueField(colName, docValueField);
                 }
-                // set doc_value = false manually
-                if (fieldObject.has("doc_values")) {
-                    boolean docValue = fieldObject.optBoolean("doc_values");
-                    if (!docValue) {
-                        continue;
-                    }
-                }
-                esTable.addDocValueField(colName, colName);
             }
         }
     }
@@ -208,8 +176,7 @@ public class EsStateStore extends MasterDaemon {
         RangePartitionInfo partitionInfo = null;
         if (esTable.getPartitionInfo() != null) {
             if (esTable.getPartitionInfo() instanceof RangePartitionInfo) {
-                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTable
-                    .getPartitionInfo();
+                RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) esTable.getPartitionInfo();
                 partitionInfo = new RangePartitionInfo(rangePartitionInfo.getPartitionColumns());
                 esTableState.setPartitionInfo(partitionInfo);
                 if (LOG.isDebugEnabled()) {

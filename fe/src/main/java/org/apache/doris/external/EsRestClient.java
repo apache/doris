@@ -41,6 +41,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 public class EsRestClient {
+
     private static final Logger LOG = LogManager.getLogger(EsRestClient.class);
     private ObjectMapper mapper;
 
@@ -51,8 +52,8 @@ public class EsRestClient {
     }
 
     private static OkHttpClient networkClient = new OkHttpClient.Builder()
-            .readTimeout(10, TimeUnit.SECONDS)
-            .build();
+        .readTimeout(10, TimeUnit.SECONDS)
+        .build();
 
     private Request.Builder builder;
     private String[] nodes;
@@ -154,7 +155,6 @@ public class EsRestClient {
     }
 
     /**
-     *
      * Get the Elasticsearch cluster version
      *
      * @return
