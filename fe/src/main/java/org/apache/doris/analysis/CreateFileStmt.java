@@ -34,10 +34,11 @@ import java.util.Map;
 import java.util.Optional;
 
 public class CreateFileStmt extends DdlStmt {
-    public static final String PROP_CATALOG = "catalog";
-    public static final String PROP_URL = "url";
-    public static final String PROP_MD5 = "md5";
-    public static final String PROP_SAVE_CONTENT = "save_content";
+    public static final String PROP_CATALOG_DEFAULT = "DEFAULT";
+    private static final String PROP_CATALOG = "catalog";
+    private static final String PROP_URL = "url";
+    private static final String PROP_MD5 = "md5";
+    private static final String PROP_SAVE_CONTENT = "save_content";
     
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(PROP_CATALOG).add(PROP_URL).add(PROP_MD5).build();
@@ -122,7 +123,7 @@ public class CreateFileStmt extends DdlStmt {
 
         catalogName = properties.get(PROP_CATALOG);
         if (Strings.isNullOrEmpty(catalogName)) {
-            throw new AnalysisException("catalog name is missing");
+            catalogName = PROP_CATALOG_DEFAULT;
         }
 
         downloadUrl = properties.get(PROP_URL);

@@ -214,10 +214,11 @@ public class DatabaseTransactionMgrTest {
         assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(5)));
         assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(6)));
         assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(7)));
-        assertEquals("", txnInfo.get(8));
-        assertEquals("0", txnInfo.get(9));
-        assertEquals("-1", txnInfo.get(10));
-        assertEquals(String.valueOf(Config.stream_load_default_timeout_second * 1000), txnInfo.get(11));
+        assertTrue(currentTime > TimeUtils.timeStringToLong(txnInfo.get(8)));
+        assertEquals("", txnInfo.get(9));
+        assertEquals("0", txnInfo.get(10));
+        assertEquals("-1", txnInfo.get(11));
+        assertEquals(String.valueOf(Config.stream_load_default_timeout_second * 1000), txnInfo.get(12));
     }
 
     @Test
