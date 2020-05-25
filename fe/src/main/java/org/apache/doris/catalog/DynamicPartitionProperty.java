@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
 import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
 import org.apache.doris.common.util.TimeUtils;
 
@@ -114,17 +115,34 @@ public class DynamicPartitionProperty{
         return startOfMonth;
     }
 
+    public String getStartOfInfo() {
+        if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
+            return startOfWeek.toDisplayInfo();
+        } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
+            return startOfMonth.toDisplayInfo();
+        } else {
+            return "N/A";
+        }
+    }
+
     public TimeZone getTimeZone() {
         return tz;
     }
 
+
     @Override
     public String toString() {
-        return ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
+        String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
                 ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
                 ",\n\"" + START + "\" = \"" + start + "\"" +
                 ",\n\"" + END + "\" = \"" + end + "\"" +
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
                 ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"";
+        if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
+            res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
+        } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
+            res += ",\n\"" + START_DAY_OF_MONTH + "\" = \"" + startOfMonth.day + "\"";
+        }
+        return res;
     }
 }

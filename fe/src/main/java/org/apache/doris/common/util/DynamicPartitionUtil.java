@@ -44,6 +44,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.DayOfWeek;
+import java.time.Month;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
@@ -469,6 +471,24 @@ public class DynamicPartitionUtil {
 
         public boolean isStartOfWeek() {
             return this.month == -1 && this.day == -1 && this.dayOfWeek != -1;
+        }
+
+        public String toDisplayInfo() {
+            if (isStartOfWeek()) {
+                return DayOfWeek.of(dayOfWeek).name();
+            } else if (isStartOfMonth()) {
+                return Util.ordinal(day);
+            } else if (isStartOfYear()) {
+                return Month.of(month) + " " + Util.ordinal(day);
+            } else {
+                return "N/A";
+            }
+        }
+
+        @Override
+        public String toString() {
+            // TODO Auto-generated method stub
+            return super.toString();
         }
     }
 }

@@ -103,11 +103,11 @@ under the License.
 
     动态创建的分区所对应的分桶数量。
     
-* `dynamic_partition.start_of_week`
+* `dynamic_partition.start_day_of_week`
 
     当 `time_unit` 为 `WEEK` 时，该参数用于指定每周的起始点。取值为 1 到 7。其中 1 表示周一，7 表示周日。默认为 1，即表示每周以周一为起始点。
     
-* `dynamic_partition.start_of_month`
+* `dynamic_partition.start_day_of_month`
 
     当 `time_unit` 为 `MONTH` 时，该参数用于指定每月的起始日期。取值为 1 到 28。其中 1 表示每月1号，28 表示每月28号。默认为 1，即表示每月以1号位起始点。暂不支持以29、30、31号为起始日，以避免因闰年或闰月带来的歧义。
   
@@ -178,7 +178,7 @@ under the License.
     
     在 2020-06-15，即第25周时，会删除2周前的分区，即删除 `p2020_22`。
     
-    在上面的例子中，假设用户指定了周起始日为 `"dynamic_partition.start_of_week" = "3"`，即以每周三为起始日。则分区如下：
+    在上面的例子中，假设用户指定了周起始日为 `"dynamic_partition.start_day_of_week" = "3"`，即以每周三为起始日。则分区如下：
     
     ```
     p2020_22: ["2020-05-27 00:00:00", "2020-06-03 00:00:00")
@@ -205,7 +205,8 @@ under the License.
         "dynamic_partition.time_unit" = "MONTH",
         "dynamic_partition.end" = "2",
         "dynamic_partition.prefix" = "p",
-        "dynamic_partition.buckets" = "8"
+        "dynamic_partition.buckets" = "8",
+        "dynamic_partition.start_day_of_month" = "3"
     );
     ```
     

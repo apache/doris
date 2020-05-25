@@ -105,11 +105,11 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     The number of buckets corresponding to the dynamically created partitions.
     
-* `dynamic_partition.start_of_week`
+* `dynamic_partition.start_day_of_week`
 
     When `time_unit` is` WEEK`, this parameter is used to specify the starting point of the week. The value ranges from 1 to 7. Where 1 is Monday and 7 is Sunday. The default is 1, which means that every week starts on Monday.
     
-* `dynamic_partition.start_of_month`
+* `dynamic_partition.start_day_of_month`
 
     When `time_unit` is` MONTH`, this parameter is used to specify the start date of each month. The value ranges from 1 to 28. 1 means the 1st of every month, and 28 means the 28th of every month. The default is 1, which means that every month starts at 1st. The 29, 30 and 31 are not supported at the moment to avoid ambiguity caused by lunar years or months.
 
@@ -180,7 +180,7 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     On 2020-06-15, the 25th week, the partition 2 weeks ago will be deleted, ie `p2020_22` will be deleted.
 
-    In the above example, suppose the user specified the start day of the week as `"dynamic_partition.start_of_week" = "3"`, that is, set Wednesday as the start of week. The partition is as follows:
+    In the above example, suppose the user specified the start day of the week as `"dynamic_partition.start_day_of_week" = "3"`, that is, set Wednesday as the start of week. The partition is as follows:
     
     ```
     p2020_22: ["2020-05-27 00:00:00", "2020-06-03 00:00:00")
@@ -207,7 +207,8 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
         "dynamic_partition.time_unit" = "MONTH",
         "dynamic_partition.end" = "2",
         "dynamic_partition.prefix" = "p",
-        "dynamic_partition.buckets" = "8"
+        "dynamic_partition.buckets" = "8",
+        "dynamic_partition.start_day_of_month" = "3"
     );
     ```
     
