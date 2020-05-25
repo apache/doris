@@ -33,7 +33,7 @@ class QueryStatisticsRecvr;
 class QueryStatistics {
 public:
 
-    QueryStatistics() : scan_rows(0), scan_bytes(0) {
+    QueryStatistics() : scan_rows(0), scan_bytes(0), returned_rows(0) {
     }
 
     void merge(const QueryStatistics& other) {
