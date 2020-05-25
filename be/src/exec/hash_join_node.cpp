@@ -153,10 +153,6 @@ Status HashJoinNode::close(RuntimeState* state) {
     // Must reset _probe_batch in close() to release resources
     _probe_batch.reset(NULL);
 
-    if (_memory_used_counter != NULL && _hash_tbl.get() != NULL) {
-        COUNTER_UPDATE(_memory_used_counter, _build_pool->peak_allocated_bytes());
-        COUNTER_UPDATE(_memory_used_counter, _hash_tbl->byte_size());
-    }
     if (_hash_tbl.get() != NULL) {
         _hash_tbl->close();
     }

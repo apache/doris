@@ -615,7 +615,7 @@ public class LoadManager implements Writable{
             if (job.getState() == JobState.LOADING) {
                 // unfortunately, transaction id in load job is also not persisted, so we have to traverse
                 // all transactions to find it.
-                TransactionState txn = txnMgr.getTransactionStateByCallbackIdAndStatus(job.getCallbackId(),
+                TransactionState txn = txnMgr.getTransactionStateByCallbackIdAndStatus(job.getDbId(), job.getCallbackId(),
                         Sets.newHashSet(TransactionStatus.COMMITTED));
                 if (txn != null) {
                     job.updateState(JobState.COMMITTED);
@@ -643,7 +643,7 @@ public class LoadManager implements Writable{
              */
             if (job.getState() == JobState.LOADING || job.getState() == JobState.PENDING) {
                 JobState prevState = job.getState();
-                TransactionState txn = txnMgr.getTransactionStateByCallbackId(job.getCallbackId());
+                TransactionState txn = txnMgr.getTransactionStateByCallbackId(job.getDbId(), job.getCallbackId());
                 if (txn != null) {
                     // the txn has already been committed or visible, change job's state to committed or finished
                     if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {

@@ -637,7 +637,7 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
     }
     
     for (auto& each_cond : _columns) {
-        if (each_cond.second->is_key() && !each_cond.second->eval(row)) {
+        if (_cond_column_is_key_or_duplicate(each_cond.second) && !each_cond.second->eval(row)) {
             return false;
         }
     }
@@ -651,13 +651,13 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
 bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
     //通过所有列上的删除条件对version进行过滤
     for (auto& cond_it : _columns) {
-        if (cond_it.second->is_key() && cond_it.first > zone_maps.size()) {
+        if (_cond_column_is_key_or_duplicate(cond_it.second) && cond_it.first > zone_maps.size()) {
             LOG(WARNING) << "where condition not equal zone maps size. "
                          << "cond_id=" << cond_it.first
                          << ", zone_map_size=" << zone_maps.size();
             return false;
         }
-        if (cond_it.second->is_key() && !cond_it.second->eval(zone_maps[cond_it.first])) {
+        if (_cond_column_is_key_or_duplicate(cond_it.second) && !cond_it.second->eval(zone_maps.at(cond_it.first))) {
             return true;
         }
     }
@@ -681,9 +681,9 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
     for (auto& cond_it : _columns) {
         /*
          * this is base on the assumption that the delete condition
-         * is only about key field, not about value field.
+         * is only about key field, not about value field except the storage model is duplicate.
         */
-        if (cond_it.second->is_key() && cond_it.first > zone_maps.size()) {
+        if (_cond_column_is_key_or_duplicate(cond_it.second) && cond_it.first > zone_maps.size()) {
             LOG(WARNING) << "where condition not equal column statistics size. "
                          << "cond_id=" << cond_it.first
                          << ", zone_map_size=" << zone_maps.size();
@@ -691,7 +691,7 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
             continue;
         }
 
-        int del_ret = cond_it.second->del_eval(zone_maps[cond_it.first]);
+        int del_ret = cond_it.second->del_eval(zone_maps.at(cond_it.first));
         if (DEL_SATISFIED == del_ret) {
             continue;
         } else if (DEL_PARTIAL_SATISFIED == del_ret) {

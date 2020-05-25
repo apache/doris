@@ -167,7 +167,7 @@ public class PublishVersionDaemon extends MasterDaemon {
                     // transaction's publish is timeout, but there still has unfinished tasks.
                     // we need to collect all error replicas, and try to finish this txn.
                     for (PublishVersionTask unfinishedTask : unfinishedTasks) {
-                        // set all replica in the backend to error state
+                        // set all replicas in the backend to error state
                         List<TPartitionVersionInfo> versionInfos = unfinishedTask.getPartitionVersionInfos();
                         Set<Long> errorPartitionIds = Sets.newHashSet();
                         for (TPartitionVersionInfo versionInfo : versionInfos) {
@@ -177,6 +177,8 @@ public class PublishVersionDaemon extends MasterDaemon {
                             continue;
                         }
 
+                        // get all tablets of these error partitions, and mark their replicas as error.
+                        // current we don't have partition to tablet map in FE, so here we use an inefficient way.
                         // TODO(cmy): this is inefficient, but just keep it simple. will change it later.
                         List<Long> tabletIds = tabletInvertedIndex.getTabletIdsByBackendId(unfinishedTask.getBackendId());
                         for (long tabletId : tabletIds) {
@@ -203,7 +205,7 @@ public class PublishVersionDaemon extends MasterDaemon {
             }
             
             if (shouldFinishTxn) {
-                globalTransactionMgr.finishTransaction(transactionState.getTransactionId(), publishErrorReplicaIds);
+                globalTransactionMgr.finishTransaction(transactionState.getDbId(), transactionState.getTransactionId(), publishErrorReplicaIds);
                 if (transactionState.getTransactionStatus() != TransactionStatus.VISIBLE) {
                     // if finish transaction state failed, then update publish version time, should check 
                     // to finish after some interval

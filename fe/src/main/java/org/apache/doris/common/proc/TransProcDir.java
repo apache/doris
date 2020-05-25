@@ -35,11 +35,13 @@ public class TransProcDir implements ProcDirInterface {
             .add("LoadJobSourceType")
             .add("PrepareTime")
             .add("CommitTime")
+            .add("PublishTime")
             .add("FinishTime")
             .add("Reason")
             .add("ErrorReplicasCount")
             .add("ListenerId")
             .add("TimeoutMs")
+            .add("ErrMsg")
             .build();
 
     public static final int MAX_SHOW_ENTRIES = 2000;
@@ -79,6 +81,6 @@ public class TransProcDir implements ProcDirInterface {
         } catch (NumberFormatException e) {
             throw new AnalysisException("Invalid transaction id format: " + tid);
         }
-        return new TransTablesProcDir(tid);
+        return new TransTablesProcDir(dbId, tid);
     }
 }

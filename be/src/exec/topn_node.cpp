@@ -163,9 +163,6 @@ Status TopNNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     // block(s) in the pool are all full or when the pool has reached a certain size.
     if (*eos) {
         row_batch->tuple_data_pool()->acquire_data(_tuple_pool.get(), false);
-        if (memory_used_counter() != NULL) {
-            COUNTER_UPDATE(memory_used_counter(), _tuple_pool->peak_allocated_bytes());
-        }
     }
     return Status::OK();
 }

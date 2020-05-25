@@ -39,6 +39,7 @@ TEST_F(WktParseTest, normal) {
     ASSERT_EQ(GEO_PARSE_OK, status);
     ASSERT_NE(nullptr, shape);
     LOG(INFO) << "parse result: " << shape->to_string();
+    delete shape;
 }
 
 TEST_F(WktParseTest, invalid_wkt) {

@@ -77,19 +77,24 @@ public class StreamLoadPlanner {
         this.db = db;
         this.destTable = destTable;
         this.streamLoadTask = streamLoadTask;
-        analyzer = new Analyzer(Catalog.getInstance(), null);
+    }
+
+    private void resetAnalyzer() {
+        analyzer = new Analyzer(Catalog.getCurrentCatalog(), null);
         // TODO(cmy): currently we do not support UDF in stream load command.
         // Because there is no way to check the privilege of accessing UDF..
         analyzer.setUDFAllowed(false);
         descTable = analyzer.getDescTbl();
     }
 
+    // can only be called after "plan()", or it will return null
     public OlapTable getDestTable() {
         return destTable;
     }
 
     // create the plan. the plan's query id and load id are same, using the parameter 'loadId'
     public TExecPlanFragmentParams plan(TUniqueId loadId) throws UserException {
+        resetAnalyzer();
         // construct tuple descriptor, used for scanNode and dataSink
         TupleDescriptor tupleDesc = descTable.createTupleDescriptor("DstTableTuple");
         boolean negative = streamLoadTask.getNegative();
@@ -172,7 +177,8 @@ public class StreamLoadPlanner {
         return params;
     }
 
-    // get all specified partition ids. return an empty list if no partition is specified.
+    // get all specified partition ids.
+    // if no partition specified, return all partitions
     private List<Long> getAllPartitionIds() throws DdlException {
         List<Long> partitionIds = Lists.newArrayList();
 
@@ -184,6 +190,10 @@ public class StreamLoadPlanner {
                     ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_PARTITION, partName, destTable.getName());
                 }
                 partitionIds.add(part.getId());
+            }
+        } else {
+            for (Partition partition : destTable.getPartitions()) {
+                partitionIds.add(partition.getId());
             }
         }
         return partitionIds;

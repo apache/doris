@@ -43,11 +43,11 @@ under the License.
 
     1. 安装一个本地 zip 文件插件：
 
-        INSTALL PLUGIN FROM "/home/users/seaven/auditdemo.zip";
+        INSTALL PLUGIN FROM "/home/users/doris/auditdemo.zip";
 
     2. 安装一个本地目录中的插件：
 
-        INSTALL PLUGIN FROM "/home/users/seaven/auditdemo/";
+        INSTALL PLUGIN FROM "/home/users/doris/auditdemo/";
 
     2. 下载并安装一个插件：
 

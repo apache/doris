@@ -376,16 +376,6 @@ int PartitionedHashTableCtx::ExprValuesCache::MemUsage(int capacity,
       Bitmap::MemUsage(capacity);               // null_bitmap_
 }
 
-uint8_t* PartitionedHashTableCtx::ExprValuesCache::ExprValuePtr(
-    uint8_t* expr_values, int expr_idx) const {
-  return expr_values + expr_values_offsets_[expr_idx];
-}
-
-const uint8_t* PartitionedHashTableCtx::ExprValuesCache::ExprValuePtr(
-    const uint8_t* expr_values, int expr_idx) const {
-  return expr_values + expr_values_offsets_[expr_idx];
-}
-
 void PartitionedHashTableCtx::ExprValuesCache::ResetIterators() {
   cur_expr_values_ = expr_values_array_.get();
   cur_expr_values_null_ = expr_values_null_array_.get();
@@ -466,9 +456,6 @@ void PartitionedHashTable::Close() {
   if ((num_buckets_ > LARGE_HT) || (num_probes_ > HEAVILY_USED)) VLOG(2) << PrintStats();
   for (auto& data_page : data_pages_) allocator_->Free(move(data_page));
   data_pages_.clear();
-  //if (DorisMetrics::hash_table_total_bytes() != NULL) {
-  //  DorisMetrics::hash_table_total_bytes()->increment(-total_data_page_size_);
-  //}
   if (bucket_allocation_ != nullptr) allocator_->Free(move(bucket_allocation_));
 }
 
@@ -546,7 +533,6 @@ bool PartitionedHashTable::GrowNodeArray(Status* status) {
   if (!status->ok() || allocation == nullptr) return false;
   next_node_ = reinterpret_cast<DuplicateNode*>(allocation->data());
   data_pages_.push_back(std::move(allocation));
-  //DorisMetrics::hash_table_total_bytes()->increment(DATA_PAGE_SIZE);
   node_remaining_current_page_ = DATA_PAGE_SIZE / sizeof(DuplicateNode);
   total_data_page_size_ += DATA_PAGE_SIZE;
   return true;

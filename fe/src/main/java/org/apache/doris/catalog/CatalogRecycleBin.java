@@ -36,6 +36,7 @@ import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
@@ -152,6 +153,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 Catalog.getInstance().getSchemaChangeHandler().removeDbAlterJob(db.getId());
                 Catalog.getInstance().getRollupHandler().removeDbAlterJob(db.getId());
 
+                // remove database transaction manager
+                Catalog.getInstance().getGlobalTransactionMgr().removeDatabaseTransactionMgr(db.getId());
+
                 // log
                 Catalog.getInstance().getEditLog().logEraseDb(entry.getKey());
                 LOG.info("erase db[{}]", entry.getKey());
@@ -169,6 +173,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 iterator.remove();
                 idToRecycleTime.remove(entry.getKey());
 
+                // remove database transaction manager
+                Catalog.getCurrentCatalog().getGlobalTransactionMgr().removeDatabaseTransactionMgr(db.getId());
+
                 LOG.info("erase database[{}] name: {}", db.getId(), dbName);
             }
         }
@@ -184,6 +191,8 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         Catalog.getInstance().getSchemaChangeHandler().removeDbAlterJob(dbId);
         Catalog.getInstance().getRollupHandler().removeDbAlterJob(dbId);
 
+        // remove database transaction manager
+        Catalog.getInstance().getGlobalTransactionMgr().removeDatabaseTransactionMgr(dbId);
         LOG.info("replay erase db[{}]", dbId);
     }
 
@@ -881,5 +890,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 isInMemory = in.readBoolean();
             }
         }
+    }
+    
+    // currently only used when loading image. So no synchronized protected.
+    public List<Long> getAllDbIds() {
+        return Lists.newArrayList(idToDatabase.keySet());
     }
 }

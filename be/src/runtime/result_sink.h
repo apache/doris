@@ -35,6 +35,7 @@ class BufferControlBlock;
 class ExprContext;
 class ResultWriter;
 class MemTracker;
+class ResultFileOptions;
 
 class ResultSink : public DataSink {
 public:
@@ -60,6 +61,9 @@ public:
 
 private:
     Status prepare_exprs(RuntimeState* state);
+    TResultSinkType::type _sink_type;
+    // set file options when sink type is FILE
+    std::unique_ptr<ResultFileOptions> _file_opts;
 
     ObjectPool* _obj_pool;
     // Owned by the RuntimeState.
@@ -73,6 +77,7 @@ private:
     boost::shared_ptr<ResultWriter> _writer;
     RuntimeProfile* _profile; // Allocated from _pool
     int _buf_size; // Allocated from _pool
+
 };
 
 }

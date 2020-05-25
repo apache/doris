@@ -22,6 +22,7 @@ include "Status.thrift"
 include "Types.thrift"
 include "PaloInternalService.thrift"
 include "Descriptors.thrift"
+include "Exprs.thrift"
 
 struct TColumn {
     1: required string column_name
@@ -31,6 +32,7 @@ struct TColumn {
     5: optional bool is_allow_null
     6: optional string default_value
     7: optional bool is_bloom_filter_column
+    8: optional Exprs.TExpr define_expr
 }
 
 struct TTabletSchema {

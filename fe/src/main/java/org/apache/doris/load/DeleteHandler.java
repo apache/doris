@@ -17,11 +17,6 @@
 
 package org.apache.doris.load;
 
-import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.gson.annotations.SerializedName;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.DeleteStmt;
 import org.apache.doris.analysis.IsNullPredicate;
@@ -34,6 +29,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionType;
@@ -55,16 +51,16 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.load.DeleteJob.DeleteState;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushType;
@@ -72,9 +68,16 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
+
+import com.google.common.base.Joiner;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -236,7 +239,7 @@ public class DeleteHandler implements Writable {
             } catch (Throwable t) {
                 LOG.warn("error occurred during delete process", t);
                 // if transaction has been begun, need to abort it
-                if (Catalog.getCurrentGlobalTransactionMgr().getTransactionState(transactionId) != null) {
+                if (Catalog.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), transactionId) != null) {
                     cancelJob(deleteJob, CancelType.UNKNOWN, t.getMessage());
                 }
                 throw new DdlException(t.getMessage(), t);
@@ -255,6 +258,15 @@ public class DeleteHandler implements Writable {
             }
 
             if (!ok) {
+                String errMsg = "";
+                List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
+                // only show at most 5 results
+                List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
+                if (!subList.isEmpty()) {
+                    errMsg = "unfinished replicas: " + Joiner.on(", ").join(subList);
+                }
+                LOG.warn(errMsg);
+
                 try {
                     deleteJob.checkAndUpdateQuorum();
                 } catch (MetaNotFoundException e) {
@@ -264,14 +276,10 @@ public class DeleteHandler implements Writable {
                 DeleteState state = deleteJob.getState();
                 switch (state) {
                     case UN_QUORUM:
-                        List<Entry<Long, Long>> unfinishedMarks = countDownLatch.getLeftMarks();
-                        // only show at most 5 results
-                        List<Entry<Long, Long>> subList = unfinishedMarks.subList(0, Math.min(unfinishedMarks.size(), 5));
-                        String errMsg = "Unfinished replicas:" + Joiner.on(", ").join(subList);
                         LOG.warn("delete job timeout: transactionId {}, timeout {}, {}", transactionId, timeoutMs, errMsg);
                         cancelJob(deleteJob, CancelType.TIMEOUT, "delete job timeout");
-                        throw new DdlException("failed to delete replicas from job: transactionId " + transactionId +
-                                ", timeout " + timeoutMs + ", " + errMsg);
+                        throw new DdlException("failed to execute delete. transaction id " + transactionId +
+                                ", timeout(ms) " + timeoutMs + ", " + errMsg);
                     case QUORUM_FINISHED:
                     case FINISHED:
                         try {
@@ -282,6 +290,7 @@ public class DeleteHandler implements Writable {
                                 deleteJob.checkAndUpdateQuorum();
                                 Thread.sleep(1000);
                                 nowQuorumTimeMs = System.currentTimeMillis();
+                                LOG.debug("wait for quorum finished delete job: {}, txn id: {}" + deleteJob.getId(), transactionId);
                             }
                         } catch (MetaNotFoundException e) {
                             cancelJob(deleteJob, CancelType.METADATA_MISSING, e.getMessage());
@@ -311,7 +320,7 @@ public class DeleteHandler implements Writable {
         try {
             unprotectedCommitJob(job, db, timeoutMs);
             status = Catalog.getCurrentGlobalTransactionMgr().
-                    getTransactionState(job.getTransactionId()).getTransactionStatus();
+                    getTransactionState(db.getId(), job.getTransactionId()).getTransactionStatus();
         } catch (UserException e) {
             if (cancelJob(job, CancelType.COMMIT_FAIL, e.getMessage())) {
                 throw new DdlException(e.getMessage(), e);
@@ -386,7 +395,9 @@ public class DeleteHandler implements Writable {
                         pushTask.getVersion(), pushTask.getVersionHash(),
                         pushTask.getPushType(), pushTask.getTaskType());
             }
-            Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(job.getId());
+
+            // NOT remove callback from GlobalTransactionMgr's callback factory here.
+            // the callback will be removed after transaction is aborted of visible.
         }
     }
 
@@ -418,10 +429,10 @@ public class DeleteHandler implements Writable {
         GlobalTransactionMgr globalTransactionMgr = Catalog.getCurrentGlobalTransactionMgr();
         try {
             if (job != null) {
-                globalTransactionMgr.abortTransaction(job.getTransactionId(), reason);
+                globalTransactionMgr.abortTransaction(job.getDeleteInfo().getDbId(), job.getTransactionId(), reason);
             }
         } catch (Exception e) {
-            TransactionState state = globalTransactionMgr.getTransactionState(job.getTransactionId());
+            TransactionState state = globalTransactionMgr.getTransactionState(job.getDeleteInfo().getDbId(), job.getTransactionId());
             if (state == null) {
                 LOG.warn("cancel delete job failed because txn not found, transactionId: {}", job.getTransactionId());
             } else if (state.getTransactionStatus() == TransactionStatus.COMMITTED || state.getTransactionStatus() == TransactionStatus.VISIBLE) {
@@ -468,9 +479,14 @@ public class DeleteHandler implements Writable {
             }
 
             Column column = nameToColumn.get(columnName);
-            if (!column.isKey()) {
+            // Due to rounding errors, most floating-point numbers end up being slightly imprecise,
+            // it also means that numbers expected to be equal often differ slightly, so we do not allow compare with
+            // floating-point numbers, floating-point number not allowed in where clause
+            if (!column.isKey() && table.getKeysType() != KeysType.DUP_KEYS
+                    || column.getDataType().isFloatingPointType()) {
                 // ErrorReport.reportDdlException(ErrorCode.ERR_NOT_KEY_COLUMN, columnName);
-                throw new DdlException("Column[" + columnName + "] is not key column");
+                throw new DdlException("Column[" + columnName + "] is not key column or storage model " +
+                        "is not duplicate or column type is float or double.");
             }
 
             if (condition instanceof BinaryPredicate) {
@@ -507,10 +523,11 @@ public class DeleteHandler implements Writable {
                 }
                 Column column = indexColNameToColumn.get(columnName);
                 if (column == null) {
-                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName, indexName);
+                    ErrorReport.reportDdlException(ErrorCode.ERR_BAD_FIELD_ERROR, columnName,
+                            table.getBaseIndexId() == index.getId()? indexName : "index[" + indexName +"]");
                 }
-
-                if (table.getKeysType() == KeysType.DUP_KEYS && !column.isKey()) {
+                MaterializedIndexMeta indexMeta = table.getIndexIdToMeta().get(index.getId());
+                if (indexMeta.getKeysType() != KeysType.DUP_KEYS && !column.isKey()) {
                     throw new DdlException("Column[" + columnName + "] is not key column in index[" + indexName + "]");
                 }
             }

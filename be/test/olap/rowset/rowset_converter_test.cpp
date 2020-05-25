@@ -37,7 +37,6 @@
 #include "olap/storage_engine.h"
 #include "olap/olap_cond.h"
 #include "runtime/exec_env.h"
-#include "util/doris_metrics.h"
 
 #ifndef BE_TEST
 #define BE_TEST
@@ -154,7 +153,6 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
-        DorisMetrics::instance()->initialize("ut");
         config::path_gc_check = false;
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
@@ -209,10 +207,13 @@ void RowsetConverterTest::process(RowsetTypePB src_type, RowsetTypePB dst_type) 
     OLAPStatus res = row.init(tablet_schema);
     ASSERT_EQ(OLAP_SUCCESS, res);
 
+    std::vector<std::string> test_data;
     for (int i = 0; i < 1024; ++i) {
+        test_data.push_back("well" + std::to_string(i));
+
         int32_t field_0 = i;
         row.set_field_content(0, reinterpret_cast<char*>(&field_0), _mem_pool.get());
-        Slice field_1("well" + std::to_string(i));
+        Slice field_1(test_data[i]);
         row.set_field_content(1, reinterpret_cast<char*>(&field_1), _mem_pool.get());
         int32_t field_2 = 10000 + i;
         row.set_field_content(2, reinterpret_cast<char*>(&field_2), _mem_pool.get());

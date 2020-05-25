@@ -123,6 +123,8 @@ public class StaticResourceAction extends WebBaseAction {
         controller.registerHandler(HttpMethod.GET, "/static/css", action);
         controller.registerHandler(HttpMethod.GET, "/static", action);
         controller.registerHandler(HttpMethod.GET, "/static/resource", action);
+        controller.registerHandler(HttpMethod.GET, "/static/images", action);
+        controller.registerHandler(HttpMethod.GET, "/static/fonts", action);
 
         StaticResourceAction action2 = new StaticResourceAction(controller, "webroot");
         controller.registerHandler(HttpMethod.GET, "/static_test", action2);

@@ -27,6 +27,7 @@
 #include "exec/broker_scanner.h"
 #include "exec/parquet_scanner.h"
 #include "exec/orc_scanner.h"
+#include "exec/json_scanner.h"
 #include "exprs/expr.h"
 #include "util/runtime_profile.h"
 
@@ -289,6 +290,14 @@ std::unique_ptr<BaseScanner> BrokerScanNode::create_scanner(const TBrokerScanRan
                 scan_range.broker_addresses,
                 counter);
         break;
+    case TFileFormatType::FORMAT_JSON:
+        scan = new JsonScanner(_runtime_state,
+                runtime_profile(),
+                scan_range.params,
+                scan_range.ranges,
+                scan_range.broker_addresses,
+                counter);
+        break;
     default:
         scan = new BrokerScanner(
                 _runtime_state,
@@ -420,7 +429,7 @@ void BrokerScanNode::scanner_worker(int start_idx, int length) {
             _scan_ranges[start_idx + i].scan_range.broker_scan_range;
         status = scanner_scan(scan_range, scanner_expr_ctxs, partition_expr_ctxs, &counter);
         if (!status.ok()) {
-            LOG(WARNING) << "Scanner[" << start_idx + i << "] prcess failed. status="
+            LOG(WARNING) << "Scanner[" << start_idx + i << "] process failed. status="
                 << status.get_error_msg();
         }
     }

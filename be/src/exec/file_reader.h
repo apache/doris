@@ -34,6 +34,18 @@ public:
     // is set to zero.
     virtual Status read(uint8_t* buf, size_t* buf_len, bool* eof) = 0;
     virtual Status readat(int64_t position, int64_t nbytes, int64_t* bytes_read, void* out) = 0;
+
+    /**
+     * This interface is used read a whole message, For example: read a message from kafka.
+     *
+     * if read eof then return Status::OK and length is set 0 and buf is set NULL,
+     *  other return readed bytes.
+     *
+     * !! Important !!
+     * the buf must be deleted by user, otherwise leak memory
+     * !! Important !!
+     */
+    virtual Status read_one_message(uint8_t** buf, size_t* length) = 0;
     virtual int64_t size () = 0;
     virtual Status seek(int64_t position) = 0;
     virtual Status tell(int64_t* position) = 0;

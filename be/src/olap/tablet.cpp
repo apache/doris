@@ -62,10 +62,7 @@ void Tablet::_gen_tablet_path() {
 }
 
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
-        _state(tablet_meta->tablet_state()),
-        _tablet_meta(tablet_meta),
-        _schema(tablet_meta->tablet_schema()),
-        _data_dir(data_dir),
+        BaseTablet(tablet_meta, data_dir),
         _is_bad(false),
         _last_cumu_compaction_failure_millis(0),
         _last_base_compaction_failure_millis(0),
@@ -116,16 +113,6 @@ OLAPStatus Tablet::_init_once_action() {
 
 OLAPStatus Tablet::init() {
     return _init_once.call([this] { return _init_once_action(); });
-}
-
-OLAPStatus Tablet::set_tablet_state(TabletState state) {
-    if (_tablet_meta->tablet_state() == TABLET_SHUTDOWN && state != TABLET_SHUTDOWN) {
-        LOG(WARNING) << "could not change tablet state from shutdown to " << state;
-        return OLAP_ERR_META_INVALID_ARGUMENT;
-    }
-    _tablet_meta->set_tablet_state(state);
-    _state = state;
-    return OLAP_SUCCESS;
 }
 
 // should save tablet meta to remote meta store
@@ -247,17 +234,22 @@ OLAPStatus Tablet::add_rowset(RowsetSharedPtr rowset, bool need_persist) {
 
 void Tablet::modify_rowsets(const vector<RowsetSharedPtr>& to_add,
                             const vector<RowsetSharedPtr>& to_delete) {
+    // the compaction process allow to compact the single version, eg: version[4-4].
+    // this kind of "single version compaction" has same "input version" and "output version".
+    // which means "to_add->version()" equals to "to_delete->version()".
+    // So we should delete the "to_delete" before adding the "to_add",
+    // otherwise, the "to_add" will be deleted from _rs_version_map, eventually.
+    vector<RowsetMetaSharedPtr> rs_metas_to_delete;
+    for (auto& rs : to_delete) {
+        rs_metas_to_delete.push_back(rs->rowset_meta());
+        _rs_version_map.erase(rs->version());
+    }
+
     vector<RowsetMetaSharedPtr> rs_metas_to_add;
     for (auto& rs : to_add) {
         rs_metas_to_add.push_back(rs->rowset_meta());
         _rs_version_map[rs->version()] = rs;
         ++_newly_created_rowset_num;
-    }
-
-    vector<RowsetMetaSharedPtr> rs_metas_to_delete;
-    for (auto& rs : to_delete) {
-        rs_metas_to_delete.push_back(rs->rowset_meta());
-        _rs_version_map.erase(rs->version());
     }
 
     _tablet_meta->modify_rs_metas(rs_metas_to_add, rs_metas_to_delete);

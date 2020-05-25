@@ -531,9 +531,13 @@ visible_functions = [
     [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'],
             '_ZN5doris15StringFunctions4rpadEPN9doris_udf'
             '15FunctionContextERKNS1_9StringValERKNS1_6IntValES6_'],
+    [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'],
+	'_ZN5doris15StringFunctions30append_trailing_char_if_absentEPN9doris_udf15FunctionContextERKNS1_9StringValES6_'],
     [['length'], 'INT', ['VARCHAR'],
             '_ZN5doris15StringFunctions6lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'],
+    [['char_length', 'character_length'], 'INT', ['VARCHAR'],
+            '_ZN5doris15StringFunctions16char_utf8_lengthEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
+   [['lower', 'lcase'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions5lowerEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
     [['upper', 'ucase'], 'VARCHAR', ['VARCHAR'],
             '_ZN5doris15StringFunctions5upperEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
@@ -626,9 +630,9 @@ visible_functions = [
     #hll function
     [['hll_cardinality'], 'BIGINT', ['VARCHAR'],
         '_ZN5doris12HllFunctions15hll_cardinalityEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['hll_hash'], 'VARCHAR', ['VARCHAR'],
+    [['hll_hash'], 'HLL', ['VARCHAR'],
         '_ZN5doris12HllFunctions8hll_hashEPN9doris_udf15FunctionContextERKNS1_9StringValE'],
-    [['hll_empty'], 'VARCHAR', [],
+    [['hll_empty'], 'HLL', [],
         '_ZN5doris12HllFunctions9hll_emptyEPN9doris_udf15FunctionContextE'],
 
     #bitmap function

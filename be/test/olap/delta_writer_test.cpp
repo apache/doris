@@ -33,7 +33,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/mem_tracker.h"
-#include "util/doris_metrics.h"
 #include "util/logging.h"
 #include "util/file_utils.h"
 #include "olap/options.h"
@@ -59,7 +58,6 @@ void set_up() {
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
-    DorisMetrics::instance()->initialize("ut");
     doris::EngineOptions options;
     options.store_paths = paths;
     doris::StorageEngine::open(options, &k_engine);
@@ -454,7 +452,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    doris::init_glog("be-test");
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();

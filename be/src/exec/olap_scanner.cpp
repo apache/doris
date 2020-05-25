@@ -257,7 +257,9 @@ Status OlapScanner::get_batch(
             // Read one row from reader
             auto res = _reader->next_row_with_aggregation(&_read_row_cursor, mem_pool.get(), batch->agg_object_pool(), eof);
             if (res != OLAP_SUCCESS) {
-                return Status::InternalError("Internal Error: read storage fail.");
+                std::stringstream ss;
+                ss << "Internal Error: read storage fail. res=" << res;
+                return Status::InternalError(ss.str());
             }
             // If we reach end of this scanner, break
             if (UNLIKELY(*eof)) {
@@ -477,8 +479,8 @@ void OlapScanner::update_counter() {
     COUNTER_UPDATE(_parent->_bitmap_index_filter_timer, _reader->stats().bitmap_index_filter_timer);
     COUNTER_UPDATE(_parent->_block_seek_counter, _reader->stats().block_seek_num);
 
-    DorisMetrics::query_scan_bytes.increment(_compressed_bytes_read);
-    DorisMetrics::query_scan_rows.increment(_raw_rows_read);
+    DorisMetrics::instance()->query_scan_bytes.increment(_compressed_bytes_read);
+    DorisMetrics::instance()->query_scan_rows.increment(_raw_rows_read);
 
     _has_update_counter = true;
 }

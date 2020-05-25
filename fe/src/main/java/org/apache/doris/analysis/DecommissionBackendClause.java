@@ -17,9 +17,9 @@
 
 package org.apache.doris.analysis;
 
-import java.util.List;
-
 import org.apache.doris.alter.DecommissionBackendJob.DecommissionType;
+
+import java.util.List;
 
 public class DecommissionBackendClause extends BackendClause {
 
@@ -41,10 +41,6 @@ public class DecommissionBackendClause extends BackendClause {
             }
         }
         return sb.toString();
-    }
-
-    public DecommissionType getType() {
-        return type;
     }
 
     public void setType(DecommissionType type) {

@@ -41,7 +41,6 @@
 #include "runtime/thread_resource_mgr.h"
 #include "runtime/tuple_row.h"
 #include "util/blocking_queue.hpp"
-#include "util/doris_metrics.h"
 #include "util/logging.h"
 #include "testutil/desc_tbl_builder.h"
 
@@ -68,7 +67,6 @@ public:
 
     ~MemoryScratchSinkTest() {
         delete _state;
-        delete _row_desc;
         delete _mem_tracker;
         delete _exec_env->_result_queue_mgr;
         delete _exec_env->_thread_mgr;
@@ -78,7 +76,6 @@ public:
     virtual void SetUp() {
         config::periodic_counter_update_period_ms = 500;
         config::storage_root_path = "./data";
-        DorisMetrics::instance()->initialize("ut");
 
         system("mkdir -p ./test_run/output/");
         system("pwd");
@@ -266,7 +263,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();

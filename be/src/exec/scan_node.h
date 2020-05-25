@@ -52,11 +52,6 @@ class TScanRange;
 //
 //   AverageScannerThreadConcurrency - the average number of active scanner threads. A
 //     scanner thread is considered active if it is not blocked by IO. This number would
-//     be low (less than 1) for IO-bound queries. For cpu-bound queries, this number
-//     would be close to the max scanner threads allowed.
-//
-//   AverageScannerThreadConcurrency - the average number of active scanner threads. A
-//     scanner thread is considered active if it is not blocked by IO. This number would
 //     be low (less than 1) for IO bounded queries. For cpu bounded queries, this number
 //     would be close to the max scanner threads allowed.
 //

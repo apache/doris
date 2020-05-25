@@ -433,6 +433,10 @@ public class Analyzer {
         return result;
     }
 
+    public List<TupleId> getAllTupleIds() {
+        return new ArrayList<>(tableRefMap_.keySet());
+    }
+
     /**
      * Resolves the given TableRef into a concrete BaseTableRef, ViewRef or
      * CollectionTableRef. Returns the new resolved table ref or the given table
@@ -944,6 +948,31 @@ public class Analyzer {
                     && !globalState.assignedConjuncts.contains(e.getId())
                     && ((inclOjConjuncts && !e.isConstant())
                     || !globalState.ojClauseByConjunct.containsKey(e.getId()))) {
+                result.add(e);
+            }
+        }
+        return result;
+    }
+
+
+    /**
+     * Return all registered conjuncts that are fully bound by given list of tuple ids.
+     * the eqJoinConjuncts and sjClauseByConjunct is excluded.
+     * This method is used get conjuncts which may be able to pushed down to scan node.
+     */
+    public List<Expr> getConjuncts(List<TupleId> tupleIds) {
+        List<Expr> result = Lists.newArrayList();
+        List<ExprId> eqJoinConjunctIds = Lists.newArrayList();
+        for (List<ExprId> conjuncts : globalState.eqJoinConjuncts.values()) {
+            eqJoinConjunctIds.addAll(conjuncts);
+        }
+        for (Expr e : globalState.conjuncts.values()) {
+            if (e.isBoundByTupleIds(tupleIds)
+                    && !e.isAuxExpr()
+                    && !eqJoinConjunctIds.contains(e.getId())  // to exclude to conjuncts like (A.id = B.id)
+                    && !globalState.ojClauseByConjunct.containsKey(e.getId())
+                    && !globalState.sjClauseByConjunct.containsKey(e.getId())
+                    && canEvalPredicate(tupleIds, e)) {
                 result.add(e);
             }
         }

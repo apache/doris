@@ -105,7 +105,7 @@ FROM data_source
         Example:
 
         `PARTITION(p1, p2, p3)`
-        
+
 4. job_properties
 
     A generic parameter that specifies a routine load job.
@@ -163,9 +163,20 @@ FROM data_source
 
         Whether to enable strict mode, the default is on. If turned on, the column type transformation of non-null raw data is filtered if the result is NULL. Specified as "strict_mode" = "true"
             
-    5. timezone
+    5. `timezone`
 
         Specifies the time zone in which the job will be loaded. The default by using session variable's timezone. This parameter affects all function results related to the time zone involved in the load.
+
+    6. `format`
+
+        Specifies the format of the imported data. Support csv and json, the default is csv.
+
+    7. `jsonpaths`
+
+        There are two ways to import json: simple mode and matched mode. If jsonpath is set, it will be the matched mode import, otherwise it will be the simple mode import, please refer to the example for details.
+
+    8. `strip_outer_array`
+        Boolean type, true to indicate that json data starts with an array object and flattens objects in the array object, default value is false.
 
 5. data_source
 
@@ -365,6 +376,90 @@ FROM data_source
         "property.client.id" = "my_client_id"
     );
     ```
+
+4. Create a Kafka routine load task named test1 for the example_tbl of example_db. The load data is a simple json.
+
+    ```
+      CREATE ROUTINE LOAD example_db.test_json_label_1 ON table1
+      COLUMNS(category,price,author)
+      PROPERTIES
+        (
+        "desired_concurrent_number"="3",
+        "max_batch_interval" = "20",
+        "max_batch_rows" = "300000",
+        "max_batch_size" = "209715200",
+        "strict_mode" = "false",
+        "format" = "json"
+        )
+        FROM KAFKA
+        (
+        "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+        "kafka_topic" = "my_topic",
+        "kafka_partitions" = "0,1,2",
+        "kafka_offsets" = "0,0,0"
+        );
+    ```
+      It support two kinds data style：
+      1）{"category":"a9jadhx","author":"test","price":895}
+        2）[
+                {"category":"a9jadhx","author":"test","price":895},
+                {"category":"axdfa1","author":"EvelynWaugh","price":1299}
+            ]
+
+5.  Matched load json by jsonpaths.
+
+    ```
+    CREATE TABLE `example_tbl` (
+      `category` varchar(24) NULL COMMENT "",
+      `author` varchar(24) NULL COMMENT "",
+      `timestamp` bigint(20) NULL COMMENT "",
+      `dt` int(11) NULL COMMENT "",
+      `price` double REPLACE
+    ) ENGINE=OLAP
+    AGGREGATE KEY(`category`,`author`,`timestamp`,`dt`)
+    COMMENT "OLAP"
+    PARTITION BY RANGE(`dt`)
+    (PARTITION p0 VALUES [("-2147483648"), ("20200509")),
+    PARTITION p20200509 VALUES [("20200509"), ("20200510")),
+    PARTITION p20200510 VALUES [("20200510"), ("20200511")),
+    PARTITION p20200511 VALUES [("20200511"), ("20200512")))
+    DISTRIBUTED BY HASH(`category`,`author`,`timestamp`) BUCKETS 4
+    PROPERTIES (
+    "storage_type" = "COLUMN",
+     "replication_num" = "1"
+    );
+    
+    CREATE ROUTINE LOAD example_db.test1 ON example_tbl
+    COLUMNS(category, author, price, timestamp, dt=from_unixtime(timestamp, '%Y%m%d'))
+    PROPERTIES
+    (
+        "desired_concurrent_number"="3",
+        "max_batch_interval" = "20",
+        "max_batch_rows" = "300000",
+        "max_batch_size" = "209715200",
+        "strict_mode" = "false",
+        "format" = "json",
+        "jsonpaths" = "[\"$.category\",\"$.author\",\"$.price\",\"$.timestamp\"]",
+        "strip_outer_array" = "true"
+    )
+    FROM KAFKA
+    (
+        "kafka_broker_list" = "broker1:9092,broker2:9092,broker3:9092",
+        "kafka_topic" = "my_topic",
+        "kafka_partitions" = "0,1,2",
+        "kafka_offsets" = "0,0,0"
+    );
+    ```
+    For example json data:
+    [
+      {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+      {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+      {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+    ]
+
+   Tips：
+     1）If the json data starts as an array and each object in the array is a record, you need to set the strip_outer_array to true to represent the flat array.
+     2）If the json data starts with an array, and each object in the array is a record, our ROOT node is actually an object in the array when we set jsonpath.
 
 ## keyword
 

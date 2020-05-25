@@ -30,21 +30,14 @@ using std::string;
 namespace doris {
 
 TEST(AgentUtilsTest, Test) {
-    const char* host_name = BackendOptions::get_localhost().c_str();
-    int cnt = std::count(host_name, host_name + 17, '.');
-    EXPECT_EQ(3, cnt);
+    std::string host_name = BackendOptions::get_localhost();
+    int cnt = std::count(host_name.begin(), host_name.end(), '.');
+    ASSERT_EQ(3, cnt);
 }
 
 }  // namespace doris
 
 int main(int argc, char **argv) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    
-    doris::init_glog("be-test");
     doris::BackendOptions::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

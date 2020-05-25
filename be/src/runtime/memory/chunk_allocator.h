@@ -45,7 +45,7 @@ class ChunkArena;
 // ChunkArena will keep a separate free list for each chunk size. In common case, chunk will
 // be allocated from current core arena. In this case, there is no lock contention.
 //
-// Must call CpuInfo::init() and DorisMetrics::initialize() to achieve good performance
+// Must call CpuInfo::init() and DorisMetrics::instance()->initialize() to achieve good performance
 // before first object is created. And call init_instance() before use instance is called.
 class ChunkAllocator {
 public:

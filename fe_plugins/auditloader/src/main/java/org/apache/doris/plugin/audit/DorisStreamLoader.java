@@ -87,7 +87,7 @@ public class DorisStreamLoader {
         conn.addRequestProperty("Content-Type", "text/plain; charset=UTF-8");
 
         conn.addRequestProperty("label", label);
-        conn.addRequestProperty("max_fiter_ratio", "1.0");
+        conn.addRequestProperty("max_filter_ratio", "1.0");
         conn.addRequestProperty("columns", "query_id, time, client_ip, user, db, state, query_time, scan_bytes, scan_rows, return_rows, stmt_id, is_query, frontend_ip, stmt");
 
         conn.setDoOutput(true);

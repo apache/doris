@@ -113,7 +113,6 @@ public:
     SegmentGroup* segment_group() const { return _segment_group; }
     void set_segment_group(SegmentGroup* segment_group) { _segment_group = segment_group; }
     int64_t num_rows() const { return _segment_group->num_rows(); }
-    Tablet* tablet() const { return _tablet; }
 
     // To compatable with schmea change read, use this function to init column data
     // for schema change read. Only called in get_first_row_block
@@ -165,7 +164,7 @@ private:
     RuntimeState* _runtime_state;
     OlapReaderStatistics* _stats;
 
-    Tablet* _tablet;
+    const TabletSchema& _schema;
     // whether in normal read, use return columns to load block
     bool _is_normal_read = false;
     bool _end_key_is_set = false;

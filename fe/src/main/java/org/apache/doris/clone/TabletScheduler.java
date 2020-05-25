@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -60,7 +61,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.PriorityQueue;
@@ -68,7 +68,7 @@ import java.util.Queue;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-/*
+/**
  * TabletScheduler saved the tablets produced by TabletChecker and try to schedule them.
  * It also try to balance the cluster load.
  * 
@@ -170,7 +170,7 @@ public class TabletScheduler extends MasterDaemon {
             if (backends.containsKey(beId)) {
                 List<Long> pathHashes = backends.get(beId).getDisks().values().stream()
                         .filter(v -> v.getState()==DiskState.ONLINE)
-                        .map(v -> v.getPathHash()).collect(Collectors.toList());
+                        .map(DiskInfo::getPathHash).collect(Collectors.toList());
                 backendsWorkingSlots.get(beId).updatePaths(pathHashes);
             } else {
                 deletedBeIds.add(beId);
@@ -186,7 +186,7 @@ public class TabletScheduler extends MasterDaemon {
         // add new backends
         for (Backend be : backends.values()) {
             if (!backendsWorkingSlots.containsKey(be.getId())) {
-                List<Long> pathHashes = be.getDisks().values().stream().map(v -> v.getPathHash()).collect(Collectors.toList());
+                List<Long> pathHashes = be.getDisks().values().stream().map(DiskInfo::getPathHash).collect(Collectors.toList());
                 PathSlot slot = new PathSlot(pathHashes, Config.schedule_slot_num_per_path);
                 backendsWorkingSlots.put(be.getId(), slot);
                 LOG.info("add new backend {} with slots num: {}", be.getId(), be.getDisks().size());
@@ -200,7 +200,7 @@ public class TabletScheduler extends MasterDaemon {
         return backendsWorkingSlots;
     }
 
-    /*
+    /**
      * add a ready-to-be-scheduled tablet to pendingTablets, if it has not being added before.
      * if force is true, do not check if tablet is already added before.
      */
@@ -227,7 +227,7 @@ public class TabletScheduler extends MasterDaemon {
         return allTabletIds.contains(tabletId);
     }
 
-    /*
+    /**
      * Iterate current tablets, change their priority to VERY_HIGH if necessary.
      */
     public synchronized void changeTabletsPriorityToVeryHigh(long dbId, long tblId, List<Long> partitionIds) {
@@ -242,10 +242,10 @@ public class TabletScheduler extends MasterDaemon {
         pendingTablets = newPendingTablets;
     }
 
-    /*
+    /**
      * TabletScheduler will run as a daemon thread at a very short interval(default 5 sec)
-     * Firstly, it will try to update cluster load statistic and check if priority need to be adjuested.
-     * Than, it will schedule the tablets in pendingTablets.
+     * Firstly, it will try to update cluster load statistic and check if priority need to be adjusted.
+     * Then, it will schedule the tablets in pendingTablets.
      * Thirdly, it will check the current running tasks.
      * Finally, it try to balance the cluster if possible.
      * 
@@ -287,7 +287,7 @@ public class TabletScheduler extends MasterDaemon {
         lastStatUpdateTime = System.currentTimeMillis();
     }
 
-    /*
+    /**
      * Here is the only place we update the cluster load statistic info.
      * We will not update this info dynamically along with the clone job's running.
      * Although it will cause a little bit inaccurate, but is within a controllable range,
@@ -311,13 +311,13 @@ public class TabletScheduler extends MasterDaemon {
         return statisticMap;
     }
 
-    /*
+    /**
      * adjust priorities of all tablet infos
      */
     private synchronized void adjustPriorities() {
         int size = pendingTablets.size();
         int changedNum = 0;
-        TabletSchedCtx tabletCtx = null;
+        TabletSchedCtx tabletCtx;
         for (int i = 0; i < size; i++) {
             tabletCtx = pendingTablets.poll();
             if (tabletCtx == null) {
@@ -333,7 +333,7 @@ public class TabletScheduler extends MasterDaemon {
         LOG.info("adjust priority for all tablets. changed: {}, total: {}", changedNum, size);
     }
 
-    /*
+    /**
      * get at most BATCH_NUM tablets from queue, and try to schedule them.
      * After handle, the tablet info should be
      * 1. in runningTablets with state RUNNING, if being scheduled success.
@@ -423,7 +423,7 @@ public class TabletScheduler extends MasterDaemon {
         runningTablets.put(tabletCtx.getTabletId(), tabletCtx);
     }
 
-    /*
+    /**
      * we take the tablet out of the runningTablets and than handle it,
      * avoid other threads see it.
      * Whoever takes this tablet, make sure to put it to the schedHistory or back to runningTablets.
@@ -432,7 +432,7 @@ public class TabletScheduler extends MasterDaemon {
         return runningTablets.remove(tabletId);
     }
 
-    /*
+    /**
      * Try to schedule a single tablet.
      */
     private void scheduleTablet(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
@@ -448,7 +448,7 @@ public class TabletScheduler extends MasterDaemon {
             throw new SchedException(Status.UNRECOVERABLE, "db does not exist");
         }
 
-        Pair<TabletStatus, TabletSchedCtx.Priority> statusPair = null;
+        Pair<TabletStatus, TabletSchedCtx.Priority> statusPair;
         db.writeLock();
         try {
             OlapTable tbl = (OlapTable) db.getTable(tabletCtx.getTblId());
@@ -586,7 +586,7 @@ public class TabletScheduler extends MasterDaemon {
         }
     }
 
-    /*
+    /**
      * Replica is missing, which means there is no enough alive replicas.
      * So we need to find a destination backend to clone a new replica as possible as we can.
      * 1. find an available path in a backend as destination:
@@ -615,7 +615,7 @@ public class TabletScheduler extends MasterDaemon {
         batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
     }
 
-    /*
+    /**
      * Replica version is incomplete, which means this replica is missing some version,
      * and need to be cloned from a healthy replica, in-place.
      * 
@@ -649,7 +649,7 @@ public class TabletScheduler extends MasterDaemon {
         handleReplicaMissing(tabletCtx, batchTask);
     }
 
-    /*
+    /**
      *  replica is redundant, which means there are more replicas than we expected, which need to be dropped.
      *  we just drop one redundant replica at a time, for safety reason.
      *  choosing a replica to drop base on following priority:
@@ -843,7 +843,7 @@ public class TabletScheduler extends MasterDaemon {
         return false;
     }
 
-    /*
+    /**
      * Just delete replica which does not located in colocate backends set.
      * return true if delete one replica, otherwise, return false.
      */
@@ -920,7 +920,7 @@ public class TabletScheduler extends MasterDaemon {
         LOG.info("send delete replica task for tablet {} in backend {}", tabletId, backendId);
     }
 
-    /*
+    /**
      * Cluster migration, which means the tablet has enough healthy replicas,
      * but some replicas are not in right cluster.
      * It is just same as 'replica missing'.
@@ -933,7 +933,7 @@ public class TabletScheduler extends MasterDaemon {
         handleReplicaMissing(tabletCtx, batchTask);
     }
 
-    /*
+    /**
      * Replicas of colocate table's tablet does not locate on right backends set.
      *      backends set:       1,2,3
      *      tablet replicas:    1,2,5
@@ -960,7 +960,7 @@ public class TabletScheduler extends MasterDaemon {
         batchTask.addTask(tabletCtx.createCloneReplicaAndTask());
     }
 
-    /*
+    /**
      * Try to select some alternative tablets for balance. Add them to pendingTablets with priority LOW,
      * and waiting to be scheduled.
      */
@@ -984,7 +984,7 @@ public class TabletScheduler extends MasterDaemon {
         }
     }
 
-    /*
+    /**
      * Try to create a balance task for a tablet.
      */
     private void doBalance(TabletSchedCtx tabletCtx, AgentBatchTask batchTask) throws SchedException {
@@ -1005,8 +1005,7 @@ public class TabletScheduler extends MasterDaemon {
         // get all available paths which this tablet can fit in.
         // beStatistics is sorted by mix load score in ascend order, so select from first to last.
         List<RootPathLoadStatistic> allFitPaths = Lists.newArrayList();
-        for (int i = 0; i < beStatistics.size(); i++) {
-            BackendLoadStatistic bes = beStatistics.get(i);
+        for (BackendLoadStatistic bes : beStatistics) {
             if (!bes.isAvailable()) {
                 continue;
             }
@@ -1071,7 +1070,7 @@ public class TabletScheduler extends MasterDaemon {
         throw new SchedException(Status.SCHEDULE_FAILED, "unable to find dest path which can be fit in");
     }
 
-    /*
+    /**
      * For some reason, a tablet info failed to be scheduled this time,
      * So we dynamically change its priority and add back to queue, waiting for next round.
      */
@@ -1127,7 +1126,7 @@ public class TabletScheduler extends MasterDaemon {
         return total;
     }
 
-    /*
+    /**
      * return true if we want to remove the clone task from AgentTaskQueue
      */
     public boolean finishCloneTask(CloneTask cloneTask, TFinishTaskRequest request) {
@@ -1174,7 +1173,7 @@ public class TabletScheduler extends MasterDaemon {
         return true;
     }
 
-    /*
+    /**
      * Gather the running statistic of the task.
      * It will be evaluated for future strategy.  
      * This should only be called when the tablet is down with state FINISHED.
@@ -1208,7 +1207,7 @@ public class TabletScheduler extends MasterDaemon {
         lastSlotAdjustTime = System.currentTimeMillis();
     }
 
-    /*
+    /**
      * handle tablets which are running.
      * We should finished the task if
      * 1. Tablet is already healthy
@@ -1291,7 +1290,7 @@ public class TabletScheduler extends MasterDaemon {
                 + runningTablets.values().stream().filter(t -> t.getType() == Type.BALANCE).count();
     }
 
-    /*
+    /**
      * PathSlot keeps track of slot num per path of a Backend.
      * Each path on a Backend has several slot.
      * If a path's available slot num become 0, no task should be assigned to this path.
@@ -1309,13 +1308,7 @@ public class TabletScheduler extends MasterDaemon {
         // update the path
         public synchronized void updatePaths(List<Long> paths) {
             // delete non exist path
-            Iterator<Map.Entry<Long, Slot>> iter = pathSlots.entrySet().iterator();
-            while (iter.hasNext()) {
-                Map.Entry<Long, Slot> entry = iter.next();
-                if (!paths.contains(entry.getKey())) {
-                    iter.remove();
-                }
-            }
+            pathSlots.entrySet().removeIf(entry -> !paths.contains(entry.getKey()));
 
             // add new path
             for (Long pathHash : paths) {
@@ -1339,7 +1332,7 @@ public class TabletScheduler extends MasterDaemon {
             }
         }
 
-        /*
+        /**
          * Update the statistic of specified path
          */
         public synchronized void updateStatistic(long pathHash, long copySize, long copyTimeMs) {
@@ -1351,7 +1344,7 @@ public class TabletScheduler extends MasterDaemon {
             slot.totalCopyTimeMs += copyTimeMs;
         }
 
-        /*
+        /**
          * If the specified 'pathHash' has available slot, decrease the slot number and return this path hash
          */
         public synchronized long takeSlot(long pathHash) throws SchedException {
@@ -1400,7 +1393,7 @@ public class TabletScheduler extends MasterDaemon {
             return total;
         }
 
-        /*
+        /**
          * get path whose balance slot num is larger than 0
          */
         public synchronized Set<Long> getAvailPathsForBalance() {
@@ -1423,15 +1416,15 @@ public class TabletScheduler extends MasterDaemon {
 
         public synchronized List<List<String>> getSlotInfo(long beId) {
             List<List<String>> results = Lists.newArrayList();
-            pathSlots.entrySet().stream().forEach(t -> {
-                t.getValue().rectify();
+            pathSlots.forEach((key, value) -> {
+                value.rectify();
                 List<String> result = Lists.newArrayList();
                 result.add(String.valueOf(beId));
-                result.add(String.valueOf(t.getKey()));
-                result.add(String.valueOf(t.getValue().available));
-                result.add(String.valueOf(t.getValue().total));
-                result.add(String.valueOf(t.getValue().balanceSlot));
-                result.add(String.valueOf(t.getValue().getAvgRate()));
+                result.add(String.valueOf(key));
+                result.add(String.valueOf(value.available));
+                result.add(String.valueOf(value.total));
+                result.add(String.valueOf(value.balanceSlot));
+                result.add(String.valueOf(value.getAvgRate()));
                 results.add(result);
             });
             return results;

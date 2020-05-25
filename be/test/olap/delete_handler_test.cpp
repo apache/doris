@@ -32,7 +32,6 @@
 #include "olap/push_handler.h"
 #include "olap/utils.h"
 #include "olap/options.h"
-#include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/logging.h"
 
@@ -47,7 +46,6 @@ static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* k_engine = nullptr;
 
 void set_up() {
-    DorisMetrics::instance()->initialize("ut");
     char buffer[MAX_PATH_LEN];
     getcwd(buffer, MAX_PATH_LEN);
     config::storage_root_path = string(buffer) + "/data_test";
@@ -155,6 +153,87 @@ void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->tablet_schema.columns.push_back(v);
 }
 
+void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
+    request->tablet_id = 10009;
+    request->__set_version(1);
+    request->__set_version_hash(0);
+    request->tablet_schema.schema_hash = 270068376;
+    request->tablet_schema.short_key_column_count = 2;
+    request->tablet_schema.keys_type = TKeysType::DUP_KEYS;
+    request->tablet_schema.storage_type = TStorageType::COLUMN;
+
+    TColumn k1;
+    k1.column_name = "k1";
+    k1.__set_is_key(true);
+    k1.column_type.type = TPrimitiveType::TINYINT;
+    request->tablet_schema.columns.push_back(k1);
+
+    TColumn k2;
+    k2.column_name = "k2";
+    k2.__set_is_key(true);
+    k2.column_type.type = TPrimitiveType::SMALLINT;
+    request->tablet_schema.columns.push_back(k2);
+
+    TColumn k3;
+    k3.column_name = "k3";
+    k3.__set_is_key(true);
+    k3.column_type.type = TPrimitiveType::INT;
+    request->tablet_schema.columns.push_back(k3);
+
+    TColumn k4;
+    k4.column_name = "k4";
+    k4.__set_is_key(true);
+    k4.column_type.type = TPrimitiveType::BIGINT;
+    request->tablet_schema.columns.push_back(k4);
+
+    TColumn k5;
+    k5.column_name = "k5";
+    k5.__set_is_key(true);
+    k5.column_type.type = TPrimitiveType::LARGEINT;
+    request->tablet_schema.columns.push_back(k5);
+
+    TColumn k9;
+    k9.column_name = "k9";
+    k9.__set_is_key(true);
+    k9.column_type.type = TPrimitiveType::DECIMAL;
+    k9.column_type.__set_precision(6);
+    k9.column_type.__set_scale(3);
+    request->tablet_schema.columns.push_back(k9);
+
+    TColumn k10;
+    k10.column_name = "k10";
+    k10.__set_is_key(true);
+    k10.column_type.type = TPrimitiveType::DATE;
+    request->tablet_schema.columns.push_back(k10);
+
+    TColumn k11;
+    k11.column_name = "k11";
+    k11.__set_is_key(true);
+    k11.column_type.type = TPrimitiveType::DATETIME;
+    request->tablet_schema.columns.push_back(k11);
+
+    TColumn k12;
+    k12.column_name = "k12";
+    k12.__set_is_key(true);
+    k12.column_type.__set_len(64);
+    k12.column_type.type = TPrimitiveType::CHAR;
+    request->tablet_schema.columns.push_back(k12);
+
+    TColumn k13;
+    k13.column_name = "k13";
+    k13.__set_is_key(true);
+    k13.column_type.__set_len(64);
+    k13.column_type.type = TPrimitiveType::VARCHAR;
+    request->tablet_schema.columns.push_back(k13);
+
+    TColumn v;
+    v.column_name = "v";
+    v.__set_is_key(false);
+    v.column_type.type = TPrimitiveType::BIGINT;
+    request->tablet_schema.columns.push_back(v);
+}
+
+
 void set_default_push_request(TPushReq* request) {
     request->tablet_id = 10003;
     request->schema_hash = 270068375;
@@ -182,19 +261,31 @@ protected:
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(tablet.get() != NULL);
         _tablet_path = tablet->tablet_path();
+
+        set_create_duplicate_tablet_request(&_create_dup_tablet);
+        res = k_engine->create_tablet(_create_dup_tablet);
+        ASSERT_EQ(OLAP_SUCCESS, res);
+        dup_tablet = k_engine->tablet_manager()->get_tablet(
+                _create_dup_tablet.tablet_id, _create_dup_tablet.tablet_schema.schema_hash);
+        ASSERT_TRUE(dup_tablet.get() != NULL);
+        _dup_tablet_path = tablet->tablet_path();
     }
 
     void TearDown() {
         // Remove all dir.
         tablet.reset();
+        dup_tablet.reset();
         StorageEngine::instance()->tablet_manager()->drop_tablet(
                 _create_tablet.tablet_id, _create_tablet.tablet_schema.schema_hash);
         ASSERT_TRUE(FileUtils::remove_all(config::storage_root_path).ok());
     }
 
     std::string _tablet_path;
+    std::string _dup_tablet_path;
     TabletSharedPtr tablet;
+    TabletSharedPtr dup_tablet;
     TCreateTabletReq _create_tablet;
+    TCreateTabletReq _create_dup_tablet;
     DeleteConditionHandler _delete_condition_handler;
 };
 
@@ -265,6 +356,17 @@ TEST_F(TestDeleteConditionHandler, StoreCondNonexistentColumn) {
 
     failed_res = _delete_condition_handler.generate_delete_predicate(tablet->tablet_schema(), conditions, &del_pred);;
     ASSERT_EQ(OLAP_ERR_DELETE_INVALID_CONDITION, failed_res);
+
+    // value column in duplicate model can be deleted;
+    conditions.clear();
+    condition.column_name = "v";
+    condition.condition_op = "=";
+    condition.condition_values.clear();
+    condition.condition_values.push_back("5");
+    conditions.push_back(condition);
+
+    OLAPStatus success_res = _delete_condition_handler.generate_delete_predicate(dup_tablet->tablet_schema(), conditions, &del_pred);;
+    ASSERT_EQ(OLAP_SUCCESS, success_res);
 }
 
 // 测试删除条件值不符合类型要求

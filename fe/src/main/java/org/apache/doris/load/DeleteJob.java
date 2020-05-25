@@ -17,17 +17,21 @@
 
 package org.apache.doris.load;
 
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.transaction.AbstractTxnStateChangeCallback;
 import org.apache.doris.transaction.TransactionState;
+
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -165,6 +169,13 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
         Catalog.getCurrentCatalog().getEditLog().logFinishDelete(deleteInfo);
     }
 
+    @Override
+    public void afterAborted(TransactionState txnState, boolean txnOperated, String txnStatusChangeReason)
+            throws UserException {
+        // just to clean the callback
+        Catalog.getCurrentGlobalTransactionMgr().getCallbackFactory().removeCallback(getId());
+    }
+
     public void executeFinish() {
         setState(DeleteState.FINISHED);
         Catalog.getCurrentCatalog().getDeleteHandler().recordFinishedJob(this);
@@ -180,6 +191,10 @@ public class DeleteJob extends AbstractTxnStateChangeCallback {
     }
 
     public long getTimeoutMs() {
+        if (FeConstants.runningUnitTest) {
+            // for making unit test run fast
+            return 1000;
+        }
         // timeout is between 30 seconds to 5 min
         long timeout = Math.max(totalTablets.size() * Config.tablet_delete_timeout_second * 1000L, 30000L);
         return Math.min(timeout, Config.load_straggler_wait_second * 1000L);

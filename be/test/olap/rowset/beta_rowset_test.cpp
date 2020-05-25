@@ -34,7 +34,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_tracker.h"
 #include "runtime/mem_pool.h"
-#include "util/doris_metrics.h"
 #include "util/file_utils.h"
 #include "util/slice.h"
 
@@ -53,7 +52,6 @@ protected:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
-        DorisMetrics::instance()->initialize("ut");
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
         config::storage_root_path = std::string(buffer) + "/data_test";

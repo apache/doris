@@ -1558,6 +1558,7 @@ public class Catalog {
             if (db.getDbState() == DbState.LINK) {
                 fullNameToDb.put(db.getAttachDb(), db);
             }
+            globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
         }
 
         return newChecksum;
@@ -1802,10 +1803,15 @@ public class Catalog {
 
     public long loadRecycleBin(DataInputStream dis, long checksum) throws IOException {
         if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_10) {
-            Catalog.getCurrentRecycleBin().readFields(dis);
+            recycleBin.readFields(dis);
             if (!isCheckpointThread()) {
                 // add tablet in Recycle bin to TabletInvertedIndex
-                Catalog.getCurrentRecycleBin().addTabletToInvertedIndex();
+                recycleBin.addTabletToInvertedIndex();
+            }
+            // create DatabaseTransactionMgr for db in recycle bin.
+            // these dbs do not exist in `idToDb` of the catalog.
+            for (Long dbId : recycleBin.getAllDbIds()) {
+                globalTransactionMgr.addDatabaseTransactionMgr(dbId);
             }
         }
         return checksum;
@@ -2555,6 +2561,7 @@ public class Catalog {
         fullNameToDb.put(db.getFullName(), db);
         final Cluster cluster = nameToCluster.get(db.getClusterName());
         cluster.addDb(db.getFullName(), db.getId());
+        globalTransactionMgr.addDatabaseTransactionMgr(db.getId());
     }
 
     // for test
@@ -4514,7 +4521,7 @@ public class Catalog {
                     for (Partition partition : olapTable.getAllPartitions()) {
                         long partitionId = partition.getId();
                         DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
-                        Preconditions.checkNotNull(dataProperty);
+                        Preconditions.checkNotNull(dataProperty, partition.getName() + ", pId:" + partitionId + ", db: " + dbId + ", tbl: " + tableId);
                         if (dataProperty.getStorageMedium() == TStorageMedium.SSD
                                 && dataProperty.getCooldownTimeMs() < currentTimeMs) {
                             // expire. change to HDD.

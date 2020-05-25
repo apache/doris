@@ -103,7 +103,10 @@ module.exports = [
       {
         title: "配置文件",
         directoryPath: "config/",
-        children: ["fe_config"],
+        children: [
+          "fe_config",
+          "be_config",
+        ],
         sidebarDepth: 1,
       },
       "backup-restore",
@@ -111,6 +114,7 @@ module.exports = [
       "colocation-join",
       "dynamic-partition",
       "export-manual",
+      "outfile",
       "privilege",
       "segment-v2-usage",
       "small-file-mgr",
@@ -128,6 +132,7 @@ module.exports = [
       "doris-on-es",
       "plugin-development-manual",
       "user-defined-function",
+      "spark-doris-connector",
     ],
   },
   {
@@ -204,7 +209,9 @@ module.exports = [
             title: "字符串函数",
             directoryPath: "string-functions/",
             children: [
+              "append_trailing_char_if_absent",
               "ascii",
+              "char_length",
               "concat",
               "concat_ws",
               "ends_with",
@@ -227,6 +234,7 @@ module.exports = [
               "regexp_replace",
               "repeat",
               "right",
+              "rpad",
               "split_part",
               "starts_with",
               "strleft",
@@ -265,6 +273,8 @@ module.exports = [
               "bitmap_or",
               "bitmap_to_string",
               "to_bitmap",
+              "bitmap_intersect",
+              "bitmap_union",
             ],
           },
           {
@@ -442,6 +452,7 @@ module.exports = [
       "how-to-contribute",
       "members",
       "pull-request",
+      "committer-guide",
       "release-process",
       "subscribe-mail-list",
       "verify-apache-release",

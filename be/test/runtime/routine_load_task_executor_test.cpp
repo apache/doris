@@ -21,7 +21,6 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "util/cpu_info.h"
-#include "util/doris_metrics.h"
 #include "util/logging.h"
 
 #include <gtest/gtest.h>
@@ -50,7 +49,6 @@ public:
         k_stream_load_rollback_result = TLoadTxnRollbackResult();
         k_stream_load_put_result = TStreamLoadPutResult();
 
-        DorisMetrics::instance()->initialize("ut");
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();
         _env._stream_load_executor = new StreamLoadExecutor(&_env);
@@ -124,12 +122,6 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
 } // end namespace
 
 int main(int argc, char* argv[]) {
-    std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
-    if (!doris::config::init(conffile.c_str(), false)) {
-        fprintf(stderr, "error read config file. \n");
-        return -1;
-    }
-    doris::init_glog("be-test");
     doris::CpuInfo::init();
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

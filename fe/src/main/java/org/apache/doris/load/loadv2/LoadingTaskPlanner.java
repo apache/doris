@@ -25,6 +25,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.NotImplementedException;
@@ -173,6 +174,12 @@ public class LoadingTaskPlanner {
             // all file group in fileGroups should have same partitions, so only need to get partition ids
             // from one of these file groups
             break;
+        }
+
+        if (partitionIds.isEmpty()) {
+            for (Partition partition : table.getPartitions()) {
+                partitionIds.add(partition.getId());
+            }
         }
 
         return Lists.newArrayList(partitionIds);

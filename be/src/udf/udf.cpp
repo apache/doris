@@ -68,9 +68,12 @@ public:
         return false;
     }
 
-    const std::string user() const {
-        return "";
+    const std::string& user() const {
+        return _user;
     }
+
+private:
+    std::string _user = "";
 };
 }
 #else

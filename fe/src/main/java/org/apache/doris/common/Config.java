@@ -283,6 +283,13 @@ public class Config extends ConfigBase {
     @ConfField public static int http_backlog_num = 1024;
 
     /*
+     * The connection timeout and socket timeout config for thrift server
+     * The value for thrift_client_timeout_ms is set to be larger than zero to prevent
+     * some hang up problems in java.net.SocketInputStream.socketRead0
+     */
+    @ConfField public static int thrift_client_timeout_ms = 30000;
+
+    /*
      * The backlog_num for thrift server
      * When you enlarge this backlog_num, you should ensure it's value larger than
      * the linux /proc/sys/net/core/somaxconn config
@@ -1067,5 +1074,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int period_of_auto_resume_min = 5;
 
+    /*
+     * If set to true, the backend will be automatically dropped after finishing decommission.
+     * If set to false, the backend will not be dropped and remaining in DECOMMISSION state.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean drop_backend_after_decommission = true;
 }
 

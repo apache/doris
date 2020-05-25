@@ -103,7 +103,8 @@ enum TFileFormatType {
     FORMAT_CSV_LZOP,
     FORMAT_PARQUET,
     FORMAT_CSV_DEFLATE,
-    FORMAT_ORC
+    FORMAT_ORC,
+    FORMAT_JSON
 }
 
 // One broker range information.
@@ -125,6 +126,9 @@ struct TBrokerRangeDesc {
     9: optional i32 num_of_columns_from_file
     // columns parsed from file path should be after the columns read from file
     10: optional list<string> columns_from_path
+    //  it's usefull when format_type == FORMAT_JSON
+    11: optional bool strip_outer_array;
+    12: optional string jsonpaths;
 }
 
 struct TBrokerScanRangeParams {
@@ -620,9 +624,19 @@ struct TBackendResourceProfile {
 4: optional i64 max_row_buffer_size = 4194304  //TODO chenhao
 }
 
+enum TAssertion {
+  EQ, // val1 == val2
+  NE, // val1 != val2
+  LT, // val1 < val2
+  LE, // val1 <= val2
+  GT, // val1 > val2
+  GE // val1 >= val2
+}
+
 struct TAssertNumRowsNode {
     1: optional i64 desired_num_rows;
     2: optional string subquery_string;
+    3: optional TAssertion assertion;
 }
 
 // This is essentially a union of all messages corresponding to subclasses

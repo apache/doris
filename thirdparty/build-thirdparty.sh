@@ -117,6 +117,12 @@ check_prerequest "libtoolize --version" "libtool"
 # build all thirdparties
 #########################
 
+
+# Name of cmake build directory in each thirdpary project.
+# Do not use `build`, because many projects contained a file named `BUILD`
+# and if the filesystem is not case sensitive, `mkdir` will fail.
+BUILD_DIR=doris_build
+
 check_if_source_exist() {
     if [ -z $1 ]; then
         echo "dir should specified to check if exist."
@@ -239,7 +245,7 @@ build_llvm() {
     fi
 
     cd $TP_SOURCE_DIR
-    mkdir llvm-build -p && cd llvm-build
+    mkdir -p llvm-build && cd llvm-build
     rm -rf CMakeCache.txt CMakeFiles/
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     $CMAKE_CMD -DLLVM_REQUIRES_RTTI:Bool=True -DLLVM_TARGETS_TO_BUILD=${LLVM_TARGET} -DLLVM_ENABLE_TERMINFO=OFF LLVM_BUILD_LLVM_DYLIB:BOOL=OFF -DLLVM_ENABLE_PIC=true -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE="RELEASE" -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/llvm ../$LLVM_SOURCE
@@ -267,7 +273,7 @@ build_gflags() {
     check_if_source_exist $GFLAGS_SOURCE
 
     cd $TP_SOURCE_DIR/$GFLAGS_SOURCE
-    mkdir build -p && cd build
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
@@ -295,7 +301,7 @@ build_gtest() {
     check_if_source_exist $GTEST_SOURCE
 
     cd $TP_SOURCE_DIR/$GTEST_SOURCE
-    mkdir build -p && cd build
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
@@ -306,8 +312,8 @@ build_gtest() {
 build_rapidjson() {
     check_if_source_exist $RAPIDJSON_SOURCE
 
-    rm $TP_INSTALL_DIR/rapidjson -rf
-    cp $TP_SOURCE_DIR/$RAPIDJSON_SOURCE/include/rapidjson $TP_INCLUDE_DIR/ -r
+    rm -rf $TP_INSTALL_DIR/rapidjson
+    cp -r $TP_SOURCE_DIR/$RAPIDJSON_SOURCE/include/rapidjson $TP_INCLUDE_DIR/
 }
 
 # snappy
@@ -315,7 +321,7 @@ build_snappy() {
     check_if_source_exist $SNAPPY_SOURCE
     cd $TP_SOURCE_DIR/$SNAPPY_SOURCE
 
-    mkdir build -p && cd build
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CFLAGS="-O3" CXXFLAGS="-O3" $CMAKE_CMD -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
     -DCMAKE_INSTALL_LIBDIR=lib64 \
@@ -436,10 +442,10 @@ build_mysql() {
 
     cd $TP_SOURCE_DIR/$MYSQL_SOURCE
 
-    mkdir build -p && cd build
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     if [ ! -d $BOOST_FOR_MYSQL_SOURCE ]; then
-        cp $TP_SOURCE_DIR/$BOOST_FOR_MYSQL_SOURCE ./ -rf
+        cp -rf $TP_SOURCE_DIR/$BOOST_FOR_MYSQL_SOURCE ./
     fi
 
     $CMAKE_CMD ../ -DWITH_BOOST=`pwd`/$BOOST_FOR_MYSQL_SOURCE -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR/mysql/ \
@@ -449,7 +455,7 @@ build_mysql() {
     make -j$PARALLEL mysqlclient
 
     # copy headers manually
-    rm ../../../installed/include/mysql/ -rf
+    rm -rf ../../../installed/include/mysql/
     mkdir ../../../installed/include/mysql/ -p
     cp -R ./include/* ../../../installed/include/mysql/
     cp -R ../include/* ../../../installed/include/mysql/
@@ -475,7 +481,7 @@ build_brpc() {
     check_if_source_exist $BRPC_SOURCE
 
     cd $TP_SOURCE_DIR/$BRPC_SOURCE
-    mkdir build -p && cd build
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
     $CMAKE_CMD -v -DBUILD_SHARED_LIBS=0 -DCMAKE_INSTALL_PREFIX=$TP_INSTALL_DIR \
@@ -518,7 +524,7 @@ build_librdkafka() {
 build_flatbuffers() {
   check_if_source_exist $FLATBUFFERS_SOURCE
   cd $TP_SOURCE_DIR/$FLATBUFFERS_SOURCE
-  mkdir build -p && cd build
+  mkdir -p $BUILD_DIR && cd $BUILD_DIR
   rm -rf CMakeCache.txt CMakeFiles/
   CXXFLAGS="-fPIC -Wno-class-memaccess" \
   LDFLAGS="-static-libstdc++ -static-libgcc" \
@@ -569,8 +575,8 @@ build_arrow() {
 # s2
 build_s2() {
     check_if_source_exist $S2_SOURCE
-    cd $TP_SOURCE_DIR/s2geometry-0.9.0
-    mkdir build -p && cd build
+    cd $TP_SOURCE_DIR/$S2_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
@@ -639,8 +645,8 @@ build_bitshuffle() {
 # croaring bitmap
 build_croaringbitmap() {
     check_if_source_exist $CROARINGBITMAP_SOURCE
-    cd $TP_SOURCE_DIR/CRoaring-0.2.60
-    mkdir build -p && cd build
+    cd $TP_SOURCE_DIR/$CROARINGBITMAP_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3" \
     LDFLAGS="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc" \
@@ -653,8 +659,8 @@ build_croaringbitmap() {
 #orc
 build_orc() {
     check_if_source_exist $ORC_SOURCE
-    cd $TP_SOURCE_DIR/orc-1.5.8
-    mkdir build -p && cd build
+    cd $TP_SOURCE_DIR/$ORC_SOURCE
+    mkdir -p $BUILD_DIR && cd $BUILD_DIR
     rm -rf CMakeCache.txt CMakeFiles/
     CXXFLAGS="-O3 -Wno-array-bounds" \
     $CMAKE_CMD ../ -DBUILD_JAVA=OFF \
@@ -674,7 +680,7 @@ build_orc() {
 #cctz
 build_cctz() {
     check_if_source_exist $CCTZ_SOURCE
-    cd $TP_SOURCE_DIR/cctz-2.3
+    cd $TP_SOURCE_DIR/$CCTZ_SOURCE
     export PREFIX=$TP_INSTALL_DIR
     make -j$PARALLEL && make install
 }

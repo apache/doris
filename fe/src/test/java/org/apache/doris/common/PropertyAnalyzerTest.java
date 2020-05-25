@@ -17,21 +17,25 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
-import org.apache.doris.thrift.TStorageMedium;
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.text.SimpleDateFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -120,10 +124,15 @@ public class PropertyAnalyzerTest {
 
     @Test
     public void testStorageMedium() throws AnalysisException {
+        long tomorrowTs = System.currentTimeMillis() / 1000 + 86400;
+        String tomorrowTimeStr = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(tomorrowTs * 1000);
+
         Map<String, String> properties = Maps.newHashMap();
         properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
-        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, "2020-05-01 00:00:00");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COLDOWN_TIME, tomorrowTimeStr);
         DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(properties, new DataProperty(TStorageMedium.SSD));
-        Assert.assertEquals(1588262400, dataProperty.getCooldownTimeMs() / 1000);
+        // avoid UT fail because time zone different
+        DateLiteral dateLiteral = new DateLiteral(tomorrowTimeStr, Type.DATETIME);
+        Assert.assertEquals(dateLiteral.unixTimestamp(TimeUtils.getTimeZone()), dataProperty.getCooldownTimeMs());
     }
 }

@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
@@ -42,7 +41,7 @@ public class ParseUtil {
 
     private static Pattern dataVolumnPattern = Pattern.compile("(\\d+)(\\D*)");
 
-    public static long analyzeDataVolumn(String dataVolumnStr) throws UserException {
+    public static long analyzeDataVolumn(String dataVolumnStr) throws AnalysisException {
         long dataVolumn = 0;
         Matcher m = dataVolumnPattern.matcher(dataVolumnStr);
         if (m.matches()) {
