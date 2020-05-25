@@ -44,8 +44,8 @@ set(RUNTIME_FILES
     raw_value.cpp
     raw_value_ir.cpp
     result_sink.cpp
-    result_writer.cpp
     result_buffer_mgr.cpp
+    result_writer.cpp
     row_batch.cpp
     runtime_state.cpp
     string_value.cpp
@@ -105,6 +105,8 @@ set(RUNTIME_FILES
     result_queue_mgr.cpp
     memory_scratch_sink.cpp
     external_scan_context_mgr.cpp
+    file_result_writer.cpp
+    mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
 )

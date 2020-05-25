@@ -60,5 +60,6 @@ ADD_BE_TEST(heartbeat_flags_test)
 ADD_BE_TEST(result_queue_mgr_test)
 ADD_BE_TEST(memory_scratch_sink_test)
 ADD_BE_TEST(external_scan_context_mgr_test)
+
 ADD_BE_TEST(memory/chunk_allocator_test)
 ADD_BE_TEST(memory/system_allocator_test)

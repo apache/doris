@@ -33,7 +33,7 @@ class QueryStatisticsRecvr;
 class QueryStatistics {
 public:
 
-    QueryStatistics() : scan_rows(0), scan_bytes(0) {
+    QueryStatistics() : scan_rows(0), scan_bytes(0), returned_rows(0) {
     }
 
     void merge(const QueryStatistics& other) {
@@ -49,17 +49,23 @@ public:
         this->scan_bytes += scan_bytes;
     }
 
+    void set_returned_rows(int64_t num_rows) {
+        this->returned_rows = num_rows;
+    }
+
     void merge(QueryStatisticsRecvr* recvr);
 
     void clear() {
         scan_rows = 0;
         scan_bytes = 0;
+        returned_rows = 0;
     }
 
     void to_pb(PQueryStatistics* statistics) {
         DCHECK(statistics != nullptr);
         statistics->set_scan_rows(scan_rows);
         statistics->set_scan_bytes(scan_bytes);
+        statistics->set_returned_rows(returned_rows);
     }
 
     void merge_pb(const PQueryStatistics& statistics) {
@@ -71,6 +77,9 @@ private:
 
     int64_t scan_rows;
     int64_t scan_bytes;
+    // number rows returned by query.
+    // only set once by result sink when closing.
+    int64_t returned_rows;
 };
 
 // It is used for collecting sub plan query statistics in DataStreamRecvr.
