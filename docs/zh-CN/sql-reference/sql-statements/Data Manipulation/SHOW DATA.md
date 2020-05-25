@@ -28,7 +28,7 @@ under the License.
 
 ## description
 
-该语句用于展示数据量、副本数量已经统计行数。
+该语句用于展示数据量、副本数量以及统计行数。
 
 语法：
 
@@ -68,7 +68,7 @@ SHOW DATA [FROM db_name[.table_name]];
     +-----------+-------------+--------------+
     ```
     
-2. 展示指定 db 的下指定表的细分数据量和副本数量
+2. 展示指定 db 的下指定表的细分数据量、副本数量和统计行数
 
     ```
     SHOW DATA FROM example_db.test;
