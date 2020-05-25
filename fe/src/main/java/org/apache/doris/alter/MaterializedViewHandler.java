@@ -41,6 +41,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -88,6 +89,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class MaterializedViewHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(MaterializedViewHandler.class);
     public static final String NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX = "__v2_";
+    public static final String MATERIALIZED_VIEW_NAME_PRFIX = "__doris_materialized_view_";
 
     public MaterializedViewHandler() {
         super("materialized view");
@@ -459,6 +461,20 @@ public class MaterializedViewHandler extends AlterHandler {
             Column newMVColumn = new Column(baseColumn);
             newMVColumn.setIsKey(mvColumnItem.isKey());
             newMVColumn.setAggregationType(mvAggregationType, mvColumnItem.isAggregationTypeImplicit());
+            if (mvColumnItem.getDefineExpr() != null) {
+                if (mvAggregationType.equals(AggregateType.BITMAP_UNION)) {
+                    newMVColumn.setType(Type.BITMAP);
+                    newMVColumn.setName(MATERIALIZED_VIEW_NAME_PRFIX + "bitmap_" + baseColumn.getName());
+                } else if (mvAggregationType.equals(AggregateType.HLL_UNION)){
+                    newMVColumn.setType(Type.HLL);
+                    newMVColumn.setName(MATERIALIZED_VIEW_NAME_PRFIX + "hll_" + baseColumn.getName());
+                } else {
+                    throw new DdlException("The define expr of column is only support bitmap_union or hll_union");
+                }
+                newMVColumn.setIsKey(false);
+                newMVColumn.setIsAllowNull(false);
+                newMVColumn.setDefineExpr(mvColumnItem.getDefineExpr());
+            }
             newMVColumns.add(newMVColumn);
         }
         return newMVColumns;
