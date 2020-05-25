@@ -189,6 +189,10 @@ namespace config {
     CONF_mInt32(doris_scanner_row_num, "16384");
     // number of max scan keys
     CONF_mInt32(doris_max_scan_key_num, "1024");
+    // the max number of push down values of In-Predicate.
+    // if the num children of In-Predicate larger than this,
+    // InPredicate will not push down to olap engine.
+    CONF_mInt32(max_pushdown_in_pred_element_num, "1024");
     // return_row / total_row
     CONF_mInt32(doris_max_pushdown_conjuncts_return_rate, "90");
     // (Advanced) Maximum size of per-query receive-side buffer

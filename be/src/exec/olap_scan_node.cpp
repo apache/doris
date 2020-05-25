@@ -72,27 +72,23 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
     _direct_conjunct_size = _conjunct_ctxs.size();
 
+    const TQueryOptions& query_options = state->query_options();
+    if (query_options.__isset.max_scan_key_num) {
+        _max_scan_key_num = query_options.max_scan_key_num;
+    } else {
+        _max_scan_key_num = config::doris_max_scan_key_num;
+    }
+
+    if (query_options.__isset.max_pushdown_in_pred_element_num) {
+        _max_pushdown_in_pred_element_num = query_options.max_pushdown_in_pred_element_num;
+    } else {
+        _max_pushdown_in_pred_element_num = config::max_pushdown_in_pred_element_num;
+    }
+
     return Status::OK();
 }
 
 void OlapScanNode::_init_counter(RuntimeState* state) {
-#if 0
-    ADD_TIMER(profile, "GetTabletTime");
-    ADD_TIMER(profile, "InitReaderTime");
-    ADD_TIMER(profile, "ShowHintsTime");
-    ADD_TIMER(profile, "BlockLoadTime");
-    ADD_TIMER(profile, "IndexLoadTime");
-    ADD_TIMER(profile, "VectorPredicateEvalTime");
-    ADD_TIMER(profile, "ScannerTimer");
-    ADD_TIMER(profile, "IOTimer");
-    ADD_TIMER(profile, "DecompressorTimer");
-    ADD_TIMER(profile, "RLETimer");
-
-    ADD_COUNTER(profile, "RawRowsRead", TUnit::UNIT);
-    ADD_COUNTER(profile, "IndexStreamCacheMiss", TUnit::UNIT);
-    ADD_COUNTER(profile, "IndexStreamCacheHit", TUnit::UNIT);
-    ADD_COUNTER(profile, "BlockLoadCount", TUnit::UNIT);
-#endif
     ADD_TIMER(_runtime_profile, "ShowHintsTime");
 
     _reader_init_timer = ADD_TIMER(_runtime_profile, "ReaderInitTime");
@@ -134,6 +130,8 @@ void OlapScanNode::_init_counter(RuntimeState* state) {
 
     _bitmap_index_filter_counter = ADD_COUNTER(_runtime_profile, "BitmapIndexFilterCount", TUnit::UNIT);
     _bitmap_index_filter_timer = ADD_TIMER(_runtime_profile, "BitmapIndexFilterTimer");
+
+    _num_scanners = ADD_COUNTER(_runtime_profile, "NumScanners", TUnit::UNIT);
 }
 
 Status OlapScanNode::prepare(RuntimeState* state) {
@@ -545,7 +543,7 @@ Status OlapScanNode::build_scan_key() {
             break;
         }
 
-        ExtendScanKeyVisitor visitor(_scan_keys);
+        ExtendScanKeyVisitor visitor(_scan_keys, _max_scan_key_num);
         RETURN_IF_ERROR(boost::apply_visitor(visitor, column_range_iter->second));
     }
 
@@ -694,10 +692,11 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                 state, this, _olap_scan_node.is_preaggregation, _need_agg_finalize, *scan_range, scanner_ranges);
             _scanner_pool->add(scanner);
             _olap_scanners.push_back(scanner);
-	    disk_set.insert(scanner->scan_disk());
+	        disk_set.insert(scanner->scan_disk());
         }
     }
     COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
+    COUNTER_SET(_num_scanners, static_cast<int64_t>(_olap_scanners.size()));
 
     // init progress
     std::stringstream ss;
@@ -715,7 +714,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
 template<class T>
 Status OlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescriptor* slot) {
     // 1. Normalize InPredicate, add to ColumnValueRange
-    RETURN_IF_ERROR(normalize_in_predicate(slot, &range));
+    RETURN_IF_ERROR(normalize_in_and_eq_predicate(slot, &range));
 
     // 2. Normalize BinaryPredicate , add to ColumnValueRange
     RETURN_IF_ERROR(normalize_binary_predicate(slot, &range));
@@ -737,7 +736,7 @@ static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
 }
 
 template<class T>
-Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
+Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
@@ -756,9 +755,6 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                 }
             }
 
-            if (pred->is_not_in()) {
-                continue;
-            }
             std::vector<SlotId> slot_ids;
 
             if (1 == pred->get_child(0)->get_slot_ids(&slot_ids)) {
@@ -771,9 +767,9 @@ Status OlapScanNode::normalize_in_predicate(SlotDescriptor* slot, ColumnValueRan
                         << pred->hybird_set()->size();
 
                 // 1.2 Skip if InPredicate value size larger then max_scan_key_num
-                if (pred->hybird_set()->size() > config::doris_max_scan_key_num) {
+                if (pred->hybird_set()->size() > _max_pushdown_in_pred_element_num) {
                     VLOG(3) << "Predicate value num " << pred->hybird_set()->size()
-                            << " excede limit " << config::doris_max_scan_key_num;
+                            << " excede limit " << _max_pushdown_in_pred_element_num;
                     continue;
                 }
 
