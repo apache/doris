@@ -48,7 +48,7 @@ public class QueryPlanTest {
     private static String runningDir = "fe/mocked/QueryPlanTest/" + UUID.randomUUID().toString() + "/";
 
     private static ConnectContext connectContext;
-
+    
     @BeforeClass
     public static void beforeClass() throws Exception {
         UtFrameUtils.createMinDorisCluster(runningDir);
@@ -856,5 +856,9 @@ public class QueryPlanTest {
         String explainString2 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr2);
         // origin behavior is PREDICATES: `olap_date` = 2.0200217E7
         Assert.assertTrue(explainString2.contains("PREDICATES: `olap_date` = 20200217"));
+
+        String queryStr3 = "explain SELECT count(*) FROM test.binary_predicate_test WHERE olap_date = '20200217a'";
+        String explainString3 = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr3);
+        Assert.assertEquals(explainString3, "errCode = 2, detailMessage = Invalid number format: 20200217a");
     }
 }
