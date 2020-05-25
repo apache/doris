@@ -33,6 +33,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
@@ -94,7 +95,7 @@ public class RollupJobV2 extends AlterJobV2 {
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
 
-    private TStorageFormat storageFormat = null;
+    private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
             long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
@@ -542,6 +543,7 @@ public class RollupJobV2 extends AlterJobV2 {
         out.writeShort(rollupShortKeyColumnCount);
 
         out.writeLong(watershedTxnId);
+        Text.writeString(out, storageFormat.name());
     }
 
     @Override
@@ -579,6 +581,9 @@ public class RollupJobV2 extends AlterJobV2 {
         rollupShortKeyColumnCount = in.readShort();
 
         watershedTxnId = in.readLong();
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.VERSION_85) {
+            storageFormat = TStorageFormat.valueOf(Text.readString(in));
+        }
     }
 
     /**
