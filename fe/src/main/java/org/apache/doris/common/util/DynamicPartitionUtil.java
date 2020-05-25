@@ -137,8 +137,8 @@ public class DynamicPartitionUtil {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_WEEK);
         }
         try {
-            int dayOfMonth = Integer.parseInt(val);
-            if (dayOfMonth < 1 || dayOfMonth > 7) {
+            int dayOfWeek= Integer.parseInt(val);
+            if (dayOfWeek< 1 || dayOfWeek > 7) {
                 throw new DdlException(DynamicPartitionProperty.START_DAY_OF_WEEK + " should between 1 and 7");
             }
         } catch (NumberFormatException e) {
@@ -393,7 +393,7 @@ public class DynamicPartitionUtil {
         // 2. get the date of `startOf` week
         int day = current.get(Calendar.DAY_OF_WEEK);
         // SUNDAY will return 1, we will set it to 7, and make MONDAY to 1, and so on
-        day = day == 1 ? 7 : day - 1;
+        day = (day == 1 ? 7 : day - 1);
         current.add(Calendar.DATE, (startOf.dayOfWeek - day));
         return getFormattedTimeWithoutHourMinuteSecond(current, format);
     }
