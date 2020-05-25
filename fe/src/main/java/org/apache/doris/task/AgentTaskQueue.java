@@ -217,9 +217,8 @@ public class AgentTaskQueue {
         return taskNum;
     }
 
-    public static synchronized Multimap<Long, Long> getTabletIdsByDbId(TTaskType type) {
+    public static synchronized Multimap<Long, Long> getTabletIdsByType(TTaskType type) {
         Multimap<Long, Long> tabletIds = HashMultimap.create();
-        tabletIds.clear();
         Map<Long, Map<Long, AgentTask>> taskMap = tasks.column(type);
         if (taskMap != null) {
             for (Map<Long, AgentTask> signatureMap : taskMap.values()) {
