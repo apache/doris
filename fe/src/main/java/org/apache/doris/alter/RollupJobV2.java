@@ -89,13 +89,14 @@ public class RollupJobV2 extends AlterJobV2 {
     private KeysType rollupKeysType;
     private short rollupShortKeyColumnCount;
 
+    // optional
+    private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
+
     // The rollup job will wait all transactions before this txn id finished, then send the rollup tasks.
     protected long watershedTxnId = -1;
 
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
-
-    private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
     public RollupJobV2(long jobId, long dbId, long tableId, String tableName, long timeoutMs,
             long baseIndexId, long rollupIndexId, String baseIndexName, String rollupIndexName,
