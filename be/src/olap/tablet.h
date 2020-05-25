@@ -309,6 +309,7 @@ inline const int64_t Tablet::cumulative_layer_point() const {
 
 inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_point = new_point;
+    _tablet_meta->set_cumulative_layer_point(new_point);
 }
 
 
