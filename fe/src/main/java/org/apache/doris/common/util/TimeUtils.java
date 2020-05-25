@@ -78,9 +78,6 @@ public class TimeUtils {
     public static Date MIN_DATETIME = null;
     public static Date MAX_DATETIME = null;
 
-    public static int MIN_TIME;
-    public static int MAX_TIME;
-
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");
         

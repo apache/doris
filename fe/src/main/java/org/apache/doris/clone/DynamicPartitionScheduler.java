@@ -200,6 +200,10 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private ArrayList<DropPartitionClause> getDropPartitionClause(Database db, OlapTable olapTable, Column partitionColumn, String partitionFormat) {
         ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
+        if (dynamicPartitionProperty.getStart() == DynamicPartitionProperty.MIN_START_OFFSET) {
+            // not set start offset, so not drop any partition
+            return dropPartitionClauses;
+        }
 
         Calendar currentDate = Calendar.getInstance(dynamicPartitionProperty.getTimeZone());
         String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,

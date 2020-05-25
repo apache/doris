@@ -34,6 +34,8 @@ public class DynamicPartitionProperty{
     public static final String START_DAY_OF_WEEK = "dynamic_partition.start_day_of_week";
     public static final String START_DAY_OF_MONTH = "dynamic_partition.start_day_of_month";
 
+    public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
+
     private boolean exist;
 
     private boolean enable;
@@ -47,13 +49,14 @@ public class DynamicPartitionProperty{
     // TODO: support setting timezone.
     private TimeZone tz = TimeUtils.getDefaultTimeZone();
 
+
     public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
             this.exist = true;
             this.enable = Boolean.parseBoolean(properties.get(ENABLE));
             this.timeUnit = properties.get(TIME_UNIT);
             // In order to compatible dynamic add partition version
-            this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(Integer.MIN_VALUE)));
+            this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
             this.end = Integer.parseInt(properties.get(END));
             this.prefix = properties.get(PREFIX);
             this.buckets = Integer.parseInt(properties.get(BUCKETS));
