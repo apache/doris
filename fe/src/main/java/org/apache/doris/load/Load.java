@@ -1012,6 +1012,13 @@ public class Load {
                 slotDescByName.put(realColName, slotDesc);
             }
         }
+        //The extension column of the materialized view is added to the expression evaluation of load
+        for (Column column : tbl.getFullSchema()) {
+            if (column.getDefineExpr() != null) {
+                exprsByName.put(column.getName(), column.getDefineExpr());
+            }
+        }
+
         LOG.debug("slotDescByName: {}, exprsByName: {}", slotDescByName, exprsByName);
 
         // analyze all exprs
