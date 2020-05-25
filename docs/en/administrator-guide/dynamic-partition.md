@@ -257,14 +257,18 @@ If the partition granularity is changed to MONTH at this time, the system will t
 You can further view the scheduling of dynamic partitioned tables by using the following command:
 
 ```    
-SHOW DYNAMIC PARTITION TABLES;
-
-+-------------------+--------+----------+-------+------+--------+---------+---------------------+---------------------+--------+------------------------+----------------------+
-| TableName         | Enable | TimeUnit | Start | End  | Prefix | Buckets | LastUpdateTime      | LastSchedulerTime   | State  | LastCreatePartitionMsg | LastDropPartitionMsg |
-+-------------------+--------+----------+-------+------+--------+---------+---------------------+---------------------+--------+------------------------+----------------------+
-| dynamic_partition | true   | DAY      | -3    | 3    | p      | 32      | 2020-03-12 17:25:47 | 2020-03-12 17:25:52 | NORMAL | N/A                    | N/A                  |
-+-------------------+--------+----------+-------+------+--------+---------+---------------------+---------------------+--------+------------------------+----------------------+
-1 row in set (0.00 sec)
+mysql> SHOW DYNAMIC PARTITION TABLES;
++-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+
+| TableName | Enable | TimeUnit | Start       | End  | Prefix | Buckets | StartOf   | LastUpdateTime | LastSchedulerTime   | State  | LastCreatePartitionMsg | LastDropPartitionMsg |
++-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+
+| d3        | true   | WEEK     | -3          | 3    | p      | 1       | MONDAY    | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
+| d5        | true   | DAY      | -7          | 3    | p      | 32      | N/A       | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
+| d4        | true   | WEEK     | -3          | 3    | p      | 1       | WEDNESDAY | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
+| d6        | true   | MONTH    | -2147483648 | 2    | p      | 8       | 3rd       | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
+| d2        | true   | DAY      | -3          | 3    | p      | 32      | N/A       | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
+| d7        | true   | MONTH    | -2147483648 | 5    | p      | 8       | 24th      | N/A            | 2020-05-25 14:29:24 | NORMAL | N/A                    | N/A                  |
++-----------+--------+----------+-------------+------+--------+---------+-----------+----------------+---------------------+--------+------------------------+----------------------+
+7 rows in set (0.02 sec)
 ```
     
 * LastUpdateTime: The last time of modifying dynamic partition properties 
