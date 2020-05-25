@@ -82,8 +82,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 
 public class DdlExecutor {
-    public static void execute(Catalog catalog, DdlStmt ddlStmt, OriginStatement origStmt)
-            throws DdlException, QueryStateException, Exception {
+    public static void execute(Catalog catalog, DdlStmt ddlStmt) throws Exception {
         if (ddlStmt instanceof CreateClusterStmt) {
             CreateClusterStmt stmt = (CreateClusterStmt) ddlStmt;
             catalog.createCluster(stmt);
@@ -132,7 +131,7 @@ public class DdlExecutor {
             if (loadStmt.getVersion().equals(Load.VERSION) || jobType == EtlJobType.HADOOP) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
             } else {
-                catalog.getLoadManager().createLoadJobFromStmt(loadStmt, origStmt);
+                catalog.getLoadManager().createLoadJobFromStmt(loadStmt, ddlStmt.getOrigStmt());
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
             if (catalog.getLoadInstance().isLabelExist(
@@ -142,7 +141,7 @@ public class DdlExecutor {
                 catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
             }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
-            catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt, origStmt);
+            catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {
             catalog.getRoutineLoadManager().pauseRoutineLoadJob((PauseRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof ResumeRoutineLoadStmt) {

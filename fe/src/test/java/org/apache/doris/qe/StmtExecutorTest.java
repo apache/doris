@@ -577,7 +577,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any, (OriginStatement) any);
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any);
                 minTimes = 0;
             }
         };
@@ -610,7 +610,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any, (OriginStatement) any);
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any);
                 minTimes = 0;
                 result = new DdlException("ddl fail");
             }
@@ -644,7 +644,7 @@ public class StmtExecutorTest {
         new Expectations(ddlExecutor) {
             {
                 // Mock ddl
-                DdlExecutor.execute((Catalog) any, (DdlStmt) any, (OriginStatement) any);
+                DdlExecutor.execute((Catalog) any, (DdlStmt) any);
                 minTimes = 0;
                 result = new Exception("bug");
             }

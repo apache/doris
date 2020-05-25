@@ -17,6 +17,9 @@
 
 package org.apache.doris.persist.gson;
 
+import org.apache.doris.alter.AlterJobV2;
+import org.apache.doris.alter.RollupJobV2;
+import org.apache.doris.alter.SchemaChangeJobV2;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.HashDistributionInfo;
@@ -93,6 +96,12 @@ public class GsonUtils {
             .of(Resource.class, "clazz")
             .registerSubtype(SparkResource.class, SparkResource.class.getSimpleName());
 
+    // runtime adapter for class "AlterJobV2"
+    private static RuntimeTypeAdapterFactory<AlterJobV2> alterJobV2TypeAdapterFactory = RuntimeTypeAdapterFactory
+            .of(AlterJobV2.class, "clazz")
+            .registerSubtype(RollupJobV2.class, RollupJobV2.class.getSimpleName())
+            .registerSubtype(SchemaChangeJobV2.class, SchemaChangeJobV2.class.getSimpleName());
+
     // the builder of GSON instance.
     // Add any other adapters if necessary.
     private static final GsonBuilder GSON_BUILDER = new GsonBuilder()
@@ -103,7 +112,8 @@ public class GsonUtils {
             .registerTypeAdapterFactory(new PostProcessTypeAdapterFactory())
             .registerTypeAdapterFactory(columnTypeAdapterFactory)
             .registerTypeAdapterFactory(distributionInfoTypeAdapterFactory)
-            .registerTypeAdapterFactory(resourceTypeAdapterFactory);
+            .registerTypeAdapterFactory(resourceTypeAdapterFactory)
+            .registerTypeAdapterFactory(alterJobV2TypeAdapterFactory);
 
     // this instance is thread-safe.
     public static final Gson GSON = GSON_BUILDER.create();
