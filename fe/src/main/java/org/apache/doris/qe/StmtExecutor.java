@@ -578,12 +578,23 @@ public class StmtExecutor {
         // so We need to send fields after first batch arrived
 
         // send result
+        // 1. If this is a query with OUTFILE clause, eg: select * from tbl1 into outfile xxx,
+        //    We will not send real query result to client. Instead, we only send OK to client with
+        //    number of rows selected. For example:
+        //          mysql> select * from tbl1 into outfile xxx;
+        //          Query OK, 10 rows affected (0.01 sec)
+        //
+        // 2. If this is a query, send the result expr fields first, and send result data back to client.
         RowBatch batch;
         MysqlChannel channel = context.getMysqlChannel();
-        sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        boolean isOutfileQuery = queryStmt.hasOutFileClause();
+        if (!isOutfileQuery) {
+            sendFields(queryStmt.getColLabels(), queryStmt.getResultExprs());
+        }
         while (true) {
             batch = coord.getNext();
-            if (batch.getBatch() != null) {
+            // for outfile query, there will be only one empty batch send back with eos flag
+            if (batch.getBatch() != null && !isOutfileQuery) {
                 for (ByteBuffer row : batch.getBatch().getRows()) {
                     channel.sendOnePacket(row);
                 }            
@@ -595,7 +606,11 @@ public class StmtExecutor {
         }
 
         statisticsForAuditLog = batch.getQueryStatistics();
-        context.getState().setEof();
+        if (!isOutfileQuery) {
+            context.getState().setEof();
+        } else {
+            context.getState().setOk(statisticsForAuditLog.returned_rows, 0, "");
+        }
     }
 
     // Process a select statement.
@@ -610,6 +625,10 @@ public class StmtExecutor {
             insertStmt = ((CreateTableAsSelectStmt) parsedStmt).getInsertStmt();
         } else {
             insertStmt = (InsertStmt) parsedStmt;
+        }
+
+        if (insertStmt.getQueryStmt().hasOutFileClause()) {
+            throw new DdlException("Not support OUTFILE clause in INSERT statement");
         }
 
         // assign query id before explain query return
@@ -913,3 +932,4 @@ public class StmtExecutor {
         return statisticsForAuditLog;
     }
 }
+
