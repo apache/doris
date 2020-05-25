@@ -814,16 +814,26 @@ public class DatabaseTransactionMgr {
                 editLog.logInsertTransactionState(transactionState);
             }
         }
-        // for commit transaction, there is nothing to do
-        if (transactionState.getTransactionStatus() == TransactionStatus.PREPARE) {
-            idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState);
-        } else if (transactionState.getTransactionStatus().isFinalStatus()) {
-            idToRunningTransactionState.remove(transactionState.getTransactionId());
+        if (!transactionState.getTransactionStatus().isFinalStatus()) {
+            if (idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState) == null) {
+                if (transactionState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
+                    runningRoutineLoadTxnNums++;
+                } else {
+                    runningTxnNums++;
+                }
+            }
+        } else {
+            if (idToRunningTransactionState.remove(transactionState.getTransactionId()) != null) {
+                if (transactionState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
+                    runningRoutineLoadTxnNums--;
+                } else {
+                    runningTxnNums--;
+                }
+            }
             idToFinalStatusTransactionState.put(transactionState.getTransactionId(), transactionState);
             finalStatusTransactionStateDeque.add(transactionState);
         }
         updateTxnLabels(transactionState);
-        updateDbRunningTxnNum(transactionState.getPreStatus(), transactionState);
     }
 
     private void updateTxnLabels(TransactionState transactionState) {
@@ -833,27 +843,6 @@ public class DatabaseTransactionMgr {
             labelToTxnIds.put(transactionState.getLabel(), txnIds);
         }
         txnIds.add(transactionState.getTransactionId());
-    }
-
-    private void updateDbRunningTxnNum(TransactionStatus preStatus, TransactionState curTxnState) {
-        if (preStatus == null
-                && (curTxnState.getTransactionStatus() == TransactionStatus.PREPARE
-                || curTxnState.getTransactionStatus() == TransactionStatus.COMMITTED)) {
-            if (curTxnState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
-                runningRoutineLoadTxnNums++;
-            } else {
-                runningTxnNums++;
-            }
-        } else if ((preStatus == TransactionStatus.PREPARE
-                || preStatus == TransactionStatus.COMMITTED)
-                && (curTxnState.getTransactionStatus() == TransactionStatus.VISIBLE
-                || curTxnState.getTransactionStatus() == TransactionStatus.ABORTED)) {
-            if (curTxnState.getSourceType() == TransactionState.LoadJobSourceType.ROUTINE_LOAD_TASK) {
-                runningRoutineLoadTxnNums--;
-            } else {
-                runningTxnNums--;
-            }
-        }
     }
 
     public void abortTransaction(String label, String reason) throws UserException {
@@ -1361,8 +1350,6 @@ public class DatabaseTransactionMgr {
             writeUnlock();
         }
     }
-
-
 
     public List<List<String>> getDbTransStateInfo() {
         List<List<String>> infos = Lists.newArrayList();
