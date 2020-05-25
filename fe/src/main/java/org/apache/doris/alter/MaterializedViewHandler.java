@@ -459,10 +459,8 @@ public class MaterializedViewHandler extends AlterHandler {
                                                + "duplicate table");
             }
             Column newMVColumn = new Column(baseColumn);
-
             newMVColumn.setIsKey(mvColumnItem.isKey());
             newMVColumn.setAggregationType(mvAggregationType, mvColumnItem.isAggregationTypeImplicit());
-            newMVColumn.setDefineExpr(mvColumnItem.getDefineExpr());
             if (mvColumnItem.getDefineExpr() != null) {
                 if (mvAggregationType.equals(AggregateType.BITMAP_UNION)) {
                     newMVColumn.setType(Type.BITMAP);
@@ -475,6 +473,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
                 newMVColumn.setIsKey(false);
                 newMVColumn.setIsAllowNull(false);
+                newMVColumn.setDefineExpr(mvColumnItem.getDefineExpr());
             }
             newMVColumns.add(newMVColumn);
         }

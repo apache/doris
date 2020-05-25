@@ -178,13 +178,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
                 Preconditions.checkState(functionCallExpr.getChildren().size() == 1);
                 Expr functionChild0 = functionCallExpr.getChild(0);
-
-                if (functionName.equalsIgnoreCase("bitmap_union") || functionName.equalsIgnoreCase("hll_union")) {
-                    Preconditions.checkState(functionChild0.getChildren().size() == 1);
-                    defineExpr = functionChild0;
-                    functionChild0 = functionChild0.getChild(0);
-                }
-
                 SlotRef slotRef;
                 if (functionChild0 instanceof SlotRef) {
                     slotRef = (SlotRef) functionChild0;
@@ -196,7 +189,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     throw new AnalysisException("The children of aggregate function only support one original column. "
                                                         + "Error function: " + functionCallExpr.toSqlImpl());
                 }
-
                 meetAggregate = true;
                 // check duplicate column
                 String columnName = slotRef.getColumnName().toLowerCase();
