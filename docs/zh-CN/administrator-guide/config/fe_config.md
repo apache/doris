@@ -547,6 +547,12 @@ current running txns on db xxx is xx, larger than limit xx
 
 ### `thrift_backlog_num`
 
+### `thrift_client_timeout_ms`
+
+这是 thrift 服务端的关于连接超时和socket读取数据超时的配置。
+   
+thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.SocketInputStream.socketRead0的问题.
+
 ### `thrift_server_max_worker_threads`
 
 ### `time_zone`
