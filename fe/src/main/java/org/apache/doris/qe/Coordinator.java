@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.Catalog;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
@@ -401,11 +402,21 @@ public class Coordinator {
         PlanFragmentId topId = fragments.get(0).getFragmentId();
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
         if (topParams.fragment.getSink() instanceof ResultSink) {
+            TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(
                     topParams.instanceExecParams.get(0).instanceId,
-                    addressToBackendID.get(topParams.instanceExecParams.get(0).host),
-                    toBrpcHost(topParams.instanceExecParams.get(0).host),
+                    addressToBackendID.get(execBeAddr),
+                    toBrpcHost(execBeAddr),
                     queryOptions.query_timeout * 1000);
+
+            // set the broker address for OUTFILE sink
+            ResultSink resultSink = (ResultSink) topParams.fragment.getSink();
+            if (resultSink.isOutputFileSink() && resultSink.needBroker()) {
+                FsBroker broker = Catalog.getCurrentCatalog().getBrokerMgr().getBroker(resultSink.getBrokerName(),
+                        execBeAddr.getHostname());
+                resultSink.setBrokerAddr(broker.ip, broker.port);
+            }
+
         } else {
             // This is a load process.
             this.queryOptions.setIs_report_success(true);

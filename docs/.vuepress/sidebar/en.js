@@ -106,6 +106,7 @@ module.exports = [
       "colocation-join",
       "dynamic-partition",
       "export_manual",
+      "outfile",
       "privilege",
       "small-file-mgr",
       "sql-mode",

@@ -24,12 +24,14 @@
 
 namespace doris {
 
+class RuntimeState;
+
 class LocalFileWriter : public FileWriter {
 public:
     LocalFileWriter(const std::string& path, int64_t start_offset);
     virtual ~LocalFileWriter();
 
-     Status open() override;
+    Status open() override;
 
     virtual Status write(const uint8_t* buf, size_t buf_len, size_t* written_len) override;
 
