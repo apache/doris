@@ -387,6 +387,8 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
 Status OlapScanNode::normalize_conjuncts() {
     std::vector<SlotDescriptor*> slots = _tuple_desc->slots();
 
+    LOG(INFO) << "cmy get slot size: " << slots.size();
+
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
         switch (slots[slot_idx]->type().type) {
             // TYPE_TINYINT use int32_t to present
@@ -860,6 +862,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                     switch (slot->type().type) {
                     case TYPE_TINYINT: {
                         int32_t v = *reinterpret_cast<int8_t*>(value);
+                        range->clear();
                         range->add_fixed_value(*reinterpret_cast<T*>(&v));
                         break;
                     }
@@ -867,6 +870,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                         DateTimeValue date_value =
                             *reinterpret_cast<DateTimeValue*>(value);
                         date_value.cast_to_date();
+                        range->clear();
                         range->add_fixed_value(*reinterpret_cast<T*>(&date_value));
                         break;
                     }
@@ -880,11 +884,13 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                     case TYPE_INT:
                     case TYPE_BIGINT:
                     case TYPE_LARGEINT: {
+                        range->clear();
                         range->add_fixed_value(*reinterpret_cast<T*>(value));
                         break;
                     }
                     case TYPE_BOOLEAN: {
                         bool v = *reinterpret_cast<bool*>(value);
+                        range->clear();
                         range->add_fixed_value(*reinterpret_cast<T*>(&v));
                         break;
                     }
@@ -898,6 +904,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
             }
         }
     }
+    LOG(INFO) << "cmy get get_fixed_value_size(): " << range->get_fixed_value_size();
 
     return Status::OK();
 }
