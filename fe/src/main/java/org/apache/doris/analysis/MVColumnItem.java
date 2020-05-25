@@ -30,6 +30,7 @@ public class MVColumnItem {
     private boolean isKey;
     private AggregateType aggregationType;
     private boolean isAggregationTypeImplicit;
+    private Expr defineExpr;
 
     public MVColumnItem(String name) {
         this.name = name;
@@ -58,5 +59,13 @@ public class MVColumnItem {
 
     public boolean isAggregationTypeImplicit() {
         return isAggregationTypeImplicit;
+    }
+
+    public Expr getDefineExpr() {
+        return defineExpr;
+    }
+
+    public void setDefineExpr(Expr defineExpr) {
+        this.defineExpr = defineExpr;
     }
 }
