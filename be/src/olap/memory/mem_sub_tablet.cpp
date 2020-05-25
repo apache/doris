@@ -229,7 +229,7 @@ scoped_refptr<HashIndex> MemSubTablet::rebuild_hash_index(size_t new_capacity) {
     scoped_refptr<HashIndex> hi(new HashIndex(new_capacity));
     for (size_t i = 0; i < _row_size; i++) {
         const void* data = keyw->get(i);
-        DCHECK_NOTNULL(data);
+        DCHECK(data);
         uint64_t hashcode = keyw->hashcode(data, 0);
         if (!hi->add(hashcode, i)) {
             double t1 = GetMonoTimeSecondsAsDouble();
