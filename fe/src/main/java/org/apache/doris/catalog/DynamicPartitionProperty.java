@@ -46,7 +46,7 @@ public class DynamicPartitionProperty{
     // TODO: support setting timezone.
     private TimeZone tz = TimeUtils.getDefaultTimeZone();
 
-    DynamicPartitionProperty(Map<String ,String> properties) {
+    public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
             this.exist = true;
             this.enable = Boolean.parseBoolean(properties.get(ENABLE));

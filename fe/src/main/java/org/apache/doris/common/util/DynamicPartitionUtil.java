@@ -122,8 +122,8 @@ public class DynamicPartitionUtil {
         }
         try {
             int dayOfMonth = Integer.parseInt(val);
-            if (dayOfMonth < 1 || dayOfMonth > 31) {
-                throw new DdlException(DynamicPartitionProperty.START_DAY_OF_MONTH + " should between 1 and 31");
+            if (dayOfMonth < 1 || dayOfMonth > 28) {
+                throw new DdlException(DynamicPartitionProperty.START_DAY_OF_MONTH + " should between 1 and 28");
             }
         } catch (NumberFormatException e) {
             throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_MONTH);
@@ -319,52 +319,58 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static String getFormattedPartitionName(String name, String timeUnit) {
-        name = name.replace("-", "").replace(":", "").replace(" ", "");
+    public static String getFormattedPartitionName(TimeZone tz, String formattedDateStr, String timeUnit) {
+        formattedDateStr = formattedDateStr.replace("-", "").replace(":", "").replace(" ", "");
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            return name.substring(0, 8);
+            return formattedDateStr.substring(0, 8);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())) {
-            return name.substring(0, 6);
+            return formattedDateStr.substring(0, 6);
         } else {
-            name = name.substring(0, 8);
-            Calendar calendar = Calendar.getInstance();
+            formattedDateStr = formattedDateStr.substring(0, 8);
+            Calendar calendar = Calendar.getInstance(tz);
             try {
-                calendar.setTime(new SimpleDateFormat("yyyyMMdd").parse(name));
+                calendar.setTime(new SimpleDateFormat("yyyyMMdd").parse(formattedDateStr));
             } catch (ParseException e) {
                 LOG.warn("Format dynamic partition name error. Error={}", e.getMessage());
-                return name;
+                return formattedDateStr;
             }
-            return String.format("%s_%02d", calendar.get(Calendar.YEAR), calendar.get(Calendar.WEEK_OF_YEAR));
+            int weekOfYear = calendar.get(Calendar.WEEK_OF_YEAR);
+            if (weekOfYear <= 1 && calendar.get(Calendar.MONTH) >= 11) {
+                // eg: JDK think 2019-12-30 as the first week of year 2020, we need to handle this.
+                // to make it as the 53rd week of year 2019.
+                weekOfYear += 52;
+            }
+            return String.format("%s_%02d", calendar.get(Calendar.YEAR), weekOfYear);
         }
     }
 
+    // return the partition range date string formatted as yyyy-MM-dd[ HH:mm::ss]
     // TODO: support HOUR and YEAR
-    public static String getPartitionRangeString(DynamicPartitionProperty property, int offset, String format) {
+    public static String getPartitionRangeString(DynamicPartitionProperty property, Calendar current,
+            int offset, String format) {
         String timeUnit = property.getTimeUnit();
         TimeZone tz = property.getTimeZone();
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            return getPartitionRangeOfDay(offset, tz, format);
+            return getPartitionRangeOfDay(current, offset, tz, format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())) {
-            return getPartitionRangeOfWeek(offset, property.getStartOfWeek(), tz, format);
-        } else {
-            return getPartitionRangeOfMonth(offset, property.getStartOfMonth(), tz, format);
+            return getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), tz, format);
+        } else { // MONTH
+            return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), tz, format);
         }
     }
     
     /*
-     * return formatted string of partition range in WEEK granularity.
-     * offset: The offset from the current week. 0 means current week, 1 means next week, -1 means last week.
-     * startOf: Define the start day of each week. 1 means MONDAY, 7 means SUNDAY.
+     * return formatted string of partition range in DAY granularity.
+     * offset: The offset from the current day. 0 means current day, 1 means tomorrow, -1 means yesterday.
      * format: the format of the return date string.
      * 
      * Eg:
-     *  Today is 2020-05-24, offset = -1, startOf.dayOfWeek = 3
-     *  It will return 2020-05-20  (Wednesday of last week)
+     *  Today is 2020-05-24, offset = -1
+     *  It will return 2020-05-23
      */
-    private static String getPartitionRangeOfDay(int offset, TimeZone tz, String format) {
-        Calendar calendar = Calendar.getInstance(tz);
-        calendar.add(Calendar.DATE, offset);
-        return getFormattedTimeWithoutHourMinuteSecond(calendar, format);
+    private static String getPartitionRangeOfDay(Calendar current, int offset, TimeZone tz, String format) {
+        current.add(Calendar.DATE, offset);
+        return getFormattedTimeWithoutHourMinuteSecond(current, format);
     }
 
     /*
@@ -377,65 +383,43 @@ public class DynamicPartitionUtil {
      *  Today is 2020-05-24, offset = -1, startOf.dayOfWeek = 3
      *  It will return 2020-05-20  (Wednesday of last week)
      */
-    private static String getPartitionRangeOfWeek(int offset, StartOfDate startOf, TimeZone tz, String format) {
+    private static String getPartitionRangeOfWeek(Calendar current, int offset, StartOfDate startOf, TimeZone tz,
+            String format) {
         Preconditions.checkArgument(startOf.isStartOfWeek());
-        Calendar calendar = Calendar.getInstance(tz);
         // 1. get the offset week
-        calendar.add(Calendar.WEEK_OF_YEAR, offset);
+        current.add(Calendar.WEEK_OF_YEAR, offset);
         // 2. get the date of `startOf` week
-        int day = calendar.get(Calendar.DAY_OF_WEEK);
-        // SUNDAY will return 1, make it to 7, and make MONDAY to 1, and so on
+        int day = current.get(Calendar.DAY_OF_WEEK);
+        // SUNDAY will return 1, we will set it to 7, and make MONDAY to 1, and so on
         day = day == 1 ? 7 : day - 1;
-        calendar.add(Calendar.DATE, (startOf.dayOfWeek - day));
-        return getFormattedTimeWithoutHourMinuteSecond(calendar, format);
+        current.add(Calendar.DATE, (startOf.dayOfWeek - day));
+        return getFormattedTimeWithoutHourMinuteSecond(current, format);
     }
 
     /*
      * return formatted string of partition range in MONTH granularity.
      * offset: The offset from the current month. 0 means current month, 1 means next month, -1 means last month.
      * startOf: Define the start date of each month. 1 means start on the 1st of every month.
-     *          If the start date is greater than the maximum number of days in the corresponding month,
-     *          it is set to the maximum number of days in the corresponding month.
      * format: the format of the return date string.
      * 
      * Eg:
      *  Today is 2020-05-24, offset = 1, startOf.month = 3
-     *  It will return 2020-06-03
+     *  It will return 2020-06-03 
      */
-    private static String getPartitionRangeOfMonth(int offset, StartOfDate startOf, TimeZone tz, String format) {
+    private static String getPartitionRangeOfMonth(Calendar current, int offset, StartOfDate startOf, TimeZone tz,
+            String format) {
         Preconditions.checkArgument(startOf.isStartOfMonth());
-        Calendar calendar = Calendar.getInstance(tz);
         // 1. Get the offset date.
-        calendar.set(Calendar.DATE, 1);
-        calendar.add(Calendar.MONTH, offset);
-        int numDaysOfMonth = TimeUtils.getNumberDaysOfMonth(calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH));
-        int realStartDayOfMonth = Math.min(numDaysOfMonth, startOf.day);
-        calendar.set(Calendar.DATE, realStartDayOfMonth);
-        return getFormattedTimeWithoutHourMinuteSecond(calendar, format);
-    }
-
-    /*
-     * return formatted string of partition range in YEAR granularity.
-     * offset: The offset from the current month. 0 means current year, 1 means next year, -1 means last year.
-     * startOf: Define the start month and date of each year.
-     * format: the format of the return date string.
-     * 
-     * Eg:
-     *   Today is 2020-05-24, offset = 1, startOf.month = 3, startOf.day = 5
-     *   It will return 2021-03-05
-     */
-    private static String getPartitionRangeOfYear(int offset, StartOfDate startOf, TimeZone tz, String format) {
-        Preconditions.checkArgument(startOf.isStartOfYear());
-        Calendar calendar = Calendar.getInstance(tz);
-        // 1. get the offset year
-        calendar.set(calendar.get(Calendar.YEAR), 0, 1);
-        calendar.add(Calendar.YEAR, offset);
-        // 2. get number of days of the `startOf` month
-        int numDaysOfMonth = TimeUtils.getNumberDaysOfMonth(calendar.get(Calendar.YEAR), startOf.month);
-        int realStartDayOfMonth = Math.min(numDaysOfMonth, startOf.day);
-        calendar.set(Calendar.MONTH, startOf.month);
-        calendar.set(Calendar.DATE, realStartDayOfMonth);
-        return getFormattedTimeWithoutHourMinuteSecond(calendar, format);
+        int realOffset = offset;
+        int currentDay = current.get(Calendar.DATE);
+        if (currentDay < startOf.day) {
+            // eg: today is 2020-05-20, `startOf.day` is 25, and offset is 0.
+            // we should return 2020-04-25, which is the last month.
+            realOffset -= 1;
+        }
+        current.add(Calendar.MONTH, realOffset);
+        current.set(Calendar.DATE, startOf.day);
+        return getFormattedTimeWithoutHourMinuteSecond(current, format);
     }
 
     private static String getFormattedTimeWithoutHourMinuteSecond(Calendar calendar, String format) {
@@ -458,6 +442,12 @@ public class DynamicPartitionUtil {
         return replicateNum;
     }
 
+    /*
+     * Used to indicate the start date.
+     * Taking the year as the granularity, it can indicate the month and day as the start date.
+     * Taking the month as the granularity, it can indicate the date of as the start date.
+     * Taking the week as the granularity, it can indicate the day of the week as the starting date.
+     */
     public static class StartOfDate {
         public int month;
         public int day;
@@ -478,7 +468,7 @@ public class DynamicPartitionUtil {
         }
 
         public boolean isStartOfWeek() {
-            return this.month == -1 && this.day == -1 && this.dayOfWeek != 1;
+            return this.month == -1 && this.day == -1 && this.dayOfWeek != -1;
         }
     }
 }

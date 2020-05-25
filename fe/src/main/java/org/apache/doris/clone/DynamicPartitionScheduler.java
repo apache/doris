@@ -50,6 +50,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -130,9 +131,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
         RangePartitionInfo rangePartitionInfo = (RangePartitionInfo) olapTable.getPartitionInfo();
+        Calendar currentDate = Calendar.getInstance(dynamicPartitionProperty.getTimeZone());
         for (int i = 0; i <= dynamicPartitionProperty.getEnd(); i++) {
-            String prevBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, i, partitionFormat);
-            String nextBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, i + 1, partitionFormat);
+            String prevBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
+                    (Calendar) currentDate.clone(), i, partitionFormat);
+            String nextBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
+                    (Calendar) currentDate.clone(), i + 1, partitionFormat);
             PartitionValue lowerValue = new PartitionValue(prevBorder);
             PartitionValue upperValue = new PartitionValue(nextBorder);
 
@@ -170,7 +174,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             PartitionKeyDesc partitionKeyDesc = new PartitionKeyDesc(Collections.singletonList(lowerValue), Collections.singletonList(upperValue));
             HashMap<String, String> partitionProperties = new HashMap<>(1);
             partitionProperties.put("replication_num", String.valueOf(DynamicPartitionUtil.estimateReplicateNum(olapTable)));
-            String partitionName = dynamicPartitionProperty.getPrefix() + DynamicPartitionUtil.getFormattedPartitionName(prevBorder, dynamicPartitionProperty.getTimeUnit());
+            String partitionName = dynamicPartitionProperty.getPrefix() + DynamicPartitionUtil.getFormattedPartitionName(
+                    dynamicPartitionProperty.getTimeZone(), prevBorder, dynamicPartitionProperty.getTimeUnit());
             SingleRangePartitionDesc rangePartitionDesc = new SingleRangePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
 
@@ -196,8 +201,11 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         ArrayList<DropPartitionClause> dropPartitionClauses = new ArrayList<>();
         DynamicPartitionProperty dynamicPartitionProperty = olapTable.getTableProperty().getDynamicPartitionProperty();
 
-        String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, dynamicPartitionProperty.getStart(), partitionFormat);
-        String upperBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty, 0, partitionFormat);
+        Calendar currentDate = Calendar.getInstance(dynamicPartitionProperty.getTimeZone());
+        String lowerBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
+                (Calendar) currentDate.clone(), dynamicPartitionProperty.getStart(), partitionFormat);
+        String upperBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
+                (Calendar) currentDate.clone(), 0, partitionFormat);
         PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
         PartitionValue upperPartitionValue = new PartitionValue(upperBorder);
         Range<PartitionKey> reservePartitionKeyRange;
