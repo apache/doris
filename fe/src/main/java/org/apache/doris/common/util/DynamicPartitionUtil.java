@@ -124,6 +124,8 @@ public class DynamicPartitionUtil {
         }
         try {
             int dayOfMonth = Integer.parseInt(val);
+            // only support from 1st to 28th, not allow 29th, 30th and 31th to avoid problems
+            // caused by lunar year and lunar month
             if (dayOfMonth < 1 || dayOfMonth > 28) {
                 throw new DdlException(DynamicPartitionProperty.START_DAY_OF_MONTH + " should between 1 and 28");
             }

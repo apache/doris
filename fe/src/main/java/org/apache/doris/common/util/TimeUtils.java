@@ -269,11 +269,4 @@ public class TimeUtils {
         }
         throw new DdlException("Parse time zone " + value + " error");
     }
-
-    // return the number of days of give year.month
-    public static int getNumberDaysOfMonth(int year, int month) {
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(year, month + 1, 0);
-        return calendar.get(Calendar.DAY_OF_MONTH);
-    }
 }
