@@ -38,16 +38,34 @@ import java.util.List;
 
 // GRANT STMT
 // GRANT privilege [, privilege] ON db.tbl TO user [ROLE 'role'];
+// GRANT privilege [, privilege] ON RESOURCE 'resource' TO user [ROLE 'role'];
 public class GrantStmt extends DdlStmt {
     private UserIdentity userIdent;
     private String role;
     private TablePattern tblPattern;
+    private ResourcePattern resourcePattern;
     private List<PaloPrivilege> privileges;
+
+    // TODO(wyb): spark-load
+    public static boolean disableGrantResource = true;
 
     public GrantStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
         this.role = role;
         this.tblPattern = tblPattern;
+        this.resourcePattern = null;
+        PrivBitSet privs = PrivBitSet.of();
+        for (AccessPrivilege accessPrivilege : privileges) {
+            privs.or(accessPrivilege.toPaloPrivilege());
+        }
+        this.privileges = privs.toPrivilegeList();
+    }
+
+    public GrantStmt(UserIdentity userIdent, String role, ResourcePattern resourcePattern, List<AccessPrivilege> privileges) {
+        this.userIdent = userIdent;
+        this.role = role;
+        this.tblPattern = null;
+        this.resourcePattern = resourcePattern;
         PrivBitSet privs = PrivBitSet.of();
         for (AccessPrivilege accessPrivilege : privileges) {
             privs.or(accessPrivilege.toPaloPrivilege());
@@ -61,6 +79,10 @@ public class GrantStmt extends DdlStmt {
 
     public TablePattern getTblPattern() {
         return tblPattern;
+    }
+
+    public ResourcePattern getResourcePattern() {
+        return resourcePattern;
     }
 
     public boolean hasRole() {
@@ -85,13 +107,25 @@ public class GrantStmt extends DdlStmt {
             role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
-        tblPattern.analyze(analyzer.getClusterName());
+        if (tblPattern != null) {
+            tblPattern.analyze(analyzer.getClusterName());
+        } else {
+            // TODO(wyb): spark-load
+            if (disableGrantResource) {
+                throw new AnalysisException("GRANT ON RESOURCE is comming soon");
+            }
+            resourcePattern.analyze();
+        }
 
         if (privileges == null || privileges.isEmpty()) {
             throw new AnalysisException("No privileges in grant statement.");
         }
 
-        checkPrivileges(analyzer, privileges, role, tblPattern);
+        if (tblPattern != null) {
+            checkPrivileges(analyzer, privileges, role, tblPattern);
+        } else {
+            checkPrivileges(analyzer, privileges, role, resourcePattern);
+        }
     }
 
     /*
@@ -102,9 +136,10 @@ public class GrantStmt extends DdlStmt {
      * 4. Only user with GLOBAL level's GRANT_PRIV can grant/revoke privileges to/from roles.
      * 5.1 User should has GLOBAL level GRANT_PRIV
      * 5.2 or user has DATABASE/TABLE level GRANT_PRIV if grant/revoke to/from certain database or table.
+     * 5.3 or user should has 'resource' GRANT_PRIV if grant/revoke to/from certain 'resource'
      */
     public static void checkPrivileges(Analyzer analyzer, List<PaloPrivilege> privileges,
-            String role, TablePattern tblPattern) throws AnalysisException {
+                                       String role, TablePattern tblPattern) throws AnalysisException {
         // Rule 1
         if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
             throw new AnalysisException("Can not grant NODE_PRIV to any other users or roles");
@@ -139,11 +174,46 @@ public class GrantStmt extends DdlStmt {
         }
     }
 
+    public static void checkPrivileges(Analyzer analyzer, List<PaloPrivilege> privileges,
+                                       String role, ResourcePattern resourcePattern) throws AnalysisException {
+        // Rule 1
+        if (privileges.contains(PaloPrivilege.NODE_PRIV)) {
+            throw new AnalysisException("Can not grant NODE_PRIV to any other users or roles");
+        }
+
+        // Rule 2
+        if (resourcePattern.getPrivLevel() != PrivLevel.GLOBAL && privileges.contains(PaloPrivilege.ADMIN_PRIV)) {
+            throw new AnalysisException("ADMIN_PRIV privilege can only be granted on resource *");
+        }
+
+        if (role != null) {
+            // Rule 3 and 4
+            if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+            }
+        } else {
+            // Rule 5.1 and 5.3
+            if (resourcePattern.getPrivLevel() == PrivLevel.GLOBAL) {
+                if (!Catalog.getCurrentCatalog().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+                }
+            } else {
+                if (!Catalog.getCurrentCatalog().getAuth().checkResourcePriv(ConnectContext.get(), resourcePattern.getResourceName(), PrivPredicate.GRANT)) {
+                    ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+                }
+            }
+        }
+    }
+
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("GRANT ").append(Joiner.on(", ").join(privileges));
-        sb.append(" ON ").append(tblPattern).append(" TO ");
+        if (tblPattern != null) {
+            sb.append(" ON ").append(tblPattern).append(" TO ");
+        } else {
+            sb.append(" ON RESOURCE '").append(resourcePattern).append("' TO ");
+        }
         if (!Strings.isNullOrEmpty(role)) {
             sb.append(" ROLE '").append(role).append("'");
         } else {
