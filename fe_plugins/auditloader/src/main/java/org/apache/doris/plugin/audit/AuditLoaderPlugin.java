@@ -107,6 +107,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
 
         conf = new AuditLoaderConf();
         conf.init(properties);
+        conf.feIdentity = ctx.getFeIdentity();
     }
 
     @Override
@@ -191,11 +192,13 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
 
         public long maxBatchSize = 50 * 1024 * 1024;
         public long maxBatchIntervalSec = 60;
-        public String frontendHostPort = "127.0.0.1:9030";
+        public String frontendHostPort = "127.0.0.1:8030";
         public String user = "root";
         public String password = "";
         public String database = "doris_audit_db__";
         public String table = "doris_audit_tbl__";
+        // the identity of FE which run this plugin
+        public String feIdentity = "";
 
         public void init(Map<String, String> properties) throws PluginException {
             try {
