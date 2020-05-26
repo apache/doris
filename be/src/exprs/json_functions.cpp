@@ -116,7 +116,7 @@ rapidjson::Value* JsonFunctions::match_value(std::vector<JsonPath>& parsed_paths
     for (int i = 1; i < parsed_paths.size(); i++) {
         VLOG(10) << "parsed_paths: " << parsed_paths[i].debug_string();
 
-        if (root->IsNull()) {
+        if (root == nullptr || root->IsNull()) {
             return nullptr;
         }
 
