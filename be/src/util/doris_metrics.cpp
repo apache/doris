@@ -193,13 +193,13 @@ void DorisMetrics::initialize(
         const std::vector<std::string>& network_interfaces) {
     // disk usage
     for (auto& path : paths) {
-        IntGauge* gauge = disks_total_capacity.set_key(path, MetricUnit::Type::BYTES);
+        IntGauge* gauge = disks_total_capacity.set_key(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_total_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_avail_capacity.set_key(path, MetricUnit::Type::BYTES);
+        gauge = disks_avail_capacity.set_key(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_data_used_capacity.set_key(path, MetricUnit::Type::BYTES);
+        gauge = disks_data_used_capacity.set_key(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_state.set_key(path, MetricUnit::Type::BYTES);
+        gauge = disks_state.set_key(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_state", MetricLabels().add("path", path), gauge);
     }
 

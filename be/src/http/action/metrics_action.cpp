@@ -192,7 +192,7 @@ void JsonMetricsVisitor::visit(const std::string& prefix,
                 }
             }
             metric_obj.AddMember("tags", tag_obj, allocator);
-            rapidjson::Value unit_val(MetricUnit::name(metric->unit()), allocator); 
+            rapidjson::Value unit_val(unit_name(metric->unit()), allocator); 
             metric_obj.AddMember("unit", unit_val, allocator);
             metric->write_value(metric_obj, allocator);
             doc.PushBack(metric_obj, allocator);
