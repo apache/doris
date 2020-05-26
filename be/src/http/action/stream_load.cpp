@@ -59,10 +59,10 @@
 
 namespace doris {
 
-METRIC_DEFINE_INT_COUNTER(streaming_load_requests_total, MetricUnit::NUMBER);
-METRIC_DEFINE_INT_COUNTER(streaming_load_bytes, MetricUnit::BYTES);
-METRIC_DEFINE_INT_COUNTER(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
-METRIC_DEFINE_INT_GAUGE(streaming_load_current_processing, MetricUnit::NUMBER);
+METRIC_DEFINE_INT_COUNTER(streaming_load_requests_total, MetricUnit::Type::NUMBER);
+METRIC_DEFINE_INT_COUNTER(streaming_load_bytes, MetricUnit::Type::BYTES);
+METRIC_DEFINE_INT_COUNTER(streaming_load_duration_ms, MetricUnit::Type::MILLISECONDS);
+METRIC_DEFINE_INT_GAUGE(streaming_load_current_processing, MetricUnit::Type::NUMBER);
 
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;

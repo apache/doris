@@ -30,11 +30,11 @@ const char* SystemMetrics::_s_hook_name = "system_metrics";
 struct CpuMetrics {
     static constexpr int cpu_num_metrics = 10;
     IntLockCounter metrics[cpu_num_metrics] = {
-        {MetricUnit::PERCENT}, {MetricUnit::PERCENT},
-        {MetricUnit::PERCENT}, {MetricUnit::PERCENT},
-        {MetricUnit::PERCENT}, {MetricUnit::PERCENT},
-        {MetricUnit::PERCENT}, {MetricUnit::PERCENT},
-        {MetricUnit::PERCENT}, {MetricUnit::PERCENT}
+        {MetricUnit::Type::PERCENT}, {MetricUnit::Type::PERCENT},
+        {MetricUnit::Type::PERCENT}, {MetricUnit::Type::PERCENT},
+        {MetricUnit::Type::PERCENT}, {MetricUnit::Type::PERCENT},
+        {MetricUnit::Type::PERCENT}, {MetricUnit::Type::PERCENT},
+        {MetricUnit::Type::PERCENT}, {MetricUnit::Type::PERCENT}
     };
     static const char* cpu_metrics[cpu_num_metrics];
 };
@@ -45,30 +45,30 @@ const char* CpuMetrics::cpu_metrics[] = {
 };
 
 struct MemoryMetrics {
-    METRIC_DEFINE_INT_GAUGE(allocated_bytes, MetricUnit::BYTES);
+    METRIC_DEFINE_INT_GAUGE(allocated_bytes, MetricUnit::Type::BYTES);
 };
 
 struct DiskMetrics {
-    METRIC_DEFINE_INT_LOCK_COUNTER(reads_completed, MetricUnit::NUMBER);
-    METRIC_DEFINE_INT_LOCK_COUNTER(bytes_read, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_LOCK_COUNTER(read_time_ms, MetricUnit::MILLISECONDS);
-    METRIC_DEFINE_INT_LOCK_COUNTER(writes_completed, MetricUnit::NUMBER);
-    METRIC_DEFINE_INT_LOCK_COUNTER(bytes_written, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_LOCK_COUNTER(write_time_ms, MetricUnit::MILLISECONDS);
-    METRIC_DEFINE_INT_LOCK_COUNTER(io_time_ms, MetricUnit::MILLISECONDS);
-    METRIC_DEFINE_INT_LOCK_COUNTER(io_time_weigthed, MetricUnit::MILLISECONDS);
+    METRIC_DEFINE_INT_LOCK_COUNTER(reads_completed, MetricUnit::Type::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(bytes_read, MetricUnit::Type::BYTES);
+    METRIC_DEFINE_INT_LOCK_COUNTER(read_time_ms, MetricUnit::Type::MILLISECONDS);
+    METRIC_DEFINE_INT_LOCK_COUNTER(writes_completed, MetricUnit::Type::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(bytes_written, MetricUnit::Type::BYTES);
+    METRIC_DEFINE_INT_LOCK_COUNTER(write_time_ms, MetricUnit::Type::MILLISECONDS);
+    METRIC_DEFINE_INT_LOCK_COUNTER(io_time_ms, MetricUnit::Type::MILLISECONDS);
+    METRIC_DEFINE_INT_LOCK_COUNTER(io_time_weigthed, MetricUnit::Type::MILLISECONDS);
 };
 
 struct NetMetrics {
-    METRIC_DEFINE_INT_LOCK_COUNTER(receive_bytes, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_LOCK_COUNTER(receive_packets, MetricUnit::NUMBER);
-    METRIC_DEFINE_INT_LOCK_COUNTER(send_bytes, MetricUnit::BYTES);
-    METRIC_DEFINE_INT_LOCK_COUNTER(send_packets, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(receive_bytes, MetricUnit::Type::BYTES);
+    METRIC_DEFINE_INT_LOCK_COUNTER(receive_packets, MetricUnit::Type::NUMBER);
+    METRIC_DEFINE_INT_LOCK_COUNTER(send_bytes, MetricUnit::Type::BYTES);
+    METRIC_DEFINE_INT_LOCK_COUNTER(send_packets, MetricUnit::Type::NUMBER);
 };
 
 struct FileDescriptorMetrics {
-    METRIC_DEFINE_INT_GAUGE(fd_num_limit, MetricUnit::NUMBER);
-    METRIC_DEFINE_INT_GAUGE(fd_num_used, MetricUnit::NUMBER);
+    METRIC_DEFINE_INT_GAUGE(fd_num_limit, MetricUnit::Type::NUMBER);
+    METRIC_DEFINE_INT_GAUGE(fd_num_used, MetricUnit::Type::NUMBER);
 };
 
 SystemMetrics::SystemMetrics() {

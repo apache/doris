@@ -17,6 +17,10 @@
 
 #include "http/action/metrics_action.h"
 
+#include <rapidjson/rapidjson.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/document.h>
+#include <rapidjson/writer.h>
 #include <string>
 
 #include "http/http_request.h"
@@ -36,7 +40,7 @@ public:
     std::string to_string() const { return _ss.str(); }
 private:
     void _visit_simple_metric(
-        const std::string& name, const MetricLabels& labels, SimpleMetric* metric);
+        const std::string& name, const MetricLabels& labels, Metric* metric);
 private:
     std::stringstream _ss;
 };
@@ -88,7 +92,7 @@ void PrometheusMetricsVisitor::visit(const std::string& prefix,
     case MetricType::COUNTER:
     case MetricType::GAUGE:
         for (auto& it : collector->metrics()) {
-            _visit_simple_metric(metric_name, it.first, (SimpleMetric*) it.second);
+            _visit_simple_metric(metric_name, it.first, (Metric*) it.second);
         }
         break;
     default:
@@ -97,7 +101,7 @@ void PrometheusMetricsVisitor::visit(const std::string& prefix,
 }
 
 void PrometheusMetricsVisitor::_visit_simple_metric(
-        const std::string& name, const MetricLabels& labels, SimpleMetric* metric) {
+        const std::string& name, const MetricLabels& labels, Metric* metric) {
     _ss << name;
     // labels
     if (!labels.empty()) {
@@ -138,7 +142,7 @@ void SimpleCoreMetricsVisitor::visit(const std::string& prefix,
     }
 
     for (auto& it : collector->metrics()) {
-        _ss << metric_name << " LONG " << ((SimpleMetric*) it.second)->to_string()
+        _ss << metric_name << " LONG " << ((Metric*) it.second)->to_string()
             << "\n";
     }
 }
@@ -146,20 +150,19 @@ void SimpleCoreMetricsVisitor::visit(const std::string& prefix,
 class JsonMetricsVisitor : public MetricsVisitor {
 public:
     JsonMetricsVisitor() {
-        _ss << "[\n";
     }
     virtual ~JsonMetricsVisitor() {}
     void visit(const std::string& prefix, const std::string& name,
                MetricCollector* collector) override;
     std::string to_string() { 
-        std::string json = _ss.str();
-        json = json.substr(0, json.length() - 2);
-        json += "\n]\n";
-        return json;
+        rapidjson::StringBuffer strBuf;
+        rapidjson::Writer<rapidjson::StringBuffer> writer(strBuf);
+        doc.Accept(writer);
+        return strBuf.GetString();
     }
 
 private:
-    std::stringstream _ss;
+    rapidjson::Document doc{rapidjson::kArrayType};
 };
 
 void JsonMetricsVisitor::visit(const std::string& prefix,
@@ -168,29 +171,31 @@ void JsonMetricsVisitor::visit(const std::string& prefix,
     if (collector->empty() || name.empty()) {
         return;
     }
+
+    rapidjson::Document::AllocatorType& allocator = doc.GetAllocator();
     switch (collector->type()) {
     case MetricType::COUNTER:
     case MetricType::GAUGE:
         for (auto& it : collector->metrics()) {
             const MetricLabels& labels = it.first;
-            SimpleMetric* metric = reinterpret_cast<SimpleMetric*>(it.second);
-            _ss << "{\n\t\"tags\":\n\t{\n";
-            _ss << "\t\t\"metric\":\"" << name << "\"";
+            Metric* metric = reinterpret_cast<Metric*>(it.second);
+            rapidjson::Value metric_obj(rapidjson::kObjectType);
+            rapidjson::Value tag_obj(rapidjson::kObjectType);
+            tag_obj.AddMember("metric", rapidjson::Value(name.c_str(), allocator), allocator);
             // labels
             if (!labels.empty()) {
-                _ss << ",\n";
-                int i = 0;
                 for (auto& label : labels.labels) {
-                    if (i++ > 0) {
-                        _ss << ",\n";
-                    }
-                    _ss << "\t\t\"" << label.name << "\":\"" << label.value << "\"";
+                    tag_obj.AddMember(
+                                rapidjson::Value(label.name.c_str(), allocator),
+                                rapidjson::Value(label.value.c_str(), allocator),
+                                allocator);
                 }
             }
-            _ss << "\n\t},\n";
-            _ss << "\t\"unit\":\"" << metric->unit() << "\",\n";
-            _ss << "\t\"value\":" << metric->to_string() << "\n";
-            _ss << "},\n";
+            metric_obj.AddMember("tags", tag_obj, allocator);
+            rapidjson::Value unit_val(MetricUnit::name(metric->unit()), allocator); 
+            metric_obj.AddMember("unit", unit_val, allocator);
+            metric->write_value(metric_obj, allocator);
+            doc.PushBack(metric_obj, allocator);
         }
         break;
     default:

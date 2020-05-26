@@ -34,12 +34,12 @@ namespace doris {
 
 ChunkAllocator* ChunkAllocator::_s_instance = nullptr;
 
-static IntCounter local_core_alloc_count(MetricUnit::NUMBER);
-static IntCounter other_core_alloc_count(MetricUnit::NUMBER);
-static IntCounter system_alloc_count(MetricUnit::NUMBER);
-static IntCounter system_free_count(MetricUnit::NUMBER);
-static IntCounter system_alloc_cost_ns(MetricUnit::NANOSECONDS);
-static IntCounter system_free_cost_ns(MetricUnit::NANOSECONDS);
+static IntCounter local_core_alloc_count(MetricUnit::Type::NUMBER);
+static IntCounter other_core_alloc_count(MetricUnit::Type::NUMBER);
+static IntCounter system_alloc_count(MetricUnit::Type::NUMBER);
+static IntCounter system_free_count(MetricUnit::Type::NUMBER);
+static IntCounter system_alloc_cost_ns(MetricUnit::Type::NANOSECONDS);
+static IntCounter system_free_cost_ns(MetricUnit::Type::NANOSECONDS);
 
 #ifdef BE_TEST
 static std::mutex s_mutex;

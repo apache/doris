@@ -26,6 +26,8 @@
 #include <mutex>
 #include <iomanip>
 
+#include <rapidjson/document.h>
+
 #include "common/config.h"
 #include "util/spinlock.h"
 #include "util/core_local.h"
@@ -42,53 +44,50 @@ enum class MetricType {
     UNTYPED
 };
 
-enum class MetricUnit {
-    NANOSECONDS,
-    MICROSECONDS,
-    MILLISECONDS,
-    SECONDS,
-    BYTES,
-    ROWS,
-    NUMBER,
-    PERCENT,
-    NOUNIT
+struct MetricUnit {
+    enum Type {
+        NANOSECONDS,
+        MICROSECONDS,
+        MILLISECONDS,
+        SECONDS,
+        BYTES,
+        ROWS,
+        NUMBER,
+        PERCENT,
+        NOUNIT
+    };
+    static const char* name(Type unit);
 };
 
 std::ostream& operator<<(std::ostream& os, MetricType type);
-std::ostream& operator<<(std::ostream& os, MetricUnit unit);
 
 class Metric {
 public:
-    Metric(MetricType type, MetricUnit unit)
+    Metric(MetricType type, MetricUnit::Type unit)
       : _type(type),
         _unit(unit),
         _registry(nullptr) {}
     virtual ~Metric() { hide(); }
+    virtual std::string to_string() const = 0;
     MetricType type() const { return _type; }
-    MetricUnit unit() const { return _unit; }
+    MetricUnit::Type unit() const { return _unit; }
     void hide();
+    virtual void write_value(rapidjson::Value& metric_obj,
+                             rapidjson::Document::AllocatorType& allocator) = 0;
 private:
     friend class MetricRegistry;
 
     MetricType _type = MetricType::UNTYPED;
-    MetricUnit _unit = MetricUnit::NOUNIT;
+    MetricUnit::Type _unit = MetricUnit::Type::NOUNIT;
     MetricRegistry* _registry;
-};
-
-class SimpleMetric : public Metric {
-public:
-    SimpleMetric(MetricType type, MetricUnit unit)
-      : Metric(type, unit) {}
-    virtual ~SimpleMetric() { }
-    virtual std::string to_string() const = 0;
 };
 
 // Metric that only can increment
 template<typename T>
-class LockSimpleMetric : public SimpleMetric {
+class LockSimpleMetric : public Metric {
 public:
-    LockSimpleMetric(MetricType type, MetricUnit unit)
-      : SimpleMetric(type, unit),
+    LockSimpleMetric(MetricType type, MetricUnit::Type unit)
+      : Metric(type, unit),
         _value(T()) {}
     virtual ~LockSimpleMetric() { }
 
@@ -96,6 +95,11 @@ public:
         std::stringstream ss;
         ss << value();
         return ss.str();
+    }
+
+    void write_value(rapidjson::Value& metric_obj,
+                     rapidjson::Document::AllocatorType& allocator) override {
+        metric_obj.AddMember("value", rapidjson::Value(value()), allocator);
     }
     
     T value() const {
@@ -124,10 +128,10 @@ protected:
 };
 
 template<typename T>
-class CoreLocalCounter : public SimpleMetric {
+class CoreLocalCounter : public Metric {
 public:
-    CoreLocalCounter(MetricUnit unit)
-      : SimpleMetric(MetricType::COUNTER, unit), 
+    CoreLocalCounter(MetricUnit::Type unit)
+      : Metric(MetricType::COUNTER, unit), 
         _value() {}
 
     virtual ~CoreLocalCounter() { }
@@ -136,6 +140,11 @@ public:
         std::stringstream ss;
         ss << value();
         return ss.str();
+    }
+
+    void write_value(rapidjson::Value& metric_obj,
+                     rapidjson::Document::AllocatorType& allocator) override {
+        metric_obj.AddMember("value", rapidjson::Value(value()), allocator);
     }
     
     T value() const {
@@ -156,7 +165,7 @@ protected:
 template<typename T>
 class LockCounter : public LockSimpleMetric<T> {
 public:
-    LockCounter(MetricUnit unit)
+    LockCounter(MetricUnit::Type unit)
       : LockSimpleMetric<T>(MetricType::COUNTER, unit) {}
     virtual ~LockCounter() { }
 };
@@ -165,7 +174,7 @@ public:
 template<typename T>
 class LockGauge : public LockSimpleMetric<T> {
 public:
-    LockGauge(MetricUnit unit)
+    LockGauge(MetricUnit::Type unit)
       : LockSimpleMetric<T>(MetricType::GAUGE, unit) {}
     virtual ~LockGauge() { }
 };
@@ -300,10 +309,10 @@ public:
         return _metrics;
     }
     MetricType type() const { return _type; }
-    MetricUnit unit() const { return _unit; }
+    MetricUnit::Type unit() const { return _unit; }
 private:
     MetricType _type = MetricType::UNTYPED;
-    MetricUnit _unit = MetricUnit::NOUNIT;
+    MetricUnit::Type _unit = MetricUnit::Type::NOUNIT;
     std::map<MetricLabels, Metric*> _metrics;
 };
 
