@@ -45,7 +45,6 @@
 #include "exec/repeat_node.h"
 #include "exec/schema_scan_node.h"
 #include "exec/select_node.h"
-#include "exec/sort_node.h"
 #include "exec/spill_sort_node.h"
 #include "exec/topn_node.h"
 #include "exec/union_node.h"
