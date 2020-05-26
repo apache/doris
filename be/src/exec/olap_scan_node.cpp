@@ -387,8 +387,6 @@ Status OlapScanNode::start_scan(RuntimeState* state) {
 Status OlapScanNode::normalize_conjuncts() {
     std::vector<SlotDescriptor*> slots = _tuple_desc->slots();
 
-    LOG(INFO) << "cmy get slot size: " << slots.size();
-
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
         switch (slots[slot_idx]->type().type) {
             // TYPE_TINYINT use int32_t to present
@@ -694,7 +692,7 @@ Status OlapScanNode::start_scan_thread(RuntimeState* state) {
                 state, this, _olap_scan_node.is_preaggregation, _need_agg_finalize, *scan_range, scanner_ranges);
             _scanner_pool->add(scanner);
             _olap_scanners.push_back(scanner);
-	        disk_set.insert(scanner->scan_disk());
+            disk_set.insert(scanner->scan_disk());
         }
     }
     COUNTER_SET(_num_disks_accessed_counter, static_cast<int64_t>(disk_set.size()));
@@ -738,7 +736,9 @@ static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
 }
 
 // Construct the ColumnValueRange for one specified column
-// 1. For all InPredicates in _conjunct_ctxs, add the elements of InPredicates to
+// It will only handle the InPredicate and eq BinaryPredicate in _conjunct_ctxs.
+// It will try to push down conditions of that column as much as possible,
+// But if the number of conditions exceeds the limit, none of conditions will be pushed down.
 template<class T>
 Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
     bool meet_eq_binary = false;
@@ -777,7 +777,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
             VLOG(1) << slot->col_name() << " fixed_values add num: "
                     << pred->hybird_set()->size();
 
-            // if there are too many elements in InPredicate, exceed to limit,
+            // if there are too many elements in InPredicate, exceed the limit,
             // we will not push any condition of this column to storage engine.
             // because too many conditions pushed down to storage engine may even
             // slow down the query process.
@@ -817,7 +817,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                 case TYPE_LARGEINT:
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:
-	            case TYPE_HLL:
+                case TYPE_HLL:
                 case TYPE_SMALLINT:
                 case TYPE_INT:
                 case TYPE_BIGINT:
@@ -839,7 +839,7 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
             
         } // end of handle in predicate
 
-        // 1. Normalize eq conjuncts like 'where col = value'
+        // 2. Normalize eq conjuncts like 'where col = value'
         if (TExprNodeType::BINARY_PRED == _conjunct_ctxs[conj_idx]->root()->node_type()
                 && FILTER_IN == to_olap_filter_type(_conjunct_ctxs[conj_idx]->root()->op(), false)) {
 
@@ -1051,7 +1051,7 @@ Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValu
                 case TYPE_DECIMALV2:
                 case TYPE_CHAR:
                 case TYPE_VARCHAR:
-			    case TYPE_HLL:
+                case TYPE_HLL:
                 case TYPE_DATETIME:
                 case TYPE_SMALLINT:
                 case TYPE_INT:
