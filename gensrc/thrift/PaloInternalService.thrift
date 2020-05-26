@@ -133,9 +133,9 @@ struct TQueryOptions {
   // see BE config `doris_max_scan_key_num` for details
   // if set, this will overwrite the BE config.
   29: optional i32 max_scan_key_num;
-  // see BE config `max_pushdown_in_pred_element_num` for details
+  // see BE config `max_pushdown_conditions_per_column` for details
   // if set, this will overwrite the BE config.
-  30: optional i32 max_pushdown_in_pred_element_num
+  30: optional i32 max_pushdown_conditions_per_column
 }
     
 

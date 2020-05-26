@@ -254,9 +254,9 @@ private:
     // into OlapEngine.
     // If conditions in InPredicate is larger than this, all conditions in
     // InPredicate will not be pushed to the OlapEngine.
-    // it will set as BE's config `max_pushdown_in_pred_element_num`,
+    // it will set as BE's config `max_pushdown_conditions_per_column`,
     // or be overwritten by value in TQueryOptions
-    int32_t _max_pushdown_in_pred_element_num = 1024;
+    int32_t _max_pushdown_conditions_per_column = 1024;
 
     // Counters
     RuntimeProfile::Counter* _io_timer = nullptr;

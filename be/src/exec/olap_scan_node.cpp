@@ -79,10 +79,10 @@ Status OlapScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _max_scan_key_num = config::doris_max_scan_key_num;
     }
 
-    if (query_options.__isset.max_pushdown_in_pred_element_num) {
-        _max_pushdown_in_pred_element_num = query_options.max_pushdown_in_pred_element_num;
+    if (query_options.__isset.max_pushdown_conditions_per_column) {
+        _max_pushdown_conditions_per_column = query_options.max_pushdown_conditions_per_column;
     } else {
-        _max_pushdown_in_pred_element_num = config::max_pushdown_in_pred_element_num;
+        _max_pushdown_conditions_per_column = config::max_pushdown_conditions_per_column;
     }
 
     return Status::OK();
@@ -737,97 +737,112 @@ static bool ignore_cast(SlotDescriptor* slot, Expr* expr) {
     return false;
 }
 
+// Construct the ColumnValueRange for one specified column
+// 1. For all InPredicates in _conjunct_ctxs, add the elements of InPredicates to
 template<class T>
 Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
+    bool meet_eq_binary = false;
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
         if (TExprOpcode::FILTER_IN == _conjunct_ctxs[conj_idx]->root()->op()) {
             InPredicate* pred = dynamic_cast<InPredicate*>(_conjunct_ctxs[conj_idx]->root());
             if (pred->is_not_in()) {
+                // can not push down NOT IN predicate to storage engine
                 continue;
             }
 
             if (Expr::type_without_cast(pred->get_child(0)) != TExprNodeType::SLOT_REF) {
+                // not a slot ref(column)
+                continue;
+            }
+
+            std::vector<SlotId> slot_ids;
+            if (pred->get_child(0)->get_slot_ids(&slot_ids) != 1) {
+                // not a single column predicate
+                continue;
+            }
+
+            if (slot_ids[0] != slot->id()) {
+                // predicate not related to current column
                 continue;
             }
 
             if (pred->get_child(0)->type().type != slot->type().type) {
                 if (!ignore_cast(slot, pred->get_child(0))) {
+                    // the type of predicate not match the slot's type
                     continue;
                 }
             }
 
-            std::vector<SlotId> slot_ids;
+            VLOG(1) << slot->col_name() << " fixed_values add num: "
+                    << pred->hybird_set()->size();
 
-            if (1 == pred->get_child(0)->get_slot_ids(&slot_ids)) {
-                // 1.1 Skip if slot not match conjunct
-                if (slot_ids[0] != slot->id()) {
-                    continue;
-                }
-
-                VLOG(1) << slot->col_name() << " fixed_values add num: "
-                        << pred->hybird_set()->size();
-
-                // 1.2 Skip if InPredicate value size larger then max_scan_key_num
-                if (pred->hybird_set()->size() > _max_pushdown_in_pred_element_num) {
-                    VLOG(3) << "Predicate value num " << pred->hybird_set()->size()
-                            << " excede limit " << _max_pushdown_in_pred_element_num;
-                    continue;
-                }
-
-                // 1.3 Push InPredicate value into ColumnValueRange
-                HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
-                while (iter->has_next()) {
-                    // column in (NULL,...) counldn't push down to StorageEngine
-                    // so that discard whole ColumnValueRange
-                    if (NULL == iter->get_value()) {
-                        range->clear();
-                        break;
-                    }
-
-                    switch (slot->type().type) {
-                    case TYPE_TINYINT: {
-                        int32_t v = *reinterpret_cast<int8_t*>(const_cast<void*>(iter->get_value()));
-                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
-                        break;
-                    }
-                    case TYPE_DATE: {
-                        DateTimeValue date_value =
-                            *reinterpret_cast<const DateTimeValue*>(iter->get_value());
-                        date_value.cast_to_date();
-                        range->add_fixed_value(*reinterpret_cast<T*>(&date_value));
-                        break;
-                    }
-                    case TYPE_DECIMAL:
-                    case TYPE_DECIMALV2:
-                    case TYPE_LARGEINT:
-                    case TYPE_CHAR:
-                    case TYPE_VARCHAR:
-	                case TYPE_HLL:
-                    case TYPE_SMALLINT:
-                    case TYPE_INT:
-                    case TYPE_BIGINT:
-                    case TYPE_DATETIME: {
-                        range->add_fixed_value(*reinterpret_cast<T*>(const_cast<void*>(iter->get_value())));
-                        break;
-                    }
-                    case TYPE_BOOLEAN: {
-                        bool v = *reinterpret_cast<bool*>(const_cast<void*>(iter->get_value()));
-                        range->add_fixed_value(*reinterpret_cast<T*>(&v));
-                        break;
-                    }
-                    default: {
-                        break;
-                    }
-                    }
-                    iter->next();
-                }
+            // if there are too many elements in InPredicate, exceed to limit,
+            // we will not push any condition of this column to storage engine.
+            // because too many conditions pushed down to storage engine may even
+            // slow down the query process.
+            // ATTN: This is just an experience value. You may need to try
+            // different thresholds to improve performance.
+            if (pred->hybird_set()->size() > _max_pushdown_conditions_per_column) {
+                VLOG(3) << "Predicate value num " << pred->hybird_set()->size()
+                        << " excede limit " << _max_pushdown_conditions_per_column;
+                continue;
             }
-        }
 
-        // 2. Normalize eq conjuncts like 'where col = value'
+            // begin to push InPredicate value into ColumnValueRange
+            HybirdSetBase::IteratorBase* iter = pred->hybird_set()->begin();
+            while (iter->has_next()) {
+                // column in (NULL,...) counldn't push down to StorageEngine
+                // so that discard whole ColumnValueRange
+                if (NULL == iter->get_value()) {
+                    range->clear();
+                    break;
+                }
+
+                switch (slot->type().type) {
+                case TYPE_TINYINT: {
+                    int32_t v = *reinterpret_cast<int8_t*>(const_cast<void*>(iter->get_value()));
+                    range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                    break;
+                }
+                case TYPE_DATE: {
+                    DateTimeValue date_value =
+                        *reinterpret_cast<const DateTimeValue*>(iter->get_value());
+                    date_value.cast_to_date();
+                    range->add_fixed_value(*reinterpret_cast<T*>(&date_value));
+                    break;
+                }
+                case TYPE_DECIMAL:
+                case TYPE_DECIMALV2:
+                case TYPE_LARGEINT:
+                case TYPE_CHAR:
+                case TYPE_VARCHAR:
+	            case TYPE_HLL:
+                case TYPE_SMALLINT:
+                case TYPE_INT:
+                case TYPE_BIGINT:
+                case TYPE_DATETIME: {
+                    range->add_fixed_value(*reinterpret_cast<T*>(const_cast<void*>(iter->get_value())));
+                    break;
+                }
+                case TYPE_BOOLEAN: {
+                    bool v = *reinterpret_cast<bool*>(const_cast<void*>(iter->get_value()));
+                    range->add_fixed_value(*reinterpret_cast<T*>(&v));
+                    break;
+                }
+                default: {
+                    break;
+                }
+                }
+                iter->next();
+            }
+            
+        } // end of handle in predicate
+
+        // 1. Normalize eq conjuncts like 'where col = value'
         if (TExprNodeType::BINARY_PRED == _conjunct_ctxs[conj_idx]->root()->node_type()
                 && FILTER_IN == to_olap_filter_type(_conjunct_ctxs[conj_idx]->root()->op(), false)) {
+
             Expr* pred = _conjunct_ctxs[conj_idx]->root();
             DCHECK(pred->get_num_children() == 2);
 
@@ -836,30 +851,41 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                         != TExprNodeType::SLOT_REF) {
                     continue;
                 }
+
+                std::vector<SlotId> slot_ids;
+                if (pred->get_child(child_idx)->get_slot_ids(&slot_ids) != 1) {
+                    // not a single column predicate
+                    continue;
+                }
+
+                if (slot_ids[0] != slot->id()) {
+                    // predicate not related to current column
+                    continue;
+                }
+
                 if (pred->get_child(child_idx)->type().type != slot->type().type) {
                     if (!ignore_cast(slot, pred->get_child(child_idx))) {
+                        // the type of predicate not match the slot's type
                         continue;
                     }
                 }
 
-                std::vector<SlotId> slot_ids;
-                if (1 == pred->get_child(child_idx)->get_slot_ids(&slot_ids)) {
-                    if (slot_ids[0] != slot->id()) {
-                        continue;
-                    }
+                Expr* expr = pred->get_child(1 - child_idx);
+                if (!expr->is_constant()) {
+                    // only handle constant value
+                    continue;
+                }
 
-                    Expr* expr = pred->get_child(1 - child_idx);
-                    if (!expr->is_constant()) {
-                        continue;
-                    }
+                void* value = _conjunct_ctxs[conj_idx]->get_value(expr, NULL);
+                // for case: where col = null
+                if (value == NULL) {
+                    continue;
+                }
 
-                    void* value = _conjunct_ctxs[conj_idx]->get_value(expr, NULL);
-                    // for case: where col = null
-                    if (value == NULL) {
-                        continue;
-                    }
-
-                    switch (slot->type().type) {
+                // begin to push condition value into ColumnValueRange
+                // clear the ColumnValueRange before adding new fixed values.
+                // because for AND compound predicates, it can overwrite previous conditions
+                switch (slot->type().type) {
                     case TYPE_TINYINT: {
                         int32_t v = *reinterpret_cast<int8_t*>(value);
                         range->clear();
@@ -896,16 +922,42 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                     }
                     default: {
                         LOG(WARNING) << "Normalize filter fail, Unsupport Primitive type. [type="
-                                     << expr->type() << "]";
+                            << expr->type() << "]";
                         return Status::InternalError("Normalize filter fail, Unsupport Primitive type");
                     }
-                    }
                 }
-            }
-        }
-    }
-    LOG(INFO) << "cmy get get_fixed_value_size(): " << range->get_fixed_value_size();
 
+                meet_eq_binary = true;
+            } // end for each binary predicate child
+        } // end of handling eq binary predicate
+
+        if (range->get_fixed_value_size() > 0) {
+            // this columns already meet some eq predicates(IN or Binary),
+            // There is no need to continue to iterate.
+            // TODO(cmy): In fact, this part of the judgment should be completed in
+            // the FE query planning stage. For the following predicate conditions,
+            // it should be possible to eliminate at the FE side.
+            //      WHERE A = 1 and A in (2,3,4)
+
+            if (meet_eq_binary) {
+                // meet_eq_binary is true, means we meet at least one eq binary predicate.
+                // this flag is to handle following case:
+                // There are 2 conjuncts, first in a InPredicate, and second is a BinaryPredicate.
+                // Firstly, we met a InPredicate, and add lots of values in ColumnValueRange,
+                // if breaks, doris will read many rows filtered by these values.
+                // But if continue to handle the BinaryPredicate, the value in ColumnValueRange
+                // may become only one, which can reduce the rows read from storage engine.
+                // So the strategy is to use the BinaryPredicate as much as possible.
+                break;
+            }
+        } 
+
+    }
+
+    if (range->get_fixed_value_size() > _max_pushdown_conditions_per_column) {
+        // exceed limit, no conditions will be pushed down to storage engine.
+        range->clear();
+    }
     return Status::OK();
 }
 
