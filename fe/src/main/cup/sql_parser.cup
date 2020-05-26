@@ -253,7 +253,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_PROC, KW_PROCEDURE, KW_PROCESSLIST, KW_PROPERTIES, KW_PROPERTY,
     KW_QUERY, KW_QUOTA,
     KW_RANDOM, KW_RANGE, KW_READ, KW_RECOVER, KW_REGEXP, KW_RELEASE, KW_RENAME,
-    KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
+    KW_REPAIR, KW_REPEATABLE, KW_REPOSITORY, KW_REPOSITORIES, KW_REPLACE, KW_REPLACE_IF_NOT_NULL, KW_REPLICA, KW_RESOURCE, KW_RESOURCES, KW_RESTORE, KW_RETURNS, KW_RESUME, KW_REVOKE,
     KW_RIGHT, KW_ROLE, KW_ROLES, KW_ROLLBACK, KW_ROLLUP, KW_ROUTINE, KW_ROW, KW_ROWS,
     KW_SCHEMA, KW_SCHEMAS, KW_SECOND, KW_SELECT, KW_SEMI, KW_SERIALIZABLE, KW_SESSION, KW_SET, KW_SETS, KW_SHOW,
     KW_SMALLINT, KW_SNAPSHOT, KW_SONAME, KW_SPLIT, KW_START, KW_STATUS, KW_STOP, KW_STORAGE, KW_STRING,
@@ -432,6 +432,7 @@ nonterminal List<Expr> opt_col_mapping_list;
 nonterminal ColumnSeparator opt_field_term, column_separator;
 nonterminal String opt_user_role;
 nonterminal TablePattern tbl_pattern;
+nonterminal ResourcePattern resource_pattern;
 nonterminal String ident_or_star;
 
 // Routine load
@@ -971,7 +972,7 @@ alter_system_clause ::=
     | KW_SET KW_LOAD KW_ERRORS KW_HUB opt_properties:properties
     {:
         RESULT = new AlterLoadErrorUrlClause(properties);
-    :}
+    :} 
     ;
 
 alter_cluster_clause ::=
@@ -1084,6 +1085,11 @@ create_stmt ::=
     | KW_CREATE KW_INDEX ident:indexName KW_ON table_name:tableName LPAREN ident_list:cols RPAREN opt_index_type:indexType opt_comment:comment
     {:
         RESULT = new AlterTableStmt(tableName, Lists.newArrayList(new CreateIndexClause(tableName, new IndexDef(indexName, cols, indexType, comment), false)));
+    :}
+    /* resource */
+    | KW_CREATE opt_external:isExternal KW_RESOURCE ident_or_text:resourceName opt_properties:properties
+    {:
+        RESULT = new CreateResourceStmt(isExternal, resourceName, properties);
     :}
     ;
 
@@ -1470,6 +1476,14 @@ grant_stmt ::=
     {:
         RESULT = new GrantStmt(null, role, tblPattern, privs);
     :}
+    | KW_GRANT privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_TO user_identity:userId
+    {:
+        RESULT = new GrantStmt(userId, null, resourcePattern, privs);
+    :}
+    | KW_GRANT privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_TO KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new GrantStmt(null, role, resourcePattern, privs);
+    :}
     ;
 
 tbl_pattern ::=
@@ -1480,6 +1494,17 @@ tbl_pattern ::=
     | ident_or_star:db DOT ident_or_star:tbl
     {:
         RESULT = new TablePattern(db, tbl);
+    :}
+    ;
+
+resource_pattern ::=
+    ident_or_star:resourceName
+    {:
+        RESULT = new ResourcePattern(resourceName);
+    :}
+    | STRING_LITERAL:resourceName
+    {:
+        RESULT = new ResourcePattern(resourceName);
     :}
     ;
 
@@ -1503,6 +1528,14 @@ revoke_stmt ::=
     | KW_REVOKE privilege_list:privs KW_ON tbl_pattern:tblPattern KW_FROM KW_ROLE STRING_LITERAL:role
     {:
         RESULT = new RevokeStmt(null, role, tblPattern, privs);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM user_identity:userId
+    {:
+        RESULT = new RevokeStmt(userId, null, resourcePattern, privs);
+    :}
+    | KW_REVOKE privilege_list:privs KW_ON KW_RESOURCE resource_pattern:resourcePattern KW_FROM KW_ROLE STRING_LITERAL:role
+    {:
+        RESULT = new RevokeStmt(null, role, resourcePattern, privs);
     :}
     ;
 
@@ -1561,6 +1594,10 @@ drop_stmt ::=
     | KW_DROP KW_MATERIALIZED KW_VIEW opt_if_exists:ifExists ident:mvName KW_ON table_name:tableName
     {:
         RESULT = new DropMaterializedViewStmt(ifExists, mvName, tableName);
+    :}
+    | KW_DROP KW_RESOURCE ident_or_text:resourceName
+    {:
+        RESULT = new DropResourceStmt(resourceName);
     :}
     ;
 
@@ -2175,6 +2212,10 @@ show_param ::=
     | KW_BROKER
     {:
         RESULT = new ShowBrokerStmt();
+    :}
+    | KW_RESOURCES
+    {:
+        RESULT = new ShowResourcesStmt();
     :}
     | KW_BACKENDS
     {:
@@ -4482,6 +4523,8 @@ keyword ::=
     | KW_REPOSITORIES:id
     {: RESULT = id; :}
     | KW_RESOURCE:id
+    {: RESULT = id; :}
+    | KW_RESOURCES:id
     {: RESULT = id; :}
     | KW_RESTORE:id
     {: RESULT = id; :}

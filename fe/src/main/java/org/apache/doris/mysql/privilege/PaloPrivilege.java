@@ -25,7 +25,8 @@ public enum PaloPrivilege {
     LOAD_PRIV("Load_priv", 4, "Privilege for loading data into tables"),
     ALTER_PRIV("Alter_priv", 5, "Privilege for alter database or table"),
     CREATE_PRIV("Create_priv", 6, "Privilege for createing database or table"),
-    DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table");
+    DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table"),
+    USAGE_PRIV("Usage_priv", 8, "Privilege for using resource");
 
     public static PaloPrivilege[] privileges = {
             NODE_PRIV,
@@ -35,7 +36,8 @@ public enum PaloPrivilege {
             LOAD_PRIV,
             ALTER_PRIV,
             CREATE_PRIV,
-            DROP_PRIV
+            DROP_PRIV,
+            USAGE_PRIV
     };
 
     private String name;

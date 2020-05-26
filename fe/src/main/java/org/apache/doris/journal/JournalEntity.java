@@ -26,6 +26,7 @@ import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.cluster.BaseParam;
@@ -495,6 +496,17 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_END_LOAD_JOB: {
                 data = LoadJobFinalOperation.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_RESOURCE: {
+                data = Resource.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_RESOURCE: {
+                data = new Text();
+                ((Text) data).readFields(in);
                 isRead = true;
                 break;
             }

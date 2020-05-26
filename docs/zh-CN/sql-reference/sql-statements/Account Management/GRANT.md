@@ -33,6 +33,8 @@ Syntax:
 
     GRANT privilege_list ON db_name[.tbl_name] TO user_identity [ROLE role_name]
 
+    GRANT privilege_list ON RESOURCE resource_name TO user_identity [ROLE role_name]
+
 
 privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris 支持如下权限：
 
@@ -44,9 +46,16 @@ privilege_list 是需要赋予的权限列表，以逗号分隔。当前 Doris �
     ALTER_PRIV：对指定的库或表的schema变更权限
     CREATE_PRIV：对指定的库或表的创建权限
     DROP_PRIV：对指定的库或表的删除权限
+    USAGE_PRIV: 对指定资源的使用权限
     
     旧版权限中的 ALL 和 READ_WRITE 会被转换成：SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV；
     READ_ONLY 会被转换为 SELECT_PRIV。
+
+权限分类：
+
+    1. 节点权限：NODE_PRIV
+    2. 库表权限：SELECT_PRIV,LOAD_PRIV,ALTER_PRIV,CREATE_PRIV,DROP_PRIV
+    3. 资源权限：USAGE_PRIV
 
 db_name[.tbl_name] 支持以下三种形式：
 
@@ -55,6 +64,13 @@ db_name[.tbl_name] 支持以下三种形式：
     3. db.tbl 权限可以应用于指定库下的指定表
 
     这里指定的库或表可以是不存在的库和表。
+
+resource_name 支持以下两种形式：
+
+    1. * 权限应用于所有资源
+    2. resource 权限应用于指定资源
+
+    这里指定的资源可以是不存在的资源。
 
 user_identity：
 
@@ -75,6 +91,18 @@ user_identity：
     3. 授予指定库表的权限给角色
 
         GRANT LOAD_PRIV ON db1.* TO ROLE 'my_role';
+
+    4. 授予所有资源的使用权限给用户
+
+        GRANT USAGE_PRIV ON RESOURCE * TO 'jack'@'%';
+
+    5. 授予指定资源的使用权限给用户
+
+        GRANT USAGE_PRIV ON RESOURCE 'spark_resource' TO 'jack'@'%';
+
+    6. 授予指定资源的使用权限给角色
+
+        GRANT USAGE_PRIV ON RESOURCE 'spark_resource' TO ROLE 'my_role';
 
 ## keyword
 
