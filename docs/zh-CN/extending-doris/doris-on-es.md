@@ -75,7 +75,7 @@ PROPERTIES (
 hosts | ES集群连接地址，可指定一个或多个，Doris通过这个地址获取到ES版本号、index的shard分布信息
 user | 开启basic认证的ES集群的用户名，需要确保该用户有访问: /\_cluster/state/\_nodes/http等路径权限和对index的读权限
 password | 对应用户的密码信息
-index | Doris中的表对应的ES的index名字，可以是alias
+index | Doris中的表对应的ES的index名字，可以是alias，如果使用doc_value，建议使用真实的index名称
 type | 指定index的type，默认是_doc
 transport | 内部保留，默认为http
 
