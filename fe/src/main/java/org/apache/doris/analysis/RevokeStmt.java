@@ -33,16 +33,31 @@ import java.util.List;
 // revoke privilege from some user, this is an administrator operation.
 //
 // REVOKE privilege [, privilege] ON db.tbl FROM user [ROLE 'role'];
+// REVOKE privilege [, privilege] ON resource 'resource' FROM user [ROLE 'role'];
 public class RevokeStmt extends DdlStmt {
     private UserIdentity userIdent;
     private String role;
     private TablePattern tblPattern;
+    private ResourcePattern resourcePattern;
     private List<PaloPrivilege> privileges;
 
     public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
         this.role = role;
         this.tblPattern = tblPattern;
+        this.resourcePattern = null;
+        PrivBitSet privs = PrivBitSet.of();
+        for (AccessPrivilege accessPrivilege : privileges) {
+            privs.or(accessPrivilege.toPaloPrivilege());
+        }
+        this.privileges = privs.toPrivilegeList();
+    }
+
+    public RevokeStmt(UserIdentity userIdent, String role, ResourcePattern resourcePattern, List<AccessPrivilege> privileges) {
+        this.userIdent = userIdent;
+        this.role = role;
+        this.tblPattern = null;
+        this.resourcePattern = resourcePattern;
         PrivBitSet privs = PrivBitSet.of();
         for (AccessPrivilege accessPrivilege : privileges) {
             privs.or(accessPrivilege.toPaloPrivilege());
@@ -56,6 +71,10 @@ public class RevokeStmt extends DdlStmt {
 
     public TablePattern getTblPattern() {
         return tblPattern;
+    }
+
+    public ResourcePattern getResourcePattern() {
+        return resourcePattern;
     }
 
     public String getQualifiedRole() {
@@ -75,21 +94,37 @@ public class RevokeStmt extends DdlStmt {
             role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
-        tblPattern.analyze(analyzer.getClusterName());
+        if (tblPattern != null) {
+            tblPattern.analyze(analyzer.getClusterName());
+        } else {
+            // TODO(wyb): spark-load
+            if (GrantStmt.disableGrantResource) {
+                throw new AnalysisException("REVOKE ON RESOURCE is comming soon");
+            }
+            resourcePattern.analyze();
+        }
 
         if (privileges == null || privileges.isEmpty()) {
             throw new AnalysisException("No privileges in revoke statement.");
         }
 
         // Revoke operation obey the same rule as Grant operation. reuse the same method
-        GrantStmt.checkPrivileges(analyzer, privileges, role, tblPattern);
+        if (tblPattern != null) {
+            GrantStmt.checkPrivileges(analyzer, privileges, role, tblPattern);
+        } else {
+            GrantStmt.checkPrivileges(analyzer, privileges, role, resourcePattern);
+        }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("REVOKE ").append(Joiner.on(", ").join(privileges));
-        sb.append(" ON ").append(tblPattern).append(" FROM ");
+        if (tblPattern != null) {
+            sb.append(" ON ").append(tblPattern).append(" FROM ");
+        } else {
+            sb.append(" ON RESOURCE '").append(resourcePattern).append("' FROM ");
+        }
         if (!Strings.isNullOrEmpty(role)) {
             sb.append(" ROLE '").append(role).append("'");
         } else {

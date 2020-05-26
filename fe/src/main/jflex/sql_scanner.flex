@@ -299,6 +299,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("repositories", new Integer(SqlParserSymbols.KW_REPOSITORIES));
         keywordMap.put("repository", new Integer(SqlParserSymbols.KW_REPOSITORY));
         keywordMap.put("resource", new Integer(SqlParserSymbols.KW_RESOURCE));
+        keywordMap.put("resources", new Integer(SqlParserSymbols.KW_RESOURCES));
         keywordMap.put("restore", new Integer(SqlParserSymbols.KW_RESTORE));
         keywordMap.put("resume", new Integer(SqlParserSymbols.KW_RESUME));
         keywordMap.put("returns", new Integer(SqlParserSymbols.KW_RETURNS));

@@ -17,6 +17,7 @@
 
 package org.apache.doris.persist;
 
+import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
@@ -32,6 +33,7 @@ import java.io.IOException;
 public class PrivInfo implements Writable {
     private UserIdentity userIdent;
     private TablePattern tblPattern;
+    private ResourcePattern resourcePattern;
     private PrivBitSet privs;
     private byte[] passwd;
     private String role;
@@ -40,10 +42,30 @@ public class PrivInfo implements Writable {
 
     }
 
+    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role) {
+        this.userIdent = userIdent;
+        this.tblPattern = null;
+        this.resourcePattern = null;
+        this.privs = privs;
+        this.passwd = passwd;
+        this.role = role;
+    }
+
     public PrivInfo(UserIdentity userIdent, TablePattern tablePattern, PrivBitSet privs,
             byte[] passwd, String role) {
         this.userIdent = userIdent;
         this.tblPattern = tablePattern;
+        this.resourcePattern = null;
+        this.privs = privs;
+        this.passwd = passwd;
+        this.role = role;
+    }
+
+    public PrivInfo(UserIdentity userIdent, ResourcePattern resourcePattern, PrivBitSet privs,
+                    byte[] passwd, String role) {
+        this.userIdent = userIdent;
+        this.tblPattern = null;
+        this.resourcePattern = resourcePattern;
         this.privs = privs;
         this.passwd = passwd;
         this.role = role;
@@ -55,6 +77,10 @@ public class PrivInfo implements Writable {
 
     public TablePattern getTblPattern() {
         return tblPattern;
+    }
+
+    public ResourcePattern getResourcePattern() {
+        return resourcePattern;
     }
 
     public PrivBitSet getPrivs() {
@@ -91,6 +117,16 @@ public class PrivInfo implements Writable {
             out.writeBoolean(false);
         }
 
+        // TODO(wyb): spark-load
+        /*
+        if (resourcePattern != null) {
+            out.writeBoolean(true);
+            resourcePattern.write(out);
+        } else {
+            out.writeBoolean(false);
+        }
+         */
+
         if (privs != null) {
             out.writeBoolean(true);
             privs.write(out);
@@ -122,6 +158,15 @@ public class PrivInfo implements Writable {
         if (in.readBoolean()) {
             tblPattern = TablePattern.read(in);
         }
+
+        // TODO(wyb): spark-load
+        /*
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.new_version_by_wyb) {
+            if (in.readBoolean()) {
+                resourcePattern = ResourcePattern.read(in);
+            }
+        }
+         */
 
         if (in.readBoolean()) {
             privs = PrivBitSet.read(in);

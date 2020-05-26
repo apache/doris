@@ -94,6 +94,24 @@ public class GrantStmtTest {
         stmt.analyze(analyzer);
     }
 
+    @Test
+    public void testResourceNormal() throws UserException {
+        // TODO(wyb): spark-load
+        GrantStmt.disableGrantResource = false;
+
+        String resourceName = "spark0";
+        List<AccessPrivilege> privileges = Lists.newArrayList(AccessPrivilege.USAGE_PRIV);
+        GrantStmt stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new ResourcePattern(resourceName), privileges);
+        stmt.analyze(analyzer);
+        Assert.assertEquals(resourceName, stmt.getResourcePattern().getResourceName());
+        Assert.assertEquals(PaloAuth.PrivLevel.RESOURCE, stmt.getResourcePattern().getPrivLevel());
+
+        stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new ResourcePattern("*"), privileges);
+        stmt.analyze(analyzer);
+        Assert.assertEquals(PaloAuth.PrivLevel.GLOBAL, stmt.getResourcePattern().getPrivLevel());
+        Assert.assertEquals("GRANT Usage_priv ON RESOURCE '*' TO 'testCluster:testUser'@'%'", stmt.toSql());
+    }
+
     @Test(expected = AnalysisException.class)
     public void testUserFail() throws AnalysisException, UserException {
         GrantStmt stmt;
