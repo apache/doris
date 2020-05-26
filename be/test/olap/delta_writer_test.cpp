@@ -452,7 +452,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    doris::init_glog("be-test");
     int ret = doris::OLAP_SUCCESS;
     testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();

@@ -246,7 +246,7 @@ terminal String KW_ADD, KW_ADMIN, KW_AFTER, KW_AGGREGATE, KW_ALL, KW_ALTER, KW_A
     KW_LOCAL, KW_LOCATION,
     KW_MAX, KW_MAX_VALUE, KW_MERGE, KW_MIN, KW_MINUTE, KW_MINUS, KW_MIGRATE, KW_MIGRATIONS, KW_MODIFY, KW_MONTH,
     KW_NAME, KW_NAMES, KW_NEGATIVE, KW_NO, KW_NOT, KW_NULL, KW_NULLS,
-    KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OVER,
+    KW_OBSERVER, KW_OFFSET, KW_ON, KW_ONLY, KW_OPEN, KW_OR, KW_ORDER, KW_OUTER, KW_OUTFILE, KW_OVER,
     KW_PARTITION, KW_PARTITIONS, KW_PASSWORD, KW_PATH, KW_PAUSE, KW_PIPE, KW_PRECEDING,
     KW_PLUGIN, KW_PLUGINS,
     KW_PRIMARY,
@@ -468,6 +468,8 @@ nonterminal ShowAlterStmt.AlterType opt_alter_type;
 nonterminal Boolean opt_builtin;
 
 nonterminal Boolean opt_tmp;
+
+nonterminal OutFileClause opt_outfile;
 
 precedence left KW_FULL, KW_MERGE;
 precedence left DOT;
@@ -2465,7 +2467,7 @@ delete_stmt ::=
 // even if the union has order by and limit.
 // ORDER BY and LIMIT bind to the preceding select statement by default.
 query_stmt ::=
-    opt_with_clause:w set_operand_list:operands
+    opt_with_clause:w set_operand_list:operands opt_outfile:outfile
     {:
         QueryStmt queryStmt = null;
         if (operands.size() == 1) {
@@ -2474,12 +2476,24 @@ query_stmt ::=
           queryStmt = new SetOperationStmt(operands, null, LimitElement.NO_LIMIT);
         }
         queryStmt.setWithClause(w);
+        queryStmt.setOutFileClause(outfile);
         RESULT = queryStmt;
     :}
-    | opt_with_clause:w set_operation_with_order_by_or_limit:set_operation
+    | opt_with_clause:w set_operation_with_order_by_or_limit:set_operation opt_outfile:outfile
     {:
         set_operation.setWithClause(w);
+        set_operation.setOutFileClause(outfile);
         RESULT = set_operation;
+    :}
+    ;
+
+opt_outfile ::=
+    {:
+        RESULT = null;
+    :}
+    | KW_INTO KW_OUTFILE STRING_LITERAL:file opt_file_format:fileFormat opt_properties:properties
+    {:
+        RESULT = new OutFileClause(file, fileFormat, properties);
     :}
     ;
 
@@ -4368,6 +4382,8 @@ keyword ::=
     | KW_FIRST:id
     {: RESULT = id; :}
     | KW_FORMAT:id
+    {: RESULT = id; :}
+    | KW_HLL_UNION:id
     {: RESULT = id; :}
     | KW_PATH:id
     {: RESULT = id; :}

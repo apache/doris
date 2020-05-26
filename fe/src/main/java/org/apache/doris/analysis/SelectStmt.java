@@ -1540,6 +1540,10 @@ public class SelectStmt extends QueryStmt {
         if (hasLimitClause()) {
             strBuilder.append(limitElement.toSql());
         }
+
+        if (hasOutFileClause()) {
+            strBuilder.append(outFileClause.toSql());
+        }
         return strBuilder.toString();
     }
 

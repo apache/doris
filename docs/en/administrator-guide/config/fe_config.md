@@ -547,6 +547,12 @@ Generally it is not recommended to increase this configuration value. An excessi
 
 ### `thrift_backlog_num`
 
+### `thrift_client_timeout_ms`
+
+The connection timeout and socket timeout config for thrift server.
+   
+The value for thrift_client_timeout_ms is set to be larger than zero to prevent some hang up problems in java.net.SocketInputStream.socketRead0.
+
 ### `thrift_server_max_worker_threads`
 
 ### `time_zone`

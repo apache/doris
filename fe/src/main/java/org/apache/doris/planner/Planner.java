@@ -195,8 +195,9 @@ public class Planner {
         for (PlanFragment fragment : fragments) {
             fragment.finalize(analyzer, !queryOptions.allow_unsupported_formats);
         }
-
         Collections.reverse(fragments);
+
+        setOutfileSink(queryStmt);
 
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
@@ -208,6 +209,21 @@ public class Planner {
                 LOG.debug("this isn't block query");
             }
         }
+    }
+
+    // if query stmt has OUTFILE clause, set info into ResultSink.
+    // this should be done after fragments are generated.
+    private void setOutfileSink(QueryStmt queryStmt) {
+        if (!queryStmt.hasOutFileClause()) {
+            return;
+        }
+        PlanFragment topFragment = fragments.get(0);
+        if (!(topFragment.getSink() instanceof ResultSink)) {
+            return;
+        }
+
+        ResultSink resultSink = (ResultSink) topFragment.getSink();
+        resultSink.setOutfileInfo(queryStmt.getOutFileClause());
     }
 
     /**
