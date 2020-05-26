@@ -364,11 +364,16 @@ private:
     void insertion_sort(const TupleIterator& first, const TupleIterator& last);
 
     // Partitions the sequence of tuples in the range [first, last) in a run into two
-    // groups around the pivot tuple - i.e. tuples in first group are <= the pivot, and
-    // tuples in the second group are >= pivot. Tuples are swapped in place to create the
+    // groups around the mid._current_tuple - i.e. tuples in first group are <= the mid._current_tuple
+    // and tuples in the second group are >= mid._current_tuple. Tuples are swapped in place to create the
     // groups and the index to the first element in the second group is returned.
     // Checks _state->is_cancelled() and returns early with an invalid result if true.
-    TupleIterator partition(TupleIterator first, TupleIterator last, Tuple* pivot);
+    TupleIterator partition(TupleIterator first, TupleIterator last, TupleIterator& mid);
+
+    // Select the median of three iterator tuples. taking the median tends to help us select better
+    // pivots that more evenly split the input range. This method makes selection of
+    // bad pivots very infrequent.
+    void find_the_median(TupleIterator& first, TupleIterator& last, TupleIterator& mid);
 
     // Performs a quicksort of rows in the range [first, last) followed by insertion sort
     // for smaller groups of elements.
@@ -931,12 +936,34 @@ void SpillSorter::TupleSorter::insertion_sort(const TupleIterator& first,
     }
 }
 
-SpillSorter::TupleSorter::TupleIterator SpillSorter::TupleSorter::partition(
-        TupleIterator first, TupleIterator last, Tuple* pivot) {
-    // Copy pivot into temp_tuple since it points to a tuple within [first, last).
-    memcpy(_temp_tuple_buffer, pivot, _tuple_size);
-
+void SpillSorter::TupleSorter::find_the_median(TupleSorter::TupleIterator &first,
+        TupleSorter::TupleIterator &last, TupleSorter::TupleIterator &mid) {
     last.prev();
+    auto f_com_result = _less_than_comp.compare(reinterpret_cast<TupleRow*>(&first._current_tuple), reinterpret_cast<TupleRow*>(&mid._current_tuple));
+    auto l_com_result = _less_than_comp.compare(reinterpret_cast<TupleRow*>(&last._current_tuple), reinterpret_cast<TupleRow*>(&mid._current_tuple));
+    if (f_com_result == -1 && l_com_result == -1) {
+        if (_less_than_comp(reinterpret_cast<TupleRow*>(&first._current_tuple),reinterpret_cast<TupleRow*>(&last._current_tuple))) {
+            swap(mid._current_tuple, last._current_tuple);
+        } else {
+            swap(mid._current_tuple, first._current_tuple);
+        }
+    }
+    if (f_com_result == 1 && l_com_result == 1) {
+        if (_less_than_comp(reinterpret_cast<TupleRow *>(&first._current_tuple),
+                            reinterpret_cast<TupleRow *>(&last._current_tuple))) {
+            swap(mid._current_tuple, first._current_tuple);
+        } else {
+            swap(mid._current_tuple, last._current_tuple);
+        }
+    }
+}
+
+SpillSorter::TupleSorter::TupleIterator SpillSorter::TupleSorter::partition(
+        TupleIterator first, TupleIterator last, TupleIterator& mid) {
+    find_the_median(first, last, mid);
+
+    // Copy &mid._current_tuple into temp_tuple since it points to a tuple within [first, last).
+    memcpy(_temp_tuple_buffer, mid._current_tuple, _tuple_size);
     while (true) {
         // Search for the first and last out-of-place elements, and swap them.
         while (_less_than_comp(
@@ -968,14 +995,22 @@ void SpillSorter::TupleSorter::sort_helper(TupleIterator first, TupleIterator la
     }
     // Use insertion sort for smaller sequences.
     while (last._index - first._index > INSERTION_THRESHOLD) {
-        TupleIterator iter(this, first._index + (last._index - first._index) / 2);
-        DCHECK(iter._current_tuple != NULL);
-        // partition() splits the tuples in [first, last) into two groups (<= pivot
-        // and >= pivot) in-place. 'cut' is the index of the first tuple in the second group.
-        TupleIterator cut = partition(first, last,
-                reinterpret_cast<Tuple*>(iter._current_tuple));
-        sort_helper(cut, last);
-        last = cut;
+        TupleIterator mid(this, first._index + (last._index - first._index) / 2);
+
+        DCHECK(mid._current_tuple != NULL);
+        // partition() splits the tuples in [first, last) into two groups (<=  mid iter
+        // and >= mid iter) in-place. 'cut' is the index of the first tuple in the second group.
+        TupleIterator cut = partition(first, last, mid);
+
+        // Recurse on the smaller partition. This limits stack size to log(n) stack frames.
+        if (last._index - cut._index < cut._index - first._index) {
+            sort_helper(cut, last);
+            last = cut;
+        } else {
+            sort_helper(first, cut);
+            first = cut;
+        }
+	
         if (UNLIKELY(_state->is_cancelled())) {
             return;
         }
