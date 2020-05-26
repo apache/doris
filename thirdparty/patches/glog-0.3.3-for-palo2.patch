@@ -298,7 +298,7 @@
 +      // Mark the file close-on-exec. We don't really care if this fails
 +      fcntl(fd, F_SETFD, FD_CLOEXEC);
 +#endif
-+      file_ = fdopen(fd, "ra"); // Read and append a FILE*.
++      file_ = fopen(filename, "a+"); // Read and append a FILE*.
 +      if (file_ == NULL) {      // Man, we're screwed!, try to create new log file
 +        close(fd);
 +      }
