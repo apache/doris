@@ -458,8 +458,6 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
     }
 
     bool eof = false;
-    std::vector<bool> is_lower_keys_included;
-    std::vector<bool> is_upper_keys_included;
     for (int i = 0; i < _keys_param.start_keys.size(); ++i) {
         RowCursor* start_key = _keys_param.start_keys[i];
         RowCursor* end_key = _keys_param.end_keys[i];
@@ -502,8 +500,8 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
             return OLAP_ERR_READER_GET_ITERATOR_ERROR;
         }
 
-        is_lower_keys_included.push_back(is_lower_key_included);
-        is_upper_keys_included.push_back(is_upper_key_included);
+        _is_lower_keys_included.push_back(is_lower_key_included);
+        _is_upper_keys_included.push_back(is_upper_key_included);
     }
 
     if (eof) { return OLAP_SUCCESS; }
@@ -521,25 +519,24 @@ OLAPStatus Reader::_capture_rs_readers(const ReaderParams& read_params) {
         }
     }
 
-    RowsetReaderContext reader_context;
-    reader_context.reader_type = read_params.reader_type;
-    reader_context.tablet_schema = &_tablet->tablet_schema();
-    reader_context.need_ordered_result = need_ordered_result;
-    reader_context.return_columns = &_return_columns;
-    reader_context.seek_columns = &_seek_columns;
-    reader_context.load_bf_columns = &_load_bf_columns;
-    reader_context.conditions = &_conditions;
-    reader_context.predicates = &_col_predicates;
-    reader_context.lower_bound_keys = &_keys_param.start_keys;
-    reader_context.is_lower_keys_included = &is_lower_keys_included;
-    reader_context.upper_bound_keys = &_keys_param.end_keys;
-    reader_context.is_upper_keys_included = &is_upper_keys_included;
-    reader_context.delete_handler = &_delete_handler;
-    reader_context.stats = &_stats;
-    reader_context.runtime_state = read_params.runtime_state;
-    reader_context.use_page_cache = read_params.use_page_cache;
+    _reader_context.reader_type = read_params.reader_type;
+    _reader_context.tablet_schema = &_tablet->tablet_schema();
+    _reader_context.need_ordered_result = need_ordered_result;
+    _reader_context.return_columns = &_return_columns;
+    _reader_context.seek_columns = &_seek_columns;
+    _reader_context.load_bf_columns = &_load_bf_columns;
+    _reader_context.conditions = &_conditions;
+    _reader_context.predicates = &_col_predicates;
+    _reader_context.lower_bound_keys = &_keys_param.start_keys;
+    _reader_context.is_lower_keys_included = &_is_lower_keys_included;
+    _reader_context.upper_bound_keys = &_keys_param.end_keys;
+    _reader_context.is_upper_keys_included = &_is_upper_keys_included;
+    _reader_context.delete_handler = &_delete_handler;
+    _reader_context.stats = &_stats;
+    _reader_context.runtime_state = read_params.runtime_state;
+    _reader_context.use_page_cache = read_params.use_page_cache;
     for (auto& rs_reader : *rs_readers) {
-        RETURN_NOT_OK(rs_reader->init(&reader_context));
+        RETURN_NOT_OK(rs_reader->init(&_reader_context));
         OLAPStatus res = _collect_iter->add_child(rs_reader);
         if (res != OLAP_SUCCESS && res != OLAP_ERR_DATA_EOF) {
             LOG(WARNING) << "failed to add child to iterator";

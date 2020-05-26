@@ -209,7 +209,10 @@ private:
 
     TabletSharedPtr _tablet;
     std::vector<RowsetReaderSharedPtr> _rs_readers;
+    RowsetReaderContext _reader_context;
     KeysParam _keys_param;
+    std::vector<bool> _is_lower_keys_included;
+    std::vector<bool> _is_upper_keys_included;
     Conditions _conditions;
     std::vector<ColumnPredicate*> _col_predicates;
     DeleteHandler _delete_handler;
