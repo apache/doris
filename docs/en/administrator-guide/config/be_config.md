@@ -77,7 +77,11 @@ Sometimes the query fails and an error message of `The server is overcrowded` wi
 
 Since this is a brpc configuration, users can also modify this parameter directly during operation. Modify by visiting `http://be_host:brpc_port/flags`.
 
-### `brpc_port`
+### `brpc_num_threads`
+
+This configuration is mainly used to modify the num of bthreads for brpc. The default value is set to -1, which means the num of bthreads is #cpu-cores.
+
+User can set this configuration to a larger value to get better QPS performance.
 
 ### `buffer_pool_clean_pages_limit`
 
