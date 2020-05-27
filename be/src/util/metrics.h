@@ -310,10 +310,8 @@ public:
         return _metrics;
     }
     MetricType type() const { return _type; }
-    MetricUnit unit() const { return _unit; }
 private:
     MetricType _type = MetricType::UNTYPED;
-    MetricUnit _unit = MetricUnit::NOUNIT;
     std::map<MetricLabels, Metric*> _metrics;
 };
 
