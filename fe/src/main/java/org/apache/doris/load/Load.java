@@ -98,11 +98,12 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.transaction.PartitionCommitInfo;
 import org.apache.doris.transaction.TableCommitInfo;
+import org.apache.doris.transaction.TransactionNotFoundException;
 import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
-import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
+import org.apache.doris.transaction.TransactionState.TxnSourceType;
+import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -2831,6 +2832,10 @@ public class Load {
                     job.getDbId(),
                     job.getTransactionId(),
                     job.getFailMsg().toString());
+        } catch (TransactionNotFoundException e) {
+            // the transaction may already be aborted due to timeout by transaction manager.
+            // just print a log and continue to cancel the job.
+            LOG.info("transaction not found when try to abort it: {}", e.getTransactionId());
         } catch (Exception e) {
             LOG.info("errors while abort transaction", e);
             if (failedMsg != null) {

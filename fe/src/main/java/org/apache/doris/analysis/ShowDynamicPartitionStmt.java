@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import com.google.common.base.Strings;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -25,6 +24,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.qe.ShowResultSetMetaData;
+
+import com.google.common.base.Strings;
 
 public class ShowDynamicPartitionStmt extends ShowStmt {
     private String db;
@@ -37,6 +38,7 @@ public class ShowDynamicPartitionStmt extends ShowStmt {
                     .addColumn(new Column("End", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Prefix", ScalarType.createVarchar(20)))
                     .addColumn(new Column("Buckets", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("StartOf", ScalarType.createVarchar(20)))
                     .addColumn(new Column("LastUpdateTime", ScalarType.createVarchar(20)))
                     .addColumn(new Column("LastSchedulerTime", ScalarType.createVarchar(20)))
                     .addColumn(new Column("State", ScalarType.createVarchar(20)))
