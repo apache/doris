@@ -17,26 +17,17 @@
 
 package org.apache.doris.transaction;
 
-import org.apache.doris.common.UserException;
+public class TransactionNotFoundException extends TransactionException {
 
-public class TransactionException extends UserException {
-    
-    private long transactionId = -1;
-
-    public TransactionException(String msg) {
+    public TransactionNotFoundException(String msg) {
         super(msg);
     }
-    
-    public TransactionException(String msg, Throwable e) {
+
+    public TransactionNotFoundException(String msg, Throwable e) {
         super(msg, e);
     }
-    
-    public TransactionException(String msg, long transactionId) {
-        super(msg);
-        this.transactionId = transactionId;
-    }
 
-    public long getTransactionId() {
-        return transactionId;
+    public TransactionNotFoundException(String msg, long transactionId) {
+        super(msg, transactionId);
     }
 }
