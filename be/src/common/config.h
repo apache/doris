@@ -30,7 +30,7 @@ namespace config {
     // port for brpc
     CONF_Int32(brpc_port, "8060");
 
-    //the num of bthreads for brpc, the default value is set to -1, which means the num of bthreads is #cpu-cores
+    // the number of bthreads for brpc, the default value is set to -1, which means the number of bthreads is #cpu-cores
     CONF_Int32(brpc_num_threads, "-1")
 
     // Declare a selection strategy for those servers have many ips.
