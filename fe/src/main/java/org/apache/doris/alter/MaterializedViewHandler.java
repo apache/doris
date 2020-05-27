@@ -117,7 +117,8 @@ public class MaterializedViewHandler extends AlterHandler {
     // return true iff job is actually added this time
     private boolean addAlterJobV2ToTableNotFinalStateJobMap(AlterJobV2 alterJobV2) {
         if (alterJobV2.isDone()) {
-            LOG.warn("try to add a final job({}) to a unfinal set", alterJobV2.getJobId());
+            LOG.warn("try to add a final job({}) to a unfinal set. db: {}, tbl: {}",
+                    alterJobV2.getJobId(), alterJobV2.getDbId(), alterJobV2.getTableId());
             return false;
         }
 
