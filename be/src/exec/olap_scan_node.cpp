@@ -885,10 +885,10 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                 // begin to push condition value into ColumnValueRange
                 // clear the ColumnValueRange before adding new fixed values.
                 // because for AND compound predicates, it can overwrite previous conditions
+                range->clear();
                 switch (slot->type().type) {
                     case TYPE_TINYINT: {
                         int32_t v = *reinterpret_cast<int8_t*>(value);
-                        range->clear();
                         range->add_fixed_value(*reinterpret_cast<T*>(&v));
                         break;
                     }
@@ -896,7 +896,6 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                         DateTimeValue date_value =
                             *reinterpret_cast<DateTimeValue*>(value);
                         date_value.cast_to_date();
-                        range->clear();
                         range->add_fixed_value(*reinterpret_cast<T*>(&date_value));
                         break;
                     }
@@ -910,13 +909,11 @@ Status OlapScanNode::normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnV
                     case TYPE_INT:
                     case TYPE_BIGINT:
                     case TYPE_LARGEINT: {
-                        range->clear();
                         range->add_fixed_value(*reinterpret_cast<T*>(value));
                         break;
                     }
                     case TYPE_BOOLEAN: {
                         bool v = *reinterpret_cast<bool*>(value);
-                        range->clear();
                         range->add_fixed_value(*reinterpret_cast<T*>(&v));
                         break;
                     }
