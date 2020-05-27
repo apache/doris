@@ -501,8 +501,12 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setDisable_stream_preaggregations(disableStreamPreaggregations);
         tResult.setLoad_mem_limit(loadMemLimit);
 
-        tResult.setMax_scan_key_num(maxScanKeyNum);
-        tResult.setMax_pushdown_conditions_per_column(maxPushdownConditionsPerColumn);
+        if (maxScanKeyNum > -1) {
+            tResult.setMax_scan_key_num(maxScanKeyNum);
+        }
+        if (maxPushdownConditionsPerColumn > -1) {
+            tResult.setMax_pushdown_conditions_per_column(maxPushdownConditionsPerColumn);
+        }
         return tResult;
     }
 
