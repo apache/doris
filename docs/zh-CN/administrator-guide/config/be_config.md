@@ -79,7 +79,7 @@ under the License.
 
 该配置主要用来修改brpc中bthreads的数量. 该配置的默认值被设置为-1, 这意味着bthreads的数量将被设置为机器的cpu核数。
 
-用户可以将该配置的值调大来获取更好的QPS性能。
+用户可以将该配置的值调大来获取更好的QPS性能。更多的信息可以参考`https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`。
 
 ### `brpc_port`
 

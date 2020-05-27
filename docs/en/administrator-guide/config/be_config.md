@@ -81,7 +81,7 @@ Since this is a brpc configuration, users can also modify this parameter directl
 
 This configuration is mainly used to modify the num of bthreads for brpc. The default value is set to -1, which means the num of bthreads is #cpu-cores.
 
-User can set this configuration to a larger value to get better QPS performance.
+User can set this configuration to a larger value to get better QPS performance. For more information, please refer to `https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`
 
 ### `buffer_pool_clean_pages_limit`
 
