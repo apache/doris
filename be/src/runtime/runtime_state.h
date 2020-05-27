@@ -389,6 +389,10 @@ public:
     void append_error_msg_to_file(const std::string& line, const std::string& error_msg,
         bool is_summary = false);
 
+    int64_t num_bytes_load_total() {
+        return _num_bytes_load_total.load();
+    }
+
     int64_t num_rows_load_total() {
         return _num_rows_load_total.load();
     }
@@ -411,6 +415,14 @@ public:
 
     void set_num_rows_load_total(int64_t num_rows) {
         _num_rows_load_total.store(num_rows);
+    }
+
+    void update_num_bytes_load_total(int64_t bytes_load) {
+        _num_bytes_load_total.fetch_add(bytes_load);
+    }
+
+    void set_update_num_bytes_load_total(int64_t bytes_load) {
+        _num_bytes_load_total.store(bytes_load);
     }
 
     void update_num_rows_load_filtered(int64_t num_rows) {
@@ -586,6 +598,8 @@ private:
     std::atomic<int64_t> _num_rows_load_filtered;   // unqualified rows
     std::atomic<int64_t> _num_rows_load_unselected; // rows filtered by predicates
     std::atomic<int64_t> _num_print_error_rows;
+
+    std::atomic<int64_t> _num_bytes_load_total;  // total bytes read from source
 
     std::vector<std::string> _export_output_files;
 

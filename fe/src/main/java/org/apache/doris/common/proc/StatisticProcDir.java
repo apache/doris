@@ -32,6 +32,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
@@ -42,12 +44,16 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 public class StatisticProcDir implements ProcDirInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("DbId").add("DbName").add("TableNum").add("PartitionNum")
             .add("IndexNum").add("TabletNum").add("ReplicaNum").add("UnhealthyTabletNum")
-            .add("InconsistentTabletNum")
+            .add("InconsistentTabletNum").add("CloningTabletNum")
             .build();
+    private static final Logger LOG = LogManager.getLogger(StatisticProcDir.class);
 
     private Catalog catalog;
 
@@ -55,11 +61,14 @@ public class StatisticProcDir implements ProcDirInterface {
     Multimap<Long, Long> unhealthyTabletIds;
     // db id -> set(tablet id)
     Multimap<Long, Long> inconsistentTabletIds;
+    // db id -> set(tablet id)
+    Multimap<Long, Long> cloningTabletIds;
 
     public StatisticProcDir(Catalog catalog) {
         this.catalog = catalog;
         unhealthyTabletIds = HashMultimap.create();
         inconsistentTabletIds = HashMultimap.create();
+        cloningTabletIds = HashMultimap.create();
     }
 
     @Override
@@ -86,6 +95,7 @@ public class StatisticProcDir implements ProcDirInterface {
 
         unhealthyTabletIds.clear();
         inconsistentTabletIds.clear();
+        cloningTabletIds = AgentTaskQueue.getTabletIdsByType(TTaskType.CLONE);
         List<List<Comparable>> lines = new ArrayList<List<Comparable>>();
         for (Long dbId : dbIds) {
             if (dbId == 0) {
@@ -153,6 +163,7 @@ public class StatisticProcDir implements ProcDirInterface {
                 oneLine.add(dbReplicaNum);
                 oneLine.add(unhealthyTabletIds.get(dbId).size());
                 oneLine.add(inconsistentTabletIds.get(dbId).size());
+                oneLine.add(cloningTabletIds.get(dbId).size());
 
                 lines.add(oneLine);
 
@@ -181,6 +192,7 @@ public class StatisticProcDir implements ProcDirInterface {
         finalLine.add(totalReplicaNum);
         finalLine.add(unhealthyTabletIds.size());
         finalLine.add(inconsistentTabletIds.size());
+        finalLine.add(cloningTabletIds.size());
         lines.add(finalLine);
 
         // add result
@@ -209,6 +221,8 @@ public class StatisticProcDir implements ProcDirInterface {
             throw new AnalysisException("Invalid db id format: " + dbIdStr);
         }
 
-        return new IncompleteTabletsProcNode(unhealthyTabletIds.get(dbId), inconsistentTabletIds.get(dbId));
+        return new IncompleteTabletsProcNode(unhealthyTabletIds.get(dbId),
+                                             inconsistentTabletIds.get(dbId),
+                                             cloningTabletIds.get(dbId));
     }
 }

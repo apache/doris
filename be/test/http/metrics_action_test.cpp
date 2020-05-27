@@ -53,10 +53,10 @@ private:
 
 TEST_F(MetricsActionTest, prometheus_output) {
     MetricRegistry registry("test");
-    IntGauge cpu_idle;
+    IntGauge cpu_idle(MetricUnit::PERCENT);
     cpu_idle.set_value(50);
     registry.register_metric("cpu_idle", &cpu_idle);
-    IntCounter put_requests_total;
+    IntCounter put_requests_total(MetricUnit::NUMBER);
     put_requests_total.increment(2345);
     registry.register_metric("requests_total",
                              MetricLabels().add("type", "put").add("path", "/sports"),
@@ -73,7 +73,7 @@ TEST_F(MetricsActionTest, prometheus_output) {
 
 TEST_F(MetricsActionTest, prometheus_no_prefix) {
     MetricRegistry registry("");
-    IntGauge cpu_idle;
+    IntGauge cpu_idle(MetricUnit::PERCENT);
     cpu_idle.set_value(50);
     registry.register_metric("cpu_idle", &cpu_idle);
     s_expect_response =
@@ -86,7 +86,7 @@ TEST_F(MetricsActionTest, prometheus_no_prefix) {
 
 TEST_F(MetricsActionTest, prometheus_no_name) {
     MetricRegistry registry("test");
-    IntGauge cpu_idle;
+    IntGauge cpu_idle(MetricUnit::PERCENT);
     cpu_idle.set_value(50);
     registry.register_metric("", &cpu_idle);
     s_expect_response = "";

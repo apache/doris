@@ -22,7 +22,7 @@ package org.apache.doris.metric;
  */
 public abstract class GaugeMetric<T> extends Metric<T> {
 
-    public GaugeMetric(String name, String description) {
-        super(name, MetricType.GAUGE, description);
+    public GaugeMetric(String name, MetricUnit unit, String description) {
+        super(name, MetricType.GAUGE, unit, description);
     }
 }

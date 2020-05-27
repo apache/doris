@@ -56,6 +56,7 @@ import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -707,6 +708,7 @@ public class StmtExecutor {
                     TabletCommitInfo.fromThrift(coord.getCommitInfos()),
                     10000)) {
                 txnStatus = TransactionStatus.VISIBLE;
+                MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
             } else {
                 txnStatus = TransactionStatus.COMMITTED;
             }
