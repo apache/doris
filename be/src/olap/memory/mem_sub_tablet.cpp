@@ -78,7 +78,7 @@ Status MemSubTablet::read_column(uint64_t version, uint32_t cid,
             cl = _columns[cid];
         }
     }
-    if (!cl) {
+    if (cl.get() != nullptr) {
         return Status::NotFound("column not found");
     }
     return cl->create_reader(version, reader);
@@ -98,7 +98,7 @@ Status MemSubTablet::begin_write(scoped_refptr<Schema>* schema) {
     // precache key columns
     for (size_t i = 0; i < _schema->num_key_columns(); i++) {
         uint32_t cid = _schema->get(i)->cid();
-        if (!_writers[cid]) {
+        if (_writers[cid] != nullptr) {
             RETURN_IF_ERROR(_columns[cid]->create_writer(&_writers[cid]));
         }
     }
@@ -119,85 +119,80 @@ Status MemSubTablet::apply_partial_row_batch(PartialRowBatch* batch) {
         if (!has_row) {
             break;
         }
-        RETURN_IF_ERROR(apply_partial_row(*batch));
-    }
-    return Status::OK();
-}
-
-Status MemSubTablet::apply_partial_row(const PartialRowBatch& row) {
-    DCHECK_GE(row.cur_row_cell_size(), 1);
-    const ColumnSchema* dsc;
-    const void* key;
-    // get key column and find in hash index
-    // TODO: support multi-column row key
-    row.cur_row_get_cell(0, &dsc, &key);
-    ColumnWriter* keyw = _writers[1].get();
-    // find candidate rowids, and check equality
-    uint64_t hashcode = keyw->hashcode(key, 0);
-    _temp_hash_entries.clear();
-    uint32_t newslot = _write_index->find(hashcode, &_temp_hash_entries);
-    uint32_t rid = -1;
-    for (size_t i = 0; i < _temp_hash_entries.size(); i++) {
-        uint32_t test_rid = _temp_hash_entries[i];
-        if (keyw->equals(test_rid, key, 0)) {
-            rid = test_rid;
-            break;
-        }
-    }
-    // if rowkey not found, do insertion/append
-    if (rid == -1) {
-        rid = _row_size;
-        // add all columns
-        //DLOG(INFO) << StringPrintf"insert rid=%u", rid);
-        for (size_t i = 0; i < row.cur_row_cell_size(); i++) {
-            const void* data;
-            RETURN_IF_ERROR(row.cur_row_get_cell(i, &dsc, &data));
-            uint32_t cid = dsc->cid();
-            if (!_writers[cid]) {
-                RETURN_IF_ERROR(_columns[cid]->create_writer(&_writers[cid]));
+        DCHECK_GE(batch->cur_row_cell_size(), 1);
+        const ColumnSchema* dsc;
+        const void* key;
+        // get key column and find in hash index
+        // TODO: support multi-column row key
+        batch->cur_row_get_cell(0, &dsc, &key);
+        ColumnWriter* keyw = _writers[1].get();
+        // find candidate rowids, and check equality
+        uint64_t hashcode = keyw->hashcode(key, 0);
+        _temp_hash_entries.clear();
+        uint32_t newslot = _write_index->find(hashcode, &_temp_hash_entries);
+        uint32_t rid = -1;
+        for (size_t i = 0; i < _temp_hash_entries.size(); i++) {
+            uint32_t test_rid = _temp_hash_entries[i];
+            if (keyw->equals(test_rid, key, 0)) {
+                rid = test_rid;
+                break;
             }
-            RETURN_IF_ERROR(_writers[cid]->insert(rid, data));
         }
-        _write_index->set(newslot, hashcode, rid);
-        _row_size++;
-        if (_write_index->need_rebuild()) {
-            scoped_refptr<HashIndex> new_index;
-            // TODO: trace memory usage
-            size_t new_capacity = _row_size * 2;
-            while (true) {
-                new_index = rebuild_hash_index(new_capacity);
-                if (new_index) {
-                    break;
-                } else {
-                    new_capacity += 1 << 16;
-                }
-            }
-            _write_index = new_index;
-        }
-        _num_insert++;
-    } else {
-        // rowkey found, do update
-        // add non-key columns
-        for (size_t i = 1; i < row.cur_row_cell_size(); i++) {
-            const void* data;
-            RETURN_IF_ERROR(row.cur_row_get_cell(i, &dsc, &data));
-            uint32_t cid = dsc->cid();
-            if (cid > _schema->num_key_columns()) {
-                if (!_writers[cid]) {
+        // if rowkey not found, do insertion/append
+        if (rid == -1) {
+            rid = _row_size;
+            // add all columns
+            //DLOG(INFO) << StringPrintf"insert rid=%u", rid);
+            for (size_t i = 0; i < batch->cur_row_cell_size(); i++) {
+                const void* data;
+                RETURN_IF_ERROR(batch->cur_row_get_cell(i, &dsc, &data));
+                uint32_t cid = dsc->cid();
+                if (_writers[cid] == nullptr) {
                     RETURN_IF_ERROR(_columns[cid]->create_writer(&_writers[cid]));
                 }
-                RETURN_IF_ERROR(_writers[cid]->update(rid, data));
+                RETURN_IF_ERROR(_writers[cid]->insert(rid, data));
             }
+            _write_index->set(newslot, hashcode, rid);
+            _row_size++;
+            if (_write_index->need_rebuild()) {
+                scoped_refptr<HashIndex> new_index;
+                // TODO: trace memory usage
+                size_t new_capacity = _row_size * 2;
+                while (true) {
+                    new_index = rebuild_hash_index(new_capacity);
+                    if (new_index.get() != nullptr) {
+                        break;
+                    } else {
+                        new_capacity += 1 << 16;
+                    }
+                }
+                _write_index = new_index;
+            }
+            _num_insert++;
+        } else {
+            // rowkey found, do update
+            // add non-key columns
+            for (size_t i = 1; i < batch->cur_row_cell_size(); i++) {
+                const void* data;
+                RETURN_IF_ERROR(batch->cur_row_get_cell(i, &dsc, &data));
+                uint32_t cid = dsc->cid();
+                if (cid > _schema->num_key_columns()) {
+                    if (_writers[cid] == nullptr) {
+                        RETURN_IF_ERROR(_columns[cid]->create_writer(&_writers[cid]));
+                    }
+                    RETURN_IF_ERROR(_writers[cid]->update(rid, data));
+                }
+            }
+            _num_update++;
+            _num_update_cell += batch->cur_row_cell_size() - 1;
         }
-        _num_update++;
-        _num_update_cell += row.cur_row_cell_size() - 1;
     }
     return Status::OK();
 }
 
 Status MemSubTablet::commit_write(uint64_t version) {
     for (size_t cid = 0; cid < _writers.size(); cid++) {
-        if (_writers[cid]) {
+        if (_writers[cid] != nullptr) {
             // Should not fail in normal cases, fatal error if commit failed
             RETURN_IF_ERROR(_writers[cid]->finalize(version));
         }
@@ -208,7 +203,7 @@ Status MemSubTablet::commit_write(uint64_t version) {
             _index = _write_index;
         }
         for (size_t cid = 0; cid < _writers.size(); cid++) {
-            if (_writers[cid]) {
+            if (_writers[cid] != nullptr) {
                 // Should not fail in normal cases, fatal error if commit failed
                 RETURN_IF_ERROR(_writers[cid]->get_new_column(&_columns[cid]));
             }

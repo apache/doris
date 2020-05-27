@@ -77,7 +77,7 @@ Status PartialRowBatch::next_row(bool* has_row) {
             _cells.emplace_back(cid, cur);
         }
         const uint8_t* pdata = _cells.back().data;
-        if (pdata) {
+        if (pdata != nullptr) {
             size_t bsize = _schema->get_column_byte_size(cid);
             if (bsize == 0) {
                 return Status::NotSupported("varlen column type not supported");
@@ -161,7 +161,7 @@ Status PartialRowWriter::end_row() {
 }
 
 Status PartialRowWriter::set(const ColumnSchema* cs, uint32_t cid, const void* data) {
-    if (cs->is_nullable() || data) {
+    if (cs->is_nullable() || (data != nullptr)) {
         if (cs->is_nullable() && !_temp_cells[cid].isnullable) {
             _bit_nullable_size++;
         }
@@ -176,7 +176,7 @@ Status PartialRowWriter::set(const ColumnSchema* cs, uint32_t cid, const void* d
 
 Status PartialRowWriter::set(const string& col, const void* data) {
     auto cs = _schema->get_by_name(col);
-    if (!cs) {
+    if (cs == nullptr) {
         return Status::NotFound("col name not found");
     }
     return set(cs, cs->cid(), data);
@@ -184,7 +184,7 @@ Status PartialRowWriter::set(const string& col, const void* data) {
 
 Status PartialRowWriter::set(uint32_t cid, const void* data) {
     auto cs = _schema->get_by_cid(cid);
-    if (!cs) {
+    if (cs == nullptr) {
         return Status::NotFound("cid not found");
     }
     return set(cs, cs->cid(), data);
@@ -241,7 +241,7 @@ Status PartialRowWriter::write(uint8_t** ppos) {
                 cur_nullable_idx++;
             }
             const uint8_t* pdata = _temp_cells[i].data;
-            if (pdata) {
+            if (pdata != nullptr) {
                 size_t bsize = _schema->get_column_byte_size(i);
                 if (bsize == 0) {
                     return Status::NotSupported("varlen column type not supported");

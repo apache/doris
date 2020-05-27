@@ -85,7 +85,6 @@ public:
 private:
     MemSubTablet();
     scoped_refptr<HashIndex> rebuild_hash_index(size_t new_capacity);
-    Status apply_partial_row(const PartialRowBatch& row);
 
     mutable std::mutex _lock;
     scoped_refptr<HashIndex> _index;
