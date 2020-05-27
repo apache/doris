@@ -66,7 +66,8 @@ OLAPStatus TabletMeta::create(const TCreateTabletReq& request, const TabletUid& 
                                       request.tablet_id, request.tablet_schema.schema_hash,
                                       shard_id, request.tablet_schema,
                                       next_unique_id, col_ordinal_to_unique_id, tablet_uid,
-                                      request.tablet_type));
+                                      request.__isset.tablet_type ?
+                                              request.tablet_type : TTabletType::TABLET_TYPE_DISK));
     return OLAP_SUCCESS;
 }
 
@@ -329,7 +330,11 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _creation_time = tablet_meta_pb.creation_time();
     _cumulative_layer_point = tablet_meta_pb.cumulative_layer_point();
     _tablet_uid = TabletUid(tablet_meta_pb.tablet_uid());
-    _tablet_type = tablet_meta_pb.tablet_type();
+    if (tablet_meta_pb.has_tablet_type()) {
+        _tablet_type = tablet_meta_pb.tablet_type();
+    } else {
+        _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
+    }
 
     // init _tablet_state
     switch (tablet_meta_pb.tablet_state()) {
