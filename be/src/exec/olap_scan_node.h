@@ -149,7 +149,7 @@ protected:
     Status normalize_in_and_eq_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
     template<class T>
-    Status normalize_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
+    Status normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range);
 
     void transfer_thread(RuntimeState* state);
     void scanner_thread(OlapScanner* scanner);

@@ -717,7 +717,7 @@ Status OlapScanNode::normalize_predicate(ColumnValueRange<T>& range, SlotDescrip
     RETURN_IF_ERROR(normalize_in_and_eq_predicate(slot, &range));
 
     // 2. Normalize BinaryPredicate , add to ColumnValueRange
-    RETURN_IF_ERROR(normalize_binary_predicate(slot, &range));
+    RETURN_IF_ERROR(normalize_noneq_binary_predicate(slot, &range));
 
     // 3. Add range to Column->ColumnValueRange map
     _column_value_ranges[slot->col_name()] = range;
@@ -983,7 +983,7 @@ void OlapScanNode::construct_is_null_pred_in_where_pred(Expr* expr, SlotDescript
 }
 
 template<class T>
-Status OlapScanNode::normalize_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
+Status OlapScanNode::normalize_noneq_binary_predicate(SlotDescriptor* slot, ColumnValueRange<T>* range) {
     for (int conj_idx = 0; conj_idx < _conjunct_ctxs.size(); ++conj_idx) {
         Expr *root_expr =  _conjunct_ctxs[conj_idx]->root();
         if (TExprNodeType::BINARY_PRED != root_expr->node_type()
