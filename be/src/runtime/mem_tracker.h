@@ -68,6 +68,7 @@ class MemTracker {
 public:
     /// 'byte_limit' < 0 means no limit
     /// 'label' is the label used in the usage string (LogUsage())
+    /// If 'auto_unregister' is true, never call unregister_from_parent().
     /// If 'log_usage_if_zero' is false, this tracker (and its children) will not be included
     /// in LogUsage() output if consumption is 0.
     MemTracker(int64_t byte_limit = -1, const std::string& label = std::string(),
