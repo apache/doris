@@ -211,10 +211,10 @@ public class ConnectProcessor {
         // TODO(cmy): when user send multi-statement, the executor is the last statement's executor.
         // We may need to find some way to resolve this.
         if (executor != null) {
-            auditAfterExec(originStmt.replace("\n", " \\n"), executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
+            auditAfterExec(originStmt.replace("\n", " "), executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog());
         } else {
             // executor can be null if we encounter analysis error.
-            auditAfterExec(originStmt.replace("\n", " \\n"), null, null);
+            auditAfterExec(originStmt.replace("\n", " "), null, null);
         }
     }
 

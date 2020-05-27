@@ -32,6 +32,8 @@ public abstract class MetricVisitor {
         this.prefix = prefix;
     }
 
+    public abstract void setMetricNumber(int metricNumber);
+
     public abstract void visitJvm(StringBuilder sb, JvmStats jvmStats);
 
     public abstract void visit(StringBuilder sb, Metric metric);

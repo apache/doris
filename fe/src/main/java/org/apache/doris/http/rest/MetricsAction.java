@@ -23,6 +23,7 @@ import org.apache.doris.http.BaseResponse;
 import org.apache.doris.http.IllegalArgException;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.metric.MetricVisitor;
+import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.PrometheusMetricVisitor;
 import org.apache.doris.metric.SimpleCoreMetricVisitor;
 
@@ -50,6 +51,8 @@ public class MetricsAction extends RestBaseAction {
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
             visitor = new SimpleCoreMetricVisitor("doris_fe");
+        } else if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("agent")) {
+            visitor = new JsonMetricVisitor("doris_fe");
         } else {
             visitor = new PrometheusMetricVisitor("doris_fe");
         }

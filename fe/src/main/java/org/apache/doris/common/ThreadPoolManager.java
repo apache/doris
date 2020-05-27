@@ -20,6 +20,7 @@ package org.apache.doris.common;
 import com.google.common.collect.Maps;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricLabel;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.logging.log4j.LogManager;
@@ -68,7 +69,7 @@ public class ThreadPoolManager {
 
     public static void registerThreadPoolMetric(String poolName, ThreadPoolExecutor threadPool) {
         for (String poolMetricType : poolMerticTypes) {
-            GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("thread_pool", "thread_pool statistics") {
+            GaugeMetric<Integer> gauge = new GaugeMetric<Integer>("thread_pool", MetricUnit.NUMBER, "thread_pool statistics") {
                 @Override
                 public Integer getValue() {
                     String metricType = this.getLabels().get(1).getValue();
