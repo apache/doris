@@ -78,7 +78,7 @@ namespace config {
     // the count of thread to high priority batch load
     CONF_Int32(push_worker_count_high_priority, "3");
     // the count of thread to publish version
-    CONF_Int32(publish_version_worker_count, "2");
+    CONF_Int32(publish_version_worker_count, "8");
     // the count of thread to clear transaction task
     CONF_Int32(clear_transaction_task_worker_count, "1");
     // the count of thread to delete
@@ -150,7 +150,7 @@ namespace config {
     // the maximum number of bytes to display on the debug webserver's log page
     CONF_Int64(web_log_bytes, "1048576");
     // number of threads available to serve backend execution requests
-    CONF_Int32(be_service_threads, "64");
+    CONF_Int32(be_service_threads, "512");
     // key=value pair of default query options for Doris, separated by ','
     CONF_String(default_query_options, "");
 
@@ -284,7 +284,7 @@ namespace config {
     // Port to start debug webserver on
     CONF_Int32(webserver_port, "8040");
     // Number of webserver workers
-    CONF_Int32(webserver_num_workers, "5");
+    CONF_Int32(webserver_num_workers, "48");
     // Period to update rate counters and sampling counters in ms.
     CONF_mInt32(periodic_counter_update_period_ms, "500");
 
