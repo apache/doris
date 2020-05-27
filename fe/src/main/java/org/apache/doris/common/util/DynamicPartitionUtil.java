@@ -36,6 +36,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 
 import org.apache.logging.log4j.LogManager;
@@ -43,9 +44,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.time.DayOfWeek;
+import java.time.Month;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TimeZone;
 
 public class DynamicPartitionUtil {
     private static final Logger LOG = LogManager.getLogger(DynamicPartitionUtil.class);
@@ -114,6 +118,36 @@ public class DynamicPartitionUtil {
         }
     }
 
+    private static void checkStartDayOfMonth(String val) throws DdlException {
+        if (Strings.isNullOrEmpty(val)) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_MONTH);
+        }
+        try {
+            int dayOfMonth = Integer.parseInt(val);
+            // only support from 1st to 28th, not allow 29th, 30th and 31th to avoid problems
+            // caused by lunar year and lunar month
+            if (dayOfMonth < 1 || dayOfMonth > 28) {
+                throw new DdlException(DynamicPartitionProperty.START_DAY_OF_MONTH + " should between 1 and 28");
+            }
+        } catch (NumberFormatException e) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_MONTH);
+        }
+    }
+
+    private static void checkStartDayOfWeek(String val) throws DdlException {
+        if (Strings.isNullOrEmpty(val)) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_WEEK);
+        }
+        try {
+            int dayOfWeek= Integer.parseInt(val);
+            if (dayOfWeek< 1 || dayOfWeek > 7) {
+                throw new DdlException(DynamicPartitionProperty.START_DAY_OF_WEEK + " should between 1 and 7");
+            }
+        } catch (NumberFormatException e) {
+            throw new DdlException("Invalid properties: " + DynamicPartitionProperty.START_DAY_OF_WEEK);
+        }
+    }
+
     public static boolean checkDynamicPartitionPropertiesExist(Map<String, String> properties) {
         if (properties == null) {
             return false;
@@ -123,10 +157,12 @@ public class DynamicPartitionUtil {
                 properties.containsKey(DynamicPartitionProperty.END) ||
                 properties.containsKey(DynamicPartitionProperty.PREFIX) ||
                 properties.containsKey(DynamicPartitionProperty.BUCKETS) ||
-                properties.containsKey(DynamicPartitionProperty.ENABLE);
+                properties.containsKey(DynamicPartitionProperty.ENABLE) ||
+                properties.containsKey(DynamicPartitionProperty.START_DAY_OF_WEEK) ||
+                properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH);
     }
 
-    public static boolean checkInputDynamicPartitionProperties(Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException{
+    private static boolean checkInputDynamicPartitionProperties(Map<String, String> properties, PartitionInfo partitionInfo) throws DdlException{
         if (properties == null || properties.isEmpty()) {
             return false;
         }
@@ -214,9 +250,23 @@ public class DynamicPartitionUtil {
         // If dynamic property is not specified.Use Integer.MIN_VALUE as default
         if (properties.containsKey(DynamicPartitionProperty.START)) {
             String startValue = properties.get(DynamicPartitionProperty.START);
-            checkStart(properties.get(DynamicPartitionProperty.START));
+            checkStart(startValue);
             properties.remove(DynamicPartitionProperty.START);
             analyzedProperties.put(DynamicPartitionProperty.START, startValue);
+        }
+        
+        if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {
+            String val = properties.get(DynamicPartitionProperty.START_DAY_OF_MONTH);
+            checkStartDayOfMonth(val);
+            properties.remove(DynamicPartitionProperty.START_DAY_OF_MONTH);
+            analyzedProperties.put(DynamicPartitionProperty.START_DAY_OF_MONTH, val);
+        }
+        
+        if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_WEEK)) {
+            String val = properties.get(DynamicPartitionProperty.START_DAY_OF_WEEK);
+            checkStartDayOfWeek(val);
+            properties.remove(DynamicPartitionProperty.START_DAY_OF_WEEK);
+            analyzedProperties.put(DynamicPartitionProperty.START_DAY_OF_WEEK, val);
         }
         return analyzedProperties;
     }
@@ -273,34 +323,110 @@ public class DynamicPartitionUtil {
         }
     }
 
-    public static String getFormattedPartitionName(String name, String timeUnit) {
-        name = name.replace("-", "").replace(":", "").replace(" ", "");
+    public static String getFormattedPartitionName(TimeZone tz, String formattedDateStr, String timeUnit) {
+        formattedDateStr = formattedDateStr.replace("-", "").replace(":", "").replace(" ", "");
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            return name.substring(0, 8);
+            return formattedDateStr.substring(0, 8);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.MONTH.toString())) {
-            return name.substring(0, 6);
+            return formattedDateStr.substring(0, 6);
         } else {
-            name = name.substring(0, 8);
-            Calendar calendar = Calendar.getInstance();
+            formattedDateStr = formattedDateStr.substring(0, 8);
+            Calendar calendar = Calendar.getInstance(tz);
             try {
-                calendar.setTime(new SimpleDateFormat("yyyyMMdd").parse(name));
+                calendar.setTime(new SimpleDateFormat("yyyyMMdd").parse(formattedDateStr));
             } catch (ParseException e) {
                 LOG.warn("Format dynamic partition name error. Error={}", e.getMessage());
-                return name;
+                return formattedDateStr;
             }
-            return String.format("%s_%02d", calendar.get(Calendar.YEAR), calendar.get(Calendar.WEEK_OF_YEAR));
+            int weekOfYear = calendar.get(Calendar.WEEK_OF_YEAR);
+            if (weekOfYear <= 1 && calendar.get(Calendar.MONTH) >= 11) {
+                // eg: JDK think 2019-12-30 as the first week of year 2020, we need to handle this.
+                // to make it as the 53rd week of year 2019.
+                weekOfYear += 52;
+            }
+            return String.format("%s_%02d", calendar.get(Calendar.YEAR), weekOfYear);
         }
     }
 
-    public static String getPartitionRange(String timeUnit, int offset, Calendar calendar, String format) {
+    // return the partition range date string formatted as yyyy-MM-dd[ HH:mm::ss]
+    // TODO: support HOUR and YEAR
+    public static String getPartitionRangeString(DynamicPartitionProperty property, Calendar current,
+            int offset, String format) {
+        String timeUnit = property.getTimeUnit();
+        TimeZone tz = property.getTimeZone();
         if (timeUnit.equalsIgnoreCase(TimeUnit.DAY.toString())) {
-            calendar.add(Calendar.DAY_OF_MONTH, offset);
+            return getPartitionRangeOfDay(current, offset, tz, format);
         } else if (timeUnit.equalsIgnoreCase(TimeUnit.WEEK.toString())) {
-            calendar.add(Calendar.WEEK_OF_MONTH, offset);
-        } else {
-            calendar.add(Calendar.MONTH, offset);
+            return getPartitionRangeOfWeek(current, offset, property.getStartOfWeek(), tz, format);
+        } else { // MONTH
+            return getPartitionRangeOfMonth(current, offset, property.getStartOfMonth(), tz, format);
         }
-        // dynamic partition's time accuracy is DAY
+    }
+    
+    /*
+     * return formatted string of partition range in DAY granularity.
+     * offset: The offset from the current day. 0 means current day, 1 means tomorrow, -1 means yesterday.
+     * format: the format of the return date string.
+     * 
+     * Eg:
+     *  Today is 2020-05-24, offset = -1
+     *  It will return 2020-05-23
+     */
+    private static String getPartitionRangeOfDay(Calendar current, int offset, TimeZone tz, String format) {
+        current.add(Calendar.DATE, offset);
+        return getFormattedTimeWithoutHourMinuteSecond(current, format);
+    }
+
+    /*
+     * return formatted string of partition range in WEEK granularity.
+     * offset: The offset from the current week. 0 means current week, 1 means next week, -1 means last week.
+     * startOf: Define the start day of each week. 1 means MONDAY, 7 means SUNDAY.
+     * format: the format of the return date string.
+     * 
+     * Eg:
+     *  Today is 2020-05-24, offset = -1, startOf.dayOfWeek = 3
+     *  It will return 2020-05-20  (Wednesday of last week)
+     */
+    private static String getPartitionRangeOfWeek(Calendar current, int offset, StartOfDate startOf, TimeZone tz,
+            String format) {
+        Preconditions.checkArgument(startOf.isStartOfWeek());
+        // 1. get the offset week
+        current.add(Calendar.WEEK_OF_YEAR, offset);
+        // 2. get the date of `startOf` week
+        int day = current.get(Calendar.DAY_OF_WEEK);
+        // SUNDAY will return 1, we will set it to 7, and make MONDAY to 1, and so on
+        day = (day == 1 ? 7 : day - 1);
+        current.add(Calendar.DATE, (startOf.dayOfWeek - day));
+        return getFormattedTimeWithoutHourMinuteSecond(current, format);
+    }
+
+    /*
+     * return formatted string of partition range in MONTH granularity.
+     * offset: The offset from the current month. 0 means current month, 1 means next month, -1 means last month.
+     * startOf: Define the start date of each month. 1 means start on the 1st of every month.
+     * format: the format of the return date string.
+     * 
+     * Eg:
+     *  Today is 2020-05-24, offset = 1, startOf.month = 3
+     *  It will return 2020-06-03 
+     */
+    private static String getPartitionRangeOfMonth(Calendar current, int offset, StartOfDate startOf, TimeZone tz,
+            String format) {
+        Preconditions.checkArgument(startOf.isStartOfMonth());
+        // 1. Get the offset date.
+        int realOffset = offset;
+        int currentDay = current.get(Calendar.DATE);
+        if (currentDay < startOf.day) {
+            // eg: today is 2020-05-20, `startOf.day` is 25, and offset is 0.
+            // we should return 2020-04-25, which is the last month.
+            realOffset -= 1;
+        }
+        current.add(Calendar.MONTH, realOffset);
+        current.set(Calendar.DATE, startOf.day);
+        return getFormattedTimeWithoutHourMinuteSecond(current, format);
+    }
+
+    private static String getFormattedTimeWithoutHourMinuteSecond(Calendar calendar, String format) {
         calendar.set(Calendar.HOUR_OF_DAY, 0);
         calendar.set(Calendar.MINUTE, 0);
         calendar.set(Calendar.SECOND, 0);
@@ -318,5 +444,53 @@ public class DynamicPartitionUtil {
             }
         }
         return replicateNum;
+    }
+
+    /*
+     * Used to indicate the start date.
+     * Taking the year as the granularity, it can indicate the month and day as the start date.
+     * Taking the month as the granularity, it can indicate the date of as the start date.
+     * Taking the week as the granularity, it can indicate the day of the week as the starting date.
+     */
+    public static class StartOfDate {
+        public int month;
+        public int day;
+        public int dayOfWeek;
+
+        public StartOfDate(int month, int day, int dayOfWeek) {
+            this.month = month;
+            this.day = day;
+            this.dayOfWeek = dayOfWeek;
+        }
+
+        public boolean isStartOfYear() {
+            return this.month != -1 && this.day != -1 && this.dayOfWeek == -1;
+        }
+
+        public boolean isStartOfMonth() {
+            return this.month == -1 && this.day != -1 && this.dayOfWeek == -1;
+        }
+
+        public boolean isStartOfWeek() {
+            return this.month == -1 && this.day == -1 && this.dayOfWeek != -1;
+        }
+
+        public String toDisplayInfo() {
+            if (isStartOfWeek()) {
+                return DayOfWeek.of(dayOfWeek).name();
+            } else if (isStartOfMonth()) {
+                return Util.ordinal(day);
+            } else if (isStartOfYear()) {
+                return Month.of(month) + " " + Util.ordinal(day);
+            } else {
+                return "N/A";
+            }
+        }
+
+        @Override
+        public String toString() {
+            // TODO Auto-generated method stub
+            return super.toString();
+        }
     }
 }
