@@ -118,15 +118,13 @@ public class DdlExecutor {
             catalog.cancelAlter((CancelAlterTableStmt) ddlStmt);
         } else if (ddlStmt instanceof LoadStmt) {
             LoadStmt loadStmt = (LoadStmt) ddlStmt;
-            EtlJobType jobType;
-            if (loadStmt.getBrokerDesc() != null) {
-                jobType = EtlJobType.BROKER;
-            } else {
-                if (Config.disable_hadoop_load) {
-                    throw new DdlException("Load job by hadoop cluster is disabled."
-                            + " Try using broker load. See 'help broker load;'");
-                }
-                jobType = EtlJobType.HADOOP;
+            EtlJobType jobType = loadStmt.getEtlJobType();
+            if (jobType == EtlJobType.UNKNOWN) {
+                throw new DdlException("Unknown load job type");
+            }
+            if (jobType == EtlJobType.HADOOP && Config.disable_hadoop_load) {
+                throw new DdlException("Load job by hadoop cluster is disabled."
+                        + " Try using broker load. See 'help broker load;'");
             }
             if (loadStmt.getVersion().equals(Load.VERSION) || jobType == EtlJobType.HADOOP) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
