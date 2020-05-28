@@ -37,12 +37,14 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.system.Backend;
+import org.apache.doris.system.Backend.BackendStatus;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -246,6 +248,13 @@ public class ReportHandler extends Daemon {
         long start = System.currentTimeMillis();
         LOG.info("backend[{}] reports {} tablet(s). report version: {}",
                  backendId, backendTablets.size(), backendReportVersion);
+
+        final SystemInfoService currentSystemInfo = Catalog.getCurrentSystemInfo();
+        Backend reportBackend = currentSystemInfo.getBackend(backendId);
+        if (reportBackend != null) {
+            BackendStatus backendStatus = reportBackend.getBackendStatus();
+            backendStatus.lastTabletReportTime = TimeUtils.longToTimeString(start);
+        }
 
         // storage medium map
         HashMap<Long, TStorageMedium> storageMediumMap = Catalog.getInstance().getPartitionIdToStorageMediumMap();
