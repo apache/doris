@@ -263,7 +263,7 @@ rapidjson::Value* JsonFunctions::get_json_object(
 }
 
 
-rapidjson::Value* JsonFunctions::get_json_object_from_parsed_json (
+rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json (
         const std::string& path_string,
         rapidjson::Value* document,
         rapidjson::Document::AllocatorType& mem_allocator) {
@@ -293,6 +293,13 @@ rapidjson::Value* JsonFunctions::get_json_object_from_parsed_json (
     rapidjson::Value* root = match_value(parsed_paths, document, mem_allocator, true);
     if (root == document) {// not found
         return nullptr;
+    } else if (!root->IsArray()) {
+        rapidjson::Value* array_obj = nullptr;
+        array_obj = static_cast<rapidjson::Value*>(
+                mem_allocator.Malloc(sizeof(rapidjson::Value)));
+        array_obj->SetArray();
+        array_obj->PushBack(*root, mem_allocator);
+        return array_obj;
     }
     return root;
 }

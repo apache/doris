@@ -72,8 +72,9 @@ public:
 
     /**
      * The `document` parameter must be has parsed.
+     * return Value Is Array object
      */
-    static rapidjson::Value* get_json_object_from_parsed_json(
+    static rapidjson::Value* get_json_array_from_parsed_json(
             const std::string& path_string,
             rapidjson::Value* document,
             rapidjson::Document::AllocatorType& mem_allocator);
