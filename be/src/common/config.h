@@ -150,7 +150,7 @@ namespace config {
     // the maximum number of bytes to display on the debug webserver's log page
     CONF_Int64(web_log_bytes, "1048576");
     // number of threads available to serve backend execution requests
-    CONF_Int32(be_service_threads, "512");
+    CONF_Int32(be_service_threads, "64");
     // key=value pair of default query options for Doris, separated by ','
     CONF_String(default_query_options, "");
 
