@@ -101,8 +101,9 @@ public class BinaryPredicate extends Predicate implements Writable {
                     return LE;
                 case EQ_FOR_NULL:
                     return this;
+                default:
+                    return null;
             }
-            return null;
         }
 
         public Operator converse() {
