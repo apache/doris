@@ -649,16 +649,14 @@ bool Conditions::delete_conditions_eval(const RowCursor& row) const {
 }
 
 bool Conditions::rowset_pruning_filter(const std::vector<KeyRange>& zone_maps) const {
-    //通过所有列上的删除条件对version进行过滤
+    // ZoneMap will store min/max of rowset.
+    // The function is to filter rowset using ZoneMaps
+    // and query predicates.
     for (auto& cond_it : _columns) {
-        if (_cond_column_is_key_or_duplicate(cond_it.second) && cond_it.first > zone_maps.size()) {
-            LOG(WARNING) << "where condition not equal zone maps size. "
-                         << "cond_id=" << cond_it.first
-                         << ", zone_map_size=" << zone_maps.size();
-            return false;
-        }
-        if (_cond_column_is_key_or_duplicate(cond_it.second) && !cond_it.second->eval(zone_maps.at(cond_it.first))) {
-            return true;
+        if (_cond_column_is_key_or_duplicate(cond_it.second)) {
+            if (cond_it.first < zone_maps.size() && !cond_it.second->eval(zone_maps.at(cond_it.first))) {
+                return true;
+            }
         }
     }
     return false;
@@ -668,7 +666,8 @@ int Conditions::delete_pruning_filter(const std::vector<KeyRange>& zone_maps) co
     if (_columns.empty()) {
         return DEL_NOT_SATISFIED;
     }
-    //通过所有列上的删除条件对version进行过滤
+    // ZoneMap and DeletePredicate are all stored in TabletMeta.
+    // This function is to filter rowset using ZoneMap and Delete Predicate.
     /*
      * the relationship between condcolumn A and B is A & B.
      * if any delete condition is not satisfied, the data can't be filtered.
