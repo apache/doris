@@ -263,7 +263,6 @@ int main(int argc, char** argv) {
         fprintf(stderr, "error read config file. \n");
         return -1;
     }
-    doris::init_glog("be-test");
     ::testing::InitGoogleTest(&argc, argv);
     doris::CpuInfo::init();
     return RUN_ALL_TESTS();

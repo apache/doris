@@ -167,6 +167,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             } else if (selectListItem.getExpr() instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItem.getExpr();
                 String functionName = functionCallExpr.getFnName().getFunction();
+                Expr defineExpr = null;
                 // TODO(ml): support REPLACE, REPLACE_IF_NOT_NULL only for aggregate table, HLL_UNION, BITMAP_UNION
                 if (!functionName.equalsIgnoreCase("sum")
                         && !functionName.equalsIgnoreCase("min")
@@ -174,6 +175,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     throw new AnalysisException("The materialized view only support the sum, min and max aggregate "
                                                         + "function. Error function: " + functionCallExpr.toSqlImpl());
                 }
+
                 Preconditions.checkState(functionCallExpr.getChildren().size() == 1);
                 Expr functionChild0 = functionCallExpr.getChild(0);
                 SlotRef slotRef;
@@ -200,6 +202,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // TODO(ml): support different type of column, int -> bigint(sum)
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                 mvColumnItem.setAggregationType(AggregateType.valueOf(functionName.toUpperCase()), false);
+                mvColumnItem.setDefineExpr(defineExpr);
                 mvColumnItemList.add(mvColumnItem);
             }
         }

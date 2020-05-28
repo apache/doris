@@ -39,6 +39,8 @@ import org.apache.doris.transaction.TransactionState;
 import com.google.common.collect.Maps;
 
 import org.junit.Assert;
+import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.Map;
@@ -47,6 +49,11 @@ import mockit.Expectations;
 import mockit.Mocked;
 
 public class LoadJobTest {
+
+    @BeforeClass
+    public static void start() {
+        MetricRepo.init();
+    }
 
     @Test
     public void testGetDbNotExists(@Mocked Catalog catalog) {

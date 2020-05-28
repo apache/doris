@@ -59,10 +59,10 @@
 
 namespace doris {
 
-IntCounter k_streaming_load_requests_total;
-IntCounter k_streaming_load_bytes;
-IntCounter k_streaming_load_duration_ms;
-static IntGauge k_streaming_load_current_processing;
+METRIC_DEFINE_INT_COUNTER(streaming_load_requests_total, MetricUnit::NUMBER);
+METRIC_DEFINE_INT_COUNTER(streaming_load_bytes, MetricUnit::BYTES);
+METRIC_DEFINE_INT_COUNTER(streaming_load_duration_ms, MetricUnit::MILLISECONDS);
+METRIC_DEFINE_INT_GAUGE(streaming_load_current_processing, MetricUnit::NUMBER);
 
 #ifdef BE_TEST
 TStreamLoadPutResult k_stream_load_put_result;
@@ -89,13 +89,13 @@ static bool is_format_support_streaming(TFileFormatType::type format) {
 
 StreamLoadAction::StreamLoadAction(ExecEnv* exec_env) : _exec_env(exec_env) {
     DorisMetrics::instance()->metrics()->register_metric("streaming_load_requests_total",
-                                            &k_streaming_load_requests_total);
+                                            &streaming_load_requests_total);
     DorisMetrics::instance()->metrics()->register_metric("streaming_load_bytes",
-                                            &k_streaming_load_bytes);
+                                            &streaming_load_bytes);
     DorisMetrics::instance()->metrics()->register_metric("streaming_load_duration_ms",
-                                            &k_streaming_load_duration_ms);
+                                            &streaming_load_duration_ms);
     DorisMetrics::instance()->metrics()->register_metric("streaming_load_current_processing",
-                                            &k_streaming_load_current_processing);
+                                            &streaming_load_current_processing);
 }
 
 StreamLoadAction::~StreamLoadAction() {
@@ -131,10 +131,10 @@ void StreamLoadAction::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, str);
 
     // update statstics
-    k_streaming_load_requests_total.increment(1);
-    k_streaming_load_duration_ms.increment(ctx->load_cost_nanos / 1000000);
-    k_streaming_load_bytes.increment(ctx->receive_bytes);
-    k_streaming_load_current_processing.increment(-1);
+    streaming_load_requests_total.increment(1);
+    streaming_load_duration_ms.increment(ctx->load_cost_nanos / 1000000);
+    streaming_load_bytes.increment(ctx->receive_bytes);
+    streaming_load_current_processing.increment(-1);
 }
 
 Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
@@ -164,7 +164,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
 }
 
 int StreamLoadAction::on_header(HttpRequest* req) {
-    k_streaming_load_current_processing.increment(1);
+    streaming_load_current_processing.increment(1);
 
     StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
     ctx->ref();
@@ -195,7 +195,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         }
         auto str = ctx->to_json();
         HttpChannel::send_reply(req, str);
-        k_streaming_load_current_processing.increment(-1);
+        streaming_load_current_processing.increment(-1);
         return -1;
     }
     return 0;

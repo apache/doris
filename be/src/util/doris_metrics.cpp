@@ -150,6 +150,8 @@ DorisMetrics::DorisMetrics() : _name("doris_be"), _hook_name("doris_metrics"), _
     _metrics.register_metric(
         "stream_load", MetricLabels().add("type", "load_rows"),
         &stream_load_rows_total);
+    _metrics.register_metric("load_rows", &load_rows_total);
+    _metrics.register_metric("load_bytes", &load_bytes_total);
 
     // Gauge
     REGISTER_DORIS_METRIC(memory_pool_bytes_total);
@@ -188,13 +190,13 @@ void DorisMetrics::initialize(
         const std::vector<std::string>& network_interfaces) {
     // disk usage
     for (auto& path : paths) {
-        IntGauge* gauge = disks_total_capacity.set_key(path);
+        IntGauge* gauge = disks_total_capacity.set_key(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_total_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_avail_capacity.set_key(path);
+        gauge = disks_avail_capacity.set_key(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_avail_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_data_used_capacity.set_key(path);
+        gauge = disks_data_used_capacity.set_key(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_data_used_capacity", MetricLabels().add("path", path), gauge);
-        gauge = disks_state.set_key(path);
+        gauge = disks_state.set_key(path, MetricUnit::BYTES);
         _metrics.register_metric("disks_state", MetricLabels().add("path", path), gauge);
     }
 

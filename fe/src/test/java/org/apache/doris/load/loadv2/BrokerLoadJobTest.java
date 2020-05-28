@@ -35,6 +35,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.Source;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.task.MasterTaskExecutor;
 import org.apache.doris.transaction.TransactionState;
@@ -44,6 +45,8 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import org.junit.Assert;
+import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.util.List;
@@ -57,6 +60,11 @@ import mockit.MockUp;
 import mockit.Mocked;
 
 public class BrokerLoadJobTest {
+
+    @BeforeClass
+    public static void start() {
+        MetricRepo.init();
+    }
 
     @Test
     public void testFromLoadStmt(@Injectable LoadStmt loadStmt,

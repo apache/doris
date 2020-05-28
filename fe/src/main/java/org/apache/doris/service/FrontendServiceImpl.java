@@ -42,6 +42,7 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.MiniEtlTaskInfo;
 import org.apache.doris.master.MasterImpl;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.StreamLoadPlanner;
 import org.apache.doris.plugin.AuditEvent;
@@ -696,6 +697,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
+        MetricRepo.COUNTER_LOAD_ADD.increase(1L);
         return Catalog.getCurrentGlobalTransactionMgr().beginTransaction(
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequest_id(),
                 new TxnCoordinator(TxnSourceType.BE, clientIp),
@@ -757,10 +759,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("unknown database, database=" + dbName);
         }
 
-        return Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
-                db, request.getTxnId(),
-                TabletCommitInfo.fromThrift(request.getCommitInfos()),
-                5000, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+        boolean ret = Catalog.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
+                        db, request.getTxnId(),
+                        TabletCommitInfo.fromThrift(request.getCommitInfos()),
+                        5000, TxnCommitAttachment.fromThrift(request.txnCommitAttachment));
+        if (ret) {
+            // if commit and publish is success, load can be regarded as success
+            MetricRepo.COUNTER_LOAD_FINISHED.increase(1L);
+        }
+        return ret;
     }
 
     @Override

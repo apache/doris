@@ -99,6 +99,10 @@ public class FeNameFormat {
         }
     }
 
+    public static void checkResourceName(String resourceName) throws AnalysisException {
+        checkCommonName("resource", resourceName);
+    }
+
     public static void checkCommonName(String type, String name) throws AnalysisException {
         if (Strings.isNullOrEmpty(name) || !name.matches(COMMON_NAME_REGEX)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_NAME_FORMAT, type, name);

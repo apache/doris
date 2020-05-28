@@ -41,6 +41,7 @@ public class DorisStreamLoader {
     private String passwd;
     private String loadUrlStr;
     private String authEncoding;
+    private String feIdentity;
 
     public DorisStreamLoader(AuditLoaderPlugin.AuditLoaderConf conf) {
         this.hostPort = conf.frontendHostPort;
@@ -51,6 +52,8 @@ public class DorisStreamLoader {
 
         this.loadUrlStr = String.format(loadUrlPattern, hostPort, db, tbl);
         this.authEncoding = Base64.getEncoder().encodeToString(String.format("%s:%s", user, passwd).getBytes(StandardCharsets.UTF_8));
+        // currently, FE identity is FE's IP, so we replace the "." in IP to make it suitable for label
+        this.feIdentity = conf.feIdentity.replaceAll("\\.", "_");
     }
 
     public static void main(String[] args) {
@@ -98,10 +101,10 @@ public class DorisStreamLoader {
 
     public LoadResponse loadBatch(StringBuilder sb) {
         Calendar calendar = Calendar.getInstance();
-        String label = String.format("audit_%s%02d%02d_%02d%02d%02d",
-                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH), calendar.get(Calendar.DAY_OF_MONTH),
-                calendar.get(Calendar.HOUR), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND));
-
+        String label = String.format("audit_%s%02d%02d_%02d%02d%02d_%s",
+                calendar.get(Calendar.YEAR), calendar.get(Calendar.MONTH) + 1, calendar.get(Calendar.DAY_OF_MONTH),
+                calendar.get(Calendar.HOUR_OF_DAY), calendar.get(Calendar.MINUTE), calendar.get(Calendar.SECOND),
+                feIdentity);
 
         HttpURLConnection feConn = null;
         HttpURLConnection beConn = null;

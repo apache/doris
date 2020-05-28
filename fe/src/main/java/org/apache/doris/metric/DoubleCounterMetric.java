@@ -21,8 +21,8 @@ import com.google.common.util.concurrent.AtomicDouble;
 
 public class DoubleCounterMetric extends CounterMetric<Double> {
 
-    public DoubleCounterMetric(String name, String description) {
-        super(name, description);
+    public DoubleCounterMetric(String name, MetricUnit unit, String description) {
+        super(name, unit, description);
     }
 
     private AtomicDouble value = new AtomicDouble(0.0);

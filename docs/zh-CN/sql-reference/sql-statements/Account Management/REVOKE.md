@@ -30,6 +30,8 @@ under the License.
     REVOKE 命令用于撤销指定用户或角色指定的权限。
     Syntax：
         REVOKE privilege_list ON db_name[.tbl_name] FROM user_identity [ROLE role_name]
+
+        REVOKE privilege_list ON RESOURCE resource_name FROM user_identity [ROLE role_name]
         
     user_identity：
 
@@ -42,6 +44,10 @@ under the License.
     1. 撤销用户 jack 数据库 testDb 的权限
    
         REVOKE SELECT_PRIV ON db1.* FROM 'jack'@'192.%';
+
+    1. 撤销用户 jack 资源 spark_resource 的使用权限
+
+        REVOKE USAGE_PRIV ON RESOURCE 'spark_resource' FROM 'jack'@'192.%';
 
 ## keyword
 

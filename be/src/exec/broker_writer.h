@@ -40,7 +40,7 @@ public:
     BrokerWriter(ExecEnv* env,
                   const std::vector<TNetworkAddress>& broker_addresses,
                   const std::map<std::string, std::string>& properties,
-                  const std::string& dir,
+                  const std::string& path,
                   int64_t start_offset);
     virtual ~BrokerWriter();
 

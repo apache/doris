@@ -38,6 +38,7 @@ import org.apache.doris.analysis.ShowDbStmt;
 import org.apache.doris.analysis.ShowDeleteStmt;
 import org.apache.doris.analysis.ShowDynamicPartitionStmt;
 import org.apache.doris.analysis.ShowEnginesStmt;
+import org.apache.doris.analysis.ShowResourcesStmt;
 import org.apache.doris.analysis.ShowExportStmt;
 import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
@@ -223,6 +224,8 @@ public class ShowExecutor {
             handleShowMigrations();
         } else if (stmt instanceof ShowBrokerStmt) {
             handleShowBroker();
+        } else if (stmt instanceof ShowResourcesStmt) {
+            handleShowResources();
         } else if (stmt instanceof ShowExportStmt) {
             handleShowExport();
         } else if (stmt instanceof ShowBackendsStmt) {
@@ -1304,6 +1307,15 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
     }
 
+    // Handle show resources
+    private void handleShowResources() {
+        ShowResourcesStmt showStmt = (ShowResourcesStmt) stmt;
+        List<List<String>> rowSet = Catalog.getInstance().getResourceMgr().getResourcesInfo();
+
+        // Only success
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rowSet);
+    }
+
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Catalog catalog = Catalog.getInstance();
@@ -1496,6 +1508,7 @@ public class ShowExecutor {
                             String.valueOf(dynamicPartitionProperty.getEnd()),
                             dynamicPartitionProperty.getPrefix(),
                             String.valueOf(dynamicPartitionProperty.getBuckets()),
+                            dynamicPartitionProperty.getStartOfInfo(),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_UPDATE_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.LAST_SCHEDULER_TIME),
                             dynamicPartitionScheduler.getRuntimeInfo(tableName, DynamicPartitionScheduler.DYNAMIC_PARTITION_STATE),

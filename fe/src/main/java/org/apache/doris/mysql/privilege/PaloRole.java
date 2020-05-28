@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
@@ -39,13 +40,16 @@ public class PaloRole implements Writable {
     // admin is like DBA, who has all privileges except for NODE privilege held by operator
     public static String ADMIN_ROLE = "admin";
 
-    public static PaloRole OPERATOR = new PaloRole(OPERATOR_ROLE, TablePattern.ALL,
-            PrivBitSet.of(PaloPrivilege.NODE_PRIV, PaloPrivilege.ADMIN_PRIV));
-    public static PaloRole ADMIN = new PaloRole(ADMIN_ROLE, TablePattern.ALL,
-            PrivBitSet.of(PaloPrivilege.ADMIN_PRIV));
+    public static PaloRole OPERATOR = new PaloRole(OPERATOR_ROLE,
+                                                   TablePattern.ALL, PrivBitSet.of(PaloPrivilege.NODE_PRIV, PaloPrivilege.ADMIN_PRIV),
+                                                   ResourcePattern.ALL, PrivBitSet.of(PaloPrivilege.NODE_PRIV, PaloPrivilege.ADMIN_PRIV));
+    public static PaloRole ADMIN = new PaloRole(ADMIN_ROLE,
+                                                TablePattern.ALL, PrivBitSet.of(PaloPrivilege.ADMIN_PRIV),
+                                                ResourcePattern.ALL, PrivBitSet.of(PaloPrivilege.ADMIN_PRIV));
 
     private String roleName;
     private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
+    private Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs = Maps.newConcurrentMap();
     // users which this role
     private Set<UserIdentity> users = Sets.newConcurrentHashSet();
 
@@ -62,12 +66,28 @@ public class PaloRole implements Writable {
         this.tblPatternToPrivs.put(tablePattern, privs);
     }
 
+    public PaloRole(String roleName, ResourcePattern resourcePattern, PrivBitSet privs) {
+        this.roleName = roleName;
+        this.resourcePatternToPrivs.put(resourcePattern, privs);
+    }
+
+    public PaloRole(String roleName, TablePattern tablePattern, PrivBitSet tablePrivs,
+                    ResourcePattern resourcePattern, PrivBitSet resourcePrivs) {
+        this.roleName = roleName;
+        this.tblPatternToPrivs.put(tablePattern, tablePrivs);
+        this.resourcePatternToPrivs.put(resourcePattern, resourcePrivs);
+    }
+
     public String getRoleName() {
         return roleName;
     }
 
     public Map<TablePattern, PrivBitSet> getTblPatternToPrivs() {
         return tblPatternToPrivs;
+    }
+
+    public Map<ResourcePattern, PrivBitSet> getResourcePatternToPrivs() {
+        return resourcePatternToPrivs;
     }
 
     public Set<UserIdentity> getUsers() {
@@ -82,6 +102,14 @@ public class PaloRole implements Writable {
                 existPrivs.or(entry.getValue());
             } else {
                 tblPatternToPrivs.put(entry.getKey(), entry.getValue());
+            }
+        }
+        for (Map.Entry<ResourcePattern, PrivBitSet> entry : other.resourcePatternToPrivs.entrySet()) {
+            if (resourcePatternToPrivs.containsKey(entry.getKey())) {
+                PrivBitSet existPrivs = resourcePatternToPrivs.get(entry.getKey());
+                existPrivs.or(entry.getValue());
+            } else {
+                resourcePatternToPrivs.put(entry.getKey(), entry.getValue());
             }
         }
     }
@@ -114,7 +142,14 @@ public class PaloRole implements Writable {
             entry.getKey().write(out);
             entry.getValue().write(out);
         }
-
+        // TODO(wyb): spark-load
+        /*
+        out.writeInt(resourcePatternToPrivs.size());
+        for (Map.Entry<ResourcePattern, PrivBitSet> entry : resourcePatternToPrivs.entrySet()) {
+            entry.getKey().write(out);
+            entry.getValue().write(out);
+        }
+         */
         out.writeInt(users.size());
         for (UserIdentity userIdentity : users) {
             userIdentity.write(out);
@@ -129,6 +164,17 @@ public class PaloRole implements Writable {
             PrivBitSet privs = PrivBitSet.read(in);
             tblPatternToPrivs.put(tblPattern, privs);
         }
+        // TODO(wyb): spark-load
+        /*
+        if (Catalog.getCurrentCatalogJournalVersion() >= FeMetaVersion.new_version_by_wyb) {
+            size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                ResourcePattern resourcePattern = ResourcePattern.read(in);
+                PrivBitSet privs = PrivBitSet.read(in);
+                resourcePatternToPrivs.put(resourcePattern, privs);
+            }
+        }
+         */
         size = in.readInt();
         for (int i = 0; i < size; i++) {
             UserIdentity userIdentity = UserIdentity.read(in);
@@ -139,7 +185,8 @@ public class PaloRole implements Writable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        sb.append("role: ").append(roleName).append(", privs: ").append(tblPatternToPrivs);
+        sb.append("role: ").append(roleName).append(", db table privs: ").append(tblPatternToPrivs);
+        sb.append(", resource privs: ").append(resourcePatternToPrivs);
         sb.append(", users: ").append(users);
         return sb.toString();
     }

@@ -155,6 +155,8 @@ public class OperationType {
     public static final short OP_CREATE_LOAD_JOB = 230;
     // this finish op include finished and cancelled
     public static final short OP_END_LOAD_JOB = 231;
+    // update job info, used by spark load
+    //public static final short OP_UPDATE_LOAD_JOB = 232;
 
     // small files 251~260
     public static final short OP_CREATE_SMALL_FILE = 251;
@@ -172,4 +174,8 @@ public class OperationType {
     public static final short OP_INSTALL_PLUGIN = 270;
 
     public static final short OP_UNINSTALL_PLUGIN = 271;
+
+    // resource 276~290
+    public static final short OP_CREATE_RESOURCE = 276;
+    public static final short OP_DROP_RESOURCE = 277;
 }
