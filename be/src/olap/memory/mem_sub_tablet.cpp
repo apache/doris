@@ -90,6 +90,9 @@ Status MemSubTablet::get_index_to_read(scoped_refptr<HashIndex>* index) {
 }
 
 Status MemSubTablet::begin_write(scoped_refptr<Schema>* schema) {
+    if (_schema != nullptr) {
+        return Status::InternalError("Another write is in-progress or error occurred");
+    }
     _schema = *schema;
     _row_size = latest_size();
     _write_index = _index;
@@ -212,6 +215,7 @@ Status MemSubTablet::commit_write(uint64_t version) {
     }
     _write_index.reset();
     _writers.clear();
+    _schema = nullptr;
     LOG(INFO) << StringPrintf("commit writetxn(insert=%zu update=%zu update_cell=%zu) %.3lfs",
                               _num_insert, _num_update, _num_update_cell,
                               GetMonoTimeSecondsAsDouble() - _write_start);
