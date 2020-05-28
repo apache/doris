@@ -68,7 +68,7 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         _last_base_compaction_failure_millis(0),
         _last_cumu_compaction_success_millis(0),
         _last_base_compaction_success_millis(0),
-        _cumulative_point(tablet_meta->cumulative_layer_point()) {
+        _cumulative_point(kInvalidCumulativePoint) {
     _gen_tablet_path();
     _rs_graph.construct_rowset_graph(_tablet_meta->all_rs_metas());
 }
