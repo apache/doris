@@ -194,11 +194,13 @@ private:
     // 2. _status_lock
     boost::mutex _status_lock;
 
+    // note that RuntimeState should be constructed before and destructed after `_sink' and `_row_batch',
+    // therefore we declare it before `_sink' and `_row_batch'
+    boost::scoped_ptr<RuntimeState> _runtime_state;
     // Output sink for rows sent to this fragment. May not be set, in which case rows are
     // returned via get_next's row batch
     // Created in prepare (if required), owned by this object.
     boost::scoped_ptr<DataSink> _sink;
-    boost::scoped_ptr<RuntimeState> _runtime_state;
     boost::scoped_ptr<RowBatch> _row_batch;
 
     // Number of rows returned by this fragment
