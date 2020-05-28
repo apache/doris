@@ -547,6 +547,26 @@ under the License.
             <version>0.8.13</version>
         </dependency>
 
+        <!-- spark -->
+        <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-core_2.12 -->
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-core_2.12</artifactId>
+            <version>2.4.5</version>
+        </dependency>
+        <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-launcher_2.12 -->
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-launcher_2.12</artifactId>
+            <version>2.4.5</version>
+        </dependency>
+		<!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql_2.12</artifactId>
+            <version>2.4.5</version>
+            <scope>provided</scope>
+        </dependency>
     </dependencies>
 
     <build>
