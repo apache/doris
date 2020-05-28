@@ -138,7 +138,8 @@ enum TAggregationType {
 enum TPushType {
     LOAD,
     DELETE,
-    LOAD_DELETE
+    LOAD_DELETE,
+    LOAD_V2
 }
 
 enum TTaskType {
