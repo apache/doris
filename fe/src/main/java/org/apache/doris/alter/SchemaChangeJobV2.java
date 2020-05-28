@@ -650,12 +650,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         return Catalog.getCurrentGlobalTransactionMgr().isPreviousTransactionsFinished(watershedTxnId, dbId, Lists.newArrayList(tableId));
     }
 
-    public static SchemaChangeJobV2 read(DataInput in) throws IOException {
-        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2();
-        schemaChangeJob.readFields(in);
-        return schemaChangeJob;
-    }
-
     /**
      * Replay job in PENDING state.
      * Should replay all changes before this job's state transfer to PENDING.
@@ -971,6 +965,17 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this, AlterJobV2.class);
         Text.writeString(out, json);
+    }
+
+    /**
+     * This method is only used to deserialize the text mate which version is less then 86.
+     * If the meta version >=86, it will be deserialized by the `read` of AlterJobV2 rather then here.
+     */
+    public static SchemaChangeJobV2 read(DataInput in) throws IOException {
+        Preconditions.checkState(Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86);
+        SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2();
+        schemaChangeJob.readFields(in);
+        return schemaChangeJob;
     }
 
     @Override

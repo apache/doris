@@ -159,11 +159,11 @@ public abstract class StatementBase implements ParseNode {
     }
 
     public void setOrigStmt(OriginStatement origStmt) {
+        Preconditions.checkState(origStmt != null);
         this.origStmt = origStmt;
     }
 
     public OriginStatement getOrigStmt() {
-        Preconditions.checkState(origStmt != null);
         return origStmt;
     }
 
