@@ -103,7 +103,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         if (!Config.enable_materialized_view) {
-            throw new AnalysisException("The materialized view is disable");
+            throw new AnalysisException("The materialized view is disabled");
         }
         super.analyze(analyzer);
         FeNameFormat.checkTableName(mvName);

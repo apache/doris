@@ -244,9 +244,10 @@ public abstract class AlterJobV2 implements Writable {
                     Preconditions.checkState(false);
                     return null;
             }
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
         }
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
     }
 
     @Override

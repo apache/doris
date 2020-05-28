@@ -131,7 +131,7 @@ public class DdlExecutor {
             if (loadStmt.getVersion().equals(Load.VERSION) || jobType == EtlJobType.HADOOP) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
             } else {
-                catalog.getLoadManager().createLoadJobFromStmt(loadStmt, ddlStmt.getOrigStmt());
+                catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
             if (catalog.getLoadInstance().isLabelExist(

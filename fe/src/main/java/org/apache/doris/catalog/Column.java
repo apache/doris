@@ -416,7 +416,7 @@ public class Column implements Writable {
         Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         type = ColumnType.read(in);
         boolean notNull = in.readBoolean();
