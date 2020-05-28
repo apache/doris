@@ -79,9 +79,8 @@ void Metric::hide() {
 bool MetricCollector::add_metic(const MetricLabels& labels, Metric* metric) {
     if (empty()) {
         _type = metric->type();
-        _unit = metric->unit();
     } else {
-        if (metric->type() != _type || metric->unit() != _unit) {
+        if (metric->type() != _type) {
             return false;
         }
     }

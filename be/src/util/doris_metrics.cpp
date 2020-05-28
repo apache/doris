@@ -150,9 +150,6 @@ DorisMetrics::DorisMetrics() : _name("doris_be"), _hook_name("doris_metrics"), _
     _metrics.register_metric(
         "stream_load", MetricLabels().add("type", "load_rows"),
         &stream_load_rows_total);
-    _metrics.register_metric(
-        "load", MetricLabels().add("type", "receive_bytes"),
-        &stream_receive_bytes_total);
     _metrics.register_metric("load_rows", &load_rows_total);
     _metrics.register_metric("load_bytes", &load_bytes_total);
 
