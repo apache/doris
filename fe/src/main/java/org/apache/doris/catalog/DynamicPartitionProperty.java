@@ -17,7 +17,12 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.TimestampArithmeticExpr.TimeUnit;
+import org.apache.doris.common.util.DynamicPartitionUtil.StartOfDate;
+import org.apache.doris.common.util.TimeUtils;
+
 import java.util.Map;
+import java.util.TimeZone;
 
 public class DynamicPartitionProperty{
     public static final String TIME_UNIT = "dynamic_partition.time_unit";
@@ -26,6 +31,10 @@ public class DynamicPartitionProperty{
     public static final String PREFIX = "dynamic_partition.prefix";
     public static final String BUCKETS = "dynamic_partition.buckets";
     public static final String ENABLE = "dynamic_partition.enable";
+    public static final String START_DAY_OF_WEEK = "dynamic_partition.start_day_of_week";
+    public static final String START_DAY_OF_MONTH = "dynamic_partition.start_day_of_month";
+
+    public static final int MIN_START_OFFSET = Integer.MIN_VALUE;
 
     private boolean exist;
 
@@ -35,19 +44,41 @@ public class DynamicPartitionProperty{
     private int end;
     private String prefix;
     private int buckets;
+    private StartOfDate startOfWeek;
+    private StartOfDate startOfMonth;
+    // TODO: support setting timezone.
+    private TimeZone tz = TimeUtils.getDefaultTimeZone();
 
-    DynamicPartitionProperty(Map<String ,String> properties) {
+
+    public DynamicPartitionProperty(Map<String, String> properties) {
         if (properties != null && !properties.isEmpty()) {
             this.exist = true;
             this.enable = Boolean.parseBoolean(properties.get(ENABLE));
             this.timeUnit = properties.get(TIME_UNIT);
             // In order to compatible dynamic add partition version
-            this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(Integer.MIN_VALUE)));
+            this.start = Integer.parseInt(properties.getOrDefault(START, String.valueOf(MIN_START_OFFSET)));
             this.end = Integer.parseInt(properties.get(END));
             this.prefix = properties.get(PREFIX);
             this.buckets = Integer.parseInt(properties.get(BUCKETS));
+            createStartOfs(properties);
         } else {
             this.exist = false;
+        }
+    }
+
+    private void createStartOfs(Map<String, String> properties) {
+        if (properties.containsKey(START_DAY_OF_WEEK)) {
+            startOfWeek = new StartOfDate(-1, -1, Integer.valueOf(properties.get(START_DAY_OF_WEEK)));
+        } else {
+            // default:
+            startOfWeek = new StartOfDate(-1, -1, 1 /* start from MONDAY */);
+        }
+
+        if (properties.containsKey(START_DAY_OF_MONTH)) {
+            startOfMonth = new StartOfDate(-1, Integer.valueOf(properties.get(START_DAY_OF_MONTH)), -1);
+        } else {
+            // default:
+            startOfMonth = new StartOfDate(-1, 1 /* 1st of month */, -1);
         }
     }
 
@@ -79,13 +110,42 @@ public class DynamicPartitionProperty{
         return enable;
     }
 
+    public StartOfDate getStartOfWeek() {
+        return startOfWeek;
+    }
+
+    public StartOfDate getStartOfMonth() {
+        return startOfMonth;
+    }
+
+    public String getStartOfInfo() {
+        if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
+            return startOfWeek.toDisplayInfo();
+        } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
+            return startOfMonth.toDisplayInfo();
+        } else {
+            return "N/A";
+        }
+    }
+
+    public TimeZone getTimeZone() {
+        return tz;
+    }
+
+
     @Override
     public String toString() {
-        return ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
+        String res = ",\n\"" + ENABLE + "\" = \"" + enable + "\"" +
                 ",\n\"" + TIME_UNIT + "\" = \"" + timeUnit + "\"" +
                 ",\n\"" + START + "\" = \"" + start + "\"" +
                 ",\n\"" + END + "\" = \"" + end + "\"" +
                 ",\n\"" + PREFIX + "\" = \"" + prefix + "\"" +
                 ",\n\"" + BUCKETS + "\" = \"" + buckets + "\"";
+        if (getTimeUnit().equalsIgnoreCase(TimeUnit.WEEK.toString())) {
+            res += ",\n\"" + START_DAY_OF_WEEK + "\" = \"" + startOfWeek.dayOfWeek + "\"";
+        } else if (getTimeUnit().equalsIgnoreCase(TimeUnit.MONTH.toString())) {
+            res += ",\n\"" + START_DAY_OF_MONTH + "\" = \"" + startOfMonth.day + "\"";
+        }
+        return res;
     }
 }

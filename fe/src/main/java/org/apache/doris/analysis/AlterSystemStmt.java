@@ -71,4 +71,3 @@ public class AlterSystemStmt extends DdlStmt {
         return toSql();
     }
 }
-

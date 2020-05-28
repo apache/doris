@@ -78,9 +78,6 @@ public class TimeUtils {
     public static Date MIN_DATETIME = null;
     public static Date MAX_DATETIME = null;
 
-    public static int MIN_TIME;
-    public static int MAX_TIME;
-
     static {
         TIME_ZONE = new SimpleTimeZone(8 * 3600 * 1000, "");
         
@@ -126,6 +123,10 @@ public class TimeUtils {
             timezone = VariableMgr.getGlobalSessionVariable().getTimeZone();
         }
         return TimeZone.getTimeZone(ZoneId.of(timezone, timeZoneAliasMap));
+    }
+
+    public static TimeZone getDefaultTimeZone() {
+        return TimeZone.getTimeZone(ZoneId.of(DEFAULT_TIME_ZONE, timeZoneAliasMap));
     }
 
     public static String longToTimeString(long timeStamp, SimpleDateFormat dateFormat) {

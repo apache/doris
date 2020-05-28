@@ -49,7 +49,6 @@ set(EXEC_FILES
     text_converter.cpp
     topn_node.cpp
     sort_exec_exprs.cpp
-    sort_node.cpp
     olap_rewrite_node.cpp
     olap_scan_node.cpp
     olap_scanner.cpp
@@ -92,6 +91,7 @@ set(EXEC_FILES
     broker_writer.cpp
     parquet_scanner.cpp
     parquet_reader.cpp
+    parquet_writer.cpp
     orc_scanner.cpp
     json_scanner.cpp
     assert_num_rows_node.cpp

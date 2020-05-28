@@ -53,6 +53,8 @@ public class Util {
 
     private static final long DEFAULT_EXEC_CMD_TIMEOUT_MS = 600000L;
 
+    private static final String[] ORDINAL_SUFFIX = new String[] { "th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th" };
+
     static {
         TYPE_STRING_MAP.put(PrimitiveType.TINYINT, "tinyint(4)");
         TYPE_STRING_MAP.put(PrimitiveType.SMALLINT, "smallint(6)");
@@ -443,6 +445,17 @@ public class Util {
 
         return result;
     }
-
+    
+    // return the ordinal string of an Integer
+    public static String ordinal(int i) {
+        switch (i % 100) {
+            case 11:
+            case 12:
+            case 13:
+                return i + "th";
+            default:
+                return i + ORDINAL_SUFFIX[i % 10];
+        }
+    }
 }
 

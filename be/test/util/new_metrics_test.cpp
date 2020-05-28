@@ -36,7 +36,7 @@ public:
 
 TEST_F(MetricsTest, Counter) {
     {
-        IntCounter counter;
+        IntCounter counter(MetricUnit::NUMBER);
         ASSERT_EQ(0, counter.value());
         counter.increment(100);
         ASSERT_EQ(100, counter.value());
@@ -44,7 +44,7 @@ TEST_F(MetricsTest, Counter) {
         ASSERT_STREQ("100", counter.to_string().c_str());
     }
     {
-        DoubleCounter counter;
+        DoubleCounter counter(MetricUnit::NUMBER);
         ASSERT_EQ(0.0, counter.value());
         counter.increment(1.23);
         ASSERT_EQ(1.23, counter.value());
@@ -65,7 +65,7 @@ void mt_updater(IntCounter* counter, std::atomic<uint64_t>* used_time) {
 }
 
 TEST_F(MetricsTest, CounterPerf) {
-    IntCounter counter;
+    IntCounter counter(MetricUnit::NUMBER);
     volatile int64_t sum = 0;
 
     {
@@ -91,7 +91,7 @@ TEST_F(MetricsTest, CounterPerf) {
     ASSERT_EQ(100000000, counter.value());
     ASSERT_EQ(100000000, sum);
     {
-        IntCounter mt_counter;
+        IntCounter mt_counter(MetricUnit::NUMBER);
         std::vector<std::thread> updaters;
         std::atomic<uint64_t> used_time(0);
         for (int i = 0; i < 8; ++i) {
@@ -108,7 +108,7 @@ TEST_F(MetricsTest, CounterPerf) {
 
 TEST_F(MetricsTest, Gauge) {
     {
-        IntGauge gauge;
+        IntGauge gauge(MetricUnit::NUMBER);
         ASSERT_EQ(0, gauge.value());
         gauge.set_value(100);
         ASSERT_EQ(100, gauge.value());
@@ -116,7 +116,7 @@ TEST_F(MetricsTest, Gauge) {
         ASSERT_STREQ("100", gauge.to_string().c_str());
     }
     {
-        DoubleGauge gauge;
+        DoubleGauge gauge(MetricUnit::NUMBER);
         ASSERT_EQ(0.0, gauge.value());
         gauge.set_value(1.23);
         ASSERT_EQ(1.23, gauge.value());
@@ -189,7 +189,7 @@ public:
                     }
                     _ss << labels.to_string();
                 }
-                _ss << " " << ((SimpleMetric*)metric)->to_string() << std::endl;
+                _ss << " " << metric->to_string() << std::endl;
                 break;
             }
             default:
@@ -205,9 +205,9 @@ private:
 };
 
 TEST_F(MetricsTest, MetricCollector) {
-    IntCounter puts;
+    IntCounter puts(MetricUnit::NUMBER);
     puts.increment(101);
-    IntCounter gets;
+    IntCounter gets(MetricUnit::NUMBER);
     gets.increment(201);
     MetricCollector collector;
     ASSERT_TRUE(collector.add_metic(MetricLabels().add("type", "put"), &puts));
@@ -216,7 +216,7 @@ TEST_F(MetricsTest, MetricCollector) {
 
     {
         // Can't add different type to one collector
-        IntGauge post;
+        IntGauge post(MetricUnit::NUMBER);
         ASSERT_FALSE(collector.add_metic(MetricLabels().add("type", "post"), &post));
     }
 
@@ -241,13 +241,13 @@ TEST_F(MetricsTest, MetricCollector) {
 
 TEST_F(MetricsTest, MetricRegistry) {
     MetricRegistry registry("test");
-    IntCounter cpu_idle;
+    IntCounter cpu_idle(MetricUnit::PERCENT);
     cpu_idle.increment(12);
     ASSERT_TRUE(registry.register_metric("cpu_idle", &cpu_idle));
     // registry failed
-    IntCounter dummy;
+    IntCounter dummy(MetricUnit::PERCENT);
     ASSERT_FALSE(registry.register_metric("cpu_idle", &dummy));
-    IntCounter memory_usage;
+    IntCounter memory_usage(MetricUnit::BYTES);
     memory_usage.increment(24);
     ASSERT_TRUE(registry.register_metric("memory_usage", &memory_usage));
     {
@@ -268,13 +268,13 @@ TEST_F(MetricsTest, MetricRegistry) {
 
 TEST_F(MetricsTest, MetricRegistry2) {
     MetricRegistry registry("test");
-    IntCounter cpu_idle;
+    IntCounter cpu_idle(MetricUnit::PERCENT);
     cpu_idle.increment(12);
     ASSERT_TRUE(registry.register_metric("cpu_idle", &cpu_idle));
 
     {
         // memory_usage will deregister after this block
-        IntCounter memory_usage;
+        IntCounter memory_usage(MetricUnit::BYTES);
         memory_usage.increment(24);
         ASSERT_TRUE(registry.register_metric("memory_usage", &memory_usage));
         TestMetricsVisitor visitor;

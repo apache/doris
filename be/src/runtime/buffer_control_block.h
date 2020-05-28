@@ -84,6 +84,15 @@ public:
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) {
         _query_statistics = statistics;
     }
+
+    void update_num_written_rows(int64_t num_rows) { 
+        // _query_statistics may be null when the result sink init failed
+        // or some other failure.
+        // and the number of written rows is only needed when all things go well.
+        if (_query_statistics.get() != nullptr) {
+            _query_statistics->set_returned_rows(num_rows); 
+        }
+    }
 private:
     typedef std::list<TFetchDataResult*> ResultQueue;
 

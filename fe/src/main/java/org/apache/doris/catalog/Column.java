@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -66,6 +67,7 @@ public class Column implements Writable {
     private String comment;
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
+    private Expr defineExpr; //use to define materialize view
 
     public Column() {
         this.name = "";
@@ -157,6 +159,10 @@ public class Column implements Writable {
 
     public Type getType() { return ScalarType.createType(type.getPrimitiveType()); }
 
+    public void setType(Type type) {
+        this.type = type;
+    }
+
     public Type getOriginType() { return type; }
 
     public int getStrLen() { return ((ScalarType) type).getLength(); }
@@ -240,6 +246,9 @@ public class Column implements Writable {
         tColumn.setIs_key(this.isKey);
         tColumn.setIs_allow_null(this.isAllowNull);
         tColumn.setDefault_value(this.defaultValue);
+        if (this.defineExpr != null) {
+            tColumn.setDefine_expr(this.defineExpr.treeToThrift());
+        }
         return tColumn;
     }
 
@@ -308,6 +317,14 @@ public class Column implements Writable {
             return colName.substring(SchemaChangeHandler.SHADOW_NAME_PRFIX.length());
         }
         return colName;
+    }
+
+    public Expr getDefineExpr() {
+        return defineExpr;
+    }
+
+    public void setDefineExpr(Expr expr) {
+        defineExpr = expr;
     }
 
     public String toSql() {

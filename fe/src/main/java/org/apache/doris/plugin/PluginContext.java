@@ -17,10 +17,20 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.service.FrontendOptions;
+
 public class PluginContext {
 
     // the dir path where the plugin's files saved
     private String pluginPath;
+    // the identity of the FE which load this plugin. Some plugins need to know which FE is running with it.
+    // currently, we just use FE ip and editlog port
+    private String feIdentity;
+
+    public PluginContext() {
+        this.feIdentity = FrontendOptions.getLocalHostAddress() + "_" + Config.edit_log_port;
+    }
 
     protected void setPluginPath(String pluginPath) {
         this.pluginPath = pluginPath;
@@ -29,4 +39,9 @@ public class PluginContext {
     public String getPluginPath() {
         return pluginPath;
     }
+
+    public String getFeIdentity() {
+        return feIdentity;
+    }
 }
+

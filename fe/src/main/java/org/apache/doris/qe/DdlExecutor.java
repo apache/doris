@@ -39,6 +39,7 @@ import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
+import org.apache.doris.analysis.CreateResourceStmt;
 import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateRoutineLoadStmt;
 import org.apache.doris.analysis.CreateTableStmt;
@@ -52,6 +53,7 @@ import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.analysis.DropFunctionStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
+import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.DropUserStmt;
@@ -217,6 +219,10 @@ public class DdlExecutor {
             catalog.checkTablets((AdminCheckTabletsStmt) ddlStmt);
         } else if (ddlStmt instanceof AdminSetReplicaStatusStmt) {
             catalog.setReplicaStatus((AdminSetReplicaStatusStmt) ddlStmt);
+        } else if (ddlStmt instanceof CreateResourceStmt) {
+            catalog.getResourceMgr().createResource((CreateResourceStmt) ddlStmt);
+        } else if (ddlStmt instanceof DropResourceStmt) {
+            catalog.getResourceMgr().dropResource((DropResourceStmt) ddlStmt);
         } else {
             throw new DdlException("Unknown statement.");
         }
