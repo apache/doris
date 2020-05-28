@@ -237,7 +237,7 @@ public class PropertyAnalyzer {
     }
 
     public static TTabletType analyzeTabletType(Map<String, String> properties) throws AnalysisException {
-        // default is COLUMN
+        // default is TABLET_TYPE_DISK
         TTabletType tTabletType = TTabletType.TABLET_TYPE_DISK;
         if (properties != null && properties.containsKey(PROPERTIES_TABLET_TYPE)) {
             String tabletType = properties.get(PROPERTIES_TABLET_TYPE);
