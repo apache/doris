@@ -156,7 +156,6 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
 
     // wait stream load finish
     RETURN_IF_ERROR(ctx->future.get());
-    ctx->write_data_cost_nanos = MonotonicNanos() - ctx->start_write_data_nanos;
 
     // If put file succeess we need commit this load
     int64_t commit_and_publish_start_time = MonotonicNanos();
@@ -418,7 +417,6 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         return Status::OK();
     }
 
-    ctx->start_write_data_nanos = MonotonicNanos();
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 
