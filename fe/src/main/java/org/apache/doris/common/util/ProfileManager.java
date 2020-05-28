@@ -155,7 +155,7 @@ public class ProfileManager {
         try {
             ProfileElement element = profileMap.get(queryID);
             if (element == null) {
-                return new String("query id " + queryID + " not found." );
+                return null;
             }
             
             return element.profileContent;
