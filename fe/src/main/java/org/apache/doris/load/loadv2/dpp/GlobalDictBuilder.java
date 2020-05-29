@@ -133,6 +133,7 @@ public class GlobalDictBuilder {
         spark.sql("use " + dorisHiveDB);
     }
 
+    // fetch wanted columns from source hive table
     public void createHiveIntermediateTable() throws AnalysisException {
         Map<String, String> sourceHiveTableColumn = spark.catalog()
                 .listColumns(sourceHiveDBTableName)
@@ -161,6 +162,7 @@ public class GlobalDictBuilder {
         spark.sql(getInsertIntermediateHiveTableSql());
     }
 
+    // extract the distinct value of bitmap column
     public void extractDistinctColumn() {
         // create distinct tables
         spark.sql(getCreateDistinctKeyTableSql());
@@ -176,6 +178,8 @@ public class GlobalDictBuilder {
         submitWorker(workerList);
     }
 
+    // using window function build global dict for bitmap column
+    // the output is a key value pair (key=origin column value, value=encoded value) which stores in a hive table
     public void buildGlobalDict() throws ExecutionException, InterruptedException {
         // create global dict hive table
         spark.sql(getCreateGlobalDictHiveTableSql());
@@ -215,7 +219,7 @@ public class GlobalDictBuilder {
         submitWorker(globalDictBuildWorkers);
     }
 
-    // encode dorisIntermediateHiveTable's distinct column
+    // using dict to replace the intermediate hive table's distinct column origin value
     public void encodeDorisIntermediateHiveTable() {
         if (isEncodeHiveTableInOneSql) {
             spark.sql(getEncodeDorisIntermediateHiveTableInOneJoinSql());
@@ -374,7 +378,7 @@ public class GlobalDictBuilder {
         return sql.toString();
     }
 
-    // TODO(wb) solve the data skew when broadcast join is too slow
+    // TODO(wb) solve the case which even using broadcast join can't solve the data skew
     private String getEncodeDorisIntermediateHiveTableSql(String distinctColumnName) {
         StringBuilder sql = new StringBuilder();
         sql.append("insert overwrite table ").append(dorisIntermediateHiveTable).append(" select ");
