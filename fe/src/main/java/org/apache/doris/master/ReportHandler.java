@@ -574,7 +574,8 @@ public class ReportHandler extends Daemon {
                                             TStorageType.COLUMN,
                                             TStorageMedium.HDD, indexMeta.getSchema(), bfColumns, bfFpp, null,
                                             olapTable.getCopiedIndexes(),
-                                            olapTable.isInMemory());
+                                            olapTable.isInMemory(),
+                                            olapTable.getPartitionInfo().getTabletType(partitionId));
                                     createReplicaBatchTask.addTask(createReplicaTask);
                                 } else {
                                     // just set this replica as bad

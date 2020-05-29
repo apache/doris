@@ -29,6 +29,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import com.google.common.base.Joiner;
 import com.google.common.base.Joiner.MapJoiner;
 import com.google.common.base.Preconditions;
+import org.apache.doris.thrift.TTabletType;
 
 import java.util.Map;
 
@@ -44,6 +45,7 @@ public class SingleRangePartitionDesc {
     private DataProperty partitionDataProperty;
     private Short replicationNum;
     private boolean isInMemory = false;
+    private TTabletType tabletType = TTabletType.TABLET_TYPE_DISK;
     private Pair<Long, Long> versionInfo;
 
     public SingleRangePartitionDesc(boolean ifNotExists, String partName, PartitionKeyDesc partitionKeyDesc,
@@ -84,6 +86,8 @@ public class SingleRangePartitionDesc {
         return isInMemory;
     }
 
+    public TTabletType getTabletType() { return tabletType; }
+
     public Pair<Long, Long> getVersionInfo() {
         return versionInfo;
     }
@@ -121,6 +125,8 @@ public class SingleRangePartitionDesc {
 
         // analyze in memory
         isInMemory = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_INMEMORY, false);
+
+        tabletType = PropertyAnalyzer.analyzeTabletType(properties);
 
         if (otherProperties == null) {
             // check unknown properties

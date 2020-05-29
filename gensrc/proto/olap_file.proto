@@ -271,6 +271,11 @@ enum TabletStatePB {
     PB_SHUTDOWN = 4;
 }
 
+enum TabletTypePB {
+    TABLET_TYPE_DISK = 0;
+    TABLET_TYPE_MEMORY = 1;
+}
+
 message TabletMetaPB {
     optional int64 table_id = 1;    // ?
     optional int64 partition_id = 2;    // ?
@@ -292,6 +297,7 @@ message TabletMetaPB {
     optional PUniqueId tablet_uid = 14;
     optional int64 end_rowset_id = 15;
     optional RowsetTypePB preferred_rowset_type = 16;
+    optional TabletTypePB tablet_type = 17;
 }
 
 message OLAPIndexHeaderMessage {
