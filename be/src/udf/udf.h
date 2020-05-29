@@ -18,7 +18,7 @@
 #ifndef DORIS_BE_UDF_UDF_H
 #define DORIS_BE_UDF_UDF_H
 
-#include <boost/cstdint.hpp>
+#include <cstdint>
 #include <string.h>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header

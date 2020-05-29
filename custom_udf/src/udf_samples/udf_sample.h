@@ -15,29 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "udf_samples/udf_sample.h"
+#pragma once
+
+#include "udf.h"
 
 namespace doris_udf {
 
-// ---------------------------------------------------------------------------
-// This is a sample of implementing a COUNT aggregate function.
-// ---------------------------------------------------------------------------
-void CountInit(FunctionContext* context, BigIntVal* val) {
-    val->is_null = false;
-    val->val = 0;
-}
+IntVal AddUdf(FunctionContext* context, const IntVal& arg1, const IntVal& arg2);
 
-void CountUpdate(FunctionContext* context, const IntVal& input, BigIntVal* val) {
-    if (input.is_null) return;
-    ++val->val;
-}
+/// --- Prepare / Close Functions ---
+/// ---------------------------------
 
-void CountMerge(FunctionContext* context, const BigIntVal& src, BigIntVal* dst) {
-    dst->val += src.val;
-}
+/// The UDF can optionally include a prepare function. The prepare function is called
+/// before any calls to the UDF to evaluate values.
+void AddUdfPrepare(FunctionContext* context, FunctionContext::FunctionStateScope scope);
 
-BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val) {
-    return val;
-}
+/// The UDF can also optionally include a close function. The close function is called 
+/// after all calls to the UDF have completed.
+void AddUdfClose(FunctionContext* context, FunctionContext::FunctionStateScope scope);
 
 }

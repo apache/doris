@@ -15,16 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "udf/udf.h"
+#include "udf_sample.h"
 
 namespace doris_udf {
 
-/// This is an example of the COUNT aggregate function.
-void CountInit(FunctionContext* context, BigIntVal* val);
-void CountUpdate(FunctionContext* context, const IntVal& input, BigIntVal* val);
-void CountMerge(FunctionContext* context, const BigIntVal& src, BigIntVal* dst);
-BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val);
+// ---------------------------------------------------------------------------
+// This is a sample of implementing a COUNT aggregate function.
+// ---------------------------------------------------------------------------
+void CountInit(FunctionContext* context, BigIntVal* val) {
+    val->is_null = false;
+    val->val = 0;
+}
+
+void CountUpdate(FunctionContext* context, const IntVal& input, BigIntVal* val) {
+    if (input.is_null) return;
+    ++val->val;
+}
+
+void CountMerge(FunctionContext* context, const BigIntVal& src, BigIntVal* dst) {
+    dst->val += src.val;
+}
+
+BigIntVal CountFinalize(FunctionContext* context, const BigIntVal& val) {
+    return val;
+}
 
 }
