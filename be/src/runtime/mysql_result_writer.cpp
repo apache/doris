@@ -229,7 +229,7 @@ Status MysqlResultWriter::append_row_batch(const RowBatch* batch) {
     }
 
     if (status.ok()) {
-        SCOPED_TIMER(_sent_rows_counter);
+        SCOPED_TIMER(_result_send_timer);
         // push this batch to back
         status = _sinker->add_batch(result);
 
