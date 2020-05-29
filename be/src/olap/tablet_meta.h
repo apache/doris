@@ -98,13 +98,6 @@ typedef std::shared_ptr<AlterTabletTask> AlterTabletTaskSharedPtr;
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
 public:
-    static OLAPStatus create(int64_t table_id, int64_t partition_id,
-                             int64_t tablet_id, int32_t schema_hash,
-                             uint64_t shard_id, const TTabletSchema& tablet_schema,
-                             uint32_t next_unique_id,
-                             const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                             TabletMetaSharedPtr* tablet_meta, TabletUid& tablet_uid);
-
     static OLAPStatus create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
                              uint64_t shard_id, uint32_t next_unique_id,
                              const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
@@ -116,7 +109,7 @@ public:
                uint64_t shard_id, const TTabletSchema& tablet_schema,
                uint32_t next_unique_id,
                const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-               TabletUid tablet_uid);
+               TabletUid tablet_uid, TTabletType::type tabletType);
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
@@ -135,6 +128,7 @@ public:
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
 
+    inline TabletTypePB tablet_type() const { return _tablet_type; }
     inline TabletUid tablet_uid() const;
     inline int64_t table_id() const;
     inline int64_t partition_id() const;
@@ -211,6 +205,7 @@ private:
     int64_t _creation_time = 0;
     int64_t _cumulative_layer_point = 0;
     TabletUid _tablet_uid;
+    TabletTypePB _tablet_type = TabletTypePB::TABLET_TYPE_DISK;
 
     TabletState _tablet_state = TABLET_NOTREADY;
     TabletSchema _schema;

@@ -43,6 +43,7 @@ public:
     // Property encapsulated in TabletMeta
     inline const TabletMetaSharedPtr tablet_meta();
 
+    inline bool is_memory() const;
     inline TabletUid tablet_uid() const;
     inline int64_t table_id() const;
     // Returns a string can be used to uniquely identify a tablet.
@@ -82,6 +83,10 @@ inline string BaseTablet::tablet_path() const {
 
 inline const TabletMetaSharedPtr BaseTablet::tablet_meta() {
     return _tablet_meta;
+}
+
+inline bool BaseTablet::is_memory() const {
+    return _tablet_meta->tablet_type() == TabletTypePB::TABLET_TYPE_MEMORY;
 }
 
 inline TabletUid BaseTablet::tablet_uid() const {
