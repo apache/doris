@@ -335,7 +335,7 @@ public class FileSystemManager {
                 conf.set(FS_HDFS_IMPL_DISABLE_CACHE, "true");
                 FileSystem dfsFileSystem = null;
                 if (authentication.equals(AUTHENTICATION_SIMPLE) &&
-                    properties.containsKey(USER_NAME_KEY)) {
+                    properties.containsKey(USER_NAME_KEY) && !Strings.isNullOrEmpty(username)) {
                     // Use the specified 'username' as the login name
                     UserGroupInformation ugi = UserGroupInformation.createRemoteUser(username);
                     dfsFileSystem = ugi.doAs(new PrivilegedExceptionAction<FileSystem>() {
