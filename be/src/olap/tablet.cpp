@@ -53,14 +53,6 @@ TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
     return std::make_shared<Tablet>(tablet_meta, data_dir);
 }
 
-void Tablet::_gen_tablet_path() {
-    std::string path = _data_dir->path() + DATA_PREFIX;
-    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->shard_id()));
-    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->tablet_id()));
-    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->schema_hash()));
-    _tablet_path = path;
-}
-
 Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         BaseTablet(tablet_meta, data_dir),
         _is_bad(false),
@@ -69,7 +61,6 @@ Tablet::Tablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         _last_cumu_compaction_success_millis(0),
         _last_base_compaction_success_millis(0),
         _cumulative_point(kInvalidCumulativePoint) {
-    _gen_tablet_path();
     _rs_graph.construct_rowset_graph(_tablet_meta->all_rs_metas());
 }
 

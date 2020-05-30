@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "base_tablet.h"
+#include "olap/base_tablet.h"
+#include "util/path_util.h"
+#include "olap/data_dir.h"
 
 namespace doris {
 
@@ -24,6 +26,7 @@ BaseTablet::BaseTablet(TabletMetaSharedPtr tablet_meta, DataDir* data_dir) :
         _tablet_meta(tablet_meta),
         _schema(tablet_meta->tablet_schema()),
         _data_dir(data_dir) {
+    _gen_tablet_path();
 }
 
 BaseTablet::~BaseTablet() {
@@ -38,6 +41,14 @@ OLAPStatus BaseTablet::set_tablet_state(TabletState state) {
     _tablet_meta->set_tablet_state(state);
     _state = state;
     return OLAP_SUCCESS;
+}
+
+void BaseTablet::_gen_tablet_path() {
+    std::string path = _data_dir->path() + DATA_PREFIX;
+    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->shard_id()));
+    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->tablet_id()));
+    path = path_util::join_path_segments(path, std::to_string(_tablet_meta->schema_hash()));
+    _tablet_path = path;
 }
 
 } /* namespace doris */
