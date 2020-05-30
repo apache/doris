@@ -17,6 +17,8 @@
 
 package org.apache.doris.persist.gson;
 
+import java.io.IOException;
+
 public interface GsonPostProcessable {
-    public void gsonPostProcess();
+    public void gsonPostProcess() throws IOException;
 }

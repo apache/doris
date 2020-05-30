@@ -187,5 +187,6 @@
     "tablet_uid": {
         "hi": 10,
         "lo": 10
-    }
+    },
+    "tablet_type": "TABLET_TYPE_DISK"
 }

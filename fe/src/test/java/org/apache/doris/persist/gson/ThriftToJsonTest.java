@@ -15,31 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+package org.apache.doris.persist.gson;
 
-#include <memory>
+import org.apache.doris.thrift.TStorageFormat;
 
-#include "common/logging.h"
-#include "common/status.h"
-#include "gutil/ref_counted.h"
-#include "gutil/stringprintf.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/types.h"
-#include "util/time.h"
+import org.junit.Assert;
+import org.junit.Test;
 
-namespace doris {
-namespace memory {
+public class ThriftToJsonTest {
 
-template <class T, class ST>
-inline T padding(T v, ST pad) {
-    return (v + pad - 1) / pad * pad;
+    @Test
+    public void testTEnumToJson() {
+        // write
+        String serializeString = GsonUtils.GSON.toJson(TStorageFormat.V1);
+        // read
+        TStorageFormat tStorageFormat = GsonUtils.GSON.fromJson(serializeString, TStorageFormat.class);
+        Assert.assertEquals(TStorageFormat.V1, tStorageFormat);
+    }
 }
-
-template <class T, class ST>
-inline size_t num_block(T v, ST bs) {
-    return (v + bs - 1) / bs;
-}
-
-} // namespace memory
-} // namespace doris

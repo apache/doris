@@ -49,6 +49,8 @@ import java.util.Set;
  * [PROPERTIES ("key" = "value")]
  */
 public class CreateMaterializedViewStmt extends DdlStmt {
+    public static final String MATERIALIZED_VIEW_NAME_PRFIX = "__doris_materialized_view_";
+
     private String mvName;
     private SelectStmt selectStmt;
     private Map<String, String> properties;
@@ -100,9 +102,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
-        // TODO(ml): remove it
         if (!Config.enable_materialized_view) {
-            throw new AnalysisException("The materialized view is coming soon");
+            throw new AnalysisException("The materialized view is disabled");
         }
         super.analyze(analyzer);
         FeNameFormat.checkTableName(mvName);
@@ -128,7 +129,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
     }
 
-    private void analyzeSelectClause() throws AnalysisException {
+    public void analyzeSelectClause() throws AnalysisException {
         SelectList selectList = selectStmt.getSelectList();
         if (selectList.getItems().isEmpty()) {
             throw new AnalysisException("The materialized view must contain at least one column");
@@ -200,6 +201,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                     beginIndexOfAggregation = i;
                 }
                 // TODO(ml): support different type of column, int -> bigint(sum)
+                // TODO: change the column name of bitmap and hll
                 MVColumnItem mvColumnItem = new MVColumnItem(columnName);
                 mvColumnItem.setAggregationType(AggregateType.valueOf(functionName.toUpperCase()), false);
                 mvColumnItem.setDefineExpr(defineExpr);

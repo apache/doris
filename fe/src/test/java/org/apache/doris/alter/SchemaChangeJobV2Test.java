@@ -53,9 +53,11 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.thrift.TStorageFormat;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.FakeTransactionIDGenerator;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -66,6 +68,12 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -73,6 +81,8 @@ import java.util.List;
 import java.util.Map;
 
 public class SchemaChangeJobV2Test {
+
+    private static String fileName = "./SchemaChangeV2Test";
 
     private static FakeEditLog fakeEditLog;
     private static FakeCatalog fakeCatalog;
@@ -371,5 +381,34 @@ public class SchemaChangeJobV2Test {
         modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.END, "3", DynamicPartitionProperty.ENABLE);
         modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.PREFIX, "p", DynamicPartitionProperty.ENABLE);
         modifyDynamicPartitionWithoutTableProperty(DynamicPartitionProperty.BUCKETS, "30", DynamicPartitionProperty.ENABLE);
+    }
+
+    @Test
+    public void testSerializeOfSchemaChangeJob() throws IOException {
+        // prepare file
+        File file = new File(fileName);
+        file.createNewFile();
+        DataOutputStream out = new DataOutputStream(new FileOutputStream(file));
+
+        SchemaChangeJobV2 schemaChangeJobV2 = new SchemaChangeJobV2(1, 1,1, "test",600000);
+        schemaChangeJobV2.setStorageFormat(TStorageFormat.V2);
+        Deencapsulation.setField(schemaChangeJobV2, "jobState", AlterJobV2.JobState.FINISHED);
+
+
+        // write schema change job
+        schemaChangeJobV2.write(out);
+        out.flush();
+        out.close();
+
+        // read objects from file
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeMetaVersion.VERSION_86);
+        metaContext.setThreadLocalInfo();
+
+        DataInputStream in = new DataInputStream(new FileInputStream(file));
+        SchemaChangeJobV2 result = (SchemaChangeJobV2) AlterJobV2.read(in);
+        Assert.assertEquals(1, result.getJobId());
+        Assert.assertEquals(AlterJobV2.JobState.FINISHED, result.getJobState());
+        Assert.assertEquals(TStorageFormat.V2, Deencapsulation.getField(result, "storageFormat"));
     }
 }

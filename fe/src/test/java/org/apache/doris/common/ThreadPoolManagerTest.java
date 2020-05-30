@@ -58,7 +58,7 @@ public class ThreadPoolManagerTest {
         Assert.assertEquals(0, testCachedPool.getQueue().size());
         Assert.assertEquals(0, testCachedPool.getCompletedTaskCount());
 
-        Thread.sleep(500);
+        Thread.sleep(700);
 
         Assert.assertEquals(2, testCachedPool.getPoolSize());
         Assert.assertEquals(0, testCachedPool.getActiveCount());

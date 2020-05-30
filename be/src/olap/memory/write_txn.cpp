@@ -15,30 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include <memory>
-
-#include "common/logging.h"
-#include "common/status.h"
-#include "gutil/ref_counted.h"
-#include "gutil/stringprintf.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/types.h"
-#include "util/time.h"
+#include "olap/memory/write_txn.h"
 
 namespace doris {
 namespace memory {
 
-template <class T, class ST>
-inline T padding(T v, ST pad) {
-    return (v + pad - 1) / pad * pad;
+WriteTxn::WriteTxn(scoped_refptr<Schema>* schema) : _schema(schema->get()) {}
+
+WriteTxn::~WriteTxn() {}
+
+PartialRowBatch* WriteTxn::new_batch() {
+    _batches.emplace_back(new PartialRowBatch(&_schema));
+    return _batches.back().get();
 }
 
-template <class T, class ST>
-inline size_t num_block(T v, ST bs) {
-    return (v + bs - 1) / bs;
+PartialRowBatch* WriteTxn::get_batch(size_t idx) const {
+    return _batches[idx].get();
 }
 
 } // namespace memory

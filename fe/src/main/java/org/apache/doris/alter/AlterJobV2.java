@@ -22,10 +22,13 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -59,17 +62,27 @@ public abstract class AlterJobV2 implements Writable {
         ROLLUP, SCHEMA_CHANGE
     }
 
+    @SerializedName(value = "type")
     protected JobType type;
+    @SerializedName(value = "jobId")
     protected long jobId;
+    @SerializedName(value = "jobState")
     protected JobState jobState;
 
+    @SerializedName(value = "dbId")
     protected long dbId;
+    @SerializedName(value = "tableId")
     protected long tableId;
+    @SerializedName(value = "tableName")
     protected String tableName;
 
+    @SerializedName(value = "errMsg")
     protected String errMsg = "";
+    @SerializedName(value = "createTimeMs")
     protected long createTimeMs = -1;
+    @SerializedName(value = "finishedTimeMs")
     protected long finishedTimeMs = -1;
+    @SerializedName(value = "timeoutMs")
     protected long timeoutMs = -1;
 
     public AlterJobV2(long jobId, JobType jobType, long dbId, long tableId, String tableName, long timeoutMs) {
@@ -220,15 +233,20 @@ public abstract class AlterJobV2 implements Writable {
     public abstract void replay(AlterJobV2 replayedJob);
 
     public static AlterJobV2 read(DataInput in) throws IOException {
-        JobType type = JobType.valueOf(Text.readString(in));
-        switch (type) {
-            case ROLLUP:
-                return RollupJobV2.read(in);
-            case SCHEMA_CHANGE:
-                return SchemaChangeJobV2.read(in);
-            default:
-                Preconditions.checkState(false);
-                return null;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86) {
+            JobType type = JobType.valueOf(Text.readString(in));
+            switch (type) {
+                case ROLLUP:
+                    return RollupJobV2.read(in);
+                case SCHEMA_CHANGE:
+                    return SchemaChangeJobV2.read(in);
+                default:
+                    Preconditions.checkState(false);
+                    return null;
+            }
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, AlterJobV2.class);
         }
     }
 

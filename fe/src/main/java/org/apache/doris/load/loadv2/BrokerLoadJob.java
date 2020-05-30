@@ -124,7 +124,7 @@ public class BrokerLoadJob extends LoadJob {
         }
     }
 
-    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt, OriginStatement originStmt) throws DdlException {
+    public static BrokerLoadJob fromLoadStmt(LoadStmt stmt) throws DdlException {
         // get db id
         String dbName = stmt.getLabel().getDbName();
         Database db = Catalog.getCurrentCatalog().getDb(stmt.getLabel().getDbName());
@@ -135,7 +135,7 @@ public class BrokerLoadJob extends LoadJob {
         // create job
         try {
             BrokerLoadJob brokerLoadJob = new BrokerLoadJob(db.getId(), stmt.getLabel().getLabelName(),
-                    stmt.getBrokerDesc(), originStmt);
+                    stmt.getBrokerDesc(), stmt.getOrigStmt());
             brokerLoadJob.setJobProperties(stmt.getProperties());
             brokerLoadJob.checkAndSetDataSourceInfo(db, stmt.getDataDescriptions());
             return brokerLoadJob;

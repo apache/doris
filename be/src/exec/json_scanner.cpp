@@ -267,15 +267,11 @@ size_t JsonReader::get_data_by_jsonpath(const std::vector<SlotDescriptor*>& slot
         }
 
         // if jsonValues is null, because not match in jsondata.
-        rapidjson::Value* json_values = JsonFunctions::get_json_object_from_parsed_json(path.GetString(), &_json_doc, _json_doc.GetAllocator());
+        rapidjson::Value* json_values = JsonFunctions::get_json_array_from_parsed_json(path.GetString(), &_json_doc, _json_doc.GetAllocator());
         if (json_values == nullptr) {
             return -1;
         }
-        if (json_values->IsArray()) {
-            max_lines = std::max(max_lines, (size_t)json_values->Size());
-        } else {
-            max_lines = std::max(max_lines, (size_t)1);
-        }
+        max_lines = std::max(max_lines, (size_t)json_values->Size());
         _jmap.emplace(slot_descs[i]->col_name(), json_values);
     }
 
@@ -376,7 +372,7 @@ Status JsonReader::set_tuple_value(rapidjson::Value& objectValue, Tuple* tuple, 
 /**
  * handle input a simple json
  * For example:
- *  case 1. {"RECORDS": [{"colunm1":"value1", "colunm2":10}, {"colunm1":"value2", "colunm2":30}]}
+ *  case 1. [{"colunm1":"value1", "colunm2":10}, {"colunm1":"value2", "colunm2":30}]
  *  case 2. {"colunm1":"value1", "colunm2":10}
  */
 Status JsonReader::handle_simple_json(Tuple* tuple, const std::vector<SlotDescriptor*>& slot_descs, MemPool* tuple_pool, bool* eof) {
@@ -497,7 +493,7 @@ Status JsonReader::handle_flat_array_complex_json(Tuple* tuple, const std::vecto
             }
 
             // if jsonValues is null, because not match in jsondata.
-            rapidjson::Value* json_values = JsonFunctions::get_json_object_from_parsed_json(path.GetString(), &objectValue, _json_doc.GetAllocator());
+            rapidjson::Value* json_values = JsonFunctions::get_json_array_from_parsed_json(path.GetString(), &objectValue, _json_doc.GetAllocator());
             if (json_values == nullptr) {
                 if (slot_descs[i]->is_nullable()) {
                     tuple->set_null(slot_descs[i]->null_indicator_offset());
