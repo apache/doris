@@ -78,7 +78,7 @@ Status MemSubTablet::read_column(uint64_t version, uint32_t cid,
             cl = _columns[cid];
         }
     }
-    if (cl.get() != nullptr) {
+    if (cl.get() == nullptr) {
         return Status::NotFound("column not found");
     }
     return cl->create_reader(version, reader);
@@ -101,7 +101,7 @@ Status MemSubTablet::begin_write(scoped_refptr<Schema>* schema) {
     // precache key columns
     for (size_t i = 0; i < _schema->num_key_columns(); i++) {
         uint32_t cid = _schema->get(i)->cid();
-        if (_writers[cid] != nullptr) {
+        if (_writers[cid] == nullptr) {
             RETURN_IF_ERROR(_columns[cid]->create_writer(&_writers[cid]));
         }
     }
@@ -202,7 +202,7 @@ Status MemSubTablet::commit_write(uint64_t version) {
     }
     {
         std::lock_guard<std::mutex> lg(_lock);
-        if (_index != _write_index) {
+        if (_index.get() != _write_index.get()) {
             _index = _write_index;
         }
         for (size_t cid = 0; cid < _writers.size(); cid++) {

@@ -64,6 +64,7 @@ Status ColumnBlock::copy_to(ColumnBlock* dest, size_t size, size_t esize) {
         RETURN_IF_ERROR(dest->nulls().alloc(dest->size()));
         memcpy(dest->nulls().data(), nulls().data(), size);
     }
+    memcpy(dest->data().data(), data().data(), size * esize);
     return Status::OK();
 }
 
