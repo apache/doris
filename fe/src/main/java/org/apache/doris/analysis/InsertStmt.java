@@ -439,8 +439,6 @@ public class InsertStmt extends DdlStmt {
          * null or default value when loading.
          */
         List<Integer> origColIdxsForShadowCols = Lists.newArrayList();
-
-        //ExprSubstitutionMap smap = new ExprSubstitutionMap();
         for (Column column : targetTable.getFullSchema()) {
             if (column.isNameWithPrefix(SchemaChangeHandler.SHADOW_NAME_PRFIX)) {
                 String origName = Column.removeNamePrefix(column.getName());
@@ -528,7 +526,7 @@ public class InsertStmt extends DdlStmt {
             if (!origColIdxsForMVCols.isEmpty()) {
                 origColIdxsForMVCols.forEach((key, value) -> {
                     Column mvColumn = targetTable.getFullSchema().get(key);
-                    Expr expr = mvColumn.getDefineExpr().clone();
+                    Expr expr = mvColumn.getDefineExpr();
                     ArrayList<SlotRef> slots = new ArrayList<>();
                     expr.collect(SlotRef.class, slots);
 
@@ -648,7 +646,7 @@ public class InsertStmt extends DdlStmt {
                 Integer value = entry.getValue();
 
                 Column mvColumn = targetTable.getFullSchema().get(key);
-                Expr expr = mvColumn.getDefineExpr().clone();
+                Expr expr = mvColumn.getDefineExpr();
                 ArrayList<SlotRef> slots = new ArrayList<>();
                 expr.collect(SlotRef.class, slots);
 
