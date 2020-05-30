@@ -74,8 +74,7 @@ public class ColumnTest {
         
         // 2. Read objects from file
         DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        Column rColumn1 = new Column();
-        rColumn1.readFields(dis);
+        Column rColumn1 = Column.read(dis);
         Assert.assertEquals("user", rColumn1.getName());
         Assert.assertEquals(PrimitiveType.CHAR, rColumn1.getDataType());
         Assert.assertEquals(AggregateType.SUM, rColumn1.getAggregationType());

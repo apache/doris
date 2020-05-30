@@ -17,8 +17,19 @@
 
 package org.apache.doris.persist.gson;
 
-import java.io.IOException;
+import org.apache.doris.thrift.TStorageFormat;
 
-public interface GsonPostProcessable {
-    public void gsonPostProcess() throws IOException;
+import org.junit.Assert;
+import org.junit.Test;
+
+public class ThriftToJsonTest {
+
+    @Test
+    public void testTEnumToJson() {
+        // write
+        String serializeString = GsonUtils.GSON.toJson(TStorageFormat.V1);
+        // read
+        TStorageFormat tStorageFormat = GsonUtils.GSON.fromJson(serializeString, TStorageFormat.class);
+        Assert.assertEquals(TStorageFormat.V1, tStorageFormat);
+    }
 }

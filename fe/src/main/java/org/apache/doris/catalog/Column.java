@@ -24,6 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
@@ -67,7 +68,7 @@ public class Column implements Writable {
     private String comment;
     @SerializedName(value = "stats")
     private ColumnStats stats;     // cardinality and selectivity etc.
-    private Expr defineExpr; //use to define materialize view
+    private Expr defineExpr; // use to define column in materialize view
 
     public Column() {
         this.name = "";
@@ -411,31 +412,11 @@ public class Column implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        Text.writeString(out, name);
-        ColumnType.write(out, type);
-        if (null == aggregationType) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, aggregationType.name());
-            out.writeBoolean(isAggregationTypeImplicit);
-        }
-
-        out.writeBoolean(isKey);
-        out.writeBoolean(isAllowNull);
-
-        if (defaultValue == null) {
-            out.writeBoolean(false);
-        } else {
-            out.writeBoolean(true);
-            Text.writeString(out, defaultValue);
-        }
-        stats.write(out);
-
-        Text.writeString(out, comment);
+        String json = GsonUtils.GSON.toJson(this);
+        Text.writeString(out, json);
     }
 
-    public void readFields(DataInput in) throws IOException {
+    private void readFields(DataInput in) throws IOException {
         name = Text.readString(in);
         type = ColumnType.read(in);
         boolean notNull = in.readBoolean();
@@ -475,8 +456,13 @@ public class Column implements Writable {
     }
 
     public static Column read(DataInput in) throws IOException {
-        Column column = new Column();
-        column.readFields(in);
-        return column;
+        if (Catalog.getCurrentCatalogJournalVersion() < FeMetaVersion.VERSION_86) {
+            Column column = new Column();
+            column.readFields(in);
+            return column;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, Column.class);
+        }
     }
 }

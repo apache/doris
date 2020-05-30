@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
@@ -45,6 +46,8 @@ public abstract class StatementBase implements ParseNode {
 
     // END: Members that need to be reset()
     /////////////////////////////////////////
+
+    private OriginStatement origStmt;
 
     protected StatementBase() { }
 
@@ -153,7 +156,17 @@ public abstract class StatementBase implements ParseNode {
 
     public void setClusterName(String clusterName) {
         this.clusterName = clusterName;
-    } 
+    }
+
+    public void setOrigStmt(OriginStatement origStmt) {
+        Preconditions.checkState(origStmt != null);
+        this.origStmt = origStmt;
+    }
+
+    public OriginStatement getOrigStmt() {
+        return origStmt;
+    }
+
     /**
      * Resets the internal analysis state of this node.
      * For easier maintenance, class members that need to be reset are grouped into
