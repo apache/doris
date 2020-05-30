@@ -453,6 +453,25 @@ public class InsertStmt extends DdlStmt {
             }
         }
 
+        Map<Integer, Integer> origColIdxsForMVCols = Maps.newHashMap();
+        for (int mvColumnIdx = 0; mvColumnIdx < targetTable.getFullSchema().size(); ++mvColumnIdx) {
+            Column column = targetTable.getFullSchema().get(mvColumnIdx);
+            if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PRFIX)) {
+                List<Expr> slots = new ArrayList<>();
+                column.getDefineExpr().collect(SlotRef.class, slots);
+                Preconditions.checkArgument(slots.size() == 1);
+
+                String origName = ((SlotRef) slots.get(0)).getColumnName();
+                for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
+                    if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
+                        origColIdxsForMVCols.put(mvColumnIdx, originColumnIdx);
+                        targetColumns.add(column);
+                        break;
+                    }
+                }
+            }
+        }
+
         // parse query statement
         queryStmt.setFromInsert(true);
         queryStmt.analyze(analyzer);
@@ -472,7 +491,7 @@ public class InsertStmt extends DdlStmt {
                 // INSERT INTO VALUES(...)
                 List<ArrayList<Expr>> rows = selectStmt.getValueList().getRows();
                 for (int rowIdx = 0; rowIdx < rows.size(); ++rowIdx) {
-                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForShadowCols);
+                    analyzeRow(analyzer, targetColumns, rows, rowIdx, origColIdxsForShadowCols, origColIdxsForMVCols);
                 }
 
                 // clear these 2 structures, rebuild them using VALUES exprs
@@ -487,7 +506,7 @@ public class InsertStmt extends DdlStmt {
                 // INSERT INTO SELECT 1,2,3 ...
                 List<ArrayList<Expr>> rows = Lists.newArrayList();
                 rows.add(selectStmt.getResultExprs());
-                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForShadowCols);
+                analyzeRow(analyzer, targetColumns, rows, 0, origColIdxsForShadowCols, origColIdxsForMVCols);
                 // rows may be changed in analyzeRow(), so rebuild the result exprs
                 selectStmt.getResultExprs().clear();
                 for (Expr expr : rows.get(0)) {
@@ -503,6 +522,22 @@ public class InsertStmt extends DdlStmt {
                     queryStmt.getResultExprs().add(queryStmt.getResultExprs().get(idx));
                 }
             }
+
+            if (!origColIdxsForMVCols.isEmpty()) {
+                origColIdxsForMVCols.forEach((key, value) -> {
+                    Column mvColumn = targetTable.getFullSchema().get(key);
+                    Expr expr = mvColumn.getDefineExpr();
+                    ArrayList<SlotRef> slots = new ArrayList<>();
+                    expr.collect(SlotRef.class, slots);
+
+                    ExprSubstitutionMap smap = new ExprSubstitutionMap();
+                    smap.getLhs().add(slots.get(0));
+                    smap.getRhs().add(queryStmt.getResultExprs().get(value));
+
+                    queryStmt.getResultExprs().add(Expr.substituteList(Lists.newArrayList(expr), smap, analyzer, false).get(0));
+                });
+            }
+
             // check compatibility
             for (int i = 0; i < targetColumns.size(); ++i) {
                 Column column = targetColumns.get(i);
@@ -519,15 +554,21 @@ public class InsertStmt extends DdlStmt {
         }
 
         // expand baseTblResultExprs and colLabels in QueryStmt
-        if (!origColIdxsForShadowCols.isEmpty()) {
+        if (!origColIdxsForShadowCols.isEmpty() || !origColIdxsForMVCols.isEmpty()) {
             if (queryStmt.getResultExprs().size() != queryStmt.getBaseTblResultExprs().size()) {
                 for (Integer idx : origColIdxsForShadowCols) {
                     queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(idx));
+                }
+                for (Integer idx : origColIdxsForMVCols.keySet()) {
+                    queryStmt.getBaseTblResultExprs().add(queryStmt.getResultExprs().get(idx));
                 }
             }
 
             if (queryStmt.getResultExprs().size() != queryStmt.getColLabels().size()) {
                 for (Integer idx : origColIdxsForShadowCols) {
+                    queryStmt.getColLabels().add(queryStmt.getColLabels().get(idx));
+                }
+                for (Integer idx : origColIdxsForMVCols.values()) {
                     queryStmt.getColLabels().add(queryStmt.getColLabels().get(idx));
                 }
             }
@@ -547,11 +588,11 @@ public class InsertStmt extends DdlStmt {
     }
 
     private void analyzeRow(Analyzer analyzer, List<Column> targetColumns, List<ArrayList<Expr>> rows,
-            int rowIdx, List<Integer> origColIdxsForShadowCols) throws AnalysisException {
+            int rowIdx, List<Integer> origColIdxsForShadowCols, Map<Integer, Integer> origColIdxsForMVCols) throws AnalysisException {
         // 1. check number of fields if equal with first row
         // targetColumns contains some shadow columns, which is added by system,
         // so we should minus this
-        if (rows.get(rowIdx).size() != targetColumns.size() - origColIdxsForShadowCols.size()) {
+        if (rows.get(rowIdx).size() != targetColumns.size() - origColIdxsForShadowCols.size() - origColIdxsForMVCols.size()) {
             throw new AnalysisException("Column count doesn't match value count at row " + (rowIdx + 1));
         }
 
@@ -573,7 +614,6 @@ public class InsertStmt extends DdlStmt {
             row = extentedRow;
             rows.set(rowIdx, row);
         }
-
         // check the compatibility of expr in row and column in targetColumns
         for (int i = 0; i < row.size(); ++i) {
             Expr expr = row.get(i);
@@ -598,6 +638,24 @@ public class InsertStmt extends DdlStmt {
             }
 
             row.set(i, checkTypeCompatibility(col, expr));
+        }
+
+        if (!origColIdxsForMVCols.isEmpty()) {
+            for (Map.Entry<Integer, Integer> entry : origColIdxsForMVCols.entrySet()) {
+                Integer key = entry.getKey();
+                Integer value = entry.getValue();
+
+                Column mvColumn = targetTable.getFullSchema().get(key);
+                Expr expr = mvColumn.getDefineExpr();
+                ArrayList<SlotRef> slots = new ArrayList<>();
+                expr.collect(SlotRef.class, slots);
+
+                ExprSubstitutionMap smap = new ExprSubstitutionMap();
+                smap.getLhs().add(slots.get(0));
+                smap.getRhs().add(row.get(value));
+                row.add(Expr.substituteList(Lists.newArrayList(expr), smap, analyzer, false).get(0));
+            }
+            rows.set(rowIdx, row);
         }
     }
 

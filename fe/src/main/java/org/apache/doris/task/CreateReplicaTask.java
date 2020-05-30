@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletSchema;
+import org.apache.doris.thrift.TTabletType;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.thrift.TStorageFormat;
 
@@ -65,6 +66,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean isInMemory;
 
+    private TTabletType tabletType;
+
     // used for synchronous process
     private MarkedCountDownLatch<Long, Long> latch;
 
@@ -82,7 +85,8 @@ public class CreateReplicaTask extends AgentTask {
                              TStorageMedium storageMedium, List<Column> columns,
                              Set<String> bfColumns, double bfFpp, MarkedCountDownLatch<Long, Long> latch,
                              List<Index> indexes,
-                             boolean isInMemory) {
+                             boolean isInMemory,
+                             TTabletType tabletType) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.shortKeyColumnCount = shortKeyColumnCount;
@@ -104,6 +108,7 @@ public class CreateReplicaTask extends AgentTask {
         this.latch = latch;
 
         this.isInMemory = isInMemory;
+        this.tabletType = tabletType;
     }
     
     public void countDownLatch(long backendId, long tabletId) {
@@ -200,6 +205,7 @@ public class CreateReplicaTask extends AgentTask {
             createTabletReq.setStorage_format(storageFormat);
         }
 
+        createTabletReq.setTablet_type(tabletType);
         return createTabletReq;
     }
 }

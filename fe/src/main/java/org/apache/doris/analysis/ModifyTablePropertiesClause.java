@@ -86,6 +86,8 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)) {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {
+            throw new AnalysisException("Alter tablet type not supported");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

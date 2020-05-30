@@ -178,7 +178,8 @@ public class ConnectProcessor {
                     ctx.resetRetureRows();
                 }
                 parsedStmt = stmts.get(i);
-                executor = new StmtExecutor(ctx, parsedStmt, new OriginStatement(originStmt, i));
+                parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+                executor = new StmtExecutor(ctx, parsedStmt);
                 executor.execute();
 
                 if (i != stmts.size() - 1) {

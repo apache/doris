@@ -29,5 +29,8 @@ add_library(Memory STATIC
     delta_index.cpp
     hash_index.cpp
     mem_tablet.cpp
+    mem_sub_tablet.cpp
+    partial_row_batch.cpp
     schema.cpp
+    write_txn.cpp
 )

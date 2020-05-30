@@ -35,6 +35,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Sets;
 
+import org.apache.doris.thrift.TTabletType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -78,6 +79,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_STORAGE_FORMAT = "storage_format";
 
     public static final String PROPERTIES_INMEMORY = "in_memory";
+
+    public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
     public static final String PROPERTIES_STRICT_RANGE = "strict_range";
     public static final String PROPERTIES_USE_TEMP_PARTITION_NAME = "use_temp_partition_name";
@@ -231,6 +234,23 @@ public class PropertyAnalyzer {
         }
 
         return tStorageType;
+    }
+
+    public static TTabletType analyzeTabletType(Map<String, String> properties) throws AnalysisException {
+        // default is TABLET_TYPE_DISK
+        TTabletType tTabletType = TTabletType.TABLET_TYPE_DISK;
+        if (properties != null && properties.containsKey(PROPERTIES_TABLET_TYPE)) {
+            String tabletType = properties.get(PROPERTIES_TABLET_TYPE);
+            if (tabletType.equalsIgnoreCase("memory")) {
+                tTabletType = TTabletType.TABLET_TYPE_MEMORY;
+            } else if (tabletType.equalsIgnoreCase("disk")) {
+                tTabletType = TTabletType.TABLET_TYPE_DISK;
+            } else {
+                throw new AnalysisException(("Invalid tablet type"));
+            }
+            properties.remove(PROPERTIES_TABLET_TYPE);
+        }
+        return tTabletType;
     }
 
     public static Pair<Long, Long> analyzeVersionInfo(Map<String, String> properties) throws AnalysisException {
