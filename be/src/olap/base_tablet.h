@@ -19,11 +19,14 @@
 #define DORIS_BE_SRC_OLAP_BASE_TABLET_H
 
 #include <memory>
+
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
 
 namespace doris {
+
+class DataDir;
 
 // Base class for all tablet classes, currently only olap/Tablet and
 // olap/memory/MemTablet.
@@ -57,8 +60,11 @@ public:
     inline void set_creation_time(int64_t creation_time);
     inline bool equal(int64_t tablet_id, int32_t schema_hash);
 
-    // propreties encapsulated in TabletSchema
+    // properties encapsulated in TabletSchema
     inline const TabletSchema& tablet_schema() const;
+
+protected:
+    void _gen_tablet_path();
 
 protected:
     TabletState _state;
@@ -71,7 +77,6 @@ protected:
 private:
     DISALLOW_COPY_AND_ASSIGN(BaseTablet);
 };
-
 
 inline DataDir* BaseTablet::data_dir() const {
     return _data_dir;
@@ -99,9 +104,8 @@ inline int64_t BaseTablet::table_id() const {
 
 inline const std::string BaseTablet::full_name() const {
     std::stringstream ss;
-    ss << _tablet_meta->tablet_id()
-       << "." << _tablet_meta->schema_hash()
-       << "." << _tablet_meta->tablet_uid().to_string();
+    ss << _tablet_meta->tablet_id() << "." << _tablet_meta->schema_hash() << "."
+       << _tablet_meta->tablet_uid().to_string();
     return ss.str();
 }
 
