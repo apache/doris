@@ -32,6 +32,20 @@ TEST(ColumnSchema, create) {
     EXPECT_TRUE(cs.is_key());
 }
 
+TEST(Schema, desc_create) {
+    scoped_refptr<Schema> sc;
+    ASSERT_TRUE(Schema::create("id int,uv int,pv int,city tinyint null", &sc).ok());
+    ASSERT_EQ(sc->num_columns(), 4);
+    ASSERT_EQ(sc->num_key_columns(), 1);
+    ASSERT_EQ(sc->get(0)->cid(), 1);
+    ASSERT_EQ(sc->get(1)->cid(), 2);
+    ASSERT_EQ(sc->get(2)->cid(), 3);
+    ASSERT_EQ(sc->get(3)->cid(), 4);
+    ASSERT_EQ(sc->get_by_name("city")->is_nullable(), true);
+    ASSERT_EQ(sc->get_by_name("pv")->is_nullable(), false);
+    ASSERT_EQ(sc->get_by_name("uv")->type(), ColumnType::OLAP_FIELD_TYPE_INT);
+}
+
 TEST(Schema, create) {
     TabletSchemaPB tspb;
     auto cpb = tspb.add_column();
@@ -52,10 +66,10 @@ TEST(Schema, create) {
     tspb.set_is_in_memory(false);
     TabletSchema ts;
     ts.init_from_pb(tspb);
-    Schema schema(ts);
-    EXPECT_EQ(schema.cid_size(), 3);
-    EXPECT_EQ(schema.get_by_name("uid")->name(), std::string("uid"));
-    EXPECT_EQ(schema.get_by_cid(1)->name(), std::string("uid"));
+    scoped_refptr<Schema> schema(new Schema(ts));
+    EXPECT_EQ(schema->cid_size(), 3);
+    EXPECT_EQ(schema->get_by_name("uid")->name(), std::string("uid"));
+    EXPECT_EQ(schema->get_by_cid(1)->name(), std::string("uid"));
 }
 
 } // namespace memory

@@ -78,7 +78,7 @@ public:
     inline KeysType keys_type() const;
     inline size_t num_columns() const;
     inline size_t num_null_columns() const;
-    inline size_t num_key_columns() const ;
+    inline size_t num_key_columns() const;
     inline size_t num_short_key_columns() const;
     inline size_t num_rows_per_row_block() const;
     inline CompressKind compress_kind() const;
@@ -233,7 +233,6 @@ private:
     OLAPStatus _contains_version(const Version& version);
     void _max_continuous_version_from_begining_unlocked(Version* version,
                                                         VersionHash* v_hash) const ;
-    void _gen_tablet_path();
     RowsetSharedPtr _rowset_with_largest_size();
     void _delete_inc_rowset_by_version(const Version& version, const VersionHash& version_hash);
     OLAPStatus _capture_consistent_rowsets_unlocked(const vector<Version>& version_path,
