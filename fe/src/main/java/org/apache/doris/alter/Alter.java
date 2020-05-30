@@ -80,7 +80,8 @@ public class Alter {
         clusterHandler.start();
     }
 
-    public void processCreateMaterializedView(CreateMaterializedViewStmt stmt) throws DdlException, AnalysisException {
+    public void processCreateMaterializedView(CreateMaterializedViewStmt stmt)
+            throws DdlException, AnalysisException {
         String tableName = stmt.getBaseIndexName();
         // check db
         String dbName = stmt.getDBName();
@@ -102,7 +103,8 @@ public class Alter {
             OlapTable olapTable = (OlapTable) table;
             olapTable.checkStableAndNormal(db.getClusterName());
 
-            ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db, olapTable);
+            ((MaterializedViewHandler)materializedViewHandler).processCreateMaterializedView(stmt, db,
+                    olapTable);
         } finally {
             db.writeUnlock();
         }

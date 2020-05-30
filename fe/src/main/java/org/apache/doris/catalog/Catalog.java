@@ -4903,7 +4903,8 @@ public class Catalog {
         this.alter.processAlterView(stmt, ConnectContext.get());
     }
 
-    public void createMaterializedView(CreateMaterializedViewStmt stmt) throws AnalysisException, DdlException {
+    public void createMaterializedView(CreateMaterializedViewStmt stmt)
+            throws AnalysisException, DdlException {
         this.alter.processCreateMaterializedView(stmt);
     }
 
