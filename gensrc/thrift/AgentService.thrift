@@ -122,6 +122,7 @@ struct TPushReq {
     // fe should inform be that this request is running during schema change
     // be should write two files
     13: optional bool is_schema_changing
+    // 14 and 15 are used by spark load
     14: optional PlanNodes.TBrokerScanRange broker_scan_range
     15: optional Descriptors.TDescriptorTable desc_tbl
 }
