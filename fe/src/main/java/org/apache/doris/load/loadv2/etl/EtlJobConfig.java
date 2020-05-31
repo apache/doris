@@ -17,11 +17,13 @@
 
 package org.apache.doris.load.loadv2.etl;
 
+import org.apache.doris.persist.gson.GsonUtils;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.ImmutableMap;
-import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.Serializable;
 import java.util.Comparator;
@@ -29,97 +31,99 @@ import java.util.List;
 import java.util.Map;
 
 /** jobconfig.json file format
- * {
- * 	"tables": {
- * 		10014: {
- * 			"indexes": [{
- * 			    "index_id": 10014,
- * 				"columns": [{
- * 				    "column_name": "k1",
- * 				    "column_type": "SMALLINT",
- * 				    "is_key": true,
- * 				    "is_allow_null": true,
- * 				    "aggregation_type": "NONE"
- *                }, {
- * 					"column_name": "k2",
- * 				    "column_type": "VARCHAR",
- * 				    "string_length": 20,
- * 					"is_key": true,
- * 				    "is_allow_null": true,
- * 					"aggregation_type": "NONE"
- *                }, {
- * 					"column_name": "v",
- * 				    "column_type": "BIGINT",
- * 					"is_key": false,
- * 				    "is_allow_null": false,
- * 					"aggregation_type": "NONE"
- *              }],
- * 				"schema_hash": 1294206574,
- * 			    "index_type": "DUPLICATE",
- * 			    "is_base_index": true
- *            }, {
- * 			    "index_id": 10017,
- * 				"columns": [{
- * 				    "column_name": "k1",
- * 				    "column_type": "SMALLINT",
- * 					"is_key": true,
- * 				    "is_allow_null": true,
- * 					"aggregation_type": "NONE"
- *                }, {
- * 					"column_name": "v",
- * 				    "column_type": "BIGINT",
- * 					"is_key": false,
- * 				    "is_allow_null": false,
- * 					"aggregation_type": "SUM"
- *              }],
- * 				"schema_hash": 1294206575,
- * 			    "index_type": "AGGREGATE",
- * 			    "is_base_index": false
- *          }],
- * 			"partition_info": {
- * 				"partition_type": "RANGE",
- * 				"partition_column_refs": ["k1"],
- *              "distribution_column_refs": ["k2"],
- * 				"partitions": [{
- * 				    "partition_id": 10020,
- * 					"start_keys": [-100],
- * 					"end_keys": [10],
- * 					"is_max_partition": false,
- * 					"bucket_num": 3
- *                }, {
- *                  "partition_id": 10021,
- *                  "start_keys": [10],
- *                  "end_keys": [100],
- *                  "is_max_partition": false,
- *  				"bucket_num": 3
- *              }]
- *          },
- * 			"file_groups": [{
- * 		        "partitions": [10020],
- * 				"file_paths": ["hdfs://hdfs_host:port/user/palo/test/file"],
- * 				"file_field_names": ["tmp_k1", "k2"],
- * 				"value_separator": ",",
- * 			    "line_delimiter": "\n",
- * 				"column_mappings": {
- * 					"k1": {
- * 						"function_name": "strftime",
- * 						"args": ["%Y-%m-%d %H:%M:%S", "tmp_k1"]
- *                   }
- *              },
- * 				"where": "k2 > 10",
- * 				"is_negative": false,
- * 				"hive_table_name": "hive_db.table"
- *          }]
- *      }
- *  },
- * 	"output_path": "hdfs://hdfs_host:port/user/output/10003/label1/1582599203397",
- * 	"output_file_pattern": "label1.%d.%d.%d.%d.%d.parquet",
- * 	"label": "label0",
- * 	"properties": {
- * 	    "strict_mode": false,
- * 	    "timezone": "Asia/Shanghai"
- * 	}
- * }
+{
+    "tables": {
+        10014: {
+            "indexes": [{
+                "indexId": 10014,
+                "columns": [{
+                    "columnName": "k1",
+                    "columnType": "SMALLINT",
+                    "isKey": true,
+                    "isAllowNull": true,
+                    "aggregationType": "NONE"
+                }, {
+                    "columnName": "k2",
+                    "columnType": "VARCHAR",
+                    "stringLength": 20,
+                    "isKey": true,
+                    "isAllowNull": true,
+                    "aggregationType": "NONE"
+                }, {
+                    "columnName": "v",
+                    "columnType": "BIGINT",
+                    "isKey": false,
+                    "isAllowNull": false,
+                    "aggregationType": "NONE"
+                }],
+                "schemaHash": 1294206574,
+                "indexType": "DUPLICATE",
+                "isBaseIndex": true
+            }, {
+                "indexId": 10017,
+                "columns": [{
+                    "columnName": "k1",
+                    "columnType": "SMALLINT",
+                    "isKey": true,
+                    "isAllowNull": true,
+                    "aggregationType": "NONE"
+                }, {
+                    "columnName": "v",
+                    "columnType": "BIGINT",
+                    "isKey": false,
+                    "isAllowNull": false,
+                    "aggregationType": "BITMAP_UNION",
+                    "defineExpr": "to_bitmap(v)"
+                }],
+                "schemaHash": 1294206575,
+                "indexType": "AGGREGATE",
+                "isBaseIndex": false
+            }],
+            "partitionInfo": {
+                "partitionType": "RANGE",
+                "partitionColumnRefs": ["k1"],
+                "distributionColumnRefs": ["k2"],
+ 	            "partitions": [{
+                    "partitionId": 10020,
+                    "startKeys": [-100],
+                    "endKeys": [10],
+                    "isMaxPartition": false,
+                    "bucketNum": 3
+                }, {
+                    "partitionId": 10021,
+                    "startKeys": [10],
+                    "endKeys": [100],
+                    "isMaxPartition": false,
+                    "bucketNum": 3
+                }]
+            },
+            "fileGroups": [{
+                "partitions": [10020],
+                "filePaths": ["hdfs://hdfs_host:port/user/palo/test/file"],
+                "fileFieldNames": ["tmp_k1", "k2"],
+                "valueSeparator": ",",
+                "lineDelimiter": "\n",
+                "columnMappings": {
+                    "k1": {
+                        "functionName": "strftime",
+                        "args": ["%Y-%m-%d %H:%M:%S", "tmp_k1"]
+                    }
+                },
+                "where": "k2 > 10",
+                "isNegative": false,
+                "hiveTableName": "hive_db.table"
+            }]
+        }
+    },
+    "outputPath": "hdfs://hdfs_host:port/user/output/10003/label1/1582599203397",
+    "outputFilePattern": "label1.%d.%d.%d.%d.%d.parquet",
+    "label": "label0",
+    "properties": {
+        "strictMode": false,
+        "timezone": "Asia/Shanghai"
+    },
+    "version": "V1"
+}
  */
 public class EtlJobConfig implements Serializable {
     // global dict
@@ -137,12 +141,18 @@ public class EtlJobConfig implements Serializable {
     // dpp result
     public static final String DPP_RESULT_NAME = "dpp_result.json";
 
+    @SerializedName(value = "tables")
     public Map<Long, EtlTable> tables;
+    @SerializedName(value = "outputPath")
     public String outputPath;
+    @SerializedName(value = "outputFilePattern")
     public String outputFilePattern;
+    @SerializedName(value = "label")
     public String label;
+    @SerializedName(value = "properties")
     public EtlJobProperty properties;
-    // private EtlErrorHubInfo hubInfo;
+    @SerializedName(value = "version")
+    public Version version;
 
     public EtlJobConfig(Map<Long, EtlTable> tables, String outputFilePattern, String label, EtlJobProperty properties) {
         this.tables = tables;
@@ -151,6 +161,7 @@ public class EtlJobConfig implements Serializable {
         this.outputFilePattern = outputFilePattern;
         this.label = label;
         this.properties = properties;
+        this.version = Version.V1;
     }
 
     @Override
@@ -161,10 +172,11 @@ public class EtlJobConfig implements Serializable {
                 ", outputFilePattern='" + outputFilePattern + '\'' +
                 ", label='" + label + '\'' +
                 ", properties=" + properties +
+                ", version=" + version +
                 '}';
     }
 
-	public String getOutputPath() {
+    public String getOutputPath() {
         return outputPath;
     }
 
@@ -191,20 +203,21 @@ public class EtlJobConfig implements Serializable {
 
     public String configToJson() {
         GsonBuilder gsonBuilder = new GsonBuilder();
-        gsonBuilder.setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES);
+        gsonBuilder.addDeserializationExclusionStrategy(new GsonUtils.HiddenAnnotationExclusionStrategy());
         Gson gson = gsonBuilder.create();
         return gson.toJson(this);
     }
 
     public static EtlJobConfig configFromJson(String jsonConfig) {
         GsonBuilder gsonBuilder = new GsonBuilder();
-        gsonBuilder.setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES);
         Gson gson = gsonBuilder.create();
         return gson.fromJson(jsonConfig, EtlJobConfig.class);
     }
 
     public static class EtlJobProperty implements Serializable {
+        @SerializedName(value = "strictMode")
         public boolean strictMode;
+        @SerializedName(value = "timezone")
         public String timezone;
 
         @Override
@@ -216,9 +229,16 @@ public class EtlJobConfig implements Serializable {
         }
     }
 
+    public static enum Version {
+        V1
+    }
+
     public static class EtlTable implements Serializable {
+        @SerializedName(value = "indexes")
         public List<EtlIndex> indexes;
+        @SerializedName(value = "partitionInfo")
         public EtlPartitionInfo partitionInfo;
+        @SerializedName(value = "fileGroups")
         public List<EtlFileGroup> fileGroups;
 
         public EtlTable(List<EtlIndex> etlIndexes, EtlPartitionInfo etlPartitionInfo) {
@@ -242,15 +262,26 @@ public class EtlJobConfig implements Serializable {
     }
 
     public static class EtlColumn implements Serializable {
+        @SerializedName(value = "columnName")
         public String columnName;
+        @SerializedName(value = "columnType")
         public String columnType;
+        @SerializedName(value = "isAllowNull")
         public boolean isAllowNull;
+        @SerializedName(value = "isKey")
         public boolean isKey;
+        @SerializedName(value = "aggregationType")
         public String aggregationType;
+        @SerializedName(value = "defaultValue")
         public String defaultValue;
+        @SerializedName(value = "stringLength")
         public int stringLength;
+        @SerializedName(value = "precision")
         public int precision;
+        @SerializedName(value = "scale")
         public int scale;
+        @SerializedName(value = "defineExpr")
+        public String defineExpr;
 
         // for unit test
         public EtlColumn() { }
@@ -266,6 +297,7 @@ public class EtlJobConfig implements Serializable {
             this.stringLength = stringLength;
             this.precision = precision;
             this.scale = scale;
+            this.defineExpr = null;
         }
 
         @Override
@@ -280,6 +312,7 @@ public class EtlJobConfig implements Serializable {
                     ", stringLength=" + stringLength +
                     ", precision=" + precision +
                     ", scale=" + scale +
+                    ", defineExpr='" + defineExpr + '\'' +
                     '}';
         }
     }
@@ -299,10 +332,15 @@ public class EtlJobConfig implements Serializable {
     }
 
     public static class EtlIndex implements Serializable {
+        @SerializedName(value = "indexId")
         public long indexId;
+        @SerializedName(value = "columns")
         public List<EtlColumn> columns;
+        @SerializedName(value = "schemaHash")
         public int schemaHash;
+        @SerializedName(value = "indexType")
         public String indexType;
+        @SerializedName(value = "isBaseIndex")
         public boolean isBaseIndex;
 
         public EtlIndex(long indexId, List<EtlColumn> etlColumns, int schemaHash,
@@ -336,9 +374,13 @@ public class EtlJobConfig implements Serializable {
     }
 
     public static class EtlPartitionInfo implements Serializable {
+        @SerializedName(value = "partitionType")
         public String partitionType;
+        @SerializedName(value = "partitionColumnRefs")
         public List<String> partitionColumnRefs;
+        @SerializedName(value = "distributionColumnRefs")
         public List<String> distributionColumnRefs;
+        @SerializedName(value = "partitions")
         public List<EtlPartition> partitions;
 
         public EtlPartitionInfo(String partitionType, List<String> partitionColumnRefs,
@@ -361,10 +403,15 @@ public class EtlJobConfig implements Serializable {
     }
 
     public static class EtlPartition implements Serializable {
+        @SerializedName(value = "partitionId")
         public long partitionId;
+        @SerializedName(value = "startKeys")
         public List<Object> startKeys;
+        @SerializedName(value = "endKeys")
         public List<Object> endKeys;
+        @SerializedName(value = "isMaxPartition")
         public boolean isMaxPartition;
+        @SerializedName(value = "bucketNum")
         public int bucketNum;
 
         public EtlPartition(long partitionId, List<Object> startKeys, List<Object> endKeys,
@@ -389,16 +436,27 @@ public class EtlJobConfig implements Serializable {
     }
 
     public static class EtlFileGroup implements Serializable {
+        @SerializedName(value = "filePaths")
         public List<String> filePaths;
+        @SerializedName(value = "fileFieldNames")
         public List<String> fileFieldNames;
+        @SerializedName(value = "columnsFromPath")
         public List<String> columnsFromPath;
+        @SerializedName(value = "columnSeparator")
         public String columnSeparator;
+        @SerializedName(value = "lineDelimiter")
         public String lineDelimiter;
+        @SerializedName(value = "isNegative")
         public boolean isNegative;
+        @SerializedName(value = "fileFormat")
         public String fileFormat;
+        @SerializedName(value = "columnMappings")
         public Map<String, EtlColumnMapping> columnMappings;
+        @SerializedName(value = "where")
         public String where;
+        @SerializedName(value = "partitions")
         public List<Long> partitions;
+        @SerializedName(value = "hiveTableName")
         public String hiveTableName;
 
         public EtlFileGroup(List<String> filePaths, List<String> fileFieldNames, List<String> columnsFromPath,
@@ -435,8 +493,11 @@ public class EtlJobConfig implements Serializable {
     }
 
     public static class EtlColumnMapping implements Serializable {
+        @SerializedName(value = "functionName")
         public String functionName;
+        @SerializedName(value = "args")
         public List<String> args;
+        @SerializedName(value = "expr")
         public String expr;
         public Map<String, String> functionMap =
                 new ImmutableMap.Builder<String, String>().
